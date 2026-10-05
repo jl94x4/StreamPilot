@@ -47,6 +47,7 @@ test('clampPosterGridScale snaps to the slider step', async () => {
 test('posterGridDensityBand and grid style follow the numeric scale', async () => {
     const {
         posterGridDensityBand,
+        homeRailPosterDensity,
         posterGridScaleRem,
         upgraderPosterGridStyle,
         POSTER_SETS_GRID_PRESET_SCALE,
@@ -56,6 +57,8 @@ test('posterGridDensityBand and grid style follow the numeric scale', async () =
     assert.equal(posterGridDensityBand(9.5), 'large');
     assert.equal(posterGridDensityBand('list'), 'list');
     assert.equal(posterGridScaleRem(10), 10);
+    assert.equal(homeRailPosterDensity(9.5), 11);
+    assert.equal(homeRailPosterDensity('large'), 11);
     assert.equal(upgraderPosterGridStyle(10).gridTemplateColumns, 'repeat(auto-fill, minmax(10rem, 1fr))');
     assert.equal(JSON.stringify(upgraderPosterGridStyle('list')), '{}');
     assert.equal(parsePosterGridValue('large', { presets: POSTER_SETS_GRID_PRESET_SCALE }), 13);

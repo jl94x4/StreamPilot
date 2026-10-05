@@ -6,9 +6,10 @@ export const PLAYER_SEARCH_INPUT_ID = 'media-player-search';
 export const PLAYER_FOCUS_SEARCH_KEY = 'portal-media-player-focus-search';
 export const PLAYER_HOME_SCROLL_KEY = 'portal-media-player-home-scroll';
 export const PLAYER_LOCAL_PLAYBACK_KEY = 'portal-media-player-local-playback';
-export const PLAYER_LIBRARY_STATE_KEY = 'portal-media-player-library-state';
+export const PLAYER_LIBRARY_STATE_KEY = 'portal-media-player-library-state-v2';
 export const PLAYER_MINI_WIDTH_KEY = 'portal-media-player-mini-width';
 export const PLAYER_NAV_EXPANDED_KEY = 'portal-media-player-nav-expanded';
+export const PLAYER_AV_CHOICES_KEY = 'portal-media-player-av-choices';
 
 export type LocalPlaybackPrefs = {
     volume: number;
@@ -30,7 +31,7 @@ const DEFAULT_PLAYBACK: LocalPlaybackPrefs = { volume: 1, muted: false, speed: 1
 export const DEFAULT_MINI_PLAYER_WIDTH = 352;
 export const MIN_MINI_PLAYER_WIDTH = 260;
 const DEFAULT_LIBRARY: LibraryBrowseState = {
-    sort: 'addedAt:desc',
+    sort: 'titleSort',
     genre: '',
     decade: '',
     resolution: '',
@@ -66,6 +67,152 @@ export const readLocalPlaybackPrefs = (): LocalPlaybackPrefs => {
         muted: raw?.muted === true,
         speed: Number.isFinite(speed) && speed > 0 ? Math.min(3, Math.max(0.25, speed)) : DEFAULT_PLAYBACK.speed,
     };
+};
+
+export type PlayerAvChoice = {
+    audioStreamId: string;
+    subtitleStreamId: string;
+    /** Preferred language tag/name — rematched across episodes of the same show. */
+    audioLanguage?: string;
+    subtitleLanguage?: string;
+};
+
+type AvLangTrack = {
+    id?: string | null;
+    language?: string | null;
+    languageTag?: string | null;
+    label?: string | null;
+    displayTitle?: string | null;
+};
+
+const avChoiceKey = (showKey?: string | null, ratingKey?: string | null) => (
+    String(showKey || ratingKey || '').replace(/\D/g, '')
+);
+
+const normalizeAvLang = (value?: string | null) => (
+    String(value || '').trim().toLowerCase().replace(/_/g, '-')
+);
+
+/** Match eng/en/English style tags across episodes (stream IDs change per file). */
+export const playerAvLanguageMatches = (trackLanguage?: string | null, preferred?: string | null) => {
+    const pref = normalizeAvLang(preferred);
+    const lang = normalizeAvLang(trackLanguage);
+    if (!pref || !lang) return false;
+    const prefBase = pref.split('-')[0];
+    const langBase = lang.split('-')[0];
+    if (lang === pref || langBase === prefBase) return true;
+    const aliases: Record<string, string[]> = {
+        en: ['en', 'eng', 'english'],
+        es: ['es', 'spa', 'spanish', 'español', 'espanol'],
+        fr: ['fr', 'fra', 'fre', 'french', 'français', 'francais'],
+        de: ['de', 'deu', 'ger', 'german', 'deutsch'],
+        ja: ['ja', 'jpn', 'japanese'],
+        ko: ['ko', 'kor', 'korean'],
+        zh: ['zh', 'chi', 'zho', 'chinese', 'mandarin', 'cantonese'],
+        pt: ['pt', 'por', 'portuguese', 'português', 'portugues'],
+        it: ['it', 'ita', 'italian', 'italiano'],
+        ru: ['ru', 'rus', 'russian'],
+    };
+    const list = aliases[prefBase] || [prefBase];
+    return list.includes(lang) || list.includes(langBase);
+};
+
+const trackLangBlob = (track?: AvLangTrack | null) => (
+    String(track?.languageTag || track?.language || track?.label || track?.displayTitle || '').trim()
+);
+
+const findTrackByLanguage = (tracks: AvLangTrack[], preferred?: string | null) => {
+    const want = normalizeAvLang(preferred);
+    if (!want || !tracks.length) return null;
+    return tracks.find((row) => (
+        playerAvLanguageMatches(row.languageTag, want)
+        || playerAvLanguageMatches(row.language, want)
+        || playerAvLanguageMatches(trackLangBlob(row), want)
+    )) || null;
+};
+
+export const readAvChoice = (showKey?: string | null, ratingKey?: string | null): PlayerAvChoice | null => {
+    const key = avChoiceKey(showKey, ratingKey);
+    if (!key) return null;
+    const all = readJson(PLAYER_AV_CHOICES_KEY) as Record<string, PlayerAvChoice> | null;
+    const row = all?.[key];
+    if (!row || typeof row !== 'object') return null;
+    return {
+        audioStreamId: String(row.audioStreamId || ''),
+        subtitleStreamId: String(row.subtitleStreamId || ''),
+        audioLanguage: String(row.audioLanguage || ''),
+        subtitleLanguage: String(row.subtitleLanguage || ''),
+    };
+};
+
+/** Resolve saved show prefs onto this episode's stream IDs (language first, then legacy IDs). */
+export const resolveAvChoiceForTracks = (
+    saved: PlayerAvChoice | null | undefined,
+    audioTracks: AvLangTrack[] = [],
+    subtitleTracks: AvLangTrack[] = [],
+): { audioStreamId?: string; subtitleStreamId?: string } => {
+    if (!saved) return {};
+    const audioByLang = findTrackByLanguage(audioTracks, saved.audioLanguage);
+    const audioById = saved.audioStreamId
+        ? audioTracks.find((row) => String(row.id || '') === String(saved.audioStreamId))
+        : null;
+    const subOff = saved.subtitleStreamId === '0' || saved.subtitleLanguage === 'off';
+    const subByLang = !subOff ? findTrackByLanguage(subtitleTracks, saved.subtitleLanguage) : null;
+    const subById = !subOff && saved.subtitleStreamId
+        ? subtitleTracks.find((row) => String(row.id || '') === String(saved.subtitleStreamId))
+        : null;
+    const out: { audioStreamId?: string; subtitleStreamId?: string } = {};
+    const audioId = String(audioByLang?.id || audioById?.id || '');
+    if (audioId) out.audioStreamId = audioId;
+    if (subOff) out.subtitleStreamId = '0';
+    else {
+        const subId = String(subByLang?.id || subById?.id || '');
+        if (subId) out.subtitleStreamId = subId;
+        else if (saved.subtitleLanguage || saved.subtitleStreamId) {
+            // Remembered a track that is missing on this file — leave unset so defaults apply.
+        }
+    }
+    return out;
+};
+
+export const writeAvChoice = (
+    showKey: string | null | undefined,
+    ratingKey: string | null | undefined,
+    choice: PlayerAvChoice,
+) => {
+    const key = avChoiceKey(showKey, ratingKey);
+    if (!key || typeof window === 'undefined') return;
+    const all = (readJson(PLAYER_AV_CHOICES_KEY) as Record<string, PlayerAvChoice> | null) || {};
+    all[key] = {
+        audioStreamId: String(choice.audioStreamId || ''),
+        subtitleStreamId: String(choice.subtitleStreamId || ''),
+        audioLanguage: String(choice.audioLanguage || ''),
+        subtitleLanguage: String(choice.subtitleLanguage || ''),
+    };
+    writeJson(window.localStorage, PLAYER_AV_CHOICES_KEY, all);
+};
+
+/** Persist stream IDs plus language tags so the next episode can rematch. */
+export const writeAvChoiceFromTracks = (
+    showKey: string | null | undefined,
+    ratingKey: string | null | undefined,
+    audioStreamId: string,
+    subtitleStreamId: string,
+    audioTracks: AvLangTrack[] = [],
+    subtitleTracks: AvLangTrack[] = [],
+) => {
+    const audio = audioTracks.find((row) => String(row.id || '') === String(audioStreamId || ''));
+    const subId = String(subtitleStreamId || '');
+    const subOff = !subId || subId === '0';
+    const sub = !subOff
+        ? subtitleTracks.find((row) => String(row.id || '') === subId)
+        : null;
+    writeAvChoice(showKey, ratingKey, {
+        audioStreamId: String(audioStreamId || ''),
+        subtitleStreamId: subOff ? '0' : subId,
+        audioLanguage: trackLangBlob(audio) || '',
+        subtitleLanguage: subOff ? 'off' : (trackLangBlob(sub) || ''),
+    });
 };
 
 export const writeLocalPlaybackPrefs = (prefs: LocalPlaybackPrefs) => {
@@ -235,7 +382,7 @@ export const requestPlayerHomeReset = () => {
 const PLAYER_HOME_CACHE_TTL_MS = 90_000;
 /** Still paint from disk after a cold TV launch — refresh in background. */
 const PLAYER_HOME_CACHE_MAX_AGE_MS = 30 * 60_000;
-const PLAYER_HOME_CACHE_KEY = 'portal-media-player-home-cache';
+const PLAYER_HOME_CACHE_KEY = 'portal-media-player-home-cache-v2';
 let playerHomeCache: { at: number; data: PlayerHome } | null = null;
 
 const readPersistedHomeCache = (): { at: number; data: PlayerHome } | null => {
@@ -267,11 +414,47 @@ const writePersistedHomeCache = (row: { at: number; data: PlayerHome }) => {
     }
 };
 
+export const invalidatePlayerHomeCache = () => {
+    playerHomeCache = null;
+    clearPersistedHomeCache();
+};
+
+export const PLAYER_SERVERS_EVENT = 'plex-client-servers-changed';
+
+export const clearPlayerLibrariesCache = () => {
+    playerLibrariesCache = null;
+    if (typeof window === 'undefined') return;
+    try { window.localStorage.removeItem(PLAYER_LIBRARIES_CACHE_KEY); } catch { /* ignore */ }
+    try { window.sessionStorage.removeItem(PLAYER_LIBRARIES_CACHE_KEY); } catch { /* ignore */ }
+};
+
+export const clearHeroSlidesCache = () => {
+    heroSlidesCache = null;
+    if (typeof window === 'undefined') return;
+    try { window.localStorage.removeItem(PLAYER_HERO_CACHE_KEY); } catch { /* ignore */ }
+    try { window.sessionStorage.removeItem(PLAYER_HERO_CACHE_KEY); } catch { /* ignore */ }
+};
+
+/** Drop cached home rows and library lists, then tell the nav and settings to reload. */
+export const notifyPlayerServersChanged = () => {
+    invalidatePlayerHomeCache();
+    clearPlayerLibrariesCache();
+    clearHeroSlidesCache();
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(new CustomEvent(PLAYER_SERVERS_EVENT));
+};
+
 const clearPersistedHomeCache = () => {
     if (typeof window === 'undefined') return;
     try { window.localStorage.removeItem(PLAYER_HOME_CACHE_KEY); } catch { /* ignore */ }
     try { window.sessionStorage.removeItem(PLAYER_HOME_CACHE_KEY); } catch { /* ignore */ }
 };
+
+export const playerHomeHasRows = (data: PlayerHome | null | undefined) => !!data && (
+    (data.hubs || []).some((hub) => hub.items?.length)
+    || (data.continueWatching || []).length > 0
+    || (data.recentByLibrary || []).some((row) => row.items?.length)
+);
 
 export const readPlayerHomeCache = (): PlayerHome | null => {
     if (!playerHomeCache) {
@@ -288,6 +471,12 @@ export const readPlayerHomeCache = (): PlayerHome | null => {
 };
 
 export const writePlayerHomeCache = (data: PlayerHome) => {
+    const stored = playerHomeCache || readPersistedHomeCache();
+    const storedFresh = !!stored && Date.now() - stored.at <= PLAYER_HOME_CACHE_MAX_AGE_MS;
+    if (!playerHomeHasRows(data) && storedFresh && playerHomeHasRows(stored?.data)) {
+        if (!playerHomeCache && stored) playerHomeCache = stored;
+        return;
+    }
     playerHomeCache = { at: Date.now(), data };
     writePersistedHomeCache(playerHomeCache);
     if (Array.isArray(data?.libraries) && data.libraries.length) {
@@ -452,7 +641,7 @@ type HeroSlidesPayload = Array<{
 let heroSlidesCache: { at: number; data: HeroSlidesPayload } | null = null;
 const HERO_CLIENT_TTL_MS = 10 * 60_000;
 const HERO_CLIENT_MAX_AGE_MS = 45 * 60_000;
-const PLAYER_HERO_CACHE_KEY = 'portal-media-player-hero-cache';
+const PLAYER_HERO_CACHE_KEY = 'portal-media-player-hero-cache-v5';
 
 const readPersistedHeroCache = (): { at: number; data: HeroSlidesPayload } | null => {
     if (typeof window === 'undefined') return null;
@@ -481,6 +670,14 @@ const writePersistedHeroCache = (row: { at: number; data: HeroSlidesPayload }) =
     } catch {
         /* ignore */
     }
+};
+
+export const isHeroSlidesCacheFresh = (maxAgeMs = HERO_CLIENT_TTL_MS) => {
+    if (!heroSlidesCache) {
+        const persisted = readPersistedHeroCache();
+        if (persisted) heroSlidesCache = persisted;
+    }
+    return Boolean(heroSlidesCache && Date.now() - heroSlidesCache.at <= maxAgeMs);
 };
 
 export const readHeroSlidesCache = (): HeroSlidesPayload | null => {

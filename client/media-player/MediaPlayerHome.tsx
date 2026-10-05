@@ -7,12 +7,13 @@ import {
     discoveryTheme,
     useDiscoverGridSize,
     useDiscoverI18n,
-    posterGridScaleRem,
+    homeRailPosterDensity,
     upgraderLandscapeGridStyle,
     upgraderPosterGridClass,
     upgraderPosterGridStyle,
 } from './host';
-import { fetchMediaPlayerHome, fetchMediaPlayerHomeHero, fetchMediaPlayerHomeHeroRefresh, searchMediaPlayer, setMediaPlayerWatched } from './api';
+import { fetchMediaPlayerHome, fetchMediaPlayerHomeFull, fetchMediaPlayerHomeHero, fetchMediaPlayerHomeHeroRefresh, searchMediaPlayer, setMediaPlayerWatched } from './api';
+import { isPlexDirectMode } from '../plex-client/config';
 import { MediaPlayerHomeHero, type HomeHeroSlide } from './MediaPlayerHomeHero';
 import { PlayerPosterCard } from './PlayerPosterCard';
 import { PlayerRail } from './PlayerRail';
@@ -24,9 +25,9 @@ import {
     PLAYER_SETTINGS_DRAFT_EVENT,
     PLAYER_SETTINGS_EVENT,
 } from './playerSettings';
-import { consumePlayerSearchFocus, isPlayerHomeCacheFresh, PLAYER_HOME_RESET_EVENT, PLAYER_SEARCH_INPUT_ID, PLAYER_SEARCH_OPEN_EVENT, readHeroSlidesCache, readPlayerHomeCache, usePlayerNetworkStatus, writeHeroSlidesCache, writePlayerHomeCache } from './playerMemory';
+import { consumePlayerSearchFocus, isHeroSlidesCacheFresh, isPlayerHomeCacheFresh, PLAYER_HOME_RESET_EVENT, PLAYER_SEARCH_INPUT_ID, PLAYER_SEARCH_OPEN_EVENT, playerHomeHasRows, readHeroSlidesCache, readPlayerHomeCache, usePlayerNetworkStatus, writeHeroSlidesCache, writePlayerHomeCache } from './playerMemory';
 import { PlayerTvStatusPanel } from './PlayerTvStatusPanel';
-import { mapContinueWatchingItemsForLayout, withShowPoster } from './playerUtils';
+import { applyRememberedProgress, mapContinueWatchingItemsForLayout, PLAYER_PROGRESS_EVENT, withShowPoster } from './playerUtils';
 import { usePlayerSettings } from './usePlayerSettings';
 import type { PlayerHome, PlayerItem, PlayerLibraryHub, PlayerPlayOptions, PlayerSection } from './types';
 
@@ -66,7 +67,7 @@ const dedupeItems = (list: PlayerItem[]) => {
     }).slice(0, 24);
 };
 
-export const MediaPlayerHome: React.FC<Props> = ({
+export const MediaPlayerHome = React.memo(function MediaPlayerHome({
     active = true,
     onOpenItem,
     onPlay,
@@ -76,20 +77,36 @@ export const MediaPlayerHome: React.FC<Props> = ({
     onToast,
     isAdmin = false,
     playlistsEnabled = true,
-}) => {
+}: Props) {
     const { t } = useDiscoverI18n();
     const [settings] = usePlayerSettings();
     const [draftLibraryOrder, setDraftLibraryOrder] = useState<string[] | null>(null);
     const libraryNavOrder = draftLibraryOrder || settings.libraryNavOrder;
     const [gridSize, setGridSize] = useDiscoverGridSize();
-    /** Home rails sit 15% larger than the shared poster density slider. */
-    const homePosterDensity = posterGridScaleRem(posterGridScaleRem(gridSize) * 1.15);
-    const [home, setHome] = useState<PlayerHome | null>(() => readPlayerHomeCache());
+    const homePosterDensity = homeRailPosterDensity(gridSize);
+    const [home, setHome] = useState<PlayerHome | null>(() => {
+        const cached = readPlayerHomeCache();
+        const hasRows = !!cached && (
+            (cached.hubs || []).some((hub) => hub.items?.length)
+            || cached.continueWatching.length > 0
+            || (cached.recentByLibrary || []).some((row) => row.items?.length)
+        );
+        return hasRows ? cached : null;
+    });
     const [heroSlides, setHeroSlides] = useState<HomeHeroSlide[]>(() => readHeroSlidesCache() || []);
+    const [heroPending, setHeroPending] = useState(() => !isHeroSlidesCacheFresh());
     const [heroEffectiveMode, setHeroEffectiveMode] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [homeStale, setHomeStale] = useState(false);
-    const [loading, setLoading] = useState(() => !readPlayerHomeCache());
+    const [loading, setLoading] = useState(() => {
+        const cached = readPlayerHomeCache();
+        const hasRows = !!cached && (
+            (cached.hubs || []).some((hub) => hub.items?.length)
+            || cached.continueWatching.length > 0
+            || (cached.recentByLibrary || []).some((row) => row.items?.length)
+        );
+        return !hasRows;
+    });
     const networkOnline = usePlayerNetworkStatus();
     const [query, setQuery] = useState('');
     const [results, setResults] = useState<PlayerItem[]>([]);
@@ -158,21 +175,40 @@ export const MediaPlayerHome: React.FC<Props> = ({
 
     const refreshHome = useCallback((opts?: { force?: boolean }) => {
         const cachedHome = readPlayerHomeCache();
-        if (!cachedHome) setLoading(true);
+        const cachedHasRows = !!cachedHome && (
+            (cachedHome.hubs || []).some((hub) => hub.items?.length)
+            || cachedHome.continueWatching.length > 0
+            || (cachedHome.recentByLibrary || []).some((row) => row.items?.length)
+        );
+        if (!cachedHasRows) setLoading(true);
         else {
             setHome(cachedHome);
             setLoading(false);
         }
-        if (!opts?.force && cachedHome && isPlayerHomeCacheFresh()) {
+        if (!opts?.force && cachedHasRows && cachedHome && isPlayerHomeCacheFresh()) {
             setLoading(false);
             return Promise.resolve();
         }
         return fetchMediaPlayerHome()
             .then((data) => {
-                writePlayerHomeCache(data);
-                setHome(data);
+                const cached = readPlayerHomeCache();
+                const next = playerHomeHasRows(data) || !playerHomeHasRows(cached) ? data : cached;
+                if (next && playerHomeHasRows(next)) writePlayerHomeCache(next);
+                setHome(next);
                 setError(null);
-                setHomeStale(false);
+                setHomeStale(!playerHomeHasRows(data) && playerHomeHasRows(next));
+                setLoading(false);
+                // Partial shell first; always follow with full=1 so empty hub shells get filled.
+                if (!data?.partial) return undefined;
+                return fetchMediaPlayerHomeFull().then((full) => {
+                    const fullHubs = playerHomeHasRows(full);
+                    const merged = fullHubs
+                        ? { ...full, partial: false }
+                        : { ...next, partial: false };
+                    if (playerHomeHasRows(merged)) writePlayerHomeCache(merged);
+                    setHome(merged);
+                    setHomeStale(false);
+                }).catch(() => undefined);
             })
             .catch((err) => {
                 if (readPlayerHomeCache()) {
@@ -193,39 +229,52 @@ export const MediaPlayerHome: React.FC<Props> = ({
             if (cancelled) return;
         });
         const cachedHero = readHeroSlidesCache();
+        if (isHeroSlidesCacheFresh() && cachedHero) {
+            setHeroSlides(cachedHero);
+            setHeroPending(false);
+            return () => { cancelled = true; };
+        }
+        setHeroPending(true);
         fetchMediaPlayerHomeHero()
             .then((data) => {
                 if (cancelled) return;
                 const mode = data?.effectiveMode ? String(data.effectiveMode) : null;
                 if (mode) setHeroEffectiveMode(mode);
-                const items = data?.enabled && Array.isArray(data.items) ? data.items : [];
+                const items = Array.isArray(data?.items) ? data.items.filter((row) => row?.ratingKey && row?.title) : [];
                 if (items.length) {
                     writeHeroSlidesCache(items);
                     setHeroSlides(items);
+                    setHeroPending(false);
                     return undefined;
                 }
-                // Don't reuse another mode's slides when disabled or Continue Watching (per-viewer).
-                if (!data?.enabled || mode === 'continue_watching') {
+                // Off, and Continue Watching with nothing in progress, hide the banner.
+                if (mode === 'off' || mode === 'continue_watching') {
                     writeHeroSlidesCache([]);
                     setHeroSlides([]);
+                    setHeroPending(false);
                     return undefined;
                 }
-                // Keep prior slides on empty short-cache; only force-refresh when we have nothing.
-                if (cachedHero?.length) return undefined;
-                if (data?.enabled && data?.reason !== 'disabled') {
-                    return fetchMediaPlayerHomeHeroRefresh().then((retry) => {
-                        if (cancelled) return;
-                        if (retry?.effectiveMode) setHeroEffectiveMode(String(retry.effectiveMode));
-                        if (retry?.enabled && Array.isArray(retry.items) && retry.items.length) {
-                            writeHeroSlidesCache(retry.items);
-                            setHeroSlides(retry.items);
-                        }
-                    }).catch(() => undefined);
+                if (cachedHero?.length) {
+                    setHeroPending(false);
+                    return undefined;
                 }
-                return undefined;
+                return fetchMediaPlayerHomeHeroRefresh().then((retry) => {
+                    if (cancelled) return;
+                    if (retry?.effectiveMode) setHeroEffectiveMode(String(retry.effectiveMode));
+                    const retryItems = Array.isArray(retry?.items)
+                        ? retry.items.filter((row) => row?.ratingKey && row?.title)
+                        : [];
+                    if (retryItems.length) {
+                        writeHeroSlidesCache(retryItems);
+                        setHeroSlides(retryItems);
+                    }
+                }).catch(() => undefined);
             })
             .catch(() => {
                 if (!cancelled && !cachedHero?.length) setHeroSlides([]);
+            })
+            .finally(() => {
+                if (!cancelled) setHeroPending(false);
             });
         return () => { cancelled = true; };
     }, [active, refreshHome]);
@@ -315,8 +364,10 @@ export const MediaPlayerHome: React.FC<Props> = ({
     );
 
     const plexHubs = useMemo(() => {
+        const directHome = isPlexDirectMode();
         const filtered = (home?.hubs || []).filter((hub) => {
             if (!hub.items?.length) return false;
+            if (directHome) return true;
             if (!showContinueWatchingRail && isContinueWatchingHub(hub)) return false;
             if (!settings.showPlaylists && isPlaylistHub(hub)) return false;
             return true;
@@ -325,21 +376,25 @@ export const MediaPlayerHome: React.FC<Props> = ({
                 ? { ...hub, items: hub.items.map(withShowPoster) }
                 : hub
         ));
+        if (directHome) return filtered;
         return applyLibraryNavOrderToHubs(filtered, orderedLibraries, libraryNavOrder);
     }, [home, libraryNavOrder, orderedLibraries, showContinueWatchingRail, settings.showPlaylists]);
 
     const searchGroups = useMemo(() => {
+        const people: PlayerItem[] = [];
         const shows: PlayerItem[] = [];
         const movies: PlayerItem[] = [];
         const episodes: PlayerItem[] = [];
         const more: PlayerItem[] = [];
         for (const row of results) {
-            if (row.type === 'show') shows.push(row);
+            if (row.type === 'person') people.push(row);
+            else if (row.type === 'show') shows.push(row);
             else if (row.type === 'movie') movies.push(row);
             else if (row.type === 'episode') episodes.push(row);
             else more.push(row);
         }
         return [
+            { id: 'person', title: t('mediaPlayerPage.searchPeople'), items: people, aspect: '2/3' as const },
             { id: 'show', title: t('mediaPlayerPage.searchShows'), items: shows, aspect: '2/3' as const },
             { id: 'movie', title: t('mediaPlayerPage.searchMovies'), items: movies, aspect: '2/3' as const },
             { id: 'episode', title: t('mediaPlayerPage.searchEpisodes'), items: episodes, aspect: '16/9' as const },
@@ -356,7 +411,37 @@ export const MediaPlayerHome: React.FC<Props> = ({
         )
     ), [home, plexHubs, recentRails, showContinueWatchingRail, settings.showPlaylists]);
 
-    const patchWatched = (ratingKey: string, watched: boolean) => {
+    useEffect(() => {
+        const onProgress = (event: Event) => {
+            const detail = (event as CustomEvent<{ ratingKey?: string; item?: PlayerItem }>).detail;
+            const key = String(detail?.ratingKey || '');
+            if (!key) return;
+            setHome((prev) => {
+                if (!prev) return prev;
+                const mapItems = (list: PlayerItem[] = []) => list.map((row) => (
+                    row.ratingKey === key ? applyRememberedProgress(row) : row
+                ));
+                let continueWatching = mapItems(prev.continueWatching);
+                const seed = detail.item ? applyRememberedProgress(detail.item) : null;
+                if (seed?.viewOffsetMs && !continueWatching.some((row) => row.ratingKey === key)) {
+                    continueWatching = [seed, ...continueWatching].slice(0, 20);
+                }
+                const next = {
+                    ...prev,
+                    continueWatching,
+                    playlists: mapItems(prev.playlists || []),
+                    recentByLibrary: prev.recentByLibrary.map((row) => ({ ...row, items: mapItems(row.items) })),
+                    hubs: (prev.hubs || []).map((hub) => ({ ...hub, items: mapItems(hub.items) })),
+                };
+                if (playerHomeHasRows(next)) writePlayerHomeCache(next);
+                return next;
+            });
+        };
+        window.addEventListener(PLAYER_PROGRESS_EVENT, onProgress);
+        return () => window.removeEventListener(PLAYER_PROGRESS_EVENT, onProgress);
+    }, []);
+
+    const patchWatched = useCallback((ratingKey: string, watched: boolean) => {
         setHome((prev) => {
             if (!prev) return prev;
             const mapItems = (list: PlayerItem[]) => list.map((row) => (
@@ -371,9 +456,9 @@ export const MediaPlayerHome: React.FC<Props> = ({
             };
         });
         setResults((prev) => prev.map((row) => (row.ratingKey === ratingKey ? { ...row, watched } : row)));
-    };
+    }, []);
 
-    const removeFromContinueWatching = (item: PlayerItem) => {
+    const removeFromContinueWatching = useCallback((item: PlayerItem) => {
         const key = item.ratingKey;
         setHome((prev) => {
             if (!prev) return prev;
@@ -386,9 +471,9 @@ export const MediaPlayerHome: React.FC<Props> = ({
                 )),
             };
         });
-    };
+    }, []);
 
-    const removeItemEverywhere = (item: PlayerItem) => {
+    const removeItemEverywhere = useCallback((item: PlayerItem) => {
         const key = item.ratingKey;
         setHome((prev) => {
             if (!prev) return prev;
@@ -403,9 +488,13 @@ export const MediaPlayerHome: React.FC<Props> = ({
         });
         setResults((prev) => prev.filter((row) => row.ratingKey !== key));
         setHeroSlides((prev) => prev.filter((row) => row.ratingKey !== key));
-    };
+    }, []);
 
-    const toggleWatched = async (item: PlayerItem) => {
+    const onWatchedChange = useCallback((item: PlayerItem, watched: boolean) => {
+        patchWatched(item.ratingKey, watched);
+    }, [patchWatched]);
+
+    const toggleWatched = useCallback(async (item: PlayerItem) => {
         const next = !item.watched;
         patchWatched(item.ratingKey, next);
         try {
@@ -413,114 +502,149 @@ export const MediaPlayerHome: React.FC<Props> = ({
         } catch {
             patchWatched(item.ratingKey, !!item.watched);
         }
-    };
+    }, [patchWatched]);
 
-    const railMenuProps = {
+    const railMenuProps = useMemo(() => ({
         onPlayNext,
-        onWatchedChange: (item: PlayerItem, watched: boolean) => patchWatched(item.ratingKey, watched),
+        onWatchedChange,
         onRemovedFromContinueWatching: removeFromContinueWatching,
         onDeleted: removeItemEverywhere,
         onToast,
         isAdmin,
         playlistsEnabled,
-    };
+    }), [
+        isAdmin,
+        onPlayNext,
+        onToast,
+        onWatchedChange,
+        playlistsEnabled,
+        removeFromContinueWatching,
+        removeItemEverywhere,
+    ]);
 
     const hasPlexContentHubs = plexHubs.some((hub) => !isContinueWatchingHub(hub));
-    const homeSections = !home ? [] : hasPlexContentHubs ? plexHubs.map((hub, hubIndex) => {
-        const viewAllKey = hub.collectionRatingKey || hub.playlistRatingKey;
-        const canViewAll = Boolean(viewAllKey || hub.hubKey);
-        const isCw = isContinueWatchingHub(hub);
-        return (
-            <PlayerRail
-                key={hub.identifier}
-                title={hub.title}
-                items={isCw ? layoutContinueWatching(hub.items) : hub.items}
-                density={homePosterDensity}
-                staggerIndex={hubIndex}
-                onOpenItem={onOpenItem}
-                onPlay={onPlay}
-                onToggleWatched={toggleWatched}
-                showProgress={isCw}
-                showRemoveFromContinueWatching={isCw}
-                aspect={isCw ? continueWatchingAspect : (/recent/i.test(`${hub.identifier || ''} ${hub.title || ''}`) ? '2/3' : undefined)}
-                onViewAll={canViewAll && onOpenHub ? () => onOpenHub(hub) : (viewAllKey ? () => onOpenItem({
-                    ratingKey: viewAllKey,
-                    title: hub.title,
-                    type: hub.collectionRatingKey ? 'collection' : 'playlist',
-                } as PlayerItem) : undefined)}
-                viewAllLabel={canViewAll ? t('common.viewAll') : undefined}
-                {...railMenuProps}
-            />
-        );
-    }) : applyHomeRowOrder(
-        ['continueWatching', 'recents', 'playlists'],
-        settings.homeRowOrder,
-    ).map((id, rowIndex) => {
-        if (id === 'continueWatching') {
-            return showContinueWatchingRail ? (
-                <PlayerRail
-                    key="continueWatching"
-                    title={t('mediaPlayerPage.continueWatching')}
-                    items={layoutContinueWatching(home.continueWatching)}
-                    density={homePosterDensity}
-                    staggerIndex={rowIndex}
-                    onOpenItem={onOpenItem}
-                    onPlay={onPlay}
-                    onToggleWatched={toggleWatched}
-                    showProgress
-                    showRemoveFromContinueWatching
-                    aspect={continueWatchingAspect}
-                    onViewAll={onOpenHub ? () => onOpenHub({
-                        title: t('mediaPlayerPage.continueWatching'),
-                        identifier: 'home.continueWatching',
-                        items: home.continueWatching,
-                        hubKey: '/library/onDeck',
-                    }) : undefined}
-                    viewAllLabel={t('common.viewAll')}
-                    {...railMenuProps}
-                />
-            ) : null;
-        }
-        if (id === 'playlists') {
-            return settings.showPlaylists ? (
-                <PlayerRail
-                    key="playlists"
-                    title={t('mediaPlayerPage.playlists')}
-                    items={home.playlists || []}
-                    density={homePosterDensity}
-                    staggerIndex={rowIndex}
-                    onOpenItem={onOpenItem}
-                    onPlay={onPlay}
-                />
-            ) : null;
-        }
-        if (id !== 'recents') return null;
-        return (
-            <React.Fragment key="recents">
-                {recentRails.map((row, recentIndex) => (
+    const homeSections = useMemo(() => {
+        if (!home) return [];
+        if (hasPlexContentHubs) {
+            return plexHubs.map((hub, hubIndex) => {
+                const viewAllKey = hub.collectionRatingKey || hub.playlistRatingKey;
+                const canViewAll = Boolean(viewAllKey || hub.hubKey);
+                const isCw = isContinueWatchingHub(hub);
+                return (
                     <PlayerRail
-                        key={row.id}
-                        title={row.title}
-                        items={row.items}
+                        key={hub.identifier}
+                        title={hub.title}
+                        rowId={`hub:${hub.identifier || hub.title}`}
+                        items={isCw ? layoutContinueWatching(hub.items) : hub.items}
                         density={homePosterDensity}
-                        staggerIndex={rowIndex + recentIndex}
+                        staggerIndex={hubIndex}
                         onOpenItem={onOpenItem}
                         onPlay={onPlay}
                         onToggleWatched={toggleWatched}
-                        aspect="2/3"
-                        onViewAll={row.hubKey && onOpenHub ? () => onOpenHub({
-                            title: row.title,
-                            identifier: row.identifier || 'recentlyAdded',
-                            items: row.items,
-                            hubKey: row.hubKey,
-                        }) : undefined}
-                        viewAllLabel={row.hubKey ? t('common.viewAll') : undefined}
+                        showProgress={isCw}
+                        showRemoveFromContinueWatching={isCw}
+                        aspect={isCw ? continueWatchingAspect : (/recent/i.test(`${hub.identifier || ''} ${hub.title || ''}`) ? '2/3' : undefined)}
+                        onViewAll={canViewAll && onOpenHub ? () => onOpenHub(hub) : (viewAllKey ? () => onOpenItem({
+                            ratingKey: viewAllKey,
+                            title: hub.title,
+                            type: hub.collectionRatingKey ? 'collection' : 'playlist',
+                        } as PlayerItem) : undefined)}
+                        viewAllLabel={canViewAll ? t('common.viewAll') : undefined}
                         {...railMenuProps}
                     />
-                ))}
-            </React.Fragment>
-        );
-    });
+                );
+            });
+        }
+        return applyHomeRowOrder(
+            ['continueWatching', 'recents', 'playlists'],
+            settings.homeRowOrder,
+        ).map((id, rowIndex) => {
+            if (id === 'continueWatching') {
+                return showContinueWatchingRail ? (
+                    <PlayerRail
+                        key="continueWatching"
+                        title={t('mediaPlayerPage.continueWatching')}
+                        rowId="home:continueWatching"
+                        items={layoutContinueWatching(home.continueWatching)}
+                        density={homePosterDensity}
+                        staggerIndex={rowIndex}
+                        onOpenItem={onOpenItem}
+                        onPlay={onPlay}
+                        onToggleWatched={toggleWatched}
+                        showProgress
+                        showRemoveFromContinueWatching
+                        aspect={continueWatchingAspect}
+                        onViewAll={onOpenHub ? () => onOpenHub({
+                            title: t('mediaPlayerPage.continueWatching'),
+                            identifier: 'home.continueWatching',
+                            items: home.continueWatching,
+                            hubKey: '/library/onDeck',
+                        }) : undefined}
+                        viewAllLabel={t('common.viewAll')}
+                        {...railMenuProps}
+                    />
+                ) : null;
+            }
+            if (id === 'playlists') {
+                return settings.showPlaylists ? (
+                    <PlayerRail
+                        key="playlists"
+                        title={t('mediaPlayerPage.playlists')}
+                        rowId="home:playlists"
+                        items={home.playlists || []}
+                        density={homePosterDensity}
+                        staggerIndex={rowIndex}
+                        onOpenItem={onOpenItem}
+                        onPlay={onPlay}
+                    />
+                ) : null;
+            }
+            if (id !== 'recents') return null;
+            return (
+                <React.Fragment key="recents">
+                    {recentRails.map((row, recentIndex) => (
+                        <PlayerRail
+                            key={row.id}
+                            title={row.title}
+                            rowId={`home:recent:${row.id || row.title}`}
+                            items={row.items}
+                            density={homePosterDensity}
+                            staggerIndex={rowIndex + recentIndex}
+                            onOpenItem={onOpenItem}
+                            onPlay={onPlay}
+                            onToggleWatched={toggleWatched}
+                            aspect="2/3"
+                            onViewAll={row.hubKey && onOpenHub ? () => onOpenHub({
+                                title: row.title,
+                                identifier: row.identifier || 'recentlyAdded',
+                                items: row.items,
+                                hubKey: row.hubKey,
+                            }) : undefined}
+                            viewAllLabel={row.hubKey ? t('common.viewAll') : undefined}
+                            {...railMenuProps}
+                        />
+                    ))}
+                </React.Fragment>
+            );
+        });
+    }, [
+        continueWatchingAspect,
+        hasPlexContentHubs,
+        home,
+        homePosterDensity,
+        layoutContinueWatching,
+        onOpenHub,
+        onOpenItem,
+        onPlay,
+        plexHubs,
+        railMenuProps,
+        recentRails,
+        settings.homeRowOrder,
+        settings.showPlaylists,
+        showContinueWatchingRail,
+        t,
+        toggleWatched,
+    ]);
 
     if (loading && !home) {
         if (isTvShell && error) {
@@ -532,7 +656,7 @@ export const MediaPlayerHome: React.FC<Props> = ({
             );
         }
         return (
-            <div className="flex flex-col gap-6 pb-8" aria-busy="true" aria-label={t('mediaPlayerPage.navHome')}>
+            <div className="flex w-full flex-col gap-6 pb-8" aria-busy="true" aria-label={t('mediaPlayerPage.navHome')}>
                 <div className="h-[300px] animate-pulse rounded-2xl bg-white/5 sm:h-[380px]" />
                 <DiscoverHomeRowSkeleton />
                 <DiscoverHomeRowSkeleton showViewAll={!isTvShell} />
@@ -557,8 +681,15 @@ export const MediaPlayerHome: React.FC<Props> = ({
                 <MediaPlayerHomeHero
                     items={heroSlides}
                     effectiveMode={heroEffectiveMode}
+                    active={active}
                     onOpenItem={onOpenItem}
                     onPlay={onPlay}
+                />
+            ) : !searchActive && heroPending ? (
+                <div
+                    className="h-[300px] animate-pulse rounded-2xl bg-white/5 sm:h-[380px]"
+                    aria-busy="true"
+                    aria-label={t('mediaPlayerPage.loading')}
                 />
             ) : null}
             <h1 className="sr-only">{t('mediaPlayerPage.navHome')}</h1>
@@ -574,7 +705,7 @@ export const MediaPlayerHome: React.FC<Props> = ({
                         <p className="min-w-0 text-[10px] font-bold uppercase tracking-[0.18em] text-muted">
                             {t('mediaPlayerPage.jumpToLibrary')}
                         </p>
-                        <DiscoverGridSizeSelect className="shrink-0" value={gridSize} onChange={setGridSize} />
+                        <DiscoverGridSizeSelect className="player-phone-hide shrink-0 max-md:hidden" value={gridSize} onChange={setGridSize} />
                     </div>
                     <div className="flex gap-2 overflow-x-auto hide-scrollbar pb-1">
                         {orderedLibraries.map((library) => {
@@ -639,14 +770,16 @@ export const MediaPlayerHome: React.FC<Props> = ({
                         <section key={group.id} className="flex flex-col gap-3">
                             <DiscoverSectionHeader title={group.title} />
                             <div
+                                data-tv-browse-grid={isTvShell ? '1' : undefined}
                                 data-tv-rail={isTvShell ? '1' : undefined}
                                 className={upgraderPosterGridClass(gridSize)}
                                 style={group.aspect === '16/9' ? upgraderLandscapeGridStyle(gridSize) : upgraderPosterGridStyle(gridSize)}
                             >
-                                {group.items.map((item) => (
+                                {group.items.map((item, index) => (
                                     <PlayerPosterCard
                                         key={item.ratingKey}
                                         item={item}
+                                        browseIndex={isTvShell ? index : undefined}
                                         aspect={group.aspect}
                                         onOpenItem={onOpenItem}
                                         onPlay={onPlay}
@@ -697,9 +830,9 @@ export const MediaPlayerHome: React.FC<Props> = ({
             ) : null}
 
             {!query.trim() && home ? (
-                <>
+                <div className="player-home-rows flex min-w-0 flex-col gap-6">
                     {homeSections}
-                </>
+                </div>
             ) : null}
 
             {!query.trim() && !error && !hasRails ? (
@@ -716,4 +849,4 @@ export const MediaPlayerHome: React.FC<Props> = ({
             ) : null}
         </div>
     );
-};
+});

@@ -47,6 +47,11 @@ export const posterGridScaleRem = (
     return presets[size] ?? DEFAULT_POSTER_GRID_SCALE;
 };
 
+/** Home and Library Recommended rails share this size: 15% above the poster slider. */
+export const homeRailPosterDensity = (size: PosterGridValue) => (
+    posterGridScaleRem(posterGridScaleRem(size) * 1.15)
+);
+
 export const posterGridDensityBand = (size: PosterGridValue): UpgraderGridSize => {
     if (size === 'list') return 'list';
     const rem = posterGridScaleRem(size);
@@ -108,15 +113,25 @@ export const discoverPosterGridColumnsAtWidth = (containerWidth: number): number
 /** Approximate main content width (sidebar-aware). */
 export const estimatePortalContentWidth = (): number => {
     if (typeof window === 'undefined') return 1200;
-    const isDesktop = window.matchMedia('(min-width: 768px)').matches;
-    const iconsOnly = typeof document !== 'undefined'
-        ? document.documentElement.dataset.desktopNavIcons === '1'
-        : false;
-    const sidebar = isDesktop
+    const zoomRaw = parseFloat(String(
+        document.documentElement.style.zoom
+        || getComputedStyle(document.documentElement).zoom
+        || '1',
+    ));
+    const zoom = Number.isFinite(zoomRaw) && zoomRaw > 0 ? zoomRaw : 1;
+    const visual = window.innerWidth || document.documentElement.clientWidth || 1200;
+    const client = document.documentElement.clientWidth || visual;
+    // Android TV zooms the root out. innerWidth stays the narrow WebView width
+    // while the page lays out at about 1920 CSS pixels.
+    const layout = zoom < 0.98 ? Math.max(visual, client) / zoom : Math.max(visual, client);
+    const tv = document.documentElement.dataset.tv === '1';
+    const isDesktop = layout >= 768;
+    const iconsOnly = document.documentElement.dataset.desktopNavIcons === '1';
+    const sidebar = !tv && isDesktop
         ? (iconsOnly ? DESKTOP_NAV_COLLAPSED_WIDTH_PX : DESKTOP_NAV_EXPANDED_WIDTH_PX)
         : 0;
-    const padding = isDesktop ? 64 : 8;
-    return Math.max(320, window.innerWidth - sidebar - padding);
+    const padding = tv ? 48 : isDesktop ? 64 : 8;
+    return Math.max(320, layout - sidebar - padding);
 };
 
 export const posterGridSkeletonCount = (rows = 2, containerWidth = estimatePortalContentWidth()): number => (
