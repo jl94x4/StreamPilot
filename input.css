@@ -617,7 +617,7 @@ html[data-theme="light"] .company-card .company-duotone-logo {
 html:not([data-tv="1"]) .media-details-page {
   --tv-backdrop-fade-span: 8rem;
 }
-html:not([data-tv="1"]) .media-details-hero-scrim-mobile {
+html:not([data-tv="1"]) .media-details-page .media-details-hero-scrim-mobile {
   background: linear-gradient(to bottom, rgb(0 0 0 / 0.55) 0%, transparent 26%);
 }
 @media (min-width: 768px) {
@@ -658,7 +658,7 @@ html:not([data-tv="1"]) .media-details-page .media-overview-summary {
   html:not([data-tv="1"]) .media-details-page .media-details-hero-backdrop::after {
     background: none;
   }
-  html:not([data-tv="1"]) .media-details-hero-scrim-mobile {
+  html:not([data-tv="1"]) .media-details-page .media-details-hero-scrim-mobile {
     display: none;
   }
   html:not([data-tv="1"]) .media-details-page .media-overview-summary {
@@ -686,12 +686,34 @@ html[data-theme="light"] .media-details-page .media-details-panel {
 
 /* Light mode: keep cinematic image but use darker left/bottom washes so white
  * hero titles stay readable (card vars are white in light theme). */
-html[data-theme="light"] .media-details-hero-scrim-mobile {
+html[data-theme="light"] .media-details-page .media-details-hero-scrim-mobile {
   background: linear-gradient(
     to bottom,
     rgb(0 0 0 / 0.45) 0%,
     transparent 32%
   ) !important;
+}
+
+/* Discover details (portal): player still-CSS shares these class names and
+   would otherwise leave a full-opacity backdrop with no fade on mobile.
+   Desktop (md+) is left as-is. */
+@media (max-width: 767px) {
+  .discover-media-details .media-details-hero-backdrop {
+    max-height: 72vh;
+  }
+  .discover-media-details .media-details-hero-backdrop img {
+    opacity: 0.45;
+    object-position: 32% 30%;
+  }
+  .discover-media-details .media-details-hero-scrim-mobile {
+    display: block;
+    background: linear-gradient(
+      to bottom,
+      rgb(0 0 0 / 0.5) 0%,
+      rgb(var(--color-card) / 0.65) 55%,
+      rgb(var(--color-card)) 100%
+    ) !important;
+  }
 }
 
 html[data-theme="light"] .media-details-hero-scrim-bottom {
