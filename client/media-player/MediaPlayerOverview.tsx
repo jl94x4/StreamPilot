@@ -30,9 +30,12 @@ const isTvShell = () => {
 const creditPillClass = 'px-2.5 py-1 rounded-lg bg-white/5 border border-border text-sm text-text';
 const creditPillInteractiveClass = `${creditPillClass} hover:bg-plex/15 hover:border-plex/40 hover:text-plex transition-colors`;
 
-/** Prev/next episode + Did You Know — fixed width unless paired with service logos. */
-export const OVERVIEW_SPOTLIGHT_WIDTH_CLASS = 'w-[26rem] max-w-full shrink-0';
+/** Prev/next episode cards — fixed width, 10% above the previous 26rem spotlight. */
+export const OVERVIEW_SPOTLIGHT_WIDTH_CLASS = 'w-[28.6rem] max-w-full shrink-0';
+/** Shared card height so prev / fact / next share one rhythm. */
 export const OVERVIEW_SPOTLIGHT_CARD_SHELL_CLASS = 'min-h-[5.25rem]';
+/** Did You Know may grow wider for long copy instead of getting taller — never past the panel. */
+export const OVERVIEW_FACT_WIDTH_CLASS = 'w-full min-w-0 max-w-[min(100%,40rem)] sm:min-w-[min(100%,22rem)]';
 
 const SectionHeading: React.FC<{ children: React.ReactNode }> = ({ children }) => (
     <div className="flex items-center gap-3 mb-3">
@@ -293,7 +296,7 @@ export const OverviewFactsSpotlight: React.FC<{
     const marks = [...studio, ...network, ...streaming].filter((row) => row.logoPath).filter((row, index, rows) => (
         rows.findIndex((other) => other.key === row.key && other.name === row.name) === index
     ));
-    const showFact = Boolean(factMediaType) && Number.isFinite(factMediaId) && factMediaId > 0;
+    const showFact = Boolean(factMediaType) && (Number.isFinite(factMediaId) && factMediaId > 0 || Boolean(String(factTitle || '').trim()));
     const showNeighbors = Boolean((previous || next) && onOpenItem && onPlayNeighbor);
     if (!marks.length && !showFact && !showNeighbors) return null;
     const interactive = Boolean(onOpenStudio) && !isTvShell();
@@ -313,9 +316,11 @@ export const OverviewFactsSpotlight: React.FC<{
         leftRows.push(
             <DiscoveryFactWidget
                 mediaType={factMediaType}
-                mediaId={factMediaId}
+                mediaId={Number.isFinite(factMediaId) && factMediaId > 0 ? factMediaId : 0}
                 title={factTitle}
-                className={`${OVERVIEW_SPOTLIGHT_WIDTH_CLASS} ${OVERVIEW_SPOTLIGHT_CARD_SHELL_CLASS}`}
+                year={item.year}
+                className={`${OVERVIEW_FACT_WIDTH_CLASS} ${OVERVIEW_SPOTLIGHT_CARD_SHELL_CLASS} items-center`}
+                compact
             />,
         );
     }
@@ -334,9 +339,9 @@ export const OverviewFactsSpotlight: React.FC<{
     const hasLogoColumn = marks.length > 0 && leftRows.length > 0;
     return (
         <div
-            className={hasLogoColumn
-                ? 'grid w-full max-w-full grid-cols-1 gap-3 sm:grid-cols-[26rem_minmax(9.5rem,12rem)] sm:items-stretch'
-                : `flex w-full flex-col items-start gap-3 ${OVERVIEW_SPOTLIGHT_WIDTH_CLASS}`}
+            className={`media-overview-spotlight ${hasLogoColumn
+                ? 'grid w-full max-w-full grid-cols-1 gap-3 sm:grid-cols-[minmax(26rem,max-content)_minmax(9.5rem,12rem)] sm:items-start'
+                : 'flex w-full max-w-full flex-col items-start gap-3'}`}
             data-tv-rail="1"
             data-tv-row="1"
         >
@@ -395,7 +400,9 @@ export const OverviewFacts: React.FC<{
     aside?: React.ReactNode;
     /** Sits under the Details fields, still in the left column. */
     underDetails?: React.ReactNode;
-}> = ({ item, onOpenPerson, onOpenStudio, middle, aside, underDetails }) => {
+    /** Media info, rendered directly under the release date with a divider. */
+    afterReleased?: React.ReactNode;
+}> = ({ item, onOpenPerson, onOpenStudio, middle, aside, underDetails, afterReleased }) => {
     const { t, locale } = useDiscoverI18n();
     const { preferences } = useDiscoveryPreferences();
     const [settings] = usePlayerSettings();
@@ -427,11 +434,14 @@ export const OverviewFacts: React.FC<{
         leadCredit(item.writerPeople).length ? { label: t('mediaPlayerPage.writtenBy'), people: leadCredit(item.writerPeople) } : null,
         leadCredit(item.producers).length ? { label: t('mediaPlayerPage.producedBy'), people: leadCredit(item.producers) } : null,
     ].filter(Boolean) as Array<{ label: string; people?: PlayerPersonCredit[] }>;
+    const releasedRow = aired
+        ? { label: item.type === 'episode' ? t('mediaPlayerPage.aired') : t('mediaPlayerPage.released'), value: aired }
+        : null;
     const metaRows: Array<{
         label: string;
         value?: string;
     }> = [
-        aired ? { label: item.type === 'episode' ? t('mediaPlayerPage.aired') : t('mediaPlayerPage.released'), value: aired } : null,
+        afterReleased ? null : releasedRow,
         item.countries?.length ? { label: t('mediaPlayerPage.countries'), value: item.countries.join(', ') } : null,
         (item.type === 'show' || item.type === 'season') && total > 0
             ? { label: t('mediaPlayerPage.episodeProgress'), value: t('mediaPlayerPage.episodeProgressValue', { watched, total }) }
@@ -445,11 +455,11 @@ export const OverviewFacts: React.FC<{
         value?: string;
     }>;
 
-    if (!crewRows.length && !serviceSections.length && !metaRows.length) return null;
+    if (!crewRows.length && !serviceSections.length && !metaRows.length && !aside && !afterReleased && !releasedRow) return null;
 
     const renderMetaRow = (row: { label: string; value?: string; people?: PlayerPersonCredit[] }) => (
         <div key={row.label} className="flex flex-col gap-1 min-w-0">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-muted">{row.label}</span>
+            <span className="player-fact-label text-xs font-bold uppercase tracking-wider text-muted">{row.label}</span>
             {row.people?.length ? (
                 <CreditPills people={row.people} onOpenPerson={onOpenPerson} interactive={!tvShell} />
             ) : (
@@ -460,7 +470,7 @@ export const OverviewFacts: React.FC<{
 
     const renderServiceSection = (section: { label: string; networks: NetworkLogo[]; size: 'sm' | 'md' | 'lg'; searchAllTypes: boolean; brandColor?: boolean }) => (
         <div key={section.label} className="flex flex-col gap-1 min-w-0">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-muted">{section.label}</span>
+            <span className="player-fact-label text-xs font-bold uppercase tracking-wider text-muted">{section.label}</span>
             <NetworkLogoRow
                 networks={section.networks}
                 onOpenStudio={onOpenStudio}
@@ -492,20 +502,25 @@ export const OverviewFacts: React.FC<{
 
     const useCompactTwoCol = Boolean(aside || middle) || tvShell;
     const asideWidthClass = tvShell
-        ? 'md:w-[26rem] md:max-w-[26rem]'
-        : 'md:w-[36rem] md:max-w-[44rem] lg:w-[44rem]';
-    const rowClass = middle && aside
-        ? `flex flex-col gap-4 md:grid md:items-start md:gap-8 lg:gap-10 ${tvShell ? 'md:grid-cols-[auto_minmax(16rem,1fr)_26rem]' : 'md:grid-cols-[auto_minmax(16rem,1fr)_minmax(26rem,44rem)]'}`
+        ? 'md:min-w-0 md:flex-1 md:max-w-[min(40rem,100%)]'
+        : 'md:w-auto md:min-w-0 md:max-w-[min(44rem,100%)]';
+    // Details | Media Info | spotlight — tops line up with Previous Episode.
+    const rowClass = middle && aside && afterReleased
+        ? `flex min-w-0 max-w-full flex-col gap-4 md:grid md:items-start md:gap-8 lg:gap-10 ${tvShell ? 'md:grid-cols-[auto_auto_minmax(0,1fr)]' : 'md:grid-cols-[auto_auto_minmax(26rem,max-content)]'}`
+        : afterReleased && aside
+            ? `flex min-w-0 max-w-full flex-col gap-4 md:grid md:items-start md:gap-8 lg:gap-10 ${tvShell ? 'md:grid-cols-[auto_auto_minmax(0,1fr)]' : 'md:grid-cols-[auto_auto_minmax(26rem,max-content)]'}`
+        : middle && aside
+            ? `flex min-w-0 max-w-full flex-col gap-4 md:grid md:items-start md:gap-8 lg:gap-10 ${tvShell ? 'md:grid-cols-[auto_minmax(16rem,1fr)_minmax(0,1fr)]' : 'md:grid-cols-[auto_minmax(16rem,1fr)_minmax(26rem,44rem)]'}`
         : aside
-            ? 'flex flex-col gap-4 md:flex-row md:items-start md:gap-8 lg:gap-10'
-            : 'flex flex-col gap-4';
+            ? 'flex min-w-0 max-w-full flex-col gap-4 md:flex-row md:items-start md:gap-8 lg:gap-10'
+            : 'flex min-w-0 max-w-full flex-col gap-4';
 
     return (
-        <div className="media-details-facts flex flex-col gap-3">
-            <SectionHeading>{t('media.details')}</SectionHeading>
+        <div className="media-details-facts flex min-w-0 max-w-full flex-col gap-3">
             <div className={rowClass}>
                 {/* Compact fact columns — stay grouped on the left when aside is present. */}
-                <div className={`${aside || middle ? 'w-full min-w-0 md:w-auto md:shrink-0' : 'w-full'} flex flex-col gap-6`}>
+                <div className={`${aside || middle ? 'w-full min-w-0 md:w-auto md:shrink-0 md:self-start' : 'w-full min-w-0'} flex flex-col gap-3`}>
+                    <SectionHeading>{t('media.details')}</SectionHeading>
                     <div className="flex flex-col gap-3 sm:hidden">
                         {detailBlocks}
                     </div>
@@ -528,17 +543,45 @@ export const OverviewFacts: React.FC<{
                             ))}
                         </div>
                     ) : null}
+                    {afterReleased && !aside ? (
+                        <div
+                            className="media-details-released-block flex w-full min-w-0 flex-col gap-3"
+                            style={{ maxWidth: middle ? '30rem' : '48rem' }}
+                        >
+                            {releasedRow ? renderMetaRow(releasedRow) : null}
+                            <div
+                                className="media-details-media-info flex w-full min-w-0 flex-col gap-3"
+                                style={{ borderTop: '1px solid rgba(255,255,255,0.28)', paddingTop: '0.7rem' }}
+                            >
+                                <SectionHeading>{t('mediaPlayerPage.mediaInfo')}</SectionHeading>
+                                {afterReleased}
+                            </div>
+                        </div>
+                    ) : null}
+                    {afterReleased && aside && releasedRow ? (
+                        <div className="media-details-released-block flex w-full min-w-0 flex-col gap-3">
+                            {renderMetaRow(releasedRow)}
+                        </div>
+                    ) : null}
                     {underDetails ? (
                         <div className="w-full min-w-0">{underDetails}</div>
                     ) : null}
                 </div>
+                {afterReleased && aside ? (
+                    <div className="media-details-media-info-col flex w-full min-w-0 flex-col gap-3 md:w-auto md:max-w-[22rem] md:shrink-0 md:self-start">
+                        <SectionHeading>{t('mediaPlayerPage.mediaInfo')}</SectionHeading>
+                        <div className="media-details-media-info w-full min-w-0">
+                            {afterReleased}
+                        </div>
+                    </div>
+                ) : null}
                 {middle ? (
                     <div className="media-details-facts-middle min-w-0 w-full md:self-start">
                         {middle}
                     </div>
                 ) : null}
                 {aside ? (
-                    <div className={`media-details-facts-aside flex min-w-0 w-full max-w-full flex-col gap-4 md:shrink-0 md:self-start ${asideWidthClass}`}>
+                    <div className={`media-details-facts-aside flex min-w-0 w-full max-w-full flex-col gap-4 md:self-start ${asideWidthClass}`}>
                         {aside}
                         {logosUnderAside ? (
                             <div className="flex flex-col gap-3">
@@ -572,7 +615,7 @@ export const OverviewLinks: React.FC<{ item: PlayerItem }> = ({ item }) => {
     ].filter(Boolean) as Array<{ id: string; label: string; href: string }>;
     if (!links.length) return null;
     return (
-        <div className="flex flex-wrap gap-2">
+        <div className="media-overview-links flex flex-wrap gap-2">
             {links.map((link) => (
                 <a
                     key={link.id}
@@ -599,7 +642,7 @@ const EpisodeNeighborCard: React.FC<{
     const { t } = useDiscoverI18n();
     return (
         <div
-            className={`relative flex ${OVERVIEW_SPOTLIGHT_CARD_SHELL_CLASS} min-w-0 items-center gap-3 rounded-xl border border-border bg-white/5 px-3 ${OVERVIEW_SPOTLIGHT_WIDTH_CLASS}`}
+            className="player-episode-neighbor relative flex min-h-[5.8rem] min-w-0 shrink-0 items-center gap-3.5 rounded-xl border border-border bg-white/5 px-3.5 py-2.5 w-[28.6rem] max-w-full"
             data-tv-episode-neighbor="1"
         >
             <button
@@ -611,21 +654,21 @@ const EpisodeNeighborCard: React.FC<{
                 className="flex h-full min-w-0 flex-1 items-center gap-3 rounded-[0.65rem] text-left outline-none"
                 aria-label={`${label} ${[formatEpisodeCode(item), item.title].filter(Boolean).join(' ')}`}
             >
-                <div className="relative h-14 w-24 shrink-0 overflow-hidden rounded-lg bg-black/40">
+                <div className="player-episode-neighbor-thumb relative h-[3.85rem] w-[6.6rem] shrink-0 overflow-hidden rounded-lg bg-black/40">
                     {item.thumb ? (
                         <img src={plexImageUrl(item.thumb, 426, 240, { quality: 60 })} alt="" className="h-full w-full object-cover" />
                     ) : (
                         <div className="flex h-full items-center justify-center text-muted">{icon}</div>
                     )}
                     {progressPercent(item) > 0 ? (
-                        <div className="absolute inset-x-0 bottom-0 h-1 bg-black/60">
+                        <div className="player-watch-bar absolute inset-x-0 bottom-0 h-0.5 bg-black/60">
                             <div className="h-full bg-plex" style={{ width: `${progressPercent(item)}%` }} />
                         </div>
                     ) : null}
                 </div>
                 <div className="min-w-0">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-muted">{label}</p>
-                    <p className="truncate text-sm font-bold text-text">
+                    <p className="text-[11px] font-black uppercase tracking-widest text-muted">{label}</p>
+                    <p className="truncate text-[0.96rem] font-bold text-text">
                         {[formatEpisodeCode(item), item.title].filter(Boolean).join(' · ')}
                     </p>
                     {item.durationMs ? (

@@ -45,6 +45,7 @@ export const PosterGridSizeSlider: React.FC<{
                     aria-label={label}
                     tabIndex={typeof document !== 'undefined' && document.documentElement?.dataset?.tv === '1' ? -1 : undefined}
                     className={sliderClass}
+                    onInput={(event) => onChange(Number((event.target as HTMLInputElement).value))}
                     onChange={(event) => onChange(Number(event.target.value))}
                 />
             </label>

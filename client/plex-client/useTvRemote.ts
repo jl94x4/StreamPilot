@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { readDocumentZoom } from '../shared/ui';
 import { isAndroidTvUi } from './config';
 import { PLAYER_APP_BASE, PLAYER_NAVIGATE_EVENT, PLAYER_SCROLL_ID, PLAYER_TV_NAV_EVENT } from '../media-player/paths';
+import { PLAYER_SEARCH_INPUT_ID, requestPlayerHomeReset } from '../media-player/playerMemory';
 import { requestBrowseFocusAbs } from '../media-player/playerUtils';
 
 const TV_ITEM = '[data-tv-item="1"]';
@@ -54,8 +55,17 @@ const visibleContentRails = () => {
     });
 };
 
-const TV_OVERLAY = '[data-tv-item-menu="1"], [data-tv-select-menu="1"], [data-tv-resume-dialog="1"], [data-tv-season-watch-dialog="1"], [data-tv-home-switch="1"], [data-tv-version-dialog="1"], [data-tv-track-dialog="1"], [data-tv-settings-dialog="1"]';
+const TV_OVERLAY = '[data-tv-item-menu="1"], [data-tv-select-menu="1"], [data-tv-resume-dialog="1"], [data-tv-season-watch-dialog="1"], [data-tv-home-switch="1"], [data-tv-version-dialog="1"], [data-tv-track-dialog="1"], [data-tv-settings-dialog="1"], [data-tv-playback="1"], [data-tv-playback-overlay="1"]';
 const TV_AUTH = '[data-tv-auth="1"]';
+
+/** Prefer a real menu; a playback cover still owns the remote even with no buttons. */
+const tvOverlayRoot = () => (
+    Array.from(document.querySelectorAll<HTMLElement>(TV_OVERLAY)).find((node) => (
+        focusableTvItems(node).length > 0
+        || node.getAttribute('data-tv-playback-overlay') === '1'
+        || node.getAttribute('data-tv-playback') === '1'
+    )) || null
+);
 
 type SpatialDir = 'left' | 'right' | 'up' | 'down';
 
@@ -216,7 +226,8 @@ const clearPinTopFollowup = () => {
 };
 
 const firstDetailsRowItem = (details: ParentNode) => (
-    Array.from(details.querySelectorAll<HTMLElement>('[data-tv-episode-btn="1"]')).find(hasLayout)
+    Array.from(details.querySelectorAll<HTMLElement>('[data-tv-music-track="1"]')).find(hasLayout)
+    || Array.from(details.querySelectorAll<HTMLElement>('[data-tv-episode-btn="1"]')).find(hasLayout)
     || Array.from(details.querySelectorAll<HTMLElement>(
         '[data-tv-season-poster-btn="1"]'
     )).find(hasLayout)
@@ -385,6 +396,10 @@ const focusItem = (el: HTMLElement, block: ScrollLogicalPosition = 'nearest', di
         const frozen = page?.scrollTop ?? 0;
         scrollOverlayOnly(el);
         if (page) page.scrollTop = frozen;
+        return;
+    }
+    if (el.getAttribute('data-tv-music-track') === '1' || el.closest('[data-tv-list="1"]')) {
+        scrollEl(el, 'nearest', 'css');
         return;
     }
     if (isHeaderControl(el)) {
@@ -566,11 +581,12 @@ export const restoreTvFocusWhenReady = () => {
             if (restoreTvFocus()) return;
             let attempts = 40;
             const tick = () => {
-                if (restoreTvFocus() || attempts-- <= 0) {
-                    if (!hasRememberedTvFocus()) focusSeasonEpisodeWhenReady();
+                if (restoreTvFocus()) return;
+                if (attempts-- > 0) {
+                    window.setTimeout(tick, 40);
                     return;
                 }
-                window.setTimeout(tick, 40);
+                if (!focusTvPlayButton()) focusSeasonEpisodeWhenReady();
             };
             window.setTimeout(tick, 40);
             return;
@@ -586,11 +602,12 @@ export const restoreTvFocusWhenReady = () => {
         if (restoreTvFocus()) return;
         let attempts = 30;
         const tick = () => {
-            if (restoreTvFocus() || attempts-- <= 0) {
-                if (!hasRememberedTvFocus()) focusTvHeroWhenReady();
+            if (restoreTvFocus()) return;
+            if (attempts-- > 0) {
+                window.setTimeout(tick, 40);
                 return;
             }
-            window.setTimeout(tick, 40);
+            focusTvHeroWhenReady();
         };
         window.setTimeout(tick, 40);
         return;
@@ -603,8 +620,12 @@ export const restoreTvFocusWhenReady = () => {
     if (restoreTvFocus()) return;
     let attempts = 12;
     const tick = () => {
-        if (restoreTvFocus() || attempts-- <= 0) return;
-        window.setTimeout(tick, 40);
+        if (restoreTvFocus()) return;
+        if (attempts-- > 0) {
+            window.setTimeout(tick, 40);
+            return;
+        }
+        focusTvContent();
     };
     window.setTimeout(tick, 40);
 };
@@ -743,6 +764,34 @@ const findSpatialTarget = (from: HTMLElement, dir: SpatialDir, root?: ParentNode
         }
     }
     return snapVerticalRowEntry(from, best);
+};
+
+/**
+ * Up/down only measures the next few rows. Scanning every poster on the page
+ * forces layout on each D-pad press, which stalls Fire Stick WebView.
+ */
+const nearestVerticalRow = (from: HTMLElement, dir: 'up' | 'down'): HTMLElement | null => {
+    const scroller = document.getElementById(PLAYER_SCROLL_ID);
+    if (!scroller || !scroller.contains(from)) return null;
+    const fromRect = from.getBoundingClientRect();
+    const rows = scroller.querySelectorAll<HTMLElement>('[data-tv-row="1"]');
+    const ranked: { row: HTMLElement; primary: number }[] = [];
+    for (const row of rows) {
+        if (row.contains(from)) continue;
+        const rect = row.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) continue;
+        const primary = dir === 'down' ? rect.top - fromRect.bottom : fromRect.top - rect.bottom;
+        if (primary < -12) continue;
+        ranked.push({ row, primary: Math.max(0, primary) });
+    }
+    if (!ranked.length) return null;
+    ranked.sort((a, b) => a.primary - b.primary);
+    const limit = Math.min(ranked.length, 3);
+    for (let i = 0; i < limit; i += 1) {
+        const hit = findSpatialTarget(from, dir, ranked[i].row);
+        if (hit) return hit;
+    }
+    return null;
 };
 
 let lastBrowsePoster: HTMLElement | null = null;
@@ -994,6 +1043,17 @@ const isPlayerItemPath = () => /\/item\/[^/]+/.test(currentPath());
 
 const isPlayerSettingsPath = () => /\/settings$/.test(currentPath());
 
+/** Vertical lists (album tracks) must walk every item before the next hub row. */
+const listStep = (current: HTMLElement, dir: SpatialDir): HTMLElement | null => {
+    if (dir !== 'up' && dir !== 'down') return null;
+    const list = current.closest<HTMLElement>('[data-tv-list="1"]');
+    if (!list) return null;
+    const items = focusableTvItems(list);
+    const idx = items.findIndex((el) => el === current || el.contains(current));
+    if (idx < 0) return null;
+    return (dir === 'down' ? items[idx + 1] : items[idx - 1]) || null;
+};
+
 /** Settings tabs sit in a row. Down enters that section; Down from the last option lands on Save. */
 const settingsStep = (current: HTMLElement, dir: SpatialDir): HTMLElement | null => {
     if (dir !== 'up' && dir !== 'down') return null;
@@ -1057,16 +1117,20 @@ const focusTvSettingsWhenReady = () => {
 };
 
 /**
- * Season pages open on the first episode. Focus only — do not jump to the
- * first unwatched title, and do not center the row (that blacked the page).
+ * Season and episode hubs open on the episode row. Prefer the current
+ * spotlight card; otherwise the first episode. Do not center the row.
  */
 const focusFirstSeasonEpisode = (): boolean => {
     const details = document.querySelector<HTMLElement>('[data-tv-details="1"]');
-    if (!details || details.getAttribute('data-tv-kind') !== 'season') return false;
-    const episode = Array.from(details.querySelectorAll<HTMLElement>('[data-tv-episode-btn="1"]')).find(hasLayout);
+    const kind = details?.getAttribute('data-tv-kind') || '';
+    if (!details || (kind !== 'season' && kind !== 'episode')) return false;
+    const current = details.querySelector<HTMLElement>('.media-details-episode-card.is-current [data-tv-episode-btn="1"]');
+    const episode = (current && hasLayout(current))
+        ? current
+        : Array.from(details.querySelectorAll<HTMLElement>('[data-tv-episode-btn="1"]')).find(hasLayout);
     if (!episode) return false;
     const rail = episode.closest<HTMLElement>('[data-tv-poster-rail="1"]');
-    if (rail) rail.scrollLeft = 0;
+    if (rail && !(current && hasLayout(current))) rail.scrollLeft = 0;
     try {
         episode.focus({ preventScroll: true });
     } catch {
@@ -1101,7 +1165,7 @@ export const focusSeasonEpisodeWhenReady = () => {
             if (attempts-- > 0) window.setTimeout(tick, 40);
             return;
         }
-        if (kind === 'season') {
+        if (kind === 'season' || kind === 'episode') {
             if (focusFirstSeasonEpisode()) return;
             if (attempts-- > 0) window.setTimeout(tick, 50);
             return;
@@ -1144,8 +1208,14 @@ const focusTvHero = (): boolean => {
     if (!isPlayerHomePath()) return false;
     const hero = document.querySelector<HTMLElement>('[data-tv-home-hero="1"]')
         || document.querySelector<HTMLElement>('.player-home-hero [data-tv-item="1"]');
-    if (!hero || !hasLayout(hero)) return false;
-    focusItem(hero, 'start');
+    if (hero && hasLayout(hero)) {
+        focusItem(hero, 'start');
+        return true;
+    }
+    const poster = Array.from(document.querySelectorAll<HTMLElement>(TV_POSTER_BTN)).find(hasLayout);
+    if (!poster) return false;
+    focusItem(poster, 'nearest');
+    requestAnimationFrame(syncPosterFocusAttr);
     return true;
 };
 
@@ -1238,6 +1308,64 @@ const handleTvBack = (): boolean => {
     return true;
 };
 
+const clickIfPresent = (selector: string) => {
+    const node = document.querySelector<HTMLElement>(selector);
+    if (!node) return false;
+    node.click();
+    return true;
+};
+
+/** Phone gesture / system Back. True = stay in the app. False = Android may finish. */
+export const handlePhoneBack = (): boolean => {
+    if (document.querySelector('.player-mobile-nav-sheet')) {
+        clickIfPresent('.player-mobile-nav-sheet > button')
+            || clickIfPresent('.player-phone-nav-panel button[aria-label]');
+        return true;
+    }
+    const context = document.querySelector<HTMLElement>('[data-player-mobile-context="1"]');
+    if (context) {
+        context.click();
+        return true;
+    }
+    if (clickIfPresent('[data-tv-resume-dialog="1"] [data-tv-item="1"]:last-child')) return true;
+    if (clickIfPresent('[data-tv-season-watch-dialog="1"] [data-tv-season-watch-cancel="1"]')) return true;
+    if (clickIfPresent('[data-tv-version-dialog="1"] [data-tv-action="1"]:last-child')) return true;
+    if (clickIfPresent('[data-tv-track-dialog="1"] button:last-of-type')) return true;
+    if (clickIfPresent('[data-tv-home-switch="1"] button[aria-label], [data-tv-home-switch="1"] [data-tv-item="1"]:last-child')) return true;
+    if (clickIfPresent('[data-tv-file-info="1"] button')) return true;
+    if (window.__SMP_CLOSE_PLAYBACK__?.()) return true;
+    if (document.getElementById(PLAYER_SEARCH_INPUT_ID)) {
+        requestPlayerHomeReset();
+        return true;
+    }
+    if (!isPlayerHomePath()) {
+        const before = `${window.location.pathname}${window.location.search}`;
+        window.history.back();
+        window.setTimeout(() => {
+            const now = `${window.location.pathname}${window.location.search}`;
+            if (now === before) {
+                window.history.replaceState({}, '', PLAYER_APP_BASE);
+                window.dispatchEvent(new Event(PLAYER_NAVIGATE_EVENT));
+            }
+        }, 80);
+        return true;
+    }
+    return false;
+};
+
+export const handleAppBack = (): boolean => {
+    try {
+        if (isAndroidTvUi()) return handleTvBack();
+        return handlePhoneBack();
+    } catch {
+        return false;
+    }
+};
+
+if (typeof window !== 'undefined') {
+    window.__SMP_HANDLE_BACK__ = handleAppBack;
+}
+
 declare global {
     interface Window {
         __SMP_HANDLE_BACK__?: () => boolean;
@@ -1254,7 +1382,7 @@ export const useTvRemote = (enabled = true) => {
     useEffect(() => {
         if (!enabled || !isAndroidTvUi()) return undefined;
 
-        window.__SMP_HANDLE_BACK__ = handleTvBack;
+        window.__SMP_HANDLE_BACK__ = handleAppBack;
 
         let posterSelectTimer: number | null = null;
         let posterReleaseTimer: number | null = null;
@@ -1417,7 +1545,7 @@ export const useTvRemote = (enabled = true) => {
                 // Fall through so D-pad can leave the URL / PIN field.
             }
 
-            const overlayMenu = document.querySelector<HTMLElement>(TV_OVERLAY);
+            const overlayMenu = tvOverlayRoot();
             if (overlayMenu && isConfirmKey(event) && document.documentElement?.dataset?.tvSelectOpen !== '1') {
                 activateFocusedTvItem(event);
                 return;
@@ -1434,7 +1562,7 @@ export const useTvRemote = (enabled = true) => {
             if (!dir) return;
             if (browseHoldDir && dir !== browseHoldDir) stopBrowseHold();
 
-            const overlayOpen = Boolean(document.querySelector(TV_OVERLAY));
+            const overlayOpen = Boolean(tvOverlayRoot());
             if (inNav && !overlayOpen) {
                 if (dir === 'left') {
                     event.preventDefault();
@@ -1465,7 +1593,7 @@ export const useTvRemote = (enabled = true) => {
             event.preventDefault();
             event.stopPropagation();
 
-            const menuRoot = document.querySelector<HTMLElement>(TV_OVERLAY);
+            const menuRoot = tvOverlayRoot();
             const current = active && active !== document.body && active !== document.documentElement
                 ? (active.closest<HTMLElement>(TV_ITEM) || active)
                 : null;
@@ -1502,13 +1630,17 @@ export const useTvRemote = (enabled = true) => {
                     target = firstRail ? focusableTvItems(firstRail)[0] || null : null;
                 }
             }
+            if (!menuRoot && !target) target = listStep(current, dir);
             if (!menuRoot && !target && dir === 'up' && current.closest('[data-tv-details="1"]')) {
                 const details = current.closest('[data-tv-details="1"]') || document;
-                // Only jump to Play when this is the first content row under the hero.
-                // Cast under seasons/episodes must land on that row, not skip to Play.
+                // Only jump to Play when Play is actually above this row.
+                // Episode hubs keep Play under the cards, so Up goes to season pills.
                 const firstBelow = firstDetailsRowItem(details);
-                if (firstBelow && sameDetailsEntryRow(current, firstBelow)) {
-                    target = detailsPlayButton(details);
+                const play = detailsPlayButton(details);
+                if (firstBelow && play && sameDetailsEntryRow(current, firstBelow)) {
+                    const playRect = play.getBoundingClientRect();
+                    const curRect = current.getBoundingClientRect();
+                    if (playRect.bottom <= curRect.top + 8) target = play;
                 }
             }
             const inBrowseChrome = Boolean(current.closest('[data-tv-browse-grid="1"], [data-tv-alpha="1"]'));
@@ -1529,6 +1661,13 @@ export const useTvRemote = (enabled = true) => {
                     return;
                 }
                 if (dir !== 'left') return;
+            }
+            if (!target && !menuRoot && current.closest('.player-home-stage') && (dir === 'up' || dir === 'down')) {
+                window.dispatchEvent(new CustomEvent('smp-tv-home-row', { detail: { dir } }));
+                return;
+            }
+            if (!target && !menuRoot && !inBrowseChrome && (dir === 'up' || dir === 'down')) {
+                target = nearestVerticalRow(current, dir);
             }
             if (!target) target = findSpatialTarget(current, dir, menuRoot || undefined);
             if (!target && !menuRoot && dir === 'up' && isPlayerHomePath()) {
@@ -1652,12 +1791,9 @@ export const useTvRemote = (enabled = true) => {
         // Do not sync on focusout — WebView activeElement is unreliable mid-blur and
         // was leaving data-tv-focused on the first poster of other rails.
         syncPosterFocusAttr();
-        if (isPlayerHomePath()) focusTvHeroWhenReady();
-        else restoreTvFocusWhenReady();
+        restoreTvFocusWhenReady();
         return () => {
-            if (window.__SMP_HANDLE_BACK__ === handleTvBack) {
-                delete window.__SMP_HANDLE_BACK__;
-            }
+            window.__SMP_HANDLE_BACK__ = handleAppBack;
             clearPosterSelectHold();
             stopBrowseHold();
             window.removeEventListener('keydown', onKeyDown, true);

@@ -70,6 +70,19 @@ export const apiErrorMessage = (status: number, text = '') => {
 };
 
 export const apiFetch = async (url: string, options: RequestInit = {}) => {
+    const directApp = typeof window !== 'undefined' && (
+        !!window.__PLEX_CLIENT__ || document.documentElement?.dataset?.plexClient === '1'
+    );
+    if (directApp) {
+        const pathOnly = String(url || '').split('?')[0].replace(/\/+$/, '');
+        // Trivia is Wikipedia-backed on-device — do not depend on portal TMDB/request-app config.
+        const forceDirectFact = pathOnly === '/api/discovery/fact';
+        const { isPlexDirectMode } = await import('../plex-client/config');
+        if (forceDirectFact || isPlexDirectMode()) {
+            const { handlePlexDirectRequest } = await import('../plex-client/plexDirect');
+            return handlePlexDirectRequest(url, options);
+        }
+    }
     const crossOriginPortal = isPlexClientRequest();
     const response = await fetch(portalUrl(url), {
         credentials: crossOriginPortal ? 'omit' : 'same-origin',

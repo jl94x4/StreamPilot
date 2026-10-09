@@ -62,8 +62,11 @@ export const DiscoveryFactWidget: React.FC<{
     mediaType: 'movie' | 'tv';
     mediaId: number;
     title?: string;
+    year?: number | null;
     className?: string;
-}> = ({ mediaType, mediaId, title, className = '' }) => {
+    /** Keep a short height; grow wider for longer facts instead of wrapping tall. */
+    compact?: boolean;
+}> = ({ mediaType, mediaId, title, year, className = '', compact = false }) => {
     const shellClass = `rounded-xl border border-plex/20 bg-plex/5 flex gap-3 ${className || 'w-full'}`.trim();
     const filledShellClass = `rounded-xl border border-plex/25 bg-gradient-to-br from-plex/10 via-plex/5 to-transparent flex gap-3 ${className || 'w-full'}`.trim();
     const { t } = useDiscoverI18n();
@@ -89,6 +92,7 @@ export const DiscoveryFactWidget: React.FC<{
                 });
                 const expectedTitle = String(title || '').trim();
                 if (expectedTitle) params.set('title', expectedTitle);
+                if (year && Number.isFinite(year)) params.set('year', String(year));
                 const res: FactResponse = await apiFetch(`/api/discovery/fact?${params.toString()}`);
                 if (cancelled) return;
                 const pool = Array.isArray(res?.facts) && res.facts.length
@@ -104,7 +108,7 @@ export const DiscoveryFactWidget: React.FC<{
         };
         load();
         return () => { cancelled = true; };
-    }, [mediaType, mediaId, title]);
+    }, [mediaType, mediaId, title, year]);
 
     const showAnother = useCallback(() => {
         if (facts.length <= 1) return;
@@ -146,16 +150,22 @@ export const DiscoveryFactWidget: React.FC<{
     }
 
     const current = facts[index] || facts[0];
+    const bodyClass = compact
+        ? 'text-sm text-text/80 leading-snug line-clamp-2 whitespace-normal'
+        : 'text-sm text-text/80 leading-relaxed';
+    const textColClass = compact
+        ? 'flex min-w-0 max-w-full flex-col justify-center gap-1.5'
+        : 'flex min-w-0 flex-1 flex-col gap-1.5 justify-center';
 
     return (
         <div className={`${filledShellClass} p-3 sm:p-4`}>
             <div className="w-9 h-9 rounded-lg bg-plex/15 border border-plex/20 flex items-center justify-center flex-shrink-0">
                 <Lightbulb className="w-4 h-4 text-plex" />
             </div>
-            <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+            <div className={textColClass}>
                 <div className="flex items-center justify-between gap-2">
                     <span className="text-[10px] font-black uppercase tracking-widest text-plex">{t('facts.didYouKnow')}</span>
-                    {facts.length > 1 && (
+                    {facts.length > 1 && document.documentElement?.dataset?.plexClient !== '1' && (
                         <button
                             type="button"
                             onClick={showAnother}
@@ -166,7 +176,7 @@ export const DiscoveryFactWidget: React.FC<{
                         </button>
                     )}
                 </div>
-                <p className="text-sm text-text/80 leading-relaxed">
+                <p className={bodyClass} title={compact ? cleanWikiText(current) : undefined}>
                     {cleanWikiText(current)}
                 </p>
             </div>

@@ -27,6 +27,9 @@ export const MediaPlayerPlaylist: React.FC<Props> = ({ ratingKey, onBack, onOpen
     const [items, setItems] = useState<PlayerItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const tvShell = typeof document !== 'undefined' && (
+        document.documentElement?.dataset?.tv === '1' || window.__PLEX_CLIENT__?.isTv === true
+    );
 
     useEffect(() => {
         let cancelled = false;
@@ -54,7 +57,7 @@ export const MediaPlayerPlaylist: React.FC<Props> = ({ ratingKey, onBack, onOpen
             row.ratingKey === item.ratingKey ? { ...row, watched: next, viewCount: next ? Math.max(1, row.viewCount || 0) : 0 } : row
         )));
         try {
-            await setMediaPlayerWatched(item.ratingKey, next);
+            await setMediaPlayerWatched(item.ratingKey, next, item);
         } catch {
             setItems((prev) => prev.map((row) => (
                 row.ratingKey === item.ratingKey ? { ...row, watched: item.watched } : row
@@ -69,7 +72,7 @@ export const MediaPlayerPlaylist: React.FC<Props> = ({ ratingKey, onBack, onOpen
                     <button
                         type="button"
                         onClick={onBack}
-                        className="mb-2 inline-flex items-center gap-2 text-sm font-bold text-muted hover:text-text"
+                        className="player-page-back mb-2 inline-flex items-center gap-2 text-sm font-bold text-muted hover:text-text"
                     >
                         <ArrowLeft className="h-4 w-4" />
                         {t('mediaPlayerPage.back')}
@@ -80,12 +83,12 @@ export const MediaPlayerPlaylist: React.FC<Props> = ({ ratingKey, onBack, onOpen
                 <DiscoverGridSizeSelect value={gridSize} onChange={setGridSize} />
             </div>
 
-            {loading ? (
+            {loading && !tvShell ? (
                 <PosterGridSkeleton
                     className={upgraderPosterGridClass(gridSize)}
                     style={upgraderPosterGridStyle(gridSize)}
                 />
-            ) : error ? (
+            ) : loading ? null : error ? (
                 <div className={discoveryTheme.emptyState}>
                     <p className={discoveryTheme.emptyTitle}>{error}</p>
                 </div>

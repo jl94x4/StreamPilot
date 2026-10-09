@@ -62,19 +62,80 @@ export const PosterRowSkeleton: React.FC<{ count?: number; aspect?: '2/3' | 'squ
     cardWidth = 'w-full min-w-0',
 }) => {
     const { carousel: defaultCount } = useSkeletonLayoutCounts();
+    const tv = typeof document !== 'undefined' && document.documentElement.dataset.tv === '1';
+    const itemCount = Math.max(count ?? defaultCount, tv ? 12 : 4);
 
     return (
-        <div
-            className="grid w-full gap-4 py-2 px-2"
-            style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))' }}
-            aria-hidden="true"
-        >
-            {Array.from({ length: count ?? defaultCount }, (_, i) => (
-                <PosterCardSkeleton key={i} aspect={aspect} variant="home" className={cardWidth} />
+        <div className="flex w-full gap-4 overflow-hidden py-2" aria-hidden="true">
+            {Array.from({ length: itemCount }, (_, i) => (
+                <PosterCardSkeleton
+                    key={i}
+                    aspect={aspect}
+                    variant="home"
+                    className={cardWidth === 'w-full min-w-0' ? 'w-[170px] shrink-0 sm:w-[196px]' : `${cardWidth} shrink-0`}
+                />
             ))}
         </div>
     );
 };
+
+/** Phone/web media-player home — matches the loaded 16:9 hero + inset poster rails. TV uses DiscoverHomeRowSkeleton. */
+export const PlayerHomeHeroSkeleton: React.FC = () => (
+    <div
+        className="player-home-hero relative overflow-hidden rounded-[1.35rem] border border-white/[0.08] bg-[#07090d] max-md:rounded-[1.1rem]"
+        aria-hidden="true"
+    >
+        <div className="player-home-hero-stage relative aspect-[21/9] min-h-[280px] max-h-[460px] w-full overflow-hidden sm:min-h-[340px] sm:max-h-[520px] max-md:aspect-[16/9] max-md:min-h-[12.25rem] max-md:max-h-[34vh]">
+            <div className={`${pulse} absolute inset-0 rounded-none`} />
+            <div className="absolute inset-0 z-10 flex flex-col justify-end gap-2.5 p-4 sm:p-6 max-md:gap-2 max-md:p-3.5">
+                <SkeletonBlock className="h-11 w-[min(68%,16rem)] rounded-md max-md:h-10 max-md:w-[min(70%,14rem)]" />
+                <div className="flex items-center gap-2.5">
+                    <SkeletonBlock className="h-10 w-[5.75rem] rounded-full" />
+                    <SkeletonBlock className="h-10 w-[4.75rem] rounded-full" />
+                </div>
+                <SkeletonBlock className="mt-1 h-1 w-16 rounded-full" />
+            </div>
+        </div>
+    </div>
+);
+
+export const PlayerHomeRowSkeleton: React.FC<{ count?: number }> = ({ count = 6 }) => (
+    <div className="flex min-w-0 max-w-full flex-col gap-2" aria-hidden="true">
+        <div className="player-row-header flex min-w-0 items-center gap-3">
+            <span className="player-row-header-mark shrink-0" aria-hidden />
+            <SkeletonBlock className="h-[1.05rem] w-36 max-w-[55%] rounded" />
+        </div>
+        <div className="flex w-full gap-4 overflow-hidden py-2">
+            {Array.from({ length: count }, (_, i) => (
+                <div
+                    key={i}
+                    className="player-home-skel-card flex w-[min(40vw,10rem)] shrink-0 flex-col gap-2 md:w-[10.625rem]"
+                >
+                    <SkeletonBlock className="aspect-[2/3] w-full rounded-xl border border-white/5" />
+                    <SkeletonBlock className="h-3 w-3/4 rounded" />
+                </div>
+            ))}
+        </div>
+    </div>
+);
+
+export const PlayerHomeSkeleton: React.FC = () => (
+    <div className="tv-poster-rows flex w-full flex-col gap-6 pb-8" aria-busy="true" aria-label="Loading home">
+        <PlayerHomeHeroSkeleton />
+        <div className="flex flex-col gap-2" aria-hidden="true">
+            <SkeletonBlock className="h-2.5 w-24 rounded" />
+            <div className="flex gap-2 overflow-hidden">
+                {Array.from({ length: 5 }, (_, i) => (
+                    <SkeletonBlock key={i} className="h-9 w-[7.25rem] shrink-0 rounded-full" />
+                ))}
+            </div>
+        </div>
+        <PlayerHomeRowSkeleton />
+        <PlayerHomeRowSkeleton />
+        <PlayerHomeRowSkeleton />
+        <PlayerHomeRowSkeleton />
+    </div>
+);
 
 export const DiscoverHomeRowSkeleton: React.FC<{
     showViewAll?: boolean;

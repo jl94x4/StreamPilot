@@ -10,6 +10,7 @@ export type PersonProfileHeaderPerson = {
     deathday?: string | null;
     knownForDepartment?: string | null;
     placeOfBirth?: string | null;
+    placeOfDeath?: string | null;
     profilePath?: string | null;
 };
 

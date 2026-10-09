@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { leftOpaqueInset, topOpaqueInset } from './logoTrim.ts';
+import { findStudioMark, leftOpaqueInset, topOpaqueInset } from './logoTrim.ts';
 
 const rgba = (width, height, paint) => {
     const data = new Uint8ClampedArray(width * height * 4);
@@ -40,6 +40,31 @@ test('leftOpaqueInset is 0 for an empty image', () => {
 test('topOpaqueInset measures blank PNG rows as a fraction of height', () => {
     const data = rgba(10, 20, (_x, y) => y >= 4);
     assert.ok(Math.abs(topOpaqueInset(data, 10, 20) - 0.2) < 0.001);
+});
+
+test('findStudioMark detects a narrow studio script above a wider title', () => {
+    const data = rgba(80, 40, (x, y) => (
+        (y >= 4 && y < 10 && x >= 30 && x < 50)
+        || (y >= 18 && y < 34 && x >= 8 && x < 72)
+    ));
+    const mark = findStudioMark(data, 80, 40);
+    assert.ok(mark);
+    assert.ok(mark.markTop < 0.2);
+    assert.ok(mark.markBottom < mark.titleTop);
+    assert.ok(mark.markRight - mark.markLeft < 0.4);
+});
+
+test('findStudioMark ignores a two-line title of similar width', () => {
+    const data = rgba(80, 40, (x, y) => (
+        (y >= 4 && y < 14 && x >= 8 && x < 72)
+        || (y >= 22 && y < 34 && x >= 10 && x < 70)
+    ));
+    assert.equal(findStudioMark(data, 80, 40), null);
+});
+
+test('findStudioMark ignores a title with no mark above it', () => {
+    const data = rgba(40, 20, (x, y) => y >= 6 && y < 16 && x >= 4 && x < 36);
+    assert.equal(findStudioMark(data, 40, 20), null);
 });
 
 test('leftOpaqueInset treats letterbox-black JPEG padding as blank', () => {

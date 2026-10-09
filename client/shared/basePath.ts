@@ -74,6 +74,91 @@ const withPlexClientAccessToken = (url: string): string => {
     }
 };
 
+const directPlexImageUrl = (path: string): string => {
+    if (typeof window === 'undefined' || !window.__PLEX_CLIENT__) return '';
+    try {
+        const mode = String(localStorage.getItem('plexClient.authMode') || '').trim();
+        if (mode === 'portal') return '';
+        if (mode !== 'plex' && localStorage.getItem('plexClient.portalBaseUrl')) return '';
+    } catch {
+        return '';
+    }
+    const queryAt = path.indexOf('?');
+    const pathname = queryAt >= 0 ? path.slice(0, queryAt) : path;
+    if (pathname !== '/api/plex/image') return '';
+    const params = new URLSearchParams(queryAt >= 0 ? path.slice(queryAt + 1) : '');
+    const imagePath = String(params.get('path') || '').trim();
+    if (!imagePath) return '';
+    let server: { uri?: string; accessToken?: string } | null = null;
+    try {
+        server = JSON.parse(localStorage.getItem('plexClient.plexServer') || '');
+    } catch {
+        server = null;
+    }
+    const uri = String(server?.uri || '').replace(/\/+$/, '');
+    const token = String(server?.accessToken || '').trim();
+    if (!uri || !token) return '';
+    const url = new URL('/photo/:/transcode', `${uri}/`);
+    url.searchParams.set('width', params.get('width') || '300');
+    url.searchParams.set('height', params.get('height') || '450');
+    url.searchParams.set('minSize', '1');
+    url.searchParams.set('upscale', '0');
+    url.searchParams.set('quality', params.get('quality') || '60');
+    url.searchParams.set('url', imagePath.startsWith('/') ? imagePath : `/${imagePath}`);
+    url.searchParams.set('X-Plex-Token', token);
+    return url.toString();
+};
+
+/** High-resolution Plex photo transcode for a library path or a public artwork URL. */
+export const directPlexTranscodeUrl = (
+    imageUrl: string,
+    width: number,
+    height: number,
+    quality = -1,
+    options?: { upscale?: boolean; format?: string },
+): string => {
+    const source = String(imageUrl || '').trim();
+    if (!source || typeof window === 'undefined' || !window.__PLEX_CLIENT__) return '';
+    const applySize = (params: URLSearchParams) => {
+        params.set('width', String(width));
+        params.set('height', String(height));
+        params.set('minSize', '1');
+        params.set('upscale', options?.upscale ? '1' : '0');
+        params.set('quality', String(quality));
+        if (options?.format) params.set('format', options.format);
+    };
+    if (/\/photo\/:\/transcode/i.test(source)) {
+        try {
+            const parsed = new URL(source);
+            applySize(parsed.searchParams);
+            return parsed.toString();
+        } catch {
+            return '';
+        }
+    }
+    try {
+        const mode = String(localStorage.getItem('plexClient.authMode') || '').trim();
+        if (mode === 'portal') return '';
+        if (mode !== 'plex' && localStorage.getItem('plexClient.portalBaseUrl')) return '';
+    } catch {
+        return '';
+    }
+    let server: { uri?: string; accessToken?: string } | null = null;
+    try {
+        server = JSON.parse(localStorage.getItem('plexClient.plexServer') || '');
+    } catch {
+        server = null;
+    }
+    const uri = String(server?.uri || '').replace(/\/+$/, '');
+    const token = String(server?.accessToken || '').trim();
+    if (!uri || !token) return '';
+    const url = new URL('/photo/:/transcode', `${uri}/`);
+    applySize(url.searchParams);
+    url.searchParams.set('url', /^https?:\/\//i.test(source) || source.startsWith('/') ? source : `/${source}`);
+    url.searchParams.set('X-Plex-Token', token);
+    return url.toString();
+};
+
 /** Prefix an app-root path with the configured base path (or absolute portal URL in plex-client). */
 export const portalUrl = (path: string): string => {
     if (!path) return path;
@@ -81,6 +166,8 @@ export const portalUrl = (path: string): string => {
         return withPlexClientAccessToken(path);
     }
     const normalized = path.startsWith('/') ? path : `/${path}`;
+    const directImage = directPlexImageUrl(normalized);
+    if (directImage) return directImage;
     const absoluteOrigin = plexClientPortalOrigin();
     let built = '';
     if (absoluteOrigin) {

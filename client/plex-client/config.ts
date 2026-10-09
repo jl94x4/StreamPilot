@@ -14,11 +14,12 @@ declare global {
         /** Defined in plex-client/index.html — CSS-zoom to ~1920 desktop density on leanback. */
         __SMP_APPLY_TV_SCALE__?: () => void;
         __SMP_MARK_TV__?: () => void;
+        __SMP_MARK_PHONE__?: () => void;
     }
 }
 
 import { mirrorAuthToNativeStorage } from './authPersistence';
-import { STORAGE_PORTAL, STORAGE_TOKEN } from './configStorageKeys';
+import { STORAGE_AUTH_MODE, STORAGE_PLEX_HOME_USER, STORAGE_PLEX_OWNER_TOKEN, STORAGE_PORTAL, STORAGE_TOKEN } from './configStorageKeys';
 
 /** Desktop-like CSS layout width used by native TV density (MainActivity). */
 export const TV_LAYOUT_WIDTH = 1920;
@@ -113,10 +114,49 @@ export const clearPlexClientSession = () => {
 export const clearPlexClientPortal = () => {
     writeStoredSessionToken('');
     writeStoredPortalBaseUrl('');
+    try {
+        localStorage.removeItem(STORAGE_PLEX_OWNER_TOKEN);
+        localStorage.removeItem(STORAGE_PLEX_HOME_USER);
+        void mirrorAuthToNativeStorage(STORAGE_PLEX_OWNER_TOKEN, '');
+        void mirrorAuthToNativeStorage(STORAGE_PLEX_HOME_USER, '');
+    } catch {
+        /* ignore */
+    }
+};
+
+export type PlexClientAuthMode = 'plex' | 'portal';
+
+export const readAuthMode = (): PlexClientAuthMode | '' => {
+    try {
+        const value = String(localStorage.getItem(STORAGE_AUTH_MODE) || '').trim();
+        if (value === 'plex' || value === 'portal') return value;
+    } catch {
+        /* ignore */
+    }
+    return '';
+};
+
+export const writeAuthMode = (mode: PlexClientAuthMode) => {
+    try {
+        localStorage.setItem(STORAGE_AUTH_MODE, mode);
+        void mirrorAuthToNativeStorage(STORAGE_AUTH_MODE, mode);
+    } catch {
+        /* ignore */
+    }
+};
+
+/** Direct Plex account, with no StreamPilot portal in the middle. */
+export const isPlexDirectMode = (): boolean => {
+    if (!isPlexClientApp()) return false;
+    const mode = readAuthMode();
+    if (mode === 'portal') return false;
+    if (mode === 'plex') return true;
+    return !readStoredPortalBaseUrl();
 };
 
 export const getPortalBaseUrl = (): string => {
     if (typeof window === 'undefined') return '';
+    if (isPlexDirectMode()) return '';
     const stored = readStoredPortalBaseUrl();
     if (stored) return stored;
     const fromWindow = trimSlash(window.__PLEX_CLIENT__?.portalBaseUrl || '');
@@ -155,6 +195,8 @@ export const isAndroidTvUi = (): boolean => {
 
 const markTvUi = () => {
     try {
+        delete document.documentElement.dataset.phone;
+        delete document.documentElement.dataset.phoneNative;
         document.documentElement.dataset.tv = '1';
         document.documentElement.dataset.plexClient = '1';
         window.__PLEX_CLIENT__ = {
@@ -167,6 +209,37 @@ const markTvUi = () => {
         } else if (typeof window.__SMP_APPLY_TV_SCALE__ === 'function') {
             window.__SMP_APPLY_TV_SCALE__();
         }
+    } catch {
+        /* ignore */
+    }
+};
+
+/** Phone / tablet touch UI — not Android TV. Independent of CSS viewport width. */
+export const isPhoneUi = (): boolean => {
+    if (typeof window === 'undefined') return false;
+    if (isAndroidTvUi()) return false;
+    try {
+        if (document.documentElement?.dataset?.phone === '1') return true;
+        if (window.matchMedia('(hover: none) and (pointer: coarse)').matches) return true;
+        if (window.matchMedia('(max-width: 767px)').matches) return true;
+        const ua = navigator.userAgent || '';
+        if (/Android/i.test(ua) && (/Mobile/i.test(ua) || /; wv\)/.test(ua))) return true;
+        if (/iPhone|iPod/i.test(ua)) return true;
+    } catch {
+        /* ignore */
+    }
+    return false;
+};
+
+export const markPhoneUi = () => {
+    if (typeof window === 'undefined' || isAndroidTvUi()) return;
+    try {
+        if (typeof window.__SMP_MARK_PHONE__ === 'function') {
+            window.__SMP_MARK_PHONE__();
+            return;
+        }
+        if (isPhoneUi()) document.documentElement.dataset.phone = '1';
+        else delete document.documentElement.dataset.phone;
     } catch {
         /* ignore */
     }
@@ -191,6 +264,7 @@ export const detectAndApplyTvUi = async (): Promise<boolean> => {
     }
     const tv = isAndroidTvUi();
     if (tv) markTvUi();
+    else markPhoneUi();
     return tv;
 };
 
@@ -208,6 +282,7 @@ export const bootstrapPlexClientConfig = () => {
     try {
         document.documentElement.dataset.plexClient = '1';
         if (window.__PLEX_CLIENT__.isTv) markTvUi();
+        else markPhoneUi();
     } catch {
         /* ignore */
     }

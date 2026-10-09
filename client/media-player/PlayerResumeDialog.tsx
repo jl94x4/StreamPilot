@@ -58,7 +58,7 @@ export const PlayerResumeDialog: React.FC<Props> = ({
                 aria-hidden
             />
             <div
-                className={`player-resume-dialog-enter relative z-10 w-full overflow-hidden rounded-3xl border border-white/10 bg-[#5a5e66] shadow-[0_28px_90px_rgba(0,0,0,0.55)] ${
+                className={`player-resume-dialog-enter player-popup-surface relative z-10 w-full overflow-hidden rounded-3xl border border-white/10 shadow-[0_28px_90px_rgba(0,0,0,0.55)] ${
                     tvShell ? 'max-w-2xl' : 'max-w-lg'
                 }`}
             >
@@ -74,7 +74,7 @@ export const PlayerResumeDialog: React.FC<Props> = ({
                                     />
                                 </div>
                                 {progress > 0 ? (
-                                    <div className="absolute inset-x-2 bottom-2 h-1 overflow-hidden rounded-full bg-black/55">
+                                    <div className="player-watch-bar absolute inset-x-2 bottom-2 h-1 overflow-hidden rounded-full bg-black/55">
                                         <div
                                             className="h-full rounded-full bg-gradient-to-r from-amber-400/90 to-plex"
                                             style={{ width: `${progress}%` }}
@@ -111,7 +111,7 @@ export const PlayerResumeDialog: React.FC<Props> = ({
                             </p>
                             {durationMs > 0 ? (
                                 <div className="mt-5">
-                                    <div className="h-2 overflow-hidden rounded-full bg-white/[0.08]">
+                                    <div className="player-watch-bar h-1.5 overflow-hidden rounded-full bg-white/[0.08]">
                                         <div
                                             className="h-full rounded-full bg-gradient-to-r from-amber-400/85 via-plex to-plex"
                                             style={{ width: `${progress}%` }}

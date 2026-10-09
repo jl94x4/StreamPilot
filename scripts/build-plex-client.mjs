@@ -20,10 +20,14 @@ const portalUrl = String(process.env.PLEX_CLIENT_PORTAL_URL || '').replace(/\/+$
 const injectPortal = process.env.PLEX_CLIENT_STORE_BUILD === '1' ? '' : portalUrl;
 
 const html = fs.readFileSync(path.join(root, 'plex-client', 'index.html'), 'utf8');
-const injected = html.replace(
-    "portalBaseUrl: ''",
-    `portalBaseUrl: ${JSON.stringify(injectPortal)}`,
-);
+const assetStamp = Date.now().toString(36);
+const injected = html
+    .replace(
+        "portalBaseUrl: ''",
+        `portalBaseUrl: ${JSON.stringify(injectPortal)}`,
+    )
+    .replace('./tailwind.css"', `./tailwind.css?v=${assetStamp}"`)
+    .replace('./plex-client.js"', `./plex-client.js?v=${assetStamp}"`);
 fs.writeFileSync(path.join(outDir, 'index.html'), injected);
 
 // Reuse portal Tailwind build when present; otherwise leave a minimal fallback.
@@ -42,6 +46,21 @@ if (fs.existsSync(twSrc)) {
     }
 }
 
+const logoSrc = path.join(root, 'static', 'logo.png');
+if (fs.existsSync(logoSrc)) {
+    fs.copyFileSync(logoSrc, path.join(outDir, 'logo.png'));
+}
+
+const fontsSrc = path.join(root, 'plex-client', 'fonts');
+const fontsDest = path.join(outDir, 'fonts');
+if (fs.existsSync(fontsSrc)) {
+    fs.mkdirSync(fontsDest, { recursive: true });
+    for (const name of fs.readdirSync(fontsSrc)) {
+        const from = path.join(fontsSrc, name);
+        if (fs.statSync(from).isFile()) fs.copyFileSync(from, path.join(fontsDest, name));
+    }
+}
+
 await esbuild.build({
     entryPoints: [path.join(root, 'client', 'plex-client', 'main.tsx')],
     bundle: true,
@@ -54,6 +73,7 @@ await esbuild.build({
     sourcemap: true,
     define: {
         'process.env.PLEX_CLIENT_PORTAL_URL': JSON.stringify(injectPortal),
+        'process.env.PLEX_CLIENT_TMDB_API_KEY': JSON.stringify(String(process.env.PLEX_CLIENT_TMDB_API_KEY || '').trim()),
         'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'production'),
     },
     nodePaths: [path.join(root, 'plex-client', 'node_modules'), path.join(root, 'node_modules')],

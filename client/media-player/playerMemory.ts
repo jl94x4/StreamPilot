@@ -382,7 +382,7 @@ export const requestPlayerHomeReset = () => {
 const PLAYER_HOME_CACHE_TTL_MS = 90_000;
 /** Still paint from disk after a cold TV launch — refresh in background. */
 const PLAYER_HOME_CACHE_MAX_AGE_MS = 30 * 60_000;
-const PLAYER_HOME_CACHE_KEY = 'portal-media-player-home-cache-v2';
+const PLAYER_HOME_CACHE_KEY = 'portal-media-player-home-cache-v10';
 let playerHomeCache: { at: number; data: PlayerHome } | null = null;
 
 const readPersistedHomeCache = (): { at: number; data: PlayerHome } | null => {
@@ -455,6 +455,47 @@ export const playerHomeHasRows = (data: PlayerHome | null | undefined) => !!data
     || (data.continueWatching || []).length > 0
     || (data.recentByLibrary || []).some((row) => row.items?.length)
 );
+
+const homeHubKey = (hub: { identifier?: string; hubKey?: string | null; title?: string }) => (
+    String(hub.identifier || hub.hubKey || hub.title || '').trim().toLowerCase()
+);
+
+const isBecauseHomeHub = (hub: { identifier?: string; title?: string }) => (
+    /^because:/i.test(String(hub.identifier || ''))
+    || /because you watched/i.test(String(hub.title || ''))
+);
+
+/** Keep every full-home hub, and hold onto any extra rows the first paint already had. */
+export const mergePlayerHomePayloads = (full: PlayerHome, partial: PlayerHome): PlayerHome => {
+    const byKey = new Map<string, NonNullable<PlayerHome['hubs']>[number]>();
+    const order: string[] = [];
+    const add = (hub: NonNullable<PlayerHome['hubs']>[number], replaceIfRicher: boolean) => {
+        const key = homeHubKey(hub);
+        if (!key) return;
+        const prev = byKey.get(key);
+        if (!prev) {
+            order.push(key);
+            byKey.set(key, hub);
+            return;
+        }
+        const prevN = prev.items?.length || 0;
+        const nextN = hub.items?.length || 0;
+        if (replaceIfRicher ? nextN >= prevN : nextN > prevN) byKey.set(key, hub);
+    };
+    const fullCore = (full.hubs || []).filter((hub) => !isBecauseHomeHub(hub));
+    const partialCore = (partial.hubs || []).filter((hub) => !isBecauseHomeHub(hub));
+    const primary = partialCore.length > fullCore.length ? partial : full;
+    const extra = primary === full ? partial : full;
+    (primary.hubs || []).forEach((hub) => add(hub, primary === full));
+    (extra.hubs || []).forEach((hub) => add(hub, extra === full));
+    (full.hubs || []).filter(isBecauseHomeHub).forEach((hub) => add(hub, true));
+    return {
+        ...partial,
+        ...full,
+        hubs: order.map((key) => byKey.get(key)!),
+        partial: false,
+    };
+};
 
 export const readPlayerHomeCache = (): PlayerHome | null => {
     if (!playerHomeCache) {
@@ -558,18 +599,25 @@ export const isPlayerHomeCacheFresh = (maxAgeMs = PLAYER_HOME_CACHE_TTL_MS) => (
 const PLAYER_ITEM_CACHE_TTL_MS = 120_000;
 const playerItemCache = new Map<string, { at: number; data: PlayerItemPage }>();
 let pendingItemSeed: PlayerItem | null = null;
+const itemNavSeeds = new Map<string, PlayerItem>();
 
 /** Soft-open overview with poster metadata before the network round-trip finishes. */
 export const seedPlayerItemNav = (item: PlayerItem | null | undefined) => {
     if (!item?.ratingKey) return;
     pendingItemSeed = item;
+    itemNavSeeds.set(String(item.ratingKey), item);
+    if (itemNavSeeds.size > 40) {
+        const first = itemNavSeeds.keys().next().value;
+        if (first) itemNavSeeds.delete(first);
+    }
 };
 
 export const takePlayerItemSeed = (ratingKey: string): PlayerItem | null => {
+    const key = String(ratingKey || '');
     const seed = pendingItemSeed;
     pendingItemSeed = null;
-    if (!seed || String(seed.ratingKey) !== String(ratingKey)) return null;
-    return seed;
+    if (seed && String(seed.ratingKey) === key) return seed;
+    return itemNavSeeds.get(key) || null;
 };
 
 export const readPlayerItemCache = (ratingKey: string): PlayerItemPage | null => {
@@ -591,6 +639,40 @@ export const writePlayerItemCache = (ratingKey: string, data: PlayerItemPage) =>
     if (playerItemCache.size <= 48) return;
     const oldest = playerItemCache.keys().next().value;
     if (oldest && oldest !== key) playerItemCache.delete(oldest);
+};
+
+/** Paint a just-stopped offset onto the open title and any season list that contains it. */
+export const notePlayerItemProgress = (ratingKey: string, viewOffsetMs: number, durationMs = 0, watched?: boolean) => {
+    const key = String(ratingKey || '');
+    if (!key) return;
+    const offset = Math.max(0, Math.floor(Number(viewOffsetMs) || 0));
+    const duration = Math.max(0, Math.floor(Number(durationMs) || 0));
+    const finished = offset <= 0;
+    const nextWatched = watched != null ? watched : finished;
+    const paint = (row: PlayerItem): PlayerItem => {
+        if (String(row?.ratingKey || '') !== key) return row;
+        return {
+            ...row,
+            viewOffsetMs: offset,
+            durationMs: row.durationMs || duration || null,
+            watched: nextWatched,
+        };
+    };
+    for (const [pageKey, row] of playerItemCache) {
+        const data = row.data;
+        const item = data.item ? paint(data.item) : data.item;
+        const children = (data.children || []).map(paint);
+        const onDeck = data.onDeck ? paint(data.onDeck) : data.onDeck;
+        const prevChildren = data.children || [];
+        const changed = item !== data.item
+            || onDeck !== data.onDeck
+            || children.some((child, index) => child !== prevChildren[index]);
+        if (!changed) continue;
+        playerItemCache.set(pageKey, {
+            at: Date.now(),
+            data: { ...data, item, children, onDeck },
+        });
+    }
 };
 
 type LibraryHomePayload = {

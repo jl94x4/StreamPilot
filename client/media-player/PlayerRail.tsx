@@ -1,8 +1,8 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Carousel, DiscoverSectionHeader, discoverRowCardWidthClass, posterGridCardWidthStyle, posterGridScaleRem, useDiscoverI18n } from './host';
 import { PlayerPosterCard } from './PlayerPosterCard';
 import { PlayerViewMoreCard } from './PlayerViewMoreCard';
-import { playerCardImageUrl, prefetchPlayerImages } from './playerUtils';
+import { isMusicPlayerItem, playerCardImageUrl, prefetchPlayerImages, resizePlexArtUrl, resolvePlayerCardAspect } from './playerUtils';
 import type { PlayerItem, PlayerPlayOptions } from './types';
 
 const isTvShell = () => {
@@ -35,6 +35,8 @@ export const PlayerRail: React.FC<{
     onViewAll?: () => void;
     viewAllLabel?: string;
     staggerIndex?: number;
+    /** Stable id for TV per-row focus restore (up/down). */
+    rowId?: string;
 }> = ({
     title,
     items,
@@ -55,27 +57,46 @@ export const PlayerRail: React.FC<{
     onViewAll,
     viewAllLabel,
     staggerIndex = 0,
+    rowId,
 }) => {
     const { t } = useDiscoverI18n();
     const tvShell = isTvShell();
     const moreLabel = t('common.viewMore');
-    const eagerCount = tvShell ? 16 : (staggerIndex === 0 ? 8 : 4);
+    const eagerCount = tvShell
+        ? (staggerIndex === 0 ? 12 : staggerIndex <= 2 ? 6 : 2)
+        : (staggerIndex === 0 ? 8 : 4);
+    const tvArmedFloor = staggerIndex === 0 ? 14 : 8;
+    const [armedCount, setArmedCount] = useState(() => (
+        tvShell ? Math.min(items.length, tvArmedFloor) : items.length
+    ));
     useEffect(() => {
-        if (tvShell) return;
-        const urls = items.slice(eagerCount, eagerCount + 8).map((item) => {
-            const cardAspect = aspect
-                || item.cardAspect
-                || (item.type === 'artist' || item.type === 'album' ? 'square' : null)
-                || (item.type === 'episode' ? '16/9' : '2/3');
-            return playerCardImageUrl(item.thumb, cardAspect || '2/3');
+        if (!tvShell) {
+            setArmedCount(items.length);
+            return;
+        }
+        setArmedCount((current) => {
+            if (!items.length) return 0;
+            return Math.min(items.length, Math.max(current, Math.min(tvArmedFloor, items.length)));
         });
-        prefetchPlayerImages(urls, 8);
-    }, [aspect, eagerCount, items, staggerIndex, tvShell]);
+    }, [items.length, tvArmedFloor, tvShell]);
+    useEffect(() => {
+        const take = tvShell ? Math.max(eagerCount, 12) : eagerCount + 8;
+        const urls = items.slice(0, take).map((item) => {
+            const cardAspect = resolvePlayerCardAspect(item, aspect);
+            const raw = playerCardImageUrl(item.thumb, cardAspect);
+            if (cardAspect === 'square') return resizePlexArtUrl(raw, 300, 300);
+            if (cardAspect === '16/9') return resizePlexArtUrl(raw, 426, 240);
+            return raw;
+        });
+        prefetchPlayerImages(urls, take);
+    }, [aspect, eagerCount, items, tvShell]);
 
     if (!items.length) return null;
+    const visibleItems = tvShell ? items.slice(0, Math.max(1, armedCount)) : items;
     return (
         <div
             data-tv-row="1"
+            data-tv-row-id={rowId || `rail:${title}`}
             className="player-rail-enter flex min-w-0 max-w-full flex-col gap-2"
             style={{ animationDelay: `${Math.min(Math.max(staggerIndex, 0), 12) * 55}ms` }}
         >
@@ -85,19 +106,24 @@ export const PlayerRail: React.FC<{
                 viewAllLabel={tvShell ? undefined : viewAllLabel}
             />
             <Carousel posterRow>
-                {items.map((item, idx) => {
-                    const cardAspect = aspect
-                        || item.cardAspect
-                        || (item.type === 'artist' || item.type === 'album' ? 'square' : null)
-                        || (item.type === 'episode' ? '16/9' : '2/3');
+                {visibleItems.map((item, idx) => {
+                    const cardAspect = resolvePlayerCardAspect(item, aspect);
                     const landscape = cardAspect === '16/9';
+                    const square = cardAspect === 'square';
+                    const cardWidth = landscape
+                        ? { width: `${posterGridScaleRem(density) * 1.85}rem` }
+                        : (square && tvShell
+                            ? { width: `${posterGridScaleRem(density) * 1.25}rem` }
+                            : posterGridCardWidthStyle(density));
                     return (
                         <div
                             key={item.ratingKey || `${title}-${idx}`}
-                            className={`${landscape ? '' : discoverRowCardWidthClass(density)} relative z-0 flex-shrink-0 snap-start group hover:z-20 focus-within:z-20`}
-                            style={landscape
-                                ? { width: `${posterGridScaleRem(density) * 1.85}rem` }
-                                : posterGridCardWidthStyle(density)}
+                            className={`${landscape ? 'player-rail-landscape' : square ? 'player-rail-square' : discoverRowCardWidthClass(density)} relative z-0 flex-shrink-0 snap-start group hover:z-20 focus-within:z-20`}
+                            style={cardWidth}
+                            onFocusCapture={() => {
+                                if (!tvShell) return;
+                                setArmedCount((current) => Math.max(current, Math.min(items.length, idx + 5)));
+                            }}
                         >
                             <PlayerPosterCard
                                 item={item}
@@ -121,15 +147,19 @@ export const PlayerRail: React.FC<{
                 })}
                 {tvShell && onViewAll ? (
                     <div
-                        className={`${aspect === '16/9' ? '' : discoverRowCardWidthClass(density)} relative z-0 flex-shrink-0 snap-start`}
+                        className={`${aspect === '16/9' ? 'player-rail-landscape' : aspect === 'square' ? 'player-rail-square' : discoverRowCardWidthClass(density)} relative z-0 flex-shrink-0 snap-start hover:z-20 focus-within:z-20`}
                         style={aspect === '16/9'
                             ? { width: `${posterGridScaleRem(density) * 1.85}rem` }
-                            : posterGridCardWidthStyle(density)}
+                            : (aspect === 'square' && tvShell
+                                ? { width: `${posterGridScaleRem(density) * 1.25}rem` }
+                                : posterGridCardWidthStyle(density))}
                     >
                         <PlayerViewMoreCard
                             label={moreLabel.startsWith('common.') ? 'View More' : moreLabel}
                             title={title}
-                            aspect={aspect === 'square' || aspect === '16/9' ? aspect : '2/3'}
+                            aspect={items.every((row) => isMusicPlayerItem(row) || row.cardAspect === 'square')
+                                ? 'square'
+                                : (aspect === 'square' || aspect === '16/9' ? aspect : '2/3')}
                             onClick={onViewAll}
                         />
                     </div>

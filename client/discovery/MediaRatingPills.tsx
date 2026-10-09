@@ -28,8 +28,14 @@ const RtPopcornIcon: React.FC<{ fresh: boolean }> = ({ fresh }) => (
 );
 
 const TmdbMark: React.FC = () => (
-    <span className="inline-flex h-5 items-center justify-center rounded bg-[#01b4e4] px-1.5 text-[10px] font-black leading-none tracking-tight text-white">
+    <span className="player-rating-mark player-rating-mark-tmdb inline-flex h-5 items-center justify-center rounded bg-[#01b4e4] px-1.5 text-[10px] font-black leading-none tracking-tight text-white">
         TMDB
+    </span>
+);
+
+const TvdbMark: React.FC = () => (
+    <span className="player-rating-mark player-rating-mark-tvdb inline-flex h-5 items-center justify-center rounded bg-[#6cd3a0] px-1.5 text-[10px] font-black leading-none tracking-tight text-black">
+        TVDB
     </span>
 );
 
@@ -37,6 +43,8 @@ type MediaRatingPillsProps = {
     ratings?: CombinedRatings | null;
     tmdbScore?: string | null;
     tmdbUrl?: string | null;
+    tvdbScore?: string | null;
+    tvdbUrl?: string | null;
     /** When false, show scores as static pills (no external links / focus targets). */
     interactive?: boolean;
 };
@@ -45,6 +53,8 @@ export const MediaRatingPills: React.FC<MediaRatingPillsProps> = ({
     ratings,
     tmdbScore,
     tmdbUrl,
+    tvdbScore,
+    tvdbUrl,
     interactive = true,
 }) => {
     const { t } = useDiscoverI18n();
@@ -93,7 +103,7 @@ export const MediaRatingPills: React.FC<MediaRatingPillsProps> = ({
     if (Number.isFinite(rtCritics)) {
         pills.push(renderPill(
             'rt-critics',
-            `${pillClass} ${
+            `${pillClass} ${rtCriticsFresh ? 'player-rating-rt' : 'player-rating-rt-rotten'} ${
                 rtCriticsFresh
                     ? 'border-green-500/30 bg-green-500/10 text-green-100'
                     : 'border-red-500/30 bg-red-500/10 text-red-100'
@@ -112,7 +122,7 @@ export const MediaRatingPills: React.FC<MediaRatingPillsProps> = ({
     if (Number.isFinite(rtAudience)) {
         pills.push(renderPill(
             'rt-audience',
-            `${pillClass} ${
+            `${pillClass} ${rtAudienceFresh ? 'player-rating-popcorn' : 'player-rating-rt-rotten'} ${
                 rtAudienceFresh
                     ? 'border-green-500/30 bg-green-500/10 text-green-100'
                     : 'border-red-500/30 bg-red-500/10 text-red-100'
@@ -131,11 +141,11 @@ export const MediaRatingPills: React.FC<MediaRatingPillsProps> = ({
     if (imdbScoreLabel) {
         pills.push(renderPill(
             'imdb',
-            `${pillClass} border-[#F5C518]/40 bg-[#F5C518]/15 text-white gap-2`,
+            `${pillClass} player-rating-imdb border-[#F5C518]/40 bg-[#F5C518]/15 text-white gap-2`,
             t('ratings.imdb'),
             (
                 <>
-                    <span className="inline-flex h-5 items-center justify-center rounded bg-[#F5C518] px-1.5 text-[10px] font-black leading-none tracking-tight text-black">
+                    <span className="player-rating-mark player-rating-mark-imdb inline-flex h-5 items-center justify-center rounded bg-[#F5C518] px-1.5 text-[10px] font-black leading-none tracking-tight text-black">
                         IMDb
                     </span>
                     <span className="leading-none">{imdbScoreLabel}</span>
@@ -148,7 +158,7 @@ export const MediaRatingPills: React.FC<MediaRatingPillsProps> = ({
     if (tmdbScore) {
         pills.push(renderPill(
             'tmdb',
-            `${pillClass} border-[#01b4e4]/35 bg-[#01b4e4]/10 text-[#b8ecf7]`,
+            `${pillClass} player-rating-tmdb border-[#01b4e4]/35 bg-[#01b4e4]/10 text-[#b8ecf7]`,
             t('ratings.tmdb'),
             (
                 <>
@@ -157,6 +167,21 @@ export const MediaRatingPills: React.FC<MediaRatingPillsProps> = ({
                 </>
             ),
             tmdbUrl,
+        ));
+    }
+
+    if (tvdbScore) {
+        pills.push(renderPill(
+            'tvdb',
+            `${pillClass} player-rating-tvdb border-[#6cd3a0]/40 bg-[#6cd3a0]/15 text-white`,
+            t('ratings.tvdb'),
+            (
+                <>
+                    <TvdbMark />
+                    <span className="leading-none">{tvdbScore}</span>
+                </>
+            ),
+            tvdbUrl,
         ));
     }
 

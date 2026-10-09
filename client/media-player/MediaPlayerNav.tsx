@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
     ChevronRight,
     Film,
+    Bookmark,
     Home,
     LogOut,
     Menu,
@@ -10,7 +11,6 @@ import {
     Settings,
     Tv,
     User,
-    Users,
     X,
 } from 'lucide-react';
 import {
@@ -29,7 +29,7 @@ import { PLAYER_TV_NAV_EVENT } from './paths';
 import type { PlayerProfile, PlayerSection } from './types';
 import { focusTvContent } from '../plex-client/useTvRemote';
 
-type NavPage = 'home' | 'library' | 'settings' | 'other';
+type NavPage = 'home' | 'watchlist' | 'library' | 'settings' | 'other';
 
 type Props = {
     libraries: PlayerSection[];
@@ -39,6 +39,7 @@ type Props = {
     expanded: boolean;
     onToggleExpanded: () => void;
     onHome: () => void;
+    onWatchlist: () => void;
     onSearch: () => void;
     onOpenLibrary: (section: PlayerSection) => void;
     onOpenSettings: () => void;
@@ -76,7 +77,7 @@ const navButtonClass = (active: boolean, expanded: boolean, tv = false) => (
     `flex items-center text-left text-sm font-semibold transition-colors ${
         expanded
             ? 'w-full gap-3 rounded-full px-3.5 py-2.5'
-            : 'h-10 w-10 justify-center rounded-full'
+            : 'h-9 w-9 justify-center rounded-full'
     } ${
         active && expanded && !tv
             ? 'bg-white text-zinc-900 shadow-lg shadow-black/25'
@@ -91,7 +92,7 @@ const tvNavProps = (isTvShell: boolean, expanded: boolean, active = false) => ({
     tabIndex: isTvShell && !expanded ? -1 : 0,
 });
 
-export const MediaPlayerNav: React.FC<Props> = ({
+export const MediaPlayerNav = React.memo(function MediaPlayerNav({
     libraries,
     libraryOrder,
     page,
@@ -99,11 +100,12 @@ export const MediaPlayerNav: React.FC<Props> = ({
     expanded,
     onToggleExpanded,
     onHome,
+    onWatchlist,
     onSearch,
     onOpenLibrary,
     onOpenSettings,
     offline = false,
-}) => {
+}: Props) {
     const { t } = useDiscoverI18n();
     const [mobileOpen, setMobileOpen] = useState(false);
     const [profile, setProfile] = useState<PlayerProfile | null>(null);
@@ -253,13 +255,15 @@ export const MediaPlayerNav: React.FC<Props> = ({
         }
     };
 
-    const renderNav = (showLabels: boolean, desktop = false) => (
+    const renderNav = (showLabels: boolean, desktop = false) => {
+        // Collapsed: Home / Search / Settings / avatar only. Libraries + logout appear when expanded.
+        const compact = !showLabels;
+        return (
         <nav className={`flex max-h-full min-h-0 flex-col ${showLabels ? 'gap-3 px-2.5 py-3' : 'items-center gap-1.5 px-1.5 py-2.5'}`}>
-            {desktop ? (
+            {desktop && !isTvShell ? (
                 <button
                     type="button"
-                    tabIndex={isTvShell ? -1 : undefined}
-                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white/80 hover:bg-white/10 hover:text-white"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white/80 hover:bg-white/10 hover:text-white"
                     onClick={onToggleExpanded}
                     title={expanded ? t('mediaPlayerPage.collapseNav') : t('mediaPlayerPage.expandNav')}
                     aria-label={expanded ? t('mediaPlayerPage.collapseNav') : t('mediaPlayerPage.expandNav')}
@@ -275,7 +279,16 @@ export const MediaPlayerNav: React.FC<Props> = ({
                     {t('mediaPlayerPage.offlineBadge')}
                 </div>
             ) : null}
-            {/* Home → Search → libraries → Settings → profile (TV focus order). */}
+            {offline && compact ? (
+                <div
+                    className="mb-0.5 flex h-7 w-7 items-center justify-center rounded-full border border-amber-400/30 bg-amber-500/15"
+                    title={t('mediaPlayerPage.offlineBadge')}
+                    aria-label={t('mediaPlayerPage.offlineBadge')}
+                    aria-live="polite"
+                >
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+                </div>
+            ) : null}
             <div className={`flex shrink-0 flex-col ${showLabels ? 'gap-1' : 'items-center gap-1'}`}>
                 <button
                     type="button"
@@ -289,6 +302,16 @@ export const MediaPlayerNav: React.FC<Props> = ({
                 </button>
                 <button
                     type="button"
+                    {...tvNavProps(isTvShell, expanded, page === 'watchlist')}
+                    className={navButtonClass(page === 'watchlist', showLabels, isTvShell)}
+                    onClick={() => go(onWatchlist)}
+                    title={t('mediaPlayerPage.navWatchlist')}
+                >
+                    <Bookmark className="h-4 w-4 shrink-0" />
+                    {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.navWatchlist')}</span> : null}
+                </button>
+                <button
+                    type="button"
                     {...tvNavProps(isTvShell, expanded, false)}
                     className={navButtonClass(false, showLabels, isTvShell)}
                     onClick={() => go(onSearch)}
@@ -299,19 +322,21 @@ export const MediaPlayerNav: React.FC<Props> = ({
                 </button>
             </div>
 
-            {orderedLibraries.length ? (
-                <div className={`flex min-h-0 flex-col overflow-hidden ${showLabels ? 'gap-1' : 'items-center gap-1'}`}>
-                    {showLabels ? (
-                        <div className="flex shrink-0 items-center gap-2 px-3 pb-1 pt-1">
-                            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/40">
-                                {t('mediaPlayerPage.navLibraries')}
-                            </p>
-                            <div className="h-px min-w-0 flex-1 bg-white/10" />
-                        </div>
-                    ) : (
-                        <div className="my-1 h-px w-6 shrink-0 bg-white/15" />
-                    )}
-                    <div className={`min-h-0 overflow-y-auto hide-scrollbar ${showLabels ? 'flex flex-col gap-1' : 'flex flex-col items-center gap-1'}`}>
+            {showLabels && orderedLibraries.length ? (
+                <div
+                    data-tv-nav-libraries="1"
+                    className="flex min-h-0 flex-1 flex-col gap-1"
+                >
+                    <div className="flex shrink-0 items-center gap-2 px-3 pb-1 pt-1">
+                        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/40">
+                            {t('mediaPlayerPage.navLibraries')}
+                        </p>
+                        <div className="h-px min-w-0 flex-1 bg-white/10" />
+                    </div>
+                    <div
+                        data-tv-nav-libraries-scroll="1"
+                        className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto hide-scrollbar px-1 py-0.5"
+                    >
                         {orderedLibraries.map((section) => {
                             const Icon = libraryIcon(section.type);
                             const active = page === 'library' && String(activeLibraryKey) === String(section.key);
@@ -325,7 +350,7 @@ export const MediaPlayerNav: React.FC<Props> = ({
                                     title={section.title}
                                 >
                                     <Icon className="h-4 w-4 shrink-0" />
-                                    {showLabels ? <span className="player-nav-label min-w-0 truncate">{section.title}</span> : null}
+                                    <span className="player-nav-label min-w-0 truncate">{section.title}</span>
                                 </button>
                             );
                         })}
@@ -333,8 +358,10 @@ export const MediaPlayerNav: React.FC<Props> = ({
                 </div>
             ) : null}
 
-            <div className={`flex shrink-0 flex-col ${showLabels ? 'gap-1 border-t border-white/10 pt-3' : 'items-center gap-1 pt-1'}`}>
-                {!showLabels ? <div className="mb-1 h-px w-6 bg-white/15" /> : null}
+            <div className={`flex shrink-0 flex-col ${
+                showLabels ? 'gap-1 border-t border-white/10 pt-3' : 'items-center gap-1 pt-1'
+            }`}>
+                {compact ? <div className="mb-1 h-px w-5 bg-white/15" /> : null}
                 <button
                     type="button"
                     {...tvNavProps(isTvShell, expanded, page === 'settings')}
@@ -345,19 +372,7 @@ export const MediaPlayerNav: React.FC<Props> = ({
                     <Settings className="h-4 w-4 shrink-0" />
                     {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.navSettings')}</span> : null}
                 </button>
-                {homeSwitchAvailable ? (
-                    <button
-                        type="button"
-                        {...tvNavProps(isTvShell, expanded, false)}
-                        className={navButtonClass(false, showLabels, isTvShell)}
-                        onClick={() => { void openHomeSwitcher(); }}
-                        title={t('mediaPlayerPage.switchUser')}
-                    >
-                        <Users className="h-4 w-4 shrink-0" />
-                        {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.switchUser')}</span> : null}
-                    </button>
-                ) : null}
-                {isPlexClient ? (
+                {showLabels && isPlexClient ? (
                     <button
                         type="button"
                         {...tvNavProps(isTvShell, expanded, false)}
@@ -366,10 +381,10 @@ export const MediaPlayerNav: React.FC<Props> = ({
                         title={t('mediaPlayerPage.logOut')}
                     >
                         <LogOut className="h-4 w-4 shrink-0" />
-                        {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.logOut')}</span> : null}
+                        <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.logOut')}</span>
                     </button>
                 ) : null}
-                {!isTvShell && !isPlexClient ? (
+                {showLabels && !isTvShell && !isPlexClient ? (
                     <button
                         type="button"
                         {...tvNavProps(isTvShell, expanded, false)}
@@ -378,25 +393,27 @@ export const MediaPlayerNav: React.FC<Props> = ({
                         title={t('mediaPlayerPage.exitToPortal')}
                     >
                         <LogOut className="h-4 w-4 shrink-0" />
-                        {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.exitToPortal')}</span> : null}
+                        <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.exitToPortal')}</span>
                     </button>
                 ) : null}
                 <button
                     type="button"
-                    {...tvNavProps(isTvShell, expanded, page === 'settings')}
+                    {...tvNavProps(isTvShell, expanded, false)}
                     className={showLabels
                         ? 'mt-1 flex min-w-0 w-full items-center gap-3 rounded-full px-2 py-1.5 text-left hover:bg-white/10'
-                        : 'flex h-10 w-10 items-center justify-center rounded-full hover:bg-white/10'}
-                    onClick={() => go(onOpenSettings)}
-                    title={profile?.username
-                        ? t('mediaPlayerPage.signedInAs', { name: profile.username })
-                        : t('mediaPlayerPage.navSettings')}
+                        : 'flex h-9 w-9 items-center justify-center rounded-full hover:bg-white/10'}
+                    onClick={() => { void openHomeSwitcher(); }}
+                    title={t('mediaPlayerPage.switchUser')}
                 >
-                    <NavAvatar key={profile?.thumb || profile?.username || 'avatar'} profile={profile} sizeClass={showLabels ? 'h-9 w-9' : 'h-8 w-8'} />
+                    <NavAvatar
+                        key={profile?.thumb || profile?.username || 'avatar'}
+                        profile={profile}
+                        sizeClass={showLabels ? 'h-9 w-9' : 'h-7 w-7'}
+                    />
                     {showLabels ? (
                         <>
                             <span className="min-w-0 flex-1 truncate text-sm font-bold text-white">
-                                {profile?.username || t('mediaPlayerPage.navSettings')}
+                                {t('mediaPlayerPage.switchUser')}
                             </span>
                             <ChevronRight className="h-4 w-4 shrink-0 text-white/40" />
                         </>
@@ -404,48 +421,41 @@ export const MediaPlayerNav: React.FC<Props> = ({
                 </button>
             </div>
         </nav>
-    );
+        );
+    };
 
     return (
         <>
-            <div className={`sticky top-0 z-40 border-b border-white/10 bg-[#0b1018]/90 pt-[env(safe-area-inset-top,0px)] backdrop-blur-xl ${isTvShell ? 'hidden' : 'md:hidden'}`}>
-                <div className="flex items-center gap-2 px-3 py-2">
+            {!isTvShell && page !== 'other' ? (
+                <div className="player-phone-topbar">
                     <button
                         type="button"
+                        className="player-phone-nav-toggle"
                         onClick={() => setMobileOpen(true)}
-                        className="rounded-lg p-2 text-white/80 hover:bg-white/10 hover:text-white"
-                        aria-label={t('mediaPlayerPage.openNav')}
+                        aria-label={t('mediaPlayerPage.expandNav')}
                     >
-                        <Menu className="h-5 w-5" />
-                    </button>
-                    <p className="min-w-0 flex-1 truncate text-sm font-black text-white">
-                        {t('navigation.mediaPlayer')}
-                    </p>
-                    {profile ? <NavAvatar profile={profile} sizeClass="h-8 w-8" /> : null}
-                    <button
-                        type="button"
-                        onClick={onSearch}
-                        className="rounded-lg p-2 text-white/80 hover:bg-white/10 hover:text-white"
-                        aria-label={t('mediaPlayerPage.navSearch')}
-                    >
-                        <Search className="h-5 w-5" />
+                        <Menu className="h-4 w-4" />
                     </button>
                 </div>
-            </div>
+            ) : null}
 
             <aside
-                className={`pointer-events-none z-40 pl-3 ${
+                className={`player-desktop-nav pointer-events-none z-40 pl-3 ${
                     isTvShell
-                        ? 'fixed inset-y-0 left-0 flex items-start pt-3'
+                        ? 'fixed inset-y-0 left-0 flex items-center'
                         : 'absolute inset-y-0 left-0 hidden items-center md:flex'
                 }`}
             >
                 <div
                     data-tv-nav-root="1"
-                    className={`pointer-events-auto flex max-h-[calc(100%-3rem)] flex-col rounded-[28px] bg-[#0b1018]/80 shadow-[0_18px_50px_rgba(0,0,0,0.45)] ring-1 ring-white/10 backdrop-blur-2xl transition-[width] duration-200 ${
+                    className={`pointer-events-auto flex max-h-[calc(100%-3rem)] flex-col rounded-[28px] bg-[#0b1018]/80 backdrop-blur-2xl transition-[width] duration-200 ${
+                        isTvShell ? 'border-0 shadow-none' : 'border border-white shadow-[0_18px_50px_rgba(0,0,0,0.45)]'
+                    } ${
                         isTvShell ? 'overflow-x-visible overflow-y-auto' : 'overflow-hidden'
                     } ${
-                        expanded ? 'w-[16.25rem]' : 'w-[4.25rem]'
+                        expanded
+                            ? `w-[16.25rem] ${isTvShell ? 'h-[calc(100%-3rem)]' : ''}`
+                            : 'w-[4.25rem]'
                     }`}
                 >
                     {renderNav(expanded, true)}
@@ -453,14 +463,14 @@ export const MediaPlayerNav: React.FC<Props> = ({
             </aside>
 
             {mobileOpen ? (
-                <div className="fixed inset-0 z-[80] md:hidden">
+                <div className="player-mobile-nav-sheet fixed inset-0 z-[80]">
                     <button
                         type="button"
                         className="absolute inset-0 bg-black/60"
                         aria-label={t('mediaPlayerPage.closeNav')}
                         onClick={closeMobile}
                     />
-                    <aside className="relative mx-3 mb-3 mt-[max(0.75rem,env(safe-area-inset-top,0px))] flex max-h-[calc(100%-1.5rem-env(safe-area-inset-top,0px))] w-[min(20rem,86vw)] flex-col overflow-hidden rounded-[28px] bg-[#0b1018]/95 shadow-2xl ring-1 ring-white/10">
+                    <aside className="player-phone-nav-panel relative mx-3 mb-3 mt-[max(0.75rem,env(safe-area-inset-top,0px))] flex max-h-[calc(100%-1.5rem-env(safe-area-inset-top,0px))] w-[min(20rem,86vw)] flex-col overflow-hidden rounded-[28px] border border-white bg-[#0b1018]/95 shadow-[0_18px_50px_rgba(0,0,0,0.45)]">
                         <button
                             type="button"
                             onClick={closeMobile}
@@ -492,4 +502,4 @@ export const MediaPlayerNav: React.FC<Props> = ({
             />
         </>
     );
-};
+});

@@ -14,6 +14,7 @@ public final class PlayerBridge {
 
     private WeakReference<NativeMediaPlayerPlugin> pluginRef = new WeakReference<>(null);
     private WeakReference<PlayerActivity> activityRef = new WeakReference<>(null);
+    private volatile boolean playerForeground;
 
     private PlayerBridge() {}
 
@@ -46,6 +47,20 @@ public final class PlayerBridge {
     @Nullable
     public PlayerActivity activity() {
         return activityRef.get();
+    }
+
+    public void setPlayerForeground(boolean foreground) {
+        playerForeground = foreground;
+        if (foreground) keepHostWebViewAlive();
+    }
+
+    public boolean isPlayerForeground() {
+        return playerForeground;
+    }
+
+    public void keepHostWebViewAlive() {
+        NativeMediaPlayerPlugin plugin = pluginRef.get();
+        if (plugin != null) plugin.keepHostWebViewAlive();
     }
 
     public void emit(String event, JSObject data) {

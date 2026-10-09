@@ -1,6 +1,7 @@
 package com.servermanagerportal.mediaplayer;
 
 import android.content.Intent;
+import android.webkit.WebView;
 
 import androidx.activity.result.ActivityResult;
 
@@ -28,6 +29,24 @@ public class NativeMediaPlayerPlugin extends Plugin {
 
     void notifyPlayerEvent(String event, JSObject data) {
         notifyListeners(event, data == null ? new JSObject() : data);
+    }
+
+    /** Keep timeline JS running while ExoPlayer is in front of the WebView. */
+    void keepHostWebViewAlive() {
+        try {
+            if (getBridge() == null || getBridge().getWebView() == null) return;
+            WebView webView = getBridge().getWebView();
+            webView.post(() -> {
+                try {
+                    webView.onResume();
+                    webView.resumeTimers();
+                } catch (Throwable ignored) {
+                    /* older WebView */
+                }
+            });
+        } catch (Throwable ignored) {
+            /* plugin not attached */
+        }
     }
 
     @PluginMethod
@@ -74,7 +93,24 @@ public class NativeMediaPlayerPlugin extends Plugin {
         Boolean autoSkipCredits = call.getBoolean("autoSkipCredits", false);
         intent.putExtra(PlayerActivity.EXTRA_AUTO_SKIP_CREDITS, autoSkipCredits != null && autoSkipCredits);
 
+        PlayerActivity existing = PlayerBridge.get().activity();
+        if (existing != null && !existing.isFinishing()) {
+            existing.runOnUiThread(existing::finishFromPlugin);
+        }
+        PlayerBridge.get().setPlayerForeground(true);
         startActivityForResult(call, intent, "onPlayerFinished");
+    }
+
+    @PluginMethod
+    public void close(PluginCall call) {
+        PlayerBridge.get().setPlayerForeground(false);
+        PlayerActivity activity = PlayerBridge.get().activity();
+        if (activity != null && !activity.isFinishing()) {
+            activity.runOnUiThread(activity::finishFromPlugin);
+        }
+        JSObject ret = new JSObject();
+        ret.put("ok", true);
+        call.resolve(ret);
     }
 
     @PluginMethod
@@ -106,6 +142,22 @@ public class NativeMediaPlayerPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void updateSession(PluginCall call) {
+        String sessionJson = call.getString("sessionJson", "");
+        PlayerActivity activity = PlayerBridge.get().activity();
+        if (activity == null || sessionJson == null || sessionJson.trim().isEmpty()) {
+            JSObject ret = new JSObject();
+            ret.put("ok", false);
+            call.resolve(ret);
+            return;
+        }
+        activity.runOnUiThread(() -> activity.applySessionJson(sessionJson));
+        JSObject ret = new JSObject();
+        ret.put("ok", true);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
     public void seek(PluginCall call) {
         Integer position = call.getInt("positionMs", 0);
         long positionMs = position == null ? 0L : position.longValue();
@@ -125,8 +177,68 @@ public class NativeMediaPlayerPlugin extends Plugin {
         call.resolve(ret);
     }
 
+    @PluginMethod
+    public void setPaused(PluginCall call) {
+        Boolean paused = call.getBoolean("paused", true);
+        boolean shouldPause = paused == null || paused;
+        PlayerActivity activity = PlayerBridge.get().activity();
+        if (activity == null || activity.isFinishing()) {
+            JSObject ret = new JSObject();
+            ret.put("ok", false);
+            call.resolve(ret);
+            return;
+        }
+        activity.runOnUiThread(() -> activity.applyPlayPause(!shouldPause));
+        JSObject ret = new JSObject();
+        ret.put("ok", true);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void skipNext(PluginCall call) {
+        PlayerActivity activity = PlayerBridge.get().activity();
+        if (activity == null || activity.isFinishing()) {
+            JSObject ret = new JSObject();
+            ret.put("ok", false);
+            call.resolve(ret);
+            return;
+        }
+        activity.runOnUiThread(activity::skipNextFromPlugin);
+        JSObject ret = new JSObject();
+        ret.put("ok", true);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void show(PluginCall call) {
+        PlayerActivity activity = PlayerBridge.get().activity();
+        if (activity == null || activity.isFinishing()) {
+            JSObject ret = new JSObject();
+            ret.put("ok", false);
+            call.resolve(ret);
+            return;
+        }
+        activity.runOnUiThread(activity::markRestored);
+        try {
+            android.app.Activity host = getActivity();
+            Intent intent = new Intent(host != null ? host : getContext(), PlayerActivity.class);
+            intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            if (host != null) host.startActivity(intent);
+            else getContext().startActivity(intent);
+        } catch (Throwable ignored) {
+            JSObject ret = new JSObject();
+            ret.put("ok", false);
+            call.resolve(ret);
+            return;
+        }
+        JSObject ret = new JSObject();
+        ret.put("ok", true);
+        call.resolve(ret);
+    }
+
     @ActivityCallback
     private void onPlayerFinished(PluginCall call, ActivityResult result) {
+        PlayerBridge.get().setPlayerForeground(false);
         if (call == null) {
             return;
         }

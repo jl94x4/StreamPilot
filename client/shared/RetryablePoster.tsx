@@ -52,7 +52,9 @@ export const RetryablePoster: React.FC<Props> = ({
             src={currentSrc}
             alt={alt}
             loading={loading}
+            decoding="async"
             {...(fetchPriority ? { fetchPriority } : {})}
+            draggable={false}
             className={className}
             onError={() => {
                 if (!useFallback && fallbackSrc && fallbackSrc !== src) {

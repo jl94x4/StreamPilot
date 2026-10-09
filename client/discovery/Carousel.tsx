@@ -124,7 +124,7 @@ export const Carousel: React.FC<CarouselProps> = ({ children, posterRow = false,
 
     return (
         <div className="relative w-full min-w-0">
-            <div className="absolute right-1 -top-9 z-10 flex items-center text-muted">
+            <div className="player-rail-arrows absolute right-1 -top-9 z-10 flex items-center text-muted max-md:hidden">
                 <button
                     type="button"
                     tabIndex={tvShell ? -1 : undefined}
@@ -154,13 +154,17 @@ export const Carousel: React.FC<CarouselProps> = ({ children, posterRow = false,
                     data-tv-rail="1"
                     data-tv-poster-rail={posterRow ? '1' : undefined}
                     className={`flex gap-4 overflow-x-auto scrollbar-hide hide-scrollbar w-full ${
-                        tvShell ? 'snap-x snap-proximity' : ''
+                        tvShell ? '' : 'snap-x snap-proximity'
                     } ${
-                        flush
+                        flush || tvShell
                             ? (tvShell ? 'px-0 py-5' : 'px-0 py-2')
-                            : tvShell ? (posterRow ? 'px-5 py-5' : 'px-4 py-3') : 'px-2 py-2'
+                            : tvShell ? (posterRow ? 'px-5 py-5' : 'px-4 py-3') : 'px-0 py-2'
                     }`}
-                    style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+                    style={{
+                        scrollbarWidth: 'none',
+                        msOverflowStyle: 'none',
+                        ...(tvShell ? { scrollSnapType: 'none' } : null),
+                    }}
                 >
                     {children}
                 </div>

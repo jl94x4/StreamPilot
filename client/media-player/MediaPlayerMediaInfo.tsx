@@ -100,7 +100,7 @@ export const MediaPlayerMediaInfo: React.FC<Props> = ({ item, onClose }) => {
                 onClick={onClose}
             />
             <div
-                className="relative z-10 flex h-full w-full max-w-3xl flex-col overflow-hidden border-0 bg-card shadow-2xl sm:h-auto sm:max-h-[min(90dvh,90vh)] sm:rounded-2xl sm:border sm:border-border"
+                className="player-popup-surface relative z-10 flex h-full w-full max-w-3xl flex-col overflow-hidden border-0 shadow-2xl sm:h-auto sm:max-h-[min(90dvh,90vh)] sm:rounded-2xl sm:border sm:border-border"
                 style={{
                     paddingTop: 'env(safe-area-inset-top, 0px)',
                     paddingBottom: 'env(safe-area-inset-bottom, 0px)',

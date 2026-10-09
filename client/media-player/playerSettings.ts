@@ -51,6 +51,7 @@ export type PlayerSettings = {
     /** Portrait posters vs widescreen episode-style cards on Continue Watching rows. */
     continueWatchingLayout: PlayerContinueWatchingLayout;
     showPlaylists: boolean;
+    showBecauseYouWatched: boolean;
     defaultQualityId: string;
     audioLanguage: string;
     subtitleMode: PlayerSubtitleMode;
@@ -59,12 +60,23 @@ export type PlayerSettings = {
     playThemeTunes: boolean;
     /** Grey plate behind studio / network / streaming logos on overview. */
     serviceLogoPlates: boolean;
-    /** Grey resolution / codec pills on season episode cards. */
+    /** Resolution / codec pills on season episode cards. */
     showEpisodeFilePills: boolean;
     /** Corner for watched checkmarks on movie/show/season posters (not episodes). */
     watchedTickPosition: PlayerWatchedTickPosition;
+    /** Phone overview: poster on the still instead of the clear logo. */
+    phoneOverviewPoster: boolean;
     homeRowOrder: string[];
     libraryNavOrder: string[];
+    nightMode: boolean;
+    matchFrameRate: boolean;
+    /** HDMI bitstream of DD/DTS/TrueHD when the sink supports it. */
+    audioPassthrough: boolean;
+    cinemaTrailers: boolean;
+    subtitleSize: number;
+    subtitleColor: string;
+    subtitleBackground: string;
+    subtitlePosition: 'bottom' | 'middle' | 'top';
 };
 
 export const PLAYER_QUALITY_CHOICES = [
@@ -171,7 +183,7 @@ export const applyLibraryNavOrder = <T extends { key?: string | null }>(
     return out;
 };
 
-export type PlayerHomeHubMediaKind = 'continueWatching' | 'playlist' | 'movie' | 'show' | 'artist' | 'other';
+export type PlayerHomeHubMediaKind = 'continueWatching' | 'becauseYouWatched' | 'playlist' | 'movie' | 'show' | 'artist' | 'other';
 
 const normalizeLibraryMediaType = (value: unknown): 'movie' | 'show' | 'artist' | null => {
     const type = String(value || '').trim().toLowerCase();
@@ -190,6 +202,7 @@ export const classifyPlayerHomeHub = (hub: {
 } = {}): PlayerHomeHubMediaKind => {
     const blob = `${hub.identifier || ''} ${hub.title || ''}`.toLowerCase();
     if (/continue\s*watch|ondeck|on[.\s_-]?deck|in[.\s_-]?progress/.test(blob)) return 'continueWatching';
+    if (/because\s+you\s+watched/.test(blob) || /^because:/.test(String(hub.identifier || ''))) return 'becauseYouWatched';
     if (hub.playlistRatingKey || /playlist/.test(blob)) return 'playlist';
     if (/(^|[.\s_-])(tv|show)([.\s_-]|$)/.test(blob) || /\b(series|episode)\b/.test(blob)) return 'show';
     if (/(^|[.\s_-])(music|artist|album|track|audio)([.\s_-]|$)/.test(blob)) return 'artist';
@@ -257,6 +270,7 @@ export const applyLibraryNavOrderToHubs = <T extends {
         const kind = classifyPlayerHomeHub(hub);
         if (kind === 'continueWatching') return [-2, 0, index];
         if (kind === 'playlist') return [1, 0, index];
+        if (kind === 'becauseYouWatched') return [2, 0, index];
         if (kind === 'other') return [1, 1, index];
 
         const sectionId = dominantLibrarySectionId(hub.items || []);
@@ -346,6 +360,7 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
     showContinueWatching: true,
     continueWatchingLayout: 'poster',
     showPlaylists: true,
+    showBecauseYouWatched: true,
     defaultQualityId: 'auto',
     audioLanguage: '',
     subtitleMode: 'forced',
@@ -355,8 +370,17 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
     serviceLogoPlates: true,
     showEpisodeFilePills: true,
     watchedTickPosition: 'top-right',
+    phoneOverviewPoster: false,
     homeRowOrder: [],
     libraryNavOrder: [],
+    nightMode: false,
+    matchFrameRate: true,
+    audioPassthrough: true,
+    cinemaTrailers: false,
+    subtitleSize: 100,
+    subtitleColor: '#ffffff',
+    subtitleBackground: 'none',
+    subtitlePosition: 'bottom',
 };
 
 const normalizeLang = (value: unknown) => String(value || '').trim().toLowerCase().replace(/_/g, '-');
@@ -373,6 +397,7 @@ export const normalizePlayerSettings = (raw: Partial<PlayerSettings> | Record<st
             ? raw.continueWatchingLayout
             : 'poster',
         showPlaylists: raw?.showPlaylists !== false,
+        showBecauseYouWatched: raw?.showBecauseYouWatched !== false,
         defaultQualityId: QUALITY_IDS.has(quality) ? quality : 'auto',
         audioLanguage: /^[a-z]{2}(?:-[a-z]{2})?$/.test(audioLanguage) ? audioLanguage : '',
         subtitleMode: SUBTITLE_MODES.has(subtitleMode) ? subtitleMode : 'forced',
@@ -384,12 +409,27 @@ export const normalizePlayerSettings = (raw: Partial<PlayerSettings> | Record<st
         watchedTickPosition: isPlayerWatchedTickPosition(raw?.watchedTickPosition)
             ? raw!.watchedTickPosition as PlayerWatchedTickPosition
             : 'top-right',
+        phoneOverviewPoster: raw?.phoneOverviewPoster === true,
         homeRowOrder: collapseHomeRowOrder(raw?.homeRowOrder),
         libraryNavOrder: normalizeLibraryNavOrder(
             Array.isArray(raw?.libraryNavOrder) && raw.libraryNavOrder.length
                 ? raw.libraryNavOrder
                 : libraryNavOrderFromHomeRows(raw?.homeRowOrder),
         ),
+        nightMode: raw?.nightMode === true,
+        matchFrameRate: raw?.matchFrameRate !== false,
+        audioPassthrough: raw?.audioPassthrough !== false,
+        cinemaTrailers: raw?.cinemaTrailers === true,
+        subtitleSize: Math.min(200, Math.max(50, Number(raw?.subtitleSize) || 100)),
+        subtitleColor: /^#[0-9a-f]{6}$/i.test(String(raw?.subtitleColor || ''))
+            ? String(raw?.subtitleColor)
+            : '#ffffff',
+        subtitleBackground: ['none', 'dim', 'solid'].includes(String(raw?.subtitleBackground || ''))
+            ? String(raw?.subtitleBackground) as PlayerSettings['subtitleBackground']
+            : 'none',
+        subtitlePosition: ['bottom', 'middle', 'top'].includes(String(raw?.subtitlePosition || ''))
+            ? String(raw?.subtitlePosition) as PlayerSettings['subtitlePosition']
+            : 'bottom',
     };
 };
 
@@ -399,6 +439,7 @@ export const playerSettingsEqual = (a: PlayerSettings, b: PlayerSettings) => (
     && a.showContinueWatching === b.showContinueWatching
     && a.continueWatchingLayout === b.continueWatchingLayout
     && a.showPlaylists === b.showPlaylists
+    && a.showBecauseYouWatched === b.showBecauseYouWatched
     && a.defaultQualityId === b.defaultQualityId
     && a.audioLanguage === b.audioLanguage
     && a.subtitleMode === b.subtitleMode
@@ -408,8 +449,17 @@ export const playerSettingsEqual = (a: PlayerSettings, b: PlayerSettings) => (
     && a.serviceLogoPlates === b.serviceLogoPlates
     && a.showEpisodeFilePills === b.showEpisodeFilePills
     && a.watchedTickPosition === b.watchedTickPosition
+    && a.phoneOverviewPoster === b.phoneOverviewPoster
     && a.homeRowOrder.join('\0') === b.homeRowOrder.join('\0')
     && a.libraryNavOrder.join('\0') === b.libraryNavOrder.join('\0')
+    && a.nightMode === b.nightMode
+    && a.matchFrameRate === b.matchFrameRate
+    && a.audioPassthrough === b.audioPassthrough
+    && a.cinemaTrailers === b.cinemaTrailers
+    && a.subtitleSize === b.subtitleSize
+    && a.subtitleColor === b.subtitleColor
+    && a.subtitleBackground === b.subtitleBackground
+    && a.subtitlePosition === b.subtitlePosition
 );
 
 export const readPlayerSettings = (): PlayerSettings => {

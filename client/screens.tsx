@@ -7230,9 +7230,12 @@ export const DiscoverPosterCard: React.FC<{
     posterWidth?: number;
     posterHeight?: number;
     posterQuality?: number;
+    /** Skip the hover scale. That transform resamples the bitmap and softens hero art. */
+    disableImageScale?: boolean;
+    frameClassName?: string;
     loading?: 'lazy' | 'eager';
     fetchPriority?: 'high' | 'low' | 'auto';
-}> = ({ item, aspect, overlay, variant = 'discover', className = 'w-full', footer, showQualityBadges = true, posterOnlyLink = false, onPosterClick, onPosterHover, quickActions, posterWidth = 300, posterHeight, posterQuality, loading, fetchPriority }) => {
+}> = ({ item, aspect, overlay, variant = 'discover', className = 'w-full', footer, showQualityBadges = true, posterOnlyLink = false, onPosterClick, onPosterHover, quickActions, posterWidth = 300, posterHeight, posterQuality, disableImageScale = false, frameClassName = '', loading, fetchPriority }) => {
     const { t } = useDiscoverI18n();
     const resolvedAspect = aspect ?? (
         item?.mediaType === 'music' || item?.type === 'music' ? 'square' : '2/3'
@@ -7244,9 +7247,9 @@ export const DiscoverPosterCard: React.FC<{
                 ? Math.round(posterWidth * 9 / 16)
                 : Math.round(posterWidth * 1.5)
     );
-    const posterShell = variant === 'home'
-        ? 'relative rounded-xl overflow-hidden bg-background border border-border transition-[border-color] duration-300 group-hover:border-plex/50'
-        : 'relative rounded-lg overflow-hidden border border-border group-hover:border-plex transition-colors bg-card';
+    const posterShell = `${variant === 'home'
+        ? 'player-poster-frame relative rounded-[12px] overflow-hidden bg-background border border-border transition-[border-color] duration-300 group-hover:border-plex/50'
+        : 'player-poster-frame relative rounded-[12px] overflow-hidden border border-border group-hover:border-plex transition-colors bg-card'}${frameClassName ? ` ${frameClassName}` : ''}`;
 
     const remoteThumb = typeof item.thumb === 'string' && /^https?:\/\//i.test(item.thumb);
     const primaryPosterSrc = item.thumbUrl
@@ -7297,7 +7300,7 @@ export const DiscoverPosterCard: React.FC<{
                     loading={loading ?? (variant === 'home' ? 'eager' : 'lazy')}
                     fetchPriority={fetchPriority}
                     compactPlaceholder={false}
-                    className={`w-full h-full object-cover ${variant === 'home' ? 'transition-[transform,opacity] duration-300 group-hover:scale-105 group-hover:opacity-80' : ''}`}
+                    className={`absolute inset-0 h-full w-full object-cover ${variant === 'home' && !disableImageScale ? 'transition-[transform,opacity] duration-300 group-hover:scale-105 group-hover:opacity-80' : ''}`}
                 />
             )}
             {hasQuickActions && (
@@ -7366,7 +7369,7 @@ export const DiscoverPosterCard: React.FC<{
     );
 
     const defaultFooter = (
-        <div className={`${posterOnlyLink ? 'text-base font-semibold' : 'text-xs font-medium'} line-clamp-2 leading-snug text-text ${variant === 'home' ? 'text-left px-1' : 'text-center mt-1'}`}>
+        <div className={`player-poster-caption ${posterOnlyLink ? 'text-base font-semibold' : 'text-xs font-medium'} line-clamp-2 leading-snug text-text ${variant === 'home' ? 'text-left px-1' : 'text-center mt-1'}`}>
             {item.title}
         </div>
     );

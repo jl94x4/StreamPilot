@@ -771,23 +771,73 @@ const uniqueViewedLeafCount = (meta: PlexMeta) => {
     return leaf > 0 ? Math.max(0, Math.min(leaf, viewed)) : Math.max(0, viewed);
 };
 
+/** Resume point in ms. Newer PMS nests this on UserState until includeUserState=1. */
+const plexViewOffsetMs = (meta: PlexMeta) => {
+    const direct = Number(meta?.viewOffset);
+    if (direct) return direct;
+    const raw = meta?.UserState || meta?.userState;
+    const user = Array.isArray(raw) ? raw[0] : raw;
+    const nested = Number(user?.viewOffset || user?.viewOffsetMs);
+    return Number.isFinite(nested) ? nested : 0;
+};
+
+const normalizeItemType = (meta: PlexMeta) => {
+    const raw = String(meta?.type ?? '').trim().toLowerCase();
+    if (raw === '1') return 'movie';
+    if (raw === '2') return 'show';
+    if (raw === '3') return 'season';
+    if (raw === '4') return 'episode';
+    if (raw === '5' || raw === '12' || raw === 'trailer' || raw === 'clip') return 'clip';
+    if (raw === '8' || raw === 'artist') return 'artist';
+    if (raw === '9' || raw === 'album') return 'album';
+    if (raw === '10' || raw === 'track') return 'track';
+    if (meta?.extraType != null || String(meta?.subtype || '').trim()) return 'clip';
+    return String(meta?.type || meta?.librarySectionType || 'movie');
+};
+
+const extraRatingKey = (meta: PlexMeta) => String(meta.ratingKey || '').trim()
+    || String(meta.key || '').match(/\/metadata\/([^/?]+)/)?.[1]
+    || '';
+
+const isExtraMeta = (meta: PlexMeta) => {
+    const type = String(meta?.type ?? '').trim().toLowerCase();
+    return type === 'clip'
+        || type === 'trailer'
+        || type === '5'
+        || type === '12'
+        || meta?.extraType != null
+        || String(meta?.subtype || '').trim() !== '';
+};
+
+const extractExtraMetas = (data: any): PlexMeta[] => {
+    const container = containerOf(data);
+    const top = asList<PlexMeta>(container.Metadata).concat(asList<PlexMeta>(container.Video));
+    const nested = top.flatMap((row) => asList<PlexMeta>(row?.Extras?.Metadata).concat(asList<PlexMeta>(row?.Extras?.Video)));
+    if (nested.length) return nested.filter(isExtraMeta);
+    const extras = top.filter(isExtraMeta);
+    return extras.length ? extras : [];
+};
+
 const mapItem = (meta: PlexMeta) => {
-    const type = String(meta.type || meta.librarySectionType || 'movie');
-    const music = /^(artist|album|track|audio|music)$/i.test(type)
+    const type = normalizeItemType(meta);
+    const music = /^(artist|album|track|audio|music)$/i.test(String(meta.type || meta.librarySectionType || ''))
         || String(meta.librarySectionType || '').toLowerCase() === 'artist';
     const medias = asList<PlexMeta>(meta.Media);
     const firstPart = asList<PlexMeta>(medias[0]?.Part)[0];
     const { video, audio, subtitles } = mapStreams(firstPart || {});
     const viewedLeafCount = uniqueViewedLeafCount(meta);
     const leafTotal = Math.max(0, Number(meta.leafCount) || 0);
+    const viewOffsetMs = plexViewOffsetMs(meta);
     const watched = type === 'show' || type === 'season'
         ? leafTotal > 0 && viewedLeafCount >= leafTotal
-        : Number(meta.viewCount) > 0 && !Number(meta.viewOffset);
+        : Number(meta.viewCount) > 0 && !viewOffsetMs;
     const { ids, ratings } = mapRatings(meta);
     return {
-        ratingKey: String(meta.ratingKey || ''),
+        ratingKey: extraRatingKey(meta) || String(meta.ratingKey || ''),
         title: String(meta.title || meta.grandparentTitle || 'Untitled'),
-        showTitle: meta.grandparentTitle || null,
+        showTitle: type === 'season' || type === 'album'
+            ? (meta.parentTitle || meta.grandparentTitle || null)
+            : (meta.grandparentTitle || null),
         seasonTitle: meta.parentTitle || null,
         type,
         year: meta.year ? Number(meta.year) : null,
@@ -798,7 +848,7 @@ const mapItem = (meta: PlexMeta) => {
         backdropArt: imageUrl(heroBackdropPath(meta, type), 1920, 1080, { crop: false }),
         logo: imageUrl(clearLogo(meta), 640, 240),
         durationMs: meta.duration ? Number(meta.duration) : null,
-        viewOffsetMs: Number(meta.viewOffset) || 0,
+        viewOffsetMs,
         index: meta.index != null ? Number(meta.index) : null,
         parentIndex: meta.parentIndex != null ? Number(meta.parentIndex) : null,
         leafCount: meta.leafCount != null ? Number(meta.leafCount) : null,
@@ -817,7 +867,12 @@ const mapItem = (meta: PlexMeta) => {
         lastViewedAt: meta.lastViewedAt ? Number(meta.lastViewedAt) * 1000 : null,
         viewCount: Number(meta.viewCount) || 0,
         watched,
-        canPlay: type === 'movie' || type === 'episode' || type === 'show' || type === 'season',
+        extraType: meta.extraType != null ? String(meta.extraType) : null,
+        plexGuid: String(meta.guid || '').trim() || null,
+        extraSubtype: meta.subtype
+            ? String(meta.subtype)
+            : ((String(meta.type || '').toLowerCase() === 'trailer' || String(meta.type) === '5') ? 'trailer' : null),
+        canPlay: type === 'movie' || type === 'episode' || type === 'show' || type === 'season' || type === 'clip' || type === 'trailer' || type === 'track' || type === 'album' || type === 'artist',
         tagline: meta.tagline || '',
         studio: meta.studio || '',
         librarySectionID: meta.librarySectionID ? String(meta.librarySectionID) : null,
@@ -867,6 +922,7 @@ const mapItem = (meta: PlexMeta) => {
                         displayTitle: streams.video.displayTitle || null,
                         width: streams.video.width ? Number(streams.video.width) : null,
                         height: streams.video.height ? Number(streams.video.height) : null,
+                        frameRate: streams.video.frameRate ? Number(streams.video.frameRate) : null,
                     },
                     audio: streams.audio.map((stream) => ({
                         id: String(stream.id || ''),
@@ -889,33 +945,73 @@ const mapItem = (meta: PlexMeta) => {
                 }],
             };
         }),
-        versions: medias.map((media, index) => ({
+        versions: medias.map((media, index) => {
+            const part = asList<PlexMeta>(media.Part)[0] || {};
+            const video = mapStreams(part).video;
+            const scanType = String(video.scanType || '');
+            const raw = String(media.videoResolution || '').trim();
+            const lower = raw.toLowerCase();
+            const letter = lower.match(/^(\d+)\s*([pi])$/)?.[2]
+                || (/^i|interlace/i.test(scanType) ? 'i' : 'p');
+            const height = Number(media.height) || Number(video.height) || 0;
+            const resolution = lower.includes('4k') || lower.includes('2160') || height >= 2160
+                ? '4K'
+                : /^\d+\s*[pi]$/i.test(lower)
+                    ? lower.replace(/\s+/g, '')
+                    : /^\d+$/.test(lower)
+                        ? `${lower}${letter}`
+                        : height >= 1080
+                            ? `1080${letter}`
+                            : height >= 720
+                                ? `720${letter}`
+                                : height
+                                    ? `${height}${letter}`
+                                    : (raw || null);
+            return {
             id: String(media.id || index),
             mediaIndex: index,
-            label: media.videoResolution ? `${media.videoResolution}p` : `Version ${index + 1}`,
-            resolution: media.videoResolution || null,
-            videoCodec: media.videoCodec || null,
+            label: resolution || `Version ${index + 1}`,
+            resolution,
+            scanType: scanType || null,
+            videoCodec: media.videoCodec || video.codec || null,
             audioCodec: media.audioCodec || null,
             container: media.container || null,
             bitrate: media.bitrate ? Number(media.bitrate) : null,
             width: media.width ? Number(media.width) : null,
             height: media.height ? Number(media.height) : null,
-        })),
+            };
+        }),
         markers: mapMarkers(meta),
+        chapters: asList<PlexMeta>(meta.Chapter).map((row, index) => ({
+            startMs: Number(row.startTimeOffset || 0),
+            endMs: Number(row.endTimeOffset || 0) || undefined,
+            title: String(row.tag || row.title || `Chapter ${index + 1}`),
+            index: row.index != null ? Number(row.index) : index,
+        })).filter((row) => Number.isFinite(row.startMs)),
+        frameRate: (() => {
+            const raw = video.frameRate || medias[0]?.videoFrameRate;
+            const n = Number(raw);
+            return Number.isFinite(n) && n > 0 ? n : null;
+        })(),
     };
 };
 
 const mapMarkers = (meta: PlexMeta) => {
     const markers = asList<PlexMeta>(meta.Marker).concat(asList<PlexMeta>(meta.marker));
-    const pick = (type: string) => {
-        const marker = markers.find((row) => String(row.type || '').toLowerCase() === type);
-        if (!marker) return null;
-        const startMs = Number(marker.startTimeOffset ?? marker.start) || 0;
-        const endMs = Number(marker.endTimeOffset ?? marker.end) || 0;
-        if (endMs <= startMs) return null;
-        return { startMs, endMs };
+    const out: { intro: { startMs: number; endMs: number } | null; credits: { startMs: number; endMs: number } | null } = {
+        intro: null,
+        credits: null,
     };
-    return { intro: pick('intro'), credits: pick('credits') };
+    for (const row of markers) {
+        const startMs = Number(row.startTimeOffset ?? row.start) || 0;
+        const endMs = Number(row.endTimeOffset ?? row.end) || 0;
+        if (endMs <= startMs) continue;
+        const type = String(row.type || row.markerType || '').toLowerCase();
+        const marker = { startMs, endMs };
+        if ((type === 'intro' || type === 'introend') && !out.intro) out.intro = marker;
+        if ((type === 'credits' || type === 'credit' || type === 'creditsend') && !out.credits) out.credits = marker;
+    }
+    return out;
 };
 
 const mapList = (data: any) => {
@@ -1222,56 +1318,113 @@ const QUALITIES = [
     { id: '480-1.5', label: '480p · 1.5 Mbps', videoResolution: '480', maxVideoBitrate: 1500, videoQuality: 40 },
 ];
 
+const IMAGE_SUBTITLE_CODECS = /^(pgs|vobsub|dvd|dvdsub|image|bluray|dvbsub|xsub)$/i;
+
+const nativeAudioPlayable = (stream?: PlexMeta | null) => {
+    const codec = String(stream?.codec || '').toLowerCase();
+    if (!codec) return true;
+    if (!/^(truehd|mlp|dca|dts|dtsc|dtsh|dtshd|dtsma|dtsl)$/i.test(codec)) return true;
+    try {
+        const raw = window.localStorage?.getItem('portal-media-player-settings');
+        if (!raw) return true;
+        const parsed = JSON.parse(raw);
+        return parsed?.audioPassthrough !== false;
+    } catch {
+        return true;
+    }
+};
+
+const isTextSubtitle = (stream?: PlexMeta | null) => (
+    !IMAGE_SUBTITLE_CODECS.test(String(stream?.codec || '').toLowerCase())
+);
+
+const clampPlayOffsetMs = (offsetMs: number, durationMs: number) => {
+    const offset = Math.max(0, Number(offsetMs) || 0);
+    const duration = Math.max(0, Number(durationMs) || 0);
+    if (offset < 5000) return 0;
+    if (duration && offset > Math.max(0, duration - 15000)) return 0;
+    return Math.floor(offset);
+};
+
 const pickAudioId = (audio: PlexMeta[], requested: string, language: string) => {
     const want = String(requested || '').replace(/\D/g, '');
     if (want && audio.some((stream) => String(stream.id || '') === want)) return want;
     const lang = String(language || '').toLowerCase().trim();
-    if (lang) {
-        const langBase = lang.split(/[-_]/)[0];
-        const match = audio.find((stream) => {
-            const blob = String(stream.languageTag || stream.languageCode || stream.language || '').toLowerCase();
-            return blob === lang || blob.startsWith(langBase) || blob.includes(langBase);
-        });
-        if (match?.id) return String(match.id);
-    }
-    const selected = audio.find((stream) => stream.selected === 1 || stream.selected === true);
-    return String(selected?.id || audio[0]?.id || '');
+    const langBase = lang.split(/[-_]/)[0];
+    const matchesLang = (stream: PlexMeta) => {
+        if (!lang) return true;
+        const blob = String(stream.languageTag || stream.languageCode || stream.language || '').toLowerCase();
+        return blob === lang || blob.startsWith(langBase) || blob.includes(langBase);
+    };
+    const playable = audio.filter((stream) => nativeAudioPlayable(stream));
+    const pool = playable.length ? playable : audio;
+    const langHit = lang ? pool.find((stream) => matchesLang(stream)) : null;
+    if (langHit?.id) return String(langHit.id);
+    const selected = pool.find((stream) => stream.selected === 1 || stream.selected === true);
+    return String(selected?.id || pool[0]?.id || audio[0]?.id || '');
 };
 
 const pickSubtitleId = (subtitles: PlexMeta[], requested: string | null, mode: string) => {
+    const text = subtitles.filter((stream) => isTextSubtitle(stream));
     if (requested != null) {
         const raw = String(requested).trim();
         // "0" is Off. A missing match must stay off, or a seek turns forced subs back on.
         if (!raw || raw === '0') return '';
         const want = raw.replace(/\D/g, '');
         if (!want || want === '0') return '';
-        if (subtitles.some((stream) => String(stream.id || '') === want)) return want;
+        if (text.some((stream) => String(stream.id || '') === want)) return want;
         return '';
     }
-    if (mode === 'off') return '';
+    if (mode === 'off' || !text.length) return '';
     if (mode === 'forced') {
-        const forced = subtitles.find((stream) => stream.forced === 1 || stream.forced === true);
+        const forced = text.find((stream) => stream.forced === 1 || stream.forced === true);
         return forced?.id ? String(forced.id) : '';
     }
-    const selected = subtitles.find((stream) => stream.selected === 1 || stream.selected === true);
-    return String(selected?.id || subtitles[0]?.id || '');
+    const selected = text.find((stream) => stream.selected === 1 || stream.selected === true);
+    return String(selected?.id || text[0]?.id || '');
 };
 
 const playSrc = (meta: PlexMeta, mediaIndex: number, qualityId: string, audioStreamId = '', subtitleStreamId = '', offsetMs = 0, forceHls = false) => {
     const server = mapServer || readServer();
     if (!server) throw new Error('No Plex server selected');
     const medias = asList<PlexMeta>(meta.Media);
-    const media = medias[mediaIndex] || medias[0];
-    const part = asList<PlexMeta>(media?.Part)[0];
-    if (!part) throw new Error('This title has no playable file');
+    const media = medias[mediaIndex] || medias[0] || {};
+    const part = asList<PlexMeta>(media?.Part)[0] || null;
     const quality = QUALITIES.find((row) => row.id === qualityId);
     const audioId = String(audioStreamId || '').replace(/\D/g, '');
-    const subtitleId = String(subtitleStreamId || '').replace(/\D/g, '');
-    const selectedAudio = asList<PlexMeta>(part.Stream).find((stream) => Number(stream.streamType) === 2 && (stream.selected === 1 || stream.selected === true));
-    const defaultAudioId = String(selectedAudio?.id || asList<PlexMeta>(part.Stream).find((stream) => Number(stream.streamType) === 2)?.id || '').replace(/\D/g, '');
-    const direct = !forceHls && (!quality || quality.id === 'original') && !subtitleId && (!audioId || audioId === defaultAudioId);
-    if (direct && part.key) {
+    const rawSubtitleId = String(subtitleStreamId || '');
+    const subtitleId = rawSubtitleId.startsWith('os:') ? '' : rawSubtitleId.replace(/\D/g, '');
+    const audioStreams = asList<PlexMeta>(part?.Stream).filter((stream) => Number(stream.streamType) === 2);
+    const selectedAudio = audioStreams.find((stream) => stream.selected === 1 || stream.selected === true);
+    const chosenAudio = (audioId ? audioStreams.find((stream) => String(stream.id || '') === audioId) : null)
+        || selectedAudio
+        || audioStreams[0]
+        || {};
+    const audioOk = nativeAudioPlayable(chosenAudio);
+    const session = `smp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const hasVideo = asList<PlexMeta>(part?.Stream).some((stream) => Number(stream.streamType) === 1);
+    const audioOnly = !hasVideo;
+    const direct = !forceHls && !subtitleId && audioOk && !!part?.key && (
+        audioOnly || !quality || quality.id === 'original'
+    );
+    const metadataPath = String(meta.key || '').startsWith('/')
+        ? String(meta.key).split('?')[0]
+        : `/library/metadata/${encodeURIComponent(String(meta.ratingKey || ''))}`;
+    if (direct && part?.key) {
         const rawKey = String(part.key);
+        if (/^https?:\/\//i.test(rawKey)) {
+            try {
+                const url = new URL(rawKey);
+                if (!url.searchParams.get('X-Plex-Token')) url.searchParams.set('X-Plex-Token', server.accessToken);
+                url.searchParams.set('X-Plex-Client-Identifier', clientId());
+                url.searchParams.set('X-Plex-Product', 'StreamPilot');
+                url.searchParams.set('X-Plex-Platform', 'Android');
+                url.searchParams.set('X-Plex-Device', 'Android TV');
+                url.searchParams.set('X-Plex-Session-Identifier', session);
+                url.searchParams.set('session', session);
+                return { src: url.toString(), mode: 'directPlay' as const, media, part, sessionId: session };
+            } catch { /* fall through to PMS path */ }
+        }
         const filePath = rawKey.startsWith('http') ? new URL(rawKey).pathname : rawKey;
         const url = new URL(filePath.startsWith('/') ? filePath : `/${filePath}`, `${server.uri}/`);
         url.searchParams.set('X-Plex-Token', server.accessToken);
@@ -1279,20 +1432,51 @@ const playSrc = (meta: PlexMeta, mediaIndex: number, qualityId: string, audioStr
         url.searchParams.set('X-Plex-Product', 'StreamPilot');
         url.searchParams.set('X-Plex-Platform', 'Android');
         url.searchParams.set('X-Plex-Device', 'Android TV');
-        return { src: url.toString(), mode: 'directPlay' as const, media, part };
+        url.searchParams.set('X-Plex-Session-Identifier', session);
+        url.searchParams.set('session', session);
+        return { src: url.toString(), mode: 'directPlay' as const, media, part, sessionId: session };
+    }
+    if (audioOnly) {
+        const url = new URL('/music/:/transcode/universal/start.m3u8', `${server.uri}/`);
+        const offsetSec = Math.max(0, Math.floor(Number(offsetMs) / 1000));
+        const params: Record<string, string> = {
+            hasMDE: '1',
+            path: metadataPath,
+            mediaIndex: String(medias.indexOf(media) >= 0 ? medias.indexOf(media) : 0),
+            partIndex: '0',
+            protocol: 'hls',
+            fastSeek: '1',
+            directPlay: '0',
+            directStream: audioOk ? '1' : '0',
+            directStreamAudio: audioOk ? '1' : '0',
+            audioCodec: audioOk ? String(chosenAudio.codec || 'mp3') : 'aac',
+            session,
+            ...(offsetSec > 0 ? { offset: String(offsetSec) } : {}),
+            ...(audioId ? { audioStreamID: audioId } : {}),
+            'X-Plex-Platform': 'Android',
+            'X-Plex-Client-Identifier': clientId(),
+            'X-Plex-Product': 'StreamPilot',
+            'X-Plex-Device': 'Android TV',
+            'X-Plex-Session-Identifier': session,
+            'X-Plex-Token': server.accessToken,
+            access_token: server.accessToken,
+        };
+        Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
+        return { src: url.toString(), mode: 'transcode' as const, media, part: part || {}, sessionId: session };
     }
     const url = new URL('/video/:/transcode/universal/start.m3u8', `${server.uri}/`);
     const offsetSec = Math.max(0, Math.floor(Number(offsetMs) / 1000));
-    const session = `smp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     const params: Record<string, string> = {
         hasMDE: '1',
-        path: `/library/metadata/${meta.ratingKey}`,
+        path: metadataPath,
         mediaIndex: String(medias.indexOf(media) >= 0 ? medias.indexOf(media) : 0),
         partIndex: '0',
         protocol: 'hls',
         fastSeek: '1',
         directPlay: '0',
         directStream: subtitleId || (quality && quality.id !== 'original') ? '0' : '1',
+        directStreamAudio: audioOk ? '1' : '0',
+        ...(audioOk ? {} : { audioCodec: 'aac' }),
         subtitleSize: subtitleId ? '100' : '0',
         subtitles: subtitleId ? 'burn' : 'none',
         advancedSubtitles: subtitleId ? 'burn' : 'none',
@@ -1313,7 +1497,7 @@ const playSrc = (meta: PlexMeta, mediaIndex: number, qualityId: string, audioStr
         access_token: server.accessToken,
     };
     Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
-    return { src: url.toString(), mode: 'transcode' as const, media, part };
+    return { src: url.toString(), mode: 'transcode' as const, media, part: part || {}, sessionId: session };
 };
 
 const withMapServer = async <T,>(server: PlexServer | null, run: () => Promise<T>) => {
@@ -1327,29 +1511,100 @@ const withMapServer = async <T,>(server: PlexServer | null, run: () => Promise<T
 };
 
 const metadata = async (ratingKey: string, server: PlexServer | null = resolveServer('', ratingKey)) => {
-    const data = await pms(`/library/metadata/${encodeURIComponent(ratingKey)}?includeGuids=1&includeMarkers=1&includeChapters=1&includeOnDeck=1`, server);
+    const data = await pms(`/library/metadata/${encodeURIComponent(ratingKey)}?includeGuids=1&includeImages=1&includeMarkers=1&includeChapters=1&includeOnDeck=1&includeUserState=1`, server);
     const meta = asList<PlexMeta>(containerOf(data).Metadata)[0];
     if (!meta) throw new Error('Title not found');
     return meta;
 };
 
 const childrenOf = async (ratingKey: string, server: PlexServer | null = resolveServer('', ratingKey)) => withMapServer(server, async () => {
-    const data = await pms(`/library/metadata/${encodeURIComponent(ratingKey)}/children?X-Plex-Container-Size=200`, server);
-    return mapList(data);
+    const data = await pms(`/library/metadata/${encodeURIComponent(ratingKey)}/children?includeUserState=1&X-Plex-Container-Size=500`, server).catch(() => null);
+    const items = mapList(data);
+    if (items.length) return items;
+    const playlist = await pms(`/playlists/${encodeURIComponent(ratingKey)}/items?includeUserState=1&X-Plex-Container-Size=500`, server).catch(() => null);
+    return mapList(playlist);
 });
+
+const extraMetaByKey = new Map<string, PlexMeta>();
+
+const mapExtrasList = (rows: PlexMeta[], parentKey = '') => {
+    const parent = String(parentKey || '');
+    const seen = new Set<string>();
+    return rows.map((meta) => {
+        const key = extraRatingKey(meta);
+        if (key) extraMetaByKey.set(key, meta);
+        return mapItem({
+            ...meta,
+            ratingKey: key,
+            type: 'clip',
+            extraType: meta.extraType != null
+                ? meta.extraType
+                : (String(meta.type || '').toLowerCase() === 'trailer' || String(meta.type) === '5' ? 1 : meta.extraType),
+            subtype: meta.subtype || (String(meta.type || '').toLowerCase() === 'trailer' ? 'trailer' : meta.subtype),
+        });
+    }).filter((item) => {
+        if (!item.ratingKey || item.ratingKey === parent || seen.has(item.ratingKey)) return false;
+        seen.add(item.ratingKey);
+        return true;
+    });
+};
+
+const plexGuidRatingKey = (meta: PlexMeta | null | undefined) => {
+    const fromGuid = String(meta?.guid || '').match(/^plex:\/\/(?:movie|show|season|episode)\/([a-f0-9]+)/i);
+    if (fromGuid) return fromGuid[1];
+    for (const row of asList<PlexMeta>(meta?.Guid)) {
+        const hit = String(row.id || row.tag || '').match(/^plex:\/\/(?:movie|show|season|episode)\/([a-f0-9]+)/i);
+        if (hit) return hit[1];
+    }
+    return '';
+};
+
+const loadItemExtras = async (ratingKey: string, server: PlexServer, parentMeta?: PlexMeta | null) => {
+    const fromPath = await pms(
+        `/library/metadata/${encodeURIComponent(ratingKey)}/extras?includeGuids=1`,
+        server,
+        8000,
+    ).catch(() => null);
+    let rows = extractExtraMetas(fromPath);
+    let seed = parentMeta || null;
+    if (!rows.length) {
+        const withExtras = await pms(
+            `/library/metadata/${encodeURIComponent(ratingKey)}?includeExtras=1&includeGuids=1`,
+            server,
+            8000,
+        ).catch(() => null);
+        rows = extractExtraMetas(withExtras);
+        seed = seed || asList<PlexMeta>(containerOf(withExtras).Metadata)[0] || null;
+    }
+    if (!rows.length && seed) {
+        rows = extractExtraMetas({ MediaContainer: { Metadata: [seed] } });
+    }
+    if (!rows.length) {
+        const guidKey = plexGuidRatingKey(seed);
+        const token = accountToken() || server.accessToken;
+        if (guidKey && token) {
+            const remote = await plexFetch(
+                `https://metadata.provider.plex.tv/library/metadata/${encodeURIComponent(guidKey)}/extras?includeGuids=1`,
+                token,
+            ).catch(() => null);
+            rows = extractExtraMetas(remote);
+        }
+    }
+    return mapExtrasList(rows, ratingKey);
+};
 
 /** Next unwatched episode for a show/season, else the first episode. */
 const resolvePlayableEpisode = async (ratingKey: string, server: PlexServer, seedType?: string) => {
     const type = String(seedType || '').toLowerCase();
     if (type && type !== 'show' && type !== 'season') return null;
     const unwatched = await pms(
-        `/library/metadata/${encodeURIComponent(ratingKey)}/allLeaves?unwatched=1&X-Plex-Container-Start=0&X-Plex-Container-Size=1`,
+        `/library/metadata/${encodeURIComponent(ratingKey)}/allLeaves?unwatched=1&includeUserState=1&X-Plex-Container-Start=0&X-Plex-Container-Size=1`,
         server,
     ).catch(() => null);
     const next = mapList(unwatched)[0];
     if (next?.type === 'episode') return next;
     const first = await pms(
-        `/library/metadata/${encodeURIComponent(ratingKey)}/allLeaves?X-Plex-Container-Start=0&X-Plex-Container-Size=1`,
+        `/library/metadata/${encodeURIComponent(ratingKey)}/allLeaves?includeUserState=1&X-Plex-Container-Start=0&X-Plex-Container-Size=1`,
         server,
     ).catch(() => null);
     const row = mapList(first)[0];
@@ -1749,6 +2004,8 @@ const hubsFrom = (data: any, server: PlexServer, many: boolean) => {
                 identifier,
                 items,
                 hubKey: hubPath ? (many ? `${server.id}::${hubPath}` : hubPath) : null,
+                collectionRatingKey: collectionRatingKeyFromHub(hub) || null,
+                randomOrder: isRandomOrderSource(hub) || undefined,
                 serverId: server.id,
             };
         }).filter((hub) => hub.items.length && hub.title);
@@ -1795,7 +2052,7 @@ const fillPlexHomeHub = async (hub: PlexMeta, server: PlexServer, many: boolean)
     const path = parsed.pathname.replace(/\/+$/, '');
     if (!path.startsWith('/library/') && !path.startsWith('/hubs/') && !path.startsWith('/playlists')) return null;
     const allType = parsed.searchParams.get('type') || '';
-    if (/\/all$/.test(path) && allType !== '1' && allType !== '2' && allType !== '8') return null;
+    if (/\/all$/.test(path) && allType !== '1' && allType !== '2' && allType !== '8' && allType !== '18') return null;
     if (!parsed.searchParams.get('X-Plex-Container-Size') && !parsed.searchParams.get('count')) {
         parsed.searchParams.set('X-Plex-Container-Size', '24');
     }
@@ -1811,8 +2068,256 @@ const fillPlexHomeHub = async (hub: PlexMeta, server: PlexServer, many: boolean)
         identifier,
         items,
         hubKey: many ? `${server.id}::${storedPath}` : storedPath,
+        collectionRatingKey: collectionRatingKeyFromHub(hub) || null,
+        randomOrder: isRandomOrderSource(hub) || isRandomOrderSource(storedPath) || undefined,
         serverId: server.id,
     };
+};
+
+const collectionRatingKeyFromHub = (hub: PlexMeta) => {
+    const blob = [hub.key, hub.hubKey, hub.hubIdentifier].map((value) => String(value || '')).join(' ');
+    if (!/collection/i.test(blob)) return '';
+    const match = blob.match(/\/library\/collections\/(\d+)/i)
+        || blob.match(/collection[./_-](\d+)/i);
+    return match?.[1] || '';
+};
+
+const isRandomOrderSource = (value: unknown) => {
+    let text = typeof value === 'string' ? value : JSON.stringify(value || '');
+    for (let pass = 0; pass < 2; pass += 1) {
+        try {
+            const next = decodeURIComponent(text);
+            if (next === text) break;
+            text = next;
+        } catch {
+            break;
+        }
+    }
+    return /(?:^|[?&#\s])sort=random\b/i.test(text);
+};
+
+const isHeroRowLabel = (value: unknown) => /^(heros|heroes)$/i.test(String(value || '').trim());
+
+const collectionMetaHasHeroLabel = (meta: PlexMeta | null | undefined) => (
+    asList<PlexMeta>(meta?.Label).some((row) => isHeroRowLabel(
+        typeof row === 'string' ? row : (row?.tag || row?.title || ''),
+    ))
+);
+
+const heroLabelCache = new Map<string, boolean>();
+const collectionRandomCache = new Map<string, boolean>();
+const HERO_LABEL_STORE = 'smp-hero-row-labels-v1';
+let heroLabelStoreLoaded = false;
+
+const loadHeroLabelStore = () => {
+    if (heroLabelStoreLoaded || typeof localStorage === 'undefined') return;
+    heroLabelStoreLoaded = true;
+    try {
+        const parsed = JSON.parse(localStorage.getItem(HERO_LABEL_STORE) || '{}') as Record<string, unknown>;
+        Object.entries(parsed).forEach(([key, value]) => {
+            if (value === true || value === false) heroLabelCache.set(key, value);
+        });
+    } catch { /* ignore */ }
+};
+
+const saveHeroLabelStore = () => {
+    if (typeof localStorage === 'undefined') return;
+    try {
+        const out: Record<string, boolean> = {};
+        heroLabelCache.forEach((value, key) => {
+            out[key] = value;
+        });
+        localStorage.setItem(HERO_LABEL_STORE, JSON.stringify(out));
+    } catch { /* ignore quota */ }
+};
+
+const applyHeroRowFlags = <T extends { collectionRatingKey?: string | null; randomOrder?: boolean }>(hubs: T[], server: PlexServer) => {
+    loadHeroLabelStore();
+    return hubs.map((hub) => {
+        const id = String(hub.collectionRatingKey || '');
+        const hero = Boolean(id && heroLabelCache.get(`${server.id}:${id}`));
+        const random = Boolean(hub.randomOrder) || Boolean(id && collectionRandomCache.get(`${server.id}:${id}`));
+        if (!hero && !random) return hub;
+        return {
+            ...hub,
+            ...(hero ? { heroRow: true } : {}),
+            ...(random ? { randomOrder: true } : {}),
+        };
+    });
+};
+
+const stampHeroRows = async <T extends { collectionRatingKey?: string | null; randomOrder?: boolean }>(hubs: T[], server: PlexServer) => {
+    loadHeroLabelStore();
+    const ids = [...new Set(hubs.map((hub) => String(hub.collectionRatingKey || '')).filter(Boolean))];
+    if (!ids.length) return applyHeroRowFlags(hubs, server);
+    await mapPool(ids, 4, async (id) => {
+        const cacheKey = `${server.id}:${id}`;
+        if (heroLabelCache.has(cacheKey) && collectionRandomCache.has(cacheKey)) return;
+        const data = await pms(`/library/collections/${encodeURIComponent(id)}`, server, 6000).catch(() => null);
+        if (!data) return;
+        const container = containerOf(data);
+        const meta = asList<PlexMeta>(container.Metadata)[0]
+            || asList<PlexMeta>(container.Directory)[0]
+            || null;
+        heroLabelCache.set(cacheKey, collectionMetaHasHeroLabel(meta));
+        collectionRandomCache.set(cacheKey, isRandomOrderSource(meta));
+    });
+    saveHeroLabelStore();
+    return applyHeroRowFlags(hubs, server);
+};
+
+type HeroAssets = { still: string; logo: string };
+
+const HERO_COVER_CACHE_KEY = 'smp-hero-cover-art-v3';
+const heroCoverCache = new Map<string, HeroAssets>();
+let heroCoverCacheLoaded = false;
+
+const heroAssetsOf = (value: unknown): HeroAssets | null => {
+    if (!value || typeof value !== 'object') return null;
+    const still = String((value as HeroAssets).still || '').trim();
+    if (!still.startsWith('https://')) return null;
+    const logo = String((value as HeroAssets).logo || '').trim();
+    return { still, logo: logo.startsWith('https://') ? logo : '' };
+};
+
+const loadHeroCoverCache = () => {
+    if (heroCoverCacheLoaded || typeof localStorage === 'undefined') return;
+    heroCoverCacheLoaded = true;
+    try {
+        const parsed = JSON.parse(localStorage.getItem(HERO_COVER_CACHE_KEY) || '{}') as Record<string, unknown>;
+        Object.entries(parsed).forEach(([key, value]) => {
+            const assets = heroAssetsOf(value);
+            if (key && assets) heroCoverCache.set(key, assets);
+        });
+    } catch { /* ignore a bad cache */ }
+};
+
+const rememberHeroCover = (uuid: string, assets: HeroAssets) => {
+    heroCoverCache.set(uuid, assets);
+    if (typeof localStorage === 'undefined') return;
+    try {
+        const parsed = JSON.parse(localStorage.getItem(HERO_COVER_CACHE_KEY) || '{}') as Record<string, HeroAssets>;
+        parsed[uuid] = assets;
+        const keys = Object.keys(parsed);
+        if (keys.length > 400) delete parsed[keys[0]];
+        localStorage.setItem(HERO_COVER_CACHE_KEY, JSON.stringify(parsed));
+    } catch { /* ignore quota */ }
+};
+
+const plexHeroUuid = (meta: PlexMeta) => {
+    const type = String(meta.type || '').toLowerCase();
+    const preferred = (type === 'episode' || type === 'season')
+        ? [meta.grandparentGuid, meta.parentGuid, meta.guid]
+        : [meta.guid, meta.grandparentGuid, meta.parentGuid];
+    const tagged = asList<PlexMeta>(meta.Guid).map((row) => row?.id);
+    for (const raw of [...preferred, ...tagged]) {
+        const match = String(raw || '').match(/plex:\/\/(?:movie|show)\/([a-z0-9]+)/i);
+        if (match) return match[1];
+    }
+    return '';
+};
+
+const largestProviderImage = (images: PlexMeta[], type: string) => {
+    const rows = images.filter((image) => String(image?.type || '') === type && String(image?.url || '').trim());
+    rows.sort((a, b) => (Number(b.width) || Number(b.height) || 0) - (Number(a.width) || Number(a.height) || 0));
+    return String(rows[0]?.url || '').trim();
+};
+
+/** Replex hero card: the coverArt file itself, not the background or a logo on top. */
+const heroAssetsFromProvider = (data: any): HeroAssets | null => {
+    const container = containerOf(data);
+    const meta = asList<PlexMeta>(container.Metadata)[0] || asList<PlexMeta>(container.Directory)[0];
+    const still = largestProviderImage(asList<PlexMeta>(meta?.Image), 'coverArt');
+    if (!still.startsWith('https://')) return null;
+    return { still, logo: '' };
+};
+
+const fetchHeroCover = async (uuid: string, server: PlexServer) => {
+    loadHeroCoverCache();
+    const cached = heroCoverCache.get(uuid);
+    if (cached) return cached;
+    const tokens = [...new Set([readOwnerToken(), accountToken(), server.accessToken]
+        .map((value) => String(value || '').trim())
+        .filter(Boolean))];
+    for (const token of tokens) {
+        const data = await plexFetch(
+            `https://metadata.provider.plex.tv/library/metadata/${encodeURIComponent(uuid)}`,
+            token,
+        ).catch(() => null);
+        const assets = heroAssetsFromProvider(data);
+        if (assets) {
+            rememberHeroCover(uuid, assets);
+            return assets;
+        }
+    }
+    return null;
+};
+
+/** Replex hero: Plex coverArt on each title. */
+const attachHeroCoverArt = async <T extends { heroRow?: boolean; items?: Array<{ ratingKey?: string; heroArt?: string | null }> }>(
+    hubs: T[],
+    server: PlexServer,
+) => {
+    const keys = [...new Set(hubs
+        .filter((hub) => hub.heroRow)
+        .flatMap((hub) => hub.items || [])
+        .map((item) => String(item.ratingKey || ''))
+        .filter(Boolean))];
+    if (!keys.length) return hubs;
+    const guidByKey = new Map<string, string>();
+    for (let index = 0; index < keys.length; index += 40) {
+        const ids = keys.slice(index, index + 40).join(',');
+        const data = await pms(`/library/metadata/${ids}?includeGuids=1`, server, 8000).catch(() => null);
+        asList<PlexMeta>(containerOf(data).Metadata).forEach((meta) => {
+            const uuid = plexHeroUuid(meta);
+            if (uuid) guidByKey.set(String(meta.ratingKey || ''), uuid);
+        });
+    }
+    const uuids = [...new Set([...guidByKey.values()])];
+    await mapPool(uuids, 6, (uuid) => fetchHeroCover(uuid, server));
+    return hubs.map((hub) => {
+        if (!hub.heroRow) return hub;
+        return {
+            ...hub,
+            items: (hub.items || []).map((item) => {
+                const assets = heroCoverCache.get(guidByKey.get(String(item.ratingKey || '')) || '');
+                return assets?.still ? { ...item, heroArt: assets.still } : item;
+            }),
+        };
+    });
+};
+
+const mergeSameTitleHubs = <T extends { title?: string; heroRow?: boolean; randomOrder?: boolean; items?: Array<{ ratingKey?: string; dedupeKey?: string | null }> }>(rows: T[]) => {
+    const order: string[] = [];
+    const groups = new Map<string, T[]>();
+    rows.forEach((hub) => {
+        const key = String(hub.title || '').trim().toLowerCase();
+        if (!key) return;
+        if (!groups.has(key)) {
+            groups.set(key, []);
+            order.push(key);
+        }
+        groups.get(key)?.push(hub);
+    });
+    return order.map((key) => {
+        const group = groups.get(key) || [];
+        if (group.length === 1) return group[0];
+        const seen = new Set<string>();
+        const items: NonNullable<T['items']> = [];
+        group.forEach((hub) => {
+            (hub.items || []).forEach((item) => {
+                const id = String(item.dedupeKey || item.ratingKey || '');
+                if (!id || seen.has(id)) return;
+                seen.add(id);
+                items.push(item);
+            });
+        });
+        return {
+            ...group[0],
+            heroRow: group.some((hub) => hub.heroRow) || undefined,
+            items: group.every((hub) => hub.randomOrder) ? shuffleItems(items) : items,
+        };
+    });
 };
 
 const uniquifyHubs = <T extends { identifier?: string }>(rows: T[]) => {
@@ -1825,21 +2330,51 @@ const uniquifyHubs = <T extends { identifier?: string }>(rows: T[]) => {
     });
 };
 
-/** Inline hub items when Plex sent them. Otherwise fill only the pinned hub keys that came back. */
-const pinnedHubs = async (data: any, server: PlexServer, many: boolean) => {
-    const ready = hubsFrom(data, server, many);
-    if (ready.length) return ready;
-    const shells = asList<PlexMeta>(containerOf(data).Hub).slice(0, 12);
-    if (!shells.length) return [];
-    const filled = await mapPool(shells, 3, (hub) => fillPlexHomeHub(hub, server, many));
-    return filled.filter((hub): hub is NonNullable<typeof hub> => !!hub);
+const hubShellKey = (hub: PlexMeta) => String(hub.hubIdentifier || hub.key || hub.title || '').trim().toLowerCase();
+
+const uniqueHubShells = (...lists: PlexMeta[][]) => {
+    const seen = new Set<string>();
+    const out: PlexMeta[] = [];
+    for (const list of lists) {
+        for (const hub of list) {
+            const key = hubShellKey(hub);
+            if (!key || seen.has(key)) continue;
+            seen.add(key);
+            out.push(hub);
+        }
+    }
+    return out;
+};
+
+/** Keep every inline hub, then fill empty pinned shells without waiting on /hubs/home extras. */
+const pinnedHubs = async (data: any, server: PlexServer, many: boolean, extra: PlexMeta[] = []) => {
+    const shells = uniqueHubShells(asList<PlexMeta>(containerOf(data).Hub), extra);
+    if (!shells.length) return hubsFrom(data, server, many);
+    const inline = hubsFrom({ MediaContainer: { Hub: shells } }, server, many);
+    const ready = new Map<string, (typeof inline)[number]>();
+    inline.forEach((hub) => {
+        const key = String(hub.identifier || hub.title || '').trim().toLowerCase();
+        if (key) ready.set(key, hub);
+    });
+    const missing = shells.filter((hub) => !ready.has(hubShellKey(hub)));
+    if (missing.length) {
+        const filled = await mapPool(missing.slice(0, 24), 4, (hub) => fillPlexHomeHub(hub, server, many));
+        filled.forEach((hub) => {
+            if (!hub?.items?.length) return;
+            const key = String(hub.identifier || hub.title || '').trim().toLowerCase();
+            if (key && !ready.has(key)) ready.set(key, hub);
+        });
+    }
+    return uniquifyHubs(shells
+        .map((hub) => ready.get(hubShellKey(hub)))
+        .filter((hub): hub is NonNullable<typeof hub> => !!hub && hub.items.length > 0));
 };
 
 /** Every pinned library hub, including ones Plex listed without inline items. */
 const sectionPinnedHubs = async (data: any, server: PlexServer, many: boolean) => {
-    const shells = asList<PlexMeta>(containerOf(data).Hub).slice(0, 16);
+    const shells = asList<PlexMeta>(containerOf(data).Hub);
     if (!shells.length) return [];
-    const filled = await mapPool(shells, 3, (hub) => fillPlexHomeHub(hub, server, many));
+    const filled = await mapPool(shells, 6, (hub) => fillPlexHomeHub(hub, server, many));
     return uniquifyHubs(filled.filter((hub): hub is NonNullable<typeof hub> => !!hub && hub.items.length > 0));
 };
 
@@ -1879,12 +2414,13 @@ const loadServerHome = async (server: PlexServer, many: boolean, full = false) =
     const seasonPoster = readHeroConfig().continueWatchingSeasonPoster;
     // One promoted list with items inline. A second heavy hubs call only runs when this one
     // answered and had nothing — a timeout must not stack another scan on top of it.
+    const hubQuery = 'count=16&includeMeta=1';
     const [promotedResult, onDeckData, sectionsRaw] = await Promise.all([
-        pms('/hubs/promoted?count=12&includeMeta=1', server, 12000)
+        pms(`/hubs/promoted?${hubQuery}`, server, full ? 12000 : 5000)
             .then((data) => ({ data, answered: true }))
             .catch(() => ({ data: null, answered: false })),
-        pms('/library/onDeck?X-Plex-Container-Size=24', server, 8000).catch(() => null),
-        pms('/library/sections', server, 8000).catch(() => null),
+        pms('/library/onDeck?X-Plex-Container-Size=24', server, full ? 8000 : 5000).catch(() => null),
+        pms('/library/sections', server, full ? 8000 : 4000).catch(() => null),
     ]);
     const resolveHubs = async (data: any) => (
         full
@@ -1892,11 +2428,20 @@ const loadServerHome = async (server: PlexServer, many: boolean, full = false) =
             : hubsFrom(data, server, many)
     );
     let hubs = promotedResult.answered ? await resolveHubs(promotedResult.data) : [];
-    if (!hubs.length && promotedResult.answered) {
-        const homeData = await pms('/hubs/home?count=12&includeMeta=1', server, 12000).catch(() => null);
-        if (homeData) hubs = await resolveHubs(homeData);
+    // Fast first paint: Continue Watching is already in onDeck. Filling empty hub
+    // shells and hero cover art waits for full=1 so the bottom rail is not last.
+    // Only hit /hubs/home when promoted was empty — merging it always hammers PMS
+    // with auto hubs and wipes the real Home rows.
+    if (!hubs.length && full) {
+        const homeData = await pms(`/hubs/home?${hubQuery}`, server, 12000).catch(() => null);
+        if (homeData) hubs = await pinnedHubs(homeData, server, many);
     }
     hubs = uniquifyHubs(hubs);
+    if (full) {
+        hubs = await attachHeroCoverArt(await stampHeroRows(hubs, server), server);
+    } else {
+        hubs = applyHeroRowFlags(hubs, server);
+    }
     const onDeckRaw = mapList(onDeckData);
     const onDeck = seasonPoster
         ? onDeckRaw.map((item) => (item.type === 'episode' ? { ...item, preferSeasonPoster: true } : item))
@@ -1920,14 +2465,17 @@ const loadServerHome = async (server: PlexServer, many: boolean, full = false) =
     const refreshed = watchingHubs.map((hub) => hub.items).filter((items) => items.length);
     if (onDeck.length) refreshed.push(onDeck);
     const seenWatching = new Set<string>();
-    const merged = await refreshContinueEpisodeThumbs(refreshed.flat().filter((item) => {
+    const watchingList = refreshed.flat().filter((item) => {
         const key = showKey(item);
         if (!item.ratingKey || seenWatching.has(key)) return false;
         seenWatching.add(key);
         return true;
     }).map((item) => (
         seasonPoster && item.type === 'episode' ? { ...item, preferSeasonPoster: true } : item
-    )), server);
+    ));
+    const merged = full
+        ? await refreshContinueEpisodeThumbs(watchingList, server)
+        : watchingList;
     if (primary && merged.length) primary.items = merged;
     if (primary) hubs = hubs.filter((hub) => hub === primary || !continueHub(hub));
     const continueItems = primary ? primary.items : (hubs.some((hub) => hub.items.length) ? [] : onDeck);
@@ -1936,6 +2484,9 @@ const loadServerHome = async (server: PlexServer, many: boolean, full = false) =
         key: many ? `${server.id}::${section.key}` : section.key,
         serverId: server.id,
     }));
+    if (full) {
+        hubs = await attachBecauseYouWatched(hubs, continueItems, server);
+    }
     return { server, hubs, onDeck: continueItems, sections, recentByLibrary: [], partial: !full };
 });
 
@@ -2238,6 +2789,226 @@ const buildHomeHero = async () => {
     };
 };
 
+const itemGuids = (meta: PlexMeta | null | undefined) => {
+    const out: string[] = [];
+    const push = (value: unknown) => {
+        const guid = String(value || '').trim();
+        if (guid && !out.includes(guid)) out.push(guid);
+    };
+    push(meta?.guid);
+    asList<PlexMeta>(meta?.Guid).forEach((row) => push(row.id || row.tag));
+    return out;
+};
+
+const matchLibraryByGuids = async (guids: string[], title: string, year: string | number | null, type: string, server: PlexServer) => {
+    for (const guid of guids.slice(0, 6)) {
+        const data = await pms(`/library/all?guid=${encodeURIComponent(guid)}`, server, 5000).catch(() => null);
+        const meta = asList<PlexMeta>(containerOf(data).Metadata)[0];
+        if (meta) return mapItem(meta);
+    }
+    const queryTitle = String(title || '').trim();
+    if (!queryTitle) return null;
+    const data = await pms(`/hubs/search?query=${encodeURIComponent(queryTitle)}&limit=12`, server, 6000).catch(() => null);
+    const rows = asList<PlexMeta>(containerOf(data).Hub).flatMap((hub) => asList<PlexMeta>(hub.Metadata));
+    const wantType = /show|tv|series/i.test(type) ? 'show' : 'movie';
+    const wantYear = String(year || '').slice(0, 4);
+    const want = queryTitle.toLowerCase();
+    const hit = rows.find((row) => {
+        const mapped = normalizeItemType(row);
+        if (mapped !== wantType) return false;
+        const titleHit = String(row.title || '').trim().toLowerCase() === want;
+        if (!titleHit) return false;
+        if (!wantYear) return true;
+        return String(row.year || '').slice(0, 4) === wantYear;
+    }) || rows.find((row) => String(row.title || '').trim().toLowerCase() === want);
+    return hit ? mapItem(hit) : null;
+};
+
+const loadWatchlist = async () => {
+    const token = accountToken() || readOwnerToken();
+    if (!token) return { items: [] as ReturnType<typeof mapItem>[] };
+    const url = `${DISCOVER_BASE}/library/sections/watchlist/all?includeGuids=1&X-Plex-Container-Size=100`;
+    const data = await plexFetch(url, token).catch(() => null);
+    const rows = asList<PlexMeta>(containerOf(data).Metadata);
+    const servers = enabledServers();
+    const mapped = await mapPool(rows, 3, async (row) => {
+        const discoverKey = String(row.ratingKey || '');
+        const title = String(row.title || '');
+        const type = String(row.type || '');
+        const year = row.year != null ? String(row.year) : '';
+        let local: ReturnType<typeof mapItem> | null = null;
+        for (const server of servers) {
+            local = await withMapServer(server, () => matchLibraryByGuids(itemGuids(row), title, year, type, server));
+            if (local?.ratingKey) break;
+        }
+        if (!local?.ratingKey) return null;
+        return {
+            ...local,
+            watchlisted: true,
+            discoverRatingKey: discoverKey || null,
+        };
+    });
+    const items: ReturnType<typeof mapItem>[] = [];
+    const seen = new Set<string>();
+    for (const item of mapped) {
+        if (!item?.ratingKey || seen.has(item.ratingKey)) continue;
+        seen.add(item.ratingKey);
+        items.push(item);
+    }
+    return { items };
+};
+
+const watchlistAction = async (method: 'add' | 'remove', ratingKey: string, guid?: string) => {
+    const token = accountToken() || readOwnerToken();
+    if (!token) throw new Error('Not signed in to Plex');
+    const action = method === 'add' ? 'addToWatchlist' : 'removeFromWatchlist';
+    const params = new URLSearchParams();
+    if (ratingKey) params.set('ratingKey', ratingKey);
+    if (guid) params.set('guid', guid);
+    await plexFetch(`${DISCOVER_BASE}/actions/${action}?${params}`, token, { method: 'PUT' });
+    return { ok: true };
+};
+
+const loadSubtitleSearch = async (ratingKey: string, server: PlexServer | null, language = 'en') => {
+    if (!server || !ratingKey) return { items: [] as Array<{ id: string; label: string; url: string }> };
+    return withMapServer(server, async () => {
+        const lang = String(language || 'en').trim() || 'en';
+        const data = await pms(
+            `/library/metadata/${encodeURIComponent(ratingKey)}/subtitles?language=${encodeURIComponent(lang)}`,
+            server,
+            12000,
+        ).catch(() => null);
+        const streams = asList<PlexMeta>(containerOf(data).Stream)
+            .concat(asList<PlexMeta>(containerOf(data).Metadata).flatMap((row) => asList<PlexMeta>(row.Stream)));
+        const items: Array<{ id: string; label: string; url: string }> = [];
+        const seen = new Set<string>();
+        for (const stream of streams) {
+            const keyPath = String(stream.key || '').trim();
+            if (!keyPath || keyPath.startsWith('http') === false && !keyPath.startsWith('/')) continue;
+            const id = String(stream.id || keyPath);
+            if (seen.has(id)) continue;
+            seen.add(id);
+            let url = keyPath;
+            if (!/^https?:\/\//i.test(url)) {
+                const base = server.uri.endsWith('/') ? server.uri.slice(0, -1) : server.uri;
+                url = `${base}${keyPath.startsWith('/') ? '' : '/'}${keyPath}`;
+            }
+            try {
+                const parsed = new URL(url);
+                if (!parsed.searchParams.get('X-Plex-Token')) {
+                    parsed.searchParams.set('X-Plex-Token', server.accessToken);
+                }
+                url = parsed.toString();
+            } catch {
+                /* keep raw */
+            }
+            const langName = String(stream.languageCode || stream.languageTag || stream.language || '').trim();
+            const title = String(stream.displayTitle || stream.title || langName || 'Subtitle').trim();
+            items.push({
+                id: `os:${id}`,
+                label: `${title}${langName && !title.toLowerCase().includes(langName.toLowerCase()) ? ` · ${langName}` : ''} · OpenSubtitles`,
+                url,
+            });
+        }
+        return { items };
+    });
+};
+
+const allLeavesOf = async (ratingKey: string, server: PlexServer | null = resolveServer('', ratingKey)) => withMapServer(server, async () => {
+    const data = await pms(
+        `/library/metadata/${encodeURIComponent(ratingKey)}/allLeaves?includeUserState=1&X-Plex-Container-Size=500`,
+        server,
+    ).catch(() => null);
+    return mapList(data);
+});
+
+const collectPlayableQueue = async (key: string, server: PlexServer) => {
+    const meta = await metadata(key, server);
+    const item = mapItem(meta);
+    const playable = (rows: ReturnType<typeof mapItem>[]) => rows.filter((row) => (
+        row.type === 'movie' || row.type === 'episode' || row.type === 'clip' || row.type === 'trailer' || row.type === 'track'
+    ));
+    if (item.type === 'movie' || item.type === 'episode' || item.type === 'clip' || item.type === 'trailer' || item.type === 'track') {
+        return playable([item]);
+    }
+    if (item.type === 'album') return playable(await childrenOf(key, server));
+    if (item.type === 'artist') return playable(await allLeavesOf(key, server));
+    if (item.type === 'season') return playable(await childrenOf(key, server));
+    if (item.type === 'show') {
+        const seasons = (await childrenOf(key, server)).filter((row) => row.type === 'season');
+        const episodes: ReturnType<typeof mapItem>[] = [];
+        for (const season of seasons) {
+            episodes.push(...await childrenOf(season.ratingKey, server));
+        }
+        return playable(episodes);
+    }
+    return playable(await childrenOf(key, server));
+};
+
+const shuffleQueueFor = async (key: string, server: PlexServer) => {
+    const items = await collectPlayableQueue(key, server);
+    return { items: shuffleItems(items) };
+};
+
+const playFromQueueFor = async (key: string, server: PlexServer) => {
+    const meta = await metadata(key, server);
+    const item = mapItem(meta);
+    if (item.type === 'track') {
+        const albumKey = String(item.parentRatingKey || '');
+        const all = albumKey ? await collectPlayableQueue(albumKey, server) : [item];
+        const idx = all.findIndex((row) => row.ratingKey === key);
+        return { items: idx >= 0 ? all.slice(idx) : [item] };
+    }
+    if (item.type !== 'episode') {
+        const rest = await collectPlayableQueue(key, server);
+        const idx = rest.findIndex((row) => row.ratingKey === key);
+        return { items: idx >= 0 ? rest.slice(idx) : rest };
+    }
+    const showKey = String(item.grandparentRatingKey || '');
+    if (!showKey) return { items: [item] };
+    const all = await collectPlayableQueue(showKey, server);
+    const idx = all.findIndex((row) => row.ratingKey === key);
+    return { items: idx >= 0 ? all.slice(idx) : [item] };
+};
+
+const attachBecauseYouWatched = async (
+    hubs: Array<{ title: string; identifier: string; items: ReturnType<typeof mapItem>[]; hubKey?: string | null; serverId?: string | null }>,
+    continueItems: ReturnType<typeof mapItem>[],
+    server: PlexServer,
+) => {
+    const seeds: Array<{ key: string; title: string }> = [];
+    for (const item of continueItems) {
+        if (seeds.length >= 2) break;
+        const key = item.type === 'episode' || item.type === 'season'
+            ? String(item.grandparentRatingKey || item.parentRatingKey || '')
+            : String(item.ratingKey || '');
+        const title = item.type === 'episode' || item.type === 'season'
+            ? String(item.showTitle || item.title || '')
+            : String(item.title || '');
+        if (!key || !title || seeds.some((row) => row.key === key)) continue;
+        seeds.push({ key, title });
+    }
+    const extra: typeof hubs = [];
+    for (const seed of seeds) {
+        const data = await pms(`/hubs/metadata/${encodeURIComponent(seed.key)}/related?count=12`, server, 8000).catch(() => null);
+        const hub = asList<PlexMeta>(containerOf(data).Hub).find((row) => asList<PlexMeta>(row.Metadata).length);
+        if (!hub) continue;
+        const items = mapList({ MediaContainer: { Metadata: asList<PlexMeta>(hub.Metadata) } })
+            .filter((row) => row.ratingKey !== seed.key)
+            .slice(0, 16);
+        if (!items.length) continue;
+        extra.push({
+            title: `Because you watched ${seed.title}`,
+            identifier: `because:${seed.key}`,
+            items,
+            hubKey: String(hub.key || '') || null,
+            serverId: server.id,
+        });
+    }
+    if (!extra.length) return hubs;
+    return [...hubs, ...extra];
+};
+
 const handlePlayer = async (path: string, method: string, query: URLSearchParams, body: any) => {
     if (path === '/api/media-player/me') {
         const token = accountToken();
@@ -2259,6 +3030,35 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
         return next;
     }
     if (path === '/api/media-player/settings') return readSettings();
+    if (path === '/api/media-player/watchlist' && method === 'GET') {
+        await ensureServers();
+        return loadWatchlist();
+    }
+    if (path === '/api/media-player/watchlist' && (method === 'POST' || method === 'PUT' || method === 'DELETE')) {
+        const action = method === 'DELETE' || body?.remove ? 'remove' : 'add';
+        const guid = String(body?.guid || query.get('guid') || '');
+        const discoverKey = String(body?.discoverRatingKey || '').trim();
+        const fromGuid = guid.match(/^plex:\/\/(?:movie|show|season|episode)\/([a-f0-9]+)/i);
+        const ratingKey = discoverKey || (fromGuid ? fromGuid[1] : '');
+        if (!ratingKey && !guid) throw new Error('Missing watchlist id');
+        return watchlistAction(action, ratingKey, guid);
+    }
+    const shufflePath = path.match(/^\/api\/media-player\/queue\/shuffle\/([^/]+)$/);
+    if (shufflePath) {
+        const key = decodeURIComponent(shufflePath[1]);
+        await ensureServers();
+        const server = resolveServer(query.get('server'), key);
+        if (!server) return { items: [] };
+        return withMapServer(server, () => shuffleQueueFor(key, server));
+    }
+    const fromPath = path.match(/^\/api\/media-player\/queue\/from\/([^/]+)$/);
+    if (fromPath) {
+        const key = decodeURIComponent(fromPath[1]);
+        await ensureServers();
+        const server = resolveServer(query.get('server'), key);
+        if (!server) return { items: [] };
+        return withMapServer(server, () => playFromQueueFor(key, server));
+    }
     if (path === '/api/media-player/servers') {
         if (method !== 'POST') await ensureServers();
         const stored = readServerList();
@@ -2306,15 +3106,10 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
         const full = query.get('full') === '1';
         const loaded = await Promise.all(servers.map((server) => loadServerHome(server, many, full).catch(() => null)));
         const rows = loaded.filter((row): row is NonNullable<typeof row> => !!row);
-        const titleCount = new Map<string, number>();
-        rows.flatMap((row) => row.hubs).forEach((hub) => titleCount.set(hub.title, (titleCount.get(hub.title) || 0) + 1));
-        const hubs = rows.flatMap((row) => row.hubs.map((hub) => ({
+        const hubs = mergeSameTitleHubs(rows.flatMap((row) => row.hubs.map((hub) => ({
             ...hub,
             identifier: many ? `${row.server.id}:${hub.identifier}` : hub.identifier,
-            title: many && (titleCount.get(hub.title) || 0) > 1
-                ? `${hub.title} · ${row.server.name}`
-                : hub.title,
-        })));
+        }))));
         const libraries = rows.flatMap((row) => row.sections);
         return {
             libraries,
@@ -2607,12 +3402,19 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
             return { item, children, extras: [], related: [], onDeck: null };
         });
     }
+    const itemSubtitles = path.match(/^\/api\/media-player\/item\/([^/]+)\/subtitles$/);
+    if (itemSubtitles && method === 'GET') {
+        const key = decodeURIComponent(itemSubtitles[1]);
+        const server = resolveServer(query.get('server'), key);
+        return loadSubtitleSearch(key, server, query.get('language') || 'en');
+    }
     const itemMore = path.match(/^\/api\/media-player\/item\/([^/]+)\/more$/);
     if (itemMore && method === 'GET') {
         const key = decodeURIComponent(itemMore[1]);
         const server = resolveServer(query.get('server'), key);
         if (!server) return { extras: [], related: [], onDeck: null };
         return withMapServer(server, async () => {
+            const extrasPromise = loadItemExtras(key, server);
             const data = await pms(`/hubs/metadata/${encodeURIComponent(key)}/related?count=16&includeMeta=1`, server).catch(() => null);
             const many = enabledServers().length > 1;
             const related = [];
@@ -2640,7 +3442,7 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                     serverId: server.id,
                 });
             }
-            const extras = await pms(`/library/metadata/${encodeURIComponent(key)}/extras`, server).then(mapList).catch(() => []);
+            const extras = await extrasPromise.catch(() => [] as ReturnType<typeof mapItem>[]);
             let onDeck: ReturnType<typeof mapItem> | null = null;
             const core = await metadata(key, server).catch(() => null);
             const kind = core ? String(mapItem(core).type || '').toLowerCase() : '';
@@ -2662,10 +3464,13 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
             const showKey = item.type === 'season'
                 ? item.parentRatingKey
                 : (item.type === 'episode' ? item.grandparentRatingKey : null);
-            if ((ratingsEmpty || !item.externalIds?.tmdb) && showKey) {
+            if (showKey && (item.type === 'season' || item.type === 'episode')) {
                 const showMeta = await metadata(String(showKey), server).catch(() => null);
                 if (showMeta) {
                     const showItem = mapItem(showMeta);
+                    if (!item.showTitle) item.showTitle = showItem.title || null;
+                    if (!item.logo && showItem.logo) item.logo = showItem.logo;
+                    if (!item.art && showItem.art) item.art = showItem.art;
                     if (ratingsEmpty && showItem.ratings) item.ratings = showItem.ratings;
                     if (!item.externalIds?.imdb && !item.externalIds?.tmdb && !item.externalIds?.tvdb) {
                         item.externalIds = showItem.externalIds;
@@ -2677,11 +3482,15 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                 }
             }
             let children: ReturnType<typeof mapItem>[] = [];
-            if (item.type === 'show' || item.type === 'season') children = await childrenOf(key, server);
-            let extras: ReturnType<typeof mapItem>[] = [];
-            if (item.type === 'movie' || item.type === 'show') {
-                extras = await pms(`/library/metadata/${encodeURIComponent(key)}/extras`, server).then(mapList).catch(() => []);
+            const extrasPromise = (item.type === 'movie' || item.type === 'show')
+                ? loadItemExtras(key, server, meta)
+                : Promise.resolve([] as ReturnType<typeof mapItem>[]);
+            if (item.type === 'show' || item.type === 'season' || item.type === 'artist' || item.type === 'album') {
+                children = await childrenOf(key, server);
+            } else if (item.type === 'track' && item.parentRatingKey) {
+                children = await childrenOf(String(item.parentRatingKey), server);
             }
+            const extras = await extrasPromise.catch(() => [] as ReturnType<typeof mapItem>[]);
             let onDeck: ReturnType<typeof mapItem> | null = null;
             if (item.type === 'show' || item.type === 'season') {
                 onDeck = await resolvePlayableEpisode(key, server, item.type);
@@ -2694,12 +3503,18 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
         const key = decodeURIComponent(play[1]);
         const server = resolveServer(query.get('server'), key);
         return withMapServer(server, async () => {
-            let meta = await metadata(key, server);
+            let meta = await metadata(key, server).catch(() => extraMetaByKey.get(key) || null);
+            if (!meta) throw new Error('This title cannot be played.');
             const seed = mapItem(meta);
             if (seed.type === 'show' || seed.type === 'season') {
                 const episode = await resolvePlayableEpisode(key, server, seed.type);
                 if (episode?.ratingKey) {
                     meta = await metadata(String(episode.ratingKey), server);
+                }
+            } else if (seed.type === 'album' || seed.type === 'artist') {
+                const first = (await allLeavesOf(key, server))[0];
+                if (first?.ratingKey) {
+                    meta = await metadata(String(first.ratingKey), server);
                 }
             }
             const settings = readSettings();
@@ -2716,9 +3531,10 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                 : null;
             const subtitleStreamId = pickSubtitleId(streams.subtitles, requestedSub, settings.subtitleMode || 'forced');
             const offsetQuery = query.get('offsetMs');
-            const offsetMs = offsetQuery != null
-                ? Math.max(0, Math.floor(Number(offsetQuery) || 0))
-                : Math.max(0, Math.floor(Number(meta.viewOffset) || 0));
+            const offsetMs = clampPlayOffsetMs(
+                offsetQuery != null ? Number(offsetQuery) || 0 : plexViewOffsetMs(meta) || 0,
+                Number(meta.duration || 0),
+            );
             const playKey = String(meta.ratingKey || key);
             const chosen = playSrc(
                 meta,
@@ -2732,7 +3548,7 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
             const item = mapItem(meta);
             if (item.ratingKey) rememberItem(item.ratingKey, server);
             return {
-                sessionId: `plex-${playKey}`,
+                sessionId: chosen.sessionId || `smp-${playKey}`,
                 item,
                 src: chosen.src,
                 offsetMs,
@@ -2764,12 +3580,16 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                 versions: item.versions,
                 markers: item.markers,
                 playbackMode: chosen.mode,
+                previewThumbTemplate: imageUrl(`/library/metadata/${encodeURIComponent(playKey)}/thumb/__OFFSET__`, 480, 270) || null,
                 client: 'android',
             };
         });
     }
     if (path === '/api/media-player/timeline' && method === 'POST') {
-        const state = body?.state === 'paused' ? 'paused' : body?.state === 'stopped' ? 'stopped' : 'playing';
+        const rawState = String(body?.state || '').trim().toLowerCase();
+        const state = rawState === 'paused' || rawState === 'stopped' || rawState === 'buffering'
+            ? rawState
+            : 'playing';
         const key = String(body?.ratingKey || '');
         if (key) {
             const time = String(Math.max(0, Math.floor(Number(body?.timeMs) || 0)));
@@ -2783,6 +3603,7 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                 time,
                 playbackTime: time,
                 duration: String(Math.max(0, Math.floor(Number(body?.durationMs) || 0))),
+                type: 'video',
                 hasMDE: '1',
             });
             if (safeSession) params.set('X-Plex-Session-Identifier', safeSession);
@@ -2808,7 +3629,8 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
         return { ok: true };
     }
     const nextEpisode = async (meta: PlexMeta, server: PlexServer | null) => {
-        if (meta.type !== 'episode' || !meta.parentRatingKey) return { previous: null, next: null };
+        const kind = normalizeItemType(meta);
+        if ((kind !== 'episode' && kind !== 'track') || !meta.parentRatingKey) return { previous: null, next: null };
         const siblings = await childrenOf(String(meta.parentRatingKey), server);
         const index = siblings.findIndex((row) => row.ratingKey === String(meta.ratingKey));
         let nextItem = index >= 0 ? siblings[index + 1] || null : null;
@@ -2837,7 +3659,8 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
         const key = decodeURIComponent(neighbors[1]);
         const server = resolveServer(query.get('server'), key);
         const meta = await metadata(key, server);
-        if (meta.type !== 'episode') return { previous: null, next: null };
+        const kind = normalizeItemType(meta);
+        if (kind !== 'episode' && kind !== 'track') return { previous: null, next: null };
         return nextEpisode(meta, server);
     }
     const personPath = path.match(/^\/api\/media-player\/person\/([^/]+)$/);

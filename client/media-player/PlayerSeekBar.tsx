@@ -9,6 +9,7 @@ type Props = {
     durationMs: number;
     buffered?: BufferedRange[];
     markers?: PlayerMarkers;
+    previewThumbTemplate?: string | null;
     label: string;
     onSeek: (ms: number) => void;
 };
@@ -24,6 +25,7 @@ export const PlayerSeekBar: React.FC<Props> = ({
     durationMs,
     buffered = [],
     markers,
+    previewThumbTemplate,
     label,
     onSeek,
 }) => {
@@ -95,8 +97,15 @@ export const PlayerSeekBar: React.FC<Props> = ({
             {hover && hoverMs != null ? (
                 <div
                     className="pointer-events-none absolute -top-7 z-20 -translate-x-1/2 rounded-md bg-black/90 px-2 py-1 text-[11px] font-bold text-white shadow-lg"
-                    style={{ left: hover.x }}
+                    style={{ left: hover.x, top: previewThumbTemplate ? -86 : undefined }}
                 >
+                    {previewThumbTemplate ? (
+                        <img
+                            alt=""
+                            className="mb-1 h-16 w-28 rounded object-cover"
+                            src={previewThumbTemplate.replace('__OFFSET__', String(Math.max(0, Math.round(hoverMs))))}
+                        />
+                    ) : null}
                     {formatClock(hoverMs)}
                 </div>
             ) : null}

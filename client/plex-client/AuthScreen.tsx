@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Check, Globe, Loader2, Play } from 'lucide-react';
+import { ArrowLeft, Check, Globe, Loader2 } from 'lucide-react';
 import { apiFetch } from '../shared/api';
 import {
     clearPlexClientPortal,
     getPortalBaseUrl,
     isAndroidTvUi,
     normalizePortalBaseUrl,
+    writeAuthMode,
     writeStoredPortalBaseUrl,
     writeStoredSessionToken,
 } from './config';
@@ -43,62 +44,74 @@ const displayHost = (raw: string) => {
     }
 };
 
-const AuthAtmosphere: React.FC = () => (
+const AuthAtmosphere: React.FC<{ tv?: boolean }> = ({ tv }) => (
     <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
         <div className="absolute inset-0 bg-[#07080c]" />
-        <div className="absolute -top-32 -left-24 h-[34rem] w-[34rem] rounded-full bg-plex/20 blur-[140px]" />
-        <div className="absolute top-[18%] right-[-8%] h-[28rem] w-[28rem] rounded-full bg-amber-700/20 blur-[120px]" />
-        <div className="absolute bottom-[-18%] left-[22%] h-[24rem] w-[24rem] rounded-full bg-plex/10 blur-[110px]" />
-        <div
-            className="absolute inset-0 opacity-90"
-            style={{ backgroundImage: 'radial-gradient(ellipse 70% 55% at 18% 12%, rgba(229,160,13,0.16), transparent 58%)' }}
-        />
-        <div className="absolute inset-y-[-12%] right-[-6%] hidden w-[58%] rotate-[-11deg] md:block">
-            <div className="grid h-full grid-cols-6 gap-3 opacity-[0.42]">
-                {POSTER_HUES.map((hue, index) => (
-                    <div
-                        key={`${hue}-${index}`}
-                        className="relative overflow-hidden rounded-xl border border-white/10 shadow-[0_18px_40px_rgba(0,0,0,0.45)]"
-                        style={{
-                            marginTop: `${(index % 3) * 1.6}rem`,
-                            background: `linear-gradient(165deg, hsl(${hue} 55% ${22 + (index % 4) * 4}%) 0%, hsl(${hue + 8} 40% 8%) 100%)`,
-                        }}
-                    >
-                        <div className="absolute inset-x-0 top-0 h-1/3 bg-gradient-to-b from-white/10 to-transparent" />
+        {tv ? (
+            <div
+                className="absolute left-1/2 top-[46%] h-[42rem] w-[42rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-amber-500/[0.16] blur-[140px]"
+            />
+        ) : (
+            <>
+                <div className="absolute -top-32 -left-24 h-[34rem] w-[34rem] rounded-full bg-plex/20 blur-[140px]" />
+                <div className="absolute top-[18%] right-[-8%] h-[28rem] w-[28rem] rounded-full bg-amber-700/20 blur-[120px]" />
+                <div className="absolute bottom-[-18%] left-[22%] h-[24rem] w-[24rem] rounded-full bg-plex/10 blur-[110px]" />
+                <div
+                    className="absolute inset-0 opacity-90"
+                    style={{ backgroundImage: 'radial-gradient(ellipse 70% 55% at 18% 12%, rgba(229,160,13,0.16), transparent 58%)' }}
+                />
+                <div className="absolute inset-y-[-12%] right-[-6%] hidden w-[58%] rotate-[-11deg] md:block">
+                    <div className="grid h-full grid-cols-6 gap-3 opacity-[0.42]">
+                        {POSTER_HUES.map((hue, index) => (
+                            <div
+                                key={`${hue}-${index}`}
+                                className="relative overflow-hidden rounded-xl border border-white/10 shadow-[0_18px_40px_rgba(0,0,0,0.45)]"
+                                style={{
+                                    marginTop: `${(index % 3) * 1.6}rem`,
+                                    background: `linear-gradient(165deg, hsl(${hue} 55% ${22 + (index % 4) * 4}%) 0%, hsl(${hue + 8} 40% 8%) 100%)`,
+                                }}
+                            >
+                                <div className="absolute inset-x-0 top-0 h-1/3 bg-gradient-to-b from-white/10 to-transparent" />
+                            </div>
+                        ))}
                     </div>
-                ))}
-            </div>
-        </div>
-        <div className="absolute inset-0 bg-gradient-to-r from-[#07080c] via-[#07080c]/88 to-[#07080c]/35" />
-        <div className="absolute inset-0 bg-gradient-to-t from-[#07080c] via-transparent to-[#07080c]/70" />
-        <div
-            className="absolute inset-0 opacity-[0.04] mix-blend-overlay"
-            style={{
-                backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.35) 2px, rgba(255,255,255,0.35) 3px), repeating-linear-gradient(90deg, transparent, transparent 3px, rgba(255,255,255,0.2) 3px, rgba(255,255,255,0.2) 4px)',
-            }}
-        />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_45%,rgba(0,0,0,0.55)_100%)]" />
+                </div>
+                <div className="absolute inset-0 bg-gradient-to-r from-[#07080c] via-[#07080c]/88 to-[#07080c]/35" />
+                <div className="absolute inset-0 bg-gradient-to-t from-[#07080c] via-transparent to-[#07080c]/70" />
+                <div
+                    className="absolute inset-0 opacity-[0.04] mix-blend-overlay"
+                    style={{
+                        backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.35) 2px, rgba(255,255,255,0.35) 3px), repeating-linear-gradient(90deg, transparent, transparent 3px, rgba(255,255,255,0.2) 3px, rgba(255,255,255,0.2) 4px)',
+                    }}
+                />
+                <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_45%,rgba(0,0,0,0.55)_100%)]" />
+            </>
+        )}
     </div>
 );
 
-const AuthMark: React.FC<{ pulse?: boolean }> = ({ pulse = false }) => (
-    <div className={`relative inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-plex to-amber-600 shadow-[0_12px_40px_rgba(229,160,13,0.38)] ring-1 ring-white/20 ${pulse ? 'animate-pulse' : ''}`}>
-        <Play className="h-7 w-7 fill-zinc-950 text-zinc-950" />
+const LOGO_SRC = './logo.png';
+
+const AuthMark: React.FC<{ tv?: boolean }> = ({ tv }) => (
+    <div className="smp-auth-mark relative h-14 w-14 sm:h-16 sm:w-16">
+        {tv ? null : <div className="absolute inset-[-22%] rounded-full bg-plex/20 blur-2xl" aria-hidden />}
+        <img src={LOGO_SRC} alt="StreamPilot" className="relative h-full w-full object-contain" />
     </div>
 );
 
 export const PlexClientBootSplash: React.FC = () => (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#07080c] text-zinc-100">
-        <AuthAtmosphere />
-        <div className="relative z-10 flex flex-col items-center gap-5">
-            <AuthMark pulse />
-            <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-plex/90">StreamPilot</p>
+    <div id="boot-splash">
+        <div className="boot-splash-glow" aria-hidden />
+        <div className="boot-splash-mark">
+            <img src={LOGO_SRC} alt="StreamPilot" />
         </div>
+        <div className="boot-splash-progress" aria-hidden><span /></div>
     </div>
 );
 
 export const PlexClientAuthScreen: React.FC<Props> = ({ onAuthenticated }) => {
     const [portalUrl, setPortalUrl] = useState(getPortalBaseUrl());
+    const [usePortal, setUsePortal] = useState(false);
     const [error, setError] = useState('');
     const [busy, setBusy] = useState(false);
     const [pin, setPin] = useState<PinSession | null>(null);
@@ -154,7 +167,7 @@ export const PlexClientAuthScreen: React.FC<Props> = ({ onAuthenticated }) => {
             }
         } catch (err: any) {
             const message = String(err?.message || '');
-            if (/Waiting for Plex|sign-in did not complete|CSRF/i.test(message)) return;
+            if (/Waiting for Plex|sign-in did not complete|CSRF|not found or expired/i.test(message)) return;
             setError(message || 'Login failed');
             stopPoll();
             setBusy(false);
@@ -172,6 +185,41 @@ export const PlexClientAuthScreen: React.FC<Props> = ({ onAuthenticated }) => {
         return normalized.url;
     };
 
+    const startDirectLogin = async () => {
+        setError('');
+        setBusy(true);
+        stopPoll();
+        setPin(null);
+        setHomeUsers(null);
+        writeAuthMode('plex');
+        writeStoredPortalBaseUrl('');
+        try {
+            const data = await apiFetch('/api/auth/plex/login', {
+                method: 'POST',
+                body: JSON.stringify({ linkCode: true }),
+            });
+            const session: PinSession = {
+                pinId: String(data.id),
+                code: String(data.code || '').trim().toUpperCase(),
+                oauthState: String(data.oauthState || 'direct'),
+                clientId: String(data.clientIdentifier || ''),
+            };
+            if (!session.pinId || !session.code) throw new Error('Plex did not return a link code');
+            if (session.code.length > 6) {
+                throw new Error('Plex returned a code that plex.tv/link will not accept. Try again.');
+            }
+            setPin(session);
+            if (!isTv) {
+                try { window.open(LINK_URL, '_blank', 'noopener,noreferrer'); } catch { /* tv */ }
+            }
+            pollRef.current = window.setInterval(() => { void pollCallback(session); }, 2000);
+            void pollCallback(session);
+        } catch (err: any) {
+            setError(err?.message || 'Failed to start Plex login');
+            setBusy(false);
+        }
+    };
+
     const startPinLogin = async () => {
         setError('');
         setBusy(true);
@@ -181,6 +229,7 @@ export const PlexClientAuthScreen: React.FC<Props> = ({ onAuthenticated }) => {
         setHomeSelectToken('');
         setHomePin('');
 
+        writeAuthMode('portal');
         const url = applyPortalUrl(portalUrl);
         if (!url) {
             setBusy(false);
@@ -317,17 +366,18 @@ export const PlexClientAuthScreen: React.FC<Props> = ({ onAuthenticated }) => {
         ? 'Choose a Plex Home profile to continue.'
         : stage === 'pin'
             ? 'On any phone or computer, open plex.tv/link and enter the code below.'
-            : 'Connect once to your StreamPilot, then sign in with Plex.';
+            : usePortal
+                ? 'Connect once to your StreamPilot, then sign in with Plex.'
+                : 'Sign in with your Plex account. This device talks to your Plex server directly.';
 
     return (
         <div className="relative min-h-screen overflow-hidden bg-[#07080c] text-zinc-100" data-tv-auth="1">
-            <AuthAtmosphere />
+            <AuthAtmosphere tv={isTv} />
             <div className="smp-auth-shell relative z-10 flex min-h-screen items-center px-5 py-10 sm:px-10 lg:px-16">
                 <div className="w-full max-w-xl lg:max-w-[34rem]">
                     <div className={`smp-auth-copy mb-8 space-y-5 ${isTv ? 'smp-tv-screen-enter' : ''}`}>
-                        <AuthMark />
+                        <AuthMark tv={isTv} />
                         <div className="space-y-3">
-                            <p className="text-[11px] font-bold uppercase tracking-[0.32em] text-plex">StreamPilot</p>
                             <h1 className="text-4xl font-black tracking-tight text-white sm:text-5xl">
                                 {title}
                             </h1>
@@ -338,7 +388,39 @@ export const PlexClientAuthScreen: React.FC<Props> = ({ onAuthenticated }) => {
                     </div>
 
                     <div className={`rounded-[1.75rem] border border-white/10 bg-white/[0.035] p-5 shadow-[0_30px_80px_rgba(0,0,0,0.45)] backdrop-blur-2xl sm:p-7 ${isTv ? 'smp-tv-auth-panel-enter' : ''}`}>
-                        {stage === 'connect' ? (
+                        {stage === 'connect' && !usePortal ? (
+                            <div className="space-y-4" data-tv-rail="1">
+                                <button
+                                    type="button"
+                                    data-tv-item="1"
+                                    data-tv-action="1"
+                                    data-tv-key="auth-plex"
+                                    tabIndex={0}
+                                    className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-plex to-amber-400 px-5 py-3.5 text-base font-black text-zinc-950 shadow-[0_10px_30px_rgba(229,160,13,0.28)] transition hover:brightness-110 disabled:opacity-60"
+                                    disabled={busy}
+                                    onClick={() => { void startDirectLogin(); }}
+                                >
+                                    {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                                    Sign in with Plex
+                                </button>
+                                <button
+                                    type="button"
+                                    data-tv-item="1"
+                                    data-tv-key="auth-use-portal"
+                                    tabIndex={0}
+                                    className="inline-flex w-full items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-3 text-sm font-bold text-zinc-300 transition hover:border-white/20 hover:text-white"
+                                    onClick={() => {
+                                        writeAuthMode('portal');
+                                        setUsePortal(true);
+                                        setError('');
+                                    }}
+                                >
+                                    Use a StreamPilot portal
+                                </button>
+                            </div>
+                        ) : null}
+
+                        {stage === 'connect' && usePortal ? (
                             <form
                                 className="space-y-5"
                                 data-tv-rail="1"
@@ -391,6 +473,21 @@ export const PlexClientAuthScreen: React.FC<Props> = ({ onAuthenticated }) => {
                                         </>
                                     )}
                                 </button>
+                                <button
+                                    type="button"
+                                    data-tv-item="1"
+                                    data-tv-key="auth-back-plex"
+                                    tabIndex={0}
+                                    className="inline-flex w-full items-center justify-center gap-2 rounded-2xl px-5 py-2 text-sm font-bold text-zinc-400 transition hover:text-white"
+                                    onClick={() => {
+                                        writeAuthMode('plex');
+                                        setUsePortal(false);
+                                        setError('');
+                                    }}
+                                >
+                                    <ArrowLeft className="h-4 w-4" />
+                                    Sign in with Plex instead
+                                </button>
                             </form>
                         ) : null}
 
@@ -434,7 +531,7 @@ export const PlexClientAuthScreen: React.FC<Props> = ({ onAuthenticated }) => {
                                     onClick={changePortal}
                                 >
                                     <ArrowLeft className="h-4 w-4" />
-                                    Use a different portal
+                                    {usePortal ? 'Use a different portal' : 'Start over'}
                                 </button>
                             </div>
                         ) : null}
@@ -519,7 +616,7 @@ export const PlexClientAuthScreen: React.FC<Props> = ({ onAuthenticated }) => {
                                     className="inline-flex w-full items-center justify-center gap-2 text-sm font-semibold text-zinc-500 transition hover:text-zinc-300"
                                     onClick={changePortal}
                                 >
-                                    Use a different portal
+                                    {usePortal ? 'Use a different portal' : 'Start over'}
                                 </button>
                             </div>
                         ) : null}

@@ -16793,6 +16793,61 @@ const fetchMediaPlayerOgMetadata = async (config, ratingKey) => {
     return payload;
 };
 
+let mediaPlayerTrendingWeekCache = null;
+
+app.get('/api/public/media-player/trending-week', publicReadRateLimit, async (req, res) => {
+    try {
+        const config = await loadFile(CONFIG_PATH, {});
+        const apiKey = String(config.tmdbApiKey || '').trim();
+        if (!apiKey || apiKey === '********') {
+            return res.status(503).json({ items: [], reason: 'missing-tmdb-key' });
+        }
+        if (mediaPlayerTrendingWeekCache && Date.now() - mediaPlayerTrendingWeekCache.at < 60 * 60 * 1000) {
+            res.setHeader('Cache-Control', 'public, max-age=300');
+            return res.json({ items: mediaPlayerTrendingWeekCache.items, reason: 'ok' });
+        }
+        const upstream = await fetch(
+            `https://api.themoviedb.org/3/trending/all/week?api_key=${encodeURIComponent(apiKey)}&page=1`,
+        ).catch(() => null);
+        if (!upstream?.ok) {
+            return res.status(502).json({ items: [], reason: 'tmdb-upstream' });
+        }
+        const json = await upstream.json().catch(() => null);
+        const items = [].concat(json?.results || [])
+            .map((row) => {
+                const mediaType = row?.media_type === 'tv' || row?.first_air_date
+                    ? 'show'
+                    : (row?.media_type === 'movie' || row?.release_date || row?.title ? 'movie' : '');
+                const tmdbId = Number(row?.id);
+                const title = String(row?.title || row?.name || '').trim();
+                const backdropPath = String(row?.backdrop_path || '').trim();
+                if ((mediaType !== 'movie' && mediaType !== 'show')
+                    || !Number.isFinite(tmdbId)
+                    || tmdbId <= 0
+                    || !title
+                    || !backdropPath) return null;
+                return {
+                    tmdbId,
+                    mediaType,
+                    title,
+                    overview: String(row?.overview || '').trim(),
+                    year: String(row?.release_date || row?.first_air_date || '').slice(0, 4) || null,
+                    backdropUrl: `https://image.tmdb.org/t/p/w1280${backdropPath}`,
+                    posterUrl: row?.poster_path
+                        ? `https://image.tmdb.org/t/p/w500${row.poster_path}`
+                        : null,
+                };
+            })
+            .filter(Boolean)
+            .slice(0, 40);
+        mediaPlayerTrendingWeekCache = { at: Date.now(), items };
+        res.setHeader('Cache-Control', 'public, max-age=300');
+        return res.json({ items, reason: 'ok' });
+    } catch (error) {
+        return res.status(500).json({ items: [], reason: 'error', error: String(error?.message || error) });
+    }
+});
+
 app.get('/api/public/media-player/og-image/:ratingKey', publicReadRateLimit, async (req, res) => {
     const ratingKey = String(req.params.ratingKey || '').trim();
     if (!/^\d+$/.test(ratingKey)) return res.status(400).send('');

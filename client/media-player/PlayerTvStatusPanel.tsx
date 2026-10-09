@@ -22,6 +22,7 @@ export const PlayerTvStatusPanel: React.FC<Props> = ({
     useEffect(() => {
         if (!autoFocus) return undefined;
         const id = window.setTimeout(() => {
+            if (document.documentElement?.dataset?.tvNavOpen === '1') return;
             const el = document.querySelector<HTMLElement>('[data-tv-status-primary="1"]');
             el?.focus({ preventScroll: true });
         }, 40);
@@ -57,7 +58,7 @@ export const PlayerTvStatusPanel: React.FC<Props> = ({
                         data-tv-action="1"
                         data-tv-status-primary={onRetry ? undefined : '1'}
                         onClick={onBack}
-                        className="rounded-xl border border-white/15 bg-white/5 px-5 py-2.5 text-sm font-bold text-text outline-none ring-plex/40 focus-visible:ring-2"
+                        className="player-page-back rounded-xl border border-white/15 bg-white/5 px-5 py-2.5 text-sm font-bold text-text outline-none ring-plex/40 focus-visible:ring-2"
                     >
                         {t('mediaPlayerPage.back')}
                     </button>

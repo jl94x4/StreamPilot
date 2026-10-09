@@ -7,5 +7,10 @@
   },
   "android": {
     "allowMixedContent": true
+  },
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    }
   }
 }

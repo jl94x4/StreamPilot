@@ -38,6 +38,9 @@ export const MediaPlayerStudio: React.FC<Props> = ({
     const [items, setItems] = useState<PlayerItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const tvShell = typeof document !== 'undefined' && (
+        document.documentElement?.dataset?.tv === '1' || window.__PLEX_CLIENT__?.isTv === true
+    );
     const eyebrow = mediaType === 'show' ? t('mediaPlayerPage.network') : t('media.studio');
 
     useEffect(() => {
@@ -66,7 +69,7 @@ export const MediaPlayerStudio: React.FC<Props> = ({
             row.ratingKey === item.ratingKey ? { ...row, watched: next } : row
         )));
         try {
-            await setMediaPlayerWatched(item.ratingKey, next);
+            await setMediaPlayerWatched(item.ratingKey, next, item);
         } catch {
             setItems((prev) => prev.map((row) => (
                 row.ratingKey === item.ratingKey ? { ...row, watched: item.watched } : row
@@ -81,7 +84,7 @@ export const MediaPlayerStudio: React.FC<Props> = ({
                     <button
                         type="button"
                         onClick={onBack}
-                        className="mb-2 inline-flex items-center gap-2 text-sm font-bold text-muted hover:text-text"
+                        className="player-page-back mb-2 inline-flex items-center gap-2 text-sm font-bold text-muted hover:text-text"
                     >
                         <ArrowLeft className="h-4 w-4" />
                         {t('mediaPlayerPage.back')}
@@ -92,12 +95,12 @@ export const MediaPlayerStudio: React.FC<Props> = ({
                 <DiscoverGridSizeSelect value={gridSize} onChange={setGridSize} />
             </div>
 
-            {loading ? (
+            {loading && !tvShell ? (
                 <PosterGridSkeleton
                     className={upgraderPosterGridClass(gridSize)}
                     style={upgraderPosterGridStyle(gridSize)}
                 />
-            ) : error ? (
+            ) : loading ? null : error ? (
                 <div className={discoveryTheme.emptyState}>
                     <p className={discoveryTheme.emptyTitle}>{error}</p>
                 </div>

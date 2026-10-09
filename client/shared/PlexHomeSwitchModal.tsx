@@ -183,7 +183,7 @@ export const PlexHomeSwitchModal: React.FC<{
 
             <div
                 data-tv-home-switch="1"
-                className="relative w-full sm:max-w-2xl max-h-[min(72dvh,32rem)] sm:max-h-[min(86vh,40rem)] overflow-y-auto rounded-t-2xl sm:rounded-3xl border border-white/10 bg-[rgb(var(--color-card))]/95 shadow-[0_30px_80px_rgba(0,0,0,0.55)] animate-fade-in"
+                className="player-popup-surface relative w-full sm:max-w-2xl max-h-[min(72dvh,32rem)] sm:max-h-[min(86vh,40rem)] overflow-y-auto rounded-t-2xl sm:rounded-3xl border border-white/10 shadow-[0_30px_80px_rgba(0,0,0,0.55)] animate-fade-in"
             >
                 <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-plex/70 to-transparent" />
                 <div className="sm:hidden flex justify-center pt-2.5 pb-0.5" aria-hidden>

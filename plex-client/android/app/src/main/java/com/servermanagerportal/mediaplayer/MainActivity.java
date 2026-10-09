@@ -1,6 +1,7 @@
 package com.servermanagerportal.mediaplayer;
 
 import android.content.Context;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.os.Build;
@@ -31,6 +32,7 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(savedInstanceState);
         applyWebViewDisplayFixes();
         scheduleTvMark();
+        schedulePhoneMark();
         registerSpaBackHandler();
     }
 
@@ -75,6 +77,31 @@ public class MainActivity extends BridgeActivity {
         super.onStart();
         applyWebViewDisplayFixes();
         scheduleTvMark();
+        schedulePhoneMark();
+    }
+
+    @Override
+    public void onPause() {
+        super.onPause();
+        keepWebViewAliveForNativePlayer();
+    }
+
+    @Override
+    public void onStop() {
+        super.onStop();
+        keepWebViewAliveForNativePlayer();
+    }
+
+    private void keepWebViewAliveForNativePlayer() {
+        if (!PlayerBridge.get().isPlayerForeground()) return;
+        if (bridge == null || bridge.getWebView() == null) return;
+        try {
+            WebView webView = bridge.getWebView();
+            webView.onResume();
+            webView.resumeTimers();
+        } catch (Throwable ignored) {
+            /* older WebView */
+        }
     }
 
     /**
@@ -103,15 +130,20 @@ public class MainActivity extends BridgeActivity {
             return;
         }
         WebView webView = bridge.getWebView();
+        webView.setBackgroundColor(isTelevisionDevice(this) ? 0xFF07080C : 0xFF242830);
         WebSettings settings = webView.getSettings();
-        settings.setCacheMode(WebSettings.LOAD_DEFAULT);
+        boolean debuggable = (getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+        settings.setCacheMode(debuggable ? WebSettings.LOAD_NO_CACHE : WebSettings.LOAD_DEFAULT);
+        if (debuggable) {
+            webView.clearCache(true);
+        }
         settings.setTextZoom(100);
         settings.setSupportZoom(false);
         settings.setBuiltInZoomControls(false);
         settings.setDisplayZoomControls(false);
         settings.setUseWideViewPort(true);
-        // Overview mode fights a desktop-width layout on leanback.
-        settings.setLoadWithOverviewMode(!isTelevisionDevice(this));
+        // Overview mode lays out at ~980px then scales — phone media queries never match.
+        settings.setLoadWithOverviewMode(false);
         settings.setNeedInitialFocus(true);
 
         webView.setFocusable(true);
@@ -132,7 +164,9 @@ public class MainActivity extends BridgeActivity {
                 }
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                webView.setDefaultFocusHighlightEnabled(false);
                 webView.setFocusedByDefault(true);
+                webView.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, true);
             }
             webView.post(() -> webView.requestFocus(View.FOCUS_DOWN));
         }
@@ -162,6 +196,23 @@ public class MainActivity extends BridgeActivity {
                 null
             );
         }, 900);
+    }
+
+    private void schedulePhoneMark() {
+        if (isTelevisionDevice(this)) return;
+        if (bridge == null || bridge.getWebView() == null) return;
+        bridge.getWebView().post(() -> {
+            if (bridge == null || bridge.getWebView() == null) return;
+            bridge.getWebView().evaluateJavascript(
+                "(function(){"
+                    + "if(document.documentElement.dataset.tv==='1')return;"
+                    + "document.documentElement.dataset.phoneNative='1';"
+                    + "document.documentElement.dataset.phone='1';"
+                    + "if(typeof window.__SMP_MARK_PHONE__==='function'){window.__SMP_MARK_PHONE__();}"
+                    + "})();",
+                null
+            );
+        });
     }
 
     private static boolean isTelevisionDevice(Context context) {

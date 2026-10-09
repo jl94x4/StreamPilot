@@ -54,7 +54,7 @@ export const getFixedDropdownPosition = (
     return { top, left, width: menuWidth };
 };
 
-export const CustomSelect: React.FC<CustomSelectProps> = ({ id, value, onChange, options, className, compact = false, triggerProps }) => {
+export const CustomSelect: React.FC<CustomSelectProps> = ({ id, value, onChange, options, className, compact = false, dropdownClassName = '', triggerProps }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [dropPos, setDropPos] = useState<DropdownPosition | null>(null);
     const [highlightIndex, setHighlightIndex] = useState(0);
@@ -205,7 +205,7 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({ id, value, onChange,
             }}
             data-modal-scroll=""
             data-tv-select-menu="1"
-            className="bg-card border border-border rounded-lg shadow-2xl py-1 max-h-64 overflow-y-auto overscroll-contain custom-scrollbar"
+            className={`bg-card border border-border rounded-lg shadow-2xl py-1 max-h-64 overflow-y-auto overscroll-contain custom-scrollbar ${dropdownClassName}`.trim()}
         >
             {options.map((opt, index) => {
                 if (opt.isGroup) {

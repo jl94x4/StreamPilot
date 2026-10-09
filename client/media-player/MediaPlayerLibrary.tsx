@@ -28,12 +28,17 @@ import { PlayerTvStatusPanel } from './PlayerTvStatusPanel';
 import { continueWatchingRailAspect } from './playerSettings';
 import { usePlayerSettings } from './usePlayerSettings';
 import {
+    applyRememberedProgress,
     BROWSE_FOCUS_ABS_EVENT,
     clearPrefetchedPlayerImages,
     isMusicPlayerItem,
     mapContinueWatchingItemsForLayout,
     playerCardImageUrl,
+    PLAYER_PROGRESS_EVENT,
     prefetchPlayerImages,
+    replaceFamilyContinueSlot,
+    restoreContinueSlot,
+    watchTargetTouches,
     withShowPoster,
 } from './playerUtils';
 import type { PlayerItem, PlayerLibraryHub, PlayerPlayOptions } from './types';
@@ -641,6 +646,37 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
         });
     }, [decade, genre, hydrated, inProgress, resolution, sectionKey, sort, studio, unwatched]);
 
+    useEffect(() => {
+        const onProgress = (event: Event) => {
+            const detail = (event as CustomEvent<{ ratingKey?: string; dropContinue?: boolean; continueWith?: PlayerItem | null; advanceContinue?: boolean; restoreContinue?: PlayerItem | null; watched?: boolean }>).detail;
+            const key = String(detail?.ratingKey || '');
+            if (!key || detail?.dropContinue !== true) return;
+            const paint = (row: PlayerItem) => (
+                watchTargetTouches(row, key) ? applyRememberedProgress(row) : row
+            );
+            const drop = (list: PlayerItem[]) => {
+                if (detail.watched === false) return restoreContinueSlot(list, key, detail.restoreContinue);
+                return detail.advanceContinue
+                    ? replaceFamilyContinueSlot(list, key, detail.continueWith)
+                    : list.filter((row) => !watchTargetTouches(row, key));
+            };
+            setItems((prev) => (inProgress ? drop(prev) : prev.map(paint)));
+            setHubs((prev) => {
+                const next = prev.map((hub) => ({
+                    ...hub,
+                    items: isContinueWatchingHub(hub) ? drop(hub.items) : hub.items.map(paint),
+                }));
+                if (sectionKey && next.length) {
+                    const cached = readLibraryHomeCache(sectionKey);
+                    writeLibraryHomeCache(sectionKey, { ...(cached || {}), hubs: next });
+                }
+                return next;
+            });
+        };
+        window.addEventListener(PLAYER_PROGRESS_EVENT, onProgress);
+        return () => window.removeEventListener(PLAYER_PROGRESS_EVENT, onProgress);
+    }, [inProgress, sectionKey]);
+
     const patchWatched = useCallback((ratingKey: string, watched: boolean) => {
         const mapItems = (list: PlayerItem[]) => list.map((row) => (
             row.ratingKey === ratingKey ? { ...row, watched } : row
@@ -676,7 +712,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
         const next = !item.watched;
         patchWatched(item.ratingKey, next);
         try {
-            await setMediaPlayerWatched(item.ratingKey, next);
+            await setMediaPlayerWatched(item.ratingKey, next, item);
         } catch {
             patchWatched(item.ratingKey, !!item.watched);
         }
@@ -744,9 +780,9 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                         <ArrowLeft className="h-4 w-4" />
                         {t('mediaPlayerPage.back')}
                     </button>
-                    <h1 className={discoveryTheme.heading}>{title}</h1>
+                    <h1 className={`${discoveryTheme.heading} player-library-title`}>{title}</h1>
                 </div>
-                <DiscoverGridSizeSelect value={gridSize} onChange={setGridSize} />
+                {tvShell ? null : <DiscoverGridSizeSelect value={gridSize} onChange={setGridSize} />}
             </div>
 
             <div
@@ -879,19 +915,17 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                 </div>
             ) : null}
 
-            {loading && tab !== 'browse' ? (
-                tab === 'home' ? (
-                    <div className="flex w-full flex-col gap-6">
-                        <DiscoverHomeRowSkeleton />
-                        <DiscoverHomeRowSkeleton />
-                        <DiscoverHomeRowSkeleton />
-                    </div>
-                ) : (
-                    <PosterGridSkeleton
-                        className={upgraderPosterGridClass(gridSize)}
-                        style={upgraderPosterGridStyle(gridSize)}
-                    />
-                )
+            {loading && tab === 'home' && !homeHubs.length && !tvShell ? (
+                <div className="flex w-full flex-col gap-6">
+                    <DiscoverHomeRowSkeleton />
+                    <DiscoverHomeRowSkeleton />
+                    <DiscoverHomeRowSkeleton />
+                </div>
+            ) : loading && tab === 'collections' && !collections.length && !tvShell ? (
+                <PosterGridSkeleton
+                    className={upgraderPosterGridClass(gridSize)}
+                    style={upgraderPosterGridStyle(gridSize)}
+                />
             ) : error && tab !== 'browse' ? (
                 tvShell ? (
                     <PlayerTvStatusPanel
@@ -1004,12 +1038,12 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                         </div>
                     ) : null}
                     <div data-tv-browse-main="1">
-                        {loading ? (
+                        {loading && !tvShell ? (
                             <PosterGridSkeleton
                                 className={upgraderPosterGridClass(gridSize)}
                                 style={upgraderPosterGridStyle(gridSize)}
                             />
-                        ) : error ? (
+                        ) : loading ? null : error ? (
                             tvShell ? (
                                 <PlayerTvStatusPanel
                                     title={error}

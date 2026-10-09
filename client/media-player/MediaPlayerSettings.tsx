@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, ChevronDown, ChevronUp, Loader2, Save } from 'lucide-react';
+import { ArrowLeft, Check, ChevronDown, ChevronUp, Loader2, Save, X } from 'lucide-react';
 import { CustomSelect, discoveryTheme, MediaPlayerAlphaBanner, SettingsToggleRow, StickySaveBar, useDiscoverI18n } from './host';
-import { fetchMediaPlayerHomeHeroConfig, fetchMediaPlayerLibraries, saveMediaPlayerHomeHeroConfig } from './api';
+import { fetchMediaPlayerHomeHeroConfig, fetchMediaPlayerLibraries, fetchMediaPlayerServers, saveMediaPlayerHomeHeroConfig, saveMediaPlayerServers } from './api';
+import { clearHeroSlidesCache, notifyPlayerServersChanged, PLAYER_SERVERS_EVENT } from './playerMemory';
 import {
     PLAYER_AUDIO_LANGUAGES,
     PLAYER_QUALITY_CHOICES,
@@ -85,7 +86,12 @@ const TvChoiceRow: React.FC<TvChoiceRowProps> = ({ title, description, value, op
                 || dialog?.querySelector<HTMLElement>('[data-tv-item="1"]');
             target?.focus();
         }, 30);
-        return () => window.clearTimeout(id);
+        const close = () => setOpen(false);
+        window.addEventListener('smp-tv-overlay-close', close);
+        return () => {
+            window.clearTimeout(id);
+            window.removeEventListener('smp-tv-overlay-close', close);
+        };
     }, [open]);
 
     return (
@@ -105,51 +111,58 @@ const TvChoiceRow: React.FC<TvChoiceRowProps> = ({ title, description, value, op
                 <span className="shrink-0 text-base font-bold text-white/85">{selected?.label || '—'}</span>
             </button>
             {open && typeof document !== 'undefined' ? createPortal(
-                <div
-                    className="fixed inset-0 z-[3500] flex items-center justify-center bg-black/70 p-6 sm:p-10"
-                    role="dialog"
-                    aria-modal="true"
-                    data-tv-settings-dialog="1"
-                >
-                    <div className="flex max-h-[min(78vh,44rem)] w-full max-w-xl flex-col rounded-2xl border border-white/10 bg-[#5a5e66] p-6 shadow-[0_28px_90px_rgba(0,0,0,0.55)]">
-                        <p className="shrink-0 text-xs font-black uppercase tracking-widest text-white/55">{title}</p>
+                <div className="smp-choice-scrim" data-tv-settings-dialog="1">
+                    <div
+                        className="smp-choice-sheet"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-label={title}
+                    >
+                        <div className="smp-choice-head">
+                            <div className="min-w-0">
+                                <h2 className="smp-choice-title">{title}</h2>
+                                {description ? <p className="smp-choice-hint">{description}</p> : null}
+                            </div>
+                            <button
+                                type="button"
+                                className="smp-choice-close"
+                                data-tv-item="1"
+                                data-tv-action="1"
+                                aria-label={t('common.close')}
+                                onClick={() => setOpen(false)}
+                            >
+                                <X aria-hidden="true" />
+                            </button>
+                        </div>
                         <div
-                            className="mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain hide-scrollbar"
+                            className="smp-choice-list"
                             data-tv-rail="1"
                             data-tv-overlay-scroll="1"
                         >
-                            <div className="flex flex-col gap-2 pr-1">
-                                {options.map((row) => (
+                            {options.map((row) => {
+                                const isSelected = row.value === value;
+                                return (
                                     <button
                                         key={row.value}
                                         type="button"
+                                        className={`smp-choice-option${isSelected ? ' is-selected' : ''}`}
                                         data-tv-item="1"
                                         data-tv-action="1"
-                                        data-tv-settings-primary={row.value === value ? '1' : undefined}
+                                        data-tv-settings-primary={isSelected ? '1' : undefined}
+                                        aria-pressed={isSelected}
                                         onClick={() => {
                                             onChange(row.value);
                                             setOpen(false);
                                         }}
-                                        className={`rounded-xl border px-4 py-3.5 text-left text-base font-bold outline-none ${
-                                            row.value === value
-                                                ? 'border-plex/50 bg-plex/15 text-text'
-                                                : 'border-white/15 bg-[#484c54] text-text'
-                                        }`}
                                     >
-                                        {row.label}
+                                        <span className="smp-choice-label">{row.label}</span>
+                                        <span className="smp-choice-mark" aria-hidden="true">
+                                            {isSelected ? <Check strokeWidth={2.75} /> : null}
+                                        </span>
                                     </button>
-                                ))}
-                            </div>
+                                );
+                            })}
                         </div>
-                        <button
-                            type="button"
-                            data-tv-item="1"
-                            data-tv-action="1"
-                            onClick={() => setOpen(false)}
-                            className="mt-3 shrink-0 rounded-xl px-4 py-3 text-base font-bold text-white/70 outline-none hover:text-white"
-                        >
-                            {t('common.close')}
-                        </button>
                     </div>
                 </div>,
                 document.body,
@@ -157,6 +170,117 @@ const TvChoiceRow: React.FC<TvChoiceRowProps> = ({ title, description, value, op
         </>
     );
 };
+
+type TvReorderItem = { id: string; label: string };
+
+const TvReorderList: React.FC<{
+    title: string;
+    description?: string;
+    items: TvReorderItem[];
+    onMove: (index: number, delta: -1 | 1) => void;
+    onReset?: () => void;
+    resetLabel?: string;
+}> = ({ title, description, items, onMove, onReset, resetLabel }) => {
+    const { t } = useDiscoverI18n();
+    if (!items.length) return null;
+    return (
+        <section className="flex flex-col gap-3" data-tv-row="1">
+            <div className="flex items-start justify-between gap-3 px-1">
+                <div className="min-w-0">
+                    <h2 className="text-xs font-black uppercase tracking-widest text-muted">{title}</h2>
+                    {description ? <p className="mt-1 text-sm text-muted">{description}</p> : null}
+                </div>
+                {onReset ? (
+                    <button
+                        type="button"
+                        data-tv-item="1"
+                        data-tv-action="1"
+                        onClick={onReset}
+                        className="shrink-0 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-bold text-muted outline-none"
+                    >
+                        {resetLabel || t('mediaPlayerPage.homeRowReset')}
+                    </button>
+                ) : null}
+            </div>
+            <div className="flex flex-col gap-2">
+                {items.map((item, index) => (
+                    <div
+                        key={item.id}
+                        className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3"
+                    >
+                        <span className="w-6 shrink-0 text-center text-sm font-bold tabular-nums text-muted">
+                            {index + 1}
+                        </span>
+                        <p className="min-w-0 flex-1 truncate text-base font-bold text-text">{item.label}</p>
+                        <button
+                            type="button"
+                            data-tv-item="1"
+                            data-tv-action="1"
+                            disabled={index === 0}
+                            onClick={() => onMove(index, -1)}
+                            className="rounded-lg border border-white/10 bg-white/5 p-2 text-muted outline-none disabled:opacity-30"
+                            aria-label={t('mediaPlayerPage.homeRowMoveUp')}
+                        >
+                            <ChevronUp className="h-4 w-4" />
+                        </button>
+                        <button
+                            type="button"
+                            data-tv-item="1"
+                            data-tv-action="1"
+                            disabled={index === items.length - 1}
+                            onClick={() => onMove(index, 1)}
+                            className="rounded-lg border border-white/10 bg-white/5 p-2 text-muted outline-none disabled:opacity-30"
+                            aria-label={t('mediaPlayerPage.homeRowMoveDown')}
+                        >
+                            <ChevronDown className="h-4 w-4" />
+                        </button>
+                    </div>
+                ))}
+            </div>
+        </section>
+    );
+};
+
+type SettingsTabId = 'home' | 'player' | 'titles' | 'servers';
+
+const SettingsTabBar: React.FC<{
+    tabs: Array<{ id: SettingsTabId; label: string }>;
+    value: SettingsTabId;
+    onChange: (id: SettingsTabId) => void;
+    tv: boolean;
+}> = ({ tabs, value, onChange, tv }) => (
+    <div
+        className="flex flex-wrap gap-2"
+        role="tablist"
+        data-tv-settings-tabs={tv ? '1' : undefined}
+        data-tv-row={tv ? '1' : undefined}
+    >
+        {tabs.map((row) => {
+            const selected = value === row.id;
+            return (
+                <button
+                    key={row.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={selected}
+                    aria-current={selected ? 'page' : undefined}
+                    data-tv-item={tv ? '1' : undefined}
+                    data-tv-action={tv ? '1' : undefined}
+                    data-tv-key={tv ? `settings-tab-${row.id}` : undefined}
+                    onClick={() => onChange(row.id)}
+                    onFocus={() => { if (tv) onChange(row.id); }}
+                    className={`rounded-lg border px-4 py-2 text-sm font-bold outline-none ${
+                        selected
+                            ? 'border-plex/50 bg-plex/15 text-plex'
+                            : 'border-border bg-white/5 text-muted hover:text-text'
+                    }`}
+                >
+                    {row.label}
+                </button>
+            );
+        })}
+    </div>
+);
 
 const HERO_MODE_VALUES = [
     'off',
@@ -179,9 +303,12 @@ type HeroMode = typeof HERO_MODE_VALUES[number];
 export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }) => {
     const { t } = useDiscoverI18n();
     const tvShell = isTvShell();
+    const canEditHero = isAdmin || (typeof window !== 'undefined' && Boolean(window.__PLEX_CLIENT__));
     const [settings, updateSettings, { dirty: playerDirty, saving: playerSaving, saveSettings, discardSettings }] = usePlayerSettings();
     const [libraries, setLibraries] = useState<PlayerSection[]>([]);
+    const [servers, setServers] = useState<Array<{ id: string; name: string; enabled: boolean }>>([]);
     const [saveState, setSaveState] = useState<'idle' | 'saved' | 'error'>('idle');
+    const [settingsTab, setSettingsTab] = useState<SettingsTabId>('home');
     const [heroMode, setHeroMode] = useState<HeroMode>('trending_week');
     const [heroSeasonalOnly, setHeroSeasonalOnly] = useState(false);
     const [cwSeasonPoster, setCwSeasonPoster] = useState(false);
@@ -221,7 +348,7 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
         let cancelled = false;
         fetchMediaPlayerLibraries()
             .then((data) => {
-                if (!cancelled) setLibraries(data.libraries || []);
+                if (!cancelled && !data.stale) setLibraries(data.libraries || []);
             })
             .catch(() => {
                 if (!cancelled) setLibraries([]);
@@ -230,7 +357,80 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
     }, []);
 
     useEffect(() => {
-        if (!isAdmin) return undefined;
+        const refresh = () => {
+            void fetchMediaPlayerLibraries()
+                .then((data) => {
+                    if (!data.stale) setLibraries(data.libraries || []);
+                })
+                .catch(() => undefined);
+        };
+        window.addEventListener(PLAYER_SERVERS_EVENT, refresh);
+        return () => window.removeEventListener(PLAYER_SERVERS_EVENT, refresh);
+    }, []);
+
+    useEffect(() => {
+        if (typeof window === 'undefined' || !window.__PLEX_CLIENT__) return undefined;
+        let cancelled = false;
+        fetchMediaPlayerServers()
+            .then((data) => {
+                if (!cancelled) setServers(Array.isArray(data?.servers) ? data.servers : []);
+            })
+            .catch(() => {
+                if (!cancelled) setServers([]);
+            });
+        return () => { cancelled = true; };
+    }, []);
+
+    const toggleServer = async (id: string) => {
+        const next = servers.map((server) => (
+            server.id === id ? { ...server, enabled: !server.enabled } : server
+        ));
+        if (!next.some((server) => server.enabled)) return;
+        const enabledIds = new Set(next.filter((server) => server.enabled).map((server) => server.id));
+        setServers(next);
+        const previousLibraries = libraries;
+        setLibraries((current) => current.filter((library) => {
+            const key = String(library.key || '');
+            const cut = key.indexOf('::');
+            if (cut <= 0) return true;
+            return enabledIds.has(key.slice(0, cut));
+        }));
+        const saved = await saveMediaPlayerServers(next.filter((server) => server.enabled).map((server) => server.id)).catch(() => null);
+        if (saved?.servers) {
+            setServers(saved.servers);
+            notifyPlayerServersChanged();
+        } else {
+            setServers(servers);
+            setLibraries(previousLibraries);
+        }
+    };
+
+    const serverSettings = servers.length > 1 ? (
+        <div className="mb-4 space-y-2">
+            <h2 className="text-xs font-black uppercase tracking-widest text-muted">{t('mediaPlayerPage.plexServers')}</h2>
+            <p className="text-sm text-muted">{t('mediaPlayerPage.plexServersHint')}</p>
+            {servers.map((server) => (
+                tvShell ? (
+                    <TvToggleRow
+                        key={server.id}
+                        title={server.name}
+                        checked={server.enabled}
+                        onChange={() => { void toggleServer(server.id); }}
+                    />
+                ) : (
+                    <SettingsToggleRow
+                        key={server.id}
+                        title={server.name}
+                        checked={server.enabled}
+                        onChange={() => { void toggleServer(server.id); }}
+                    />
+                )
+            ))}
+        </div>
+    ) : null;
+
+    useEffect(() => {
+        if (!canEditHero) return undefined;
         let cancelled = false;
         fetchMediaPlayerHomeHeroConfig()
             .then((data) => {
@@ -249,7 +449,7 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                 if (!cancelled) setHeroBaseline(null);
             });
         return () => { cancelled = true; };
-    }, [isAdmin]);
+    }, [canEditHero]);
 
     const rowLabels = useMemo(() => ({
         continueWatching: t('mediaPlayerPage.continueWatching'),
@@ -263,6 +463,20 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
     const hiddenRows = new Set<string>();
     if (!settings.showContinueWatching) hiddenRows.add('continueWatching');
     if (!settings.showPlaylists) hiddenRows.add('playlists');
+
+    const settingsTabs = useMemo(() => {
+        const rows: Array<{ id: SettingsTabId; label: string }> = [
+            { id: 'home', label: t('mediaPlayerPage.settingsTabHome') },
+            { id: 'player', label: t('mediaPlayerPage.settingsTabPlayer') },
+            { id: 'titles', label: t('mediaPlayerPage.settingsTabTitles') },
+        ];
+        if (servers.length > 1) rows.push({ id: 'servers', label: t('mediaPlayerPage.settingsTabServers') });
+        return rows;
+    }, [servers.length, t]);
+
+    useEffect(() => {
+        if (settingsTab === 'servers' && servers.length < 2) setSettingsTab('home');
+    }, [servers.length, settingsTab]);
 
     const heroDirty = !!heroBaseline && (
         heroMode !== heroBaseline.mode
@@ -288,7 +502,7 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
     const handleSave = async () => {
         try {
             if (playerDirty) await saveSettings();
-            if (heroDirty && isAdmin) {
+            if (heroDirty && canEditHero) {
                 setHeroSaving(true);
                 const saved = await saveMediaPlayerHomeHeroConfig({
                     mode: heroMode,
@@ -304,6 +518,7 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                 setHeroSeasonalOnly(seasonalInWindowOnly);
                 setCwSeasonPoster(continueWatchingSeasonPoster);
                 setHeroBaseline({ mode, seasonalInWindowOnly, continueWatchingSeasonPoster });
+                clearHeroSlidesCache();
             }
             setSaveState('saved');
         } catch {
@@ -313,8 +528,9 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
         }
     };
 
+    const saveLocked = !dirty || saving;
     const saveActions = (
-        <div className="flex flex-col gap-3" data-tv-row="1">
+        <div className="flex flex-col gap-3" data-tv-row="1" data-tv-settings-actions="1">
             {dirty ? (
                 <p className="text-sm font-bold text-muted">{t('mediaPlayerPage.unsavedSettings')}</p>
             ) : saveState === 'saved' ? (
@@ -327,10 +543,10 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                     type="button"
                     data-tv-item="1"
                     data-tv-action="1"
-                    data-tv-play="1"
-                    onClick={() => { void handleSave(); }}
-                    disabled={!dirty || saving}
-                    className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-plex px-5 text-base font-bold text-white shadow-lg shadow-plex/20 outline-none hover:bg-plex-hover disabled:cursor-not-allowed disabled:opacity-50"
+                    data-tv-settings-save="1"
+                    onClick={() => { if (!saveLocked) void handleSave(); }}
+                    aria-disabled={saveLocked}
+                    className={`inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-plex px-5 text-base font-bold text-white shadow-lg shadow-plex/20 outline-none hover:bg-plex-hover ${saveLocked ? 'opacity-50' : ''}`}
                 >
                     {saving ? <Loader2 className="h-5 w-5 animate-spin" /> : <Save className="h-5 w-5" />}
                     {t('mediaPlayerPage.saveSettings')}
@@ -339,9 +555,9 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                     type="button"
                     data-tv-item="1"
                     data-tv-action="1"
-                    onClick={discardAll}
-                    disabled={!dirty || saving}
-                    className="inline-flex h-12 items-center justify-center rounded-xl border border-white/15 bg-white/5 px-5 text-base font-bold text-text outline-none hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+                    onClick={() => { if (!saveLocked) discardAll(); }}
+                    aria-disabled={saveLocked}
+                    className={`inline-flex h-12 items-center justify-center rounded-xl border border-white/15 bg-white/5 px-5 text-base font-bold text-text outline-none hover:bg-white/10 ${saveLocked ? 'opacity-40' : ''}`}
                 >
                     {t('mediaPlayerPage.discardChanges')}
                 </button>
@@ -359,7 +575,10 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                     <p className="mt-2 text-base text-muted">{t('mediaPlayerPage.settingsHintTv')}</p>
                 </div>
 
-                {isAdmin ? (
+                <SettingsTabBar tabs={settingsTabs} value={settingsTab} onChange={setSettingsTab} tv />
+
+                <div className="flex flex-col gap-3" data-tv-settings-panel="1">
+                {settingsTab === 'home' && canEditHero ? (
                     <section className="flex flex-col gap-3">
                         <h2 className="text-xs font-black uppercase tracking-widest text-muted">
                             {t('mediaPlayerPage.homeHeroMode')}
@@ -377,19 +596,11 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                             checked={heroSeasonalOnly}
                             onChange={setHeroSeasonalOnly}
                         />
-                        <TvToggleRow
-                            title={t('mediaPlayerPage.continueWatchingSeasonPoster')}
-                            description={t('mediaPlayerPage.continueWatchingSeasonPosterHint')}
-                            checked={cwSeasonPoster}
-                            onChange={setCwSeasonPoster}
-                        />
                     </section>
                 ) : null}
 
+                {settingsTab === 'home' ? (
                 <section className="flex flex-col gap-3">
-                    <h2 className="text-xs font-black uppercase tracking-widest text-muted">
-                        {t('mediaPlayerPage.settingsHome')}
-                    </h2>
                     <TvToggleRow
                         title={t('mediaPlayerPage.showContinueWatching')}
                         description={t('mediaPlayerPage.showContinueWatchingHint')}
@@ -415,11 +626,158 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         onChange={(checked) => updateSettings({ showPlaylists: checked })}
                     />
                     <TvToggleRow
+                        title={t('mediaPlayerPage.showBecauseYouWatched')}
+                        description={t('mediaPlayerPage.showBecauseYouWatchedHint')}
+                        checked={settings.showBecauseYouWatched}
+                        onChange={(checked) => updateSettings({ showBecauseYouWatched: checked })}
+                    />
+                    <TvToggleRow
+                        title={t('mediaPlayerPage.continueWatchingSeasonPoster')}
+                        description={t('mediaPlayerPage.continueWatchingSeasonPosterHint')}
+                        checked={cwSeasonPoster}
+                        onChange={setCwSeasonPoster}
+                    />
+                    {orderedLibraries.length ? (
+                        <TvReorderList
+                            title={t('mediaPlayerPage.libraryNavOrder')}
+                            description={t('mediaPlayerPage.libraryNavOrderHint')}
+                            items={orderedLibraries.map((library) => ({ id: library.key, label: library.title }))}
+                            onMove={(index, delta) => updateSettings({
+                                libraryNavOrder: moveHomeRow(orderedLibraries.map((row) => row.key), index, delta),
+                            })}
+                            onReset={settings.libraryNavOrder.length
+                                ? () => updateSettings({ libraryNavOrder: [] })
+                                : undefined}
+                        />
+                    ) : null}
+                    <TvReorderList
+                        title={t('mediaPlayerPage.homeRowOrder')}
+                        description={t('mediaPlayerPage.homeRowOrderHint')}
+                        items={orderedRowIds
+                            .filter((id) => !hiddenRows.has(id))
+                            .map((id) => ({ id, label: rowLabels[id] || id }))}
+                        onMove={(index, delta) => {
+                            const visible = orderedRowIds.filter((id) => !hiddenRows.has(id));
+                            const fullIndex = orderedRowIds.indexOf(visible[index]);
+                            if (fullIndex < 0) return;
+                            updateSettings({ homeRowOrder: moveHomeRow(orderedRowIds, fullIndex, delta) });
+                        }}
+                        onReset={settings.homeRowOrder.length
+                            ? () => updateSettings({ homeRowOrder: [] })
+                            : undefined}
+                    />
+                </section>
+                ) : null}
+
+                {settingsTab === 'player' ? (
+                <section className="flex flex-col gap-3">
+                    <TvToggleRow
                         title={t('mediaPlayerPage.autoplayNext')}
                         description={t('mediaPlayerPage.autoplayNextHint')}
                         checked={settings.autoplayNext}
                         onChange={(checked) => updateSettings({ autoplayNext: checked })}
                     />
+                    <TvChoiceRow
+                        title={t('mediaPlayerPage.defaultQuality')}
+                        description={t('mediaPlayerPage.defaultQualityHint')}
+                        value={settings.defaultQualityId}
+                        options={qualityOptions.map((row) => ({ value: row.id, label: row.label }))}
+                        onChange={(value) => updateSettings({ defaultQualityId: value })}
+                    />
+                    <TvChoiceRow
+                        title={t('mediaPlayerPage.audioLanguage')}
+                        description={t('mediaPlayerPage.audioLanguageHint')}
+                        value={settings.audioLanguage}
+                        options={[
+                            { value: '', label: t('mediaPlayerPage.audioLanguageDefault') },
+                            ...PLAYER_AUDIO_LANGUAGES.map((row) => ({ value: row.id, label: row.label })),
+                        ]}
+                        onChange={(value) => updateSettings({ audioLanguage: value })}
+                    />
+                    <TvChoiceRow
+                        title={t('mediaPlayerPage.subtitleMode')}
+                        description={t('mediaPlayerPage.subtitleModeHint')}
+                        value={settings.subtitleMode}
+                        options={subtitleOptions.map((row) => ({ value: row.id, label: row.label }))}
+                        onChange={(value) => updateSettings({ subtitleMode: value as PlayerSubtitleMode })}
+                    />
+                    <TvChoiceRow
+                        title={t('mediaPlayerPage.subtitleSize')}
+                        value={String(settings.subtitleSize)}
+                        options={[50, 75, 100, 125, 150, 200].map((value) => ({ value: String(value), label: `${value}%` }))}
+                        onChange={(value) => updateSettings({ subtitleSize: Number(value) })}
+                    />
+                    <TvChoiceRow
+                        title={t('mediaPlayerPage.subtitleColor')}
+                        value={settings.subtitleColor}
+                        options={[
+                            { value: '#ffffff', label: 'White' },
+                            { value: '#ffe566', label: 'Yellow' },
+                            { value: '#7dd3fc', label: 'Cyan' },
+                        ]}
+                        onChange={(value) => updateSettings({ subtitleColor: value })}
+                    />
+                    <TvChoiceRow
+                        title={t('mediaPlayerPage.subtitleBackground')}
+                        value={settings.subtitleBackground}
+                        options={[
+                            { value: 'none', label: t('mediaPlayerPage.subtitleBackgroundNone') },
+                            { value: 'dim', label: t('mediaPlayerPage.subtitleBackgroundDim') },
+                            { value: 'solid', label: t('mediaPlayerPage.subtitleBackgroundSolid') },
+                        ]}
+                        onChange={(value) => updateSettings({ subtitleBackground: value as typeof settings.subtitleBackground })}
+                    />
+                    <TvChoiceRow
+                        title={t('mediaPlayerPage.subtitlePosition')}
+                        value={settings.subtitlePosition}
+                        options={[
+                            { value: 'bottom', label: t('mediaPlayerPage.subtitlePositionBottom') },
+                            { value: 'middle', label: t('mediaPlayerPage.subtitlePositionMiddle') },
+                            { value: 'top', label: t('mediaPlayerPage.subtitlePositionTop') },
+                        ]}
+                        onChange={(value) => updateSettings({ subtitlePosition: value as typeof settings.subtitlePosition })}
+                    />
+                    <TvToggleRow
+                        title={t('mediaPlayerPage.nightMode')}
+                        description={t('mediaPlayerPage.nightModeHint')}
+                        checked={settings.nightMode}
+                        onChange={(checked) => updateSettings({ nightMode: checked })}
+                    />
+                    <TvToggleRow
+                        title={t('mediaPlayerPage.matchFrameRate')}
+                        description={t('mediaPlayerPage.matchFrameRateHint')}
+                        checked={settings.matchFrameRate}
+                        onChange={(checked) => updateSettings({ matchFrameRate: checked })}
+                    />
+                    <TvToggleRow
+                        title={t('mediaPlayerPage.audioPassthrough')}
+                        description={t('mediaPlayerPage.audioPassthroughHint')}
+                        checked={settings.audioPassthrough}
+                        onChange={(checked) => updateSettings({ audioPassthrough: checked })}
+                    />
+                    <TvToggleRow
+                        title={t('mediaPlayerPage.cinemaTrailers')}
+                        description={t('mediaPlayerPage.cinemaTrailersHint')}
+                        checked={settings.cinemaTrailers}
+                        onChange={(checked) => updateSettings({ cinemaTrailers: checked })}
+                    />
+                    <TvToggleRow
+                        title={t('mediaPlayerPage.autoSkipIntro')}
+                        description={t('mediaPlayerPage.autoSkipIntroHint')}
+                        checked={settings.autoSkipIntro}
+                        onChange={(checked) => updateSettings({ autoSkipIntro: checked })}
+                    />
+                    <TvToggleRow
+                        title={t('mediaPlayerPage.autoSkipCredits')}
+                        description={t('mediaPlayerPage.autoSkipCreditsHint')}
+                        checked={settings.autoSkipCredits}
+                        onChange={(checked) => updateSettings({ autoSkipCredits: checked })}
+                    />
+                </section>
+                ) : null}
+
+                {settingsTab === 'titles' ? (
+                <section className="flex flex-col gap-3">
                     <TvToggleRow
                         title={t('mediaPlayerPage.playThemeTunes')}
                         description={t('mediaPlayerPage.playThemeTunesHint')}
@@ -453,47 +811,10 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         })}
                     />
                 </section>
+                ) : null}
 
-                <section className="flex flex-col gap-3">
-                    <h2 className="text-xs font-black uppercase tracking-widest text-muted">
-                        {t('mediaPlayerPage.settingsAudio')}
-                    </h2>
-                    <TvChoiceRow
-                        title={t('mediaPlayerPage.audioLanguage')}
-                        description={t('mediaPlayerPage.audioLanguageHint')}
-                        value={settings.audioLanguage}
-                        options={[
-                            { value: '', label: t('mediaPlayerPage.audioLanguageDefault') },
-                            ...PLAYER_AUDIO_LANGUAGES.map((row) => ({ value: row.id, label: row.label })),
-                        ]}
-                        onChange={(value) => updateSettings({ audioLanguage: value })}
-                    />
-                    <TvChoiceRow
-                        title={t('mediaPlayerPage.subtitleMode')}
-                        description={t('mediaPlayerPage.subtitleModeHint')}
-                        value={settings.subtitleMode}
-                        options={subtitleOptions.map((row) => ({ value: row.id, label: row.label }))}
-                        onChange={(value) => updateSettings({ subtitleMode: value as PlayerSubtitleMode })}
-                    />
-                </section>
-
-                <section className="flex flex-col gap-3">
-                    <h2 className="text-xs font-black uppercase tracking-widest text-muted">
-                        {t('mediaPlayerPage.settingsSkipping')}
-                    </h2>
-                    <TvToggleRow
-                        title={t('mediaPlayerPage.autoSkipIntro')}
-                        description={t('mediaPlayerPage.autoSkipIntroHint')}
-                        checked={settings.autoSkipIntro}
-                        onChange={(checked) => updateSettings({ autoSkipIntro: checked })}
-                    />
-                    <TvToggleRow
-                        title={t('mediaPlayerPage.autoSkipCredits')}
-                        description={t('mediaPlayerPage.autoSkipCreditsHint')}
-                        checked={settings.autoSkipCredits}
-                        onChange={(checked) => updateSettings({ autoSkipCredits: checked })}
-                    />
-                </section>
+                {settingsTab === 'servers' ? serverSettings : null}
+                </div>
                 {saveActions}
             </div>
         );
@@ -506,7 +827,7 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                 <button
                     type="button"
                     onClick={onBack}
-                    className="mb-2 inline-flex items-center gap-2 text-sm font-bold text-muted hover:text-text"
+                    className="player-page-back mb-2 inline-flex items-center gap-2 text-sm font-bold text-muted hover:text-text"
                 >
                     <ArrowLeft className="h-4 w-4" />
                     {t('mediaPlayerPage.back')}
@@ -516,7 +837,9 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                 <p className="mt-1 text-sm text-muted">{t('mediaPlayerPage.settingsHint')}</p>
             </div>
 
-            {isAdmin ? (
+            <SettingsTabBar tabs={settingsTabs} value={settingsTab} onChange={setSettingsTab} tv={false} />
+
+            {settingsTab === 'home' && canEditHero ? (
                 <section className={sectionClass}>
                     <div className="border-b border-border px-5 py-4 sm:px-6">
                         <div className="flex items-center gap-2">
@@ -557,6 +880,13 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                 </section>
             ) : null}
 
+            {settingsTab === 'servers' ? (
+                <section className={sectionClass}>
+                    <div className="px-5 py-4 sm:px-6">{serverSettings}</div>
+                </section>
+            ) : null}
+
+            {settingsTab === 'home' ? (
             <section className={sectionClass}>
                 <div className="border-b border-border px-5 py-4 sm:px-6">
                     <h2 className="text-sm font-black uppercase tracking-widest text-muted">{t('mediaPlayerPage.settingsHome')}</h2>
@@ -658,49 +988,11 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         onChange={(checked) => updateSettings({ showPlaylists: checked })}
                     />
                     <SettingsToggleRow
-                        title={t('mediaPlayerPage.autoplayNext')}
-                        description={t('mediaPlayerPage.autoplayNextHint')}
-                        checked={settings.autoplayNext}
-                        onChange={(checked) => updateSettings({ autoplayNext: checked })}
+                        title={t('mediaPlayerPage.showBecauseYouWatched')}
+                        description={t('mediaPlayerPage.showBecauseYouWatchedHint')}
+                        checked={settings.showBecauseYouWatched}
+                        onChange={(checked) => updateSettings({ showBecauseYouWatched: checked })}
                     />
-                    <SettingsToggleRow
-                        title={t('mediaPlayerPage.playThemeTunes')}
-                        description={t('mediaPlayerPage.playThemeTunesHint')}
-                        checked={settings.playThemeTunes}
-                        onChange={(checked) => updateSettings({ playThemeTunes: checked })}
-                    />
-                    <SettingsToggleRow
-                        title={t('mediaPlayerPage.serviceLogoPlates')}
-                        description={t('mediaPlayerPage.serviceLogoPlatesHint')}
-                        checked={settings.serviceLogoPlates}
-                        onChange={(checked) => updateSettings({ serviceLogoPlates: checked })}
-                    />
-                    <SettingsToggleRow
-                        title={t('mediaPlayerPage.showEpisodeFilePills')}
-                        description={t('mediaPlayerPage.showEpisodeFilePillsHint')}
-                        checked={settings.showEpisodeFilePills}
-                        onChange={(checked) => updateSettings({ showEpisodeFilePills: checked })}
-                    />
-                    <div className="border-b border-border/40 py-4">
-                        <label className="mb-2 block text-sm font-bold text-text" htmlFor="media-player-watched-tick">
-                            {t('mediaPlayerPage.watchedTickPosition')}
-                        </label>
-                        <p className="mb-3 text-xs text-muted">{t('mediaPlayerPage.watchedTickPositionHint')}</p>
-                        <CustomSelect
-                            id="media-player-watched-tick"
-                            value={settings.watchedTickPosition}
-                            onChange={(value) => updateSettings({
-                                watchedTickPosition: value as typeof settings.watchedTickPosition,
-                            })}
-                            className="max-w-xl"
-                            options={[
-                                { value: 'top-right', label: t('mediaPlayerPage.watchedTickTopRight') },
-                                { value: 'top-left', label: t('mediaPlayerPage.watchedTickTopLeft') },
-                                { value: 'bottom-right', label: t('mediaPlayerPage.watchedTickBottomRight') },
-                                { value: 'bottom-left', label: t('mediaPlayerPage.watchedTickBottomLeft') },
-                            ]}
-                        />
-                    </div>
                     <div className="border-b border-border/40 py-4">
                         <div className="mb-3 flex items-start justify-between gap-3">
                             <div>
@@ -748,6 +1040,73 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                             ))}
                         </div>
                     </div>
+                </div>
+            </section>
+            ) : null}
+
+            {settingsTab === 'titles' ? (
+                <section className={sectionClass}>
+                    <div className="px-5 py-2 sm:px-6">
+                        <SettingsToggleRow
+                            title={t('mediaPlayerPage.playThemeTunes')}
+                            description={t('mediaPlayerPage.playThemeTunesHint')}
+                            checked={settings.playThemeTunes}
+                            onChange={(checked) => updateSettings({ playThemeTunes: checked })}
+                        />
+                        {typeof document !== 'undefined' && document.documentElement?.dataset?.phone === '1' ? (
+                        <SettingsToggleRow
+                            title={t('mediaPlayerPage.phoneOverviewPoster')}
+                            description={t('mediaPlayerPage.phoneOverviewPosterHint')}
+                            checked={settings.phoneOverviewPoster}
+                            onChange={(checked) => updateSettings({ phoneOverviewPoster: checked })}
+                        />
+                        ) : null}
+                        <SettingsToggleRow
+                            title={t('mediaPlayerPage.serviceLogoPlates')}
+                            description={t('mediaPlayerPage.serviceLogoPlatesHint')}
+                            checked={settings.serviceLogoPlates}
+                            onChange={(checked) => updateSettings({ serviceLogoPlates: checked })}
+                        />
+                        <SettingsToggleRow
+                            title={t('mediaPlayerPage.showEpisodeFilePills')}
+                            description={t('mediaPlayerPage.showEpisodeFilePillsHint')}
+                            checked={settings.showEpisodeFilePills}
+                            onChange={(checked) => updateSettings({ showEpisodeFilePills: checked })}
+                        />
+                        <div className="py-4">
+                            <label className="mb-2 block text-sm font-bold text-text" htmlFor="media-player-watched-tick">
+                                {t('mediaPlayerPage.watchedTickPosition')}
+                            </label>
+                            <p className="mb-3 text-xs text-muted">{t('mediaPlayerPage.watchedTickPositionHint')}</p>
+                            <CustomSelect
+                                id="media-player-watched-tick"
+                                value={settings.watchedTickPosition}
+                                onChange={(value) => updateSettings({
+                                    watchedTickPosition: value as typeof settings.watchedTickPosition,
+                                })}
+                                className="max-w-xl"
+                                options={[
+                                    { value: 'top-right', label: t('mediaPlayerPage.watchedTickTopRight') },
+                                    { value: 'top-left', label: t('mediaPlayerPage.watchedTickTopLeft') },
+                                    { value: 'bottom-right', label: t('mediaPlayerPage.watchedTickBottomRight') },
+                                    { value: 'bottom-left', label: t('mediaPlayerPage.watchedTickBottomLeft') },
+                                ]}
+                            />
+                        </div>
+                    </div>
+                </section>
+            ) : null}
+
+            {settingsTab === 'player' ? (
+            <div className="flex w-full flex-col gap-6">
+                <section className={sectionClass}>
+                    <div className="px-5 py-2 sm:px-6">
+                        <SettingsToggleRow
+                            title={t('mediaPlayerPage.autoplayNext')}
+                            description={t('mediaPlayerPage.autoplayNextHint')}
+                            checked={settings.autoplayNext}
+                            onChange={(checked) => updateSettings({ autoplayNext: checked })}
+                        />
                     <div className="py-4">
                         <label className="mb-2 block text-sm font-bold text-text" htmlFor="media-player-default-quality">
                             {t('mediaPlayerPage.defaultQuality')}
@@ -763,7 +1122,6 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                     </div>
                 </div>
             </section>
-
             <div className="grid w-full grid-cols-1 gap-6 xl:grid-cols-2">
                 <section className={sectionClass}>
                     <div className="border-b border-border px-5 py-4 sm:px-6">
@@ -799,6 +1157,66 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                                 options={subtitleOptions.map((row) => ({ value: row.id, label: row.label }))}
                             />
                         </div>
+                        <div className="border-b border-border/40 py-4">
+                            <label className="mb-2 block text-sm font-bold text-text" htmlFor="media-player-subtitle-size">
+                                {t('mediaPlayerPage.subtitleSize')}
+                            </label>
+                            <CustomSelect
+                                id="media-player-subtitle-size"
+                                value={String(settings.subtitleSize)}
+                                onChange={(value) => updateSettings({ subtitleSize: Number(value) })}
+                                className="max-w-xl"
+                                options={[50, 75, 100, 125, 150, 200].map((value) => ({ value: String(value), label: `${value}%` }))}
+                            />
+                        </div>
+                        <div className="border-b border-border/40 py-4">
+                            <label className="mb-2 block text-sm font-bold text-text" htmlFor="media-player-subtitle-color">
+                                {t('mediaPlayerPage.subtitleColor')}
+                            </label>
+                            <CustomSelect
+                                id="media-player-subtitle-color"
+                                value={settings.subtitleColor}
+                                onChange={(value) => updateSettings({ subtitleColor: value })}
+                                className="max-w-xl"
+                                options={[
+                                    { value: '#ffffff', label: 'White' },
+                                    { value: '#ffe566', label: 'Yellow' },
+                                    { value: '#7dd3fc', label: 'Cyan' },
+                                ]}
+                            />
+                        </div>
+                        <div className="border-b border-border/40 py-4">
+                            <label className="mb-2 block text-sm font-bold text-text" htmlFor="media-player-subtitle-bg">
+                                {t('mediaPlayerPage.subtitleBackground')}
+                            </label>
+                            <CustomSelect
+                                id="media-player-subtitle-bg"
+                                value={settings.subtitleBackground}
+                                onChange={(value) => updateSettings({ subtitleBackground: value as typeof settings.subtitleBackground })}
+                                className="max-w-xl"
+                                options={[
+                                    { value: 'none', label: t('mediaPlayerPage.subtitleBackgroundNone') },
+                                    { value: 'dim', label: t('mediaPlayerPage.subtitleBackgroundDim') },
+                                    { value: 'solid', label: t('mediaPlayerPage.subtitleBackgroundSolid') },
+                                ]}
+                            />
+                        </div>
+                        <div className="py-4">
+                            <label className="mb-2 block text-sm font-bold text-text" htmlFor="media-player-subtitle-pos">
+                                {t('mediaPlayerPage.subtitlePosition')}
+                            </label>
+                            <CustomSelect
+                                id="media-player-subtitle-pos"
+                                value={settings.subtitlePosition}
+                                onChange={(value) => updateSettings({ subtitlePosition: value as typeof settings.subtitlePosition })}
+                                className="max-w-xl"
+                                options={[
+                                    { value: 'bottom', label: t('mediaPlayerPage.subtitlePositionBottom') },
+                                    { value: 'middle', label: t('mediaPlayerPage.subtitlePositionMiddle') },
+                                    { value: 'top', label: t('mediaPlayerPage.subtitlePositionTop') },
+                                ]}
+                            />
+                        </div>
                     </div>
                 </section>
 
@@ -807,6 +1225,30 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         <h2 className="text-sm font-black uppercase tracking-widest text-muted">{t('mediaPlayerPage.settingsSkipping')}</h2>
                     </div>
                     <div className="px-5 py-2 sm:px-6">
+                        <SettingsToggleRow
+                            title={t('mediaPlayerPage.nightMode')}
+                            description={t('mediaPlayerPage.nightModeHint')}
+                            checked={settings.nightMode}
+                            onChange={(checked) => updateSettings({ nightMode: checked })}
+                        />
+                        <SettingsToggleRow
+                            title={t('mediaPlayerPage.matchFrameRate')}
+                            description={t('mediaPlayerPage.matchFrameRateHint')}
+                            checked={settings.matchFrameRate}
+                            onChange={(checked) => updateSettings({ matchFrameRate: checked })}
+                        />
+                        <SettingsToggleRow
+                            title={t('mediaPlayerPage.audioPassthrough')}
+                            description={t('mediaPlayerPage.audioPassthroughHint')}
+                            checked={settings.audioPassthrough}
+                            onChange={(checked) => updateSettings({ audioPassthrough: checked })}
+                        />
+                        <SettingsToggleRow
+                            title={t('mediaPlayerPage.cinemaTrailers')}
+                            description={t('mediaPlayerPage.cinemaTrailersHint')}
+                            checked={settings.cinemaTrailers}
+                            onChange={(checked) => updateSettings({ cinemaTrailers: checked })}
+                        />
                         <SettingsToggleRow
                             title={t('mediaPlayerPage.autoSkipIntro')}
                             description={t('mediaPlayerPage.autoSkipIntroHint')}
@@ -823,6 +1265,8 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                     </div>
                 </section>
             </div>
+            </div>
+            ) : null}
 
             <StickySaveBar className="!bottom-5">
                 {dirty ? (

@@ -4,7 +4,7 @@
  * need @capacitor/core (that dep lives only under plex-client/).
  */
 
-export type NativePlayerTrackOption = { id: string; label: string };
+export type NativePlayerTrackOption = { id: string; label: string; url?: string };
 export type NativePlayerVersionOption = { id: string; label: string; mediaIndex?: number };
 
 export type NativePlayerSessionPayload = {
@@ -28,7 +28,21 @@ export type NativePlayerSessionPayload = {
     autoSkipIntro?: boolean;
     autoSkipCredits?: boolean;
     title?: string;
+    subtitle?: string;
     logoUrl?: string;
+    posterUrl?: string;
+    music?: boolean;
+    chapters?: Array<{ startMs: number; title?: string }>;
+    previewThumbTemplate?: string | null;
+    frameRate?: number | null;
+    nightMode?: boolean;
+    matchFrameRate?: boolean;
+    subtitleStyle?: {
+        size?: number;
+        color?: string;
+        background?: string;
+        position?: string;
+    };
 };
 
 export type NativePlayerOpenOptions = {
@@ -48,6 +62,9 @@ export type NativePlayerOpenOptions = {
     onPlayNext?: (event: { ratingKey: string }) => void;
     onSpeed?: (event: { speed: number }) => void;
     onError?: (event: { message?: string }) => void;
+    onMinimized?: (event: NativePlayerProgressEvent) => void;
+    onRestored?: (event: { state?: string }) => void;
+    onSubtitleSearch?: (event: { ratingKey?: string }) => void;
 };
 
 export type NativePlayerCloseResult = {
@@ -71,6 +88,7 @@ export type NativePlayerStreamChangeEvent = {
     subtitleStreamId?: string;
     mediaIndex?: number;
     positionMs?: number;
+    reason?: string;
 };
 
 export type NativePlayerUpdateSrcOptions = {
@@ -84,8 +102,13 @@ type CapNativeMediaPlayerPlugin = {
     isAvailable(): Promise<{ value: boolean }>;
     open(opts: Record<string, unknown>): Promise<NativePlayerCloseResult>;
     updateSrc(opts: Record<string, unknown>): Promise<{ ok: boolean }>;
+    updateSession(opts: { sessionJson: string }): Promise<{ ok: boolean }>;
     seek(opts: { positionMs: number }): Promise<{ ok: boolean }>;
     setSpeed(opts: { speed: number }): Promise<{ ok: boolean }>;
+    setPaused(opts: { paused: boolean }): Promise<{ ok: boolean }>;
+    skipNext(): Promise<{ ok: boolean }>;
+    show(): Promise<{ ok: boolean }>;
+    close(): Promise<{ ok: boolean }>;
     addListener(event: string, cb: (data: Record<string, unknown>) => void): Promise<{ remove: () => void }> | { remove: () => void };
 };
 
@@ -93,8 +116,13 @@ type NativeMediaPlayerBridge = {
     isAvailable: () => boolean | Promise<boolean>;
     open: (opts: NativePlayerOpenOptions) => Promise<NativePlayerCloseResult>;
     updateSrc: (opts: NativePlayerUpdateSrcOptions) => Promise<boolean>;
+    updateSession: (session: NativePlayerSessionPayload) => Promise<boolean>;
     seek: (positionMs: number) => Promise<boolean>;
     setSpeed: (speed: number) => Promise<boolean>;
+    setPaused: (paused: boolean) => Promise<boolean>;
+    skipNext: () => Promise<boolean>;
+    show: () => Promise<boolean>;
+    close: () => Promise<boolean>;
     addListener: CapNativeMediaPlayerPlugin['addListener'];
 };
 
@@ -170,6 +198,16 @@ export const installNativeMediaPlayerBridge = () => {
                     return false;
                 }
             },
+            updateSession: async (session) => {
+                try {
+                    const result = await CapNativeMediaPlayer.updateSession({
+                        sessionJson: JSON.stringify(session || {}),
+                    });
+                    return !!result?.ok;
+                } catch {
+                    return false;
+                }
+            },
             seek: async (positionMs) => {
                 try {
                     const result = await CapNativeMediaPlayer.seek({ positionMs: Math.max(0, Math.floor(positionMs)) });
@@ -181,6 +219,38 @@ export const installNativeMediaPlayerBridge = () => {
             setSpeed: async (speed) => {
                 try {
                     const result = await CapNativeMediaPlayer.setSpeed({ speed });
+                    return !!result?.ok;
+                } catch {
+                    return false;
+                }
+            },
+            setPaused: async (paused) => {
+                try {
+                    const result = await CapNativeMediaPlayer.setPaused({ paused });
+                    return !!result?.ok;
+                } catch {
+                    return false;
+                }
+            },
+            skipNext: async () => {
+                try {
+                    const result = await CapNativeMediaPlayer.skipNext();
+                    return !!result?.ok;
+                } catch {
+                    return false;
+                }
+            },
+            show: async () => {
+                try {
+                    const result = await CapNativeMediaPlayer.show();
+                    return !!result?.ok;
+                } catch {
+                    return false;
+                }
+            },
+            close: async () => {
+                try {
+                    const result = await CapNativeMediaPlayer.close();
                     return !!result?.ok;
                 } catch {
                     return false;
@@ -239,6 +309,7 @@ const attachTransientListeners = async (opts: NativePlayerOpenOptions) => {
                 subtitleStreamId: data.subtitleStreamId != null ? String(data.subtitleStreamId) : undefined,
                 mediaIndex: data.mediaIndex != null ? Number(data.mediaIndex) : undefined,
                 positionMs: data.positionMs != null ? Math.max(0, Math.floor(Number(data.positionMs) || 0)) : undefined,
+                reason: data.reason != null ? String(data.reason) : undefined,
             });
         });
     }
@@ -256,6 +327,26 @@ const attachTransientListeners = async (opts: NativePlayerOpenOptions) => {
     if (opts.onError) {
         await add('error', (data) => {
             opts.onError?.({ message: data.message ? String(data.message) : undefined });
+        });
+    }
+    if (opts.onMinimized) {
+        await add('minimized', (data) => {
+            opts.onMinimized?.({
+                state: String(data.state || 'playing'),
+                positionMs: Math.max(0, Math.floor(Number(data.positionMs) || 0)),
+                durationMs: Math.max(0, Math.floor(Number(data.durationMs) || 0)),
+                ratingKey: data.ratingKey ? String(data.ratingKey) : undefined,
+            });
+        });
+    }
+    if (opts.onRestored) {
+        await add('restored', (data) => {
+            opts.onRestored?.({ state: data.state ? String(data.state) : undefined });
+        });
+    }
+    if (opts.onSubtitleSearch) {
+        await add('subtitleSearch', (data) => {
+            opts.onSubtitleSearch?.({ ratingKey: data.ratingKey ? String(data.ratingKey) : undefined });
         });
     }
     return () => {
@@ -285,4 +376,51 @@ export const openNativePlayer = async (
 export const updateNativePlayerSrc = async (opts: NativePlayerUpdateSrcOptions): Promise<boolean> => {
     if (!(await isNativePlayerAvailable())) return false;
     return window.NativeMediaPlayer!.updateSrc(opts);
+};
+
+export const updateNativePlayerSession = async (session: NativePlayerSessionPayload): Promise<boolean> => {
+    if (!(await isNativePlayerAvailable())) return false;
+    const bridge = window.NativeMediaPlayer;
+    if (!bridge?.updateSession) return false;
+    return bridge.updateSession(session);
+};
+
+export const setNativePlayerPaused = async (paused: boolean): Promise<boolean> => {
+    const bridge = window.NativeMediaPlayer;
+    if (!bridge?.setPaused) return false;
+    try {
+        return !!(await bridge.setPaused(paused));
+    } catch {
+        return false;
+    }
+};
+
+export const skipNativePlayerNext = async (): Promise<boolean> => {
+    const bridge = window.NativeMediaPlayer;
+    if (!bridge?.skipNext) return false;
+    try {
+        return !!(await bridge.skipNext());
+    } catch {
+        return false;
+    }
+};
+
+export const showNativePlayer = async (): Promise<boolean> => {
+    const bridge = window.NativeMediaPlayer;
+    if (!bridge?.show) return false;
+    try {
+        return !!(await bridge.show());
+    } catch {
+        return false;
+    }
+};
+
+export const closeNativePlayer = async (): Promise<boolean> => {
+    const bridge = window.NativeMediaPlayer;
+    if (!bridge?.close) return false;
+    try {
+        return !!(await bridge.close());
+    } catch {
+        return false;
+    }
 };

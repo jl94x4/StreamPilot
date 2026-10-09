@@ -7,17 +7,20 @@ export const DiscoverSectionHeader: React.FC<{
     viewAllLabel?: string;
     className?: string;
 }> = ({ title, onViewAll, viewAllLabel, className = '' }) => (
-    <div className={`flex items-center gap-3 min-w-0 pr-16 ${className}`.trim()}>
+    <div className={`player-row-header flex items-center gap-3 min-w-0 pr-16 max-md:pr-0 ${className}`.trim()}>
+        <span className="player-row-header-mark shrink-0" aria-hidden />
         {onViewAll ? (
             <button
                 type="button"
                 onClick={onViewAll}
-                className={`${discoveryTheme.sectionTitle} truncate text-left hover:text-plex transition-colors`}
+                className={`player-row-header-title ${discoveryTheme.sectionTitle} min-w-0 truncate text-left hover:text-plex transition-colors`}
             >
                 {title}
             </button>
         ) : (
-            <h2 className={`${discoveryTheme.sectionTitle} truncate`}>{title}</h2>
+            <h2 className={`player-row-header-title ${discoveryTheme.sectionTitle} min-w-0 truncate`}>
+                {title}
+            </h2>
         )}
         {onViewAll && viewAllLabel ? (
             <button

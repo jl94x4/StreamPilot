@@ -3,9 +3,9 @@
  * WebView localStorage quirks and app updates (Android).
  */
 import { withBootTimeout } from './bootTimeout';
-import { STORAGE_PORTAL, STORAGE_TOKEN } from './configStorageKeys';
+import { STORAGE_AUTH_MODE, STORAGE_PLEX_CLIENT_ID, STORAGE_PLEX_HOME_USER, STORAGE_PLEX_OWNER_TOKEN, STORAGE_PLEX_SERVER, STORAGE_PLEX_SERVERS, STORAGE_PORTAL, STORAGE_TOKEN } from './configStorageKeys';
 
-const AUTH_KEYS = [STORAGE_TOKEN, STORAGE_PORTAL] as const;
+const AUTH_KEYS = [STORAGE_TOKEN, STORAGE_PORTAL, STORAGE_AUTH_MODE, STORAGE_PLEX_SERVER, STORAGE_PLEX_SERVERS, STORAGE_PLEX_CLIENT_ID, STORAGE_PLEX_OWNER_TOKEN, STORAGE_PLEX_HOME_USER] as const;
 
 const preferencesApi = async () => {
     const { Capacitor } = await import('@capacitor/core');

@@ -10,6 +10,7 @@ export type PlayerRatings = {
     rottenTomatoes: PlayerRatingScore | null;
     popcorn: PlayerRatingScore | null;
     tmdb: PlayerRatingScore | null;
+    tvdb?: PlayerRatingScore | null;
 };
 
 export type PlayerMediaStreamInfo = {
@@ -31,6 +32,7 @@ export type PlayerMediaStreamInfo = {
     channelLayout?: string | null;
     samplingRate?: number | null;
     language?: string | null;
+    languageTag?: string | null;
     selected?: boolean;
     forced?: boolean;
 };
@@ -53,6 +55,7 @@ export type PlayerMediaInfo = {
     width: number | null;
     height: number | null;
     videoResolution: string | null;
+    scanType?: string | null;
     videoCodec: string | null;
     audioCodec: string | null;
     audioChannels: number | null;
@@ -87,6 +90,12 @@ export type PlayerItem = {
     episodeTitle?: string | null;
     /** Force rail/card shape (recently added TV uses show posters). */
     cardAspect?: '2/3' | 'square' | '16/9';
+    /** Home row uses the title background with a year or season count caption. */
+    heroCard?: boolean;
+    /** Plex coverArt, the designed 16:9 hero Replex uses. */
+    heroArt?: string | null;
+    /** Continue Watching poster uses the season art instead of the show art. */
+    preferSeasonPoster?: boolean;
     /** Dedupe recently-added TV by show while keeping the episode ratingKey. */
     dedupeKey?: string | null;
     art?: string | null;
@@ -114,6 +123,11 @@ export type PlayerItem = {
     viewedLeafCount?: number | null;
     extraType?: string | null;
     extraSubtype?: string | null;
+    watchlisted?: boolean;
+    discoverRatingKey?: string | null;
+    plexGuid?: string | null;
+    chapters?: PlayerChapter[];
+    frameRate?: number | null;
     plexUrl?: string | null;
     canPlay?: boolean;
     viewCount?: number;
@@ -124,6 +138,11 @@ export type PlayerItem = {
     studio?: string;
     studioKey?: string;
     librarySectionID?: string | null;
+    /** Direct Plex client: which Media Server owns this item. */
+    serverId?: string | null;
+    /** Search/person credits: Plex actor/person id when type is person. */
+    personId?: string | null;
+    personName?: string | null;
     directors?: string[];
     writers?: string[];
     directorPeople?: PlayerPersonCredit[];
@@ -148,11 +167,19 @@ export type PlayerMarkers = {
     credits: PlayerMarker | null;
 };
 
+export type PlayerChapter = {
+    startMs: number;
+    endMs?: number;
+    title: string;
+    index?: number;
+};
+
 export type PlayerVersion = {
     id: string;
     mediaIndex: number;
     label: string;
     resolution?: string | null;
+    scanType?: string | null;
     videoCodec?: string | null;
     audioCodec?: string | null;
     container?: string | null;
@@ -174,13 +201,27 @@ export type PlayerPersonProfile = {
     deathday?: string | null;
     knownForDepartment?: string | null;
     placeOfBirth?: string | null;
+    placeOfDeath?: string | null;
     profilePath?: string | null;
+};
+
+export type PlayerPersonCreditRow = {
+    id: string;
+    title: string;
+    year?: string | null;
+    mediaType?: 'movie' | 'tv' | string | null;
+    role?: string | null;
+    department?: 'cast' | 'crew' | string | null;
+    posterPath?: string | null;
+    onServer?: boolean;
+    ratingKey?: string | null;
 };
 
 export type PlayerPersonBundle = {
     person: { name: string; thumb?: string | null };
     items: PlayerItem[];
     profile: PlayerPersonProfile | null;
+    filmography?: PlayerPersonCreditRow[];
 };
 
 export type PlayerSection = {
@@ -209,6 +250,8 @@ export type PlayerLibraryHub = {
     hubKey?: string | null;
     collectionRatingKey?: string | null;
     playlistRatingKey?: string | null;
+    /** Pinned collection labeled Heros or Heroes. */
+    heroRow?: boolean;
 };
 
 export type PlayerHome = {
@@ -217,6 +260,8 @@ export type PlayerHome = {
     recentByLibrary: PlayerHomeRail[];
     playlists?: PlayerItem[];
     hubs?: PlayerLibraryHub[];
+    /** Direct mode painted Continue Watching / Recently Added before Plex hubs arrived. */
+    partial?: boolean;
 };
 
 export type PlayerLibraryHome = {
@@ -230,6 +275,7 @@ export type PlayerLibraryFilters = {
     decades?: Array<{ key: string; title: string }>;
     resolutions?: Array<{ key: string; title: string }>;
     studios?: Array<{ key: string; title: string }>;
+    letters?: Array<{ key: string; title: string }>;
 };
 
 export type PlayerLibraryPage = {
@@ -264,6 +310,7 @@ export type PlayerAudioTrack = {
     id: string;
     label: string;
     language?: string | null;
+    languageTag?: string | null;
     codec?: string | null;
     channels?: number | null;
     selected?: boolean;
@@ -273,6 +320,7 @@ export type PlayerSubtitleTrack = {
     id: string;
     label: string;
     language?: string | null;
+    languageTag?: string | null;
     codec?: string | null;
     forced?: boolean;
     selected?: boolean;
@@ -306,6 +354,7 @@ export type PlayerPlaySession = {
     mediaIndex?: number;
     versions?: PlayerVersion[];
     markers?: PlayerMarkers;
+    previewThumbTemplate?: string | null;
     playbackMode?: PlayerPlaybackMode;
     source?: PlayerPlaybackSource;
     client?: 'web' | 'android' | 'ios';
@@ -318,4 +367,7 @@ export type PlayerPlayOptions = {
     skipResume?: boolean;
     audioStreamId?: string | null;
     subtitleStreamId?: string | null;
+    shuffle?: boolean;
+    playFromHere?: boolean;
+    queue?: PlayerItem[];
 };

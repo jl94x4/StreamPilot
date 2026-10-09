@@ -12,12 +12,18 @@
     <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
+        <item name="android:windowBackground">@color/splash_background</item>
         <item name="android:background">@null</item>
+        <item name="android:statusBarColor">@color/splash_background</item>
+        <item name="android:navigationBarColor">@color/splash_background</item>
     </style>
 
 
-    <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
-        <item name="android:background">@drawable/splash</item>
+    <!-- Flat field + small centered mark. Theme.SplashScreen's icon plate is a dark box on TV. -->
+    <style name="AppTheme.NoActionBarLaunch" parent="AppTheme.NoActionBar">
+        <item name="android:windowBackground">@drawable/splash_screen</item>
+        <item name="android:statusBarColor">@color/splash_background</item>
+        <item name="android:navigationBarColor">@color/splash_background</item>
     </style>
 
     <style name="PlayerTheme" parent="Theme.AppCompat.NoActionBar">
@@ -25,22 +31,44 @@
         <item name="android:colorAccent">@color/player_accent</item>
         <item name="colorAccent">@color/player_accent</item>
         <item name="alertDialogTheme">@style/PlayerDialogTheme</item>
+        <item name="android:colorControlHighlight">@android:color/transparent</item>
+    </style>
+
+    <style name="PlayerSeekBar" parent="Widget.AppCompat.SeekBar">
+        <item name="android:background">@null</item>
+        <item name="android:splitTrack">false</item>
+        <item name="android:paddingStart">10dp</item>
+        <item name="android:paddingEnd">10dp</item>
+        <item name="android:paddingTop">8dp</item>
+        <item name="android:paddingBottom">8dp</item>
+        <item name="android:thumbOffset">10dp</item>
+        <item name="android:defaultFocusHighlightEnabled">false</item>
+        <item name="android:colorControlHighlight">@android:color/transparent</item>
+        <item name="tickMark">@null</item>
     </style>
 
     <style name="PlayerDialogTheme" parent="Theme.AppCompat.Dialog.Alert">
         <item name="colorAccent">@color/player_accent</item>
         <item name="android:background">#1A2030</item>
         <item name="android:textColorPrimary">@color/player_text_primary</item>
+        <item name="android:textColor">@color/player_text_primary</item>
+        <item name="android:windowMinWidthMajor">56%</item>
+        <item name="android:windowMinWidthMinor">72%</item>
+        <item name="android:colorControlHighlight">@android:color/transparent</item>
+        <item name="android:defaultFocusHighlightEnabled">false</item>
     </style>
 
     <style name="PlayerChipButton" parent="Widget.AppCompat.Button.Borderless">
         <item name="android:background">@drawable/player_chip_btn</item>
-        <item name="android:minHeight">44dp</item>
-        <item name="android:paddingStart">18dp</item>
-        <item name="android:paddingEnd">18dp</item>
+        <item name="android:minHeight">31dp</item>
+        <item name="android:minWidth">0dp</item>
+        <item name="android:paddingStart">12dp</item>
+        <item name="android:paddingEnd">12dp</item>
         <item name="android:textAllCaps">false</item>
         <item name="android:textColor">@color/player_text_primary</item>
-        <item name="android:textSize">14sp</item>
+        <item name="android:textSize">11sp</item>
         <item name="android:focusable">true</item>
+        <item name="android:defaultFocusHighlightEnabled">false</item>
+        <item name="android:stateListAnimator">@null</item>
     </style>
 </resources>
