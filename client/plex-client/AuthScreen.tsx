@@ -93,9 +93,9 @@ const AuthAtmosphere: React.FC<{ tv?: boolean }> = ({ tv }) => (
 const LOGO_SRC = './logo.png';
 
 const AuthMark: React.FC<{ tv?: boolean }> = ({ tv }) => (
-    <div className="smp-auth-mark relative h-14 w-14 sm:h-16 sm:w-16">
-        {tv ? null : <div className="absolute inset-[-22%] rounded-full bg-plex/20 blur-2xl" aria-hidden />}
-        <img src={LOGO_SRC} alt="StreamPilot" className="relative h-full w-full object-contain" />
+    <div className={`smp-auth-mark relative ${tv ? 'h-16 w-[min(100%,22rem)]' : 'h-12 w-[min(100%,18rem)] sm:h-14 sm:w-[22rem]'}`}>
+        {tv ? null : <div className="absolute inset-y-0 -inset-x-[10%] rounded-full bg-plex/20 blur-2xl" aria-hidden />}
+        <img src={LOGO_SRC} alt="StreamPilot" className="relative h-full w-full object-contain object-left" />
     </div>
 );
 

@@ -55,11 +55,12 @@ export const LoginBrandMark: React.FC<LoginBrandMarkProps> = ({
     }
 
     if (!src) {
+        const freeClass = `${freeBoxClass} flex items-center justify-center`;
         return (
             <img
                 src={logoUrl()}
-                alt="Server Logo"
-                className={`${circleBoxClass} object-cover rounded-full border-2 border-plex/40 shadow-[0_0_40px_rgba(229,160,13,0.25)] relative z-10 ${className}`}
+                alt="StreamPilot"
+                className={`${freeClass} h-auto w-auto max-w-full object-contain relative z-10 drop-shadow-[0_8px_24px_rgba(0,0,0,0.35)] ${className}`}
                 onError={(e) => { e.currentTarget.style.display = 'none'; }}
             />
         );

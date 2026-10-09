@@ -9,6 +9,7 @@ import {
 } from './mediaDetailUtils';
 import { MediaRatingPills } from './MediaRatingPills';
 import { DiscoveryFactWidget } from './DiscoveryFactWidget';
+import { DiscoveryLogo } from './DiscoveryLogo';
 import { useDiscoverI18n, translateDiscoverStatus } from './i18n';
 
 const SectionLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
@@ -27,7 +28,8 @@ export const MediaOverviewExtras: React.FC<{
     onOpenCollection?: (collectionId: number) => void;
     onOpenKeyword?: (keyword: { id: number; name: string }) => void;
     onOpenStudio?: (studioId: number) => void;
-}> = ({ mediaType, mediaId, details, ratings, onOpenPerson, onOpenCollection, onOpenKeyword, onOpenStudio }) => {
+    onOpenNetwork?: (networkId: number) => void;
+}> = ({ mediaType, mediaId, details, ratings, onOpenPerson, onOpenCollection, onOpenKeyword, onOpenStudio, onOpenNetwork }) => {
     const { t } = useDiscoverI18n();
     const [showAllStudios, setShowAllStudios] = useState(false);
 
@@ -66,6 +68,7 @@ export const MediaOverviewExtras: React.FC<{
     const visibleFactRows = factRows;
     const studios = useMemo(() => getProductionStudios(details), [details]);
     const visibleStudios = showAllStudios ? studios : studios.slice(0, 3);
+    const networks = Array.isArray(details?.networks) ? details.networks : [];
 
     const hasRatings = !!(
         Number.isFinite(Number(ratings?.rt?.criticsScore))
@@ -74,7 +77,7 @@ export const MediaOverviewExtras: React.FC<{
         || tmdbScore
     );
 
-    if (!hasRatings && !visibleFactRows.length && !studios.length && !crew.length && !keywords.length && !externalLinks.length && !trailerUrl && !details?.collection) {
+    if (!hasRatings && !visibleFactRows.length && !studios.length && !networks.length && !crew.length && !keywords.length && !externalLinks.length && !trailerUrl && !details?.collection) {
         return null;
     }
 
@@ -172,6 +175,34 @@ export const MediaOverviewExtras: React.FC<{
                         <ArrowRight className="w-4 h-4 text-muted group-hover:text-plex transition-colors shrink-0" />
                     </div>
                 </button>
+            )}
+
+            {networks.length > 0 && (
+                <div className="flex flex-col gap-3">
+                    <SectionLabel>{t('home.networks')}</SectionLabel>
+                    <div className="flex flex-wrap gap-5 items-center">
+                        {networks.map((network: any) => (
+                            <button
+                                key={network.id}
+                                type="button"
+                                onClick={() => onOpenNetwork?.(network.id)}
+                                className="flex items-center rounded-lg border border-transparent px-2 py-1.5 transition-all hover:border-border hover:bg-white/5 cursor-pointer"
+                                title={t('category.browseName', { name: network.name })}
+                            >
+                                {network.logoPath ? (
+                                    <DiscoveryLogo
+                                        logoPath={network.logoPath}
+                                        alt={network.name}
+                                        width={154}
+                                        className="h-6 max-w-[120px] object-contain opacity-90 hover:opacity-100 transition-opacity"
+                                    />
+                                ) : (
+                                    <span className="text-xs font-semibold text-muted hover:text-text transition-colors">{network.name}</span>
+                                )}
+                            </button>
+                        ))}
+                    </div>
+                </div>
             )}
 
             <DiscoveryFactWidget mediaType={mediaType} mediaId={mediaId} />

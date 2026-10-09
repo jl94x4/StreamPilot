@@ -15,7 +15,6 @@ import { SeasonEpisodesModal } from './SeasonEpisodesModal';
 import { resolveMediaAvailabilityState } from './discoverAvailability';
 import { enrichDiscoverItemsWithAvailability } from './discoverAvailabilityEnrich';
 import { MediaStatusPanel, mediaStatusChipClass } from './DiscoverStatusOverlay';
-import { DiscoveryLogo } from './DiscoveryLogo';
 import { currentDiscoverPathWithSearch, readDiscoverDetailSeed, scrollPortalToTop, stashDiscoverPersonReturn, stashDiscoverScrollPosition } from './discoverNavigationUtils';
 import { MediaOverviewExtras } from './MediaOverviewExtras';
 import { OpenInArrButton } from '../shared/OpenInArrButton';
@@ -1013,6 +1012,7 @@ export const MediaDetailsPage: React.FC<{
                         onOpenPerson={openPerson}
                         onOpenKeyword={openKeyword}
                         onOpenStudio={openStudio}
+                        onOpenNetwork={openNetwork}
                         onOpenCollection={(collectionId) => {
                             window.open(`https://www.themoviedb.org/collection/${collectionId}`, '_blank', 'noopener,noreferrer');
                         }}
@@ -1029,33 +1029,6 @@ export const MediaDetailsPage: React.FC<{
                         </div>
                     )}
 
-                    {details.networks?.length > 0 && (
-                        <div className="flex flex-col gap-2">
-                            <SectionHeading>{t('home.networks')}</SectionHeading>
-                            <div className="flex flex-wrap gap-5 items-center">
-                                {details.networks.map((n: any) => (
-                                    <button
-                                        key={n.id}
-                                        type="button"
-                                        onClick={() => openNetwork(n.id)}
-                                        className="flex items-center rounded-lg border border-transparent px-2 py-1.5 transition-all hover:border-border hover:bg-white/5 cursor-pointer"
-                                        title={t('category.browseName', { name: n.name })}
-                                    >
-                                        {n.logoPath ? (
-                                            <DiscoveryLogo
-                                                logoPath={n.logoPath}
-                                                alt={n.name}
-                                                width={154}
-                                                className="h-6 max-w-[120px] object-contain opacity-90 hover:opacity-100 transition-opacity"
-                                            />
-                                        ) : (
-                                            <span className="text-xs font-semibold text-muted hover:text-text transition-colors">{n.name}</span>
-                                        )}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-                    )}
                     </div>
                 </div>
                     </div>

@@ -198,9 +198,9 @@
       animation: boot-splash-enter 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
     }
     #boot-splash img {
-      width: min(42vh, 18rem);
+      width: min(78vw, 36rem);
       height: auto;
-      max-width: min(72vw, 22rem);
+      max-height: 22vh;
       object-fit: contain;
       filter: drop-shadow(0 18px 40px rgba(0, 0, 0, 0.45));
     }
@@ -238,8 +238,8 @@
       background: #07080c;
     }
     html[data-tv="1"] #boot-splash img {
-      width: min(46vh, 22rem);
-      max-width: min(52vw, 24rem);
+      width: min(62vw, 40rem);
+      max-height: 24vh;
     }
     @media (prefers-reduced-motion: reduce) {
       #boot-splash .boot-splash-mark,
@@ -2908,8 +2908,8 @@
       margin-right: auto;
     }
     html[data-tv="1"] .smp-auth-mark {
-      height: 7.25rem !important;
-      width: 7.25rem !important;
+      height: 4.75rem !important;
+      width: min(32rem, 70%) !important;
     }
     html[data-tv="1"] .smp-auth-copy h1 {
       font-size: 3.1rem !important;

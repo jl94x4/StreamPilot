@@ -44,13 +44,17 @@ function Add-Glow($g, [int]$cx, [int]$cy, [int]$radius, [int]$alpha) {
 }
 
 function Draw-CenteredLogo($g, [int]$w, [int]$h, [double]$scale, [int]$glowAlpha = 0) {
-    $size = [int][Math]::Round([Math]::Min($w, $h) * $scale)
-    $x = [int][Math]::Round(($w - $size) / 2.0)
-    $y = [int][Math]::Round(($h - $size) / 2.0)
+    $maxW = [int][Math]::Round($w * $scale)
+    $maxH = [int][Math]::Round($h * $scale)
+    $fit = [Math]::Min($maxW / [double]$logo.Width, $maxH / [double]$logo.Height)
+    $dw = [int][Math]::Max(1, [Math]::Round($logo.Width * $fit))
+    $dh = [int][Math]::Max(1, [Math]::Round($logo.Height * $fit))
+    $x = [int][Math]::Round(($w - $dw) / 2.0)
+    $y = [int][Math]::Round(($h - $dh) / 2.0)
     if ($glowAlpha -gt 0) {
-        Add-Glow $g ([int]($w / 2)) ([int]($h / 2)) ([int]($size * 0.78)) $glowAlpha
+        Add-Glow $g ([int]($w / 2)) ([int]($h / 2)) ([int]([Math]::Max($dw, $dh) * 0.78)) $glowAlpha
     }
-    $g.DrawImage($logo, $x, $y, $size, $size)
+    $g.DrawImage($logo, $x, $y, $dw, $dh)
 }
 
 function Draw-TrackedWordmark($g, [int]$cx, [int]$y, [float]$fontPx) {
@@ -94,7 +98,10 @@ function Write-Splash([int]$w, [int]$h, [string]$rel) {
     $cx = [int]($w / 2)
     $ctx = New-Gfx $w $h
     Add-Glow $ctx.G $cx ($top + [int]($logoSize / 2)) ([int]($logoSize * 1.2)) 28
-    $ctx.G.DrawImage($logo, $cx - [int]($logoSize / 2), $top, $logoSize, $logoSize)
+    $fit = [Math]::Min(($w * 0.72) / [double]$logo.Width, $logoSize / [double]$logo.Height)
+    $dw = [int][Math]::Max(1, [Math]::Round($logo.Width * $fit))
+    $dh = [int][Math]::Max(1, [Math]::Round($logo.Height * $fit))
+    $ctx.G.DrawImage($logo, ($cx - [int]($dw / 2)), ($top + [int](($logoSize - $dh) / 2)), $dw, $dh)
     Draw-TrackedWordmark $ctx.G $cx ($top + $logoSize + $gap) $fontPx
     Save-Png $ctx.Bmp (Join-Path $res $rel)
     $ctx.G.Dispose()

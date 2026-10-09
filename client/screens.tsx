@@ -6976,13 +6976,15 @@ export const Login: React.FC<{ onLoginSuccess: () => void, publicConfig?: any, p
                                 {publicConfigWarning}
                             </div>
                         )}
-                        <div className={`relative mb-8 flex justify-center w-full ${publicConfig?.loginLogoCircleFrame !== false ? '' : 'max-w-lg px-2'}`}>
-                            {!loginLogoSrc && publicConfig?.loginLogoCircleFrame !== false && (
+                        <div className={`relative mb-8 flex justify-center w-full ${(!loginLogoSrc || publicConfig?.loginLogoCircleFrame === false) ? 'max-w-lg px-2' : ''}`}>
+                            {!loginLogoSrc ? (
+                                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-72 h-16 bg-plex/20 rounded-full blur-[60px] pointer-events-none" />
+                            ) : publicConfig?.loginLogoCircleFrame !== false ? (
                                 <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-36 h-36 bg-plex/20 rounded-full blur-[60px] pointer-events-none" />
-                            )}
+                            ) : null}
                             <LoginBrandMark
                                 src={loginLogoSrc}
-                                circleFrame={publicConfig?.loginLogoCircleFrame !== false}
+                                circleFrame={Boolean(loginLogoSrc) && publicConfig?.loginLogoCircleFrame !== false}
                             />
                         </div>
 
@@ -12306,6 +12308,7 @@ export const Navigation: React.FC<NavigationProps> = ({ currentRoute, onNavigate
     const profileThumb = sessionInfo?.session?.thumb || profile?.thumb || (isAdmin ? adminThumb : null);
     const profileIcon = resolveNavAvatar(profileThumb) || DEFAULT_USER_AVATAR;
     const serverIcon = (customLogoUrl || isAdmin) ? brandIcon : profileIcon;
+    const usingBrandWordmark = Boolean(customLogoUrl) || /\/(?:static\/)?logo\.(png|jpg|jpeg|webp)(?:\?|$)/i.test(String(serverIcon || ''));
     const onProfileImageError = (event: React.SyntheticEvent<HTMLImageElement>) => {
         const image = event.currentTarget;
         if (image.dataset.fallback === '1') return;
@@ -13075,8 +13078,8 @@ export const Navigation: React.FC<NavigationProps> = ({ currentRoute, onNavigate
 
         const identityContent = (
             <>
-                <div className={`relative ${identityDensity.logoMb} ${customLogoUrl ? `${identityDensity.customWrap} flex items-center justify-center` : ''}`}>
-                    {customLogoUrl ? (
+                <div className={`relative ${identityDensity.logoMb} ${usingBrandWordmark ? `${identityDensity.customWrap} flex items-center justify-center` : ''}`}>
+                    {usingBrandWordmark ? (
                         <img
                             src={serverIcon}
                             alt="Server Logo"
@@ -13152,7 +13155,7 @@ export const Navigation: React.FC<NavigationProps> = ({ currentRoute, onNavigate
                     <img
                         src={serverIcon}
                         alt="Logo"
-                        className={`w-8 h-8 shrink-0 ${customLogoUrl ? 'object-contain' : 'rounded-full object-cover'}`}
+                        className={`shrink-0 ${usingBrandWordmark ? 'h-8 w-auto max-w-[7.5rem] object-contain' : 'w-8 h-8 rounded-full object-cover'}`}
                         onError={onIdentityImageError}
                     />
                     <span className="font-bold text-text uppercase tracking-widest text-xs truncate">{serverName}</span>
@@ -13900,14 +13903,18 @@ export const PublicInviteClaim: React.FC<{ code: string }> = ({ code }) => {
 
     return (
         <div className="flex flex-col items-center justify-center min-h-[60vh] text-center max-w-lg w-full animate-fade-in mx-auto px-4 mt-20">
-            <div className="relative mb-8 flex justify-center">
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 bg-plex rounded-full blur-[50px] opacity-20 pointer-events-none"></div>
+            <div className="relative mb-8 flex justify-center w-full max-w-lg px-2">
+                {!(info.customLoginLogoUrl || info.customLogoUrl || info.thumb) ? (
+                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-72 h-16 bg-plex/20 rounded-full blur-[50px] pointer-events-none" />
+                ) : (
+                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 bg-plex rounded-full blur-[50px] opacity-20 pointer-events-none" />
+                )}
                 <LoginBrandMark
                     size="lg"
                     src={info.customLoginLogoUrl || info.customLogoUrl || info.thumb
                         ? resolvePortalAssetUrl(info.customLoginLogoUrl || info.customLogoUrl || info.thumb)
                         : null}
-                    circleFrame={info.loginLogoCircleFrame !== false}
+                    circleFrame={Boolean(info.customLoginLogoUrl || info.customLogoUrl || info.thumb) && info.loginLogoCircleFrame !== false}
                     className="drop-shadow-[0_0_15px_rgba(229,160,13,0.25)]"
                 />
             </div>
