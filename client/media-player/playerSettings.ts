@@ -21,6 +21,130 @@ export const isPlayerContinueWatchingLayout = (value: unknown): value is PlayerC
     PLAYER_CONTINUE_WATCHING_LAYOUTS.includes(String(value || '') as PlayerContinueWatchingLayout)
 );
 
+export type PlayerContinueWatchingSort = 'releaseDate' | 'plex' | 'recentlyWatched' | 'title';
+
+export const PLAYER_CONTINUE_WATCHING_SORTS: PlayerContinueWatchingSort[] = [
+    'releaseDate',
+    'plex',
+    'recentlyWatched',
+    'title',
+];
+
+export const isPlayerContinueWatchingSort = (value: unknown): value is PlayerContinueWatchingSort => (
+    PLAYER_CONTINUE_WATCHING_SORTS.includes(String(value || '') as PlayerContinueWatchingSort)
+);
+
+const continueWatchingUnixMs = (value: unknown): number => {
+    const n = Number(value) || 0;
+    if (n <= 0) return 0;
+    return n > 1e12 ? n : n * 1000;
+};
+
+const continueWatchingReleaseMs = (item: {
+    originallyAvailableAt?: string | number | null;
+    year?: number | string | null;
+    addedAt?: number | null;
+    type?: string | null;
+} | null | undefined): number => {
+    const raw = item?.originallyAvailableAt;
+    if (raw != null && raw !== '') {
+        if (typeof raw === 'number' && Number.isFinite(raw)) return continueWatchingUnixMs(raw);
+        const parsed = Date.parse(String(raw));
+        if (Number.isFinite(parsed)) return parsed;
+    }
+    // Episode `year` is the show premiere year, so it would clump a whole series together.
+    if (String(item?.type || '') !== 'episode') {
+        const year = Number(item?.year);
+        if (year >= 1900 && year <= 2100) return Date.UTC(year, 0, 1);
+    }
+    return continueWatchingUnixMs(item?.addedAt);
+};
+
+const continueWatchingViewedMs = (item: { lastViewedAt?: number | null } | null | undefined): number => (
+    continueWatchingUnixMs(item?.lastViewedAt)
+);
+
+const continueWatchingTitleKey = (item: { showTitle?: string | null; title?: string | null } | null | undefined): string => (
+    String(item?.showTitle || item?.title || '').trim()
+);
+
+/** Reorder Continue Watching. `plex` keeps the server/On Deck order. */
+export const sortContinueWatchingItems = <T extends {
+    originallyAvailableAt?: string | number | null;
+    year?: number | string | null;
+    addedAt?: number | null;
+    lastViewedAt?: number | null;
+    showTitle?: string | null;
+    title?: string | null;
+    type?: string | null;
+}>(items: T[] | null | undefined, sort: unknown): T[] => {
+    const list = Array.isArray(items) ? items : [];
+    const mode = isPlayerContinueWatchingSort(sort) ? sort : 'releaseDate';
+    if (mode === 'plex' || list.length < 2) return list.slice();
+    const ranked = list.map((item, index) => ({ item, index }));
+    ranked.sort((a, b) => {
+        if (mode === 'title') {
+            const cmp = continueWatchingTitleKey(a.item).localeCompare(
+                continueWatchingTitleKey(b.item),
+                undefined,
+                { sensitivity: 'base' },
+            );
+            return cmp || a.index - b.index;
+        }
+        const av = mode === 'recentlyWatched'
+            ? continueWatchingViewedMs(a.item)
+            : continueWatchingReleaseMs(a.item);
+        const bv = mode === 'recentlyWatched'
+            ? continueWatchingViewedMs(b.item)
+            : continueWatchingReleaseMs(b.item);
+        return (bv - av) || a.index - b.index;
+    });
+    return ranked.map((row) => row.item);
+};
+
+const continueWatchingItemKey = (item: { ratingKey?: string | number | null } | null | undefined): string => (
+    String(item?.ratingKey || '').trim()
+);
+
+/** Keep the first Continue Watching order; only append titles that were not on screen yet. */
+export const stabilizeContinueWatchingOrder = <T extends {
+    ratingKey?: string | number | null;
+    originallyAvailableAt?: string | number | null;
+    year?: number | string | null;
+    addedAt?: number | null;
+    lastViewedAt?: number | null;
+    showTitle?: string | null;
+    title?: string | null;
+    type?: string | null;
+}>(items: T[] | null | undefined, sort: unknown, previousKeys?: string[] | null): { items: T[]; keys: string[] } => {
+    const sorted = sortContinueWatchingItems(items, sort);
+    const prior = Array.isArray(previousKeys)
+        ? previousKeys.map((key) => String(key || '').trim()).filter(Boolean)
+        : [];
+    if (!prior.length) {
+        return { items: sorted, keys: sorted.map(continueWatchingItemKey).filter(Boolean) };
+    }
+    const byKey = new Map<string, T>();
+    for (const item of sorted) {
+        const key = continueWatchingItemKey(item);
+        if (key && !byKey.has(key)) byKey.set(key, item);
+    }
+    const seen = new Set<string>();
+    const kept: T[] = [];
+    for (const key of prior) {
+        const item = byKey.get(key);
+        if (!item || seen.has(key)) continue;
+        seen.add(key);
+        kept.push(item);
+    }
+    const extras = sorted.filter((item) => {
+        const key = continueWatchingItemKey(item);
+        return !!key && !seen.has(key);
+    });
+    const next = kept.concat(extras);
+    return { items: next, keys: next.map(continueWatchingItemKey).filter(Boolean) };
+};
+
 export const continueWatchingRailAspect = (
     layout: PlayerContinueWatchingLayout,
 ): '2/3' | '16/9' => (layout === 'title' ? '16/9' : '2/3');
@@ -47,11 +171,20 @@ export const watchedTickPositionClass = (
 export type PlayerSettings = {
     mixLibraries: boolean;
     autoplayNext: boolean;
+    /**
+     * After this many consecutive autoplay episodes, ask "Still watching?".
+     * 0 = never ask. Default 3.
+     */
+    stillWatchingAfter: number;
     showContinueWatching: boolean;
     /** Portrait posters vs widescreen episode-style cards on Continue Watching rows. */
     continueWatchingLayout: PlayerContinueWatchingLayout;
+    /** How Continue Watching cards are ordered. */
+    continueWatchingSort: PlayerContinueWatchingSort;
     showPlaylists: boolean;
     showBecauseYouWatched: boolean;
+    /** Watchlist hub on Home, under Continue Watching. */
+    showWatchlist: boolean;
     defaultQualityId: string;
     audioLanguage: string;
     subtitleMode: PlayerSubtitleMode;
@@ -68,6 +201,10 @@ export type PlayerSettings = {
     phoneOverviewPoster: boolean;
     homeRowOrder: string[];
     libraryNavOrder: string[];
+    /** Hide watched movies/shows from Recently Added rows. */
+    hideWatchedFromRecents: boolean;
+    /** TV: skip focus zoom and screen-enter motion. */
+    reduceMotion: boolean;
     nightMode: boolean;
     matchFrameRate: boolean;
     /** HDMI bitstream of DD/DTS/TrueHD when the sink supports it. */
@@ -112,7 +249,7 @@ export const PLAYER_AUDIO_LANGUAGES = [
     { id: 'tr', label: 'Turkish' },
 ];
 
-export const PLAYER_HOME_ROW_IDS = ['continueWatching', 'recents', 'playlists'] as const;
+export const PLAYER_HOME_ROW_IDS = ['continueWatching', 'recents'] as const;
 export const MIXED_RECENT_HOME_ROW_IDS = ['recent:movie', 'recent:show', 'recent:artist'] as const;
 
 export const isPlayerHomeRowId = (value: unknown): value is string => {
@@ -357,10 +494,13 @@ export const publishPlayerSettingsDraft = (settings: PlayerSettings) => {
 export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
     mixLibraries: false,
     autoplayNext: true,
+    stillWatchingAfter: 3,
     showContinueWatching: true,
     continueWatchingLayout: 'poster',
+    continueWatchingSort: 'releaseDate',
     showPlaylists: true,
     showBecauseYouWatched: true,
+    showWatchlist: true,
     defaultQualityId: 'auto',
     audioLanguage: '',
     subtitleMode: 'forced',
@@ -373,6 +513,8 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
     phoneOverviewPoster: false,
     homeRowOrder: [],
     libraryNavOrder: [],
+    hideWatchedFromRecents: false,
+    reduceMotion: false,
     nightMode: false,
     matchFrameRate: true,
     audioPassthrough: true,
@@ -392,12 +534,21 @@ export const normalizePlayerSettings = (raw: Partial<PlayerSettings> | Record<st
     return {
         mixLibraries: raw?.mixLibraries === true,
         autoplayNext: raw?.autoplayNext !== false,
+        stillWatchingAfter: (() => {
+            const n = Number(raw?.stillWatchingAfter);
+            if (!Number.isFinite(n)) return DEFAULT_PLAYER_SETTINGS.stillWatchingAfter;
+            return Math.min(20, Math.max(0, Math.floor(n)));
+        })(),
         showContinueWatching: raw?.showContinueWatching !== false,
         continueWatchingLayout: isPlayerContinueWatchingLayout(raw?.continueWatchingLayout)
             ? raw.continueWatchingLayout
             : 'poster',
+        continueWatchingSort: isPlayerContinueWatchingSort(raw?.continueWatchingSort)
+            ? raw.continueWatchingSort
+            : 'releaseDate',
         showPlaylists: raw?.showPlaylists !== false,
         showBecauseYouWatched: raw?.showBecauseYouWatched !== false,
+        showWatchlist: raw?.showWatchlist !== false,
         defaultQualityId: QUALITY_IDS.has(quality) ? quality : 'auto',
         audioLanguage: /^[a-z]{2}(?:-[a-z]{2})?$/.test(audioLanguage) ? audioLanguage : '',
         subtitleMode: SUBTITLE_MODES.has(subtitleMode) ? subtitleMode : 'forced',
@@ -416,6 +567,8 @@ export const normalizePlayerSettings = (raw: Partial<PlayerSettings> | Record<st
                 ? raw.libraryNavOrder
                 : libraryNavOrderFromHomeRows(raw?.homeRowOrder),
         ),
+        hideWatchedFromRecents: raw?.hideWatchedFromRecents === true,
+        reduceMotion: raw?.reduceMotion === true,
         nightMode: raw?.nightMode === true,
         matchFrameRate: raw?.matchFrameRate !== false,
         audioPassthrough: raw?.audioPassthrough !== false,
@@ -436,10 +589,13 @@ export const normalizePlayerSettings = (raw: Partial<PlayerSettings> | Record<st
 export const playerSettingsEqual = (a: PlayerSettings, b: PlayerSettings) => (
     a.mixLibraries === b.mixLibraries
     && a.autoplayNext === b.autoplayNext
+    && a.stillWatchingAfter === b.stillWatchingAfter
     && a.showContinueWatching === b.showContinueWatching
     && a.continueWatchingLayout === b.continueWatchingLayout
+    && a.continueWatchingSort === b.continueWatchingSort
     && a.showPlaylists === b.showPlaylists
     && a.showBecauseYouWatched === b.showBecauseYouWatched
+    && a.showWatchlist === b.showWatchlist
     && a.defaultQualityId === b.defaultQualityId
     && a.audioLanguage === b.audioLanguage
     && a.subtitleMode === b.subtitleMode
@@ -452,6 +608,8 @@ export const playerSettingsEqual = (a: PlayerSettings, b: PlayerSettings) => (
     && a.phoneOverviewPoster === b.phoneOverviewPoster
     && a.homeRowOrder.join('\0') === b.homeRowOrder.join('\0')
     && a.libraryNavOrder.join('\0') === b.libraryNavOrder.join('\0')
+    && a.hideWatchedFromRecents === b.hideWatchedFromRecents
+    && a.reduceMotion === b.reduceMotion
     && a.nightMode === b.nightMode
     && a.matchFrameRate === b.matchFrameRate
     && a.audioPassthrough === b.audioPassthrough

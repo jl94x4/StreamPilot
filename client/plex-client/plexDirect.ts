@@ -858,6 +858,7 @@ const mapItem = (meta: PlexMeta) => {
         grandparentRatingKey: meta.grandparentRatingKey ? String(meta.grandparentRatingKey) : null,
         contentRating: meta.contentRating || null,
         audienceRating: meta.audienceRating != null ? Number(meta.audienceRating) : null,
+        userRating: Number(meta.userRating) > 0 ? Number(meta.userRating) : null,
         ratings,
         externalIds: ids,
         tmdbId: ids.tmdb,
@@ -1294,7 +1295,13 @@ beginServerDiscovery = (token: string) => {
     return serversPromise;
 };
 
-export const selectPlexServer = async (token: string) => {
+const resetServerDiscovery = () => {
+    serversPromise = null;
+    try { clearPlayerGetCache(); } catch { /* ignore */ }
+};
+
+export const selectPlexServer = async (token: string, { force = false } = {}) => {
+    if (force) resetServerDiscovery();
     const servers = await beginServerDiscovery(token);
     if (!servers.length) throw new Error('Signed in, but no Plex server was reachable from this device.');
     return servers[0];
@@ -1643,7 +1650,7 @@ const truthy = (value: unknown) => value === true || value === 1 || /^(1|true|ye
 
 const normalizeHomeUser = (raw: PlexMeta | null | undefined): HomeUser | null => {
     if (!raw) return null;
-    const id = String(raw.id || raw.userID || raw.userId || '').trim();
+    const id = String(raw.id || raw.userID || raw.userId || raw.uuid || '').trim();
     if (!id) return null;
     return {
         id,
@@ -1701,15 +1708,12 @@ const parseHomeUsersXml = (xml: string): HomeUser[] => {
 
 const fetchHomeUsers = async (token: string): Promise<HomeUser[]> => {
     const load = async (url: string) => {
-        const response = await fetch(url, { headers: plexHeaders(token), cache: 'no-store' });
-        if (!response.ok) return [];
-        const raw = await response.text();
-        try {
-            const parsed = JSON.parse(raw);
-            const users = parseHomeUsers(parsed);
-            if (users.length) return users;
-        } catch { /* XML */ }
-        return parseHomeUsersXml(raw);
+        const data = await plexFetch(url, token).catch(() => null);
+        if (data == null) return [];
+        if (typeof data === 'string') return parseHomeUsersXml(data);
+        const users = parseHomeUsers(data);
+        if (users.length) return users;
+        return parseHomeUsersXml(typeof data === 'string' ? data : '');
     };
     const v2 = await load(`${PLEX_TV}/api/v2/home/users`).catch(() => []);
     if (v2.length) return v2;
@@ -1721,35 +1725,10 @@ const sameHomeUser = (user: HomeUser, targetId: string) => {
     return !!want && (user.id === want || user.uuid === want);
 };
 
-const switchHomeProfile = async (userId: string, pin?: string) => {
-    const owner = readOwnerToken();
-    if (!owner) throw new Error('Sign in with Plex again to switch profiles.');
-    const users = await fetchHomeUsers(owner);
-    const target = users.find((user) => sameHomeUser(user, userId));
-    if (!target) throw new Error('That Plex Home profile is no longer available.');
-    if (target.admin && !target.protected) {
-        await selectPlexServer(owner);
-        writeHomeUserId(target.id);
-        writeStoredSessionToken(owner);
-        return owner;
-    }
-    const params = new URLSearchParams();
-    const pinValue = String(pin || '').trim();
-    if (pinValue) params.set('pin', pinValue);
-    const qs = params.toString();
-    const response = await fetch(
-        `${PLEX_TV}/api/home/users/${encodeURIComponent(target.id)}/switch${qs ? `?${qs}` : ''}`,
-        { method: 'POST', headers: plexHeaders(owner), cache: 'no-store' },
-    );
-    const raw = await response.text().catch(() => '');
-    if (response.status === 401 || response.status === 403) {
-        throw new Error(target.protected ? 'Enter the PIN for this profile.' : 'Could not switch to that Plex Home profile.');
-    }
-    if (!response.ok) throw new Error('Could not switch to that Plex Home profile.');
-    let authToken = '';
+const extractSwitchToken = (raw: string) => {
     try {
         const parsed = JSON.parse(raw);
-        authToken = String(
+        return String(
             parsed?.authToken
             || parsed?.authenticationToken
             || parsed?.user?.authToken
@@ -1759,15 +1738,57 @@ const switchHomeProfile = async (userId: string, pin?: string) => {
             || '',
         ).trim();
     } catch { /* XML */ }
-    if (!authToken) {
-        const match = raw.match(/\b(?:authenticationToken|authToken)="([^"]+)"/i);
-        authToken = match ? match[1] : '';
+    const match = raw.match(/\b(?:authenticationToken|authToken)="([^"]+)"/i);
+    return match ? match[1] : '';
+};
+
+const switchHomeProfile = async (userId: string, pin?: string) => {
+    const owner = readOwnerToken();
+    if (!owner) throw new Error('Sign in with Plex again to switch profiles.');
+    const users = await fetchHomeUsers(owner);
+    const target = users.find((user) => sameHomeUser(user, userId));
+    if (!target) throw new Error('That Plex Home profile is no longer available.');
+    const applyProfile = async (authToken: string) => {
+        await selectPlexServer(authToken, { force: true });
+        writeHomeUserId(target.id);
+        writeStoredSessionToken(authToken);
+        return authToken;
+    };
+    if (sameHomeUser(target, readHomeUserId()) && accountToken() && !pin) {
+        const current = accountToken();
+        if (target.admin && current === owner) return applyProfile(owner);
     }
-    if (!authToken) throw new Error('Could not switch to that Plex Home profile.');
-    await selectPlexServer(authToken);
-    writeHomeUserId(target.id);
-    writeStoredSessionToken(authToken);
-    return authToken;
+    if (target.admin && !target.protected) {
+        return applyProfile(owner);
+    }
+    const pinValue = String(pin || '').trim();
+    const qs = pinValue ? `?pin=${encodeURIComponent(pinValue)}` : '';
+    const urls = [...new Set([
+        target.uuid ? `${PLEX_TV}/api/v2/home/users/${encodeURIComponent(target.uuid)}/switch` : '',
+        `${PLEX_TV}/api/home/users/${encodeURIComponent(target.id)}/switch`,
+        target.uuid && target.uuid !== target.id
+            ? `${PLEX_TV}/api/v2/home/users/${encodeURIComponent(target.id)}/switch`
+            : '',
+    ].filter(Boolean))];
+    let pinRejected = false;
+    for (const base of urls) {
+        const response = await fetch(`${base}${qs}`, {
+            method: 'POST',
+            headers: plexHeaders(owner),
+            cache: 'no-store',
+        });
+        const raw = await response.text().catch(() => '');
+        if (response.status === 401 || response.status === 403) {
+            pinRejected = true;
+            continue;
+        }
+        if (!response.ok) continue;
+        const authToken = extractSwitchToken(raw);
+        if (authToken) return applyProfile(authToken);
+    }
+    throw new Error(pinRejected || target.protected
+        ? 'Enter the PIN for this profile.'
+        : 'Could not switch to that Plex Home profile.');
 };
 
 const handleAuth = async (path: string, method: string, body: any) => {
@@ -1807,13 +1828,11 @@ const handleAuth = async (path: string, method: string, body: any) => {
         writeOwnerToken(token);
         const users = await fetchHomeUsers(token).catch(() => [] as HomeUser[]);
         if (users.length > 1) {
-            const admin = users.find((user) => user.admin) || users[0];
-            writeHomeUserId(admin.id);
             return {
                 needsHomeSelect: true,
                 users: users.map(publicHomeUser),
                 homeSelectToken: 'direct',
-                rememberUserId: admin.id,
+                rememberUserId: readHomeUserId() || null,
             };
         }
         if (users[0]) writeHomeUserId(users[0].id);
@@ -1881,6 +1900,19 @@ const splitLibraryKey = (raw: string) => {
 
 const continueHub = (hub: { identifier?: string; title?: string }) => (
     /continue|ondeck/i.test(`${hub.identifier || ''} ${hub.title || ''}`)
+);
+
+const becauseHub = (hub: { identifier?: string; title?: string }) => (
+    /^because:/i.test(String(hub.identifier || ''))
+    || /because you watched/i.test(String(hub.title || ''))
+);
+
+const playlistHomeHub = (hub: { identifier?: string; title?: string }) => (
+    /playlist/i.test(`${hub.identifier || ''} ${hub.title || ''}`)
+);
+
+const contentHomeHub = (hub: { identifier?: string; title?: string; items?: unknown[] }) => (
+    !!hub.items?.length && !continueHub(hub) && !becauseHub(hub) && !playlistHomeHub(hub)
 );
 
 /** Live episode artwork. On Deck keeps the thumb from when the row was built. */
@@ -1996,16 +2028,18 @@ const hubsFrom = (data: any, server: PlexServer, many: boolean) => {
                 ? (() => { try { const url = new URL(rawKey); return `${url.pathname}${url.search}`; } catch { return ''; } })()
                 : (rawKey.startsWith('/') ? rawKey : '');
             const pathOnly = listPath.split('?')[0];
-            const hubPath = pathOnly.startsWith('/library/') || pathOnly.startsWith('/hubs/') || pathOnly.startsWith('/playlists')
+            const randomOrder = isRandomOrderSource(hub) || isRandomOrderSource(listPath) || undefined;
+            let hubPath = pathOnly.startsWith('/library/') || pathOnly.startsWith('/hubs/') || pathOnly.startsWith('/playlists')
                 ? listPath
                 : '';
+            if (randomOrder && hubPath) hubPath = withPlexSortParam(hubPath, 'random');
             return {
                 title: String(hub.title || identifier || 'Hub'),
                 identifier,
-                items,
+                items: randomOrder && items.length > 1 ? shuffleItems(items) : items,
                 hubKey: hubPath ? (many ? `${server.id}::${hubPath}` : hubPath) : null,
                 collectionRatingKey: collectionRatingKeyFromHub(hub) || null,
-                randomOrder: isRandomOrderSource(hub) || undefined,
+                randomOrder,
                 serverId: server.id,
             };
         }).filter((hub) => hub.items.length && hub.title);
@@ -2056,6 +2090,9 @@ const fillPlexHomeHub = async (hub: PlexMeta, server: PlexServer, many: boolean)
     if (!parsed.searchParams.get('X-Plex-Container-Size') && !parsed.searchParams.get('count')) {
         parsed.searchParams.set('X-Plex-Container-Size', '24');
     }
+    if (isRandomOrderSource(hub) && !parsed.searchParams.get('sort')) {
+        parsed.searchParams.set('sort', 'random');
+    }
     const query = parsed.searchParams.toString();
     const storedPath = `${path}${query ? `?${query}` : ''}`;
     const data = await pms(storedPath, server, 6000).catch(() => null);
@@ -2063,13 +2100,15 @@ const fillPlexHomeHub = async (hub: PlexMeta, server: PlexServer, many: boolean)
     const title = String(hub.title || identifier || 'Hub');
     const items = collapseRecentShows(mapList(data), identifier, title);
     if (!items.length || !title) return null;
+    const randomOrder = isRandomOrderSource(hub) || isRandomOrderSource(storedPath) || undefined;
+    const hubKeyPath = randomOrder ? withPlexSortParam(storedPath, 'random') : storedPath;
     return {
         title,
         identifier,
-        items,
-        hubKey: many ? `${server.id}::${storedPath}` : storedPath,
+        items: randomOrder && items.length > 1 ? shuffleItems(items) : items,
+        hubKey: many ? `${server.id}::${hubKeyPath}` : hubKeyPath,
         collectionRatingKey: collectionRatingKeyFromHub(hub) || null,
-        randomOrder: isRandomOrderSource(hub) || isRandomOrderSource(storedPath) || undefined,
+        randomOrder,
         serverId: server.id,
     };
 };
@@ -2083,6 +2122,10 @@ const collectionRatingKeyFromHub = (hub: PlexMeta) => {
 };
 
 const isRandomOrderSource = (value: unknown) => {
+    if (value && typeof value === 'object') {
+        const ident = String((value as PlexMeta).hubIdentifier || (value as { identifier?: string }).identifier || '');
+        if (/(^|[.\-_])random([.\-_]|$)/i.test(ident)) return true;
+    }
     let text = typeof value === 'string' ? value : JSON.stringify(value || '');
     for (let pass = 0; pass < 2; pass += 1) {
         try {
@@ -2093,7 +2136,22 @@ const isRandomOrderSource = (value: unknown) => {
             break;
         }
     }
-    return /(?:^|[?&#\s])sort=random\b/i.test(text);
+    return /\bsort\W{0,6}random\b/i.test(text)
+        || /\bcollectionsort\W{0,6}random\b/i.test(text);
+};
+
+const withPlexSortParam = (path: string, sort: string) => {
+    const raw = String(path || '').trim();
+    const want = String(sort || '').trim();
+    if (!raw || !want) return raw;
+    const split = raw.match(/^([^/]+)::(\/.+)$/);
+    const prefix = split ? `${split[1]}::` : '';
+    const rest = split ? split[2] : raw;
+    const qIndex = rest.indexOf('?');
+    const pathname = qIndex >= 0 ? rest.slice(0, qIndex) : rest;
+    const params = new URLSearchParams(qIndex >= 0 ? rest.slice(qIndex + 1) : '');
+    if (want.toLowerCase() === 'random' || !params.get('sort')) params.set('sort', want);
+    return `${prefix}${pathname}?${params.toString()}`;
 };
 
 const isHeroRowLabel = (value: unknown) => /^(heros|heroes)$/i.test(String(value || '').trim());
@@ -2131,18 +2189,28 @@ const saveHeroLabelStore = () => {
     } catch { /* ignore quota */ }
 };
 
-const applyHeroRowFlags = <T extends { collectionRatingKey?: string | null; randomOrder?: boolean }>(hubs: T[], server: PlexServer) => {
+const applyHeroRowFlags = <T extends {
+    collectionRatingKey?: string | null;
+    randomOrder?: boolean;
+    hubKey?: string | null;
+    items?: unknown[];
+}>(hubs: T[], server: PlexServer) => {
     loadHeroLabelStore();
     return hubs.map((hub) => {
         const id = String(hub.collectionRatingKey || '');
         const hero = Boolean(id && heroLabelCache.get(`${server.id}:${id}`));
         const random = Boolean(hub.randomOrder) || Boolean(id && collectionRandomCache.get(`${server.id}:${id}`));
         if (!hero && !random) return hub;
-        return {
+        const next = {
             ...hub,
             ...(hero ? { heroRow: true } : {}),
             ...(random ? { randomOrder: true } : {}),
         };
+        if (random && next.hubKey) next.hubKey = withPlexSortParam(String(next.hubKey), 'random');
+        if (random && Array.isArray(next.items) && next.items.length > 1) {
+            next.items = shuffleItems(next.items);
+        }
+        return next;
     });
 };
 
@@ -2301,7 +2369,12 @@ const mergeSameTitleHubs = <T extends { title?: string; heroRow?: boolean; rando
     });
     return order.map((key) => {
         const group = groups.get(key) || [];
-        if (group.length === 1) return group[0];
+        const randomOrder = group.some((hub) => hub.randomOrder);
+        if (group.length === 1) {
+            const hub = group[0];
+            if (!randomOrder || !Array.isArray(hub.items) || hub.items.length < 2) return hub;
+            return { ...hub, items: shuffleItems(hub.items) };
+        }
         const seen = new Set<string>();
         const items: NonNullable<T['items']> = [];
         group.forEach((hub) => {
@@ -2315,7 +2388,8 @@ const mergeSameTitleHubs = <T extends { title?: string; heroRow?: boolean; rando
         return {
             ...group[0],
             heroRow: group.some((hub) => hub.heroRow) || undefined,
-            items: group.every((hub) => hub.randomOrder) ? shuffleItems(items) : items,
+            randomOrder: randomOrder || undefined,
+            items: randomOrder ? shuffleItems(items) : items,
         };
     });
 };
@@ -2410,6 +2484,50 @@ const mapCollections = (data: any) => {
     return items;
 };
 
+const mergeHomeHubs = <T extends { identifier?: string; title?: string; items?: unknown[] }>(
+    primary: T[],
+    extra: T[],
+): T[] => {
+    const seen = new Set(primary.map((hub) => String(hub.identifier || hub.title || '').trim().toLowerCase()).filter(Boolean));
+    const out = primary.slice();
+    extra.forEach((hub) => {
+        const key = String(hub.identifier || hub.title || '').trim().toLowerCase();
+        if (!key || seen.has(key) || !hub.items?.length) return;
+        seen.add(key);
+        out.push(hub);
+    });
+    return out;
+};
+
+const loadRecentFallbackHubs = async (server: PlexServer, many: boolean, sectionsRaw: any) => {
+    const sections = mapSections(sectionsRaw)
+        .filter((section) => section.type === 'movie' || section.type === 'show' || section.type === 'artist')
+        .slice(0, 6);
+    const filled = await mapPool(sections, 3, async (section) => {
+        const data = await pms(
+            `/library/sections/${encodeURIComponent(section.key)}/recentlyAdded?X-Plex-Container-Size=16`,
+            server,
+            6000,
+        ).catch(() => null);
+        const identifier = `recentlyAdded.${section.key}`;
+        const title = `Recently Added · ${section.title}`;
+        const items = collapseRecentShows(mapList(data), identifier, title);
+        if (!items.length) return null;
+        return {
+            title,
+            identifier,
+            items,
+            hubKey: many
+                ? `${server.id}::/library/sections/${section.key}/recentlyAdded`
+                : `/library/sections/${section.key}/recentlyAdded`,
+            collectionRatingKey: null as string | null,
+            randomOrder: undefined as boolean | undefined,
+            serverId: server.id,
+        };
+    });
+    return filled.filter((hub): hub is NonNullable<typeof hub> => !!hub);
+};
+
 const loadServerHome = async (server: PlexServer, many: boolean, full = false) => withMapServer(server, async () => {
     const seasonPoster = readHeroConfig().continueWatchingSeasonPoster;
     // One promoted list with items inline. A second heavy hubs call only runs when this one
@@ -2422,19 +2540,24 @@ const loadServerHome = async (server: PlexServer, many: boolean, full = false) =
         pms('/library/onDeck?X-Plex-Container-Size=24', server, full ? 8000 : 5000).catch(() => null),
         pms('/library/sections', server, full ? 8000 : 4000).catch(() => null),
     ]);
-    const resolveHubs = async (data: any) => (
-        full
-            ? pinnedHubs(data, server, many)
-            : hubsFrom(data, server, many)
-    );
-    let hubs = promotedResult.answered ? await resolveHubs(promotedResult.data) : [];
+    let hubs: Awaited<ReturnType<typeof pinnedHubs>> = promotedResult.answered
+        ? (full
+            ? await pinnedHubs(promotedResult.data, server, many)
+            : hubsFrom(promotedResult.data, server, many))
+        : [];
     // Fast first paint: Continue Watching is already in onDeck. Filling empty hub
-    // shells and hero cover art waits for full=1 so the bottom rail is not last.
-    // Only hit /hubs/home when promoted was empty — merging it always hammers PMS
-    // with auto hubs and wipes the real Home rows.
-    if (!hubs.length && full) {
+    // shells waits for full=1. If that still only has Continue Watching, pull
+    // /hubs/home extras instead of leaving the rest of Home empty.
+    if (full && !hubs.some(contentHomeHub)) {
         const homeData = await pms(`/hubs/home?${hubQuery}`, server, 12000).catch(() => null);
-        if (homeData) hubs = await pinnedHubs(homeData, server, many);
+        if (homeData) {
+            const extra = await pinnedHubs(homeData, server, many);
+            hubs = hubs.length ? mergeHomeHubs(hubs, extra) : extra;
+        }
+    }
+    if (full && !hubs.some(contentHomeHub)) {
+        const recent = await loadRecentFallbackHubs(server, many, sectionsRaw);
+        hubs = mergeHomeHubs(hubs, recent);
     }
     hubs = uniquifyHubs(hubs);
     if (full) {
@@ -2964,9 +3087,9 @@ const playFromQueueFor = async (key: string, server: PlexServer) => {
         const idx = rest.findIndex((row) => row.ratingKey === key);
         return { items: idx >= 0 ? rest.slice(idx) : rest };
     }
-    const showKey = String(item.grandparentRatingKey || '');
-    if (!showKey) return { items: [item] };
-    const all = await collectPlayableQueue(showKey, server);
+    const seasonKey = String(item.parentRatingKey || '');
+    if (!seasonKey) return { items: [item] };
+    const all = await collectPlayableQueue(seasonKey, server);
     const idx = all.findIndex((row) => row.ratingKey === key);
     return { items: idx >= 0 ? all.slice(idx) : [item] };
 };
@@ -3106,6 +3229,16 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
         const full = query.get('full') === '1';
         const loaded = await Promise.all(servers.map((server) => loadServerHome(server, many, full).catch(() => null)));
         const rows = loaded.filter((row): row is NonNullable<typeof row> => !!row);
+        if (!rows.length) {
+            return {
+                libraries: [],
+                continueWatching: [],
+                recentByLibrary: [],
+                playlists: [],
+                hubs: [],
+                partial: true,
+            };
+        }
         const hubs = mergeSameTitleHubs(rows.flatMap((row) => row.hubs.map((hub) => ({
             ...hub,
             identifier: many ? `${row.server.id}:${hub.identifier}` : hub.identifier,
@@ -3128,8 +3261,12 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
     if (path === '/api/media-player/hub') {
         const { server, path: hubPath } = splitLibraryKey(String(query.get('path') || ''));
         if (!server || !hubPath) return { title: query.get('title') || '', items: [] };
-        const data = await withMapServer(server, () => pms(`${hubPath}${hubPath.includes('?') ? '&' : '?'}X-Plex-Container-Size=80`, server));
-        return { title: query.get('title') || '', items: mapList(data) };
+        const identifier = String(query.get('identifier') || query.get('id') || '');
+        const random = isRandomOrderSource(hubPath) || isRandomOrderSource({ hubIdentifier: identifier, key: hubPath });
+        const fetchPath = random ? withPlexSortParam(hubPath, 'random') : hubPath;
+        const data = await withMapServer(server, () => pms(`${fetchPath}${fetchPath.includes('?') ? '&' : '?'}X-Plex-Container-Size=80`, server));
+        const items = mapList(data);
+        return { title: query.get('title') || '', items: random && items.length > 1 ? shuffleItems(items) : items };
     }
     const library = path.match(/^\/api\/media-player\/libraries\/([^/]+)$/);
     if (library && method === 'GET') {
@@ -3380,6 +3517,8 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                 : mapItem({ ratingKey: key, title: 'Collection', type: 'collection' });
             item.type = 'collection';
             item.canPlay = false;
+            const random = isRandomOrderSource(row);
+            const childQs = random ? 'sort=random&X-Plex-Container-Size=200' : 'X-Plex-Container-Size=200';
             let children = mapList({
                 MediaContainer: {
                     Metadata: asList<PlexMeta>(row?.Children).concat(asList<PlexMeta>(row?.Metadata)),
@@ -3387,18 +3526,19 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
             }).filter((child) => child.ratingKey !== ratingKey && child.type !== 'collection');
             if (!children.length) {
                 children = await pms(
-                    `/library/collections/${encodeURIComponent(key)}/children?X-Plex-Container-Size=200`,
+                    `/library/collections/${encodeURIComponent(key)}/children?${childQs}`,
                     server,
                     15000,
                 ).then(mapList).catch(() => []);
             }
             if (!children.length) {
                 children = await pms(
-                    `/library/metadata/${encodeURIComponent(key)}/children?X-Plex-Container-Size=200`,
+                    `/library/metadata/${encodeURIComponent(key)}/children?${childQs}`,
                     server,
                     15000,
                 ).then(mapList).catch(() => []);
             }
+            if (random && children.length > 1) children = shuffleItems(children);
             return { item, children, extras: [], related: [], onDeck: null };
         });
     }
@@ -3607,9 +3747,20 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                 hasMDE: '1',
             });
             if (safeSession) params.set('X-Plex-Session-Identifier', safeSession);
+            const audioId = String(body?.audioStreamId || '').replace(/\D/g, '');
+            if (audioId) params.set('audioStreamID', audioId);
+            params.set('subtitleStreamID', String(body?.subtitleStreamId || '').replace(/\D/g, '') || '0');
+            const server = resolveServer(body?.serverId, key);
+            if (server) {
+                const identity = plexHeaders(server.accessToken);
+                for (const [header, value] of Object.entries(identity)) {
+                    if (header === 'Accept' || !value) continue;
+                    if (!params.has(header)) params.set(header, value);
+                }
+            }
             await pms(
                 `/: /timeline?${params}`.replace('/: /', '/:/'),
-                resolveServer(body?.serverId, key),
+                server,
                 8000,
                 safeSession ? { 'X-Plex-Session-Identifier': safeSession } : undefined,
             ).catch(() => undefined);
@@ -3621,6 +3772,16 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
         const key = decodeURIComponent(scrobble[2]);
         await pms(`/:/${scrobble[1]}?identifier=com.plexapp.plugins.library&key=${encodeURIComponent(key)}`.replace('/:/', '/:/'), resolveServer('', key));
         return { ok: true };
+    }
+    const ratePath = path.match(/^\/api\/media-player\/item\/([^/]+)\/rate$/);
+    if (ratePath && method === 'POST') {
+        const key = decodeURIComponent(ratePath[1]);
+        const rating = Math.max(0, Math.min(10, Math.round(Number(body?.rating) || 0)));
+        await pms(
+            `/: /rate?identifier=com.plexapp.plugins.library&key=${encodeURIComponent(key)}&rating=${rating}`.replace('/: /', '/:/'),
+            resolveServer(query.get('server') || body?.serverId, key),
+        );
+        return { ok: true, rating };
     }
     const progress = path.match(/^\/api\/media-player\/progress\/([^/]+)$/);
     if (progress && method === 'DELETE') {
@@ -4102,7 +4263,11 @@ export const handlePlexDirectRequest = async (url: string, options: RequestInit 
             if (hit !== undefined) return hit;
         }
         const result = await handlePlayer(path, method, parsed.searchParams, body);
-        if (cacheKey) writePlayerGetCache(cacheKey, result);
+        const skipHomeCache = path === '/api/media-player/home'
+            && parsed.searchParams.get('full') === '1'
+            && !(Array.isArray((result as { hubs?: Array<{ identifier?: string; title?: string; items?: unknown[] }> })?.hubs)
+                && (result as { hubs: Array<{ identifier?: string; title?: string; items?: unknown[] }> }).hubs.some(contentHomeHub));
+        if (cacheKey && !skipHomeCache) writePlayerGetCache(cacheKey, result);
         if (method !== 'GET' && (
             path.includes('watched')
             || path.includes('timeline')

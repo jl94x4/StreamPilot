@@ -1,24 +1,35 @@
 package com.servermanagerportal.mediaplayer;
 
+import android.app.Activity;
 import android.content.Context;
+import android.content.Intent;
 import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.os.Build;
 import android.os.Bundle;
+import android.speech.RecognizerIntent;
 import android.util.DisplayMetrics;
+import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 
 import androidx.activity.OnBackPressedCallback;
+import androidx.annotation.Nullable;
 
 import com.getcapacitor.BridgeActivity;
+
+import org.json.JSONObject;
+
+import java.util.ArrayList;
 
 public class MainActivity extends BridgeActivity {
     /** Desktop-like CSS layout width on leanback (phone density makes TV look zoomed-in). */
     private static final int TV_TARGET_CSS_WIDTH = 1920;
+    private static final int VOICE_SEARCH_REQUEST = 9173;
 
     @Override
     protected void attachBaseContext(Context newBase) {
@@ -31,6 +42,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(DeviceUiPlugin.class);
         super.onCreate(savedInstanceState);
         applyWebViewDisplayFixes();
+        scheduleAppVersion();
         scheduleTvMark();
         schedulePhoneMark();
         registerSpaBackHandler();
@@ -76,8 +88,15 @@ public class MainActivity extends BridgeActivity {
     public void onStart() {
         super.onStart();
         applyWebViewDisplayFixes();
+        scheduleAppVersion();
         scheduleTvMark();
         schedulePhoneMark();
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        wakeWebViewAfterNativePlayer();
     }
 
     @Override
@@ -94,11 +113,41 @@ public class MainActivity extends BridgeActivity {
 
     private void keepWebViewAliveForNativePlayer() {
         if (!PlayerBridge.get().isPlayerForeground()) return;
+        resumeHostWebView();
+    }
+
+    private void wakeWebViewAfterNativePlayer() {
+        resumeHostWebView();
+        if (!PlayerBridge.get().consumePendingWebViewWake()) return;
+        if (bridge == null || bridge.getWebView() == null) return;
+        WebView webView = bridge.getWebView();
+        webView.post(() -> {
+            resumeHostWebView();
+            try {
+                webView.invalidate();
+                webView.requestLayout();
+                // ExoPlayer often leaves the WebView compositor black until it is remounted.
+                if (webView.getVisibility() == View.VISIBLE) {
+                    webView.setVisibility(View.INVISIBLE);
+                    webView.post(() -> {
+                        webView.setVisibility(View.VISIBLE);
+                        webView.invalidate();
+                        webView.requestFocus();
+                    });
+                }
+            } catch (Throwable ignored) {
+                /* older WebView */
+            }
+        });
+    }
+
+    private void resumeHostWebView() {
         if (bridge == null || bridge.getWebView() == null) return;
         try {
             WebView webView = bridge.getWebView();
             webView.onResume();
             webView.resumeTimers();
+            webView.invalidate();
         } catch (Throwable ignored) {
             /* older WebView */
         }
@@ -172,6 +221,43 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
+    private void scheduleAppVersion() {
+        if (bridge == null || bridge.getWebView() == null) return;
+        final String versionName = readInstalledVersionName();
+        if (versionName.isEmpty()) return;
+        bridge.getWebView().post(() -> {
+            if (bridge == null || bridge.getWebView() == null) return;
+            bridge.getWebView().evaluateJavascript(
+                "(function(){"
+                    + "window.__PLEX_CLIENT__=Object.assign({},window.__PLEX_CLIENT__||{},{appVersion:"
+                    + jsString(versionName)
+                    + "});"
+                    + "})();",
+                null
+            );
+        });
+    }
+
+    private String readInstalledVersionName() {
+        try {
+            PackageInfo info;
+            if (Build.VERSION.SDK_INT >= 33) {
+                info = getPackageManager().getPackageInfo(getPackageName(), PackageManager.PackageInfoFlags.of(0));
+            } else {
+                info = getPackageManager().getPackageInfo(getPackageName(), 0);
+            }
+            if (info == null || info.versionName == null) return "";
+            return info.versionName.trim();
+        } catch (Throwable ignored) {
+            return "";
+        }
+    }
+
+    private static String jsString(String value) {
+        if (value == null) return "\"\"";
+        return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n") + "\"";
+    }
+
     private void scheduleTvMark() {
         if (!isTelevisionDevice(this)) return;
         if (bridge == null || bridge.getWebView() == null) return;
@@ -212,6 +298,59 @@ public class MainActivity extends BridgeActivity {
                     + "})();",
                 null
             );
+        });
+    }
+
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        int code = event.getKeyCode();
+        if (event.getAction() == KeyEvent.ACTION_DOWN
+            && (code == KeyEvent.KEYCODE_SEARCH || code == KeyEvent.KEYCODE_VOICE_ASSIST)
+            && !PlayerBridge.get().isPlayerForeground()) {
+            startVoiceSearch();
+            return true;
+        }
+        return super.dispatchKeyEvent(event);
+    }
+
+    private void startVoiceSearch() {
+        evalJs(
+            "(function(){try{"
+                + "if(typeof window.__SMP_OPEN_SEARCH__==='function'){window.__SMP_OPEN_SEARCH__();}"
+                + "else{window.dispatchEvent(new Event('smp-player-search-open'));}"
+                + "}catch(e){}})();"
+        );
+        try {
+            Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+            intent.putExtra(RecognizerIntent.EXTRA_PROMPT, getString(R.string.player_voice_search));
+            intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1);
+            startActivityForResult(intent, VOICE_SEARCH_REQUEST);
+        } catch (Throwable ignored) {
+            /* Fire TV / Android TV without a recognizer still get a focused search field. */
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != VOICE_SEARCH_REQUEST || resultCode != Activity.RESULT_OK || data == null) return;
+        ArrayList<String> results = data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
+        if (results == null || results.isEmpty()) return;
+        String query = results.get(0);
+        if (query == null || query.trim().isEmpty()) return;
+        evalJs(
+            "(function(){try{window.dispatchEvent(new CustomEvent('smp-player-voice-result',{detail:"
+                + JSONObject.quote(query.trim())
+                + "}));}catch(e){}})();"
+        );
+    }
+
+    private void evalJs(String script) {
+        if (bridge == null || bridge.getWebView() == null) return;
+        bridge.getWebView().post(() -> {
+            if (bridge == null || bridge.getWebView() == null) return;
+            bridge.getWebView().evaluateJavascript(script, null);
         });
     }
 

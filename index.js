@@ -5080,6 +5080,7 @@ const resolvePlexHomeSwitchIdentity = async ({
     ownerToken,
     ownerUserData,
     userId,
+    uuid,
     pin,
 }) => {
     const pickedSelf = isSamePlexHomeUser({
@@ -5094,6 +5095,7 @@ const resolvePlexHomeSwitchIdentity = async ({
     const switched = await switchPlexHomeUser({
         token: ownerToken,
         userId,
+        uuid,
         pin,
         headers: plexClientHeaders(ownerToken),
     });

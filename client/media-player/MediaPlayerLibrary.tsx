@@ -24,13 +24,16 @@ import { readLibraryBrowseState, readLibraryHomeCache, writeLibraryBrowseState, 
 import { PLAYER_SCROLL_ID } from './paths';
 import { PlayerPosterCard } from './PlayerPosterCard';
 import { PlayerRail } from './PlayerRail';
+import { PlayerTvHubStage, type PlayerTvHubStageRow } from './PlayerTvHubStage';
 import { PlayerTvStatusPanel } from './PlayerTvStatusPanel';
-import { continueWatchingRailAspect } from './playerSettings';
+import { classifyPlayerHomeHub, continueWatchingRailAspect, stabilizeContinueWatchingOrder } from './playerSettings';
 import { usePlayerSettings } from './usePlayerSettings';
 import {
     applyRememberedProgress,
     BROWSE_FOCUS_ABS_EVENT,
     clearPrefetchedPlayerImages,
+    heroRowCardItem,
+    hideWatchedPlayerItems,
     isMusicPlayerItem,
     mapContinueWatchingItemsForLayout,
     playerCardImageUrl,
@@ -48,6 +51,7 @@ type LibraryTab = 'home' | 'browse' | 'collections';
 type Props = {
     sectionKey: string;
     tab: LibraryTab;
+    active?: boolean;
     onBack: () => void;
     onOpenItem: (item: PlayerItem) => void;
     onOpenCollection: (sectionKey: string, item: PlayerItem) => void;
@@ -153,6 +157,7 @@ const SORT_IDS = [
 export const MediaPlayerLibrary: React.FC<Props> = ({
     sectionKey,
     tab,
+    active = true,
     onBack,
     onOpenItem,
     onOpenCollection,
@@ -167,11 +172,31 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
     const { t } = useDiscoverI18n();
     const [settings] = usePlayerSettings();
     const continueWatchingAspect = continueWatchingRailAspect(settings.continueWatchingLayout);
+    const cwOrderKeysRef = useRef<string[]>([]);
+    const cwOrderSortRef = useRef(settings.continueWatchingSort);
     const layoutContinueWatching = useCallback(
-        (items: PlayerItem[]) => mapContinueWatchingItemsForLayout(items, settings.continueWatchingLayout),
-        [settings.continueWatchingLayout],
+        (items: PlayerItem[]) => {
+            if (cwOrderSortRef.current !== settings.continueWatchingSort) {
+                cwOrderKeysRef.current = [];
+                cwOrderSortRef.current = settings.continueWatchingSort;
+            }
+            const frozen = stabilizeContinueWatchingOrder(
+                items,
+                settings.continueWatchingSort,
+                cwOrderKeysRef.current,
+            );
+            cwOrderKeysRef.current = frozen.keys;
+            return mapContinueWatchingItemsForLayout(
+                frozen.items,
+                settings.continueWatchingLayout,
+                'plex',
+            );
+        },
+        [settings.continueWatchingLayout, settings.continueWatchingSort],
     );
     const homeLoadRef = useRef(0);
+    const activeRef = useRef(active);
+    activeRef.current = active;
     const [gridSize, setGridSize] = useDiscoverGridSize();
     const recommendedPosterDensity = homeRailPosterDensity(gridSize);
     const [title, setTitle] = useState(t('mediaPlayerPage.libraries'));
@@ -219,16 +244,69 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
     const homeHubs = useMemo(() => {
         let keptContinue = false;
         return hubs.filter((hub) => {
+            if (!hub.items?.length) return false;
             if (!isContinueWatchingHub(hub)) return true;
             if (keptContinue) return false;
             keptContinue = true;
             return true;
-        }).map((hub) => (
-            /recent/i.test(`${hub.identifier || ''} ${hub.title || ''}`)
-                ? { ...hub, items: (hub.items || []).map(withShowPoster) }
-                : hub
-        ));
-    }, [hubs]);
+        }).map((hub) => {
+            const recent = /recent/i.test(`${hub.identifier || ''} ${hub.title || ''}`);
+            if (!recent) return hub;
+            const items = settings.hideWatchedFromRecents
+                ? hideWatchedPlayerItems(hub.items)
+                : (hub.items || []);
+            return { ...hub, items: items.map(withShowPoster) };
+        }).filter((hub) => hub.items?.length);
+    }, [hubs, settings.hideWatchedFromRecents]);
+
+    const freezeContinueWatching = useCallback((items: PlayerItem[]) => {
+        if (cwOrderSortRef.current !== settings.continueWatchingSort) {
+            cwOrderKeysRef.current = [];
+            cwOrderSortRef.current = settings.continueWatchingSort;
+        }
+        const next = stabilizeContinueWatchingOrder(
+            items,
+            settings.continueWatchingSort,
+            cwOrderKeysRef.current,
+        );
+        cwOrderKeysRef.current = next.keys;
+        return next.items;
+    }, [settings.continueWatchingSort]);
+
+    const tvRecommendedRows = useMemo((): PlayerTvHubStageRow[] => {
+        const rows: PlayerTvHubStageRow[] = [];
+        for (const hub of homeHubs) {
+            const isCw = isContinueWatchingHub(hub);
+            const hero = Boolean(hub.heroRow);
+            const recent = isRecentHub(hub);
+            const items = isCw
+                ? freezeContinueWatching(hub.items).map(withShowPoster)
+                : hero
+                    ? hub.items.map(heroRowCardItem)
+                    : hub.items;
+            if (!items.length) continue;
+            rows.push({
+                id: hub.identifier || `hub:${hub.title}`,
+                title: hub.title,
+                items,
+                aspect: hero
+                    ? '16/9'
+                    : (isCw || recent
+                        ? '2/3'
+                        : (musicLibrary
+                            || classifyPlayerHomeHub(hub) === 'artist'
+                            || hub.items.every((row) => isMusicPlayerItem(row))
+                            ? 'square'
+                            : '2/3')),
+                showProgress: isCw,
+                showRemoveFromContinueWatching: isCw,
+                onViewAll: (hub.collectionRatingKey || hub.playlistRatingKey || hub.hubKey) && onOpenHub
+                    ? () => onOpenHub(hub)
+                    : undefined,
+            });
+        }
+        return rows;
+    }, [freezeContinueWatching, homeHubs, musicLibrary, onOpenHub]);
 
     const loadHome = useCallback(async () => {
         const seq = homeLoadRef.current + 1;
@@ -313,8 +391,10 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
             browseFocusAbsRef.current = -1;
             setBrowseHasMore(false);
             setLoading(true);
-            const scroller = document.getElementById(PLAYER_SCROLL_ID);
-            if (scroller) scroller.scrollTop = 0;
+            if (activeRef.current) {
+                const scroller = document.getElementById(PLAYER_SCROLL_ID);
+                if (scroller) scroller.scrollTop = 0;
+            }
         }
         const gen = browseGenRef.current;
         const pageSize = browsePageSize();
@@ -422,16 +502,16 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
     }, [collections, gridSize, items, musicLibrary, tab]);
 
     useEffect(() => {
-        if (tab !== 'browse' || !browseHasMore || !items.length) return;
+        if (!active || tab !== 'browse' || !browseHasMore || !items.length) return;
         const el = document.getElementById(PLAYER_SCROLL_ID);
         if (!el || el.scrollHeight > el.clientHeight + 8) return;
         if (browseCountRef.current > items.length) return;
         if (items.length >= browsePageSize() * 2) return;
         void loadBrowse(browseCountRef.current, true);
-    }, [browseHasMore, items.length, loadBrowse, tab]);
+    }, [active, browseHasMore, items.length, loadBrowse, tab]);
 
     useEffect(() => {
-        if (tab !== 'browse' || !browseHasMore) return undefined;
+        if (!active || tab !== 'browse' || !browseHasMore) return undefined;
         const scroller = document.getElementById(PLAYER_SCROLL_ID);
         let measuredCardCount = 0;
         let scrollRaf = 0;
@@ -525,7 +605,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
             scroller?.removeEventListener('focusin', onFocus);
             grid?.removeEventListener('focusin', onFocus);
         };
-    }, [browseHasMore, loadBrowse, tab]);
+    }, [active, browseHasMore, loadBrowse, tab]);
 
     useEffect(() => {
         if (tab !== 'browse') return undefined;
@@ -767,8 +847,8 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
     }, [markedLetter, tab, alphaLetters.length]);
     const tvShell = isTvShell();
 
-    return (
-        <div className="flex flex-col gap-5 pb-8" data-tv-library="1">
+    const libraryChrome = (
+        <>
             <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
                     <button
@@ -802,7 +882,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                             data-tv-key={`library-tab-${row.id}`}
                             aria-current={selected ? 'page' : undefined}
                             onClick={() => onChangeTab(row.id)}
-                            className={`rounded-lg border px-4 py-2 text-sm font-bold ${
+                            className={`rounded-full border px-4 py-2 text-sm font-bold ${
                                 selected
                                     ? 'border-plex/50 bg-plex/15 text-plex'
                                     : 'border-border bg-white/5 text-muted hover:text-text'
@@ -813,6 +893,37 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                     );
                 })}
             </div>
+        </>
+    );
+
+    if (tvShell && tab === 'home') {
+        const homeBusy = loading && !tvRecommendedRows.length;
+        return (
+            <PlayerTvHubStage
+                active={active}
+                loading={homeBusy}
+                rows={tvRecommendedRows}
+                density={recommendedPosterDensity}
+                resetKey={sectionKey}
+                ariaLabel={title}
+                header={<div className="player-library-stage-chrome">{libraryChrome}</div>}
+                emptyTitle={error || t('mediaPlayerPage.emptyLibrary')}
+                onEmptyRetry={() => {
+                    setError(null);
+                    void loadHome();
+                }}
+                onEmptyBack={onBack}
+                onOpenItem={onOpenItem}
+                onPlay={onPlay}
+                onToggleWatched={toggleWatched}
+                {...menuProps}
+            />
+        );
+    }
+
+    return (
+        <div className="flex flex-col gap-5 pb-8" data-tv-library="1">
+            {libraryChrome}
 
             {tab === 'browse' ? (
                 <div className="flex flex-wrap items-center gap-2" data-tv-library-filters="1">
@@ -915,7 +1026,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                 </div>
             ) : null}
 
-            {loading && tab === 'home' && !homeHubs.length && !tvShell ? (
+            {loading && tab === 'home' && !homeHubs.length ? (
                 <div className="flex w-full flex-col gap-6">
                     <DiscoverHomeRowSkeleton />
                     <DiscoverHomeRowSkeleton />
@@ -932,8 +1043,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                         title={error}
                         onRetry={() => {
                             setError(null);
-                            if (tab === 'home') void loadHome();
-                            else if (tab === 'collections') void loadCollections();
+                            if (tab === 'collections') void loadCollections();
                             else void loadBrowse(0, false);
                         }}
                         onBack={onBack}
@@ -947,13 +1057,17 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                 homeHubs.length ? (
                     <div className="tv-poster-rows player-home-rows flex flex-col gap-6">
                         {homeHubs.map((hub) => {
-                            const isCw = isContinueWatchingHub(hub) || /continue|ondeck/i.test(hub.identifier);
+                            const isCw = isContinueWatchingHub(hub);
+                            const hero = Boolean(hub.heroRow);
+                            const recent = isRecentHub(hub);
                             return (
                             <PlayerRail
                                 key={hub.identifier || hub.title}
                                 title={hub.title}
                                 rowId={`lib:${hub.identifier || hub.title}`}
-                                items={isCw ? layoutContinueWatching(hub.items) : hub.items}
+                                items={isCw
+                                    ? layoutContinueWatching(hub.items)
+                                    : (hero ? hub.items.map(heroRowCardItem) : hub.items)}
                                 density={recommendedPosterDensity}
                                 onOpenItem={onOpenItem}
                                 onPlay={onPlay}
@@ -962,7 +1076,9 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                                 showRemoveFromContinueWatching={isCw}
                                 aspect={musicLibrary || isMusicPlayerItem(hub.items?.[0])
                                     ? 'square'
-                                    : (isCw ? continueWatchingAspect : (/recent/i.test(`${hub.identifier || ''} ${hub.title || ''}`) ? '2/3' : undefined))}
+                                    : (isCw
+                                        ? continueWatchingAspect
+                                        : (hero ? '16/9' : (recent ? '2/3' : undefined)))}
                                 onViewAll={(hub.collectionRatingKey || hub.playlistRatingKey || hub.hubKey) && onOpenHub
                                     ? () => onOpenHub(hub)
                                     : undefined}

@@ -13,8 +13,9 @@ import {
     upgraderPosterGridClass,
     upgraderPosterGridStyle,
 } from './host';
-import { fetchMediaPlayerHome, fetchMediaPlayerHomeFull, fetchMediaPlayerHomeHero, fetchMediaPlayerHomeHeroRefresh, fetchMediaPlayerItem, prefetchMediaPlayerItem, searchMediaPlayer, setMediaPlayerWatched } from './api';
+import { fetchMediaPlayerHome, fetchMediaPlayerHomeFull, fetchMediaPlayerHomeHero, fetchMediaPlayerHomeHeroRefresh, fetchMediaPlayerItem, fetchMediaPlayerWatchlist, prefetchMediaPlayerItem, searchMediaPlayer, setMediaPlayerWatched } from './api';
 import { isPlexDirectMode } from '../plex-client/config';
+import { pinTvRailItemToSlot } from '../plex-client/useTvRemote';
 import { MediaPlayerHomeHero, type HomeHeroSlide } from './MediaPlayerHomeHero';
 import { MediaPlayerNowPlayingChip } from './MediaPlayerNowPlayingChip';
 import { PlayerPosterCard } from './PlayerPosterCard';
@@ -27,11 +28,32 @@ import {
     continueWatchingRailAspect,
     PLAYER_SETTINGS_DRAFT_EVENT,
     PLAYER_SETTINGS_EVENT,
+    stabilizeContinueWatchingOrder,
 } from './playerSettings';
-import { consumePlayerSearchFocus, isHeroSlidesCacheFresh, isPlayerHomeCacheFresh, mergePlayerHomePayloads, PLAYER_HOME_RESET_EVENT, PLAYER_SEARCH_INPUT_ID, PLAYER_SEARCH_OPEN_EVENT, playerHomeHasRows, readHeroSlidesCache, readPlayerHomeCache, readPlayerItemCache, usePlayerNetworkStatus, writeHeroSlidesCache, writePlayerHomeCache } from './playerMemory';
+import {
+    consumePlayerSearchFocus,
+    isHeroSlidesCacheFresh,
+    isPlayerHomeCacheFresh,
+    mergePlayerHomePayloads,
+    PLAYER_HOME_RESET_EVENT,
+    PLAYER_SEARCH_INPUT_ID,
+    PLAYER_SEARCH_OPEN_EVENT,
+    PLAYER_VOICE_RESULT_EVENT,
+    playerHomeHasContentHubs,
+    playerHomeHasRows,
+    playerHomeNeedsFull,
+    readHeroSlidesCache,
+    readLongPressHintSeen,
+    readPlayerHomeCache,
+    readPlayerItemCache,
+    usePlayerNetworkStatus,
+    writeHeroSlidesCache,
+    writeLongPressHintSeen,
+    writePlayerHomeCache,
+} from './playerMemory';
 import { PlayerTvStatusPanel } from './PlayerTvStatusPanel';
 import { PlayerClearLogo } from './PlayerClearLogo';
-import { applyRememberedProgress, formatPlayerDate, formatPlayerDuration, heroRowCardItem, isMusicPlayerItem, mapContinueWatchingItemsForLayout, plexBackdropPreviewUrl, plexLogoUrl, PLAYER_PROGRESS_EVENT, replaceFamilyContinueSlot, restoreContinueSlot, watchTargetTouches, withShowPoster } from './playerUtils';
+import { applyRememberedProgress, formatPlayerDate, formatPlayerDuration, heroRowCardItem, hideWatchedPlayerItems, isMusicPlayerItem, mapContinueWatchingItemsForLayout, plexBackdropPreviewUrl, plexLogoUrl, PLAYER_PROGRESS_EVENT, replaceFamilyContinueSlot, restoreContinueSlot, watchTargetTouches, withShowPoster } from './playerUtils';
 import { usePlayerSettings } from './usePlayerSettings';
 import type { PlayerHome, PlayerItem, PlayerLibraryHub, PlayerPlayOptions, PlayerSection } from './types';
 
@@ -41,6 +63,7 @@ type Props = {
     onPlay: (item: PlayerItem, opts?: PlayerPlayOptions) => void;
     onOpenLibrary?: (section: PlayerSection) => void;
     onOpenHub?: (hub: PlayerLibraryHub) => void;
+    onOpenWatchlist?: () => void;
     onPlayNext?: (item: PlayerItem) => void;
     onToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
     isAdmin?: boolean;
@@ -249,6 +272,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
     onPlay,
     onOpenLibrary,
     onOpenHub,
+    onOpenWatchlist,
     onPlayNext,
     onToast,
     isAdmin = false,
@@ -260,6 +284,14 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
     const libraryNavOrder = draftLibraryOrder || settings.libraryNavOrder;
     const [gridSize, setGridSize] = useDiscoverGridSize();
     const homePosterDensity = homeRailPosterDensity(gridSize);
+    const [longPressHint, setLongPressHint] = useState(() => !readLongPressHintSeen());
+    // TV stage focus stays on posters, so "Got it" is easy to miss — leaving Home
+    // marks the tip seen so it never comes back.
+    useEffect(() => {
+        if (active || !longPressHint) return;
+        writeLongPressHintSeen();
+        setLongPressHint(false);
+    }, [active, longPressHint]);
     const [home, setHome] = useState<PlayerHome | null>(() => {
         const cached = readPlayerHomeCache();
         const hasRows = !!cached && (
@@ -283,6 +315,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         );
         return !hasRows;
     });
+    const [watchlistItems, setWatchlistItems] = useState<PlayerItem[]>([]);
     const networkOnline = usePlayerNetworkStatus();
     const [query, setQuery] = useState('');
     const [results, setResults] = useState<PlayerItem[]>([]);
@@ -298,16 +331,27 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
     const searchReadOnly = isTvShell && !searchArmed;
 
     useEffect(() => {
-        const openSearch = () => {
+        const openSearch = (arm = false) => {
             setSearchActive(true);
+            if (arm && isTvShell) setSearchArmed(true);
             window.setTimeout(() => {
                 searchRef.current?.focus({ preventScroll: false });
                 if (!isTvShell) searchRef.current?.select();
             }, 0);
         };
-        if (consumePlayerSearchFocus()) openSearch();
-        window.addEventListener(PLAYER_SEARCH_OPEN_EVENT, openSearch);
-        return () => window.removeEventListener(PLAYER_SEARCH_OPEN_EVENT, openSearch);
+        const onOpen = () => openSearch(isTvShell);
+        const onVoice = (event: Event) => {
+            const query = String((event as CustomEvent<string>).detail || '').trim();
+            openSearch(true);
+            if (query) setQuery(query);
+        };
+        if (consumePlayerSearchFocus()) openSearch(isTvShell);
+        window.addEventListener(PLAYER_SEARCH_OPEN_EVENT, onOpen);
+        window.addEventListener(PLAYER_VOICE_RESULT_EVENT, onVoice);
+        return () => {
+            window.removeEventListener(PLAYER_SEARCH_OPEN_EVENT, onOpen);
+            window.removeEventListener(PLAYER_VOICE_RESULT_EVENT, onVoice);
+        };
     }, [isTvShell]);
 
     useEffect(() => {
@@ -351,40 +395,57 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
 
     const refreshHome = useCallback((opts?: { force?: boolean }) => {
         const cachedHome = readPlayerHomeCache();
-        const cachedHasRows = !!cachedHome && (
-            (cachedHome.hubs || []).some((hub) => hub.items?.length)
-            || cachedHome.continueWatching.length > 0
-            || (cachedHome.recentByLibrary || []).some((row) => row.items?.length)
-        );
+        const cachedHasRows = playerHomeHasRows(cachedHome);
+        const cachedNeedsFull = playerHomeNeedsFull(cachedHome);
         if (!cachedHasRows) setLoading(true);
         else {
             setHome(cachedHome);
             setLoading(false);
         }
-        if (!opts?.force && cachedHasRows && cachedHome && isPlayerHomeCacheFresh()) {
+        const applyFull = (full: PlayerHome, base: PlayerHome | null) => {
+            const merged = playerHomeHasRows(full)
+                ? mergePlayerHomePayloads(full, base || full)
+                : { ...(base || full), partial: true };
+            if (!playerHomeHasContentHubs(full) && !playerHomeHasContentHubs(merged)) {
+                merged.partial = true;
+            }
+            if (playerHomeHasRows(merged)) writePlayerHomeCache(merged);
+            setHome(merged);
+            setHomeStale(false);
+        };
+        const followFull = (base: PlayerHome | null) => (
+            fetchMediaPlayerHomeFull()
+                .then((full) => applyFull(full, base))
+                .catch(() => undefined)
+        );
+        const skipPartial = !opts?.force && cachedHasRows && !!cachedHome && isPlayerHomeCacheFresh();
+        if (skipPartial && !cachedNeedsFull) {
             setLoading(false);
             return Promise.resolve();
+        }
+        if (skipPartial && cachedNeedsFull) {
+            setLoading(false);
+            return followFull(cachedHome);
         }
         return fetchMediaPlayerHome()
             .then((data) => {
                 const cached = readPlayerHomeCache();
-                const next = playerHomeHasRows(data) || !playerHomeHasRows(cached) ? data : cached;
+                let next = playerHomeHasRows(data) || !playerHomeHasRows(cached) ? data : cached;
+                if (
+                    data?.partial
+                    && cached
+                    && playerHomeHasContentHubs(cached)
+                    && !playerHomeHasContentHubs(data)
+                ) {
+                    next = { ...mergePlayerHomePayloads(cached, data), partial: true };
+                }
                 if (next && playerHomeHasRows(next)) writePlayerHomeCache(next);
                 setHome(next);
                 setError(null);
                 setHomeStale(!playerHomeHasRows(data) && playerHomeHasRows(next));
                 setLoading(false);
-                // Partial shell first; always follow with full=1 so empty hub shells get filled.
-                if (!data?.partial) return undefined;
-                return fetchMediaPlayerHomeFull().then((full) => {
-                    const fullHubs = playerHomeHasRows(full);
-                    const merged = fullHubs
-                        ? mergePlayerHomePayloads(full, next)
-                        : { ...next, partial: false };
-                    if (playerHomeHasRows(merged)) writePlayerHomeCache(merged);
-                    setHome(merged);
-                    setHomeStale(false);
-                }).catch(() => undefined);
+                if (!playerHomeNeedsFull(next) && !data?.partial) return undefined;
+                return followFull(next);
             })
             .catch((err) => {
                 if (readPlayerHomeCache()) {
@@ -501,7 +562,9 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 return {
                     id: `recent:${library.key}`,
                     title: t('mediaPlayerPage.recentlyAddedIn', { name: library.title }),
-                    items: (row?.items || []).map(withShowPoster),
+                    items: (settings.hideWatchedFromRecents
+                        ? hideWatchedPlayerItems(row?.items)
+                        : (row?.items || [])).map(withShowPoster),
                     hubKey: `/library/sections/${library.key}/recentlyAdded`,
                     identifier: 'recentlyAdded',
                 };
@@ -532,33 +595,48 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         return typeOrder.map((type) => ({
             id: `recent:${type}`,
             title: titles[type],
-            items: dedupeItems(buckets[type]).map(withShowPoster),
+            items: (settings.hideWatchedFromRecents
+                ? hideWatchedPlayerItems(dedupeItems(buckets[type]))
+                : dedupeItems(buckets[type])).map(withShowPoster),
         })).filter((row) => row.items.length);
-    }, [home, orderedLibraries, settings.mixLibraries, t]);
+    }, [home, orderedLibraries, settings.hideWatchedFromRecents, settings.mixLibraries, t]);
 
     const hideContinueWatchingRail = !isTvShell && heroEffectiveMode === 'continue_watching';
     const showContinueWatchingRail = settings.showContinueWatching && !hideContinueWatchingRail;
-    const tvFocusStillSeed = useMemo(() => {
-        if (!isTvShell || !home) return '';
-        const first = home.continueWatching[0]
-            || (home.hubs || []).find((hub) => hub.items?.length)?.items?.[0]
-            || home.recentByLibrary?.[0]?.items?.[0];
-        return plexBackdropPreviewUrl(first?.art || first?.thumb) || '';
-    }, [home, isTvShell]);
+    const showWatchlistRail = settings.showWatchlist;
     const continueWatchingLayout = isTvShell ? 'title' : settings.continueWatchingLayout;
     const continueWatchingAspect = continueWatchingRailAspect(continueWatchingLayout);
+    const cwOrderKeysRef = useRef<string[]>([]);
+    const cwOrderSortRef = useRef(settings.continueWatchingSort);
+    const freezeContinueWatching = useCallback((items: PlayerItem[]) => {
+        if (cwOrderSortRef.current !== settings.continueWatchingSort) {
+            cwOrderKeysRef.current = [];
+            cwOrderSortRef.current = settings.continueWatchingSort;
+        }
+        const next = stabilizeContinueWatchingOrder(
+            items,
+            settings.continueWatchingSort,
+            cwOrderKeysRef.current,
+        );
+        cwOrderKeysRef.current = next.keys;
+        return next.items;
+    }, [settings.continueWatchingSort]);
     const layoutContinueWatching = useCallback(
-        (items: PlayerItem[]) => mapContinueWatchingItemsForLayout(items, continueWatchingLayout),
-        [continueWatchingLayout],
+        (items: PlayerItem[]) => mapContinueWatchingItemsForLayout(
+            freezeContinueWatching(items),
+            continueWatchingLayout,
+            'plex',
+        ),
+        [continueWatchingLayout, freezeContinueWatching],
     );
 
     const plexHubs = useMemo(() => {
         const directHome = isPlexDirectMode();
         const filtered = (home?.hubs || []).filter((hub) => {
             if (!hub.items?.length) return false;
+            if (isPlaylistHub(hub)) return false;
             if (directHome) return true;
             if (!showContinueWatchingRail && isContinueWatchingHub(hub)) return false;
-            if (!settings.showPlaylists && isPlaylistHub(hub)) return false;
             if (!settings.showBecauseYouWatched && isBecauseYouWatchedHub(hub)) return false;
             return true;
         }).map((hub) => (
@@ -568,13 +646,32 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         ));
         if (directHome) return filtered;
         return applyLibraryNavOrderToHubs(filtered, orderedLibraries, libraryNavOrder);
-    }, [home, libraryNavOrder, orderedLibraries, showContinueWatchingRail, settings.showPlaylists, settings.showBecauseYouWatched]);
+    }, [home, libraryNavOrder, orderedLibraries, showContinueWatchingRail, settings.showBecauseYouWatched]);
+
+    useEffect(() => {
+        if (!active || !showWatchlistRail) {
+            setWatchlistItems([]);
+            return undefined;
+        }
+        let cancelled = false;
+        fetchMediaPlayerWatchlist()
+            .then((data) => {
+                if (cancelled) return;
+                setWatchlistItems(Array.isArray(data?.items) ? data.items : []);
+            })
+            .catch(() => {
+                if (!cancelled) setWatchlistItems([]);
+            });
+        return () => { cancelled = true; };
+    }, [active, showWatchlistRail]);
 
     const tvHomeRows = useMemo((): TvHomeRow[] => {
         if (!isTvShell || !home) return [];
         const rows: TvHomeRow[] = [];
         const cwHub = plexHubs.find(isContinueWatchingHub);
-        const cwItems = (cwHub?.items?.length ? cwHub.items : home.continueWatching) || [];
+        const cwItems = freezeContinueWatching(
+            (cwHub?.items?.length ? cwHub.items : home.continueWatching) || [],
+        );
         if (showContinueWatchingRail && cwItems.length) {
             rows.push({
                 id: cwHub?.identifier || 'home.continueWatching',
@@ -591,6 +688,15 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 }) : undefined,
             });
         }
+        if (showWatchlistRail && watchlistItems.length) {
+            rows.push({
+                id: 'home.watchlist',
+                title: t('mediaPlayerPage.navWatchlist'),
+                items: watchlistItems,
+                aspect: '2/3',
+                onViewAll: onOpenWatchlist,
+            });
+        }
         const becauseHubs = plexHubs.filter(isBecauseYouWatchedHub);
         const others = plexHubs.filter((hub) => !isContinueWatchingHub(hub) && !isBecauseYouWatchedHub(hub));
         for (const hub of others) {
@@ -600,7 +706,11 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 title: hub.title,
                 items: hero
                     ? hub.items.map(heroRowCardItem)
-                    : (isRecentHub(hub) ? hub.items.map(withShowPoster) : hub.items),
+                    : (isRecentHub(hub)
+                        ? (settings.hideWatchedFromRecents
+                            ? hideWatchedPlayerItems(hub.items)
+                            : hub.items).map(withShowPoster)
+                        : hub.items),
                 aspect: hero
                     ? '16/9'
                     : (classifyPlayerHomeHub(hub) === 'artist' || hub.items.every((row) => isMusicPlayerItem(row))
@@ -629,14 +739,6 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 });
             }
         }
-        if (settings.showPlaylists && !others.some(isPlaylistHub) && (home.playlists || []).length) {
-            rows.push({
-                id: 'playlists',
-                title: t('mediaPlayerPage.playlists'),
-                items: home.playlists || [],
-                aspect: '2/3',
-            });
-        }
         if (settings.showBecauseYouWatched) {
             for (const hub of becauseHubs) {
                 rows.push({
@@ -655,13 +757,24 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         home,
         isTvShell,
         onOpenHub,
+        onOpenWatchlist,
+        freezeContinueWatching,
         plexHubs,
         recentRails,
+        settings.hideWatchedFromRecents,
         settings.showBecauseYouWatched,
-        settings.showPlaylists,
         showContinueWatchingRail,
+        showWatchlistRail,
         t,
+        watchlistItems,
     ]);
+
+    const tvFocusStillSeed = useMemo(() => {
+        if (!isTvShell || !home) return '';
+        const first = tvHomeRows[0]?.items?.[0]
+            || home.recentByLibrary?.[0]?.items?.[0];
+        return plexBackdropPreviewUrl(first?.art || first?.thumb) || '';
+    }, [home, isTvShell, tvHomeRows]);
 
     const searchGroups = useMemo(() => {
         const people: PlayerItem[] = [];
@@ -690,9 +803,8 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             plexHubs.length
             || (showContinueWatchingRail && home.continueWatching.length)
             || recentRails.some((row) => row.items.length)
-            || (settings.showPlaylists && (home.playlists || []).length)
         )
-    ), [home, plexHubs, recentRails, showContinueWatchingRail, settings.showPlaylists]);
+    ), [home, plexHubs, recentRails, showContinueWatchingRail]);
 
     const [tvRowIndex, setTvRowIndex] = useState(0);
     const [tvFocusKey, setTvFocusKey] = useState('');
@@ -732,18 +844,30 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
 
     useEffect(() => {
         if (!tvStage) return undefined;
+        const parkStageFocus = () => {
+            const stage = document.querySelector<HTMLElement>('.player-home-stage');
+            if (!stage) return;
+            if (!stage.hasAttribute('tabindex')) stage.tabIndex = -1;
+            try {
+                stage.focus({ preventScroll: true });
+            } catch {
+                stage.focus();
+            }
+        };
         const onRow = (event: Event) => {
             const dir = (event as CustomEvent<{ dir?: 'up' | 'down' }>).detail?.dir;
             const rows = tvRowsRef.current;
-            if (!rows.length) return;
-            setTvRowIndex((current) => {
-                const next = dir === 'down'
-                    ? Math.min(rows.length - 1, current + 1)
-                    : Math.max(0, current - 1);
-                const prev = rows[current];
-                if (prev && tvFocusKey) tvRowFocusRef.current[prev.id] = tvFocusKey;
-                return next;
-            });
+            if (!rows.length || (dir !== 'down' && dir !== 'up')) return;
+            const current = tvRowIndexRef.current;
+            const next = dir === 'down'
+                ? Math.min(rows.length - 1, current + 1)
+                : Math.max(0, current - 1);
+            const prev = rows[current];
+            if (prev && tvFocusKey) tvRowFocusRef.current[prev.id] = tvFocusKey;
+            if (next !== current) {
+                parkStageFocus();
+                setTvRowIndex(next);
+            }
         };
         window.addEventListener(TV_HOME_ROW_EVENT, onRow);
         return () => window.removeEventListener(TV_HOME_ROW_EVENT, onRow);
@@ -753,20 +877,37 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         if (!tvStage || !tvActiveRow) return undefined;
         const rowId = tvActiveRow.id;
         const saved = tvRowFocusRef.current[rowId];
-        const timer = window.setTimeout(() => {
+        let cancelled = false;
+        const focusSaved = () => {
+            if (cancelled) return true;
             const root = document.querySelector<HTMLElement>('.player-home-stage-rail');
-            if (!root) return;
+            if (!root) return false;
             const match = saved
                 ? root.querySelector<HTMLElement>(`[data-tv-poster-btn="1"][data-tv-key="${CSS.escape(saved)}"]`)
                 : null;
             const btn = match || root.querySelector<HTMLElement>('[data-tv-poster-btn="1"]');
+            if (!btn) return false;
             try {
-                btn?.focus({ preventScroll: true });
+                btn.focus({ preventScroll: true });
             } catch {
-                btn?.focus();
+                btn.focus();
             }
-        }, 0);
-        return () => window.clearTimeout(timer);
+            pinTvRailItemToSlot(btn);
+            const activeEl = document.activeElement as HTMLElement | null;
+            return Boolean(activeEl && (activeEl === btn || btn.contains(activeEl)));
+        };
+        let attempts = 0;
+        const tick = () => {
+            if (focusSaved()) return;
+            if (cancelled || attempts++ >= 24) return;
+            window.setTimeout(tick, 16);
+        };
+        const timer = window.setTimeout(tick, 0);
+        window.requestAnimationFrame(tick);
+        return () => {
+            cancelled = true;
+            window.clearTimeout(timer);
+        };
     }, [tvActiveRow?.id, tvStage]);
 
     useEffect(() => {
@@ -807,17 +948,26 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                     if (advance) return replaceFamilyContinueSlot(list, key, detail.continueWith);
                     return drop ? list.filter((row) => !watchTargetTouches(row, key)) : mapItems(list);
                 };
-                let continueWatching = withoutContinue(prev.continueWatching);
-                const seed = detail.item ? applyRememberedProgress(detail.item) : null;
-                if (!drop && seed && Number(seed.viewOffsetMs || 0) > 0 && !seed.watched) {
-                    const familyKey = String(seed.grandparentRatingKey || seed.parentRatingKey || seed.ratingKey);
-                    const without = continueWatching.filter((row) => (
-                        !watchTargetTouches(row, key)
-                        && !watchTargetTouches(row, familyKey)
-                        && String(row.ratingKey) !== String(seed.ratingKey)
-                    ));
-                    continueWatching = [seed, ...without].slice(0, 20);
-                }
+                const seed = detail.item
+                    ? {
+                        ...applyRememberedProgress(detail.item),
+                        lastViewedAt: Math.floor(Date.now() / 1000),
+                    }
+                    : null;
+                const bumpContinue = (list: PlayerItem[] = []) => {
+                    let nextList = withoutContinue(list);
+                    if (!drop && seed && Number(seed.viewOffsetMs || 0) > 0 && !seed.watched) {
+                        const familyKey = String(seed.grandparentRatingKey || seed.parentRatingKey || seed.ratingKey);
+                        const without = nextList.filter((row) => (
+                            !watchTargetTouches(row, key)
+                            && !watchTargetTouches(row, familyKey)
+                            && String(row.ratingKey) !== String(seed.ratingKey)
+                        ));
+                        nextList = [seed, ...without].slice(0, 20);
+                    }
+                    return nextList;
+                };
+                const continueWatching = bumpContinue(prev.continueWatching);
                 const next = {
                     ...prev,
                     continueWatching,
@@ -825,7 +975,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                     recentByLibrary: prev.recentByLibrary.map((row) => ({ ...row, items: mapItems(row.items) })),
                     hubs: (prev.hubs || []).map((hub) => ({
                         ...hub,
-                        items: isContinueWatchingHub(hub) ? withoutContinue(hub.items) : mapItems(hub.items),
+                        items: isContinueWatchingHub(hub) ? bumpContinue(hub.items) : mapItems(hub.items),
                     })),
                 };
                 if (playerHomeHasRows(next)) writePlayerHomeCache(next);
@@ -930,7 +1080,13 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                     key={hub.identifier || `hub:${hub.title}:${hubIndex}`}
                     title={hub.title}
                     rowId={`hub:${hub.identifier || hub.title}`}
-                    items={isCw ? layoutContinueWatching(hub.items) : (hero ? hub.items.map(heroRowCardItem) : hub.items)}
+                    items={isCw
+                        ? layoutContinueWatching(hub.items)
+                        : (hero
+                            ? hub.items.map(heroRowCardItem)
+                            : (isRecentHub(hub) && settings.hideWatchedFromRecents
+                                ? hideWatchedPlayerItems(hub.items)
+                                : hub.items))}
                     density={homePosterDensity}
                     staggerIndex={hubIndex}
                     onOpenItem={onOpenItem}
@@ -939,16 +1095,35 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                     showProgress={isCw}
                     showRemoveFromContinueWatching={isCw}
                     aspect={isCw ? continueWatchingAspect : (hero ? '16/9' : (isRecentHub(hub) ? '2/3' : undefined))}
-                    onViewAll={canViewAll && onOpenHub ? () => onOpenHub(hub) : (viewAllKey ? () => onOpenItem({
+                    onViewAll={hub.items.length && canViewAll && onOpenHub ? () => onOpenHub(hub) : (hub.items.length && viewAllKey ? () => onOpenItem({
                         ratingKey: viewAllKey,
                         title: hub.title,
                         type: hub.collectionRatingKey ? 'collection' : 'playlist',
                     } as PlayerItem) : undefined)}
-                    viewAllLabel={canViewAll ? t('common.viewAll') : undefined}
+                    viewAllLabel={hub.items.length && canViewAll ? t('common.viewAll') : undefined}
                     {...railMenuProps}
                 />
             );
         };
+        const watchlistRail = (staggerIndex: number) => (
+            showWatchlistRail && watchlistItems.length ? (
+                <PlayerRail
+                    key="home.watchlist"
+                    title={t('mediaPlayerPage.navWatchlist')}
+                    rowId="home:watchlist"
+                    items={watchlistItems}
+                    density={homePosterDensity}
+                    staggerIndex={staggerIndex}
+                    onOpenItem={onOpenItem}
+                    onPlay={onPlay}
+                    onToggleWatched={toggleWatched}
+                    aspect="2/3"
+                    onViewAll={onOpenWatchlist}
+                    viewAllLabel={onOpenWatchlist ? t('common.viewAll') : undefined}
+                    {...railMenuProps}
+                />
+            ) : null
+        );
         const recentRail = (row: { id: string; title: string; items: PlayerItem[]; hubKey?: string; identifier?: string }, staggerIndex: number) => (
             <PlayerRail
                 key={row.id}
@@ -967,7 +1142,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                     items: row.items,
                     hubKey: row.hubKey,
                 }) : undefined}
-                viewAllLabel={row.hubKey ? t('common.viewAll') : undefined}
+                viewAllLabel={row.items.length && row.hubKey ? t('common.viewAll') : undefined}
                 {...railMenuProps}
             />
         );
@@ -986,6 +1161,11 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 }, stagger));
                 stagger += 1;
             }
+            const watchlistNode = watchlistRail(stagger);
+            if (watchlistNode) {
+                nodes.push(watchlistNode);
+                stagger += 1;
+            }
             const becauseHubs = plexHubs.filter(isBecauseYouWatchedHub);
             const others = plexHubs.filter((hub) => !isContinueWatchingHub(hub) && !isBecauseYouWatchedHub(hub));
             for (const hub of others) {
@@ -997,21 +1177,6 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                     nodes.push(recentRail(row, stagger));
                     stagger += 1;
                 }
-            }
-            if (settings.showPlaylists && !others.some(isPlaylistHub) && (home.playlists || []).length) {
-                nodes.push(
-                    <PlayerRail
-                        key="playlists"
-                        title={t('mediaPlayerPage.playlists')}
-                        rowId="home:playlists"
-                        items={home.playlists || []}
-                        density={homePosterDensity}
-                        staggerIndex={stagger}
-                        onOpenItem={onOpenItem}
-                        onPlay={onPlay}
-                    />,
-                );
-                stagger += 1;
             }
             if (settings.showBecauseYouWatched) {
                 for (const hub of becauseHubs) {
@@ -1025,52 +1190,56 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         if (hasPlexContentHubs) {
             const becauseHubs = plexHubs.filter(isBecauseYouWatchedHub);
             const rest = plexHubs.filter((hub) => !isBecauseYouWatchedHub(hub));
-            return [...rest, ...(settings.showBecauseYouWatched ? becauseHubs : [])]
-                .map((hub, hubIndex) => hubRail(hub, hubIndex));
+            const hubs = [...rest, ...(settings.showBecauseYouWatched ? becauseHubs : [])];
+            const nodes: React.ReactNode[] = [];
+            let insertedWatchlist = false;
+            hubs.forEach((hub, hubIndex) => {
+                nodes.push(hubRail(hub, hubIndex));
+                if (!insertedWatchlist && isContinueWatchingHub(hub)) {
+                    const watchlistNode = watchlistRail(hubIndex + 0.5);
+                    if (watchlistNode) nodes.push(watchlistNode);
+                    insertedWatchlist = true;
+                }
+            });
+            if (!insertedWatchlist) {
+                const watchlistNode = watchlistRail(0);
+                if (watchlistNode) nodes.unshift(watchlistNode);
+            }
+            return nodes;
         }
         return applyHomeRowOrder(
-            ['continueWatching', 'recents', 'playlists'],
+            ['continueWatching', 'recents'],
             settings.homeRowOrder,
         ).map((id, rowIndex) => {
             if (id === 'continueWatching') {
-                return showContinueWatchingRail ? (
-                    <PlayerRail
-                        key="continueWatching"
-                        title={t('mediaPlayerPage.continueWatching')}
-                        rowId="home:continueWatching"
-                        items={layoutContinueWatching(home.continueWatching)}
-                        density={homePosterDensity}
-                        staggerIndex={rowIndex}
-                        onOpenItem={onOpenItem}
-                        onPlay={onPlay}
-                        onToggleWatched={toggleWatched}
-                        showProgress
-                        showRemoveFromContinueWatching
-                        aspect={continueWatchingAspect}
-                        onViewAll={onOpenHub ? () => onOpenHub({
-                            title: t('mediaPlayerPage.continueWatching'),
-                            identifier: 'home.continueWatching',
-                            items: home.continueWatching,
-                            hubKey: '/library/onDeck',
-                        }) : undefined}
-                        viewAllLabel={t('common.viewAll')}
-                        {...railMenuProps}
-                    />
-                ) : null;
-            }
-            if (id === 'playlists') {
-                return settings.showPlaylists ? (
-                    <PlayerRail
-                        key="playlists"
-                        title={t('mediaPlayerPage.playlists')}
-                        rowId="home:playlists"
-                        items={home.playlists || []}
-                        density={homePosterDensity}
-                        staggerIndex={rowIndex}
-                        onOpenItem={onOpenItem}
-                        onPlay={onPlay}
-                    />
-                ) : null;
+                return (
+                    <React.Fragment key="continueWatching">
+                        {showContinueWatchingRail ? (
+                            <PlayerRail
+                                title={t('mediaPlayerPage.continueWatching')}
+                                rowId="home:continueWatching"
+                                items={layoutContinueWatching(home.continueWatching)}
+                                density={homePosterDensity}
+                                staggerIndex={rowIndex}
+                                onOpenItem={onOpenItem}
+                                onPlay={onPlay}
+                                onToggleWatched={toggleWatched}
+                                showProgress
+                                showRemoveFromContinueWatching
+                                aspect={continueWatchingAspect}
+                                onViewAll={onOpenHub ? () => onOpenHub({
+                                    title: t('mediaPlayerPage.continueWatching'),
+                                    identifier: 'home.continueWatching',
+                                    items: home.continueWatching,
+                                    hubKey: '/library/onDeck',
+                                }) : undefined}
+                                viewAllLabel={t('common.viewAll')}
+                                {...railMenuProps}
+                            />
+                        ) : null}
+                        {watchlistRail(rowIndex + 0.5)}
+                    </React.Fragment>
+                );
             }
             if (id !== 'recents') return null;
             return (
@@ -1093,7 +1262,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                                 items: row.items,
                                 hubKey: row.hubKey,
                             }) : undefined}
-                            viewAllLabel={row.hubKey ? t('common.viewAll') : undefined}
+                            viewAllLabel={row.items.length && row.hubKey ? t('common.viewAll') : undefined}
                             {...railMenuProps}
                         />
                     ))}
@@ -1109,16 +1278,20 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         layoutContinueWatching,
         onOpenHub,
         onOpenItem,
+        onOpenWatchlist,
         onPlay,
         plexHubs,
         railMenuProps,
         recentRails,
+        settings.hideWatchedFromRecents,
         settings.homeRowOrder,
         settings.showBecauseYouWatched,
         settings.showPlaylists,
         showContinueWatchingRail,
+        showWatchlistRail,
         t,
         toggleWatched,
+        watchlistItems,
     ]);
 
     const waitingForFullHome = Boolean(home?.partial) && !error && !hasRails;
@@ -1317,12 +1490,34 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 </div>
             ) : null}
 
+            {!query.trim() && home && tvStage && longPressHint ? (
+                <div
+                    className="player-home-stage-banner mb-2 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.06] px-4 py-3"
+                    aria-live="polite"
+                >
+                    <p className="text-sm text-white/80">{t('mediaPlayerPage.longPressHint')}</p>
+                    <button
+                        type="button"
+                        data-tv-item="1"
+                        data-tv-action="1"
+                        onClick={() => {
+                            writeLongPressHintSeen();
+                            setLongPressHint(false);
+                        }}
+                        className="shrink-0 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-bold text-white outline-none"
+                    >
+                        {t('mediaPlayerPage.longPressHintDismiss')}
+                    </button>
+                </div>
+            ) : null}
+
             {!query.trim() && home && tvStage && tvActiveRow ? (
                 <div className="player-home-stage-rail">
                     <PlayerRail
                         key={tvActiveRow.id}
                         title={tvActiveRow.title}
                         rowId={`hub:${tvActiveRow.id}`}
+                        restoreFocusKey={tvRowFocusRef.current[tvActiveRow.id]}
                         items={tvActiveRow.items}
                         density={homePosterDensity}
                         staggerIndex={0}
@@ -1332,8 +1527,8 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                         showProgress={tvActiveRow.showProgress}
                         showRemoveFromContinueWatching={tvActiveRow.showRemoveFromContinueWatching}
                         aspect={tvActiveRow.aspect}
-                        onViewAll={undefined}
-                        viewAllLabel={undefined}
+                        onViewAll={tvActiveRow.id === 'home.watchlist' ? tvActiveRow.onViewAll : undefined}
+                        viewAllLabel={tvActiveRow.id === 'home.watchlist' ? t('common.viewAll') : undefined}
                         {...railMenuProps}
                     />
                     {tvNextRow ? (

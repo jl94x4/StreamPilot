@@ -15,6 +15,7 @@ public final class PlayerBridge {
     private WeakReference<NativeMediaPlayerPlugin> pluginRef = new WeakReference<>(null);
     private WeakReference<PlayerActivity> activityRef = new WeakReference<>(null);
     private volatile boolean playerForeground;
+    private volatile boolean pendingWebViewWake;
 
     private PlayerBridge() {}
 
@@ -59,8 +60,15 @@ public final class PlayerBridge {
     }
 
     public void keepHostWebViewAlive() {
+        pendingWebViewWake = true;
         NativeMediaPlayerPlugin plugin = pluginRef.get();
         if (plugin != null) plugin.keepHostWebViewAlive();
+    }
+
+    public boolean consumePendingWebViewWake() {
+        boolean pending = pendingWebViewWake;
+        pendingWebViewWake = false;
+        return pending;
     }
 
     public void emit(String event, JSObject data) {

@@ -4,6 +4,7 @@ import {
     Film,
     Bookmark,
     Home,
+    ListMusic,
     LogOut,
     Menu,
     Music,
@@ -25,11 +26,12 @@ import {
 } from './host';
 import { fetchMediaPlayerMe } from './api';
 import { applyLibraryNavOrder, PLAYER_SETTINGS_DRAFT_EVENT, PLAYER_SETTINGS_EVENT } from './playerSettings';
+import { clearHeroSlidesCache, clearPlayerLibrariesCache, invalidatePlayerHomeCache } from './playerMemory';
 import { PLAYER_TV_NAV_EVENT } from './paths';
 import type { PlayerProfile, PlayerSection } from './types';
 import { focusTvContent } from '../plex-client/useTvRemote';
 
-type NavPage = 'home' | 'watchlist' | 'library' | 'settings' | 'other';
+type NavPage = 'home' | 'watchlist' | 'playlists' | 'library' | 'settings' | 'other';
 
 type Props = {
     libraries: PlayerSection[];
@@ -42,7 +44,9 @@ type Props = {
     onWatchlist: () => void;
     onSearch: () => void;
     onOpenLibrary: (section: PlayerSection) => void;
+    onOpenPlaylists?: () => void;
     onOpenSettings: () => void;
+    playlistsEnabled?: boolean;
     offline?: boolean;
 };
 
@@ -103,7 +107,9 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
     onWatchlist,
     onSearch,
     onOpenLibrary,
+    onOpenPlaylists,
     onOpenSettings,
+    playlistsEnabled = true,
     offline = false,
 }: Props) {
     const { t } = useDiscoverI18n();
@@ -233,7 +239,9 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
         }
         setHomeSwitchOpen(true);
         const result = await loadHomeProfiles();
-        if (!result.available) setHomeSwitchOpen(false);
+        if (!result.users.length) {
+            setHomeSwitchError(t('mediaPlayerPage.switchUserError'));
+        }
     };
 
     const handleHomeSwitch = async (user: PlexHomeProfile, pin: string | undefined, remember: boolean) => {
@@ -248,6 +256,9 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                     ...(pin ? { pin } : {}),
                 }),
             });
+            invalidatePlayerHomeCache();
+            clearPlayerLibrariesCache();
+            clearHeroSlidesCache();
             window.location.reload();
         } catch (err: any) {
             setHomeSwitchError(err?.message || t('mediaPlayerPage.switchUserError'));
@@ -322,17 +333,19 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                 </button>
             </div>
 
-            {showLabels && orderedLibraries.length ? (
+            {showLabels && (orderedLibraries.length || (playlistsEnabled && onOpenPlaylists)) ? (
                 <div
                     data-tv-nav-libraries="1"
                     className="flex min-h-0 flex-1 flex-col gap-1"
                 >
-                    <div className="flex shrink-0 items-center gap-2 px-3 pb-1 pt-1">
-                        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/40">
-                            {t('mediaPlayerPage.navLibraries')}
-                        </p>
-                        <div className="h-px min-w-0 flex-1 bg-white/10" />
-                    </div>
+                    {orderedLibraries.length ? (
+                        <div className="flex shrink-0 items-center gap-2 px-3 pb-1 pt-1">
+                            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/40">
+                                {t('mediaPlayerPage.navLibraries')}
+                            </p>
+                            <div className="h-px min-w-0 flex-1 bg-white/10" />
+                        </div>
+                    ) : null}
                     <div
                         data-tv-nav-libraries-scroll="1"
                         className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto hide-scrollbar px-1 py-0.5"
@@ -354,6 +367,18 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                                 </button>
                             );
                         })}
+                        {playlistsEnabled && onOpenPlaylists ? (
+                            <button
+                                type="button"
+                                {...tvNavProps(isTvShell, expanded, page === 'playlists')}
+                                className={navButtonClass(page === 'playlists', showLabels, isTvShell)}
+                                onClick={() => go(onOpenPlaylists)}
+                                title={t('mediaPlayerPage.playlists')}
+                            >
+                                <ListMusic className="h-4 w-4 shrink-0" />
+                                <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.playlists')}</span>
+                            </button>
+                        ) : null}
                     </div>
                 </div>
             ) : null}

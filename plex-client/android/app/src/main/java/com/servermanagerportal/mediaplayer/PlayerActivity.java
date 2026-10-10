@@ -16,32 +16,37 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.Log;
 import android.util.Rational;
 import android.view.KeyEvent;
+import android.view.LayoutInflater;
 import android.view.Surface;
 import android.view.SurfaceView;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
+import android.widget.ScrollView;
 import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 import android.webkit.CookieManager;
 
 import androidx.annotation.Nullable;
-import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
+import androidx.media3.common.Format;
 import androidx.media3.common.MediaItem;
+import androidx.media3.common.VideoSize;
 import androidx.media3.common.audio.AudioProcessor;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.PlaybackException;
@@ -68,10 +73,13 @@ import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.nio.charset.StandardCharsets;
 import java.net.URI;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -120,6 +128,17 @@ public class PlayerActivity extends AppCompatActivity {
     private TextView upNextLabel;
     private ImageButton playPauseBtn;
     private Button skipIntroBtn;
+    private TextView upNextKicker;
+    private TextView upNextCountdown;
+    private ImageView upNextArt;
+    private Button upNextPlayBtn;
+    private Button upNextCreditsBtn;
+    private boolean watchCreditsChosen;
+    private TextView statsView;
+    private boolean statsVisible;
+    private boolean confirmLongPress;
+    private TextView clockView;
+    private String lastClockLabel = "";
     private Button skipCreditsBtn;
     private Button qualityBtn;
     private Button audioBtn;
@@ -136,6 +155,10 @@ public class PlayerActivity extends AppCompatActivity {
     private Button delayBtn;
     private Button repeatBtn;
     private ImageView seekPreview;
+    private View menuScrim;
+    private TextView menuTitle;
+    private ScrollView menuScroll;
+    private LinearLayout menuList;
 
     private boolean playbackEnded;
     private boolean playbackError;
@@ -184,6 +207,16 @@ public class PlayerActivity extends AppCompatActivity {
     private long creditsEndMs = -1;
     private String nextRatingKey = "";
     private String nextTitle = "";
+    private String nextThumbUrl = "";
+    private String loadedUpNextThumb = "";
+    private String streamMode = "";
+    private int streamWidth;
+    private int streamHeight;
+    private int streamBitrate;
+    private String streamVideoCodec = "";
+    private String streamAudioCodec = "";
+    private String streamContainer = "";
+    private String streamResolution = "";
     private String ratingKey = "";
     private String showKey = "";
     private String titleText = "";
@@ -219,8 +252,23 @@ public class PlayerActivity extends AppCompatActivity {
     private int repeatMode;
     private String sidecarSubtitleUrl = "";
     private boolean subtitleSearchPending;
+    private String timelineOrigin = "";
+    private String timelineToken = "";
+    private String timelineClientId = "";
+    private String timelineProduct = "StreamPilot";
+    private String timelineVersion = "1.0.0";
+    private String timelinePlatform = "Android";
+    private String timelineDevice = "Android TV";
+    private String timelineDeviceName = "StreamPilot";
+    private String timelineSessionId = "";
+    private long lastTimelinePingElapsedMs;
+    private String lastTimelineState = "";
+    private int timelineKeepAliveTicks;
 
-    private final Runnable hideChromeRunnable = () -> setChromeVisible(false);
+    private final Runnable hideChromeRunnable = () -> {
+        if (isOptionDialogShowing()) return;
+        setChromeVisible(false);
+    };
     private final Runnable clearSwapRunnable = () -> streamSwapInFlight = false;
     private final Runnable directSeekRunnable = () -> {
         if (player == null || scrubTargetMs < 0) return;
@@ -238,13 +286,17 @@ public class PlayerActivity extends AppCompatActivity {
         @Override
         public void run() {
             updateProgressUi();
+            updateWallClock();
             maybeAutoSkip();
             maybeShowUpNext();
+            if (statsVisible) refreshStatsOverlay();
             maybeSleepTimer();
             String state = "paused";
             if (player != null && player.isPlaying()) state = "playing";
             else if (player != null && player.getPlaybackState() == Player.STATE_BUFFERING) state = "buffering";
             emitProgress(state);
+            timelineKeepAliveTicks += 1;
+            if (timelineKeepAliveTicks % 5 == 0) PlayerBridge.get().keepHostWebViewAlive();
             mainHandler.postDelayed(this, 1000);
         }
     };
@@ -304,7 +356,11 @@ public class PlayerActivity extends AppCompatActivity {
             autoSkipIntro = intent.getBooleanExtra(EXTRA_AUTO_SKIP_INTRO, false);
             autoSkipCredits = intent.getBooleanExtra(EXTRA_AUTO_SKIP_CREDITS, false);
             applySessionJson(intent.getStringExtra(EXTRA_SESSION_JSON));
+            String sessionAudio = audioStreamId;
+            String sessionSub = subtitleStreamId;
             restoreAvPrefs();
+            boolean avChanged = !String.valueOf(sessionAudio).equals(String.valueOf(audioStreamId))
+                || !String.valueOf(sessionSub).equals(String.valueOf(subtitleStreamId));
             PlayerBridge.get().keepHostWebViewAlive();
 
             if (currentUrl == null || currentUrl.trim().isEmpty()) {
@@ -313,6 +369,7 @@ public class PlayerActivity extends AppCompatActivity {
                 return;
             }
             currentUrl = currentUrl.trim();
+            absorbTimelineFromUrl(currentUrl);
             applyTitleChrome();
 
             Map<String, String> headers = headersWithCookies(currentUrl, parseHeaders(headersJson));
@@ -387,6 +444,9 @@ public class PlayerActivity extends AppCompatActivity {
             updateChipLabels();
             bumpChrome();
             if (playPauseBtn != null) playPauseBtn.requestFocus();
+            if (avChanged) {
+                requestStreamChange(qualityId, audioStreamId, subtitleStreamId, mediaIndex);
+            }
             mainHandler.post(tickRunnable);
             mainHandler.postDelayed(progressEmitRunnable, 5000);
             updatePipVisibility();
@@ -407,9 +467,26 @@ public class PlayerActivity extends AppCompatActivity {
     private void bindViews() {
         chrome = findViewById(R.id.player_chrome);
         topBar = findViewById(R.id.player_top);
+        menuScrim = findViewById(R.id.player_menu_scrim);
+        menuTitle = findViewById(R.id.player_menu_title);
+        menuScroll = findViewById(R.id.player_menu_scroll);
+        menuList = findViewById(R.id.player_menu_list);
+        if (menuScrim != null) {
+            menuScrim.setOnClickListener(v -> hideOptionSheet());
+        }
         bufferingView = findViewById(R.id.player_buffering);
         errorView = findViewById(R.id.player_error);
         titleView = findViewById(R.id.player_title);
+        clockView = findViewById(R.id.player_clock);
+        if (clockView != null) {
+            try {
+                Typeface clockFace = Typeface.createFromAsset(getAssets(), "fonts/satoshi_bold.ttf");
+                clockView.setTypeface(clockFace);
+            } catch (RuntimeException ignored) {
+                /* keep the XML face if the asset is missing */
+            }
+        }
+        updateWallClock();
         logoView = findViewById(R.id.player_logo);
         artView = findViewById(R.id.player_art);
         seekBar = findViewById(R.id.player_seek);
@@ -434,9 +511,13 @@ public class PlayerActivity extends AppCompatActivity {
         sleepBtn = findViewById(R.id.player_sleep);
         externalBtn = findViewById(R.id.player_external);
         upNextRow = findViewById(R.id.player_up_next);
+        upNextArt = findViewById(R.id.player_up_next_art);
+        upNextKicker = findViewById(R.id.player_up_next_kicker);
         upNextLabel = findViewById(R.id.player_up_next_label);
-        pipBtn = findViewById(R.id.player_pip);
-        chaptersBtn = findViewById(R.id.player_chapters);
+        upNextCountdown = findViewById(R.id.player_up_next_countdown);
+        upNextPlayBtn = findViewById(R.id.player_up_next_play);
+        upNextCreditsBtn = findViewById(R.id.player_up_next_credits);
+        statsView = findViewById(R.id.player_stats);
         zoomBtn = findViewById(R.id.player_zoom);
         delayBtn = findViewById(R.id.player_delay);
         repeatBtn = findViewById(R.id.player_repeat);
@@ -464,7 +545,8 @@ public class PlayerActivity extends AppCompatActivity {
             zoomBtn,
             delayBtn,
             repeatBtn,
-            findViewById(R.id.player_up_next_play)
+            findViewById(R.id.player_up_next_play),
+            findViewById(R.id.player_up_next_credits)
         );
     }
 
@@ -483,7 +565,9 @@ public class PlayerActivity extends AppCompatActivity {
         skipCreditsBtn.setOnClickListener(v -> doSkipCredits());
         findViewById(R.id.player_up_next_play).setOnClickListener(v -> finishForPlayNext());
         qualityBtn.setOnClickListener(v -> showOptionMenu(R.string.player_quality, "quality", qualities, qualityId));
-        audioBtn.setOnClickListener(v -> showOptionMenu(R.string.player_audio, "audio", audioTracks, audioStreamId));
+        if (upNextPlayBtn != null) upNextPlayBtn.setOnClickListener(v -> finishForPlayNext());
+        if (upNextCreditsBtn != null) upNextCreditsBtn.setOnClickListener(v -> dismissUpNextWatchCredits());
+        audioBtn.setOnClickListener(v -> showOptionMenu(R.string.player_audio, "audio", audioTracks, audioStreamId == null ? "" : audioStreamId));
         subsBtn.setOnClickListener(v -> showSubtitleMenu());
         versionBtn.setOnClickListener(v -> showOptionMenu(R.string.player_version, "version", versions, String.valueOf(mediaIndex)));
         speedBtn.setOnClickListener(v -> showSpeedMenu());
@@ -654,7 +738,9 @@ public class PlayerActivity extends AppCompatActivity {
             JSONObject root = new JSONObject(sessionJson);
             ratingKey = root.optString("ratingKey", ratingKey);
             showKey = root.optString("showKey", showKey);
-            qualityId = root.optString("qualityId", qualityId);
+            String nextRating = root.optString("ratingKey", ratingKey);
+            if (nextRating != null && !nextRating.equals(ratingKey)) watchCreditsChosen = false;
+            ratingKey = nextRating;
             audioStreamId = root.optString("audioStreamId", audioStreamId);
             subtitleStreamId = root.optString("subtitleStreamId", subtitleStreamId);
             mediaIndex = root.optInt("mediaIndex", mediaIndex);
@@ -697,6 +783,18 @@ public class PlayerActivity extends AppCompatActivity {
             if (next != null) {
                 nextRatingKey = next.optString("ratingKey", "");
                 nextTitle = next.optString("title", "");
+                nextThumbUrl = next.optString("thumb", "");
+            }
+            if (root.has("playbackMode")) streamMode = root.optString("playbackMode", streamMode);
+            JSONObject source = root.optJSONObject("source");
+            if (source != null) {
+                streamWidth = source.optInt("width", streamWidth);
+                streamHeight = source.optInt("height", streamHeight);
+                streamBitrate = source.optInt("bitrate", streamBitrate);
+                streamVideoCodec = source.optString("videoCodec", streamVideoCodec);
+                streamAudioCodec = source.optString("audioCodec", streamAudioCodec);
+                streamContainer = source.optString("container", streamContainer);
+                streamResolution = source.optString("videoResolution", streamResolution);
             }
             if (root.has("nightMode")) nightMode = root.optBoolean("nightMode", nightMode);
             if (root.has("matchFrameRate")) matchFrameRate = root.optBoolean("matchFrameRate", matchFrameRate);
@@ -712,6 +810,27 @@ public class PlayerActivity extends AppCompatActivity {
             if (root.has("sidecarSubtitleUrl")) sidecarSubtitleUrl = root.optString("sidecarSubtitleUrl", sidecarSubtitleUrl);
             if (root.has("frameRate")) videoFrameRate = (float) root.optDouble("frameRate", videoFrameRate);
             previewThumbTemplate = root.optString("previewThumbTemplate", previewThumbTemplate);
+            JSONObject timeline = root.optJSONObject("timeline");
+            if (timeline != null) {
+                String origin = timeline.optString("origin", "").trim().replaceAll("/+$", "");
+                if (!origin.isEmpty()) timelineOrigin = origin;
+                String token = timeline.optString("token", "").trim();
+                if (!token.isEmpty()) timelineToken = token;
+                String clientId = timeline.optString("clientId", "").trim();
+                if (!clientId.isEmpty()) timelineClientId = clientId;
+                String product = timeline.optString("product", "").trim();
+                if (!product.isEmpty()) timelineProduct = product;
+                String version = timeline.optString("version", "").trim();
+                if (!version.isEmpty()) timelineVersion = version;
+                String platform = timeline.optString("platform", "").trim();
+                if (!platform.isEmpty()) timelinePlatform = platform;
+                String device = timeline.optString("device", "").trim();
+                if (!device.isEmpty()) timelineDevice = device;
+                String deviceName = timeline.optString("deviceName", "").trim();
+                if (!deviceName.isEmpty()) timelineDeviceName = deviceName;
+                String sessionId = timeline.optString("sessionId", "").trim();
+                if (!sessionId.isEmpty()) timelineSessionId = sessionId;
+            }
             JSONObject subtitleStyle = root.optJSONObject("subtitleStyle");
             if (subtitleStyle != null) {
                 subtitleSizePct = subtitleStyle.optInt("size", subtitleSizePct);
@@ -754,6 +873,8 @@ public class PlayerActivity extends AppCompatActivity {
                 updateActionVisibility();
                 updateChipLabels();
                 applyTitleChrome();
+                applyUpNextArt();
+                if (statsVisible) refreshStatsOverlay();
                 applyNightMode();
                 applyRepeatMode();
                 applyAudioDelay(false);
@@ -866,6 +987,155 @@ public class PlayerActivity extends AppCompatActivity {
         } catch (Exception e) {
             Log.w(TAG, "Album art load skipped", e);
         }
+    }
+
+    private void applyUpNextArt() {
+        if (upNextArt == null) return;
+        String url = nextThumbUrl == null ? "" : nextThumbUrl.trim();
+        if (url.isEmpty()) {
+            upNextArt.setVisibility(View.GONE);
+            upNextArt.setImageDrawable(null);
+            loadedUpNextThumb = "";
+            return;
+        }
+        if (url.equals(loadedUpNextThumb) && upNextArt.getVisibility() == View.VISIBLE) return;
+        final String fetchUrl = url;
+        final Map<String, String> imageHeaders = headersForImageUrl(fetchUrl);
+        try {
+            logoExecutor.execute(() -> {
+                Bitmap bitmap = downloadLogoBitmap(fetchUrl, imageHeaders);
+                final Bitmap ready = bitmap;
+                mainHandler.post(() -> {
+                    if (isFinishing() || upNextArt == null) return;
+                    if (ready == null || ready.getWidth() < 8 || ready.getHeight() < 8) {
+                        upNextArt.setVisibility(View.GONE);
+                        return;
+                    }
+                    upNextArt.setImageBitmap(ready);
+                    upNextArt.setVisibility(View.VISIBLE);
+                    loadedUpNextThumb = fetchUrl;
+                });
+            });
+        } catch (Exception e) {
+            Log.w(TAG, "Up next art load skipped", e);
+        }
+    }
+
+    private boolean isStatsKey(int keyCode) {
+        return keyCode == KeyEvent.KEYCODE_INFO
+            || keyCode == KeyEvent.KEYCODE_F1
+            || keyCode == KeyEvent.KEYCODE_WINDOW;
+    }
+
+    private void toggleStatsOverlay() {
+        statsVisible = !statsVisible;
+        if (statsView != null) statsView.setVisibility(statsVisible ? View.VISIBLE : View.GONE);
+        if (statsVisible) refreshStatsOverlay();
+    }
+
+    private void hideStatsOverlay() {
+        statsVisible = false;
+        if (statsView != null) statsView.setVisibility(View.GONE);
+    }
+
+    private String playbackModeLabel() {
+        String mode = streamMode == null ? "" : streamMode.trim();
+        if (isTranscodeUrl(currentUrl) && !"directPlay".equalsIgnoreCase(mode)) {
+            return getString(R.string.player_transcode);
+        }
+        if ("directPlay".equalsIgnoreCase(mode)) return getString(R.string.player_direct_play);
+        if ("directStream".equalsIgnoreCase(mode)) return getString(R.string.player_direct_stream);
+        if ("transcode".equalsIgnoreCase(mode) || isTranscodeUrl(currentUrl)) {
+            return getString(R.string.player_transcode);
+        }
+        if (currentUrl != null && (currentUrl.contains("/library/parts/") || currentUrl.contains("/file/"))) {
+            return getString(R.string.player_direct_play);
+        }
+        return getString(R.string.player_direct_stream);
+    }
+
+    private String formatBitrateLabel(int bitrate) {
+        if (bitrate <= 0) return "";
+        double mbps = bitrate >= 100000 ? bitrate / 1_000_000.0 : bitrate / 1000.0;
+        return String.format(Locale.US, "%.1f Mbps", mbps);
+    }
+
+    private String currentQualityLabel() {
+        if (qualityId == null || qualityId.isEmpty()) return "";
+        for (OptionItem row : qualities) {
+            if (qualityId.equals(row.id)) return row.label;
+        }
+        return qualityId;
+    }
+
+    private String currentAudioLabel() {
+        if (audioStreamId == null || audioStreamId.isEmpty()) return "";
+        for (OptionItem row : audioTracks) {
+            if (audioStreamId.equals(row.id)) return row.label;
+        }
+        return "";
+    }
+
+    private void refreshStatsOverlay() {
+        if (statsView == null || !statsVisible) return;
+        int width = streamWidth;
+        int height = streamHeight;
+        int bitrate = streamBitrate;
+        String videoCodec = streamVideoCodec == null ? "" : streamVideoCodec.trim();
+        String audioCodec = streamAudioCodec == null ? "" : streamAudioCodec.trim();
+        if (player != null) {
+            VideoSize size = player.getVideoSize();
+            if (size != null) {
+                if (size.width > 0) width = size.width;
+                if (size.height > 0) height = size.height;
+            }
+            try {
+                Tracks tracks = player.getCurrentTracks();
+                for (Tracks.Group group : tracks.getGroups()) {
+                    if (group.getType() != C.TRACK_TYPE_VIDEO && group.getType() != C.TRACK_TYPE_AUDIO) continue;
+                    for (int i = 0; i < group.length; i++) {
+                        if (!group.isTrackSelected(i)) continue;
+                        Format format = group.getTrackFormat(i);
+                        if (group.getType() == C.TRACK_TYPE_VIDEO) {
+                            if (format.width > 0) width = format.width;
+                            if (format.height > 0) height = format.height;
+                            if (format.bitrate > 0) bitrate = format.bitrate;
+                            if (format.sampleMimeType != null && videoCodec.isEmpty()) {
+                                videoCodec = format.sampleMimeType.replace("video/", "");
+                            }
+                            if (format.codecs != null && !format.codecs.isEmpty()) videoCodec = format.codecs;
+                        } else if (audioCodec.isEmpty()) {
+                            if (format.sampleMimeType != null) audioCodec = format.sampleMimeType.replace("audio/", "");
+                            if (format.codecs != null && !format.codecs.isEmpty()) audioCodec = format.codecs;
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {
+                /* tracks not ready */
+            }
+        }
+        StringBuilder lines = new StringBuilder();
+        lines.append(playbackModeLabel());
+        String dims = "";
+        if (width > 0 && height > 0) dims = width + "×" + height;
+        else if (streamResolution != null && !streamResolution.trim().isEmpty()) dims = streamResolution.trim();
+        if (!dims.isEmpty()) lines.append('\n').append(dims);
+        String rate = formatBitrateLabel(bitrate);
+        if (!rate.isEmpty()) lines.append('\n').append(rate);
+        String codecs = "";
+        if (!videoCodec.isEmpty() && !audioCodec.isEmpty()) codecs = videoCodec + " / " + audioCodec;
+        else if (!videoCodec.isEmpty()) codecs = videoCodec;
+        else if (!audioCodec.isEmpty()) codecs = audioCodec;
+        if (!codecs.isEmpty()) lines.append('\n').append(codecs);
+        if (streamContainer != null && !streamContainer.trim().isEmpty()) {
+            lines.append('\n').append(streamContainer.trim().toUpperCase(Locale.US));
+        }
+        String quality = currentQualityLabel();
+        if (!quality.isEmpty()) lines.append('\n').append(quality);
+        String audio = currentAudioLabel();
+        if (!audio.isEmpty()) lines.append('\n').append(audio);
+        statsView.setText(lines.toString());
+        statsView.setTypeface(Typeface.MONOSPACE);
     }
 
     private void showTitleText() {
@@ -1027,6 +1297,82 @@ public class PlayerActivity extends AppCompatActivity {
         }
     }
 
+    private interface OptionPick {
+        void onPick(int index);
+    }
+
+    private boolean isOptionDialogShowing() {
+        return menuScrim != null && menuScrim.getVisibility() == View.VISIBLE;
+    }
+
+    private void setChromeSubtreeFocusable(boolean focusable) {
+        View[] bars = { chrome, topBar };
+        for (View bar : bars) {
+            if (!(bar instanceof ViewGroup)) continue;
+            ((ViewGroup) bar).setDescendantFocusability(
+                focusable ? ViewGroup.FOCUS_AFTER_DESCENDANTS : ViewGroup.FOCUS_BLOCK_DESCENDANTS
+            );
+        }
+    }
+
+    private void hideOptionSheet() {
+        if (menuList != null) menuList.removeAllViews();
+        if (menuScrim != null) menuScrim.setVisibility(View.GONE);
+        setChromeSubtreeFocusable(true);
+        if (!finishing && !isFinishing() && !isDestroyed()) bumpChrome();
+    }
+
+    private void showOptionSheet(CharSequence title, String[] labels, int checkedIndex, OptionPick onPick) {
+        if (menuScrim == null || menuList == null || labels == null || labels.length == 0) {
+            toast(getString(R.string.player_no_options));
+            return;
+        }
+        mainHandler.removeCallbacks(hideChromeRunnable);
+        setChromeVisible(true);
+        setChromeSubtreeFocusable(false);
+        menuTitle.setText(title);
+        menuList.removeAllViews();
+        int focusIndex = Math.max(0, Math.min(checkedIndex, labels.length - 1));
+        LayoutInflater inflater = LayoutInflater.from(this);
+        Button focusRow = null;
+        for (int i = 0; i < labels.length; i++) {
+            Button row = (Button) inflater.inflate(R.layout.player_menu_row, menuList, false);
+            boolean selected = i == focusIndex;
+            String label = labels[i] == null ? "" : labels[i].trim();
+            row.setText(selected ? "✓  " + label : label);
+            row.setSelected(selected);
+            if (Build.VERSION.SDK_INT >= 26) row.setDefaultFocusHighlightEnabled(false);
+            final int index = i;
+            row.setOnClickListener(v -> {
+                hideOptionSheet();
+                if (onPick != null) onPick.onPick(index);
+            });
+            menuList.addView(row);
+            if (selected) focusRow = row;
+        }
+        menuScrim.setVisibility(View.VISIBLE);
+        if (menuScroll != null) {
+            ViewGroup.LayoutParams scrollLp = menuScroll.getLayoutParams();
+            scrollLp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+            menuScroll.setLayoutParams(scrollLp);
+        }
+        final Button toFocus = focusRow != null ? focusRow : (Button) menuList.getChildAt(0);
+        if (toFocus != null) {
+            toFocus.post(() -> {
+                if (menuScroll != null && menuList != null) {
+                    int maxH = Math.round(getResources().getDisplayMetrics().heightPixels * 0.56f);
+                    if (menuList.getHeight() > maxH) {
+                        ViewGroup.LayoutParams scrollLp = menuScroll.getLayoutParams();
+                        scrollLp.height = maxH;
+                        menuScroll.setLayoutParams(scrollLp);
+                    }
+                    menuScroll.scrollTo(0, Math.max(0, toFocus.getTop() - 24));
+                }
+                toFocus.requestFocus();
+            });
+        }
+    }
+
     private void showChaptersMenu() {
         if (chapters.isEmpty()) {
             toast(getString(R.string.player_no_options));
@@ -1036,17 +1382,48 @@ public class PlayerActivity extends AppCompatActivity {
         for (int i = 0; i < chapters.size(); i++) {
             labels[i] = chapters.get(i).label;
         }
-        new AlertDialog.Builder(this, R.style.PlayerDialogTheme)
-            .setTitle(R.string.player_chapters)
-            .setItems(labels, (dialog, which) -> {
+        showOptionSheet(getString(R.string.player_chapters), labels, 0, which -> {
+            try {
+                long startMs = Long.parseLong(chapters.get(which).id);
+                seekToContent(startMs, true);
+            } catch (Exception ignored) {
+                /* ignore */
+            }
+        });
+    }
+
+    private void skipChapter(int direction) {
+        if (chapters.isEmpty()) return;
+        long pos = contentPositionMs();
+        long target = -1;
+        if (direction > 0) {
+            for (OptionItem chapter : chapters) {
                 try {
-                    long startMs = Long.parseLong(chapters.get(which).id);
-                    seekToContent(startMs, true);
+                    long startMs = Long.parseLong(chapter.id);
+                    if (startMs > pos + 1200) {
+                        target = startMs;
+                        break;
+                    }
                 } catch (Exception ignored) {
-                    /* ignore */
+                    /* skip */
                 }
-            })
-            .show();
+            }
+        } else {
+            for (int i = chapters.size() - 1; i >= 0; i--) {
+                try {
+                    long startMs = Long.parseLong(chapters.get(i).id);
+                    if (startMs < pos - 1200) {
+                        target = startMs;
+                        break;
+                    }
+                } catch (Exception ignored) {
+                    /* skip */
+                }
+            }
+            if (target < 0) target = 0;
+        }
+        if (target >= 0) seekToContent(target, true);
+        bumpChrome();
     }
 
     private void showSeekPreview(long positionMs) {
@@ -1183,6 +1560,7 @@ public class PlayerActivity extends AppCompatActivity {
         if (player == null || url == null || url.trim().isEmpty()) return;
         errorGeneration++;
         currentUrl = url.trim();
+        absorbTimelineFromUrl(currentUrl);
         if (nextHeadersJson != null && !nextHeadersJson.isEmpty()) {
             headersJson = nextHeadersJson;
         }
@@ -1239,42 +1617,38 @@ public class PlayerActivity extends AppCompatActivity {
             OptionItem item = items.get(i);
             boolean selected = item.id.equals(selectedId == null ? "" : selectedId);
             labels[i] = selected ? ("✓  " + item.label) : ("    " + item.label);
-            if (selected) checked = i;
+            labels[i] = item.label;
+            if (item.id.equals(selectedId == null ? "" : selectedId)) checked = i;
         }
         CharSequence title = currentLabel == null || currentLabel.isEmpty()
             ? getString(titleRes)
             : getString(titleRes) + "  ·  " + currentLabel;
-        new AlertDialog.Builder(this, R.style.PlayerDialogTheme)
-            .setTitle(title)
-            .setSingleChoiceItems(labels, checked, (dialog, which) -> {
-                OptionItem picked = items.get(which);
-                dialog.dismiss();
-                if ("version".equals(kind)) {
-                    try {
-                        mediaIndex = Integer.parseInt(picked.id);
-                    } catch (Exception ignored) {
-                        mediaIndex = which;
-                    }
-                    requestStreamChange(qualityId, audioStreamId, subtitleStreamId, mediaIndex);
-                } else if ("quality".equals(kind)) {
-                    qualityId = picked.id;
-                    saveAvPrefs();
-                    requestStreamChange(qualityId, audioStreamId, subtitleStreamId, mediaIndex);
-                } else if ("audio".equals(kind)) {
-                    audioStreamId = picked.id;
-                    saveAvPrefs();
-                    requestStreamChange(qualityId, audioStreamId, subtitleStreamId, mediaIndex);
-                } else if ("subtitle".equals(kind)) {
-                    if (SUBTITLE_SEARCH_ID.equals(picked.id)) {
-                        requestSubtitleSearch();
-                        return;
-                    }
-                    applySubtitleChoice(picked);
+        showOptionSheet(title, labels, checked, which -> {
+            OptionItem picked = items.get(which);
+            if ("version".equals(kind)) {
+                try {
+                    mediaIndex = Integer.parseInt(picked.id);
+                } catch (Exception ignored) {
+                    mediaIndex = which;
                 }
-                updateChipLabels();
-            })
-            .setNegativeButton(android.R.string.cancel, null)
-            .show();
+                requestStreamChange(qualityId, audioStreamId, subtitleStreamId, mediaIndex);
+            } else if ("quality".equals(kind)) {
+                qualityId = picked.id;
+                saveAvPrefs();
+                requestStreamChange(qualityId, audioStreamId, subtitleStreamId, mediaIndex);
+            } else if ("audio".equals(kind)) {
+                audioStreamId = picked.id;
+                saveAvPrefs();
+                requestStreamChange(qualityId, audioStreamId, subtitleStreamId, mediaIndex);
+            } else if ("subtitle".equals(kind)) {
+                if (SUBTITLE_SEARCH_ID.equals(picked.id)) {
+                    requestSubtitleSearch();
+                    return;
+                }
+                applySubtitleChoice(picked);
+            }
+            updateChipLabels();
+        });
     }
 
     private void showSpeedMenu() {
@@ -1286,18 +1660,13 @@ public class PlayerActivity extends AppCompatActivity {
             labels[i] = String.format(Locale.US, "%.2gx", speeds[i]);
             if (Math.abs(speeds[i] - playbackSpeed) < 0.01f) checked = i;
         }
-        new AlertDialog.Builder(this, R.style.PlayerDialogTheme)
-            .setTitle(R.string.player_speed)
-            .setSingleChoiceItems(labels, checked, (dialog, which) -> {
-                applySpeed(speeds[which]);
-                dialog.dismiss();
-                updateChipLabels();
-                JSObject data = new JSObject();
-                data.put("speed", playbackSpeed);
-                PlayerBridge.get().emit("speed", data);
-            })
-            .setNegativeButton(android.R.string.cancel, null)
-            .show();
+        showOptionSheet(getString(R.string.player_speed), labels, checked, which -> {
+            applySpeed(speeds[which]);
+            updateChipLabels();
+            JSObject data = new JSObject();
+            data.put("speed", playbackSpeed);
+            PlayerBridge.get().emit("speed", data);
+        });
     }
 
     private void showSubtitleMenu() {
@@ -1345,18 +1714,13 @@ public class PlayerActivity extends AppCompatActivity {
         }
         labels[zooms.length] = getString(R.string.player_zoom_fill);
         if (videoFill) checked = zooms.length;
-        new AlertDialog.Builder(this, R.style.PlayerDialogTheme)
-            .setTitle(R.string.player_zoom)
-            .setSingleChoiceItems(labels, checked, (dialog, which) -> {
-                dialog.dismiss();
-                videoFill = which == zooms.length;
-                videoZoom = videoFill ? 1f : zooms[Math.min(which, zooms.length - 1)];
-                applyVideoZoom();
-                savePlayerLookPrefs();
-                updateChipLabels();
-            })
-            .setNegativeButton(android.R.string.cancel, null)
-            .show();
+        showOptionSheet(getString(R.string.player_zoom), labels, checked, which -> {
+            videoFill = which == zooms.length;
+            videoZoom = videoFill ? 1f : zooms[Math.min(which, zooms.length - 1)];
+            applyVideoZoom();
+            savePlayerLookPrefs();
+            updateChipLabels();
+        });
     }
 
     private void showDelayMenu() {
@@ -1368,17 +1732,12 @@ public class PlayerActivity extends AppCompatActivity {
             labels[i] = delays[i] <= 0 ? getString(R.string.player_delay_off) : delays[i] + " ms";
             if (delays[i] == audioDelayMs) checked = i;
         }
-        new AlertDialog.Builder(this, R.style.PlayerDialogTheme)
-            .setTitle(R.string.player_delay)
-            .setSingleChoiceItems(labels, checked, (dialog, which) -> {
-                dialog.dismiss();
-                audioDelayMs = delays[which];
-                applyAudioDelay(true);
-                savePlayerLookPrefs();
-                updateChipLabels();
-            })
-            .setNegativeButton(android.R.string.cancel, null)
-            .show();
+        showOptionSheet(getString(R.string.player_delay), labels, checked, which -> {
+            audioDelayMs = delays[which];
+            applyAudioDelay(true);
+            savePlayerLookPrefs();
+            updateChipLabels();
+        });
     }
 
     private void showRepeatMenu() {
@@ -1393,17 +1752,12 @@ public class PlayerActivity extends AppCompatActivity {
         for (int i = 0; i < modes.length; i++) {
             if (modes[i] == repeatMode) checked = i;
         }
-        new AlertDialog.Builder(this, R.style.PlayerDialogTheme)
-            .setTitle(R.string.player_repeat)
-            .setSingleChoiceItems(labels, checked, (dialog, which) -> {
-                dialog.dismiss();
-                repeatMode = modes[which];
-                applyRepeatMode();
-                savePlayerLookPrefs();
-                updateChipLabels();
-            })
-            .setNegativeButton(android.R.string.cancel, null)
-            .show();
+        showOptionSheet(getString(R.string.player_repeat), labels, checked, which -> {
+            repeatMode = modes[which];
+            applyRepeatMode();
+            savePlayerLookPrefs();
+            updateChipLabels();
+        });
     }
 
     private void applyVideoZoom() {
@@ -1464,18 +1818,15 @@ public class PlayerActivity extends AppCompatActivity {
             getString(R.string.player_sleep_45),
             getString(R.string.player_sleep_end),
         };
-        new AlertDialog.Builder(this, R.style.PlayerDialogTheme)
-            .setTitle(R.string.player_sleep)
-            .setItems(labels, (dialog, which) -> {
-                sleepEndOfEpisode = false;
-                sleepUntilElapsedRealtime = 0;
-                if (which == 1) sleepUntilElapsedRealtime = android.os.SystemClock.elapsedRealtime() + 15 * 60_000L;
-                else if (which == 2) sleepUntilElapsedRealtime = android.os.SystemClock.elapsedRealtime() + 30 * 60_000L;
-                else if (which == 3) sleepUntilElapsedRealtime = android.os.SystemClock.elapsedRealtime() + 45 * 60_000L;
-                else if (which == 4) sleepEndOfEpisode = true;
-                toast(labels[which]);
-            })
-            .show();
+        showOptionSheet(getString(R.string.player_sleep), labels, 0, which -> {
+            sleepEndOfEpisode = false;
+            sleepUntilElapsedRealtime = 0;
+            if (which == 1) sleepUntilElapsedRealtime = android.os.SystemClock.elapsedRealtime() + 15 * 60_000L;
+            else if (which == 2) sleepUntilElapsedRealtime = android.os.SystemClock.elapsedRealtime() + 30 * 60_000L;
+            else if (which == 3) sleepUntilElapsedRealtime = android.os.SystemClock.elapsedRealtime() + 45 * 60_000L;
+            else if (which == 4) sleepEndOfEpisode = true;
+            toast(labels[which]);
+        });
     }
 
     private void requestStreamChange(String q, String a, String s, int mi) {
@@ -1634,7 +1985,8 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void maybeShowUpNext() {
-        if (nextRatingKey == null || nextRatingKey.isEmpty()) {
+        if (upNextRow == null) return;
+        if (watchCreditsChosen || nextRatingKey == null || nextRatingKey.isEmpty()) {
             upNextRow.setVisibility(View.GONE);
             return;
         }
@@ -1642,12 +1994,30 @@ public class PlayerActivity extends AppCompatActivity {
         long duration = contentDurationMs();
         boolean nearEnd = duration > 0 && pos >= Math.max(0, duration - 30_000);
         boolean inCredits = creditsStartMs >= 0 && pos >= creditsStartMs;
-        if (nearEnd || inCredits) {
-            upNextLabel.setText(nextTitle.isEmpty() ? getString(R.string.player_play_next) : ("Up next: " + nextTitle));
-            upNextRow.setVisibility(View.VISIBLE);
-        } else {
-            upNextRow.setVisibility(View.GONE);
+        boolean show = nearEnd || inCredits;
+        boolean wasHidden = upNextRow.getVisibility() != View.VISIBLE;
+        upNextRow.setVisibility(show ? View.VISIBLE : View.GONE);
+        if (!show) return;
+        if (upNextLabel != null) {
+            upNextLabel.setText(nextTitle.isEmpty() ? getString(R.string.player_up_next) : nextTitle);
         }
+        applyUpNextArt();
+        if (upNextCountdown != null) {
+            int seconds = duration > pos ? (int) Math.max(1, Math.ceil((duration - pos) / 1000.0)) : 0;
+            if (autoplayNext && seconds > 0) {
+                upNextCountdown.setVisibility(View.VISIBLE);
+                upNextCountdown.setText(getString(R.string.player_up_next_in, seconds));
+            } else {
+                upNextCountdown.setVisibility(View.GONE);
+            }
+        }
+        if (wasHidden && upNextPlayBtn != null) upNextPlayBtn.requestFocus();
+    }
+
+    private void dismissUpNextWatchCredits() {
+        watchCreditsChosen = true;
+        autoplayNext = false;
+        if (upNextRow != null) upNextRow.setVisibility(View.GONE);
     }
 
     private void maybeSleepTimer() {
@@ -1701,6 +2071,7 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void emitProgress(String state) {
+        pingPlexTimeline(state);
         if (player == null) return;
         JSObject data = new JSObject();
         data.put("state", state);
@@ -1709,6 +2080,240 @@ public class PlayerActivity extends AppCompatActivity {
         data.put("durationMs", Math.max(0, duration));
         data.put("ratingKey", ratingKey);
         PlayerBridge.get().emit("progress", data);
+    }
+
+    private static String queryParam(Uri uri, String key) {
+        if (uri == null || key == null) return "";
+        try {
+            String value = uri.getQueryParameter(key);
+            return value == null ? "" : value.trim();
+        } catch (Throwable ignored) {
+            return "";
+        }
+    }
+
+    private void absorbTimelineFromUrl(String url) {
+        if (url == null || url.isEmpty() || url.contains("/api/media-player/")) return;
+        try {
+            Uri parsed = Uri.parse(url);
+            String token = queryParam(parsed, "X-Plex-Token");
+            if (token.isEmpty()) token = queryParam(parsed, "access_token");
+            if (!token.isEmpty()) timelineToken = token;
+            String clientId = queryParam(parsed, "X-Plex-Client-Identifier");
+            if (!clientId.isEmpty()) timelineClientId = clientId;
+            String session = queryParam(parsed, "X-Plex-Session-Identifier");
+            if (session.isEmpty()) session = queryParam(parsed, "session");
+            if (!session.isEmpty()) timelineSessionId = session;
+            String product = queryParam(parsed, "X-Plex-Product");
+            if (!product.isEmpty()) timelineProduct = product;
+            String platform = queryParam(parsed, "X-Plex-Platform");
+            if (!platform.isEmpty()) timelinePlatform = platform;
+            String device = queryParam(parsed, "X-Plex-Device");
+            if (!device.isEmpty()) timelineDevice = device;
+            String deviceName = queryParam(parsed, "X-Plex-Device-Name");
+            if (!deviceName.isEmpty()) timelineDeviceName = deviceName;
+            if ((timelineOrigin == null || timelineOrigin.isEmpty())
+                    && parsed.getScheme() != null
+                    && parsed.getHost() != null) {
+                String origin = parsed.getScheme() + "://" + parsed.getHost();
+                if (parsed.getPort() != -1) origin += ":" + parsed.getPort();
+                timelineOrigin = origin;
+            }
+        } catch (Throwable ignored) {
+            /* malformed playback url */
+        }
+    }
+
+    private boolean shouldMarkWatched(long positionMs, boolean ended) {
+        if (ended || playbackEnded) return true;
+        long durationMs = 0L;
+        try {
+            durationMs = contentDurationMs();
+        } catch (Throwable ignored) {
+            durationMs = Math.max(0L, durationHintMs);
+        }
+        if (creditsStartMs >= 0 && positionMs >= creditsStartMs) return true;
+        if (durationMs <= 0) return false;
+        if (positionMs >= (long) (durationMs * 0.9d)) return true;
+        return positionMs > Math.max(0L, durationMs - 15_000L);
+    }
+
+    private void scrobbleWatched() {
+        absorbTimelineFromUrl(currentUrl);
+        if (ratingKey == null || ratingKey.trim().isEmpty()) return;
+        if (timelineOrigin == null || timelineOrigin.isEmpty() || timelineToken == null || timelineToken.isEmpty()) {
+            return;
+        }
+        try {
+            Uri.Builder builder = Uri.parse(timelineOrigin + "/:/scrobble").buildUpon();
+            builder.appendQueryParameter("identifier", "com.plexapp.plugins.library");
+            builder.appendQueryParameter("key", ratingKey);
+            builder.appendQueryParameter("X-Plex-Token", timelineToken);
+            final String pingUrl = builder.build().toString();
+            logoExecutor.execute(() -> httpPingTimeline(pingUrl, null, "GET"));
+        } catch (Throwable e) {
+            Log.w(TAG, "Plex scrobble skipped", e);
+        }
+    }
+
+    private void pingPlexTimeline(String rawState) {
+        pingPlexTimeline(rawState, -1L);
+    }
+
+    private void pingPlexTimeline(String rawState, long positionOverrideMs) {
+        String state = "playing";
+        if ("paused".equals(rawState) || "stopped".equals(rawState) || "buffering".equals(rawState)) {
+            state = rawState;
+        }
+        long now = SystemClock.elapsedRealtime();
+        boolean important = "stopped".equals(state) || "paused".equals(state) || !state.equals(lastTimelineState);
+        if (!important && now - lastTimelinePingElapsedMs < 5_000) return;
+        lastTimelinePingElapsedMs = now;
+        lastTimelineState = state;
+        absorbTimelineFromUrl(currentUrl);
+        if (ratingKey == null || ratingKey.trim().isEmpty()) return;
+        long positionMs = 0L;
+        long durationMs = Math.max(0L, durationHintMs);
+        if (player != null) {
+            try {
+                positionMs = Math.max(0L, contentPositionMs());
+                durationMs = Math.max(durationMs, contentDurationMs());
+            } catch (Throwable ignored) {
+                /* player tearing down */
+            }
+        }
+        if (positionOverrideMs >= 0L) positionMs = positionOverrideMs;
+        final String pingState = state;
+        final long pingPosition = positionMs;
+        final long pingDuration = durationMs;
+        if (timelineOrigin != null && !timelineOrigin.isEmpty() && timelineToken != null && !timelineToken.isEmpty()) {
+            final String pingUrl = buildPmsTimelineUrl(pingState, pingPosition, pingDuration);
+            if (pingUrl != null) {
+                logoExecutor.execute(() -> httpPingTimeline(pingUrl, null, "GET"));
+                return;
+            }
+        }
+        final String portalUrl = buildPortalTimelineUrl();
+        if (portalUrl == null) return;
+        final String body = buildPortalTimelineBody(pingState, pingPosition, pingDuration);
+        if (body == null) return;
+        logoExecutor.execute(() -> httpPingTimeline(portalUrl, body, "POST"));
+    }
+
+    private String buildPmsTimelineUrl(String state, long positionMs, long durationMs) {
+        if (timelineOrigin == null || timelineOrigin.isEmpty() || timelineToken == null || timelineToken.isEmpty()) {
+            return null;
+        }
+        try {
+            Uri.Builder builder = Uri.parse(timelineOrigin + "/:/timeline").buildUpon();
+            builder.appendQueryParameter("ratingKey", ratingKey);
+            builder.appendQueryParameter("key", "/library/metadata/" + ratingKey);
+            builder.appendQueryParameter("identifier", "com.plexapp.plugins.library");
+            builder.appendQueryParameter("state", state);
+            builder.appendQueryParameter("time", String.valueOf(positionMs));
+            builder.appendQueryParameter("playbackTime", String.valueOf(positionMs));
+            builder.appendQueryParameter("duration", String.valueOf(Math.max(0L, durationMs)));
+            builder.appendQueryParameter("type", musicMode ? "music" : "video");
+            builder.appendQueryParameter("hasMDE", "1");
+            builder.appendQueryParameter("X-Plex-Token", timelineToken);
+            builder.appendQueryParameter("X-Plex-Client-Identifier",
+                    timelineClientId == null || timelineClientId.isEmpty() ? "streampilot-android" : timelineClientId);
+            builder.appendQueryParameter("X-Plex-Product", timelineProduct);
+            builder.appendQueryParameter("X-Plex-Version", timelineVersion);
+            builder.appendQueryParameter("X-Plex-Platform", timelinePlatform);
+            builder.appendQueryParameter("X-Plex-Device", timelineDevice);
+            builder.appendQueryParameter("X-Plex-Device-Name", timelineDeviceName);
+            builder.appendQueryParameter("X-Plex-Provides", "player,controller");
+            if (timelineSessionId != null && !timelineSessionId.isEmpty()) {
+                builder.appendQueryParameter("X-Plex-Session-Identifier", timelineSessionId);
+            }
+            String audioId = audioStreamId == null ? "" : audioStreamId.replaceAll("\\D", "");
+            if (!audioId.isEmpty()) builder.appendQueryParameter("audioStreamID", audioId);
+            String subId = subtitleStreamId == null ? "" : subtitleStreamId.replaceAll("\\D", "");
+            builder.appendQueryParameter("subtitleStreamID", subId.isEmpty() ? "0" : subId);
+            return builder.build().toString();
+        } catch (Throwable e) {
+            Log.w(TAG, "Plex timeline URL skipped", e);
+            return null;
+        }
+    }
+
+    @Nullable
+    private String buildPortalTimelineUrl() {
+        if (currentUrl == null || !currentUrl.contains("/api/media-player/")) return null;
+        try {
+            Uri parsed = Uri.parse(currentUrl);
+            if (parsed.getScheme() == null || parsed.getHost() == null) return null;
+            String origin = parsed.getScheme() + "://" + parsed.getHost();
+            if (parsed.getPort() != -1) origin += ":" + parsed.getPort();
+            return origin + "/api/media-player/timeline";
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    @Nullable
+    private String buildPortalTimelineBody(String state, long positionMs, long durationMs) {
+        try {
+            JSONObject body = new JSONObject();
+            body.put("ratingKey", ratingKey);
+            body.put("state", state);
+            body.put("timeMs", positionMs);
+            body.put("durationMs", Math.max(0L, durationMs));
+            if (timelineSessionId != null && !timelineSessionId.isEmpty()) {
+                body.put("sessionId", timelineSessionId);
+            }
+            if (audioStreamId != null && !audioStreamId.isEmpty()) body.put("audioStreamId", audioStreamId);
+            if (subtitleStreamId != null) body.put("subtitleStreamId", subtitleStreamId);
+            return body.toString();
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private void httpPingTimeline(String url, @Nullable String body, String method) {
+        HttpURLConnection conn = null;
+        try {
+            conn = (HttpURLConnection) new URL(url).openConnection();
+            conn.setConnectTimeout(4_000);
+            conn.setReadTimeout(4_000);
+            conn.setInstanceFollowRedirects(true);
+            conn.setRequestMethod(method);
+            conn.setRequestProperty("Accept", "application/json, text/plain, */*");
+            conn.setRequestProperty("User-Agent", USER_AGENT);
+            if (timelineToken != null && !timelineToken.isEmpty()) {
+                conn.setRequestProperty("X-Plex-Token", timelineToken);
+            }
+            if (timelineClientId != null && !timelineClientId.isEmpty()) {
+                conn.setRequestProperty("X-Plex-Client-Identifier", timelineClientId);
+            }
+            if (timelineSessionId != null && !timelineSessionId.isEmpty()) {
+                conn.setRequestProperty("X-Plex-Session-Identifier", timelineSessionId);
+            }
+            conn.setRequestProperty("X-Plex-Product", timelineProduct);
+            conn.setRequestProperty("X-Plex-Device-Name", timelineDeviceName);
+            conn.setRequestProperty("X-Plex-Provides", "player,controller");
+            try {
+                String cookie = CookieManager.getInstance().getCookie(url);
+                if (cookie != null && !cookie.isEmpty()) conn.setRequestProperty("Cookie", cookie);
+            } catch (Throwable ignored) {
+                /* cookies optional for direct PMS */
+            }
+            if (body != null) {
+                byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+                conn.setDoOutput(true);
+                conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+                conn.setRequestProperty("X-Requested-With", "ServerManagerPortal");
+                try (OutputStream out = conn.getOutputStream()) {
+                    out.write(bytes);
+                }
+            }
+            conn.getResponseCode();
+        } catch (Throwable e) {
+            Log.w(TAG, "Plex timeline ping failed", e);
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
     }
 
     private void toggleChrome() {
@@ -1722,10 +2327,10 @@ public class PlayerActivity extends AppCompatActivity {
         int vis = visible ? View.VISIBLE : View.GONE;
         if (chrome != null) chrome.setVisibility(vis);
         if (topBar != null) topBar.setVisibility(vis);
+        setClockVisible(visible);
         if (visible && wasHidden && playPauseBtn != null) {
             playPauseBtn.requestFocus();
-        } else if (!visible) {
-            // Hidden controls must not leave the activity with nothing to focus, or the remote dies.
+        } else if (!visible && !isOptionDialogShowing()) {
             View root = findViewById(R.id.player_root);
             if (root != null) root.requestFocus();
         }
@@ -1786,8 +2391,18 @@ public class PlayerActivity extends AppCompatActivity {
         String key = prefsKey();
         String savedAudio = prefs.getString(key + ":audio", null);
         String savedSub = prefs.getString(key + ":sub", null);
-        if (savedAudio != null && !savedAudio.isEmpty()) audioStreamId = savedAudio;
-        if (savedSub != null) subtitleStreamId = savedSub;
+        String savedAudioLang = prefs.getString(key + ":audioLang", "");
+        String savedSubLang = prefs.getString(key + ":subLang", null);
+        String matchedAudio = matchTrackIdByLang(audioTracks, savedAudioLang);
+        if (matchedAudio != null) audioStreamId = matchedAudio;
+        if (savedSubLang != null) {
+            if (savedSubLang.isEmpty() || "off".equalsIgnoreCase(savedSubLang)) {
+                subtitleStreamId = "";
+            } else {
+                String matchedSub = matchTrackIdByLang(subtitles, savedSubLang);
+                if (matchedSub != null) subtitleStreamId = matchedSub;
+            }
+        }
     }
 
     private void saveAvPrefs() {
@@ -1797,7 +2412,35 @@ public class PlayerActivity extends AppCompatActivity {
         prefs.edit()
             .putString(key + ":audio", audioStreamId == null ? "" : audioStreamId)
             .putString(key + ":sub", subtitleStreamId == null ? "" : subtitleStreamId)
+            .putString(key + ":audioLang", trackLangKey(labelFor(audioTracks, audioStreamId)))
+            .putString(key + ":subLang", subtitleStreamId == null || subtitleStreamId.isEmpty()
+                ? "off"
+                : trackLangKey(labelFor(subtitles, subtitleStreamId)))
             .apply();
+    }
+
+    private static String trackLangKey(String label) {
+        if (label == null) return "";
+        String text = label.trim().toLowerCase(Locale.US);
+        if (text.isEmpty()) return "";
+        int cut = text.length();
+        for (int i = 0; i < text.length(); i++) {
+            char ch = text.charAt(i);
+            if (ch == ' ' || ch == '·' || ch == '(' || ch == '|' || ch == '/') {
+                cut = i;
+                break;
+            }
+        }
+        return text.substring(0, cut).trim();
+    }
+
+    private static String matchTrackIdByLang(List<OptionItem> tracks, String langKey) {
+        String want = trackLangKey(langKey);
+        if (want.isEmpty() || tracks == null || tracks.isEmpty()) return null;
+        for (OptionItem track : tracks) {
+            if (want.equals(trackLangKey(track.label))) return track.id;
+        }
+        return null;
     }
 
     private String prefsKey() {
@@ -2054,6 +2697,35 @@ public class PlayerActivity extends AppCompatActivity {
         return String.format(Locale.US, "%d:%02d", m, s);
     }
 
+    private void updateWallClock() {
+        if (clockView == null) return;
+        Calendar cal = Calendar.getInstance();
+        String label = String.format(
+            Locale.US,
+            "%02d:%02d",
+            cal.get(Calendar.HOUR_OF_DAY),
+            cal.get(Calendar.MINUTE)
+        );
+        if (label.equals(lastClockLabel)) return;
+        lastClockLabel = label;
+        clockView.setText(label);
+    }
+
+    private boolean inPictureInPicture() {
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInPictureInPictureMode();
+    }
+
+    private void setClockVisible(boolean visible) {
+        if (clockView == null) return;
+        clockView.setVisibility(visible && !inPictureInPicture() ? View.VISIBLE : View.GONE);
+    }
+
+    @Override
+    public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode);
+        setClockVisible(chromeVisible && !isInPictureInPictureMode);
+    }
+
     private void toast(String msg) {
         try {
             Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
@@ -2125,35 +2797,128 @@ public class PlayerActivity extends AppCompatActivity {
         finishing = true;
         mainHandler.removeCallbacks(tickRunnable);
         mainHandler.removeCallbacks(progressEmitRunnable);
+        hideStatsOverlay();
         mainHandler.removeCallbacks(hideChromeRunnable);
         long positionMs = 0L;
         if (player != null) {
             try {
                 positionMs = contentPositionMs();
                 emitProgress("stopped");
-                // pause is posted to the player thread. stop/release block the UI until the stream dies.
                 player.setPlayWhenReady(false);
             } catch (Throwable ignored) {
-                /* ignore */
+                /* player already torn down */
             }
         }
+        boolean endedOut = ended || playbackEnded;
+        boolean errorOut = playbackError && !ended && !playbackEnded;
+
+        JSObject closed = new JSObject();
+        closed.put("ended", endedOut);
+        closed.put("positionMs", positionMs);
+        closed.put("error", errorOut);
+        closed.put("playNext", playNext);
+        if (playNext && nextRatingKey != null && !nextRatingKey.isEmpty()) {
+            closed.put("nextRatingKey", nextRatingKey);
+        }
+        PlayerBridge.get().setPlayerForeground(false);
+        PlayerBridge.get().keepHostWebViewAlive();
+        PlayerBridge.get().emit("closed", closed);
+        if (shouldMarkWatched(positionMs, endedOut)) {
+            scrobbleWatched();
+            pingPlexTimeline("stopped", 0L);
+        } else {
+            pingPlexTimeline("stopped");
+        }
+
+        try {
+            PlayerView playerView = findViewById(R.id.player_view);
+            if (playerView != null) playerView.setPlayer(null);
+        } catch (Throwable ignored) {
+            /* view already gone */
+        }
+
         Intent data = new Intent();
-        data.putExtra(EXTRA_ENDED, ended || playbackEnded);
+        data.putExtra(EXTRA_ENDED, endedOut);
         data.putExtra(EXTRA_POSITION_MS, positionMs);
-        data.putExtra(EXTRA_ERROR, playbackError && !ended && !playbackEnded);
+        data.putExtra(EXTRA_ERROR, errorOut);
         data.putExtra(EXTRA_PLAY_NEXT, playNext);
         if (playNext && nextRatingKey != null) {
             data.putExtra(EXTRA_NEXT_RATING_KEY, nextRatingKey);
         }
         setResult(RESULT_OK, data);
         finish();
+        try {
+            overridePendingTransition(0, 0);
+        } catch (Throwable ignored) {
+            /* some TV firmwares reject this */
+        }
+    }
+
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        int keyCode = event.getKeyCode();
+        if (isOptionDialogShowing()) {
+            if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE) {
+                if (event.getAction() == KeyEvent.ACTION_DOWN) hideOptionSheet();
+                return true;
+            }
+            return super.dispatchKeyEvent(event);
+        }
+        boolean confirm = keyCode == KeyEvent.KEYCODE_DPAD_CENTER
+            || keyCode == KeyEvent.KEYCODE_ENTER
+            || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER;
+        boolean mediaToggle = keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE;
+        if ((confirm || mediaToggle)
+            && event.getAction() == KeyEvent.ACTION_DOWN
+            && event.getRepeatCount() == 0) {
+            event.startTracking();
+        }
+        if (event.getAction() == KeyEvent.ACTION_DOWN && isStatsKey(keyCode)) {
+            toggleStatsOverlay();
+            return true;
+        }
+        return super.dispatchKeyEvent(event);
+    }
+
+    @Override
+    public boolean onKeyLongPress(int keyCode, KeyEvent event) {
+        boolean confirm = keyCode == KeyEvent.KEYCODE_DPAD_CENTER
+            || keyCode == KeyEvent.KEYCODE_ENTER
+            || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER;
+        if (confirm || keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) {
+            confirmLongPress = true;
+            toggleStatsOverlay();
+            return true;
+        }
+        return super.onKeyLongPress(keyCode, event);
     }
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (isOptionDialogShowing()) {
+            if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE) {
+                hideOptionSheet();
+                return true;
+            }
+            return super.onKeyDown(keyCode, event);
+        }
         if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE) {
             if (chromeVisible) {
                 setChromeVisible(false);
+                return true;
+            }
+            boolean endedNow = playbackEnded
+                || (player != null && player.getPlaybackState() == Player.STATE_ENDED);
+            if (endedNow) {
+                finishWithResult(true, false);
+                return true;
+            }
+            if (statsVisible) {
+                hideStatsOverlay();
+                return true;
+            }
+            if (upNextRow != null && upNextRow.getVisibility() == View.VISIBLE) {
+                dismissUpNextWatchCredits();
                 return true;
             }
             if (musicMode) {
@@ -2167,27 +2932,36 @@ public class PlayerActivity extends AppCompatActivity {
         boolean mediaToggle = keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE;
         boolean mediaPlay = keyCode == KeyEvent.KEYCODE_MEDIA_PLAY;
         boolean mediaPause = keyCode == KeyEvent.KEYCODE_MEDIA_PAUSE;
-        boolean confirm = keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER;
+        boolean confirm = keyCode == KeyEvent.KEYCODE_DPAD_CENTER
+            || keyCode == KeyEvent.KEYCODE_ENTER
+            || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER;
+
+        if ((confirm || mediaToggle) && isPlaybackConfirmTarget()) {
+            event.startTracking();
+            return true;
+        }
 
         if (keyCode == KeyEvent.KEYCODE_MEDIA_STOP) {
             finishWithResult(false, false);
             return true;
         }
+        if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == KeyEvent.KEYCODE_CHANNEL_UP) {
+            if (!chapters.isEmpty()) skipChapter(1);
+            else skipNextFromPlugin();
+            return true;
+        }
+        if (keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == KeyEvent.KEYCODE_CHANNEL_DOWN) {
+            if (!chapters.isEmpty()) skipChapter(-1);
+            return true;
+        }
 
         if (!chromeVisible) {
-            if (confirm && trySkipFromRemote()) {
-                return true;
-            }
             if (mediaPause) {
                 applyPlayPause(false);
                 return true;
             }
             if (mediaPlay) {
                 applyPlayPause(true);
-                return true;
-            }
-            if (confirm || mediaToggle) {
-                togglePlayPause();
                 return true;
             }
             if (keyCode == KeyEvent.KEYCODE_MEDIA_REWIND || keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
@@ -2222,10 +2996,6 @@ public class PlayerActivity extends AppCompatActivity {
             togglePlayPause();
             return true;
         }
-        if (confirm && (focus == null || seekFocused || focus == findViewById(R.id.player_view))) {
-            togglePlayPause();
-            return true;
-        }
         if (seekFocused && (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_MEDIA_REWIND)) {
             seekBy(-10_000);
             return true;
@@ -2245,11 +3015,40 @@ public class PlayerActivity extends AppCompatActivity {
         return super.onKeyDown(keyCode, event);
     }
 
+    private boolean isPlaybackConfirmTarget() {
+        View focus = getCurrentFocus();
+        if (focus == playPauseBtn || focus == seekBar) return true;
+        if (focus == null) return true;
+        int id = focus.getId();
+        return id == R.id.player_root || id == R.id.player_view;
+    }
+
+    @Override
+    public boolean onKeyUp(int keyCode, KeyEvent event) {
+        boolean mediaToggle = keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE;
+        boolean confirm = keyCode == KeyEvent.KEYCODE_DPAD_CENTER
+            || keyCode == KeyEvent.KEYCODE_ENTER
+            || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER;
+        if (confirm || mediaToggle) {
+            if (confirmLongPress) {
+                confirmLongPress = false;
+                return true;
+            }
+            if (isOptionDialogShowing()) return super.onKeyUp(keyCode, event);
+            if (!isPlaybackConfirmTarget()) return super.onKeyUp(keyCode, event);
+            if (!chromeVisible && confirm && trySkipFromRemote()) return true;
+            togglePlayPause();
+            return true;
+        }
+        return super.onKeyUp(keyCode, event);
+    }
+
     @Override
     protected void onStart() {
         super.onStart();
         PlayerBridge.get().keepHostWebViewAlive();
         if (player != null && !userPaused) player.setPlayWhenReady(true);
+        if (finishing) return;
     }
 
     @Override
@@ -2279,11 +3078,12 @@ public class PlayerActivity extends AppCompatActivity {
         mainHandler.removeCallbacksAndMessages(null);
         PlayerView playerView = findViewById(R.id.player_view);
         if (playerView != null) playerView.setPlayer(null);
+        if (menuScrim != null) menuScrim.setVisibility(View.GONE);
+        if (menuList != null) menuList.removeAllViews();
         final ExoPlayer exiting = player;
         player = null;
         super.onDestroy();
         if (exiting != null) {
-            // Release after this activity is gone so the page and remote are back first.
             new Handler(Looper.getMainLooper()).post(() -> {
                 try {
                     exiting.release();

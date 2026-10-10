@@ -6,6 +6,8 @@ declare global {
             sessionToken?: string;
             isTv?: boolean;
             nativePlayer?: boolean;
+            appVersion?: string;
+            appVersionCode?: number | string;
         };
     }
 }

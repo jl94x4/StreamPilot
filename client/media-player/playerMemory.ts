@@ -5,11 +5,18 @@ import type { PlayerHome, PlayerItem, PlayerItemPage, PlayerSection } from './ty
 export const PLAYER_SEARCH_INPUT_ID = 'media-player-search';
 export const PLAYER_FOCUS_SEARCH_KEY = 'portal-media-player-focus-search';
 export const PLAYER_HOME_SCROLL_KEY = 'portal-media-player-home-scroll';
+export const PLAYER_LIBRARY_SCROLL_KEY = 'portal-media-player-library-scroll';
+export const PLAYER_LAST_LIBRARY_PATH_KEY = 'portal-media-player-last-library-path';
+export const PLAYER_VOICE_RESULT_EVENT = 'smp-player-voice-result';
 export const PLAYER_LOCAL_PLAYBACK_KEY = 'portal-media-player-local-playback';
 export const PLAYER_LIBRARY_STATE_KEY = 'portal-media-player-library-state-v2';
 export const PLAYER_MINI_WIDTH_KEY = 'portal-media-player-mini-width';
 export const PLAYER_NAV_EXPANDED_KEY = 'portal-media-player-nav-expanded';
 export const PLAYER_AV_CHOICES_KEY = 'portal-media-player-av-choices';
+export const PLAYER_MEDIA_INDEX_KEY = 'portal-media-player-media-index-v1';
+export const PLAYER_TV_FOCUS_KEY = 'portal-media-player-tv-focus-v1';
+export const PLAYER_LONG_PRESS_HINT_KEY = 'portal-media-player-long-press-hint-v1';
+export const PLAYER_APK_WHATS_NEW_KEY = 'portal-media-player-apk-whats-new-v1';
 
 export type LocalPlaybackPrefs = {
     volume: number;
@@ -215,6 +222,83 @@ export const writeAvChoiceFromTracks = (
     });
 };
 
+const mediaIndexChoiceKey = (ratingKey?: string | null) => String(ratingKey || '').replace(/\D/g, '');
+
+/** Last picked file/version index for a title (multi-version movies/episodes). */
+export const readMediaIndexChoice = (ratingKey?: string | null): number | null => {
+    const key = mediaIndexChoiceKey(ratingKey);
+    if (!key) return null;
+    const all = readJson(PLAYER_MEDIA_INDEX_KEY) as Record<string, number> | null;
+    const value = Number(all?.[key]);
+    return Number.isFinite(value) && value >= 0 ? Math.floor(value) : null;
+};
+
+export const writeMediaIndexChoice = (ratingKey: string | null | undefined, mediaIndex: number) => {
+    const key = mediaIndexChoiceKey(ratingKey);
+    if (!key || typeof window === 'undefined') return;
+    const index = Math.max(0, Math.floor(Number(mediaIndex) || 0));
+    const all = (readJson(PLAYER_MEDIA_INDEX_KEY) as Record<string, number> | null) || {};
+    all[key] = index;
+    writeJson(window.localStorage, PLAYER_MEDIA_INDEX_KEY, all);
+};
+
+export type PersistedTvFocus = {
+    byPath: Record<string, { key: string; railScroll?: number }>;
+    byRow: Record<string, { key: string; railScroll?: number }>;
+};
+
+export const readPersistedTvFocus = (): PersistedTvFocus => {
+    const raw = readJson(PLAYER_TV_FOCUS_KEY) as PersistedTvFocus | null;
+    return {
+        byPath: raw?.byPath && typeof raw.byPath === 'object' ? raw.byPath : {},
+        byRow: raw?.byRow && typeof raw.byRow === 'object' ? raw.byRow : {},
+    };
+};
+
+export const writePersistedTvFocus = (value: PersistedTvFocus) => {
+    if (typeof window === 'undefined') return;
+    writeJson(window.localStorage, PLAYER_TV_FOCUS_KEY, {
+        byPath: value.byPath || {},
+        byRow: value.byRow || {},
+    });
+};
+
+export const readLongPressHintSeen = () => {
+    if (typeof window === 'undefined') return true;
+    try {
+        return window.localStorage.getItem(PLAYER_LONG_PRESS_HINT_KEY) === '1';
+    } catch {
+        return true;
+    }
+};
+
+export const writeLongPressHintSeen = () => {
+    if (typeof window === 'undefined') return;
+    try {
+        window.localStorage.setItem(PLAYER_LONG_PRESS_HINT_KEY, '1');
+    } catch {
+        /* ignore */
+    }
+};
+
+export const readApkWhatsNewSeen = (): string => {
+    if (typeof window === 'undefined') return '';
+    try {
+        return String(window.localStorage.getItem(PLAYER_APK_WHATS_NEW_KEY) || '');
+    } catch {
+        return '';
+    }
+};
+
+export const writeApkWhatsNewSeen = (version: string) => {
+    if (typeof window === 'undefined' || !version) return;
+    try {
+        window.localStorage.setItem(PLAYER_APK_WHATS_NEW_KEY, version);
+    } catch {
+        /* ignore */
+    }
+};
+
 export const writeLocalPlaybackPrefs = (prefs: LocalPlaybackPrefs) => {
     if (typeof window === 'undefined') return;
     writeJson(window.localStorage, PLAYER_LOCAL_PLAYBACK_KEY, {
@@ -315,6 +399,66 @@ export const restorePlayerHomeScroll = () => {
 export const restorePlayerHomeScrollWhenReady = () => {
     if (typeof window === 'undefined') return () => undefined;
     const top = Number(window.sessionStorage.getItem(PLAYER_HOME_SCROLL_KEY));
+    if (!Number.isFinite(top) || top <= 0) return () => undefined;
+    let cancelled = false;
+    let raf = 0;
+    const started = Date.now();
+    const tick = () => {
+        if (cancelled) return;
+        writePlayerScrollTop(top);
+        if (Math.abs(readPlayerScrollTop() - top) <= 48 || Date.now() - started > 2500) return;
+        raf = window.requestAnimationFrame(tick);
+    };
+    raf = window.requestAnimationFrame(tick);
+    return () => {
+        cancelled = true;
+        window.cancelAnimationFrame(raf);
+    };
+};
+
+export const rememberLastLibraryPath = (path: string) => {
+    const next = String(path || '').trim();
+    if (!next || typeof window === 'undefined') return;
+    try {
+        window.sessionStorage.setItem(PLAYER_LAST_LIBRARY_PATH_KEY, next);
+        window.localStorage.setItem(PLAYER_LAST_LIBRARY_PATH_KEY, next);
+    } catch {
+        /* ignore */
+    }
+};
+
+export const readLastLibraryPath = () => {
+    if (typeof window === 'undefined') return '';
+    try {
+        return String(
+            window.sessionStorage.getItem(PLAYER_LAST_LIBRARY_PATH_KEY)
+            || window.localStorage.getItem(PLAYER_LAST_LIBRARY_PATH_KEY)
+            || '',
+        ).trim();
+    } catch {
+        return '';
+    }
+};
+
+export const stashPlayerLibraryScroll = () => {
+    if (typeof window === 'undefined') return;
+    try {
+        window.sessionStorage.setItem(PLAYER_LIBRARY_SCROLL_KEY, String(readPlayerScrollTop()));
+    } catch {
+        /* ignore */
+    }
+};
+
+export const restorePlayerLibraryScroll = () => {
+    if (typeof window === 'undefined') return;
+    const top = Number(window.sessionStorage.getItem(PLAYER_LIBRARY_SCROLL_KEY));
+    if (!Number.isFinite(top) || top <= 0) return;
+    writePlayerScrollTop(top);
+};
+
+export const restorePlayerLibraryScrollWhenReady = () => {
+    if (typeof window === 'undefined') return () => undefined;
+    const top = Number(window.sessionStorage.getItem(PLAYER_LIBRARY_SCROLL_KEY));
     if (!Number.isFinite(top) || top <= 0) return () => undefined;
     let cancelled = false;
     let raf = 0;
@@ -465,6 +609,62 @@ const isBecauseHomeHub = (hub: { identifier?: string; title?: string }) => (
     || /because you watched/i.test(String(hub.title || ''))
 );
 
+const isContinueHomeHub = (hub: { identifier?: string; title?: string }) => (
+    /continue\s*watch|ondeck|on[.\s_-]?deck|in[.\s_-]?progress/i.test(`${hub.identifier || ''} ${hub.title || ''}`)
+);
+
+const isPlaylistHomeHub = (hub: { identifier?: string; title?: string; playlistRatingKey?: string | null }) => (
+    Boolean(hub.playlistRatingKey) || /playlist/i.test(`${hub.identifier || ''} ${hub.title || ''}`)
+);
+
+/** Rows under Continue Watching (Recently Added, collections, etc). */
+export const playerHomeHasContentHubs = (data: PlayerHome | null | undefined) => (
+    !!(data?.hubs || []).some((hub) => (
+        hub.items?.length
+        && !isContinueHomeHub(hub)
+        && !isBecauseHomeHub(hub)
+        && !isPlaylistHomeHub(hub)
+    ))
+    || !!(data?.recentByLibrary || []).some((row) => row.items?.length)
+);
+
+/** Continue Watching-only (or partial) home still needs the full=1 hub pass. */
+export const playerHomeNeedsFull = (data: PlayerHome | null | undefined) => (
+    !data || !!data.partial || !playerHomeHasContentHubs(data)
+);
+
+const mergePlayerItemsPreserveOrder = <T extends { ratingKey?: string | number | null }>(
+    shown: T[] | null | undefined,
+    incoming: T[] | null | undefined,
+): T[] => {
+    const shownItems = Array.isArray(shown) ? shown : [];
+    const incomingItems = Array.isArray(incoming) ? incoming : [];
+    if (!shownItems.length) return incomingItems.slice();
+    const byKey = new Map<string, T>();
+    for (const item of incomingItems.concat(shownItems)) {
+        const key = String(item?.ratingKey || '').trim();
+        if (key && !byKey.has(key)) byKey.set(key, item);
+    }
+    const seen = new Set<string>();
+    const items: T[] = [];
+    for (const item of shownItems) {
+        const key = String(item?.ratingKey || '').trim();
+        const next = (key && byKey.get(key)) || item;
+        if (key) {
+            if (seen.has(key)) continue;
+            seen.add(key);
+        }
+        items.push(next);
+    }
+    for (const item of incomingItems) {
+        const key = String(item?.ratingKey || '').trim();
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        items.push(item);
+    }
+    return items;
+};
+
 /** Keep every full-home hub, and hold onto any extra rows the first paint already had. */
 export const mergePlayerHomePayloads = (full: PlayerHome, partial: PlayerHome): PlayerHome => {
     const byKey = new Map<string, NonNullable<PlayerHome['hubs']>[number]>();
@@ -489,10 +689,22 @@ export const mergePlayerHomePayloads = (full: PlayerHome, partial: PlayerHome): 
     (primary.hubs || []).forEach((hub) => add(hub, primary === full));
     (extra.hubs || []).forEach((hub) => add(hub, extra === full));
     (full.hubs || []).filter(isBecauseHomeHub).forEach((hub) => add(hub, true));
+    const hubs = order.map((key) => byKey.get(key)!);
+    const shownCw = (partial.hubs || []).find((hub) => isContinueHomeHub(hub));
+    if (shownCw?.items?.length) {
+        for (let index = 0; index < hubs.length; index += 1) {
+            if (!isContinueHomeHub(hubs[index])) continue;
+            hubs[index] = {
+                ...hubs[index],
+                items: mergePlayerItemsPreserveOrder(shownCw.items, hubs[index].items),
+            };
+        }
+    }
     return {
         ...partial,
         ...full,
-        hubs: order.map((key) => byKey.get(key)!),
+        continueWatching: mergePlayerItemsPreserveOrder(partial.continueWatching, full.continueWatching),
+        hubs,
         partial: false,
     };
 };

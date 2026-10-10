@@ -28,6 +28,7 @@
 
     <style name="PlayerTheme" parent="Theme.AppCompat.NoActionBar">
         <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:windowAnimationStyle">@null</item>
         <item name="android:colorAccent">@color/player_accent</item>
         <item name="colorAccent">@color/player_accent</item>
         <item name="alertDialogTheme">@style/PlayerDialogTheme</item>
@@ -37,11 +38,11 @@
     <style name="PlayerSeekBar" parent="Widget.AppCompat.SeekBar">
         <item name="android:background">@null</item>
         <item name="android:splitTrack">false</item>
-        <item name="android:paddingStart">10dp</item>
-        <item name="android:paddingEnd">10dp</item>
-        <item name="android:paddingTop">8dp</item>
-        <item name="android:paddingBottom">8dp</item>
-        <item name="android:thumbOffset">10dp</item>
+        <item name="android:paddingStart">9dp</item>
+        <item name="android:paddingEnd">9dp</item>
+        <item name="android:paddingTop">7dp</item>
+        <item name="android:paddingBottom">7dp</item>
+        <item name="android:thumbOffset">9dp</item>
         <item name="android:defaultFocusHighlightEnabled">false</item>
         <item name="android:colorControlHighlight">@android:color/transparent</item>
         <item name="tickMark">@null</item>
@@ -54,21 +55,42 @@
         <item name="android:textColor">@color/player_text_primary</item>
         <item name="android:windowMinWidthMajor">56%</item>
         <item name="android:windowMinWidthMinor">72%</item>
-        <item name="android:colorControlHighlight">@android:color/transparent</item>
+        <item name="android:colorControlHighlight">#40F59E0B</item>
+        <item name="android:listSelector">@drawable/player_dialog_item</item>
+        <item name="android:listChoiceBackgroundIndicator">@drawable/player_dialog_item</item>
         <item name="android:defaultFocusHighlightEnabled">false</item>
     </style>
 
     <style name="PlayerChipButton" parent="Widget.AppCompat.Button.Borderless">
         <item name="android:background">@drawable/player_chip_btn</item>
-        <item name="android:minHeight">31dp</item>
+        <item name="android:minHeight">28dp</item>
         <item name="android:minWidth">0dp</item>
-        <item name="android:paddingStart">12dp</item>
-        <item name="android:paddingEnd">12dp</item>
+        <item name="android:paddingStart">11dp</item>
+        <item name="android:paddingEnd">11dp</item>
         <item name="android:textAllCaps">false</item>
         <item name="android:textColor">@color/player_text_primary</item>
-        <item name="android:textSize">11sp</item>
+        <item name="android:textSize">10sp</item>
         <item name="android:focusable">true</item>
         <item name="android:defaultFocusHighlightEnabled">false</item>
         <item name="android:stateListAnimator">@null</item>
+    </style>
+
+    <style name="PlayerMenuRow" parent="Widget.AppCompat.Button.Borderless">
+        <item name="android:background">@drawable/player_menu_row</item>
+        <item name="android:minHeight">34dp</item>
+        <item name="android:minWidth">0dp</item>
+        <item name="android:gravity">start|center_vertical</item>
+        <item name="android:paddingStart">14dp</item>
+        <item name="android:paddingEnd">14dp</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:textColor">@color/player_text_primary</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:focusable">true</item>
+        <item name="android:focusableInTouchMode">true</item>
+        <item name="android:defaultFocusHighlightEnabled">false</item>
+        <item name="android:stateListAnimator">@null</item>
+        <item name="android:ellipsize">end</item>
+        <item name="android:maxLines">2</item>
     </style>
 </resources>

@@ -42,12 +42,13 @@ import {
     plexImageUrl,
     plexLogoUrl,
     resizePlexArtUrl,
+    isPlaybackFinished,
     rememberPlaybackProgress,
     PLAYBACK_SPEEDS,
     audioStreamIdFromSrc,
     subtitleStreamIdFromSrc,
 } from './playerUtils';
-import { fetchMediaPlayerNeighbors, fetchMediaPlayerSubtitleSearch, reportMediaPlayerTimeline, startMediaPlayerPlayback, stopMediaPlayerTranscode } from './api';
+import { fetchMediaPlayerNeighbors, fetchMediaPlayerSubtitleSearch, reportMediaPlayerTimeline, setMediaPlayerWatched, startMediaPlayerPlayback, stopMediaPlayerTranscode } from './api';
 import { usePlayerSettings } from './usePlayerSettings';
 import { PlayerSeekBar } from './PlayerSeekBar';
 import { PlayerSkipBackIcon, PlayerSkipForwardIcon } from './PlayerSkipIcons';
@@ -57,6 +58,7 @@ import {
     MIN_MINI_PLAYER_WIDTH,
     readLocalPlaybackPrefs,
     writeAvChoiceFromTracks,
+    writeMediaIndexChoice,
     readMiniPlayerWidth,
     writeLocalPlaybackPrefs,
     writeMiniPlayerWidth,
@@ -75,9 +77,16 @@ import {
 } from '../plex-client/nativePlayer';
 import { getSessionToken, isPlexDirectMode } from '../plex-client/config';
 
+export type PlayerCloseMeta = {
+    /** True when another episode/title is about to start. */
+    playNext?: boolean;
+    ended?: boolean;
+    item?: PlayerItem;
+};
+
 type Props = {
     session: PlayerPlaySession;
-    onClose: () => void;
+    onClose: (meta?: PlayerCloseMeta) => void;
     autoplayNext?: boolean;
     autoSkipIntro?: boolean;
     autoSkipCredits?: boolean;
@@ -299,6 +308,34 @@ const seekBy = (video: HTMLVideoElement | null, deltaSeconds: number) => {
     video.currentTime = Math.min(duration, next);
 };
 
+const skipChapter = (
+    video: HTMLVideoElement | null,
+    chapters: Array<{ startMs: number; title?: string }> | undefined,
+    direction: 1 | -1,
+) => {
+    if (!video || !chapters?.length) return;
+    const posMs = Math.max(0, Math.floor((video.currentTime || 0) * 1000));
+    const starts = chapters
+        .map((row) => Number(row.startMs) || 0)
+        .filter((ms) => ms >= 0)
+        .sort((a, b) => a - b);
+    if (direction > 0) {
+        const next = starts.find((ms) => ms > posMs + 1200);
+        if (next != null) video.currentTime = next / 1000;
+        return;
+    }
+    const previous = [...starts].reverse().find((ms) => ms < posMs - 1200);
+    video.currentTime = (previous != null ? previous : 0) / 1000;
+};
+
+const nativeNextItemPayload = (item?: PlayerItem | null) => {
+    if (!item?.ratingKey) return { ratingKey: '', title: '' as string | undefined, thumb: '' };
+    const thumb = item.thumb
+        ? portalUrl(resizePlexArtUrl(plexImageUrl(item.thumb, 480, 270, { quality: 60 }), 480, 270))
+        : '';
+    return { ratingKey: item.ratingKey, title: item.title, thumb };
+};
+
 const bufferedRanges = (video: HTMLVideoElement | null) => {
     const ranges: Array<{ startMs: number; endMs: number }> = [];
     if (!video) return ranges;
@@ -363,7 +400,11 @@ export const MediaPlayerVideo: React.FC<Props> = ({
     const volumeRef = useRef(localPrefs.current.volume);
     const mutedRef = useRef(localPrefs.current.muted);
     const speedRef = useRef(localPrefs.current.speed);
-    const sendTimelineRef = useRef<(state: 'playing' | 'paused' | 'buffering' | 'stopped', timeMs?: number) => void>(() => {});
+    const sendTimelineRef = useRef<(
+        state: 'playing' | 'paused' | 'buffering' | 'stopped',
+        timeMs?: number,
+        extra?: { ended?: boolean },
+    ) => void>(() => {});
     const onPlayItemRef = useRef(onPlayItem);
     const onConsumePlayNextRef = useRef(onConsumePlayNext);
     const queuedNextKeyRef = useRef<string | null>(null);
@@ -459,7 +500,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
         if (!nativeLiveRef.current) return;
         const next = upNextItem;
         void updateNativePlayerSession({
-            nextItem: next?.ratingKey ? { ratingKey: next.ratingKey, title: next.title } : { ratingKey: '', title: '' },
+            nextItem: nativeNextItemPayload(next),
         });
     }, [upNextItem]);
     useEffect(() => {
@@ -595,6 +636,40 @@ export const MediaPlayerVideo: React.FC<Props> = ({
         const logoAuthUrl = logoSrc ? absoluteWithAuth(logoSrc).url : '';
         const sidecarSubs: NativePlayerTrackOption[] = [];
 
+        const timelineFromPlaybackUrl = (src: string, fallbackSessionId: string) => {
+            try {
+                const parsed = new URL(src, window.location.href);
+                if (parsed.pathname.includes('/api/media-player/')) return undefined;
+                const token = parsed.searchParams.get('X-Plex-Token')
+                    || parsed.searchParams.get('access_token')
+                    || '';
+                if (!token) return undefined;
+                let clientIdentifier = parsed.searchParams.get('X-Plex-Client-Identifier') || '';
+                if (!clientIdentifier) {
+                    try {
+                        clientIdentifier = localStorage.getItem('plexClient.plexClientId') || 'streampilot-android';
+                    } catch {
+                        clientIdentifier = 'streampilot-android';
+                    }
+                }
+                return {
+                    origin: parsed.origin,
+                    token,
+                    clientId: clientIdentifier,
+                    product: parsed.searchParams.get('X-Plex-Product') || 'StreamPilot',
+                    version: parsed.searchParams.get('X-Plex-Version') || '1.0.0',
+                    platform: parsed.searchParams.get('X-Plex-Platform') || 'Android',
+                    device: parsed.searchParams.get('X-Plex-Device') || 'Android TV',
+                    deviceName: parsed.searchParams.get('X-Plex-Device-Name') || 'StreamPilot',
+                    sessionId: parsed.searchParams.get('X-Plex-Session-Identifier')
+                        || parsed.searchParams.get('session')
+                        || fallbackSessionId,
+                };
+            } catch {
+                return undefined;
+            }
+        };
+
         const buildNativeSession = (item: PlayerItem | null, opts?: {
             qualityId?: string;
             audioStreamId?: string;
@@ -620,7 +695,13 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                 mediaIndex: row.mediaIndex,
             })),
             markers: session.markers || { intro: null, credits: null },
-            nextItem: item?.ratingKey ? { ratingKey: item.ratingKey, title: item.title } : null,
+            nextItem: nativeNextItemPayload(item),
+            playbackMode: session.playbackMode || playbackModeFromSrc(
+                playbackSrcRef.current || session.src,
+                opts?.qualityId ?? qualityIdRef.current ?? session.qualityId,
+                session.canCopyOriginal,
+            ),
+            source: session.source || null,
             autoplayNext,
             autoSkipIntro,
             autoSkipCredits,
@@ -642,13 +723,17 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                 background: playerSettings.subtitleBackground,
                 position: playerSettings.subtitlePosition,
             },
+            timeline: timelineFromPlaybackUrl(
+                playbackSrcRef.current || session.src || '',
+                playSessionIdFromSrc(playbackSrcRef.current || session.src) || session.sessionId,
+            ),
         });
 
         (async () => {
             if (!(await isNativePlayerAvailable())) {
                 if (!cancelled) {
                     onPlaybackErrorRef.current?.('Native player unavailable on this device.');
-                    onCloseRef.current();
+                    onCloseRef.current({ ended: false, item: session.item });
                 }
                 return;
             }
@@ -713,9 +798,8 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                     && autoplayNextRef.current
                     && (queued?.ratingKey || neighbor?.ratingKey)
                 ) ? String(queued?.ratingKey || neighbor?.ratingKey) : '';
-                const nextKey = nativeNext || fallbackNext;
-                // Drop the WebView cover before timeline / play-next work so the
-                // overview is visible as soon as ExoPlayer closes.
+                const nextKey = result?.error ? '' : (nativeNext || fallbackNext);
+                const willPlayNext = Boolean(nextKey);
                 if (result?.error) {
                     onPlaybackErrorRef.current?.('Playback failed. Check your connection and try again.');
                 }
@@ -723,17 +807,30 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                 nativeMinimizedRef.current = false;
                 setNativeMinimized(false);
                 publishMusicNowPlayingRef.current(false);
-                onCloseRef.current();
-                sendStopped('stopped', reportMs);
-                if (result?.error || !nextKey) return;
+                // Keep a black cover only while chaining to the next title; otherwise
+                // drop it immediately so the overview can paint without a blank pause.
+                if (willPlayNext) {
+                    setNativeCover(true);
+                    setNativeExclusive(true);
+                } else {
+                    setNativeCover(false);
+                    setNativeExclusive(false);
+                }
+                onCloseRef.current({
+                    playNext: willPlayNext,
+                    ended: !!result?.ended,
+                    item: session.item,
+                });
+                sendStopped('stopped', reportMs, { ended: !!result?.ended });
+                if (!willPlayNext || !nextKey) return;
                 window.setTimeout(() => {
                     if (queued?.ratingKey === nextKey) {
                         onConsumePlayNextRef.current?.();
-                        onPlayItemRef.current?.(queued, { offsetMs: 0, skipResume: true });
+                        onPlayItemRef.current?.(queued, { offsetMs: 0, skipResume: true, fromAutoplay: true });
                     } else if (neighbor?.ratingKey === nextKey) {
-                        onPlayItemRef.current?.(neighbor, { offsetMs: 0, skipResume: true });
+                        onPlayItemRef.current?.(neighbor, { offsetMs: 0, skipResume: true, fromAutoplay: true });
                     }
-                }, 350);
+                }, 80);
             };
             try {
                 const result = await openNativePlayer({
@@ -761,7 +858,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                         if (queued && queued.ratingKey === next.ratingKey) {
                             onConsumePlayNextRef.current?.();
                         }
-                        onPlayItemRef.current?.(next, { offsetMs: 0, skipResume: true });
+                        onPlayItemRef.current?.(next, { offsetMs: 0, skipResume: true, fromAutoplay: true });
                     },
                     onMinimized: (event) => {
                         if (cancelled || gen !== nativeOpenGenRef.current) return;
@@ -810,6 +907,9 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                             ? (event.subtitleStreamId || '')
                             : (subtitleStreamIdRef.current ?? session.subtitleStreamId ?? '');
                         const nextMediaIndex = event.mediaIndex != null ? event.mediaIndex : (session.mediaIndex || 0);
+                        if (event.mediaIndex != null) {
+                            writeMediaIndexChoice(session.item.ratingKey, nextMediaIndex);
+                        }
                         const offset = Math.max(0, Math.floor(event.positionMs ?? currentMsRef.current ?? 0));
                         const previous = playSessionIdFromSrc(playbackSrcRef.current);
                         if (previous) {
@@ -953,7 +1053,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                 if (!cancelled && !nativeClosedRef.current) {
                     nativeClosedRef.current = true;
                     onPlaybackErrorRef.current?.(String(err?.message || 'Playback failed. Check your connection and try again.'));
-                    onCloseRef.current();
+                    onCloseRef.current({ ended: false, item: session.item });
                 }
                 return;
             }
@@ -1007,12 +1107,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                     music: isMusicPlayerItem(live.item),
                     posterUrl: poster ? nativePlaybackAuth(poster).url : '',
                     durationMs: live.item.durationMs || 0,
-                    nextItem: (playNextQueueRef.current[0] || nextItemRef.current)
-                        ? {
-                            ratingKey: String((playNextQueueRef.current[0] || nextItemRef.current)?.ratingKey || ''),
-                            title: (playNextQueueRef.current[0] || nextItemRef.current)?.title,
-                        }
-                        : null,
+                    nextItem: nativeNextItemPayload(playNextQueueRef.current[0] || nextItemRef.current),
                 },
             });
             if (!cancelled) publishMusicNowPlayingRef.current();
@@ -1038,7 +1133,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
         const close = () => {
             void closeNativePlayer();
             sendTimelineRef.current('stopped');
-            onCloseRef.current();
+            onCloseRef.current({ ended: false, item: session.item });
             return true;
         };
         window.__SMP_CLOSE_PLAYBACK__ = close;
@@ -1077,7 +1172,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                 const next = data.next;
                 if (next?.ratingKey && nativeExclusiveRef.current) {
                     void updateNativePlayerSession({
-                        nextItem: { ratingKey: next.ratingKey, title: next.title },
+                        nextItem: nativeNextItemPayload(next),
                     });
                 }
             })
@@ -1262,7 +1357,11 @@ export const MediaPlayerVideo: React.FC<Props> = ({
         const ratingKey = session.item.ratingKey;
         const sessionId = playSessionIdFromSrc(playbackSrc) || session.sessionId;
         if (!ratingKey || !sessionId) return undefined;
-        const send = (state: 'playing' | 'paused' | 'buffering' | 'stopped', timeOverride?: number) => {
+        const send = (
+            state: 'playing' | 'paused' | 'buffering' | 'stopped',
+            timeOverride?: number,
+            extra?: { ended?: boolean },
+        ) => {
             const video = nativeExclusive ? null : videoRef.current;
             const timeMs = timeOverride != null
                 ? Math.max(0, Math.floor(timeOverride))
@@ -1273,20 +1372,31 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                     ? video.duration * 1000
                     : durationMsRef.current) || session.item.durationMs || 0),
             );
+            const creditsStartMs = Number(session.markers?.credits?.startMs);
+            const finished = state === 'stopped' && isPlaybackFinished(timeMs, nextDuration, {
+                ended: extra?.ended === true,
+                creditsStartMs: Number.isFinite(creditsStartMs) && creditsStartMs > 0 ? creditsStartMs : null,
+            });
             if (state === 'stopped') {
                 const queued = playNextQueueRef.current[0];
                 const neighbor = nextItemRef.current;
                 const next = session.item.type === 'episode'
                     ? (queued?.ratingKey && queued.ratingKey !== session.item.ratingKey ? queued : neighbor)
                     : null;
-                rememberPlaybackProgress(session.item, timeMs, nextDuration, next);
+                rememberPlaybackProgress(session.item, timeMs, nextDuration, next, {
+                    ended: extra?.ended === true,
+                    creditsStartMs: Number.isFinite(creditsStartMs) && creditsStartMs > 0 ? creditsStartMs : null,
+                });
+                if (finished) {
+                    void setMediaPlayerWatched(ratingKey, true, session.item, { skipNote: true });
+                }
                 void stopPlaybackSession(sessionId, session.item.serverId, ratingKey);
             }
             void reportMediaPlayerTimeline({
                 ratingKey,
                 sessionId,
                 state,
-                timeMs,
+                timeMs: finished ? 0 : timeMs,
                 durationMs: nextDuration,
                 audioStreamId: audioStreamIdFromSrc(playbackSrc) || audioStreamId,
                 subtitleStreamId: isFilePlaybackSrc(playbackSrc) ? '' : subtitleStreamIdFromSrc(playbackSrc),
@@ -1356,7 +1466,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
     const closePlayer = () => {
         void exitPlayerFullscreen();
         void exitPictureInPicture(videoRef.current);
-        onClose();
+        onClose({ ended: false, item: session.item });
     };
 
     const enterMini = () => {
@@ -1418,7 +1528,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                         if (queuedNextKeyRef.current && queuedNextKeyRef.current === next.ratingKey) {
                             onConsumePlayNextRef.current?.();
                         }
-                        onPlayItemRef.current?.(next, { offsetMs: 0, skipResume: true });
+                        onPlayItemRef.current?.(next, { offsetMs: 0, skipResume: true, fromAutoplay: true });
                     }
                     return 0;
                 }
@@ -1433,9 +1543,15 @@ export const MediaPlayerVideo: React.FC<Props> = ({
             const tag = String((event.target as HTMLElement | null)?.tagName || '').toLowerCase();
             if (tag === 'input' || tag === 'select' || tag === 'textarea') return;
             if (chrome === 'mini' && !overlayRef.current?.contains(event.target as Node)) return;
-            if (event.key === 'Escape') {
+            if (event.key === 'Escape' || event.key === 'BrowserBack' || event.key === 'GoBack') {
                 if (openMenu) {
+                    event.preventDefault();
                     setOpenMenu(null);
+                    return;
+                }
+                if (showUpNext) {
+                    event.preventDefault();
+                    setDismissedUpNext(true);
                     return;
                 }
                 if (fullscreenElement()) return;
@@ -1457,6 +1573,14 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                 event.preventDefault();
                 seekBy(videoRef.current, 10);
             }
+            if (event.key === 'MediaTrackNext' || event.key === 'PageDown') {
+                event.preventDefault();
+                skipChapter(videoRef.current, session.item.chapters, 1);
+            }
+            if (event.key === 'MediaTrackPrevious' || event.key === 'PageUp') {
+                event.preventDefault();
+                skipChapter(videoRef.current, session.item.chapters, -1);
+            }
             if ((event.key === 'm' || event.key === 'M') && !event.metaKey && !event.ctrlKey) {
                 event.preventDefault();
                 const video = videoRef.current;
@@ -1472,7 +1596,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
-    }, [chrome, onClose, openMenu]);
+    }, [chrome, onClose, openMenu, session.item.chapters, showUpNext]);
 
     const applyStreamChange = (patch: {
         qualityId?: string;
@@ -1930,8 +2054,12 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                         if (Number.isFinite(next) && next > 0) setDurationMs(next * 1000);
                     }}
                     onEnded={() => {
-                        sendTimelineRef.current('stopped');
-                        if (autoplayNext && upNextItem) playUpNext(upNextItem);
+                        sendTimelineRef.current('stopped', undefined, { ended: true });
+                        if (autoplayNext && upNextItem) {
+                            playUpNext(upNextItem);
+                            return;
+                        }
+                        onClose({ ended: true, item: session.item });
                     }}
                 />
 
@@ -2011,7 +2139,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                                     onClick={() => setDismissedUpNext(true)}
                                     className="rounded-lg bg-white/10 px-3 py-1.5 text-xs font-bold text-white"
                                 >
-                                    {t('common.close')}
+                                    {t('mediaPlayerPage.watchCredits')}
                                 </button>
                             </div>
                         </div>
@@ -2068,6 +2196,26 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                                 >
                                     <PlayerSkipForwardIcon className="h-6 w-6" />
                                 </button>
+                                {(session.item.chapters || []).length ? (
+                                    <>
+                                        <button
+                                            type="button"
+                                            onClick={() => skipChapter(videoRef.current, session.item.chapters, -1)}
+                                            className="inline-flex items-center rounded-full bg-white/10 px-2.5 py-1.5 text-xs font-bold text-white hover:bg-white/20"
+                                            aria-label={t('mediaPlayerPage.chapterPrevious')}
+                                        >
+                                            {t('mediaPlayerPage.chapterPrevious')}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => skipChapter(videoRef.current, session.item.chapters, 1)}
+                                            className="inline-flex items-center rounded-full bg-white/10 px-2.5 py-1.5 text-xs font-bold text-white hover:bg-white/20"
+                                            aria-label={t('mediaPlayerPage.chapterNext')}
+                                        >
+                                            {t('mediaPlayerPage.chapterNext')}
+                                        </button>
+                                    </>
+                                ) : null}
                                 {upNextItem ? (
                                     <button
                                         type="button"
@@ -2134,9 +2282,11 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                                         onToggle={() => setOpenMenu((current) => current === 'version' ? null : 'version')}
                                         onChange={(id) => {
                                             setOpenMenu(null);
+                                            const nextIndex = Number(id) || 0;
+                                            writeMediaIndexChoice(session.item.ratingKey, nextIndex);
                                             onPlayItem?.(session.item, {
                                                 offsetMs: Math.floor(currentMsRef.current || 0),
-                                                mediaIndex: Number(id) || 0,
+                                                mediaIndex: nextIndex,
                                                 skipResume: true,
                                             });
                                         }}

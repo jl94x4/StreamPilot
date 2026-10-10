@@ -11,6 +11,7 @@ import {
     applyLibraryNavOrder,
     defaultHomeRowIds,
     moveHomeRow,
+    type PlayerContinueWatchingSort,
     type PlayerSubtitleMode,
 } from './playerSettings';
 import { usePlayerSettings } from './usePlayerSettings';
@@ -29,6 +30,20 @@ const isTvShell = () => {
             || window.__PLEX_CLIENT__?.isTv === true;
     } catch {
         return false;
+    }
+};
+
+const readAppVersion = (): string => {
+    try {
+        const fromWindow = String(window.__PLEX_CLIENT__?.appVersion || '').trim();
+        if (fromWindow) return fromWindow;
+    } catch {
+        /* ignore */
+    }
+    try {
+        return String(process.env.PLEX_CLIENT_APP_VERSION || '').trim();
+    } catch {
+        return '';
     }
 };
 
@@ -303,6 +318,7 @@ type HeroMode = typeof HERO_MODE_VALUES[number];
 export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }) => {
     const { t } = useDiscoverI18n();
     const tvShell = isTvShell();
+    const [appVersion, setAppVersion] = useState(readAppVersion);
     const canEditHero = isAdmin || (typeof window !== 'undefined' && Boolean(window.__PLEX_CLIENT__));
     const [settings, updateSettings, { dirty: playerDirty, saving: playerSaving, saveSettings, discardSettings }] = usePlayerSettings();
     const [libraries, setLibraries] = useState<PlayerSection[]>([]);
@@ -454,15 +470,19 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
     const rowLabels = useMemo(() => ({
         continueWatching: t('mediaPlayerPage.continueWatching'),
         recents: t('mediaPlayerPage.recents'),
-        playlists: t('mediaPlayerPage.playlists'),
     }), [t]);
+    const continueWatchingSortOptions = useMemo(() => ([
+        { value: 'releaseDate', label: t('mediaPlayerPage.continueWatchingSortReleaseDate') },
+        { value: 'plex', label: t('mediaPlayerPage.continueWatchingSortPlex') },
+        { value: 'recentlyWatched', label: t('mediaPlayerPage.continueWatchingSortRecentlyWatched') },
+        { value: 'title', label: t('mediaPlayerPage.continueWatchingSortTitle') },
+    ]), [t]);
 
     const orderedRowIds = applyHomeRowOrder(defaultHomeRowIds(), settings.homeRowOrder);
     const orderedLibraries = applyLibraryNavOrder(libraries, settings.libraryNavOrder);
 
     const hiddenRows = new Set<string>();
     if (!settings.showContinueWatching) hiddenRows.add('continueWatching');
-    if (!settings.showPlaylists) hiddenRows.add('playlists');
 
     const settingsTabs = useMemo(() => {
         const rows: Array<{ id: SettingsTabId; label: string }> = [
@@ -489,6 +509,20 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
     useEffect(() => {
         if (dirty) setSaveState('idle');
     }, [dirty]);
+
+    useEffect(() => {
+        const sync = () => {
+            const next = readAppVersion();
+            setAppVersion((prev) => (prev === next ? prev : next));
+        };
+        sync();
+        const id = window.setInterval(sync, 400);
+        const stop = window.setTimeout(() => window.clearInterval(id), 3000);
+        return () => {
+            window.clearInterval(id);
+            window.clearTimeout(stop);
+        };
+    }, []);
 
     const discardAll = () => {
         discardSettings();
@@ -565,6 +599,12 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
         </div>
     );
 
+    const versionLabel = appVersion ? (
+        <p className={tvShell ? 'mt-8 text-sm font-semibold text-muted/70' : 'px-1 text-xs font-bold text-muted/70'}>
+            {t('mediaPlayerPage.appVersion', { version: appVersion })}
+        </p>
+    ) : null;
+
     if (tvShell) {
         return (
             <div className="flex w-full flex-col gap-8 pb-16" data-tv-settings="1">
@@ -619,6 +659,15 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                             continueWatchingLayout: value as typeof settings.continueWatchingLayout,
                         })}
                     />
+                    <TvChoiceRow
+                        title={t('mediaPlayerPage.continueWatchingSort')}
+                        description={t('mediaPlayerPage.continueWatchingSortHint')}
+                        value={settings.continueWatchingSort}
+                        options={continueWatchingSortOptions}
+                        onChange={(value) => updateSettings({
+                            continueWatchingSort: value as PlayerContinueWatchingSort,
+                        })}
+                    />
                     <TvToggleRow
                         title={t('mediaPlayerPage.showPlaylists')}
                         description={t('mediaPlayerPage.showPlaylistsHint')}
@@ -626,10 +675,28 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         onChange={(checked) => updateSettings({ showPlaylists: checked })}
                     />
                     <TvToggleRow
+                        title={t('mediaPlayerPage.showWatchlist')}
+                        description={t('mediaPlayerPage.showWatchlistHint')}
+                        checked={settings.showWatchlist}
+                        onChange={(checked) => updateSettings({ showWatchlist: checked })}
+                    />
+                    <TvToggleRow
                         title={t('mediaPlayerPage.showBecauseYouWatched')}
                         description={t('mediaPlayerPage.showBecauseYouWatchedHint')}
                         checked={settings.showBecauseYouWatched}
                         onChange={(checked) => updateSettings({ showBecauseYouWatched: checked })}
+                    />
+                    <TvToggleRow
+                        title={t('mediaPlayerPage.hideWatchedFromRecents')}
+                        description={t('mediaPlayerPage.hideWatchedFromRecentsHint')}
+                        checked={settings.hideWatchedFromRecents}
+                        onChange={(checked) => updateSettings({ hideWatchedFromRecents: checked })}
+                    />
+                    <TvToggleRow
+                        title={t('mediaPlayerPage.reduceMotion')}
+                        description={t('mediaPlayerPage.reduceMotionHint')}
+                        checked={settings.reduceMotion}
+                        onChange={(checked) => updateSettings({ reduceMotion: checked })}
                     />
                     <TvToggleRow
                         title={t('mediaPlayerPage.continueWatchingSeasonPoster')}
@@ -662,9 +729,7 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                             if (fullIndex < 0) return;
                             updateSettings({ homeRowOrder: moveHomeRow(orderedRowIds, fullIndex, delta) });
                         }}
-                        onReset={settings.homeRowOrder.length
-                            ? () => updateSettings({ homeRowOrder: [] })
-                            : undefined}
+                        onReset={() => updateSettings({ homeRowOrder: [] })}
                     />
                 </section>
                 ) : null}
@@ -676,6 +741,19 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         description={t('mediaPlayerPage.autoplayNextHint')}
                         checked={settings.autoplayNext}
                         onChange={(checked) => updateSettings({ autoplayNext: checked })}
+                    />
+                    <TvChoiceRow
+                        title={t('mediaPlayerPage.stillWatchingAfter')}
+                        description={t('mediaPlayerPage.stillWatchingAfterHint')}
+                        value={String(settings.stillWatchingAfter)}
+                        options={[
+                            { value: '0', label: t('mediaPlayerPage.stillWatchingAfterOff') },
+                            ...[2, 3, 4, 5, 6, 8, 10].map((count) => ({
+                                value: String(count),
+                                label: t('mediaPlayerPage.stillWatchingAfterN', { count }),
+                            })),
+                        ]}
+                        onChange={(value) => updateSettings({ stillWatchingAfter: Number(value) || 0 })}
                     />
                     <TvChoiceRow
                         title={t('mediaPlayerPage.defaultQuality')}
@@ -816,6 +894,7 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                 {settingsTab === 'servers' ? serverSettings : null}
                 </div>
                 {saveActions}
+                {versionLabel}
             </div>
         );
     }
@@ -981,6 +1060,21 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                             ]}
                         />
                     </div>
+                    <div className="border-b border-border/40 py-4">
+                        <label className="mb-2 block text-sm font-bold text-text" htmlFor="media-player-cw-sort">
+                            {t('mediaPlayerPage.continueWatchingSort')}
+                        </label>
+                        <p className="mb-3 text-xs text-muted">{t('mediaPlayerPage.continueWatchingSortHint')}</p>
+                        <CustomSelect
+                            id="media-player-cw-sort"
+                            value={settings.continueWatchingSort}
+                            onChange={(value) => updateSettings({
+                                continueWatchingSort: value as PlayerContinueWatchingSort,
+                            })}
+                            className="max-w-xl"
+                            options={continueWatchingSortOptions}
+                        />
+                    </div>
                     <SettingsToggleRow
                         title={t('mediaPlayerPage.showPlaylists')}
                         description={t('mediaPlayerPage.showPlaylistsHint')}
@@ -988,10 +1082,28 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         onChange={(checked) => updateSettings({ showPlaylists: checked })}
                     />
                     <SettingsToggleRow
+                        title={t('mediaPlayerPage.showWatchlist')}
+                        description={t('mediaPlayerPage.showWatchlistHint')}
+                        checked={settings.showWatchlist}
+                        onChange={(checked) => updateSettings({ showWatchlist: checked })}
+                    />
+                    <SettingsToggleRow
                         title={t('mediaPlayerPage.showBecauseYouWatched')}
                         description={t('mediaPlayerPage.showBecauseYouWatchedHint')}
                         checked={settings.showBecauseYouWatched}
                         onChange={(checked) => updateSettings({ showBecauseYouWatched: checked })}
+                    />
+                    <SettingsToggleRow
+                        title={t('mediaPlayerPage.hideWatchedFromRecents')}
+                        description={t('mediaPlayerPage.hideWatchedFromRecentsHint')}
+                        checked={settings.hideWatchedFromRecents}
+                        onChange={(checked) => updateSettings({ hideWatchedFromRecents: checked })}
+                    />
+                    <SettingsToggleRow
+                        title={t('mediaPlayerPage.reduceMotion')}
+                        description={t('mediaPlayerPage.reduceMotionHint')}
+                        checked={settings.reduceMotion}
+                        onChange={(checked) => updateSettings({ reduceMotion: checked })}
                     />
                     <div className="border-b border-border/40 py-4">
                         <div className="mb-3 flex items-start justify-between gap-3">
@@ -999,15 +1111,13 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                                 <p className="text-sm font-bold text-text">{t('mediaPlayerPage.homeRowOrder')}</p>
                                 <p className="mt-1 text-xs text-muted">{t('mediaPlayerPage.homeRowOrderHint')}</p>
                             </div>
-                            {settings.homeRowOrder.length ? (
-                                <button
-                                    type="button"
-                                    onClick={() => updateSettings({ homeRowOrder: [] })}
-                                    className="shrink-0 text-xs font-bold text-muted hover:text-text"
-                                >
-                                    {t('mediaPlayerPage.homeRowReset')}
-                                </button>
-                            ) : null}
+                            <button
+                                type="button"
+                                onClick={() => updateSettings({ homeRowOrder: [] })}
+                                className="shrink-0 text-xs font-bold text-muted hover:text-text"
+                            >
+                                {t('mediaPlayerPage.homeRowReset')}
+                            </button>
                         </div>
                         <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
                             {orderedRowIds.map((id, index) => (
@@ -1107,6 +1217,25 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                             checked={settings.autoplayNext}
                             onChange={(checked) => updateSettings({ autoplayNext: checked })}
                         />
+                    <div className="py-4">
+                        <label className="mb-2 block text-sm font-bold text-text" htmlFor="media-player-still-watching">
+                            {t('mediaPlayerPage.stillWatchingAfter')}
+                        </label>
+                        <p className="mb-3 text-xs text-muted">{t('mediaPlayerPage.stillWatchingAfterHint')}</p>
+                        <CustomSelect
+                            id="media-player-still-watching"
+                            value={String(settings.stillWatchingAfter)}
+                            onChange={(value) => updateSettings({ stillWatchingAfter: Number(value) || 0 })}
+                            className="max-w-xl"
+                            options={[
+                                { value: '0', label: t('mediaPlayerPage.stillWatchingAfterOff') },
+                                ...[2, 3, 4, 5, 6, 8, 10].map((count) => ({
+                                    value: String(count),
+                                    label: t('mediaPlayerPage.stillWatchingAfterN', { count }),
+                                })),
+                            ]}
+                        />
+                    </div>
                     <div className="py-4">
                         <label className="mb-2 block text-sm font-bold text-text" htmlFor="media-player-default-quality">
                             {t('mediaPlayerPage.defaultQuality')}
@@ -1267,6 +1396,8 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
             </div>
             </div>
             ) : null}
+
+            {versionLabel}
 
             <StickySaveBar className="!bottom-5">
                 {dirty ? (

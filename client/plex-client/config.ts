@@ -10,6 +10,8 @@ declare global {
             sessionToken?: string;
             isTv?: boolean;
             nativePlayer?: boolean;
+            appVersion?: string;
+            appVersionCode?: number | string;
         };
         /** Defined in plex-client/index.html — CSS-zoom to ~1920 desktop density on leanback. */
         __SMP_APPLY_TV_SCALE__?: () => void;
@@ -54,6 +56,22 @@ export const isPlexClientApp = (): boolean => {
         return document.documentElement?.dataset?.plexClient === '1';
     } catch {
         return false;
+    }
+};
+
+/** APK versionName injected at web build and overwritten from PackageInfo on device. */
+export const getPlexClientAppVersion = (): string => {
+    if (typeof window === 'undefined') return '';
+    try {
+        const fromWindow = String(window.__PLEX_CLIENT__?.appVersion || '').trim();
+        if (fromWindow) return fromWindow;
+    } catch {
+        /* ignore */
+    }
+    try {
+        return String(process.env.PLEX_CLIENT_APP_VERSION || '').trim();
+    } catch {
+        return '';
     }
 };
 

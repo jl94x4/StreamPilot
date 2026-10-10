@@ -9,21 +9,19 @@ import {
     useDiscoverGridSize,
     useDiscoverI18n,
 } from './host';
-import { fetchMediaPlayerHub, setMediaPlayerWatched } from './api';
+import { fetchMediaPlayerPlaylists } from './api';
 import { PlayerPosterCard } from './PlayerPosterCard';
 import { PlayerTvStatusPanel } from './PlayerTvStatusPanel';
-import { classifyPlayerHomeHub, stabilizeContinueWatchingOrder } from './playerSettings';
-import { hideWatchedPlayerItems } from './playerUtils';
-import { usePlayerSettings } from './usePlayerSettings';
 import type { PlayerItem, PlayerPlayOptions } from './types';
 
 type Props = {
-    path: string;
-    title?: string;
-    identifier?: string;
     onBack: () => void;
     onOpenItem: (item: PlayerItem) => void;
     onPlay: (item: PlayerItem, opts?: PlayerPlayOptions) => void;
+    onPlayNext?: (item: PlayerItem) => void;
+    onToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
+    isAdmin?: boolean;
+    playlistsEnabled?: boolean;
 };
 
 const isTvShell = () => {
@@ -35,30 +33,39 @@ const isTvShell = () => {
     }
 };
 
-export const MediaPlayerHub: React.FC<Props> = ({
-    path,
-    title: titleHint = '',
-    identifier = '',
+export const MediaPlayerPlaylists: React.FC<Props> = ({
     onBack,
     onOpenItem,
     onPlay,
+    onPlayNext,
+    onToast,
+    isAdmin = false,
+    playlistsEnabled = true,
 }) => {
     const { t } = useDiscoverI18n();
-    const [settings] = usePlayerSettings();
     const [gridSize, setGridSize] = useDiscoverGridSize();
-    const [title, setTitle] = useState(titleHint || t('common.viewMore'));
     const [items, setItems] = useState<PlayerItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const tvShell = isTvShell();
 
+    const load = () => {
+        setLoading(true);
+        fetchMediaPlayerPlaylists({ force: true })
+            .then((data) => {
+                setItems(data.items || []);
+                setError(null);
+            })
+            .catch((err) => setError(String(err?.message || t('mediaPlayerPage.loadError'))))
+            .finally(() => setLoading(false));
+    };
+
     useEffect(() => {
         let cancelled = false;
         setLoading(true);
-        fetchMediaPlayerHub(path, { title: titleHint, identifier })
+        fetchMediaPlayerPlaylists({ force: true })
             .then((data) => {
                 if (cancelled) return;
-                setTitle(data.title || titleHint || t('common.viewMore'));
                 setItems(data.items || []);
                 setError(null);
             })
@@ -70,48 +77,13 @@ export const MediaPlayerHub: React.FC<Props> = ({
                 if (!cancelled) setLoading(false);
             });
         return () => { cancelled = true; };
-    }, [path, titleHint, identifier, t]);
-
-    const continueWatchingHub = classifyPlayerHomeHub({
-        identifier,
-        title: `${titleHint} ${title}`,
-    }) === 'continueWatching'
-        || /on[.\s_-]?deck/i.test(String(path || ''));
-    const recentHub = /recently\s*added|recentlyadded/i.test(`${identifier} ${titleHint} ${title} ${path}`);
-    const shownItems = continueWatchingHub
-        ? stabilizeContinueWatchingOrder(items, settings.continueWatchingSort).items
-        : (recentHub && settings.hideWatchedFromRecents ? hideWatchedPlayerItems(items) : items);
-
-    const toggleWatched = async (item: PlayerItem) => {
-        const next = !item.watched;
-        setItems((prev) => prev.map((row) => (
-            row.ratingKey === item.ratingKey ? { ...row, watched: next } : row
-        )));
-        try {
-            await setMediaPlayerWatched(item.ratingKey, next, item);
-        } catch {
-            setItems((prev) => prev.map((row) => (
-                row.ratingKey === item.ratingKey ? { ...row, watched: item.watched } : row
-            )));
-        }
-    };
+    }, [t]);
 
     if (tvShell && error) {
         return (
             <PlayerTvStatusPanel
                 title={error}
-                onRetry={() => {
-                    setError(null);
-                    setLoading(true);
-                    fetchMediaPlayerHub(path, { title: titleHint, identifier })
-                        .then((data) => {
-                            setTitle(data.title || titleHint || t('common.viewMore'));
-                            setItems(data.items || []);
-                            setError(null);
-                        })
-                        .catch((err) => setError(String(err?.message || t('mediaPlayerPage.loadError'))))
-                        .finally(() => setLoading(false));
-                }}
+                onRetry={load}
                 onBack={onBack}
             />
         );
@@ -131,7 +103,7 @@ export const MediaPlayerHub: React.FC<Props> = ({
                             {t('mediaPlayerPage.back')}
                         </button>
                     ) : null}
-                    <h1 className={discoveryTheme.heading}>{title}</h1>
+                    <h1 className={discoveryTheme.heading}>{t('mediaPlayerPage.playlists')}</h1>
                 </div>
                 {!tvShell ? (
                     <DiscoverGridSizeSelect value={gridSize} onChange={setGridSize} />
@@ -147,9 +119,9 @@ export const MediaPlayerHub: React.FC<Props> = ({
                 <div className={discoveryTheme.emptyState}>
                     <p className={discoveryTheme.emptyTitle}>{error}</p>
                 </div>
-            ) : !shownItems.length ? (
+            ) : !items.length ? (
                 <div className={discoveryTheme.emptyState}>
-                    <p className={discoveryTheme.emptyTitle}>{t('mediaPlayerPage.emptyLibrary')}</p>
+                    <p className={discoveryTheme.emptyTitle}>{t('mediaPlayerPage.emptyPlaylists')}</p>
                 </div>
             ) : (
                 <div
@@ -158,14 +130,17 @@ export const MediaPlayerHub: React.FC<Props> = ({
                     data-tv-rail={tvShell ? '1' : undefined}
                     data-tv-poster-rail={tvShell ? '1' : undefined}
                 >
-                    {shownItems.map((item, index) => (
+                    {items.map((item, index) => (
                         <PlayerPosterCard
                             key={item.ratingKey}
                             item={item}
                             imagePriority={index < 12}
                             onOpenItem={onOpenItem}
                             onPlay={onPlay}
-                            onToggleWatched={toggleWatched}
+                            onPlayNext={onPlayNext}
+                            onToast={onToast}
+                            isAdmin={isAdmin}
+                            playlistsEnabled={playlistsEnabled}
                         />
                     ))}
                 </div>

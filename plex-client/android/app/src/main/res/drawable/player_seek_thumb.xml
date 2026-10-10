@@ -5,8 +5,8 @@
             <item>
                 <shape android:shape="oval">
                     <size
-                        android:width="20dp"
-                        android:height="20dp" />
+                        android:width="18dp"
+                        android:height="18dp" />
                     <solid android:color="#FFFFFFFF" />
                 </shape>
             </item>
@@ -26,8 +26,8 @@
             <item>
                 <shape android:shape="oval">
                     <size
-                        android:width="20dp"
-                        android:height="20dp" />
+                        android:width="18dp"
+                        android:height="18dp" />
                     <solid android:color="#FFFFFFFF" />
                 </shape>
             </item>
@@ -47,8 +47,8 @@
             <item>
                 <shape android:shape="oval">
                     <size
-                        android:width="20dp"
-                        android:height="20dp" />
+                        android:width="18dp"
+                        android:height="18dp" />
                     <solid android:color="#E6FFFFFF" />
                 </shape>
             </item>

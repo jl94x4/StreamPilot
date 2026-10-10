@@ -2,5 +2,6 @@
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:drawable="@drawable/player_glass_chip_focus" android:state_focused="true" />
     <item android:drawable="@drawable/player_glass_chip_pressed" android:state_pressed="true" />
+    <item android:drawable="@drawable/player_glass_chip_selected" android:state_selected="true" />
     <item android:drawable="@drawable/player_glass_chip" />
 </selector>

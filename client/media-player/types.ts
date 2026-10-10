@@ -111,6 +111,8 @@ export type PlayerItem = {
     grandparentRatingKey?: string | null;
     contentRating?: string | null;
     audienceRating?: number | null;
+    /** Plex user rating 1–10 (UI shows 5 stars). */
+    userRating?: number | null;
     originallyAvailableAt?: string | null;
     tmdbId?: number | null;
     showTmdbId?: number | null;
@@ -252,6 +254,8 @@ export type PlayerLibraryHub = {
     playlistRatingKey?: string | null;
     /** Pinned collection labeled Heros or Heroes. */
     heroRow?: boolean;
+    /** Plex row or collection is sorted randomly. */
+    randomOrder?: boolean;
 };
 
 export type PlayerHome = {
@@ -370,4 +374,6 @@ export type PlayerPlayOptions = {
     shuffle?: boolean;
     playFromHere?: boolean;
     queue?: PlayerItem[];
+    /** Next episode started by autoplay, not a user Play press. */
+    fromAutoplay?: boolean;
 };

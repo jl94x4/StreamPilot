@@ -2,7 +2,14 @@ import { useEffect } from 'react';
 import { readDocumentZoom } from '../shared/ui';
 import { isAndroidTvUi } from './config';
 import { PLAYER_APP_BASE, PLAYER_NAVIGATE_EVENT, PLAYER_SCROLL_ID, PLAYER_TV_NAV_EVENT } from '../media-player/paths';
-import { PLAYER_SEARCH_INPUT_ID, requestPlayerHomeReset } from '../media-player/playerMemory';
+import {
+    PLAYER_SEARCH_INPUT_ID,
+    readLastLibraryPath,
+    readPersistedTvFocus,
+    requestPlayerHomeReset,
+    requestPlayerSearchFocus,
+    writePersistedTvFocus,
+} from '../media-player/playerMemory';
 import { requestBrowseFocusAbs } from '../media-player/playerUtils';
 
 const TV_ITEM = '[data-tv-item="1"]';
@@ -55,7 +62,7 @@ const visibleContentRails = () => {
     });
 };
 
-const TV_OVERLAY = '[data-tv-item-menu="1"], [data-tv-select-menu="1"], [data-tv-resume-dialog="1"], [data-tv-season-watch-dialog="1"], [data-tv-home-switch="1"], [data-tv-version-dialog="1"], [data-tv-track-dialog="1"], [data-tv-settings-dialog="1"], [data-tv-playback="1"], [data-tv-playback-overlay="1"]';
+const TV_OVERLAY = '[data-tv-item-menu="1"], [data-tv-select-menu="1"], [data-tv-resume-dialog="1"], [data-tv-season-watch-dialog="1"], [data-tv-still-watching-dialog="1"], [data-tv-whats-new="1"], [data-tv-home-switch="1"], [data-tv-version-dialog="1"], [data-tv-track-dialog="1"], [data-tv-settings-dialog="1"], [data-tv-playback="1"], [data-tv-playback-overlay="1"]';
 const TV_AUTH = '[data-tv-auth="1"]';
 
 /** Prefer a real menu; a playback cover still owns the remote even with no buttons. */
@@ -111,31 +118,200 @@ const scrollOverlayOnly = (el: HTMLElement) => {
 };
 
 const PEEK_PX = 72;
+const SLOT_PEEK_PX = 40;
+
+const OVERFLOW_RAIL_SEL = '[data-tv-poster-rail="1"], [data-tv-rail="1"], .media-details-episode-cast';
+
+/** Innermost horizontal scroller. Skip wrappers like section[data-tv-rail] around a carousel. */
+const overflowXRailOf = (el: HTMLElement): HTMLElement | null => {
+    const marked: HTMLElement[] = [];
+    let node: HTMLElement | null = el;
+    while (node && node !== document.documentElement) {
+        if (node.id === PLAYER_SCROLL_ID) break;
+        if (node.matches?.(OVERFLOW_RAIL_SEL)) marked.push(node);
+        node = node.parentElement;
+    }
+    return marked.find((rail) => rail.scrollWidth > rail.clientWidth + 8) || marked[0] || null;
+};
 
 /** Item position inside a rail in layout px (CSS zoom divides visual rects). */
 const offsetInScroller = (scroller: HTMLElement, node: HTMLElement) => {
     const zoom = Math.max(0.01, readDocumentZoom());
     const s = scroller.getBoundingClientRect();
     const n = node.getBoundingClientRect();
+    if (n.width > 1 || n.height > 1) {
+        return {
+            left: scroller.scrollLeft + (n.left - s.left) / zoom,
+            top: scroller.scrollTop + (n.top - s.top) / zoom,
+            width: n.width / zoom,
+            height: n.height / zoom,
+        };
+    }
     return {
-        left: scroller.scrollLeft + (n.left - s.left) / zoom,
-        top: scroller.scrollTop + (n.top - s.top) / zoom,
-        width: n.width / zoom,
-        height: n.height / zoom,
+        left: node.offsetLeft,
+        top: node.offsetTop,
+        width: Math.max(1, node.offsetWidth),
+        height: Math.max(1, node.offsetHeight),
     };
 };
 
-/** One horizontal pan of a poster rail. Never pair with scrollIntoView on the same item. */
+/** Left/right inside a 1D overflow row, including people clipped off-screen. */
+const stepOverflowRail = (from: HTMLElement, dir: 'left' | 'right'): HTMLElement | null => {
+    const rail = overflowXRailOf(from);
+    if (!rail) return null;
+    const items = Array.from(rail.querySelectorAll<HTMLElement>(TV_ITEM)).filter((el) => (
+        !el.hasAttribute('disabled')
+        && el.getAttribute('aria-hidden') !== 'true'
+        && el.tabIndex !== -1
+    ));
+    const idx = items.indexOf(from);
+    if (idx < 0) return null;
+    return (dir === 'right' ? items[idx + 1] : items[idx - 1]) || null;
+};
+
+/**
+ * Episode cards are ~3 per screen, so inline:nearest never moves the rail until
+ * the focused card would clip. CSS zoom also ignores scrollLeft. Slide the
+ * focused card to the rail start without letting scrollIntoView drag the page.
+ */
+const panEpisodeRail = (el: HTMLElement) => {
+    const rail = overflowXRailOf(el);
+    const card = (el.closest('.media-details-episode-card') as HTMLElement | null) || el;
+    if (!rail) return;
+    const padL = Number.parseFloat(getComputedStyle(rail).paddingLeft) || 0;
+    const page = document.getElementById(PLAYER_SCROLL_ID);
+    const prevY = page?.style.overflowY ?? '';
+    const prevPad = rail.style.scrollPaddingLeft;
+    if (page) page.style.overflowY = 'hidden';
+    rail.style.scrollPaddingLeft = `${Math.round(padL)}px`;
+    try {
+        card.scrollIntoView({ inline: 'start', block: 'nearest', behavior: 'auto' });
+    } catch {
+        try {
+            card.scrollIntoView(true);
+        } catch {
+            /* ignore */
+        }
+    }
+    rail.style.scrollPaddingLeft = prevPad;
+    if (page) page.style.overflowY = prevY;
+};
+
+export const revealTvEpisodeCard = (el: HTMLElement) => panEpisodeRail(el);
+
+/**
+ * Bring a focused poster/cast back into its overflow-x rail. CSS zoom ignores
+ * scrollLeft, so off-screen restore must use scrollIntoView with the page frozen.
+ */
+export const revealTvRailItem = (el: HTMLElement) => {
+    const rail = overflowXRailOf(el);
+    if (!rail || rail.scrollWidth <= rail.clientWidth + 8) return;
+    const card = (el.closest('[data-tv-poster-card="1"], [data-tv-poster-btn="1"], [data-tv-cast="1"]') as HTMLElement | null) || el;
+    const railBox = rail.getBoundingClientRect();
+    const cardBox = card.getBoundingClientRect();
+    if (cardBox.width < 2 && cardBox.height < 2) return;
+    const slop = 8;
+    if (cardBox.left >= railBox.left - slop && cardBox.right <= railBox.right + slop) return;
+    const fullyOutside = cardBox.right < railBox.left + slop || cardBox.left > railBox.right - slop;
+    const page = document.getElementById(PLAYER_SCROLL_ID);
+    const prevY = page?.style.overflowY ?? '';
+    const prevPad = rail.style.scrollPaddingLeft;
+    const padL = Number.parseFloat(getComputedStyle(rail).paddingLeft) || 0;
+    if (page) page.style.overflowY = 'hidden';
+    rail.style.scrollPaddingLeft = `${Math.round(padL)}px`;
+    try {
+        card.scrollIntoView({
+            inline: fullyOutside ? 'start' : 'nearest',
+            block: 'nearest',
+            behavior: 'auto',
+        });
+    } catch {
+        try {
+            card.scrollIntoView(fullyOutside);
+        } catch {
+            /* ignore */
+        }
+    }
+    rail.style.scrollPaddingLeft = prevPad;
+    if (page) page.style.overflowY = prevY;
+};
+
+const freezePageForRail = (_rail: HTMLElement, fn: () => void) => {
+    const page = document.getElementById(PLAYER_SCROLL_ID);
+    const prevY = page?.style.overflowY ?? '';
+    if (page) page.style.overflowY = 'hidden';
+    try {
+        fn();
+    } finally {
+        if (page) page.style.overflowY = prevY;
+    }
+};
+
+/** Plex slot: focused title sits at the left of the row, with a sliver of the previous poster. */
+export const pinTvRailItemToSlot = (el: HTMLElement) => {
+    const rail = overflowXRailOf(el);
+    if (!rail) return;
+    const card = (el.closest('[data-tv-poster-card="1"], [data-tv-poster-btn="1"], [data-tv-cast="1"]') as HTMLElement | null) || el;
+    const items = Array.from(rail.querySelectorAll<HTMLElement>(TV_ITEM)).filter((node) => (
+        !node.hasAttribute('disabled')
+        && node.getAttribute('aria-hidden') !== 'true'
+        && node.tabIndex !== -1
+    ));
+    const idx = items.indexOf(el) >= 0
+        ? items.indexOf(el)
+        : items.findIndex((node) => node.contains(el) || el.contains(node));
+    if (idx <= 0 || rail.scrollWidth <= rail.clientWidth + 8) {
+        rail.scrollLeft = 0;
+        return;
+    }
+    const box = offsetInScroller(rail, card);
+    const padL = Number.parseFloat(getComputedStyle(rail).paddingLeft) || 0;
+    const max = Math.max(0, rail.scrollWidth - rail.clientWidth);
+    const next = Math.max(0, Math.min(max, box.left - padL - SLOT_PEEK_PX));
+    rail.scrollLeft = next;
+    if (Math.abs(rail.scrollLeft - next) <= 2) return;
+    const prevPad = rail.style.scrollPaddingLeft;
+    rail.style.scrollPaddingLeft = `${Math.round(padL + SLOT_PEEK_PX)}px`;
+    freezePageForRail(rail, () => {
+        try {
+            card.scrollIntoView({ inline: 'start', block: 'nearest', behavior: 'auto' });
+        } catch {
+            try {
+                card.scrollIntoView(true);
+            } catch {
+                /* ignore */
+            }
+        }
+    });
+    rail.style.scrollPaddingLeft = prevPad;
+};
+
+/** Unfocused rows rewind so they are not left scrolled/extended. */
+const rewindUnfocusedPosterRail = (from: HTMLElement, to: HTMLElement | null) => {
+    if (!to) return;
+    const fromRail = from.closest<HTMLElement>('[data-tv-poster-rail="1"]');
+    const toRail = to.closest<HTMLElement>('[data-tv-poster-rail="1"]');
+    if (!fromRail || fromRail === toRail) return;
+    if (fromRail.closest('.player-home-stage')) return;
+    fromRail.scrollLeft = 0;
+};
+
+/** One horizontal pan of a poster / cast rail. Never pair with scrollIntoView on the same item. */
 const revealNeighbor = (el: HTMLElement, dir: SpatialDir | undefined) => {
     if (!dir) return;
     if (dir !== 'left' && dir !== 'right') return;
-    const rail = el.closest<HTMLElement>('[data-tv-poster-rail="1"]');
+    if (el.closest('[data-tv-episode-btn="1"], .media-details-episodes')) {
+        panEpisodeRail(el);
+        return;
+    }
+    const rail = overflowXRailOf(el);
     if (!rail || rail.scrollWidth <= rail.clientWidth + 8) return;
 
     const card = (el.closest('[data-tv-poster-card="1"], [data-tv-poster-btn="1"]') as HTMLElement | null) || el;
     const box = offsetInScroller(rail, card);
     const max = Math.max(0, rail.scrollWidth - rail.clientWidth);
-    const peek = PEEK_PX;
+    const peek = rail.getAttribute('data-tv-poster-rail') === '1' ? PEEK_PX : 36;
+    const posterRail = rail.getAttribute('data-tv-poster-rail') === '1';
     let next = rail.scrollLeft;
 
     if (dir === 'right') {
@@ -149,8 +325,8 @@ const revealNeighbor = (el: HTMLElement, dir: SpatialDir | undefined) => {
         if (wantLeft < rail.scrollLeft - 0.5) {
             next = wantLeft;
         }
-        // Near the start of the rail — settle flush left (no half-step snap-back).
-        if (box.left < rail.clientWidth * 0.55) {
+        // Near the start of a poster rail — settle flush left (no half-step snap-back).
+        if (posterRail && box.left < rail.clientWidth * 0.55) {
             next = 0;
         }
     }
@@ -181,6 +357,7 @@ const revealNeighbor = (el: HTMLElement, dir: SpatialDir | undefined) => {
 
 /** Play / Open / title actions — not seasons, cast, or poster rails. */
 const isHeaderControl = (el: HTMLElement) => {
+    if (el.closest('[data-tv-season-pill="1"], .media-details-season-pills')) return true;
     if (el.closest('[data-tv-row="1"], [data-tv-poster-rail="1"], [data-tv-season-poster-btn="1"], [data-tv-episode-btn="1"], [data-tv-extra-btn="1"], [data-tv-episode-neighbor="1"]')) {
         return false;
     }
@@ -241,6 +418,29 @@ const detailsPlayButton = (details: ParentNode) => {
     return items.find((el) => el.getAttribute('data-tv-play') === '1')
         || items.find((el) => Boolean(el.closest('[data-tv-action-row="1"]')))
         || null;
+};
+
+const detailsSeasonPill = (details: ParentNode) => {
+    const pills = details.querySelector<HTMLElement>('.media-details-season-pills');
+    if (!pills) return null;
+    const active = pills.querySelector<HTMLElement>('[data-tv-season-pill="1"].is-active');
+    if (active && hasLayout(active)) return active;
+    return Array.from(pills.querySelectorAll<HTMLElement>('[data-tv-season-pill="1"]')).find(hasLayout) || null;
+};
+
+const detailsSpotlightEpisode = (details: ParentNode) => {
+    const current = details.querySelector<HTMLElement>('.media-details-episode-card.is-current [data-tv-episode-btn="1"]');
+    if (current && hasLayout(current)) return current;
+    return Array.from(details.querySelectorAll<HTMLElement>('[data-tv-episode-btn="1"]')).find(hasLayout) || null;
+};
+
+const revealSeasonPill = (el: HTMLElement) => {
+    const rail = el.closest<HTMLElement>('.media-details-season-pills');
+    if (!rail) return;
+    const box = rail.getBoundingClientRect();
+    const rect = el.getBoundingClientRect();
+    if (rect.left < box.left - 2) rail.scrollLeft -= (box.left - rect.left);
+    else if (rect.right > box.right + 2) rail.scrollLeft += (rect.right - box.right);
 };
 
 const sameDetailsEntryRow = (current: HTMLElement, firstBelow: HTMLElement) => {
@@ -305,7 +505,7 @@ export const pinTvDetailsTop = () => {
 const scrollEl = (node: HTMLElement, block: ScrollLogicalPosition, behavior: ScrollBehavior | 'css' = 'auto') => {
     try {
         if (behavior === 'css') {
-            // Omit behavior so #media-player-scroll's scroll-behavior: smooth applies (row bounce).
+            // Omit behavior so #media-player-scroll's scroll-behavior: smooth applies.
             node.scrollIntoView({ inline: 'nearest', block });
         } else {
             node.scrollIntoView({ inline: 'nearest', block, behavior });
@@ -357,7 +557,7 @@ const scrollHomeRowWithPeek = (row: HTMLElement, _dir: 'up' | 'down') => {
     const page = document.getElementById(PLAYER_SCROLL_ID);
 
     // Balanced insets so block:center leaves half a rail above and below.
-    // Do NOT reset rail.scrollLeft — preserve last focused poster in the row.
+    // Unfocused rails rewind separately; this pass only moves the page.
     if (page) {
         const zoom = Math.max(0.01, readDocumentZoom());
         const edge = Math.round(48 / zoom);
@@ -406,6 +606,7 @@ const focusItem = (el: HTMLElement, block: ScrollLogicalPosition = 'nearest', di
         if (el.closest('[data-tv-details="1"]')) {
             pinTvDetailsTop();
             window.requestAnimationFrame(pinTvDetailsTop);
+            if (el.closest('[data-tv-season-pill="1"], .media-details-season-pills')) revealSeasonPill(el);
             return;
         }
         const top = pageTopFor(el);
@@ -448,6 +649,7 @@ const focusItem = (el: HTMLElement, block: ScrollLogicalPosition = 'nearest', di
         const row = focusedRow(el);
         if (!details && isPlayerHomePath() && row) {
             scrollHomeRowWithPeek(row, dir);
+            pinTvRailItemToSlot(el);
             return;
         }
         // Person page: hero controls pin the page top; filmography rows scroll
@@ -466,18 +668,26 @@ const focusItem = (el: HTMLElement, block: ScrollLogicalPosition = 'nearest', di
             return;
         }
         scrollRowWithoutPanningRails(row, details ? 'end' : 'center', 'css');
+        if (el.closest('[data-tv-poster-rail="1"]')) pinTvRailItemToSlot(el);
+        else revealTvRailItem(el);
         return;
     }
-    // Left/right on a poster rail: revealNeighbor alone. scrollEl + revealNeighbor
+    // Left/right on a poster/cast rail: revealNeighbor alone. scrollEl + revealNeighbor
     // both pan the same overflow-x scroller and produce the visible rebound.
-    if ((dir === 'left' || dir === 'right') && el.closest('[data-tv-poster-rail="1"]')) {
-        if (details) {
+    if ((dir === 'left' || dir === 'right') && overflowXRailOf(el)) {
+        const detailsKind = el.closest('[data-tv-details="1"]')?.getAttribute('data-tv-kind') || '';
+        const posterRail = el.closest('[data-tv-poster-rail="1"]');
+        // Episode/season hubs already fill the viewport. A vertical scrollIntoView
+        // here fights the rail pan under CSS zoom and makes the row hitch.
+        if (details && posterRail && detailsKind !== 'episode' && detailsKind !== 'season') {
             scrollRowWithoutPanningRails(focusedRow(el), 'end');
         }
         revealNeighbor(el, dir);
         return;
     }
     if (details && el.closest('[data-tv-row="1"]')) {
+        const detailsKind = el.closest('[data-tv-details="1"]')?.getAttribute('data-tv-kind') || '';
+        if (detailsKind === 'episode' || detailsKind === 'season') return;
         scrollEl(focusedRow(el), 'end');
         return;
     }
@@ -505,6 +715,27 @@ const tvFocusByPath = new Map<string, TvFocusSnapshot>();
 /** Last focused poster within a home/library rail — restored when re-entering the row. */
 const tvRowFocusById = new Map<string, TvFocusSnapshot>();
 
+const persistTvFocusMaps = () => {
+    const byPath: Record<string, TvFocusSnapshot> = {};
+    const byRow: Record<string, TvFocusSnapshot> = {};
+    tvFocusByPath.forEach((value, key) => { byPath[key] = value; });
+    tvRowFocusById.forEach((value, key) => { byRow[key] = value; });
+    writePersistedTvFocus({ byPath, byRow });
+};
+
+const hydrateTvFocusMaps = () => {
+    if (tvFocusByPath.size || tvRowFocusById.size) return;
+    const stored = readPersistedTvFocus();
+    Object.entries(stored.byPath || {}).forEach(([path, snap]) => {
+        if (snap?.key) tvFocusByPath.set(path, snap);
+    });
+    Object.entries(stored.byRow || {}).forEach(([rowId, snap]) => {
+        if (snap?.key) tvRowFocusById.set(rowId, snap);
+    });
+};
+
+hydrateTvFocusMaps();
+
 const rowFocusIdOf = (row: HTMLElement | null) => {
     if (!row) return '';
     const named = row.getAttribute('data-tv-row-id');
@@ -525,6 +756,7 @@ export const rememberTvFocusKey = (key: string, path = currentPath(), railScroll
         key: id,
         railScroll: railScroll ?? (prev?.key === id ? prev.railScroll : undefined),
     });
+    persistTvFocusMaps();
 };
 
 const rememberRowFocus = (item: HTMLElement | null) => {
@@ -535,6 +767,7 @@ const rememberRowFocus = (item: HTMLElement | null) => {
     if (!rowId || !key) return;
     const rail = item.closest<HTMLElement>('[data-tv-poster-rail="1"]');
     tvRowFocusById.set(rowId, { key, railScroll: rail?.scrollLeft });
+    persistTvFocusMaps();
 };
 
 /** Remember the focused poster and horizontal rail scroll before playback or navigation. */
@@ -566,11 +799,9 @@ export const restoreTvFocus = (): boolean => {
     if (!key) return false;
     const match = findTvItemByKey(key);
     if (!match) return false;
-    const rail = match.closest<HTMLElement>('[data-tv-poster-rail="1"]');
-    if (rail && snapshot.railScroll != null) {
-        rail.scrollLeft = snapshot.railScroll;
-    }
     focusItem(match, 'center');
+    if (match.closest('[data-tv-poster-rail="1"]')) pinTvRailItemToSlot(match);
+    else revealTvRailItem(match);
     requestAnimationFrame(syncPosterFocusAttr);
     return true;
 };
@@ -598,7 +829,7 @@ export const restoreTvFocusWhenReady = () => {
         focusTvSettingsWhenReady();
         return;
     }
-    if (isPlayerHomePath() && hasRememberedTvFocus()) {
+    if ((isPlayerHomePath() || isPlayerLibraryPath()) && hasRememberedTvFocus()) {
         if (restoreTvFocus()) return;
         let attempts = 30;
         const tick = () => {
@@ -607,7 +838,8 @@ export const restoreTvFocusWhenReady = () => {
                 window.setTimeout(tick, 40);
                 return;
             }
-            focusTvHeroWhenReady();
+            if (isPlayerHomePath()) focusTvHeroWhenReady();
+            else focusTvContent();
         };
         window.setTimeout(tick, 40);
         return;
@@ -670,10 +902,11 @@ const snapVerticalRowEntry = (from: HTMLElement, el: HTMLElement | null): HTMLEl
         const rowId = rowFocusIdOf(toRow);
         const saved = rowId ? tvRowFocusById.get(rowId) : null;
         if (saved?.key) {
-            const match = focusableTvItems(toRow).find((node) => tvKeyOf(node) === saved.key && hasLayout(node));
+            const match = focusableTvItems(toRow).find((node) => tvKeyOf(node) === saved.key);
             if (match) {
-                const rail = toRow.querySelector<HTMLElement>('[data-tv-poster-rail="1"]');
-                if (rail && saved.railScroll != null) rail.scrollLeft = saved.railScroll;
+                // Do not restore railScroll — unfocused rows rewind, then this
+                // title jumps into the left slot like official Plex.
+                window.requestAnimationFrame(() => pinTvRailItemToSlot(match));
                 return match;
             }
         }
@@ -1039,6 +1272,8 @@ const isPlayerHomePath = () => {
     return raw === PLAYER_APP_BASE || raw === '/' || raw === '';
 };
 
+const isPlayerLibraryPath = () => /\/library\/[^/]+/.test(currentPath());
+
 const isPlayerItemPath = () => /\/item\/[^/]+/.test(currentPath());
 
 const isPlayerSettingsPath = () => /\/settings$/.test(currentPath());
@@ -1137,7 +1372,11 @@ const focusFirstSeasonEpisode = (): boolean => {
         episode.focus();
     }
     syncPosterFocusAttr();
-    window.requestAnimationFrame(syncPosterFocusAttr);
+    panEpisodeRail(episode);
+    window.requestAnimationFrame(() => {
+        syncPosterFocusAttr();
+        panEpisodeRail(episode);
+    });
     const row = episode.closest<HTMLElement>('[data-tv-row="1"]');
     const port = document.getElementById(PLAYER_SCROLL_ID)?.getBoundingClientRect();
     const box = episode.getBoundingClientRect();
@@ -1236,7 +1475,7 @@ const focusTvHeroWhenReady = () => {
  */
 const refocusAfterOverlay = () => {
     window.setTimeout(() => {
-        if (document.querySelector('[data-tv-select-menu="1"], [data-tv-item-menu="1"], [data-tv-home-switch="1"], [data-tv-version-dialog="1"], [data-tv-track-dialog="1"], [data-tv-settings-dialog="1"], [data-tv-file-info="1"], [data-tv-resume-dialog="1"], [data-tv-season-watch-dialog="1"]')) return;
+        if (document.querySelector('[data-tv-select-menu="1"], [data-tv-item-menu="1"], [data-tv-home-switch="1"], [data-tv-version-dialog="1"], [data-tv-track-dialog="1"], [data-tv-settings-dialog="1"], [data-tv-file-info="1"], [data-tv-resume-dialog="1"], [data-tv-season-watch-dialog="1"], [data-tv-still-watching-dialog="1"], [data-tv-whats-new="1"]')) return;
         const active = document.activeElement as HTMLElement | null;
         if (active && active !== document.body && active !== document.documentElement) return;
         restoreTvFocus();
@@ -1261,6 +1500,18 @@ const handleTvBack = (): boolean => {
         window.dispatchEvent(new Event('smp-tv-select-close'));
         window.dispatchEvent(new Event('smp-tv-menu-close'));
         window.dispatchEvent(new Event('smp-tv-overlay-close'));
+        refocusAfterOverlay();
+        return true;
+    }
+    const whatsNewContinue = document.querySelector<HTMLElement>('[data-tv-whats-new="1"] [data-tv-whats-new-primary="1"]');
+    if (whatsNewContinue) {
+        whatsNewContinue.click();
+        refocusAfterOverlay();
+        return true;
+    }
+    const stillWatchingStop = document.querySelector<HTMLElement>('[data-tv-still-watching-dialog="1"] [data-tv-item="1"]:last-child');
+    if (document.querySelector('[data-tv-still-watching-dialog="1"]')) {
+        stillWatchingStop?.click();
         refocusAfterOverlay();
         return true;
     }
@@ -1293,11 +1544,12 @@ const handleTvBack = (): boolean => {
         return true;
     }
     if (!isPlayerHomePath()) {
-        const before = window.location.pathname;
+        const before = `${window.location.pathname}${window.location.search}`;
         window.history.back();
         window.setTimeout(() => {
-            if (window.location.pathname === before) {
-                window.history.replaceState({}, '', PLAYER_APP_BASE);
+            const now = `${window.location.pathname}${window.location.search}`;
+            if (now === before) {
+                window.history.replaceState({}, '', readLastLibraryPath() || PLAYER_APP_BASE);
                 window.dispatchEvent(new Event(PLAYER_NAVIGATE_EVENT));
             }
             restoreTvFocusWhenReady();
@@ -1344,7 +1596,7 @@ export const handlePhoneBack = (): boolean => {
         window.setTimeout(() => {
             const now = `${window.location.pathname}${window.location.search}`;
             if (now === before) {
-                window.history.replaceState({}, '', PLAYER_APP_BASE);
+                window.history.replaceState({}, '', readLastLibraryPath() || PLAYER_APP_BASE);
                 window.dispatchEvent(new Event(PLAYER_NAVIGATE_EVENT));
             }
         }, 80);
@@ -1370,6 +1622,7 @@ declare global {
     interface Window {
         __SMP_HANDLE_BACK__?: () => boolean;
         __SMP_CLOSE_PLAYBACK__?: () => boolean;
+        __SMP_OPEN_SEARCH__?: () => void;
     }
 }
 
@@ -1559,6 +1812,13 @@ export const useTvRemote = (enabled = true) => {
             }
 
             const dir = dirOfKey(event.key);
+            if (event.key === 'Search' || event.keyCode === 84 || event.keyCode === 231) {
+                event.preventDefault();
+                event.stopPropagation();
+                if (typeof window.__SMP_OPEN_SEARCH__ === 'function') window.__SMP_OPEN_SEARCH__();
+                else requestPlayerSearchFocus();
+                return;
+            }
             if (!dir) return;
             if (browseHoldDir && dir !== browseHoldDir) stopBrowseHold();
 
@@ -1643,8 +1903,23 @@ export const useTvRemote = (enabled = true) => {
                     if (playRect.bottom <= curRect.top + 8) target = play;
                 }
             }
+            if (!menuRoot && !target && current.closest('[data-tv-details="1"]')) {
+                const details = current.closest('[data-tv-details="1"]');
+                const kind = details?.getAttribute('data-tv-kind') || '';
+                if (details && (kind === 'episode' || kind === 'season')) {
+                    const onEpisode = Boolean(current.closest('[data-tv-episode-btn="1"], .media-details-episodes'));
+                    const onPill = Boolean(current.closest('[data-tv-season-pill="1"], .media-details-season-pills'));
+                    if (dir === 'up' && onEpisode && !onPill) target = detailsSeasonPill(details);
+                    if (dir === 'down' && onPill) target = detailsSpotlightEpisode(details);
+                }
+            }
             const inBrowseChrome = Boolean(current.closest('[data-tv-browse-grid="1"], [data-tv-alpha="1"]'));
             if (!target && !menuRoot && (dir === 'left' || dir === 'right') && !inBrowseChrome) {
+                const railStep = stepOverflowRail(current, dir);
+                if (railStep) {
+                    focusItem(railStep, 'nearest', dir);
+                    return;
+                }
                 const posterRail = current.closest<HTMLElement>('[data-tv-poster-rail="1"]');
                 if (posterRail) target = findSpatialTarget(current, dir, posterRail);
             }
@@ -1662,7 +1937,43 @@ export const useTvRemote = (enabled = true) => {
                 }
                 if (dir !== 'left') return;
             }
-            if (!target && !menuRoot && current.closest('.player-home-stage') && (dir === 'up' || dir === 'down')) {
+            // Library Recommended puts tabs inside the stage chrome. Down from
+            // those tabs must land on posters — not fire row-swap (which leaves
+            // focus stuck on Recommended with no ring on the cards).
+            if (!target && !menuRoot && current.closest('.player-library-stage-chrome') && dir === 'down') {
+                const poster = document.querySelector<HTMLElement>(
+                    '.player-home-stage-rail [data-tv-poster-btn="1"]',
+                );
+                if (poster && hasLayout(poster)) {
+                    focusItem(poster, 'nearest', dir);
+                    return;
+                }
+            }
+            // Focus parked on the stage root while a row remounts — land on a
+            // poster instead of advancing another row on key repeat.
+            if (
+                !target
+                && !menuRoot
+                && current.classList?.contains('player-home-stage')
+                && (dir === 'up' || dir === 'down' || dir === 'left' || dir === 'right')
+            ) {
+                const poster = document.querySelector<HTMLElement>(
+                    '.player-home-stage-rail [data-tv-poster-btn="1"]',
+                );
+                if (poster && hasLayout(poster)) {
+                    focusItem(poster, 'nearest', dir);
+                    return;
+                }
+            }
+            if (
+                !target
+                && !menuRoot
+                && current.closest('.player-home-stage')
+                && !current.closest('.player-library-stage-chrome')
+                && current.closest('[data-tv-poster-btn="1"], [data-tv-poster-rail="1"]')
+                && (dir === 'up' || dir === 'down')
+            ) {
+                rememberRowFocus(current);
                 window.dispatchEvent(new CustomEvent('smp-tv-home-row', { detail: { dir } }));
                 return;
             }
@@ -1685,6 +1996,7 @@ export const useTvRemote = (enabled = true) => {
                 }
             }
             if (target) {
+                if (dir === 'up' || dir === 'down') rewindUnfocusedPosterRail(current, target);
                 focusItem(target, 'nearest', dir);
                 return;
             }

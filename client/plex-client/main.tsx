@@ -5,6 +5,7 @@ import { MediaPlayerDashboard } from '../media-player/MediaPlayerDashboard';
 import { prefetchMediaPlayerHome } from '../media-player/api';
 import { PLAYER_APP_BASE, PLAYER_LOGOUT_EVENT } from '../media-player/paths';
 import { apiFetch } from '../shared/api';
+import { ApkWhatsNew } from './ApkWhatsNew';
 import { PlexClientAuthScreen, PlexClientBootSplash } from './AuthScreen';
 import { hydratePlexClientAuthStorage } from './authPersistence';
 import { withBootTimeout } from './bootTimeout';
@@ -111,6 +112,7 @@ const PlexClientApp: React.FC = () => {
     return (
         <div className="min-h-screen bg-zinc-950 text-zinc-100">
             <MediaPlayerDashboard />
+            <ApkWhatsNew />
         </div>
     );
 };

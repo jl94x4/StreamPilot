@@ -117,9 +117,10 @@ export const PlexHomeSwitchModal: React.FC<{
         const id = window.requestAnimationFrame(() => {
             const root = document.querySelector<HTMLElement>('[data-tv-home-switch="1"]');
             if (!root) return;
+            const pinKey = root.querySelector<HTMLElement>('[data-tv-key="home-switch-pin-1"]');
             const profile = root.querySelector<HTMLElement>('[data-tv-home-profile="1"]');
             const field = root.querySelector<HTMLElement>('input[data-tv-item="1"]');
-            const target = field || profile || root.querySelector<HTMLElement>('[data-tv-item="1"]');
+            const target = pinKey || field || profile || root.querySelector<HTMLElement>('[data-tv-item="1"]');
             target?.focus({ preventScroll: true });
         });
         return () => {
@@ -279,20 +280,58 @@ export const PlexHomeSwitchModal: React.FC<{
                             onSubmit={submitPin}
                             className="rounded-xl sm:rounded-2xl border border-plex/30 bg-black/35 p-3 sm:p-5"
                         >
-                            <input
-                                type="password"
-                                inputMode="numeric"
-                                autoComplete="one-time-code"
-                                data-tv-item="1"
-                                data-tv-key="home-switch-pin"
-                                tabIndex={0}
-                                value={pin}
-                                onChange={(event) => setPin(event.target.value.replace(/\D/g, '').slice(0, 8))}
-                                className="w-full bg-black/25 border border-white/15 rounded-xl px-4 py-2.5 sm:py-3 text-center text-base sm:text-lg tracking-[0.4em] text-text outline-none focus:border-plex/70 focus:ring-2 focus:ring-plex/20"
-                                placeholder="••••"
-                                autoFocus
-                                disabled={busy}
-                            />
+                            {isTvShell ? (
+                                <div className="mb-4">
+                                    <p className="mb-3 text-center font-mono text-2xl tracking-[0.45em] text-text">
+                                        {pin ? pin.replace(/./g, '•') : '••••'}
+                                    </p>
+                                    <div className="mx-auto grid max-w-[16rem] grid-cols-3 gap-2" data-tv-rail="1">
+                                        {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'back', '0', 'go'].map((key) => (
+                                            <button
+                                                key={key}
+                                                type="button"
+                                                data-tv-item="1"
+                                                data-tv-key={`home-switch-pin-${key}`}
+                                                tabIndex={0}
+                                                disabled={busy}
+                                                className="rounded-xl border border-white/15 bg-black/40 py-3 text-sm font-bold text-text hover:border-plex/60 hover:bg-plex/10 disabled:opacity-40"
+                                                onClick={() => {
+                                                    if (key === 'back') {
+                                                        setPin((current) => current.slice(0, -1));
+                                                        return;
+                                                    }
+                                                    if (key === 'go') {
+                                                        submitPin();
+                                                        return;
+                                                    }
+                                                    const next = `${pin}${key}`.replace(/\D/g, '').slice(0, 8);
+                                                    setPin(next);
+                                                    if (next.length >= 4 && pinUser && !busy) {
+                                                        onSelect(pinUser, next, remember);
+                                                    }
+                                                }}
+                                            >
+                                                {key === 'back' ? 'Del' : key === 'go' ? 'OK' : key}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            ) : (
+                                <input
+                                    type="password"
+                                    inputMode="numeric"
+                                    autoComplete="one-time-code"
+                                    data-tv-item="1"
+                                    data-tv-key="home-switch-pin"
+                                    tabIndex={0}
+                                    value={pin}
+                                    onChange={(event) => setPin(event.target.value.replace(/\D/g, '').slice(0, 8))}
+                                    className="w-full bg-black/25 border border-white/15 rounded-xl px-4 py-2.5 sm:py-3 text-center text-base sm:text-lg tracking-[0.4em] text-text outline-none focus:border-plex/70 focus:ring-2 focus:ring-plex/20"
+                                    placeholder="••••"
+                                    autoFocus
+                                    disabled={busy}
+                                />
+                            )}
                             {showRemember && !isTvShell ? (
                                 <label className="mt-3 flex items-start gap-2.5 cursor-pointer">
                                     <input

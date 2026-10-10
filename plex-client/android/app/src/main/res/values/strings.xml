@@ -20,7 +20,17 @@
     <string name="player_skip_intro">Skip intro</string>
     <string name="player_skip_credits">Skip credits</string>
     <string name="player_play_next">Play next</string>
+    <string name="player_play_now">Play now</string>
+    <string name="player_watch_credits">Watch credits</string>
+    <string name="player_up_next">Up next</string>
+    <string name="player_up_next_in">Starts in %ds</string>
+    <string name="player_direct_play">Direct Play</string>
+    <string name="player_direct_stream">Direct Stream</string>
+    <string name="player_transcode">Transcode</string>
+    <string name="player_voice_search">Search your library</string>
     <string name="player_chapters">Chapters</string>
+    <string name="player_chapter_next">Next chapter</string>
+    <string name="player_chapter_prev">Previous chapter</string>
     <string name="player_subs_off">Off</string>
     <string name="player_zoom">Zoom</string>
     <string name="player_zoom_fit">Fit</string>

@@ -1,21 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:state_focused="true">
-        <shape android:shape="oval">
-            <solid android:color="@color/player_control_bg_focus" />
-            <stroke
-                android:width="2dp"
-                android:color="@color/player_accent" />
-        </shape>
-    </item>
-    <item android:state_pressed="true">
-        <shape android:shape="oval">
-            <solid android:color="#55F59E0B" />
-        </shape>
-    </item>
-    <item>
-        <shape android:shape="oval">
-            <solid android:color="@color/player_control_bg" />
-        </shape>
-    </item>
+    <item android:drawable="@drawable/player_glass_oval_focus" android:state_focused="true" />
+    <item android:drawable="@drawable/player_glass_oval_pressed" android:state_pressed="true" />
+    <item android:drawable="@drawable/player_glass_oval" />
 </selector>

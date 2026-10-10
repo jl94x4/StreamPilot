@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Check, Globe, Loader2 } from 'lucide-react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { ArrowLeft, Globe, Loader2 } from 'lucide-react';
 import { apiFetch } from '../shared/api';
+import { PlexHomeSwitchModal } from '../shared/PlexHomeSwitchModal';
 import {
     clearPlexClientPortal,
     getPortalBaseUrl,
@@ -24,10 +25,12 @@ type PinSession = {
 
 type HomeUser = {
     id: string;
+    uuid?: string;
     title?: string;
     username?: string;
     thumb?: string | null;
     protected?: boolean;
+    admin?: boolean;
 };
 
 const LINK_URL = 'https://plex.tv/link';
@@ -118,8 +121,7 @@ export const PlexClientAuthScreen: React.FC<Props> = ({ onAuthenticated }) => {
     const [checkingPortal, setCheckingPortal] = useState(false);
     const [homeUsers, setHomeUsers] = useState<HomeUser[] | null>(null);
     const [homeSelectToken, setHomeSelectToken] = useState('');
-    const [homePin, setHomePin] = useState('');
-    const [selectedHomeUserId, setSelectedHomeUserId] = useState<string | null>(null);
+    const [homeSwitchError, setHomeSwitchError] = useState('');
     const pollRef = useRef<number | null>(null);
     const isTv = isAndroidTvUi();
 
@@ -161,7 +163,7 @@ export const PlexClientAuthScreen: React.FC<Props> = ({ onAuthenticated }) => {
                 setBusy(false);
                 setHomeUsers(data.users);
                 setHomeSelectToken(String(data.homeSelectToken || ''));
-                setSelectedHomeUserId(String(data.rememberUserId || data.users[0]?.id || '') || null);
+                setHomeSwitchError('');
                 setError('');
                 return;
             }
@@ -227,7 +229,7 @@ export const PlexClientAuthScreen: React.FC<Props> = ({ onAuthenticated }) => {
         setPin(null);
         setHomeUsers(null);
         setHomeSelectToken('');
-        setHomePin('');
+        setHomeSwitchError('');
 
         writeAuthMode('portal');
         const url = applyPortalUrl(portalUrl);
@@ -289,34 +291,35 @@ export const PlexClientAuthScreen: React.FC<Props> = ({ onAuthenticated }) => {
         }
     };
 
-    const confirmHomeUser = async () => {
-        if (!selectedHomeUserId) {
-            setError('Select a Plex Home profile');
+    const confirmHomeUser = async (user: HomeUser, pinValue?: string) => {
+        if (!user?.id) {
+            setHomeSwitchError('Select a Plex Home profile');
             return;
         }
         if (!homeSelectToken) {
-            setError('Home selection expired. Start sign-in again.');
+            setHomeSwitchError('Home selection expired. Start sign-in again.');
             return;
         }
         setBusy(true);
+        setHomeSwitchError('');
         setError('');
         try {
             const data = await apiFetch('/api/auth/plex/home-switch', {
                 method: 'POST',
                 body: JSON.stringify({
-                    userId: selectedHomeUserId,
+                    userId: user.id,
                     homeSelectToken,
-                    remember: false,
-                    ...(homePin.trim() ? { pin: homePin.trim() } : {}),
+                    remember: true,
+                    ...(pinValue ? { pin: pinValue } : {}),
                 }),
             });
             if (data?.sessionToken) {
                 finishWithToken(String(data.sessionToken));
                 return;
             }
-            throw new Error('Portal did not return a session token');
+            throw new Error('Could not start this Plex Home profile');
         } catch (err: any) {
-            setError(err?.message || 'Could not switch Plex Home profile');
+            setHomeSwitchError(err?.message || 'Could not switch Plex Home profile');
             setBusy(false);
         }
     };
@@ -326,16 +329,13 @@ export const PlexClientAuthScreen: React.FC<Props> = ({ onAuthenticated }) => {
         setPin(null);
         setHomeUsers(null);
         setHomeSelectToken('');
+        setHomeSwitchError('');
         setBusy(false);
         setError('');
         clearPlexClientPortal();
         setPortalUrl('');
     };
 
-    const selectedHomeUser = useMemo(
-        () => (homeUsers || []).find((user) => String(user.id) === String(selectedHomeUserId || '')) || null,
-        [homeUsers, selectedHomeUserId],
-    );
     const hostLabel = displayHost(portalUrl);
     const stage = homeUsers ? 'home' : pin ? 'pin' : 'connect';
 
@@ -537,88 +537,23 @@ export const PlexClientAuthScreen: React.FC<Props> = ({ onAuthenticated }) => {
                         ) : null}
 
                         {stage === 'home' && homeUsers ? (
-                            <div className="space-y-5" data-tv-rail="1">
-                                <div className={`grid gap-2.5 ${isTv ? 'grid-cols-2' : 'grid-cols-1 sm:grid-cols-2'}`}>
-                                    {homeUsers.map((user) => {
-                                        const active = selectedHomeUserId === String(user.id);
-                                        const label = user.title || user.username || user.id;
-                                        return (
-                                            <button
-                                                key={user.id}
-                                                type="button"
-                                                data-tv-item="1"
-                                                data-tv-key={`auth-home-${user.id}`}
-                                                tabIndex={0}
-                                                onClick={() => setSelectedHomeUserId(String(user.id))}
-                                                className={`flex items-center gap-3 rounded-2xl border px-3.5 py-3 text-left transition ${
-                                                    active
-                                                        ? 'border-plex bg-plex/10 shadow-[0_0_24px_rgba(229,160,13,0.12)]'
-                                                        : 'border-white/10 bg-black/30 hover:border-white/20'
-                                                }`}
-                                            >
-                                                {user.thumb ? (
-                                                    <img src={user.thumb} alt="" className="h-11 w-11 rounded-full object-cover ring-1 ring-white/10" />
-                                                ) : (
-                                                    <span className="flex h-11 w-11 items-center justify-center rounded-full bg-white/10 text-sm font-black">
-                                                        {String(label).charAt(0).toUpperCase()}
-                                                    </span>
-                                                )}
-                                                <span className="min-w-0 flex-1 truncate font-semibold">{label}</span>
-                                                {active ? <Check className="h-4 w-4 shrink-0 text-plex" /> : null}
-                                                {user.protected ? (
-                                                    <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-zinc-500">PIN</span>
-                                                ) : null}
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                                {selectedHomeUser?.protected ? (
-                                    <label className="block space-y-2">
-                                        <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-zinc-500">Profile PIN</span>
-                                        <input
-                                            data-tv-item="1"
-                                            data-tv-key="auth-home-pin"
-                                            tabIndex={0}
-                                            className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3.5 text-base text-white outline-none transition focus:border-plex/70 focus:ring-2 focus:ring-plex/25"
-                                            value={homePin}
-                                            onChange={(e) => setHomePin(e.target.value)}
-                                            inputMode="numeric"
-                                            autoComplete="one-time-code"
-                                            placeholder="Required for this profile"
-                                        />
-                                    </label>
-                                ) : null}
-                                <button
-                                    type="button"
-                                    data-tv-item="1"
-                                    data-tv-action="1"
-                                    data-tv-key="auth-home-continue"
-                                    tabIndex={0}
-                                    className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-plex to-amber-400 px-5 py-3.5 text-base font-black text-zinc-950 shadow-[0_10px_30px_rgba(229,160,13,0.28)] transition hover:brightness-110 disabled:opacity-60"
-                                    onClick={() => void confirmHomeUser()}
-                                    disabled={busy}
-                                >
-                                    {busy ? (
-                                        <>
-                                            <Loader2 className="h-4 w-4 animate-spin" />
-                                            Signing in…
-                                        </>
-                                    ) : (
-                                        'Continue'
-                                    )}
-                                </button>
-                                <button
-                                    type="button"
-                                    data-tv-item="1"
-                                    data-tv-auth-back="1"
-                                    data-tv-key="auth-home-change-portal"
-                                    tabIndex={0}
-                                    className="inline-flex w-full items-center justify-center gap-2 text-sm font-semibold text-zinc-500 transition hover:text-zinc-300"
-                                    onClick={changePortal}
-                                >
-                                    {usePortal ? 'Use a different portal' : 'Start over'}
-                                </button>
-                            </div>
+                            <PlexHomeSwitchModal
+                                open
+                                loginMode
+                                users={homeUsers.map((user) => ({
+                                    id: user.id,
+                                    uuid: user.uuid,
+                                    title: user.title || user.username || user.id,
+                                    thumb: user.thumb,
+                                    protected: user.protected,
+                                    admin: user.admin,
+                                }))}
+                                busy={busy}
+                                error={homeSwitchError}
+                                onSelect={(user, pinValue) => void confirmHomeUser(user, pinValue)}
+                                onClose={changePortal}
+                                onUseDifferentAccount={changePortal}
+                            />
                         ) : null}
 
                         {error ? (

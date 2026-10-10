@@ -36,16 +36,20 @@ public class NativeMediaPlayerPlugin extends Plugin {
         try {
             if (getBridge() == null || getBridge().getWebView() == null) return;
             WebView webView = getBridge().getWebView();
-            webView.post(() -> {
-                try {
-                    webView.onResume();
-                    webView.resumeTimers();
-                } catch (Throwable ignored) {
-                    /* older WebView */
-                }
-            });
+            resumeWebView(webView);
+            webView.post(() -> resumeWebView(webView));
         } catch (Throwable ignored) {
             /* plugin not attached */
+        }
+    }
+
+    private static void resumeWebView(WebView webView) {
+        if (webView == null) return;
+        try {
+            webView.onResume();
+            webView.resumeTimers();
+        } catch (Throwable ignored) {
+            /* older WebView */
         }
     }
 

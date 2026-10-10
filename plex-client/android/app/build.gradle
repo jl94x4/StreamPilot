@@ -7,8 +7,9 @@ android {
         applicationId "com.servermanagerportal.mediaplayer"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 14
-        versionName "1.0.14"
+        versionCode 61
+        // Settings shows this versionName. Bump both when assembling a new APK.
+        versionName "1.0.61"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

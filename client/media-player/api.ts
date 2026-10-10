@@ -2,7 +2,15 @@ import { apiErrorMessage, apiFetch, PORTAL_CSRF_HEADER, PORTAL_CSRF_VALUE } from
 import { portalUrl } from '../shared/basePath';
 import { pickTmdbPersonMatch, personCreditYear, splitPersonCredits } from '../discovery/personCredits';
 import { PLAYER_API_ROOT } from './paths';
-import { readPlayerItemCache, writePlayerItemCache, writePlayerHomeCache, isPlayerHomeCacheFresh, readPlayerHomeCache, writeHeroSlidesCache, writePlayerLibrariesCache } from './playerMemory';
+import {
+    readPlayerItemCache,
+    writePlayerItemCache,
+    writePlayerHomeCache,
+    writeHeroSlidesCache,
+    writePlayerLibrariesCache,
+    playerHomeHasRows,
+    playerHomeNeedsFull,
+} from './playerMemory';
 import { applyRememberedProgress, browserPlaybackCaps, noteItemWatched, plexBackdropPreviewUrl, plexBackdropUrl, prefetchPlayerImages, withWatchedProgress } from './playerUtils';
 import type {
     PlayerHome,
@@ -54,6 +62,7 @@ export const fetchMediaPlayerMe = () => {
 };
 
 let homeInflight: Promise<PlayerHome> | null = null;
+let homeFullInflight: Promise<PlayerHome> | null = null;
 
 export const fetchMediaPlayerHome = () => {
     if (homeInflight) return homeInflight;
@@ -69,17 +78,32 @@ export const fetchMediaPlayerHome = () => {
 };
 
 /** Second pass for direct mode: Plex hubs, after the fast rows are already on screen. */
-export const fetchMediaPlayerHomeFull = () => (
-    apiFetch(`${PLAYER_API_ROOT}/home?full=1`) as Promise<PlayerHome>
-);
+export const fetchMediaPlayerHomeFull = () => {
+    if (homeFullInflight) return homeFullInflight;
+    homeFullInflight = (apiFetch(`${PLAYER_API_ROOT}/home?full=1`) as Promise<PlayerHome>)
+        .finally(() => {
+            homeFullInflight = null;
+        });
+    return homeFullInflight;
+};
 
 /** Kick off nav + home during auth/boot so the first paint rarely waits on cold fetches. */
 export const prefetchMediaPlayerHome = () => {
     void fetchMediaPlayerLibraries().catch(() => undefined);
     void fetchMediaPlayerMe().catch(() => undefined);
-    if (!(readPlayerHomeCache() && isPlayerHomeCacheFresh())) {
-        void fetchMediaPlayerHome().catch(() => undefined);
-    }
+    // Always warm/refresh Home in the background; UI paints from cache when present.
+    void fetchMediaPlayerHome()
+        .then((data) => {
+            if (data && playerHomeHasRows(data)) writePlayerHomeCache(data);
+            if (data && playerHomeNeedsFull(data)) {
+                void fetchMediaPlayerHomeFull()
+                    .then((full) => {
+                        if (full && playerHomeHasRows(full)) writePlayerHomeCache(full);
+                    })
+                    .catch(() => undefined);
+            }
+        })
+        .catch(() => undefined);
     void fetchMediaPlayerHomeHero()
         .then((data) => {
             const items = data?.enabled && Array.isArray(data.items) ? data.items : [];
@@ -677,6 +701,13 @@ export const fetchMediaPlayerShuffleQueue = (ratingKey: string, serverId?: strin
 
 export const fetchMediaPlayerPlayFromQueue = (ratingKey: string, serverId?: string | null) => (
     apiFetch(withServerQuery(`${PLAYER_API_ROOT}/queue/from/${encodeURIComponent(ratingKey)}`, serverId)) as Promise<{ items: PlayerItem[] }>
+);
+
+export const setMediaPlayerRating = (ratingKey: string, rating: number, serverId?: string | null) => (
+    apiFetch(withServerQuery(`${PLAYER_API_ROOT}/item/${encodeURIComponent(ratingKey)}/rate`, serverId), {
+        method: 'POST',
+        body: JSON.stringify({ rating, serverId: serverId || undefined }),
+    }) as Promise<{ ok: boolean; rating: number }>
 );
 
 export const startMediaPlayerPlayback = (ratingKey: string, opts: {

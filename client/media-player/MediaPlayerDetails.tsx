@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Bookmark, BookmarkCheck, Calendar, Check, ChevronDown, Clock, Eye, EyeOff, Film, Info, ListPlus, Loader2, Play, Shuffle, SkipForward, Star, Users } from 'lucide-react';
+import { ArrowLeft, Bookmark, BookmarkCheck, Calendar, Check, ChevronDown, Clock, Eye, EyeOff, Film, Info, ListPlus, Loader2, Play, RotateCcw, Shuffle, SkipForward, Star, Users } from 'lucide-react';
 import {
     Carousel,
     DiscoverHomeRowSkeleton,
@@ -58,7 +58,7 @@ import {
     titleCaseProfile,
     withWatchedProgress,
 } from './playerUtils';
-import { focusSeasonEpisodeWhenReady, hasRememberedTvFocus, pinTvDetailsTop } from '../plex-client/useTvRemote';
+import { focusSeasonEpisodeWhenReady, hasRememberedTvFocus, pinTvDetailsTop, revealTvEpisodeCard } from '../plex-client/useTvRemote';
 import { readDocumentZoom } from '../shared/ui';
 import { PLAYER_SCROLL_ID } from './paths';
 import {
@@ -69,7 +69,17 @@ import {
     sampleBackdropSurfaceColor,
     samplePosterSurfaceColor,
 } from '../shared/imageFocalPoint';
-import { writePlayerScrollTop, readPlayerItemCache, takePlayerItemSeed, writePlayerItemCache, readAvChoice, resolveAvChoiceForTracks, writeAvChoiceFromTracks } from './playerMemory';
+import {
+    writePlayerScrollTop,
+    readPlayerItemCache,
+    takePlayerItemSeed,
+    writePlayerItemCache,
+    readAvChoice,
+    readMediaIndexChoice,
+    resolveAvChoiceForTracks,
+    writeAvChoiceFromTracks,
+    writeMediaIndexChoice,
+} from './playerMemory';
 import type { PlayerItem, PlayerLibraryHub, PlayerMediaPartInfo, PlayerPlayOptions, PlayerRatings, PlayerVersion } from './types';
 
 const softenSurfaceRgb = (rgb: string) => {
@@ -104,6 +114,28 @@ const isPhoneDetailsUi = () => {
 };
 
 const TV_FLOOR_RGB = '6 10 16';
+
+/** Horizontal-only rail pan. scrollIntoView also moves the page under CSS zoom. */
+const panTvOverflowX = (scroller: HTMLElement, node: HTMLElement, mode: 'nearest' | 'center' = 'nearest') => {
+    if (scroller.scrollWidth <= scroller.clientWidth + 8) return;
+    const zoom = Math.max(0.01, readDocumentZoom());
+    const s = scroller.getBoundingClientRect();
+    const n = node.getBoundingClientRect();
+    const left = scroller.scrollLeft + (n.left - s.left) / zoom;
+    const width = n.width / zoom;
+    const max = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
+    if (mode === 'center') {
+        scroller.scrollLeft = Math.max(0, Math.min(max, left + width / 2 - scroller.clientWidth / 2));
+        return;
+    }
+    const peek = 72;
+    let next = scroller.scrollLeft;
+    if (left < scroller.scrollLeft + peek) next = Math.max(0, left - peek);
+    else if (left + width + peek > scroller.scrollLeft + scroller.clientWidth) {
+        next = Math.min(max, left + width + peek - scroller.clientWidth);
+    }
+    scroller.scrollLeft = next;
+};
 
 const episodeHasMediaInfo = (ep?: PlayerItem | null) => Boolean(
     ep?.mediaInfo?.[0]?.parts?.[0]?.video
@@ -522,7 +554,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         setBackdropReady(false);
         setLogoFailed(false);
         setLogoReady(false);
-        setMediaIndex(0);
+        setMediaIndex(readMediaIndexChoice(ratingKey) ?? 0);
         setAudioStreamId('');
         setSubtitleStreamId('');
         setPlaylistOpen(false);
@@ -692,28 +724,16 @@ export const MediaPlayerDetails: React.FC<Props> = ({
     useEffect(() => {
         if (!isTvShell || !item) return;
         const activePill = document.querySelector<HTMLElement>('[data-tv-season-pill="1"].is-active');
-        activePill?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'auto' });
-        const focusKey = spotlightKey || (item.type === 'episode' ? String(item.ratingKey) : '');
+        const pillRail = activePill?.closest<HTMLElement>('.media-details-season-pills');
+        if (activePill && pillRail) panTvOverflowX(pillRail, activePill, 'center');
+        const focusKey = item.type === 'episode' ? String(item.ratingKey) : '';
         if (!focusKey) return;
         const currentEp = document.querySelector<HTMLElement>(
             `[data-tv-episode-btn="1"][data-tv-key="${focusKey.replace(/"/g, '')}"]`,
         );
-        const card = currentEp?.closest('.media-details-episode-card');
-        const rail = currentEp?.closest<HTMLElement>('[data-tv-poster-rail="1"]');
-        if (!card || !rail) return;
-        const cards = rail.querySelectorAll('.media-details-episode-card');
-        const first = cards[0];
-        const last = cards[cards.length - 1];
-        if (card === first) {
-            rail.scrollLeft = 0;
-            return;
-        }
-        if (card === last) {
-            rail.scrollLeft = Math.max(0, rail.scrollWidth - rail.clientWidth);
-            return;
-        }
-        card.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'auto' });
-    }, [isTvShell, item?.ratingKey, item?.type, showSeasons, seasonEpisodes, spotlightKey]);
+        if (!currentEp) return;
+        revealTvEpisodeCard(currentEp);
+    }, [isTvShell, item?.ratingKey, item?.type, showSeasons, seasonEpisodes]);
 
     useEffect(() => {
         if (!isTvShell || !item || (item.type !== 'episode' && item.type !== 'season')) {
@@ -961,7 +981,25 @@ export const MediaPlayerDetails: React.FC<Props> = ({
     const startPlay = (index = mediaIndex) => {
         setVersionPickerOpen(false);
         setMediaIndex(index);
+        writeMediaIndexChoice(ratingKey, index);
         onPlay(applyRememberedProgress(tvHubPlayTarget()), { ...playOpts, mediaIndex: index });
+    };
+    const playEpisodeTile = (row: PlayerItem) => {
+        const detailed = (
+            (spotlightDetail && String(spotlightDetail.ratingKey) === String(row.ratingKey) ? spotlightDetail : null)
+            || episodeDetailCache.current.get(String(row.ratingKey))
+            || row
+        );
+        const playable = applyRememberedProgress({
+            ...detailed,
+            thumb: detailed.thumb || row.thumb || item?.thumb,
+            art: detailed.art || row.art || item?.art,
+            showTitle: detailed.showTitle || row.showTitle || item?.title || item?.showTitle,
+        });
+        onPlay(playable, {
+            ...(String(row.ratingKey) === String(item?.ratingKey) ? playOpts : {}),
+            playFromHere: true,
+        });
     };
     const playNextNeighbor = neighbors.next;
     const onPlayPress = () => {
@@ -969,7 +1007,22 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             setVersionPickerOpen(true);
             return;
         }
+        if (item?.type === 'show' || item?.type === 'season') {
+            onPlay(item);
+            return;
+        }
         startPlay(mediaIndex);
+    };
+    const onStartFromBeginning = () => {
+        if (!item) return;
+        setVersionPickerOpen(false);
+        const target = applyRememberedProgress(tvHubPlayTarget());
+        onPlay(target, {
+            ...playOpts,
+            skipResume: true,
+            offsetMs: 0,
+            playFromHere: target.type === 'episode',
+        });
     };
     const canShuffle = item?.type === 'show' || item?.type === 'season' || item?.type === 'playlist' || item?.type === 'collection' || item?.type === 'album' || item?.type === 'artist';
     const onShufflePress = () => {
@@ -1358,6 +1411,24 @@ export const MediaPlayerDetails: React.FC<Props> = ({
     const playButtonClass = isTvShell
         ? 'inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-plex px-4 text-sm font-bold text-zinc-950 transition-colors disabled:cursor-not-allowed disabled:opacity-50'
         : 'inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-plex px-4 text-sm font-bold text-white shadow-lg shadow-plex/20 transition-colors hover:bg-plex-hover disabled:cursor-not-allowed disabled:opacity-50 max-md:w-full';
+    const showStartFromBeginning = playLabel === t('mediaPlayerPage.resume');
+    const startOverButtonClass = isTvShell
+        ? 'inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/5 px-4 text-sm font-bold text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50'
+        : 'inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-4 text-sm font-bold text-white transition-colors hover:border-plex/40 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50 max-md:w-full';
+    const startOverButton = showStartFromBeginning ? (
+        <button
+            type="button"
+            data-tv-item="1"
+            data-tv-action="1"
+            data-tv-key={`start-over:${item.ratingKey}`}
+            onClick={onStartFromBeginning}
+            disabled={playing || playbackActive}
+            className={startOverButtonClass}
+        >
+            <RotateCcw className="h-4 w-4" />
+            {t('mediaPlayerPage.startFromBeginning')}
+        </button>
+    ) : null;
     const phonePlayTarget = applyRememberedProgress(playTarget || playbackItem);
     const phoneLeft = formatPlayerDuration(remainingWatchMs(phonePlayTarget));
     const phoneOnDeckCode = (item.type === 'show' || item.type === 'season')
@@ -1689,6 +1760,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         <PlayerClearLogo
             src={logoUrl}
             alt={mobileBillboardTitle}
+            fillSlot={isTvShell}
             className="media-details-clearlogo h-[4.75rem] w-auto max-w-[min(92%,20rem)] object-contain object-center drop-shadow-[0_10px_28px_rgba(0,0,0,0.8)]"
         />
     ) : logoPending && !settings.phoneOverviewPoster ? (
@@ -1746,6 +1818,9 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                         ].filter(Boolean).join('  •  ')
                         : phoneBillboardMeta}
                 </p>
+            ) : null}
+            {isTvShell && (item.type === 'episode' || item.type === 'season') && hubSummary ? (
+                <p className="media-details-billboard-summary">{hubSummary}</p>
             ) : null}
             {preplayUi && !(isTvShell && (item.type === 'episode' || item.type === 'season')) ? (
                 <div className="media-details-billboard-ratings pointer-events-auto mt-2.5 flex w-full flex-col items-center gap-2">
@@ -2054,6 +2129,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                                     {actionPlayLabel}
                                                 </button>
                                             ) : null}
+                                            {startOverButton}
                                             {tvTrailerButton}
                                             {playNextButton}
                                             <div className="media-details-action-chips">
@@ -2259,6 +2335,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                             {actionPlayLabel}
                                         </button>
                                     ) : null}
+                                    {startOverButton}
                                     {tvTrailerButton}
                                     {playNextButton}
                                     <div className="media-details-action-chips">
@@ -2587,6 +2664,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                         onClick={() => {
                                             if (isTvShell) {
                                                 setSpotlightKey(String(row.ratingKey));
+                                                playEpisodeTile(row);
                                                 return;
                                             }
                                             onOpenItem({
@@ -2672,7 +2750,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                         data-tv-row-id={`cast:${hubItem.ratingKey || item.ratingKey}`}
                     >
                         <h3 className="media-details-episode-cast-heading">{t('mediaPlayerPage.castAndCrew')}</h3>
-                        <div className="media-details-episode-cast">
+                        <div className="media-details-episode-cast" data-tv-rail="1">
                             {hubCastPeople.slice(0, 12).map((actor) => (
                                 <button
                                     key={`hub-cast-${actor.id || actor.name}`}

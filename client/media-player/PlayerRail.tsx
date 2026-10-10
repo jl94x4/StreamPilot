@@ -37,6 +37,8 @@ export const PlayerRail: React.FC<{
     staggerIndex?: number;
     /** Stable id for TV per-row focus restore (up/down). */
     rowId?: string;
+    /** TV: mount enough cards so a restored focus key is in the DOM. */
+    restoreFocusKey?: string;
 }> = ({
     title,
     items,
@@ -58,6 +60,7 @@ export const PlayerRail: React.FC<{
     viewAllLabel,
     staggerIndex = 0,
     rowId,
+    restoreFocusKey,
 }) => {
     const { t } = useDiscoverI18n();
     const tvShell = isTvShell();
@@ -66,8 +69,13 @@ export const PlayerRail: React.FC<{
         ? (staggerIndex === 0 ? 12 : staggerIndex <= 2 ? 6 : 2)
         : (staggerIndex === 0 ? 8 : 4);
     const tvArmedFloor = staggerIndex === 0 ? 14 : 8;
+    const restoreIndex = restoreFocusKey
+        ? items.findIndex((item) => String(item.ratingKey || '') === restoreFocusKey)
+        : -1;
     const [armedCount, setArmedCount] = useState(() => (
-        tvShell ? Math.min(items.length, tvArmedFloor) : items.length
+        tvShell
+            ? Math.min(items.length, Math.max(tvArmedFloor, restoreIndex >= 0 ? restoreIndex + 6 : 0))
+            : items.length
     ));
     useEffect(() => {
         if (!tvShell) {
@@ -76,9 +84,10 @@ export const PlayerRail: React.FC<{
         }
         setArmedCount((current) => {
             if (!items.length) return 0;
-            return Math.min(items.length, Math.max(current, Math.min(tvArmedFloor, items.length)));
+            const restored = restoreIndex >= 0 ? restoreIndex + 6 : 0;
+            return Math.min(items.length, Math.max(current, tvArmedFloor, restored));
         });
-    }, [items.length, tvArmedFloor, tvShell]);
+    }, [items.length, restoreIndex, tvArmedFloor, tvShell]);
     useEffect(() => {
         const take = tvShell ? Math.max(eagerCount, 12) : eagerCount + 8;
         const urls = items.slice(0, take).map((item) => {

@@ -9,6 +9,7 @@ import {
 import { fetchMediaPlayerItemMore, fetchMediaPlayerLibraries, fetchMediaPlayerMe, fetchMediaPlayerPlayFromQueue, fetchMediaPlayerShuffleQueue, startMediaPlayerPlayback } from './api';
 import { MediaPlayerHome } from './MediaPlayerHome';
 import { MediaPlayerWatchlist } from './MediaPlayerWatchlist';
+import { MediaPlayerPlaylists } from './MediaPlayerPlaylists';
 import { MediaPlayerLibrary } from './MediaPlayerLibrary';
 import { MediaPlayerCollection } from './MediaPlayerCollection';
 import { MediaPlayerHub } from './MediaPlayerHub';
@@ -24,21 +25,28 @@ import { isAndroidTvUi } from '../plex-client/config';
 import { PLAYER_APP_BASE, PLAYER_NAVIGATE_EVENT, PLAYER_SCROLL_ID, PLAYER_TV_NAV_EVENT } from './paths';
 import { usePlayerSettings } from './usePlayerSettings';
 import { PlayerResumeDialog } from './PlayerResumeDialog';
-import { isPlayerTrailer, resolveStartPlaybackQualityId, shouldOfferResume } from './playerUtils';
+import { PlayerStillWatchingDialog } from './PlayerStillWatchingDialog';
+import { isPlayerTrailer, resolveStartPlaybackQualityId, shouldOfferResume, sliceQueueToNextUnwatched } from './playerUtils';
 import {
     consumePlayerSearchFocus,
     focusPlayerSearchInput,
     PLAYER_SERVERS_EVENT,
     readAvChoice,
+    readMediaIndexChoice,
+    rememberLastLibraryPath,
     resolveAvChoiceForTracks,
+    writeMediaIndexChoice,
     readPlayerItemCache,
     readPlayerLibrariesCache,
     readPlayerNavExpanded,
     requestPlayerHomeReset,
     requestPlayerSearchFocus,
     restorePlayerHomeScrollWhenReady,
+    restorePlayerLibraryScroll,
+    restorePlayerLibraryScrollWhenReady,
     seedPlayerItemNav,
     stashPlayerHomeScroll,
+    stashPlayerLibraryScroll,
     writePlayerNavExpanded,
     writePlayerScrollTop,
     usePlayerNetworkStatus,
@@ -48,10 +56,41 @@ import type { PlayerItem, PlayerLibraryHub, PlayerPlayOptions, PlayerPlaySession
 type PlayerPersonRef = { id: string; name: string; thumb?: string | null };
 type LibraryTab = 'home' | 'browse' | 'collections';
 
+const formatTvClock = (date: Date) => {
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `${hours}:${minutes}`;
+};
+
+const PlayerTvClock: React.FC = () => {
+    const [label, setLabel] = useState(() => formatTvClock(new Date()));
+
+    useEffect(() => {
+        const tick = () => setLabel(formatTvClock(new Date()));
+        tick();
+        const id = window.setInterval(tick, 1000);
+        const onVisibility = () => {
+            if (document.visibilityState !== 'hidden') tick();
+        };
+        document.addEventListener('visibilitychange', onVisibility);
+        return () => {
+            window.clearInterval(id);
+            document.removeEventListener('visibilitychange', onVisibility);
+        };
+    }, []);
+
+    return (
+        <div className="player-tv-clock" aria-hidden>
+            {label}
+        </div>
+    );
+};
+
 type PlayerView =
     | { kind: 'home' }
     | { kind: 'library'; sectionKey: string; tab: LibraryTab }
     | { kind: 'collection'; sectionKey: string; ratingKey: string }
+    | { kind: 'playlists' }
     | { kind: 'playlist'; ratingKey: string }
     | { kind: 'hub'; path: string; title: string; identifier?: string }
     | { kind: 'item'; ratingKey: string; serverId: string }
@@ -84,6 +123,7 @@ const readPlayerView = (): PlayerView => {
     if (parts[1] === 'collection' && parts[2]) {
         return { kind: 'collection', sectionKey: '', ratingKey: parts[2] };
     }
+    if (parts[1] === 'playlists') return { kind: 'playlists' };
     if (parts[1] === 'playlist' && parts[2]) {
         return { kind: 'playlist', ratingKey: parts[2] };
     }
@@ -136,6 +176,8 @@ const viewScreenMotionKey = (view: PlayerView): string => {
             return `library:${view.sectionKey}:${view.tab}`;
         case 'collection':
             return `collection:${view.ratingKey}`;
+        case 'playlists':
+            return 'playlists';
         case 'playlist':
             return `playlist:${view.ratingKey}`;
         case 'hub':
@@ -168,11 +210,16 @@ export const MediaPlayerDashboard: React.FC = () => {
     const [playSession, setPlaySession] = useState<PlayerPlaySession | null>(null);
     const playSessionRef = useRef<PlayerPlaySession | null>(null);
     playSessionRef.current = playSession;
+    /** Keep a black bridge while ExoPlayer closes and the next episode opens. */
+    const [playNextBridge, setPlayNextBridge] = useState(false);
+    const closingToOverviewRef = useRef(false);
     const [playNextQueue, setPlayNextQueue] = useState<PlayerItem[]>([]);
     const [isAdmin, setIsAdmin] = useState(false);
     const [startingPlay, setStartingPlay] = useState(false);
     const startingPlayRef = useRef(false);
     const [pendingResume, setPendingResume] = useState<PendingResume | null>(null);
+    const [pendingStillWatching, setPendingStillWatching] = useState<{ item: PlayerItem; opts: PlayerPlayOptions } | null>(null);
+    const autoplayStreakRef = useRef(0);
     const [navExpanded, setNavExpanded] = useState(() => {
         try {
             if (typeof window !== 'undefined' && (window.__PLEX_CLIENT__?.isTv || document.documentElement?.dataset?.tv === '1')) {
@@ -184,6 +231,9 @@ export const MediaPlayerDashboard: React.FC = () => {
         return readPlayerNavExpanded();
     });
     const [keepHome, setKeepHome] = useState(() => view.kind === 'home');
+    const [keepLibrary, setKeepLibrary] = useState<{ sectionKey: string; tab: LibraryTab } | null>(
+        () => (view.kind === 'library' ? { sectionKey: view.sectionKey, tab: view.tab } : null),
+    );
     const [tvScreenEnter, setTvScreenEnter] = useState(true);
     const [tvShell, setTvShell] = useState(() => {
         try {
@@ -227,6 +277,19 @@ export const MediaPlayerDashboard: React.FC = () => {
         window.setTimeout(() => window.clearInterval(id), 4000);
         return () => window.clearInterval(id);
     }, []);
+
+    useEffect(() => {
+        if (!tvShell) {
+            try { delete document.documentElement.dataset.reduceMotion; } catch { /* ignore */ }
+            return;
+        }
+        try {
+            if (settings.reduceMotion) document.documentElement.dataset.reduceMotion = '1';
+            else delete document.documentElement.dataset.reduceMotion;
+        } catch {
+            /* ignore */
+        }
+    }, [settings.reduceMotion, tvShell]);
 
     const syncFromLocation = useCallback(() => {
         setView(readPlayerView());
@@ -287,13 +350,31 @@ export const MediaPlayerDashboard: React.FC = () => {
         const previous = viewKindRef.current;
         viewKindRef.current = view.kind;
         if (view.kind === 'home') setKeepHome(true);
-        if (previous === 'home' && view.kind !== 'home') stashPlayerHomeScroll();
+        if (view.kind === 'library') {
+            setKeepLibrary({ sectionKey: view.sectionKey, tab: view.tab });
+            rememberLastLibraryPath(libraryPath(view.sectionKey, view.tab));
+        } else if (
+            view.kind === 'home'
+            || view.kind === 'watchlist'
+            || view.kind === 'playlists'
+            || view.kind === 'settings'
+        ) {
+            setKeepLibrary(null);
+        }
+        if (view.kind === 'library' && previous !== 'library') return restorePlayerLibraryScrollWhenReady();
         if (view.kind !== 'home' || previous === 'home') return undefined;
         return restorePlayerHomeScrollWhenReady();
-    }, [tvShell, view.kind]);
+    }, [tvShell, view]);
 
     useLayoutEffect(() => {
+        const previous = viewKindRef.current;
+        if (previous === 'home' && view.kind !== 'home') stashPlayerHomeScroll();
+        if (previous === 'library' && view.kind !== 'library') stashPlayerLibraryScroll();
         if (view.kind === 'home') return;
+        if (view.kind === 'library') {
+            restorePlayerLibraryScroll();
+            return;
+        }
         writePlayerScrollTop(0);
     }, [view.kind, viewKey]);
 
@@ -364,7 +445,9 @@ export const MediaPlayerDashboard: React.FC = () => {
 
     const openItem = useCallback((item: PlayerItem) => {
         if (!item?.ratingKey) return;
+        if (isAndroidTvUi()) captureTvFocusSnapshot();
         rememberTvFocusKey(item.ratingKey);
+        if (view.kind === 'library') stashPlayerLibraryScroll();
         if (item.type === 'person') {
             const actorId = String(item.personId || item.ratingKey).trim();
             if (!actorId) return;
@@ -392,11 +475,13 @@ export const MediaPlayerDashboard: React.FC = () => {
         seedPlayerItemNav(item);
         const serverQs = item.serverId ? `?server=${encodeURIComponent(item.serverId)}` : '';
         navigate(`${PLAYER_APP_BASE}/item/${encodeURIComponent(item.ratingKey)}${serverQs}`);
-    }, [navigate]);
+    }, [navigate, view.kind]);
 
     const openLibrary = useCallback((section: PlayerSection, tab: LibraryTab = 'home') => {
         if (!section?.key) return;
-        navigate(libraryPath(section.key, tab));
+        const path = libraryPath(section.key, tab);
+        rememberLastLibraryPath(path);
+        navigate(path);
     }, [navigate]);
 
     const openCollection = useCallback((sectionKey: string, item: PlayerItem) => {
@@ -459,6 +544,10 @@ export const MediaPlayerDashboard: React.FC = () => {
         navigate(`${PLAYER_APP_BASE}/watchlist`);
     }, [navigate]);
 
+    const goPlaylists = useCallback(() => {
+        navigate(`${PLAYER_APP_BASE}/playlists`);
+    }, [navigate]);
+
     const openSearch = useCallback(() => {
         requestPlayerSearchFocus();
         if (view.kind !== 'home') navigate(PLAYER_APP_BASE);
@@ -466,6 +555,13 @@ export const MediaPlayerDashboard: React.FC = () => {
             if (focusPlayerSearchInput()) consumePlayerSearchFocus();
         }, 80);
     }, [navigate, view.kind]);
+
+    useEffect(() => {
+        window.__SMP_OPEN_SEARCH__ = openSearch;
+        return () => {
+            if (window.__SMP_OPEN_SEARCH__ === openSearch) delete window.__SMP_OPEN_SEARCH__;
+        };
+    }, [openSearch]);
 
     useEffect(() => {
         const onKey = (event: KeyboardEvent) => {
@@ -490,12 +586,17 @@ export const MediaPlayerDashboard: React.FC = () => {
         if (isAndroidTvUi()) captureTvFocusSnapshot();
         setStartingPlay(true);
         setPendingResume(null);
+        setPlayNextBridge(true);
         try {
             const savedAv = readAvChoice(item.grandparentRatingKey || item.parentRatingKey, item.ratingKey);
+            const rememberedIndex = opts.mediaIndex != null
+                ? opts.mediaIndex
+                : (readMediaIndexChoice(item.ratingKey) ?? undefined);
+            if (rememberedIndex != null) writeMediaIndexChoice(item.ratingKey, rememberedIndex);
             const baseOpts = {
                 offsetMs: opts.offsetMs,
                 qualityId: resolveStartPlaybackQualityId(opts.qualityId, settings.defaultQualityId),
-                mediaIndex: opts.mediaIndex,
+                mediaIndex: rememberedIndex,
                 audioLanguage: savedAv?.audioLanguage || settings.audioLanguage,
                 subtitleMode: settings.subtitleMode,
                 serverId: item.serverId,
@@ -530,7 +631,9 @@ export const MediaPlayerDashboard: React.FC = () => {
                 }
             }
             setPlaySession(session);
+            setPlayNextBridge(false);
         } catch (error: any) {
+            setPlayNextBridge(false);
             setToasts((prev) => appendToast(prev, String(error?.message || t('mediaPlayerPage.playError')), 'error'));
         } finally {
             startingPlayRef.current = false;
@@ -539,6 +642,19 @@ export const MediaPlayerDashboard: React.FC = () => {
     }, [settings.audioLanguage, settings.defaultQualityId, settings.subtitleMode, t]);
 
     const playItem = useCallback(async (item: PlayerItem, opts: PlayerPlayOptions = {}) => {
+        if (opts.fromAutoplay) {
+            const askAfter = Number(settings.stillWatchingAfter);
+            if (Number.isFinite(askAfter) && askAfter > 0 && autoplayStreakRef.current >= askAfter) {
+                setPlayNextBridge(false);
+                setPlaySession(null);
+                setPendingStillWatching({ item, opts: { ...opts, fromAutoplay: false } });
+                return;
+            }
+            autoplayStreakRef.current += 1;
+        } else {
+            autoplayStreakRef.current = 0;
+            setPendingStillWatching(null);
+        }
         let target = item;
         let nextOpts: PlayerPlayOptions = { ...opts };
         if (opts.queue?.length) {
@@ -554,6 +670,8 @@ export const MediaPlayerDashboard: React.FC = () => {
         } else if ((
             opts.shuffle
             || opts.playFromHere
+            || item.type === 'show'
+            || item.type === 'season'
             || item.type === 'album'
             || item.type === 'artist'
             || item.type === 'track'
@@ -562,7 +680,10 @@ export const MediaPlayerDashboard: React.FC = () => {
                 const data = opts.shuffle
                     ? await fetchMediaPlayerShuffleQueue(item.ratingKey, item.serverId)
                     : await fetchMediaPlayerPlayFromQueue(item.ratingKey, item.serverId);
-                const rows = (data.items || []).filter((row) => row?.ratingKey);
+                let rows = (data.items || []).filter((row) => row?.ratingKey);
+                if (!opts.shuffle && (item.type === 'show' || item.type === 'season') && !opts.playFromHere) {
+                    rows = sliceQueueToNextUnwatched(rows);
+                }
                 if (!rows.length) {
                     setToasts((prev) => appendToast(prev, t('mediaPlayerPage.notPlayable'), 'error'));
                     return;
@@ -623,12 +744,20 @@ export const MediaPlayerDashboard: React.FC = () => {
             }
         }
         await startPlayback(target, nextOpts);
-    }, [navigate, settings.cinemaTrailers, startPlayback, t]);
+    }, [navigate, settings.cinemaTrailers, settings.stillWatchingAfter, startPlayback, t]);
 
     useEffect(() => {
-        if (playSession || !isAndroidTvUi()) return undefined;
-        // Wait longer than native play-next (350ms) so autoplay does not yank focus first.
-        const id = window.setTimeout(() => restoreTvFocusWhenReady(), 500);
+        if (playSession) {
+            setPlayNextBridge(false);
+            return undefined;
+        }
+        if (!isAndroidTvUi()) return undefined;
+        // Returning to a title overview — don't yank focus back to Home.
+        if (closingToOverviewRef.current) {
+            closingToOverviewRef.current = false;
+            return undefined;
+        }
+        const id = window.setTimeout(() => restoreTvFocusWhenReady(), 120);
         return () => window.clearTimeout(id);
     }, [playSession]);
 
@@ -640,6 +769,15 @@ export const MediaPlayerDashboard: React.FC = () => {
         }, 40);
         return () => window.clearTimeout(id);
     }, [pendingResume]);
+
+    useEffect(() => {
+        if (!pendingStillWatching) return undefined;
+        const id = window.setTimeout(() => {
+            const btn = document.querySelector<HTMLElement>('[data-tv-still-watching-primary="1"]');
+            btn?.focus();
+        }, 40);
+        return () => window.clearTimeout(id);
+    }, [pendingStillWatching]);
 
     const openSettings = useCallback(() => navigate(`${PLAYER_APP_BASE}/settings`), [navigate]);
     const toggleNavExpanded = useCallback(() => {
@@ -653,6 +791,8 @@ export const MediaPlayerDashboard: React.FC = () => {
         ? 'home'
         : view.kind === 'watchlist'
             ? 'watchlist'
+            : view.kind === 'playlists' || view.kind === 'playlist'
+                ? 'playlists'
             : view.kind === 'settings'
                 ? 'settings'
                 : view.kind === 'library' || view.kind === 'collection'
@@ -668,6 +808,7 @@ export const MediaPlayerDashboard: React.FC = () => {
 
     return (
         <div className="relative flex h-full min-h-0 w-full flex-col">
+            {tvShell && !playSession ? <PlayerTvClock /> : null}
             <MediaPlayerNav
                 libraries={libraries}
                 libraryOrder={settings.libraryNavOrder}
@@ -679,7 +820,9 @@ export const MediaPlayerDashboard: React.FC = () => {
                 onWatchlist={goWatchlist}
                 onSearch={openSearch}
                 onOpenLibrary={openLibrary}
+                onOpenPlaylists={goPlaylists}
                 onOpenSettings={openSettings}
+                playlistsEnabled={settings.showPlaylists}
                 offline={tvShell && !networkOnline}
             />
             <div
@@ -708,6 +851,7 @@ export const MediaPlayerDashboard: React.FC = () => {
                         onPlay={playItem}
                         onOpenLibrary={openLibrary}
                         onOpenHub={openHub}
+                        onOpenWatchlist={goWatchlist}
                         onPlayNext={enqueuePlayNext}
                         onToast={notify}
                         isAdmin={isAdmin}
@@ -728,22 +872,41 @@ export const MediaPlayerDashboard: React.FC = () => {
                     />
                 </div>
             ) : null}
+            {view.kind === 'playlists' ? (
+                <div key="playlists" className={screenEnterClass(tvShell, tvScreenEnter)}>
+                    <MediaPlayerPlaylists
+                        onBack={goHome}
+                        onOpenItem={openItem}
+                        onPlay={playItem}
+                        onPlayNext={enqueuePlayNext}
+                        onToast={notify}
+                        isAdmin={isAdmin}
+                        playlistsEnabled={settings.showPlaylists}
+                    />
+                </div>
+            ) : null}
             {view.kind === 'settings' ? (
                 <div key="settings" className={screenEnterClass(tvShell, tvScreenEnter)}>
                     <MediaPlayerSettings onBack={goHome} isAdmin={isAdmin} />
                 </div>
             ) : null}
-            {view.kind === 'library' ? (
-                <div key={viewScreenMotionKey(view)} className={screenEnterClass(tvShell, tvScreenEnter)}>
+            {(view.kind === 'library' || keepLibrary) ? (
+                <div
+                    className={view.kind === 'library' ? screenEnterClass(tvShell, tvScreenEnter) : 'hidden'}
+                    hidden={view.kind !== 'library'}
+                >
                 <MediaPlayerLibrary
-                    sectionKey={view.sectionKey}
-                    tab={view.tab}
+                    sectionKey={view.kind === 'library' ? view.sectionKey : keepLibrary!.sectionKey}
+                    tab={view.kind === 'library' ? view.tab : keepLibrary!.tab}
+                    active={view.kind === 'library'}
                     onBack={goHome}
                     onOpenItem={openItem}
-                    onOpenLibrary={openLibrary}
                     onOpenCollection={openCollection}
                     onOpenHub={openHub}
-                    onChangeTab={(tab) => navigate(libraryPath(view.sectionKey, tab))}
+                    onChangeTab={(tab) => navigate(libraryPath(
+                        view.kind === 'library' ? view.sectionKey : keepLibrary!.sectionKey,
+                        tab,
+                    ))}
                     onPlay={playItem}
                     onPlayNext={enqueuePlayNext}
                     onToast={notify}
@@ -771,7 +934,7 @@ export const MediaPlayerDashboard: React.FC = () => {
                 <div key={viewScreenMotionKey(view)} className={screenEnterClass(tvShell, tvScreenEnter)}>
                 <MediaPlayerPlaylist
                     ratingKey={view.ratingKey}
-                    onOpenItem={openItem}
+                    onBack={goPlaylists}
                     onPlay={playItem}
                 />
                 </div>
@@ -854,10 +1017,46 @@ export const MediaPlayerDashboard: React.FC = () => {
                     onClose={() => setPendingResume(null)}
                 />
             ) : null}
+            {pendingStillWatching ? (
+                <PlayerStillWatchingDialog
+                    item={pendingStillWatching.item}
+                    tvShell={tvShell}
+                    onContinue={() => {
+                        const pending = pendingStillWatching;
+                        setPendingStillWatching(null);
+                        autoplayStreakRef.current = 0;
+                        void playItem(pending.item, { ...pending.opts, fromAutoplay: false, skipResume: true });
+                    }}
+                    onStop={() => {
+                        setPendingStillWatching(null);
+                        autoplayStreakRef.current = 0;
+                    }}
+                />
+            ) : null}
             {playSession ? (
                 <MediaPlayerVideo
                     session={playSession}
-                    onClose={() => setPlaySession(null)}
+                    onClose={(meta) => {
+                        const item = meta?.item || playSession.item;
+                        const chaining = !!meta?.playNext;
+                        if (chaining) {
+                            setPlayNextBridge(true);
+                            setPlaySession(null);
+                            return;
+                        }
+                        setPlayNextBridge(false);
+                        setPlaySession(null);
+                        // Movies / episodes (incl. last episode): land on the overview, not a blank Home.
+                        if (item?.ratingKey && (
+                            item.type === 'movie'
+                            || item.type === 'episode'
+                            || item.type === 'clip'
+                            || item.type === 'trailer'
+                        )) {
+                            closingToOverviewRef.current = true;
+                            openItem(item);
+                        }
+                    }}
                     onPlaybackError={(message) => notify(message, 'error')}
                     autoplayNext={settings.autoplayNext}
                     autoSkipIntro={settings.autoSkipIntro}
@@ -866,6 +1065,9 @@ export const MediaPlayerDashboard: React.FC = () => {
                     onConsumePlayNext={consumePlayNext}
                     onPlayItem={playItem}
                 />
+            ) : null}
+            {playNextBridge && !playSession ? (
+                <div className="fixed inset-0 z-[4000] bg-black" aria-hidden data-tv-playback-overlay="1" />
             ) : null}
             <ToastContainer toasts={toasts} setToasts={setToasts} />
                 </div>

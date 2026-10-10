@@ -19,6 +19,7 @@ import {
     Music,
     Play,
     Shuffle,
+    Star,
     Trash2,
     Tv,
     Volume2,
@@ -33,6 +34,7 @@ import {
     fetchMediaPlayerItem,
     fetchMediaPlayerPlaylists,
     removeMediaPlayerProgress,
+    setMediaPlayerRating,
     setMediaPlayerWatched,
     setMediaPlayerWatchlisted,
     setSeasonEpisodesWatched,
@@ -167,6 +169,8 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
         || item.type === 'album' || item.type === 'artist');
     const canPlayFromHere = !!onPlay && (item.type === 'episode' || item.type === 'track');
     const canWatchlist = item.type === 'movie' || item.type === 'show';
+    const canRate = item.type === 'movie' || item.type === 'show' || item.type === 'episode' || item.type === 'season';
+    const ratingStars = Math.max(0, Math.min(5, Math.round(Number(item.userRating || 0) / 2)));
     const canPlaylist = playlistsEnabled
         && (item.type === 'movie' || item.type === 'episode' || item.type === 'show' || item.type === 'season');
     const isTv = typeof document !== 'undefined' && (
@@ -222,6 +226,13 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
     const canGoSeason = Boolean(onOpenItem && seasonKey);
     const canGoArtist = Boolean(onOpenItem && artistKey);
     const canGoAlbum = Boolean(onOpenItem && albumKey);
+    const canMarkSeasonWatched = item.type === 'episode' && !!seasonKey;
+    const goShowLabel = showName
+        ? t('mediaPlayerPage.goToNamed', { title: showName })
+        : t('mediaPlayerPage.goToShow');
+    const goSeasonLabel = seasonName
+        ? t('mediaPlayerPage.goToNamed', { title: seasonName })
+        : t('mediaPlayerPage.goToSeason');
     const showSeasonQuickLinks = useContextSheet && item.type === 'show' && !!onOpenItem;
     const itemClass = useContextSheet ? rowClass : (useMobileModal ? mobileRowClass : compactRowClass);
     const iconClass = useContextSheet
@@ -496,6 +507,77 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
         </button>
     ) : null;
 
+    const goToShowBtn = canGoShow ? (
+        <button
+            type="button"
+            role="menuitem"
+            data-tv-item="1"
+            data-tv-menu-item="1"
+            className={itemClass}
+            onClick={() => choose(() => {
+                onOpenItem?.({
+                    ratingKey: showKey,
+                    type: 'show',
+                    title: showName,
+                    showTitle: showName,
+                    thumb: item.thumb,
+                    art: item.art,
+                    serverId: item.serverId,
+                    canPlay: false,
+                });
+            })}
+        >
+            <Tv className={iconClass} />
+            <span className="whitespace-nowrap">{goShowLabel}</span>
+        </button>
+    ) : null;
+    const goToSeasonBtn = canGoSeason ? (
+        <button
+            type="button"
+            role="menuitem"
+            data-tv-item="1"
+            data-tv-menu-item="1"
+            className={itemClass}
+            onClick={() => choose(() => {
+                onOpenItem?.({
+                    ratingKey: seasonKey,
+                    type: 'season',
+                    title: seasonName,
+                    showTitle: showName,
+                    seasonTitle: seasonName,
+                    parentRatingKey: showKey || null,
+                    thumb: item.thumb,
+                    art: item.art,
+                    serverId: item.serverId,
+                    canPlay: false,
+                });
+            })}
+        >
+            <Layers className={iconClass} />
+            <span className="whitespace-nowrap">{goSeasonLabel}</span>
+        </button>
+    ) : null;
+    const markSeasonBtn = canMarkSeasonWatched ? (
+        <button
+            type="button"
+            role="menuitem"
+            data-tv-item="1"
+            data-tv-menu-item="1"
+            className={itemClass}
+            onClick={() => {
+                close();
+                setSeasonWatchOpen(true);
+            }}
+        >
+            <CheckCircle2 className={iconClass} />
+            <span className="whitespace-nowrap">
+                {seasonName
+                    ? t('mediaPlayerPage.markSeasonWatchedNamed', { title: seasonName })
+                    : t('mediaPlayerPage.markSeasonWatched')}
+            </span>
+        </button>
+    ) : null;
+
     const actionRows = mode === 'main' ? (
         <>
             {!useContextSheet && isTv ? watchToggle : null}
@@ -541,6 +623,13 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                     {t('mediaPlayerPage.playFromHere')}
                 </button>
             ) : null}
+            {useContextSheet && (item.type === 'episode' || item.type === 'season') ? (
+                <>
+                    {goToShowBtn}
+                    {goToSeasonBtn}
+                    {markSeasonBtn}
+                </>
+            ) : null}
             {canWatchlist ? (
                 <button
                     type="button"
@@ -557,6 +646,49 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                     {item.watchlisted ? <BookmarkCheck className={iconClass} /> : <Bookmark className={iconClass} />}
                     {item.watchlisted ? t('mediaPlayerPage.removeFromWatchlist') : t('mediaPlayerPage.addToWatchlist')}
                 </button>
+            ) : null}
+            {canRate ? (
+                <div className="px-1 py-1.5" data-tv-rail="1">
+                    <p className="px-2.5 pb-1 text-[11px] font-bold uppercase tracking-[0.16em] text-white/45">
+                        {t('mediaPlayerPage.rate')}
+                    </p>
+                    <div className="flex items-center gap-0.5 px-1">
+                        {[1, 2, 3, 4, 5].map((star) => (
+                            <button
+                                key={star}
+                                type="button"
+                                data-tv-item="1"
+                                data-tv-menu-item="1"
+                                title={t('mediaPlayerPage.rate')}
+                                aria-label={`${star}`}
+                                className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-white/40 hover:bg-white/[0.06]"
+                                onClick={() => choose(async () => {
+                                    const rating = star * 2;
+                                    await setMediaPlayerRating(item.ratingKey, rating, item.serverId);
+                                    toast(t('mediaPlayerPage.ratingSaved'));
+                                })}
+                            >
+                                <Star
+                                    className={`h-5 w-5 ${ratingStars >= star ? 'fill-plex text-plex' : 'text-white/35'}`}
+                                />
+                            </button>
+                        ))}
+                        {ratingStars > 0 ? (
+                            <button
+                                type="button"
+                                data-tv-item="1"
+                                data-tv-menu-item="1"
+                                className="ml-1 px-2 text-xs font-semibold text-white/55 hover:text-white"
+                                onClick={() => choose(async () => {
+                                    await setMediaPlayerRating(item.ratingKey, 0, item.serverId);
+                                    toast(t('mediaPlayerPage.ratingCleared'));
+                                })}
+                            >
+                                {t('mediaPlayerPage.clearRating')}
+                            </button>
+                        ) : null}
+                    </div>
+                </div>
             ) : null}
             {canPlaylist ? (
                 <button
@@ -581,59 +713,11 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                     ? null
                     : <div className="my-1.5 border-t border-white/10" />
             ) : null}
-            {canGoShow ? (
-                <button
-                    type="button"
-                    role="menuitem"
-                    data-tv-item="1"
-                    data-tv-menu-item="1"
-                    className={itemClass}
-                    onClick={() => choose(() => {
-                        onOpenItem?.({
-                            ratingKey: showKey,
-                            type: 'show',
-                            title: showName,
-                            showTitle: showName,
-                            thumb: item.thumb,
-                            art: item.art,
-                            serverId: item.serverId,
-                            canPlay: false,
-                        });
-                    })}
-                >
-                    <Tv className={iconClass} />
-                    <span className="whitespace-nowrap">
-                        {showName ? t('mediaPlayerPage.goToNamed', { title: showName }) : t('mediaPlayerPage.goToShow')}
-                    </span>
-                </button>
-            ) : null}
-            {canGoSeason ? (
-                <button
-                    type="button"
-                    role="menuitem"
-                    data-tv-item="1"
-                    data-tv-menu-item="1"
-                    className={itemClass}
-                    onClick={() => choose(() => {
-                        onOpenItem?.({
-                            ratingKey: seasonKey,
-                            type: 'season',
-                            title: seasonName,
-                            showTitle: showName,
-                            seasonTitle: seasonName,
-                            parentRatingKey: showKey || null,
-                            thumb: item.thumb,
-                            art: item.art,
-                            serverId: item.serverId,
-                            canPlay: false,
-                        });
-                    })}
-                >
-                    <Layers className={iconClass} />
-                    <span className="whitespace-nowrap">
-                        {seasonName ? t('mediaPlayerPage.goToNamed', { title: seasonName }) : t('mediaPlayerPage.goToSeason')}
-                    </span>
-                </button>
+            {!(useContextSheet && (item.type === 'episode' || item.type === 'season')) ? (
+                <>
+                    {goToShowBtn}
+                    {goToSeasonBtn}
+                </>
             ) : null}
             {canGoArtist ? (
                 <button
@@ -951,19 +1035,6 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                             )}
                             {(canPrimaryOpen || canPrimaryWatch) ? (
                                 <div className="mb-4 flex w-full shrink-0 flex-col gap-2.5">
-                                    {canPrimaryOpen ? (
-                                        <button
-                                            type="button"
-                                            role="menuitem"
-                                            data-tv-item="1"
-                                            data-tv-menu-item="1"
-                                            data-tv-menu-watch="1"
-                                            className="flex w-full items-center justify-center gap-2.5 rounded-full bg-white px-5 py-3.5 text-[1.08rem] font-bold text-zinc-900 outline-none"
-                                            onClick={() => choose(() => onOpenItem?.(item))}
-                                        >
-                                            {t('common.open')}
-                                        </button>
-                                    ) : null}
                                     {canPrimaryWatch ? (
                                         <button
                                             type="button"
@@ -976,6 +1047,19 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                                         >
                                             <Play className="h-5 w-5 fill-current" />
                                             {primaryWatchLabel}
+                                        </button>
+                                    ) : null}
+                                    {canPrimaryOpen ? (
+                                        <button
+                                            type="button"
+                                            role="menuitem"
+                                            data-tv-item="1"
+                                            data-tv-menu-item="1"
+                                            data-tv-menu-watch="1"
+                                            className="flex w-full items-center justify-center gap-2.5 rounded-full bg-white px-5 py-3.5 text-[1.08rem] font-bold text-zinc-900 outline-none"
+                                            onClick={() => choose(() => onOpenItem?.(item))}
+                                        >
+                                            {t('mediaPlayerPage.moreInfo')}
                                         </button>
                                     ) : null}
                                 </div>
@@ -1137,15 +1221,17 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                     </div>
                 </div>
             ) : null}
-            {seasonWatchOpen && item.type === 'season' ? (
+            {seasonWatchOpen && (item.type === 'season' || canMarkSeasonWatched) ? (
                 <PlayerSeasonWatchDialog
-                    episodeCount={Number(item.leafCount || 0)}
+                    episodeCount={item.type === 'season' ? Number(item.leafCount || 0) : 0}
                     busy={seasonWatchBusy}
                     tvShell={tvShell}
                     onConfirm={() => {
                         if (seasonWatchBusy) return;
+                        const seasonRatingKey = item.type === 'season' ? item.ratingKey : seasonKey;
+                        if (!seasonRatingKey) return;
                         setSeasonWatchBusy(true);
-                        void setSeasonEpisodesWatched(item.ratingKey, true, item.serverId)
+                        void setSeasonEpisodesWatched(seasonRatingKey, true, item.serverId)
                             .then(() => {
                                 onWatchedChange?.(item, true);
                                 toast(t('mediaPlayerPage.markedWatched'));

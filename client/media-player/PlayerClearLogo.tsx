@@ -12,9 +12,11 @@ type Props = {
     center?: boolean;
     /** Vertical inset shift. Off for home identity — overflow clips the stacked mark. */
     trimTop?: boolean;
+    /** TV details: enlarge sparse/wide marks toward the slot without growing full logos. */
+    fillSlot?: boolean;
 };
 
-export const PlayerClearLogo: React.FC<Props> = ({ src, alt, className, onError, boostTopMark = false, center = false, trimTop = true }) => {
+export const PlayerClearLogo: React.FC<Props> = ({ src, alt, className, onError, boostTopMark = false, center = false, trimTop = true, fillSlot = false }) => {
     const [visual, setVisual] = useState<{ src: string; left: number; top: number } | null>(() => {
         if (boostTopMark) {
             const composed = peekComposedLogo(src);
@@ -81,16 +83,52 @@ export const PlayerClearLogo: React.FC<Props> = ({ src, alt, className, onError,
     // Half the left pad recenters artwork that sits in an asymmetric PNG.
     const shiftX = center ? left / 2 : left;
     const shift = shiftX > 0 || top > 0;
+    const [fillBoost, setFillBoost] = useState(1);
+
+    useEffect(() => {
+        setFillBoost(1);
+    }, [src, fillSlot]);
+
+    const onImgLoad = (img: HTMLImageElement) => {
+        if (!fillSlot) {
+            setFillBoost(1);
+            return;
+        }
+        const nw = img.naturalWidth;
+        const nh = img.naturalHeight;
+        const boxW = img.clientWidth;
+        const boxH = img.clientHeight;
+        if (nw < 2 || nh < 2 || boxW < 2 || boxH < 2) {
+            setFillBoost(1);
+            return;
+        }
+        const fit = Math.min(boxW / nw, boxH / nh);
+        const drawnH = nh * fit * (1 - top * 0.9);
+        if (drawnH >= boxH * 0.86) {
+            setFillBoost(1);
+            return;
+        }
+        setFillBoost(Math.max(1, Math.min(1.45, boxH / Math.max(8, drawnH))));
+    };
+
+    const translate = shift ? `translate(-${(shiftX * 100).toFixed(2)}%, -${(top * 100).toFixed(2)}%)` : '';
+    const scale = fillBoost > 1.02 ? `scale(${fillBoost.toFixed(3)})` : '';
+    const transform = [translate, scale].filter(Boolean).join(' ') || undefined;
 
     return (
         <img
             src={visual?.src || src}
             alt={alt}
             className={className}
+            ref={(node) => {
+                if (node?.complete && node.naturalWidth > 0) onImgLoad(node);
+            }}
+            onLoad={(event) => onImgLoad(event.currentTarget)}
             onError={() => onError?.()}
             style={{
                 opacity: ready ? 1 : 0,
-                transform: shift ? `translate(-${(shiftX * 100).toFixed(2)}%, -${(top * 100).toFixed(2)}%)` : undefined,
+                transform,
+                transformOrigin: scale ? 'left bottom' : undefined,
             }}
         />
     );

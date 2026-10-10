@@ -1,7 +1,7 @@
 import { directPlexTranscodeUrl, portalUrl, resolvePortalAssetUrl } from '../shared/basePath';
 import { notePlayerItemProgress } from './playerMemory';
 import { PLAYER_API_ROOT, PLAYER_IMAGE_PATH } from './paths';
-import type { PlayerContinueWatchingLayout } from './playerSettings';
+import { sortContinueWatchingItems, type PlayerContinueWatchingLayout, type PlayerContinueWatchingSort } from './playerSettings';
 import type { PlayerItem } from './types';
 
 /** Shared rail size so home, library, and season grids hit the same cached JPEG. */
@@ -433,12 +433,27 @@ export const progressPercent = (item?: PlayerItem | null) => {
     return Math.min(100, Math.max(2, (offset / duration) * 100));
 };
 
+export const isPlaybackFinished = (
+    offsetMs?: number | null,
+    durationMs?: number | null,
+    opts?: { ended?: boolean; creditsStartMs?: number | null },
+) => {
+    if (opts?.ended) return true;
+    const offset = Math.max(0, Number(offsetMs) || 0);
+    const duration = Math.max(0, Number(durationMs) || 0);
+    const credits = Number(opts?.creditsStartMs);
+    if (Number.isFinite(credits) && credits > 0 && offset >= credits) return true;
+    if (duration <= 0 || offset <= 0) return false;
+    if (offset >= duration * 0.9) return true;
+    return offset > Math.max(0, duration - 15_000);
+};
+
 export const shouldOfferResume = (item?: PlayerItem | null, offsetMs?: number | null) => {
     if (item?.watched) return false;
     const offset = offsetMs == null ? Number(item?.viewOffsetMs || 0) : Number(offsetMs);
     const duration = Number(item?.durationMs || 0);
     if (offset < 5000) return false;
-    if (duration && offset > Math.max(0, duration - 15000)) return false;
+    if (isPlaybackFinished(offset, duration)) return false;
     return true;
 };
 
@@ -470,11 +485,12 @@ export const rememberPlaybackProgress = (
     viewOffsetMs: number,
     durationMs = 0,
     continueWith?: PlayerItem | null,
+    opts?: { ended?: boolean; creditsStartMs?: number | null },
 ) => {
     const ratingKey = String(item?.ratingKey || '');
     const offset = Math.max(0, Math.floor(Number(viewOffsetMs) || 0));
     const duration = Math.max(0, Math.floor(Number(durationMs) || Number(item?.durationMs) || 0));
-    const finished = duration > 0 && offset > Math.max(0, duration - 15000);
+    const finished = isPlaybackFinished(offset, duration, opts);
     if (!ratingKey || (!finished && offset < 5000)) return;
     const nextKey = String(continueWith?.ratingKey || '');
     const next = finished && nextKey && nextKey !== ratingKey && !continueWith?.watched
@@ -697,10 +713,44 @@ export const applyContinueWatchingLayout = (
     };
 };
 
+export const keepContinueWatchingItem = (item?: PlayerItem | null) => {
+    if (!item?.ratingKey) return false;
+    const painted = applyRememberedProgress(item);
+    if (isPlaybackFinished(item.viewOffsetMs, item.durationMs || painted.durationMs)) return false;
+    if (painted.watched && Number(painted.viewOffsetMs || 0) <= 0 && Number(item.viewOffsetMs || 0) > 0) return false;
+    return true;
+};
+
 export const mapContinueWatchingItemsForLayout = (
     items: PlayerItem[],
     layout: PlayerContinueWatchingLayout,
-): PlayerItem[] => items.map((row) => applyContinueWatchingLayout(row, layout));
+    sort?: PlayerContinueWatchingSort,
+): PlayerItem[] => sortContinueWatchingItems(
+    (Array.isArray(items) ? items : []).filter(keepContinueWatchingItem).map(applyRememberedProgress),
+    sort,
+).map((row) => applyContinueWatchingLayout(row, layout));
+
+export const isPlayerItemWatched = (item?: PlayerItem | null) => {
+    if (!item) return false;
+    if (item.watched) return true;
+    const leaves = Number(item.leafCount) || 0;
+    const viewed = Number(item.viewedLeafCount) || 0;
+    if ((item.type === 'show' || item.type === 'season') && leaves > 0 && viewed >= leaves) return true;
+    return false;
+};
+
+/** Skip finished episodes so Play on a show/season starts at the next unwatched (or in-progress) leaf. */
+export const sliceQueueToNextUnwatched = (items: PlayerItem[] | null | undefined): PlayerItem[] => {
+    const rows = Array.isArray(items) ? items : [];
+    const idx = rows.findIndex((row) => shouldOfferResume(row) || !isPlayerItemWatched(row));
+    if (idx <= 0) return rows;
+    return rows.slice(idx);
+};
+
+/** Drop fully watched titles from Recently Added rows. */
+export const hideWatchedPlayerItems = (items: PlayerItem[] | null | undefined): PlayerItem[] => (
+    (Array.isArray(items) ? items : []).filter((row) => !isPlayerItemWatched(row))
+);
 
 /** Second line under a Heros-label home card: year, or season/episode count. */
 export const heroRowSubtitle = (item: Pick<PlayerItem, 'type' | 'year' | 'childCount' | 'leafCount'>) => {

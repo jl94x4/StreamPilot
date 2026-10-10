@@ -23,7 +23,17 @@ export type NativePlayerSessionPayload = {
         intro?: { startMs: number; endMs: number } | null;
         credits?: { startMs: number; endMs?: number } | null;
     };
-    nextItem?: { ratingKey: string; title?: string } | null;
+    nextItem?: { ratingKey: string; title?: string; thumb?: string } | null;
+    playbackMode?: 'directPlay' | 'directStream' | 'transcode' | string;
+    source?: {
+        videoCodec?: string | null;
+        audioCodec?: string | null;
+        container?: string | null;
+        height?: number | null;
+        width?: number | null;
+        videoResolution?: string | null;
+        bitrate?: number | null;
+    } | null;
     autoplayNext?: boolean;
     autoSkipIntro?: boolean;
     autoSkipCredits?: boolean;
@@ -42,6 +52,18 @@ export type NativePlayerSessionPayload = {
         color?: string;
         background?: string;
         position?: string;
+    };
+    /** Direct PMS timeline so Now Playing still updates while ExoPlayer covers the WebView. */
+    timeline?: {
+        origin?: string;
+        token?: string;
+        clientId?: string;
+        product?: string;
+        version?: string;
+        platform?: string;
+        device?: string;
+        deviceName?: string;
+        sessionId?: string;
     };
 };
 
@@ -347,6 +369,17 @@ const attachTransientListeners = async (opts: NativePlayerOpenOptions) => {
     if (opts.onSubtitleSearch) {
         await add('subtitleSearch', (data) => {
             opts.onSubtitleSearch?.({ ratingKey: data.ratingKey ? String(data.ratingKey) : undefined });
+        });
+    }
+    if (opts.onClose) {
+        await add('closed', (data) => {
+            opts.onClose?.({
+                ended: !!data.ended,
+                positionMs: Math.max(0, Math.floor(Number(data.positionMs) || 0)),
+                error: !!data.error,
+                playNext: !!data.playNext,
+                nextRatingKey: data.nextRatingKey ? String(data.nextRatingKey) : undefined,
+            });
         });
     }
     return () => {
