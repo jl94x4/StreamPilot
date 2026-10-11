@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.9.1](https://github.com/jl94x4/StreamPilot/compare/v1.9.0...v1.9.1) (2026-10-11)
+
+
+### Bug Fixes
+
+* resolve all code scanning alerts and add CI checks ([6612363](https://github.com/jl94x4/StreamPilot/commit/661236334326678dc67ef2e4a15cdf2a350d6f73))
+* **security:** resolve CodeQL code scanning alerts ([e512aae](https://github.com/jl94x4/StreamPilot/commit/e512aaefd4b66260ac4fd5e6d54285aa6cbbbedc))
+* **server:** make Express wildcard routes work on Express 5 ([f7a24ab](https://github.com/jl94x4/StreamPilot/commit/f7a24abe4b3d6e0315a9f15160f713fd10d4c3ea))
+
 ## [1.9.0](https://github.com/jl94x4/Server-Manager-Portal/compare/v1.8.0...v1.9.0) (2026-08-09)
 
 
