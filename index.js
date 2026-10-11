@@ -18,6 +18,10 @@ import dns from 'dns/promises';
 import { makeCircularPwaIconPng } from './lib/circular-icon.js';
 import { resolvePackageVersion } from './lib/resolve-package-version.js';
 import {
+    readWildcardPath,
+    withWildcard,
+} from './lib/express-wildcard.js';
+import {
     getDefaultScannerConfig,
     normalizeScannerConfig,
     maskScannerConfigForApi,
@@ -7646,13 +7650,13 @@ app.get('/api/discovery/library-link', requireAuth, requireMember, async (req, r
     }
 });
 
-app.get('/api/discovery/proxy/*', requireAuth, requireMember, async (req, res) => {
+app.get(withWildcard('/api/discovery/proxy'), requireAuth, requireMember, async (req, res) => {
     try {
         const config = await loadFile(CONFIG_PATH, {});
         const prefs = getDiscoveryPreferences(config);
         const metadataLanguage = resolveDiscoverMetadataLanguage(req);
 
-        const path = normalizeDiscoveryProxyPath('/' + req.params[0]);
+        const path = normalizeDiscoveryProxyPath('/' + readWildcardPath(req));
         if (!path || !isAllowedDiscoveryProxyPath(path)) {
             return res.status(403).json({ error: 'Discovery proxy path is not allowed.' });
         }
@@ -18061,7 +18065,7 @@ app.get('/api/collexions/portal-defaults', requireAdmin, requireCollexions, asyn
 });
 
 /** Proxy /api/collexions/* → Collexions Flask sidecar with portal admin SSO. */
-app.all('/api/collexions/*', requireAdmin, requireCollexions, async (req, res) => {
+app.all(withWildcard('/api/collexions'), requireAdmin, requireCollexions, async (req, res) => {
     try {
         const config = req.collexionsConfig || await loadFile(CONFIG_PATH, {});
         let base = '';
@@ -18078,7 +18082,7 @@ app.all('/api/collexions/*', requireAdmin, requireCollexions, async (req, res) =
             return res.status(503).json({ error: 'Collexions service key is not configured. Set it in Settings (shared with the sidecar COLLEXIONS_SERVICE_KEY).' });
         }
 
-        const suffix = String(req.params[0] || '').replace(/^\/+/, '');
+        const suffix = readWildcardPath(req);
         const targetUrl = new URL(`${base}/api/${suffix}`);
         for (const [key, value] of Object.entries(req.query || {})) {
             if (value == null) continue;
