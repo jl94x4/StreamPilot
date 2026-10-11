@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check } from 'lucide-react';
+import { Check, Loader2 } from 'lucide-react';
 import { fetchMediaPlayerItem, prefetchMediaPlayerItem } from './api';
-import { pinTvRailItemToSlot } from '../plex-client/useTvRemote';
+import { pinTvRailItemToSlot, visibleHomeStage } from '../plex-client/useTvRemote';
 import { homeRailPosterDensity } from './host';
 import { PlayerClearLogo } from './PlayerClearLogo';
 import { PlayerRail } from './PlayerRail';
@@ -165,37 +165,39 @@ export const PlayerTvSpot: React.FC<{ item: PlayerItem | null }> = ({ item }) =>
     const meta = [epCode, date || year, duration, rating].filter(Boolean);
     const cast = (item.cast || []).slice(0, 4).map((row) => row.name).filter(Boolean).join(', ');
     return (
-        <div className="player-home-spot">
-            {showLogo ? (
-                <>
-                    <PlayerClearLogo
-                        src={logoUrl}
-                        alt={title}
-                        className="player-home-spot-logo"
-                        trimTop={false}
-                        onError={() => setLogoFailed(true)}
-                    />
-                    <h2 className="sr-only">{title}</h2>
-                </>
-            ) : (
-                <h2 className="player-home-spot-title">{title}</h2>
-            )}
-            {tagline ? <p className="player-home-spot-tagline">{tagline}</p> : null}
-            {item.watched || meta.length ? (
-                <p className="player-home-spot-meta">
-                    {item.watched ? (
-                        <span className="player-home-spot-watched">
-                            <Check className="h-3.5 w-3.5" strokeWidth={2.5} />
-                            Watched
-                        </span>
-                    ) : null}
-                    {meta.map((part) => (
-                        <span key={part}>{part}</span>
-                    ))}
-                </p>
-            ) : null}
-            {summary ? <p className="player-home-spot-summary">{summary}</p> : null}
-            {cast ? <p className="player-home-spot-cast">{cast}</p> : null}
+        <div className="player-home-spot-stage" aria-live="polite">
+            <div className="player-home-spot">
+                {showLogo ? (
+                    <>
+                        <PlayerClearLogo
+                            src={logoUrl}
+                            alt={title}
+                            className="player-home-spot-logo"
+                            trimTop={false}
+                            onError={() => setLogoFailed(true)}
+                        />
+                        <h2 className="sr-only">{title}</h2>
+                    </>
+                ) : (
+                    <h2 className="player-home-spot-title">{title}</h2>
+                )}
+                {tagline ? <p className="player-home-spot-tagline">{tagline}</p> : null}
+                {item.watched || meta.length ? (
+                    <p className="player-home-spot-meta">
+                        {item.watched ? (
+                            <span className="player-home-spot-watched">
+                                <Check className="h-3.5 w-3.5" strokeWidth={2.5} />
+                                Watched
+                            </span>
+                        ) : null}
+                        {meta.map((part) => (
+                            <span key={part}>{part}</span>
+                        ))}
+                    </p>
+                ) : null}
+                {summary ? <p className="player-home-spot-summary">{summary}</p> : null}
+                {cast ? <p className="player-home-spot-cast">{cast}</p> : null}
+            </div>
         </div>
     );
 };
@@ -226,6 +228,7 @@ export const PlayerTvHubStage: React.FC<Props> = ({
     const [tvRowIndex, setTvRowIndex] = useState(0);
     const [tvFocusKey, setTvFocusKey] = useState('');
     const [tvSpotExtra, setTvSpotExtra] = useState<Record<string, PlayerItem>>({});
+    const stageRef = useRef<HTMLDivElement | null>(null);
     const tvRowIndexRef = useRef(0);
     const tvRowsRef = useRef(rows);
     const tvRowFocusRef = useRef<Record<string, string>>({});
@@ -291,10 +294,11 @@ export const PlayerTvHubStage: React.FC<Props> = ({
 
     useEffect(() => {
         if (!active) return undefined;
+        const stageRoot = () => stageRef.current || visibleHomeStage();
         const parkStageFocus = () => {
             // Posters unmount on row swap; without a park target the WebView jumps
             // focus to the library tabs and the orange ring vanishes for a beat.
-            const stage = document.querySelector<HTMLElement>('.player-home-stage');
+            const stage = stageRoot();
             if (!stage) return;
             if (!stage.hasAttribute('tabindex')) stage.tabIndex = -1;
             try {
@@ -307,9 +311,13 @@ export const PlayerTvHubStage: React.FC<Props> = ({
             const dir = (event as CustomEvent<{ dir?: 'up' | 'down' }>).detail?.dir;
             const list = tvRowsRef.current;
             if (!list.length || (dir !== 'down' && dir !== 'up')) return;
+            const stage = stageRoot();
+            // Ignore row events while this stage is mounted but not the visible one
+            // (Home keep-alive under Library).
+            if (!stage || stage.closest('[hidden]')) return;
             const current = tvRowIndexRef.current;
             if (dir === 'up' && current <= 0) {
-                const tab = document.querySelector<HTMLElement>(
+                const tab = stage.querySelector<HTMLElement>(
                     '.player-library-stage-chrome [data-tv-library-tabs="1"] [aria-current="page"],'
                     + '.player-library-stage-chrome [data-tv-library-tabs="1"] [data-tv-item="1"]',
                 );
@@ -343,7 +351,9 @@ export const PlayerTvHubStage: React.FC<Props> = ({
         let cancelled = false;
         const focusSaved = () => {
             if (cancelled) return true;
-            const root = document.querySelector<HTMLElement>('.player-home-stage-rail');
+            const stage = stageRef.current || visibleHomeStage();
+            if (!stage || stage.closest('[hidden]')) return false;
+            const root = stage.querySelector<HTMLElement>('.player-home-stage-rail');
             if (!root) return false;
             const match = saved
                 ? root.querySelector<HTMLElement>(`[data-tv-poster-btn="1"][data-tv-key="${CSS.escape(saved)}"]`)
@@ -395,21 +405,28 @@ export const PlayerTvHubStage: React.FC<Props> = ({
     if (loading && !rows.length) {
         return (
             <div
+                ref={stageRef}
                 className="tv-poster-rows player-home-page player-home-stage"
                 data-tv-library="1"
                 aria-busy="true"
-                aria-label={ariaLabel}
+                aria-label={ariaLabel || 'Loading'}
             >
                 {header}
                 <div className="player-home-focus-still" aria-hidden />
-                <div className="player-home-stage-rail" />
+                <div
+                    className="player-home-stage-rail flex min-h-[40vh] flex-col items-center justify-center gap-3"
+                    data-tv-hub-loading="1"
+                >
+                    <Loader2 className="h-10 w-10 animate-spin text-white/70" aria-hidden />
+                    <p className="text-sm font-semibold text-white/55">Loading…</p>
+                </div>
             </div>
         );
     }
 
     if (!loading && !rows.length && emptyTitle) {
         return (
-            <div className="tv-poster-rows player-home-page player-home-stage" data-tv-library="1">
+            <div ref={stageRef} className="tv-poster-rows player-home-page player-home-stage" data-tv-library="1">
                 {header}
                 <PlayerTvStatusPanel
                     title={emptyTitle}
@@ -422,6 +439,7 @@ export const PlayerTvHubStage: React.FC<Props> = ({
 
     return (
         <div
+            ref={stageRef}
             className="tv-poster-rows player-home-page player-home-stage"
             data-tv-library="1"
             aria-label={ariaLabel}

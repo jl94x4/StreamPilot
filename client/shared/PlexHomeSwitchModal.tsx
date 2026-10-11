@@ -24,20 +24,28 @@ const ProfileAvatar: React.FC<{
     current?: boolean;
     compact?: boolean;
 }> = ({ user, current = false, compact = false }) => {
+    const [thumbFailed, setThumbFailed] = useState(false);
     const sizeClass = compact
         ? 'h-11 w-11 sm:h-16 sm:w-16'
         : 'h-12 w-12 sm:h-24 sm:w-24';
     const ringClass = current
         ? 'border-plex shadow-[0_0_0_3px_rgba(229,160,13,0.2)] sm:shadow-[0_0_0_4px_rgba(229,160,13,0.2)]'
         : 'border-white/15 group-hover:border-plex/70';
+    const showThumb = !!user.thumb && !thumbFailed;
+
+    useEffect(() => {
+        setThumbFailed(false);
+    }, [user.thumb]);
 
     return (
         <span className="relative">
-            {user.thumb ? (
+            {showThumb ? (
                 <img
-                    src={user.thumb}
+                    src={user.thumb || ''}
                     alt=""
+                    referrerPolicy="no-referrer"
                     className={`${sizeClass} rounded-full object-cover border-2 transition ${ringClass}`}
+                    onError={() => setThumbFailed(true)}
                 />
             ) : (
                 <span className={`flex ${sizeClass} items-center justify-center rounded-full border-2 bg-black/40 text-muted ${ringClass}`}>
@@ -184,23 +192,36 @@ export const PlexHomeSwitchModal: React.FC<{
 
             <div
                 data-tv-home-switch="1"
-                className="player-popup-surface relative w-full sm:max-w-2xl max-h-[min(72dvh,32rem)] sm:max-h-[min(86vh,40rem)] overflow-y-auto rounded-t-2xl sm:rounded-3xl border border-white/10 shadow-[0_30px_80px_rgba(0,0,0,0.55)] animate-fade-in"
+                data-tv-home-switch-pin={pinUser && isTvShell ? '1' : undefined}
+                className={`player-popup-surface relative w-full sm:max-w-2xl rounded-t-2xl sm:rounded-3xl border border-white/10 shadow-[0_30px_80px_rgba(0,0,0,0.55)] animate-fade-in ${
+                    pinUser && isTvShell
+                        ? 'max-h-[min(96vh,56rem)] overflow-hidden'
+                        : pinUser
+                            ? 'max-h-[min(88dvh,48rem)] sm:max-h-[min(92vh,48rem)] overflow-y-auto'
+                            : 'max-h-[min(72dvh,32rem)] sm:max-h-[min(86vh,40rem)] overflow-y-auto'
+                }`}
             >
                 <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-plex/70 to-transparent" />
                 <div className="sm:hidden flex justify-center pt-2.5 pb-0.5" aria-hidden>
                     <span className="h-1 w-10 rounded-full bg-white/25" />
                 </div>
-                <div className="flex items-start justify-between gap-3 px-4 sm:px-8 pt-3 sm:pt-7 pb-1 sm:pb-2">
+                <div className={`flex items-start justify-between gap-3 px-4 sm:px-8 pb-1 sm:pb-2 ${
+                    pinUser && isTvShell ? 'pt-3 sm:pt-4' : 'pt-3 sm:pt-7'
+                }`}>
                     <div>
                         <p className="text-[10px] sm:text-[11px] font-bold text-plex uppercase tracking-[0.22em] mb-0.5 sm:mb-1">Plex Home</p>
-                        <h2 id="plex-home-switch-title" className="text-xl sm:text-3xl font-black text-text tracking-tight">
-                            Who&apos;s watching?
+                        <h2 id="plex-home-switch-title" className={`font-black text-text tracking-tight ${
+                            pinUser && isTvShell ? 'text-xl sm:text-2xl' : 'text-xl sm:text-3xl'
+                        }`}>
+                            {pinUser && isTvShell ? 'Enter Home PIN' : <>Who&apos;s watching?</>}
                         </h2>
-                        <p className="hidden sm:block text-sm text-muted mt-1.5 max-w-md">
-                            {loginMode
-                                ? 'Pick a profile to continue. Managed family accounts use this Plex Home login, then a PIN if one is set.'
-                                : 'Switch to another profile on this device. PIN-protected profiles need their Home PIN.'}
-                        </p>
+                        {!(pinUser && isTvShell) ? (
+                            <p className="hidden sm:block text-sm text-muted mt-1.5 max-w-md">
+                                {loginMode
+                                    ? 'Pick a profile to continue. Managed family accounts use this Plex Home login, then a PIN if one is set.'
+                                    : 'Switch to another profile on this device. PIN-protected profiles need their Home PIN.'}
+                            </p>
+                        ) : null}
                     </div>
                     <button
                         type="button"
@@ -215,9 +236,13 @@ export const PlexHomeSwitchModal: React.FC<{
                     </button>
                 </div>
 
-                <div className="px-4 sm:px-8 pb-[max(0.85rem,env(safe-area-inset-bottom))] sm:pb-6 pt-3 sm:pt-4">
+                <div className={`px-4 sm:px-8 pb-[max(0.85rem,env(safe-area-inset-bottom))] ${
+                    pinUser && isTvShell ? 'sm:pb-4 pt-2 sm:pt-2' : 'sm:pb-6 pt-3 sm:pt-4'
+                }`}>
                     {pinUser ? (
-                        <div className="mb-3 flex items-center gap-3 rounded-xl border border-plex/40 bg-plex/10 px-3 py-2.5">
+                        <div className={`mb-3 flex items-center gap-3 rounded-xl border border-plex/40 bg-plex/10 px-3 ${
+                            isTvShell ? 'py-2' : 'py-2.5'
+                        }`}>
                             <ProfileAvatar user={pinUser} current compact />
                             <div className="min-w-0">
                                 <p className="text-sm font-bold text-text truncate">{pinUser.title}</p>
@@ -278,14 +303,16 @@ export const PlexHomeSwitchModal: React.FC<{
                     {pinUser ? (
                         <form
                             onSubmit={submitPin}
-                            className="rounded-xl sm:rounded-2xl border border-plex/30 bg-black/35 p-3 sm:p-5"
+                            className={`rounded-xl sm:rounded-2xl border border-plex/30 bg-black/35 ${
+                                isTvShell ? 'p-3 sm:p-4' : 'p-3 sm:p-5'
+                            }`}
                         >
                             {isTvShell ? (
-                                <div className="mb-4">
-                                    <p className="mb-3 text-center font-mono text-2xl tracking-[0.45em] text-text">
+                                <div className="mb-3">
+                                    <p className="mb-2 text-center font-mono text-2xl tracking-[0.45em] text-text">
                                         {pin ? pin.replace(/./g, '•') : '••••'}
                                     </p>
-                                    <div className="mx-auto grid max-w-[16rem] grid-cols-3 gap-2" data-tv-rail="1">
+                                    <div className="mx-auto grid max-w-[16rem] grid-cols-3 gap-1.5" data-tv-rail="1">
                                         {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'back', '0', 'go'].map((key) => (
                                             <button
                                                 key={key}
@@ -294,7 +321,7 @@ export const PlexHomeSwitchModal: React.FC<{
                                                 data-tv-key={`home-switch-pin-${key}`}
                                                 tabIndex={0}
                                                 disabled={busy}
-                                                className="rounded-xl border border-white/15 bg-black/40 py-3 text-sm font-bold text-text hover:border-plex/60 hover:bg-plex/10 disabled:opacity-40"
+                                                className="rounded-xl border border-white/15 bg-black/40 py-2.5 text-sm font-bold text-text hover:border-plex/60 hover:bg-plex/10 disabled:opacity-40"
                                                 onClick={() => {
                                                     if (key === 'back') {
                                                         setPin((current) => current.slice(0, -1));

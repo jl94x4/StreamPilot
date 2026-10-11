@@ -28,10 +28,24 @@ export type LibraryBrowseState = {
     sort: string;
     genre: string;
     decade: string;
+    year: string;
+    contentRating: string;
     resolution: string;
     studio: string;
+    network: string;
+    country: string;
+    collection: string;
+    audioLanguage: string;
+    subtitleLanguage: string;
+    actor: string;
+    director: string;
+    writer: string;
+    producer: string;
+    label: string;
     unwatched: boolean;
     inProgress: boolean;
+    hdr: boolean;
+    duplicate: boolean;
 };
 
 const DEFAULT_PLAYBACK: LocalPlaybackPrefs = { volume: 1, muted: false, speed: 1 };
@@ -41,10 +55,24 @@ const DEFAULT_LIBRARY: LibraryBrowseState = {
     sort: 'titleSort',
     genre: '',
     decade: '',
+    year: '',
+    contentRating: '',
     resolution: '',
     studio: '',
+    network: '',
+    country: '',
+    collection: '',
+    audioLanguage: '',
+    subtitleLanguage: '',
+    actor: '',
+    director: '',
+    writer: '',
+    producer: '',
+    label: '',
     unwatched: false,
     inProgress: false,
+    hdr: false,
+    duplicate: false,
 };
 
 const readJson = (key: string): unknown => {
@@ -345,10 +373,24 @@ export const readLibraryBrowseState = (sectionKey: string): LibraryBrowseState =
         sort: String(saved.sort || DEFAULT_LIBRARY.sort),
         genre: String(saved.genre || ''),
         decade: String(saved.decade || ''),
+        year: String(saved.year || ''),
+        contentRating: String(saved.contentRating || ''),
         resolution: String(saved.resolution || ''),
         studio: String(saved.studio || ''),
+        network: String(saved.network || ''),
+        country: String(saved.country || ''),
+        collection: String(saved.collection || ''),
+        audioLanguage: String(saved.audioLanguage || ''),
+        subtitleLanguage: String(saved.subtitleLanguage || ''),
+        actor: String(saved.actor || ''),
+        director: String(saved.director || ''),
+        writer: String(saved.writer || ''),
+        producer: String(saved.producer || ''),
+        label: String(saved.label || ''),
         unwatched: saved.unwatched === true,
         inProgress: saved.inProgress === true,
+        hdr: saved.hdr === true,
+        duplicate: saved.duplicate === true,
     };
 };
 

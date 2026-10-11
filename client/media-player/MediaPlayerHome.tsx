@@ -4,6 +4,7 @@ import {
     DiscoverGridSizeSelect,
     PlayerHomeHeroSkeleton,
     PlayerHomeSkeleton,
+    PlayerTvHomeStageSkeleton,
     DiscoverSectionHeader,
     discoveryTheme,
     useDiscoverGridSize,
@@ -15,7 +16,7 @@ import {
 } from './host';
 import { fetchMediaPlayerHome, fetchMediaPlayerHomeFull, fetchMediaPlayerHomeHero, fetchMediaPlayerHomeHeroRefresh, fetchMediaPlayerItem, fetchMediaPlayerWatchlist, prefetchMediaPlayerItem, searchMediaPlayer, setMediaPlayerWatched } from './api';
 import { isPlexDirectMode } from '../plex-client/config';
-import { pinTvRailItemToSlot } from '../plex-client/useTvRemote';
+import { pinTvRailItemToSlot, visibleHomeStage } from '../plex-client/useTvRemote';
 import { MediaPlayerHomeHero, type HomeHeroSlide } from './MediaPlayerHomeHero';
 import { MediaPlayerNowPlayingChip } from './MediaPlayerNowPlayingChip';
 import { PlayerPosterCard } from './PlayerPosterCard';
@@ -195,13 +196,12 @@ const HomeFocusStill: React.FC<{
     );
 };
 
-const HomeSpot: React.FC<{ item: PlayerItem | null }> = ({ item }) => {
+const HomeSpotBody: React.FC<{ item: PlayerItem }> = ({ item }) => {
     const [logoFailed, setLogoFailed] = useState(false);
-    const logoKey = String(item?.ratingKey || item?.logo || '');
+    const logoKey = String(item.ratingKey || item.logo || '');
     useEffect(() => {
         setLogoFailed(false);
     }, [logoKey]);
-    if (!item) return null;
     const title = item.type === 'episode' ? (item.showTitle || item.title) : item.title;
     const logoUrl = plexLogoUrl(item.logo);
     const showLogo = Boolean(logoUrl) && !logoFailed;
@@ -217,7 +217,7 @@ const HomeSpot: React.FC<{ item: PlayerItem | null }> = ({ item }) => {
     const meta = [epCode, date || year, duration, rating].filter(Boolean);
     const cast = (item.cast || []).slice(0, 4).map((row) => row.name).filter(Boolean).join(', ');
     return (
-        <div className="player-home-spot">
+        <>
             {showLogo ? (
                 <>
                     <PlayerClearLogo
@@ -248,6 +248,117 @@ const HomeSpot: React.FC<{ item: PlayerItem | null }> = ({ item }) => {
             ) : null}
             {summary ? <p className="player-home-spot-summary">{summary}</p> : null}
             {cast ? <p className="player-home-spot-cast">{cast}</p> : null}
+        </>
+    );
+};
+
+/** Plex-style: on row change the old metadata fades up and out; the new block fades in after. */
+const HomeSpot: React.FC<{
+    item: PlayerItem | null;
+    rowId?: string;
+    rowDir?: 'up' | 'down' | null;
+}> = ({ item, rowId = '', rowDir = null }) => {
+    const [current, setCurrent] = useState<PlayerItem | null>(item);
+    const [outgoing, setOutgoing] = useState<PlayerItem | null>(null);
+    const [exitDir, setExitDir] = useState<'up' | 'down'>('up');
+    const [enterDir, setEnterDir] = useState<'up' | 'down'>('down');
+    const [entering, setEntering] = useState(false);
+    const [enterEpoch, setEnterEpoch] = useState(0);
+    const rowRef = useRef(rowId);
+    const currentRef = useRef<PlayerItem | null>(item);
+    const itemRef = useRef<PlayerItem | null>(item);
+    const rowDirRef = useRef(rowDir);
+    const animGenRef = useRef(0);
+    const timersRef = useRef({ out: 0, enter: 0 });
+    currentRef.current = current;
+    itemRef.current = item;
+    rowDirRef.current = rowDir;
+
+    const clearAnimTimers = () => {
+        window.clearTimeout(timersRef.current.out);
+        window.clearTimeout(timersRef.current.enter);
+        timersRef.current.out = 0;
+        timersRef.current.enter = 0;
+    };
+
+    // Row changes own the fade. Do not depend on `item` — focus settle after a row
+    // move used to re-enter this effect and fight the animation.
+    useEffect(() => {
+        const prevRow = rowRef.current;
+        const rowChanged = Boolean(rowId && prevRow && rowId !== prevRow);
+        rowRef.current = rowId;
+        if (!rowChanged) return undefined;
+
+        const prev = currentRef.current;
+        const next = itemRef.current;
+        const dir = rowDirRef.current === 'up' || rowDirRef.current === 'down'
+            ? rowDirRef.current
+            : 'down';
+        if (!prev || !next) {
+            clearAnimTimers();
+            animGenRef.current += 1;
+            setOutgoing(null);
+            setEntering(false);
+            setCurrent(next);
+            return undefined;
+        }
+
+        const gen = animGenRef.current + 1;
+        animGenRef.current = gen;
+        clearAnimTimers();
+        setExitDir(dir === 'down' ? 'up' : 'down');
+        setEnterDir(dir === 'down' ? 'down' : 'up');
+        setOutgoing(prev);
+        setCurrent(next);
+        setEnterEpoch(gen);
+        setEntering(true);
+        timersRef.current.out = window.setTimeout(() => {
+            if (animGenRef.current !== gen) return;
+            setOutgoing(null);
+        }, 430);
+        timersRef.current.enter = window.setTimeout(() => {
+            if (animGenRef.current !== gen) return;
+            setEntering(false);
+        }, 500);
+        return undefined;
+    }, [rowId]);
+
+    // Left/right (and focus settle): refresh copy in place. Never touch outgoing/entering.
+    useEffect(() => {
+        if (!item) {
+            clearAnimTimers();
+            animGenRef.current += 1;
+            setCurrent(null);
+            setOutgoing(null);
+            setEntering(false);
+            return;
+        }
+        setCurrent(item);
+    }, [item]);
+
+    useEffect(() => () => clearAnimTimers(), []);
+
+    if (!current && !outgoing) return null;
+    return (
+        <div className="player-home-spot-stage" aria-live="polite">
+            {outgoing ? (
+                <div
+                    className={`player-home-spot is-exit is-exit-${exitDir}`}
+                    key={`out-${outgoing.ratingKey}-${exitDir}-${enterEpoch}`}
+                    aria-hidden
+                >
+                    <HomeSpotBody item={outgoing} />
+                </div>
+            ) : null}
+            {current ? (
+                <div
+                    className={`player-home-spot${entering ? ` is-enter is-enter-${enterDir}` : ''}`}
+                    // Epoch bumps only on row change so L/R never remounts / restarts fade.
+                    key={`in-${rowId || 'spot'}-${enterEpoch}`}
+                >
+                    <HomeSpotBody item={current} />
+                </div>
+            ) : null}
         </div>
     );
 };
@@ -807,6 +918,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
     ), [home, plexHubs, recentRails, showContinueWatchingRail]);
 
     const [tvRowIndex, setTvRowIndex] = useState(0);
+    const [tvRowDir, setTvRowDir] = useState<'up' | 'down' | null>(null);
     const [tvFocusKey, setTvFocusKey] = useState('');
     const [tvSpotExtra, setTvSpotExtra] = useState<Record<string, PlayerItem>>({});
     const tvRowIndexRef = useRef(0);
@@ -843,9 +955,10 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
     }, [tvHomeRows.length, tvRowIndex]);
 
     useEffect(() => {
-        if (!tvStage) return undefined;
+        // Keep-alive Home must not steal Library Recommended row events.
+        if (!tvStage || !active) return undefined;
         const parkStageFocus = () => {
-            const stage = document.querySelector<HTMLElement>('.player-home-stage');
+            const stage = visibleHomeStage();
             if (!stage) return;
             if (!stage.hasAttribute('tabindex')) stage.tabIndex = -1;
             try {
@@ -866,21 +979,24 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             if (prev && tvFocusKey) tvRowFocusRef.current[prev.id] = tvFocusKey;
             if (next !== current) {
                 parkStageFocus();
+                setTvRowDir(dir);
                 setTvRowIndex(next);
             }
         };
         window.addEventListener(TV_HOME_ROW_EVENT, onRow);
         return () => window.removeEventListener(TV_HOME_ROW_EVENT, onRow);
-    }, [tvFocusKey, tvStage]);
+    }, [active, tvFocusKey, tvStage]);
 
     useEffect(() => {
-        if (!tvStage || !tvActiveRow) return undefined;
+        if (!tvStage || !active || !tvActiveRow) return undefined;
         const rowId = tvActiveRow.id;
         const saved = tvRowFocusRef.current[rowId];
         let cancelled = false;
         const focusSaved = () => {
             if (cancelled) return true;
-            const root = document.querySelector<HTMLElement>('.player-home-stage-rail');
+            const stage = visibleHomeStage();
+            if (!stage) return false;
+            const root = stage.querySelector<HTMLElement>('.player-home-stage-rail');
             if (!root) return false;
             const match = saved
                 ? root.querySelector<HTMLElement>(`[data-tv-poster-btn="1"][data-tv-key="${CSS.escape(saved)}"]`)
@@ -908,7 +1024,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             cancelled = true;
             window.clearTimeout(timer);
         };
-    }, [tvActiveRow?.id, tvStage]);
+    }, [active, tvActiveRow?.id, tvStage]);
 
     useEffect(() => {
         const key = String(tvSpotItem?.ratingKey || '');
@@ -1307,16 +1423,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         if (!isTvShell) {
             return <PlayerHomeSkeleton />;
         }
-        return (
-            <div
-                className="tv-poster-rows player-home-page player-home-stage"
-                aria-busy="true"
-                aria-label={t('mediaPlayerPage.navHome')}
-            >
-                <div className="player-home-focus-still" aria-hidden />
-                <div className="player-home-stage-rail" />
-            </div>
-        );
+        return <PlayerTvHomeStageSkeleton />;
     }
 
     if (isTvShell && error && !home) {
@@ -1338,7 +1445,13 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 seed={tvStage ? tvStageStillSeed : ''}
                 onFocusKey={tvStage ? setTvFocusKey : undefined}
             />
-            {tvStage ? <HomeSpot item={tvSpotItem} /> : null}
+            {tvStage ? (
+                <HomeSpot
+                    item={tvSpotItem}
+                    rowId={tvActiveRow?.id || ''}
+                    rowDir={tvRowDir}
+                />
+            ) : null}
             {tvStage ? <MediaPlayerNowPlayingChip active={active} /> : null}
             {!isTvShell && !searchActive && heroSlides.length ? (
                 <MediaPlayerHomeHero

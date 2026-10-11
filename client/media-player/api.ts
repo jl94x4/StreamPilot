@@ -194,10 +194,24 @@ export const fetchMediaPlayerLibrary = (
         sort?: string;
         genre?: string;
         decade?: string;
+        year?: string;
+        contentRating?: string;
         resolution?: string;
         studio?: string;
+        network?: string;
+        country?: string;
+        collection?: string;
+        audioLanguage?: string;
+        subtitleLanguage?: string;
+        actor?: string;
+        director?: string;
+        writer?: string;
+        producer?: string;
+        label?: string;
         unwatched?: boolean;
         inProgress?: boolean;
+        hdr?: boolean;
+        duplicate?: boolean;
         letter?: string;
     } = {},
 ) => {
@@ -208,10 +222,24 @@ export const fetchMediaPlayerLibrary = (
     if (opts.sort) qs.set('sort', opts.sort);
     if (opts.genre) qs.set('genre', opts.genre);
     if (opts.decade) qs.set('decade', opts.decade);
+    if (opts.year) qs.set('year', opts.year);
+    if (opts.contentRating) qs.set('contentRating', opts.contentRating);
     if (opts.resolution) qs.set('resolution', opts.resolution);
     if (opts.studio) qs.set('studio', opts.studio);
+    if (opts.network) qs.set('network', opts.network);
+    if (opts.country) qs.set('country', opts.country);
+    if (opts.collection) qs.set('collection', opts.collection);
+    if (opts.audioLanguage) qs.set('audioLanguage', opts.audioLanguage);
+    if (opts.subtitleLanguage) qs.set('subtitleLanguage', opts.subtitleLanguage);
+    if (opts.actor) qs.set('actor', opts.actor);
+    if (opts.director) qs.set('director', opts.director);
+    if (opts.writer) qs.set('writer', opts.writer);
+    if (opts.producer) qs.set('producer', opts.producer);
+    if (opts.label) qs.set('label', opts.label);
     if (opts.inProgress) qs.set('inProgress', '1');
     else if (opts.unwatched) qs.set('unwatched', '1');
+    if (opts.hdr) qs.set('hdr', '1');
+    if (opts.duplicate) qs.set('duplicate', '1');
     if (opts.letter) qs.set('letter', opts.letter);
     return apiFetch(`${PLAYER_API_ROOT}/libraries/${encodeURIComponent(sectionKey)}?${qs}`) as Promise<PlayerLibraryPage>;
 };
@@ -720,6 +748,8 @@ export const startMediaPlayerPlayback = (ratingKey: string, opts: {
     subtitleStreamId?: string | null;
     serverId?: string | null;
     delivery?: string | null;
+    /** Reuse after stop — keeps Now Playing from spawning a new ghost per seek. */
+    sessionId?: string | null;
 } = {}) => {
     const caps = browserPlaybackCaps();
     const isNativeApp = typeof window !== 'undefined' && !!window.__PLEX_CLIENT__;
@@ -742,6 +772,7 @@ export const startMediaPlayerPlayback = (ratingKey: string, opts: {
     }
     if (opts.serverId) qs.set('server', opts.serverId);
     if (opts.delivery) qs.set('delivery', opts.delivery);
+    if (opts.sessionId) qs.set('sessionId', String(opts.sessionId).trim());
     if (caps.hevc) qs.set('canPlayHevc', '1');
     if (caps.ac3) qs.set('canPlayAc3', '1');
     if (caps.hls) qs.set('canPlayNativeHls', '1');

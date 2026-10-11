@@ -274,18 +274,34 @@ export type PlayerLibraryHome = {
     hubs: PlayerLibraryHub[];
 };
 
+export type PlayerLibraryFilterOption = { key: string; title: string };
+
 export type PlayerLibraryFilters = {
-    genres: Array<{ key: string; title: string }>;
-    decades?: Array<{ key: string; title: string }>;
-    resolutions?: Array<{ key: string; title: string }>;
-    studios?: Array<{ key: string; title: string }>;
-    letters?: Array<{ key: string; title: string }>;
+    genres: PlayerLibraryFilterOption[];
+    decades?: PlayerLibraryFilterOption[];
+    years?: PlayerLibraryFilterOption[];
+    contentRatings?: PlayerLibraryFilterOption[];
+    resolutions?: PlayerLibraryFilterOption[];
+    studios?: PlayerLibraryFilterOption[];
+    networks?: PlayerLibraryFilterOption[];
+    countries?: PlayerLibraryFilterOption[];
+    collections?: PlayerLibraryFilterOption[];
+    audioLanguages?: PlayerLibraryFilterOption[];
+    subtitleLanguages?: PlayerLibraryFilterOption[];
+    actors?: PlayerLibraryFilterOption[];
+    directors?: PlayerLibraryFilterOption[];
+    writers?: PlayerLibraryFilterOption[];
+    producers?: PlayerLibraryFilterOption[];
+    labels?: PlayerLibraryFilterOption[];
+    letters?: PlayerLibraryFilterOption[];
 };
 
 export type PlayerLibraryPage = {
     title: string;
     type: string;
     total: number;
+    /** Absolute library index of items[0] in the title-sorted list. */
+    offset?: number;
     items: PlayerItem[];
 };
 

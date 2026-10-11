@@ -6,7 +6,7 @@ import {
     useDiscoverI18n,
     type ToastMessage,
 } from './host';
-import { fetchMediaPlayerItemMore, fetchMediaPlayerLibraries, fetchMediaPlayerMe, fetchMediaPlayerPlayFromQueue, fetchMediaPlayerShuffleQueue, startMediaPlayerPlayback } from './api';
+import { fetchMediaPlayerItemMore, fetchMediaPlayerLibraries, fetchMediaPlayerMe, fetchMediaPlayerPlayFromQueue, fetchMediaPlayerShuffleQueue, startMediaPlayerPlayback, stopMediaPlayerTranscode } from './api';
 import { MediaPlayerHome } from './MediaPlayerHome';
 import { MediaPlayerWatchlist } from './MediaPlayerWatchlist';
 import { MediaPlayerPlaylists } from './MediaPlayerPlaylists';
@@ -26,7 +26,7 @@ import { PLAYER_APP_BASE, PLAYER_NAVIGATE_EVENT, PLAYER_SCROLL_ID, PLAYER_TV_NAV
 import { usePlayerSettings } from './usePlayerSettings';
 import { PlayerResumeDialog } from './PlayerResumeDialog';
 import { PlayerStillWatchingDialog } from './PlayerStillWatchingDialog';
-import { isPlayerTrailer, resolveStartPlaybackQualityId, shouldOfferResume, sliceQueueToNextUnwatched } from './playerUtils';
+import { isPlayerTrailer, playSessionIdFromSrc, resolveStartPlaybackQualityId, shouldOfferResume, sliceQueueToNextUnwatched } from './playerUtils';
 import {
     consumePlayerSearchFocus,
     focusPlayerSearchInput,
@@ -474,7 +474,12 @@ export const MediaPlayerDashboard: React.FC = () => {
         }
         seedPlayerItemNav(item);
         const serverQs = item.serverId ? `?server=${encodeURIComponent(item.serverId)}` : '';
-        navigate(`${PLAYER_APP_BASE}/item/${encodeURIComponent(item.ratingKey)}${serverQs}`);
+        const itemPath = `${PLAYER_APP_BASE}/item/${encodeURIComponent(item.ratingKey)}`;
+        // Destination path — so episode hubs can focus this card when the rail paints.
+        if (item.type === 'episode' || item.type === 'season') {
+            rememberTvFocusKey(item.ratingKey, itemPath);
+        }
+        navigate(`${itemPath}${serverQs}`);
     }, [navigate, view.kind]);
 
     const openLibrary = useCallback((section: PlayerSection, tab: LibraryTab = 'home') => {
@@ -623,10 +628,18 @@ export const MediaPlayerDashboard: React.FC = () => {
                 const audioDiff = nextAudio != null && String(nextAudio) !== String(session.audioStreamId || '');
                 const subDiff = nextSub != null && String(nextSub || '') !== String(session.subtitleStreamId || '');
                 if (audioDiff || subDiff) {
+                    const discarded = playSessionIdFromSrc(session.src) || session.sessionId;
+                    if (discarded) {
+                        await stopMediaPlayerTranscode(discarded, {
+                            serverId: item.serverId,
+                            ratingKey: item.ratingKey,
+                        }).catch(() => undefined);
+                    }
                     session = await startMediaPlayerPlayback(item.ratingKey, {
                         ...baseOpts,
                         audioStreamId: nextAudio,
                         subtitleStreamId: nextSub,
+                        sessionId: discarded || undefined,
                     });
                 }
             }
@@ -808,7 +821,7 @@ export const MediaPlayerDashboard: React.FC = () => {
 
     return (
         <div className="relative flex h-full min-h-0 w-full flex-col">
-            {tvShell && !playSession ? <PlayerTvClock /> : null}
+            {tvShell && !playSession && !(view.kind === 'library' && view.tab === 'browse') ? <PlayerTvClock /> : null}
             <MediaPlayerNav
                 libraries={libraries}
                 libraryOrder={settings.libraryNavOrder}

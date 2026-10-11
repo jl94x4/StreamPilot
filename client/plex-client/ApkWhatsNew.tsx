@@ -6,6 +6,327 @@ import { readApkWhatsNewSeen, writeApkWhatsNewSeen } from '../media-player/playe
 import { getPlexClientAppVersion } from './config';
 
 const NOTES_BY_VERSION: Record<string, { title: string; items: string[] }[]> = {
+    '1.0.100': [
+        {
+            title: 'Playback',
+            items: [
+                'Switching Original ↔ 720p after a rewind no longer sticks on the transcode',
+                'Quality changes reuse one Now Playing session instead of spawning ghosts',
+                'Direct and burned-in subtitles no longer stack while the stream switches',
+            ],
+        },
+    ],
+    '1.0.99': [
+        {
+            title: 'Home',
+            items: [
+                'Focused-title description is no longer cut off mid-line',
+            ],
+        },
+    ],
+    '1.0.98': [
+        {
+            title: 'TV',
+            items: [
+                'Opening an episode from Continue Watching focuses it with the orange ring again',
+            ],
+        },
+    ],
+    '1.0.97': [
+        {
+            title: 'TV',
+            items: [
+                'Episode Left/Right is snappier — especially when holding or tapping quickly',
+            ],
+        },
+    ],
+    '1.0.96': [
+        {
+            title: 'TV',
+            items: [
+                'Holding Left/Right on episode cards no longer bounces between two episodes',
+            ],
+        },
+    ],
+    '1.0.95': [
+        {
+            title: 'TV',
+            items: [
+                'Audio / subtitle picker focus ring is no longer clipped at the edges',
+            ],
+        },
+    ],
+    '1.0.94': [
+        {
+            title: 'TV',
+            items: [
+                'Back works again — one press no longer opens then instantly closes the side menu',
+                'Library Back reaches the tab row on Recommended, then Home on the next press',
+            ],
+        },
+    ],
+    '1.0.93': [
+        {
+            title: 'Home',
+            items: [
+                'Row title fade is smoother — no more bounce before the swap',
+            ],
+        },
+    ],
+    '1.0.92': [
+        {
+            title: 'TV',
+            items: [
+                'Clock hides while the item options sheet is open',
+            ],
+        },
+    ],
+    '1.0.91': [
+        {
+            title: 'Home',
+            items: [
+                'Row-to-row title fade no longer gets cancelled when focus lands on the new row',
+            ],
+        },
+    ],
+    '1.0.90': [
+        {
+            title: 'Library',
+            items: [
+                'Recommended clearlogo and synopsis sit back in their usual spot above the poster row',
+            ],
+        },
+    ],
+    '1.0.89': [
+        {
+            title: 'Playback',
+            items: [
+                'Seeking while transcoding clears the old session (timeline + transcoder) before starting the next — fewer ghost Now Playing rows',
+            ],
+        },
+    ],
+    '1.0.88': [
+        {
+            title: 'Playback',
+            items: [
+                'Seeking while transcoding no longer spawns a pile of ghost Now Playing sessions',
+            ],
+        },
+    ],
+    '1.0.87': [
+        {
+            title: 'Episodes',
+            items: [
+                'Episode hub feels closer to Plex: focused cards scale up, the rail eases between titles, and episode art / title / summary crossfade with focus',
+            ],
+        },
+    ],
+    '1.0.86': [
+        {
+            title: 'Details',
+            items: [
+                'Start from beginning uses the same pill shape as Resume',
+            ],
+        },
+    ],
+    '1.0.85': [
+        {
+            title: 'Details',
+            items: [
+                'Down from an episode card goes to Resume instead of jumping back to the first episode',
+            ],
+        },
+    ],
+    '1.0.84': [
+        {
+            title: 'Details',
+            items: [
+                'Select Audio / Subtitles / Version dialogs no longer show page text bleeding through',
+            ],
+        },
+    ],
+    '1.0.83': [
+        {
+            title: 'Playback',
+            items: [
+                'Text subtitles (SRT/ASS) Direct Play again instead of burning a transcode — seeking stays smooth',
+                'Image subtitles (PGS/VobSub) still burn-in when selected',
+            ],
+        },
+    ],
+    '1.0.82': [
+        {
+            title: 'Home',
+            items: [
+                'Title block only fades on up/down row changes — left/right focus swaps instantly',
+            ],
+        },
+    ],
+    '1.0.81': [
+        {
+            title: 'Home',
+            items: [
+                'Smoother title-block fade when changing Home rows (less overlap / stutter)',
+            ],
+        },
+    ],
+    '1.0.80': [
+        {
+            title: 'Home',
+            items: [
+                'Title block drifts off the top of the screen more slowly when you change Home rows',
+            ],
+        },
+    ],
+    '1.0.79': [
+        {
+            title: 'Home',
+            items: [
+                'Title block now travels fully off the top of the screen when you move to the next row',
+            ],
+        },
+    ],
+    '1.0.78': [
+        {
+            title: 'Home',
+            items: [
+                'Title block fades up like Plex when you move to the next Home row',
+            ],
+        },
+    ],
+    '1.0.77': [
+        {
+            title: 'Home',
+            items: [
+                'Loading skeleton matches the Home stage (backdrop, title block, rails) and shimmers while waiting',
+            ],
+        },
+    ],
+    '1.0.76': [
+        {
+            title: 'Playback',
+            items: [
+                'Fixed Unable to start player caused by missing PiP / Chapters button wiring',
+            ],
+        },
+    ],
+    '1.0.75': [
+        {
+            title: 'Playback',
+            items: [
+                'Direct Play failures on TV fall back to Plex HLS instead of showing Playback failed',
+            ],
+        },
+    ],
+    '1.0.74': [
+        {
+            title: 'Libraries',
+            items: [
+                'Recommended shows a simple spinner while loading instead of poster skeletons',
+            ],
+        },
+    ],
+    '1.0.73': [
+        {
+            title: 'Browse',
+            items: [
+                'Filter focus rings no longer clip on the dropdown chips',
+            ],
+        },
+    ],
+    '1.0.72': [
+        {
+            title: 'Browse',
+            items: [
+                'Filters closer to Plex: actor, director, writer, producer, label, network, HDR, and duplicates',
+                'Filter dropdowns and toggles match the Recommended / Browse / Collections pill shape',
+            ],
+        },
+    ],
+    '1.0.71': [
+        {
+            title: 'Libraries',
+            items: [
+                'Recommended shows a poster-row loading hint instead of a blank stage',
+            ],
+        },
+    ],
+    '1.0.70': [
+        {
+            title: 'Navigation',
+            items: [
+                'Sidebar icons line up in one vertical column across Home, Libraries, Settings, and Switch User',
+            ],
+        },
+    ],
+    '1.0.69': [
+        {
+            title: 'Browse',
+            items: [
+                'Filters match Plex: decade, year, rating, resolution, studio/network, country, collection, audio & subtitle language',
+                'More sort options: title Z–A, critic rating, duration, resolution',
+                'Clock is hidden on Browse so it stays out of the way of the A–Z bar',
+            ],
+        },
+    ],
+    '1.0.68': [
+        {
+            title: 'Plex Home',
+            items: [
+                'Switch User PIN keypad fits fully on TV — 0, Del, and OK are no longer cut off',
+            ],
+        },
+    ],
+    '1.0.67': [
+        {
+            title: 'Branding',
+            items: [
+                'New StreamPilot speed logo across the app, splash, and launcher icons',
+                'Loading screen drops the orange glow and whooshes the logo into center',
+            ],
+        },
+    ],
+    '1.0.66': [
+        {
+            title: 'Plex Home',
+            items: [
+                'Switch User lists every Home profile with the correct name and avatar (not the Home title)',
+            ],
+        },
+    ],
+    '1.0.65': [
+        {
+            title: 'Browse',
+            items: [
+                'A–Z jumps into the full title list at that letter, with previous letters above and next letters below',
+            ],
+        },
+    ],
+    '1.0.64': [
+        {
+            title: 'Libraries',
+            items: [
+                'Back from a library row focuses Recommended/Browse/Collections; Back again returns Home',
+            ],
+        },
+    ],
+    '1.0.63': [
+        {
+            title: 'Libraries',
+            items: [
+                'Down moves focus to the next Recommended row in one press',
+                'Recommended / Browse / Collections pills match the clock shape',
+            ],
+        },
+    ],
+    '1.0.62': [
+        {
+            title: 'Libraries',
+            items: [
+                'Heros / Heroes collection labels render as widescreen rows on Library Recommended (same as Home)',
+            ],
+        },
+    ],
     '1.0.61': [
         {
             title: 'UI',

@@ -184,8 +184,24 @@
       font-family: "Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif;
     }
     @keyframes boot-splash-enter {
-      from { opacity: 0; transform: scale(0.96); }
-      to { opacity: 1; transform: scale(1); }
+      0% {
+        opacity: 0;
+        transform: translate3d(-46vw, 0, 0) scale(1.55) rotate(-8deg);
+        filter: blur(10px);
+      }
+      58% {
+        opacity: 1;
+        transform: translate3d(2.8vw, 0, 0) scale(0.94) rotate(2deg);
+        filter: blur(0);
+      }
+      78% {
+        transform: translate3d(-0.8vw, 0, 0) scale(1.05) rotate(-0.8deg);
+      }
+      100% {
+        opacity: 1;
+        transform: translate3d(0, 0, 0) scale(1) rotate(0deg);
+        filter: blur(0);
+      }
     }
     @keyframes boot-splash-sweep {
       0% { transform: translateX(-120%); }
@@ -204,28 +220,20 @@
       overflow: hidden;
       background: #07080c;
     }
-    #boot-splash .boot-splash-glow {
-      position: absolute;
-      inset: 0;
-      pointer-events: none;
-      background:
-        radial-gradient(ellipse 42% 38% at 50% 46%, rgba(245, 158, 11, 0.22), transparent 64%),
-        radial-gradient(ellipse 80% 70% at 50% 100%, rgba(0, 0, 0, 0.55), transparent 55%);
-    }
     #boot-splash .boot-splash-mark {
       position: relative;
       z-index: 1;
       display: flex;
       flex-direction: column;
       align-items: center;
-      animation: boot-splash-enter 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+      animation: boot-splash-enter 0.95s cubic-bezier(0.16, 1.05, 0.3, 1) both;
     }
     #boot-splash img {
       width: min(78vw, 36rem);
       height: auto;
       max-height: 22vh;
       object-fit: contain;
-      filter: drop-shadow(0 18px 40px rgba(0, 0, 0, 0.45));
+      filter: drop-shadow(0 12px 28px rgba(0, 0, 0, 0.55));
     }
     #boot-splash .boot-splash-progress {
       position: absolute;
@@ -393,13 +401,14 @@
       border-radius: 9999px !important;
       z-index: 5;
     }
-    /* Library list scrolls — inset so focus pill isn’t clipped like Home/Search. */
+    /* Library list scrolls — keep overflow visible for the focus pill, but no
+       extra horizontal inset (that misaligned library icons vs Home/Settings). */
     html[data-tv="1"] [data-tv-nav-libraries="1"] {
       overflow: visible !important;
     }
     html[data-tv="1"] [data-tv-nav-libraries-scroll="1"] {
-      padding-left: calc(8px / var(--tv-zoom, 1)) !important;
-      padding-right: calc(8px / var(--tv-zoom, 1)) !important;
+      padding-left: 0 !important;
+      padding-right: 0 !important;
       padding-top: calc(4px / var(--tv-zoom, 1)) !important;
       padding-bottom: calc(4px / var(--tv-zoom, 1)) !important;
     }
@@ -421,7 +430,7 @@
     html[data-tv="1"] [data-tv-library-tabs="1"] button {
       min-height: 2.6rem !important;
       padding: 0.45rem 1.1rem !important;
-      border-radius: 0.6rem !important;
+      border-radius: 999px !important;
       border: 1px solid rgba(255, 255, 255, 0.18) !important;
       background: rgba(255, 255, 255, 0.06) !important;
       color: #ffffff !important;
@@ -453,9 +462,6 @@
       background: rgba(245, 158, 11, 0.16) !important;
       color: #f59e0b !important;
     }
-    html[data-tv="1"] [data-tv-library-filters="1"] {
-      gap: 0.45rem !important;
-    }
     html[data-tv="1"] [data-tv-library-filters="1"] > div {
       width: max-content !important;
       min-width: max-content !important;
@@ -467,7 +473,7 @@
       min-height: 3.05rem !important;
       min-width: max-content !important;
       padding: 0.55rem 1.05rem !important;
-      border-radius: 0.75rem !important;
+      border-radius: 999px !important;
       font-size: 1.05rem !important;
       font-weight: 700 !important;
     }
@@ -494,6 +500,41 @@
     /* Remote Back replaces these. Keep them for pointer clients. */
     html[data-tv="1"] .player-page-back {
       display: none !important;
+    }
+    html[data-tv="1"] [data-tv-library-filters="1"] {
+      display: flex !important;
+      flex-wrap: nowrap !important;
+      align-items: center !important;
+      /* Room between chips so the orange focus ring is not covered by neighbors. */
+      gap: calc(0.55rem + (4px / var(--tv-zoom, 1))) !important;
+      max-width: calc(100% - 0.25rem) !important;
+      overflow-x: auto !important;
+      overflow-y: hidden !important;
+      /* overflow clips box-shadow — pad so the focus ring stays inside the scrollport. */
+      padding-top: calc(6px / var(--tv-zoom, 1)) !important;
+      padding-bottom: calc(6px / var(--tv-zoom, 1)) !important;
+      padding-left: calc(6px / var(--tv-zoom, 1)) !important;
+      padding-right: calc(6px / var(--tv-zoom, 1)) !important;
+      margin-left: calc(-6px / var(--tv-zoom, 1)) !important;
+      margin-right: calc(-6px / var(--tv-zoom, 1)) !important;
+      scrollbar-width: none !important;
+    }
+    html[data-tv="1"] [data-tv-library-filters="1"]::-webkit-scrollbar {
+      display: none !important;
+    }
+    html[data-tv="1"] [data-tv-library-filters="1"] > * {
+      flex: 0 0 auto !important;
+      overflow: visible !important;
+    }
+    html[data-tv="1"] [data-tv-library-filters="1"] > div {
+      overflow: visible !important;
+      padding: calc(2px / var(--tv-zoom, 1)) !important;
+      margin: calc(-2px / var(--tv-zoom, 1)) !important;
+    }
+    html[data-tv="1"] [data-tv-library-filters="1"] button:focus,
+    html[data-tv="1"] [data-tv-library-filters="1"] button:focus-visible {
+      z-index: 8 !important;
+      position: relative !important;
     }
     html[data-tv="1"] [data-tv-browse-layout="1"] {
       display: grid !important;
@@ -678,6 +719,11 @@
       z-index: 5;
       box-shadow: none !important;
     }
+    html[data-tv="1"] [data-tv-episode-btn="1"] {
+      transition: transform 0.18s ease-out, box-shadow 0.18s ease-out;
+      transform: scale(1);
+      transform-origin: center center;
+    }
     html[data-tv="1"] [data-tv-episode-btn="1"][data-tv-focused="1"]:focus,
     html[data-tv="1"] [data-tv-episode-btn="1"][data-tv-focused="1"]:focus-visible {
       outline: none !important;
@@ -685,6 +731,7 @@
       z-index: 8 !important;
       border-radius: calc(6px / var(--tv-zoom, 1)) !important;
       box-shadow: var(--tv-focus-glow) !important;
+      transform: scale(1.042);
     }
     html[data-tv="1"] [data-tv-episode-btn="1"][data-tv-focused="1"]:focus > [data-tv-episode-art="1"],
     html[data-tv="1"] [data-tv-episode-btn="1"][data-tv-focused="1"]:focus-visible > [data-tv-episode-art="1"] {
@@ -1333,6 +1380,28 @@
       text-align: left;
       text-shadow: 0 2px 16px rgba(0, 0, 0, 0.55);
     }
+    @keyframes media-details-hub-meta-in {
+      from { opacity: 0; transform: translateY(0.35rem); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    html[data-tv="1"] .media-details-hub-meta-swap {
+      animation: media-details-hub-meta-in 0.28s ease-out;
+    }
+    html[data-tv="1"] .media-details-hero-backdrop img.media-details-hub-art {
+      transition: opacity 0.45s ease;
+    }
+    html[data-tv="1"] .media-details-hero-backdrop img.media-details-hub-art.is-front {
+      opacity: 1;
+    }
+    html[data-tv="1"] .media-details-hero-backdrop img.media-details-hub-art.is-behind {
+      opacity: 0;
+    }
+    html[data-tv="1"][data-reduce-motion="1"] .media-details-hub-meta-swap {
+      animation: none !important;
+    }
+    html[data-tv="1"][data-reduce-motion="1"] .media-details-hero-backdrop img.media-details-hub-art {
+      transition: none !important;
+    }
     html[data-tv="1"] [data-tv-kind="episode"],
     html[data-tv="1"] [data-tv-kind="season"] {
       min-height: calc(100vh / var(--tv-zoom, 1));
@@ -1425,8 +1494,8 @@
     }
     html[data-tv="1"] [data-tv-kind="episode"] .media-details-episodes [data-tv-poster-rail="1"],
     html[data-tv="1"] [data-tv-kind="season"] .media-details-episodes [data-tv-poster-rail="1"] {
-      padding-top: 0.55rem !important;
-      padding-bottom: 0.55rem !important;
+      padding-top: 0.85rem !important;
+      padding-bottom: 0.85rem !important;
       padding-right: 2.75rem !important;
       scroll-padding-left: 1.35rem !important;
       scroll-snap-type: none !important;
@@ -1634,28 +1703,90 @@
     html[data-tv="1"] .player-home-focus-still img.is-behind {
       opacity: 0;
     }
-    html[data-tv="1"] .player-home-spot {
+    html[data-tv="1"] .player-home-spot-stage {
       position: absolute;
       left: 6.9rem;
       top: auto;
       bottom: 23.5rem;
       z-index: 2;
-      width: min(36rem, 42%);
-      max-height: 42%;
+      width: min(38rem, 44%);
+      /* Tall enough for logo + tagline + meta + 3-line synopsis + cast. */
+      height: 16.75rem;
+      max-height: 48%;
+      pointer-events: none;
+      overflow: visible;
+      isolation: isolate;
+    }
+    html[data-tv="1"][data-tv-nav-open="1"] .player-home-spot-stage {
+      left: 18.7rem;
+    }
+    html[data-tv="1"] .player-home-spot {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
       display: flex;
       flex-direction: column;
       justify-content: flex-end;
-      gap: 0.45rem;
+      gap: 0.4rem;
+      width: 100%;
+      max-height: 100%;
       overflow: visible;
       pointer-events: none;
+      backface-visibility: hidden;
+      will-change: transform, opacity;
+      transform: translate3d(0, 0, 0);
     }
-    html[data-tv="1"][data-tv-nav-open="1"] .player-home-spot {
-      left: 18.7rem;
+    html[data-tv="1"] .player-home-spot.is-exit {
+      z-index: 2;
+    }
+    html[data-tv="1"] .player-home-spot.is-enter {
+      z-index: 1;
+    }
+    html[data-tv="1"] .player-home-spot.is-exit-up {
+      animation: player-home-spot-exit-up 0.42s ease-out forwards;
+    }
+    html[data-tv="1"] .player-home-spot.is-exit-down {
+      animation: player-home-spot-exit-down 0.42s ease-out forwards;
+    }
+    html[data-tv="1"] .player-home-spot.is-enter-up {
+      animation: player-home-spot-enter-up 0.38s ease-out both;
+      animation-delay: 0.1s;
+    }
+    html[data-tv="1"] .player-home-spot.is-enter-down {
+      animation: player-home-spot-enter-down 0.38s ease-out both;
+      animation-delay: 0.1s;
+    }
+    @keyframes player-home-spot-exit-up {
+      0% { opacity: 1; transform: translate3d(0, 0, 0); }
+      100% { opacity: 0; transform: translate3d(0, -1.35rem, 0); }
+    }
+    @keyframes player-home-spot-exit-down {
+      0% { opacity: 1; transform: translate3d(0, 0, 0); }
+      100% { opacity: 0; transform: translate3d(0, 1.35rem, 0); }
+    }
+    @keyframes player-home-spot-enter-up {
+      0% { opacity: 0; transform: translate3d(0, -1.1rem, 0); }
+      100% { opacity: 1; transform: translate3d(0, 0, 0); }
+    }
+    @keyframes player-home-spot-enter-down {
+      0% { opacity: 0; transform: translate3d(0, 1.1rem, 0); }
+      100% { opacity: 1; transform: translate3d(0, 0, 0); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      html[data-tv="1"] .player-home-spot.is-exit-up,
+      html[data-tv="1"] .player-home-spot.is-exit-down,
+      html[data-tv="1"] .player-home-spot.is-enter-up,
+      html[data-tv="1"] .player-home-spot.is-enter-down {
+        animation: none !important;
+        opacity: 1 !important;
+        transform: none !important;
+      }
     }
     html[data-tv="1"] .player-home-spot-logo {
       display: block;
       flex-shrink: 0;
-      height: 5.35rem;
+      height: 4.85rem;
       width: auto;
       max-width: min(100%, 22rem);
       object-fit: contain;
@@ -1665,6 +1796,7 @@
     }
     html[data-tv="1"] .player-home-spot-title {
       margin: 0;
+      flex-shrink: 0;
       font-size: 2.15rem;
       font-weight: 700;
       letter-spacing: -0.03em;
@@ -1674,6 +1806,7 @@
     }
     html[data-tv="1"] .player-home-spot-tagline {
       margin: 0;
+      flex-shrink: 0;
       font-size: 1.05rem;
       font-weight: 500;
       font-style: italic;
@@ -1681,6 +1814,7 @@
     }
     html[data-tv="1"] .player-home-spot-meta {
       margin: 0;
+      flex-shrink: 0;
       display: flex;
       flex-wrap: wrap;
       align-items: center;
@@ -1696,7 +1830,9 @@
     }
     html[data-tv="1"] .player-home-spot-summary {
       margin: 0;
-      max-width: 34rem;
+      flex: 0 1 auto;
+      min-height: calc(0.92rem * 1.45 * 2);
+      max-width: 36rem;
       font-size: 0.92rem;
       line-height: 1.45;
       color: rgba(255, 255, 255, 0.78) !important;
@@ -1704,10 +1840,13 @@
       -webkit-line-clamp: 3;
       -webkit-box-orient: vertical;
       overflow: hidden;
+      text-overflow: ellipsis;
     }
     html[data-tv="1"] .player-home-spot-cast {
       margin: 0;
+      flex-shrink: 0;
       font-size: 0.82rem;
+      line-height: 1.35;
       color: rgba(255, 255, 255, 0.55) !important;
     }
     html[data-tv="1"] .player-row-header-title,
@@ -1733,6 +1872,11 @@
       letter-spacing: 0.04em;
       line-height: 1;
       font-variant-numeric: tabular-nums;
+    }
+    /* Options sheet sits under the clock corner — tuck it away while the menu is open. */
+    html[data-tv="1"]:has([data-tv-item-menu="1"]) .player-tv-clock,
+    html[data-tv="1"]:has([data-tv-context-sheet="1"]) .player-tv-clock {
+      display: none !important;
     }
     html[data-tv="1"] .player-home-stage-rail {
       position: absolute;
@@ -1860,14 +2004,40 @@
     html[data-tv="1"] [data-tv-details="1"] .bg-card {
       background-color: transparent !important;
     }
-    html[data-tv="1"] [data-tv-version-dialog="1"] {
-      background: rgba(0, 0, 0, 0.72) !important;
+    html[data-tv="1"] [data-tv-version-dialog="1"],
+    html[data-tv="1"] [data-tv-track-dialog="1"] {
+      z-index: 3600 !important;
+      background: rgba(0, 0, 0, 0.88) !important;
+      isolation: isolate;
     }
-    html[data-tv="1"] [data-tv-version-dialog="1"] > .player-version-sheet {
+    html[data-tv="1"] [data-tv-version-dialog="1"] > .player-version-sheet,
+    html[data-tv="1"] [data-tv-track-dialog="1"] > .player-popup-surface {
       background: rgb(var(--tv-page-surface, 36 40 48)) !important;
       background-image: none !important;
       border: 1px solid rgba(255, 255, 255, 0.14) !important;
       box-shadow: 0 28px 80px rgba(0, 0, 0, 0.65) !important;
+      overflow: visible !important;
+    }
+    /* overflow-y:auto clips the orange focus ring — pad the scrollport like library filters. */
+    html[data-tv="1"] [data-tv-track-dialog="1"] [data-tv-overlay-scroll="1"],
+    html[data-tv="1"] [data-tv-version-dialog="1"] [data-tv-rail="1"] {
+      padding: calc(8px / var(--tv-zoom, 1)) !important;
+      margin: calc(-4px / var(--tv-zoom, 1)) calc(-8px / var(--tv-zoom, 1)) !important;
+      width: calc(100% + (16px / var(--tv-zoom, 1))) !important;
+      max-width: none !important;
+      box-sizing: border-box !important;
+    }
+    html[data-tv="1"] [data-tv-track-dialog="1"] [data-tv-overlay-scroll="1"] > div,
+    html[data-tv="1"] [data-tv-version-dialog="1"] [data-tv-rail="1"] {
+      gap: calc(0.65rem + (4px / var(--tv-zoom, 1))) !important;
+      padding-right: 0 !important;
+    }
+    html[data-tv="1"] [data-tv-track-dialog="1"] [data-tv-item="1"]:focus,
+    html[data-tv="1"] [data-tv-track-dialog="1"] [data-tv-item="1"]:focus-visible,
+    html[data-tv="1"] [data-tv-version-dialog="1"] [data-tv-item="1"]:focus,
+    html[data-tv="1"] [data-tv-version-dialog="1"] [data-tv-item="1"]:focus-visible {
+      position: relative !important;
+      z-index: 8 !important;
     }
     /* Popup panels use the same fill as the home screen. */
     html[data-tv="1"] [data-tv-resume-dialog="1"] .player-resume-dialog-enter,
@@ -1880,6 +2050,11 @@
     html[data-tv="1"] [data-tv-home-switch="1"] {
       background: rgb(var(--tv-page-surface, 36 40 48)) !important;
       background-image: none !important;
+    }
+    /* PIN keypad must fit fully — no scroll, no clipped 0/Del/OK row. */
+    html[data-tv="1"] [data-tv-home-switch="1"][data-tv-home-switch-pin="1"] {
+      max-height: min(96vh, 56rem) !important;
+      overflow: hidden !important;
     }
     html[data-tv="1"] .player-context-logo {
       display: flex !important;
@@ -2259,7 +2434,8 @@
       filter: none !important;
       outline: none !important;
     }
-    html[data-tv="1"] .media-details-page [data-tv-trailer="1"] {
+    html[data-tv="1"] .media-details-page [data-tv-trailer="1"],
+    html[data-tv="1"] .media-details-page [data-tv-start-over="1"] {
       height: 3.15rem !important;
       min-height: 3.15rem !important;
       min-width: 8.75rem;
@@ -2269,7 +2445,9 @@
       border-radius: 999px !important;
     }
     html[data-tv="1"] .media-details-page [data-tv-trailer="1"]:focus,
-    html[data-tv="1"] .media-details-page [data-tv-trailer="1"]:focus-visible {
+    html[data-tv="1"] .media-details-page [data-tv-trailer="1"]:focus-visible,
+    html[data-tv="1"] .media-details-page [data-tv-start-over="1"]:focus,
+    html[data-tv="1"] .media-details-page [data-tv-start-over="1"]:focus-visible {
       border-radius: 999px !important;
     }
     html[data-tv="1"] #media-player-scroll {
@@ -3645,6 +3823,36 @@
         display: none !important;
         animation: none !important;
       }
+      @keyframes discover-skeleton-pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.72; }
+      }
+      @keyframes skeleton-shimmer {
+        100% { transform: translateX(100%); }
+      }
+      /* Home stage skeleton: keep a soft moving shimmer. */
+      html[data-tv="1"] .player-tv-home-skel .skeleton-base {
+        position: relative !important;
+        overflow: hidden !important;
+        animation: discover-skeleton-pulse 1.8s ease-in-out infinite !important;
+        background-color: rgba(255, 255, 255, 0.1) !important;
+      }
+      html[data-tv="1"] .player-tv-home-skel .skeleton-base::after {
+        content: '' !important;
+        display: block !important;
+        position: absolute !important;
+        inset: 0 !important;
+        transform: translateX(-100%);
+        background-image: linear-gradient(
+          90deg,
+          rgba(255, 255, 255, 0) 0,
+          rgba(255, 255, 255, 0.08) 35%,
+          rgba(255, 255, 255, 0.22) 50%,
+          rgba(255, 255, 255, 0.08) 65%,
+          rgba(255, 255, 255, 0)
+        ) !important;
+        animation: skeleton-shimmer 1.55s ease-in-out infinite !important;
+      }
       html[data-tv="1"] .media-details-page .animate-pulse,
       html[data-phone="1"] .media-details-page .animate-pulse,
       html[data-tv="1"] .player-home-page .animate-pulse,
@@ -3679,7 +3887,6 @@
 <body>
   <div id="root">
     <div id="boot-splash">
-      <div class="boot-splash-glow" aria-hidden="true"></div>
       <div class="boot-splash-mark">
         <img src="./logo.png" alt="StreamPilot" />
       </div>

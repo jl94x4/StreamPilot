@@ -9,8 +9,11 @@ import { useSkeletonLayoutCounts } from './useSkeletonLayoutCounts';
 
 const pulse = 'skeleton-base';
 
-export const SkeletonBlock: React.FC<{ className?: string }> = ({ className = '' }) => (
-    <div className={`${pulse} rounded ${className}`} aria-hidden="true" />
+export const SkeletonBlock: React.FC<{ className?: string; style?: React.CSSProperties }> = ({
+    className = '',
+    style,
+}) => (
+    <div className={`${pulse} rounded ${className}`} style={style} aria-hidden="true" />
 );
 
 export const PosterCardSkeleton: React.FC<{
@@ -134,6 +137,61 @@ export const PlayerHomeSkeleton: React.FC = () => (
         <PlayerHomeRowSkeleton />
         <PlayerHomeRowSkeleton />
         <PlayerHomeRowSkeleton />
+    </div>
+);
+
+/** TV home stage — focus still + spot copy + active rail + next-row peek (matches loaded Home). */
+export const PlayerTvHomeStageSkeleton: React.FC = () => (
+    <div
+        className="tv-poster-rows player-home-page player-home-stage player-tv-home-skel"
+        aria-busy="true"
+        aria-label="Loading home"
+        data-tv-hub-loading="1"
+    >
+        <div className="player-home-focus-still player-tv-home-skel-still" aria-hidden>
+            <div className="skeleton-base absolute inset-0 rounded-none" />
+        </div>
+        <div className="player-home-spot-stage" aria-hidden>
+            <div className="player-home-spot">
+                <SkeletonBlock className="player-tv-home-skel-logo h-[4.5rem] w-[min(42vw,18rem)] rounded-md" />
+                <SkeletonBlock className="mt-3 h-4 w-[min(36vw,14rem)] max-w-full rounded" />
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <SkeletonBlock className="h-3.5 w-16 rounded" />
+                    <SkeletonBlock className="h-3.5 w-20 rounded" />
+                    <SkeletonBlock className="h-3.5 w-14 rounded" />
+                </div>
+                <SkeletonBlock className="mt-4 h-3.5 w-[min(52vw,28rem)] max-w-full rounded" />
+                <SkeletonBlock className="mt-2 h-3.5 w-[min(44vw,22rem)] max-w-full rounded" />
+                <SkeletonBlock className="mt-2 h-3 w-[min(30vw,14rem)] max-w-full rounded" />
+            </div>
+        </div>
+        <div className="player-home-stage-rail" aria-hidden>
+            <div className="flex flex-col gap-1 px-5">
+                <div className="player-row-header flex min-w-0 items-center gap-3">
+                    <span className="player-row-header-mark shrink-0" />
+                    <SkeletonBlock className="h-6 w-52 max-w-[55%] rounded" />
+                </div>
+                <div className="flex w-full gap-4 overflow-hidden py-2">
+                    {Array.from({ length: 7 }, (_, i) => (
+                        <SkeletonBlock
+                            key={i}
+                            className={`shrink-0 rounded-xl border border-white/5 ${
+                                i === 0
+                                    ? 'aspect-video w-[min(28vw,21rem)]'
+                                    : 'aspect-[2/3] w-[min(14vw,9.5rem)]'
+                            }`}
+                            style={{ animationDelay: `${i * 90}ms` }}
+                        />
+                    ))}
+                </div>
+                <div className="player-home-next-row mt-1">
+                    <div className="player-row-header flex min-w-0 items-center gap-3 opacity-70">
+                        <span className="player-row-header-mark shrink-0" />
+                        <SkeletonBlock className="h-5 w-40 max-w-[45%] rounded" />
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 );
 

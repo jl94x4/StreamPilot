@@ -52,6 +52,7 @@ import androidx.media3.common.MimeTypes;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.PlaybackParameters;
 import androidx.media3.common.Player;
+import androidx.media3.common.TrackSelectionParameters;
 import androidx.media3.common.Tracks;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.datasource.DefaultHttpDataSource;
@@ -61,6 +62,8 @@ import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.audio.AudioSink;
 import androidx.media3.exoplayer.audio.DefaultAudioSink;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
+import androidx.media3.exoplayer.trackselection.TrackSelector;
 import androidx.media3.extractor.DefaultExtractorsFactory;
 import androidx.media3.ui.CaptionStyleCompat;
 import androidx.media3.ui.PlayerView;
@@ -252,6 +255,7 @@ public class PlayerActivity extends AppCompatActivity {
     private int repeatMode;
     private String sidecarSubtitleUrl = "";
     private boolean subtitleSearchPending;
+    private boolean applyingTextTracks;
     private String timelineOrigin = "";
     private String timelineToken = "";
     private String timelineClientId = "";
@@ -316,15 +320,23 @@ public class PlayerActivity extends AppCompatActivity {
         final String id;
         final String label;
         final String url;
+        final String language;
+        final String codec;
 
         OptionItem(String id, String label) {
-            this(id, label, "");
+            this(id, label, "", "", "");
         }
 
         OptionItem(String id, String label, String url) {
+            this(id, label, url, "", "");
+        }
+
+        OptionItem(String id, String label, String url, String language, String codec) {
             this.id = id;
             this.label = label;
             this.url = url == null ? "" : url;
+            this.language = language == null ? "" : language;
+            this.codec = codec == null ? "" : codec;
         }
     }
 
@@ -445,7 +457,16 @@ public class PlayerActivity extends AppCompatActivity {
             bumpChrome();
             if (playPauseBtn != null) playPauseBtn.requestFocus();
             if (avChanged) {
-                requestStreamChange(qualityId, audioStreamId, subtitleStreamId, mediaIndex);
+                OptionItem restoredSub = findSubtitleOption(subtitleStreamId);
+                boolean burn = restoredSub != null && subtitleCodecNeedsBurn(restoredSub.codec);
+                if (!burn && isDirectPlayUrl(currentUrl)) {
+                    applyTextTrackPreference();
+                    notifyTracksOnlyChange();
+                } else {
+                    requestStreamChange(qualityId, audioStreamId, subtitleStreamId, mediaIndex);
+                }
+            } else {
+                applyTextTrackPreference();
             }
             mainHandler.post(tickRunnable);
             mainHandler.postDelayed(progressEmitRunnable, 5000);
@@ -453,7 +474,12 @@ public class PlayerActivity extends AppCompatActivity {
         } catch (Throwable t) {
             Log.e(TAG, "PlayerActivity failed to start", t);
             playbackError = true;
-            toast("Unable to start player");
+            String detail = t.getClass().getSimpleName();
+            if (t.getMessage() != null && !t.getMessage().isEmpty()) {
+                detail = detail + ": " + t.getMessage();
+            }
+            if (detail.length() > 80) detail = detail.substring(0, 80);
+            toast("Unable to start player (" + detail + ")");
             finishWithResult(false, false);
         }
     }
@@ -521,10 +547,12 @@ public class PlayerActivity extends AppCompatActivity {
         zoomBtn = findViewById(R.id.player_zoom);
         delayBtn = findViewById(R.id.player_delay);
         repeatBtn = findViewById(R.id.player_repeat);
+        chaptersBtn = findViewById(R.id.player_chapters);
+        pipBtn = findViewById(R.id.player_pip);
         seekPreview = findViewById(R.id.player_seek_preview);
 
         ImageButton close = findViewById(R.id.player_close);
-        close.setOnClickListener(v -> finishWithResult(false, false));
+        if (close != null) close.setOnClickListener(v -> finishWithResult(false, false));
         disableTvFocusBox(
             close,
             seekBar,
@@ -576,7 +604,7 @@ public class PlayerActivity extends AppCompatActivity {
         if (repeatBtn != null) repeatBtn.setOnClickListener(v -> showRepeatMenu());
         sleepBtn.setOnClickListener(v -> showSleepMenu());
         externalBtn.setOnClickListener(v -> openExternalPlayer());
-        pipBtn.setOnClickListener(v -> enterPip());
+        if (pipBtn != null) pipBtn.setOnClickListener(v -> enterPip());
         if (chaptersBtn != null) {
             chaptersBtn.setOnClickListener(v -> showChaptersMenu());
         }
@@ -707,6 +735,9 @@ public class PlayerActivity extends AppCompatActivity {
                 if (!hasVideo && hasAudio) {
                     toast("Audio only — this file may need a transcode for this TV");
                 }
+                if (isDirectPlayUrl(currentUrl)) {
+                    applyTextTrackPreference();
+                }
             }
 
             @Override
@@ -723,11 +754,12 @@ public class PlayerActivity extends AppCompatActivity {
                 PlayerBridge.get().emit("error", data);
                 // Leave the dead player. Staying here traps the remote, and falling
                 // through to the web player starts the same title again.
+                // Give JS time to fetch an HLS URL (Direct Play → HLS) before closing.
                 final int gen = errorGeneration;
                 mainHandler.postDelayed(() -> {
                     if (finishing || gen != errorGeneration || !playbackError) return;
                     finishWithResult(false, false);
-                }, 1200);
+                }, 5000);
             }
         });
     }
@@ -1551,7 +1583,11 @@ public class PlayerActivity extends AppCompatActivity {
             if (id.isEmpty() && row.has("mediaIndex")) {
                 id = String.valueOf(row.optInt("mediaIndex", i));
             }
-            if (!label.isEmpty()) out.add(new OptionItem(id, label, row.optString("url", "")));
+            if (!label.isEmpty()) {
+                String language = row.optString("languageTag", row.optString("language", ""));
+                String codec = row.optString("codec", "");
+                out.add(new OptionItem(id, label, row.optString("url", ""), language, codec));
+            }
         }
         return out;
     }
@@ -1570,6 +1606,8 @@ public class PlayerActivity extends AppCompatActivity {
         pendingSeekMs = 0;
         scrubTargetMs = -1;
         seekingUi = false;
+        // Intentional JS rebuild — allow Direct Play fallbacks again after a prior HLS hop.
+        streamFallbackStage = 0;
         streamSwapInFlight = false;
         mainHandler.removeCallbacks(clearSwapRunnable);
         skippedIntro = false;
@@ -1578,10 +1616,19 @@ public class PlayerActivity extends AppCompatActivity {
         playbackEnded = false;
         playbackError = false;
         hideError();
+        clearSubtitleCues();
+        applyTextTrackPreference();
         queueStartPosition(currentUrl, offsetMs);
         player.prepare();
         player.setPlayWhenReady(!userPaused);
+        // Re-apply after prepare so Exo doesn't re-enable text on a burn-in / HLS swap.
+        applyTextTrackPreference();
         if (!minimized) bumpChrome();
+        // Seek pressed during the swap — fire one coalesced restart, not a stack of sessions.
+        if (pendingTranscodeSeekMs >= 0 && shouldRestartForSeek()) {
+            mainHandler.removeCallbacks(transcodeSeekRunnable);
+            mainHandler.postDelayed(transcodeSeekRunnable, 120);
+        }
     }
 
     void applySeek(long positionMs) {
@@ -1687,17 +1734,118 @@ public class PlayerActivity extends AppCompatActivity {
 
     private void applySubtitleChoice(OptionItem picked) {
         String previousSidecar = sidecarSubtitleUrl;
-        subtitleStreamId = picked.id;
+        subtitleStreamId = picked.id == null ? "" : picked.id;
         boolean sidecar = picked.id != null && picked.id.startsWith("os:") && !picked.url.isEmpty();
         sidecarSubtitleUrl = sidecar ? picked.url : "";
         saveAvPrefs();
         updateChipLabels();
         if (sidecar) {
+            applyTextTrackPreference();
             reloadCurrentMedia();
+            notifyTracksOnlyChange();
             return;
         }
         if (!previousSidecar.isEmpty()) reloadCurrentMedia();
+        boolean off = subtitleStreamId.isEmpty();
+        boolean burn = !off && subtitleCodecNeedsBurn(picked.codec);
+        // Text / off on Direct Play: swap ExoPlayer text track — keep seekable bitstream.
+        if (!burn && isDirectPlayUrl(currentUrl)) {
+            applyTextTrackPreference();
+            notifyTracksOnlyChange();
+            return;
+        }
         requestStreamChange(qualityId, audioStreamId, subtitleStreamId, mediaIndex);
+    }
+
+    @Nullable
+    private OptionItem findSubtitleOption(@Nullable String id) {
+        if (id == null || id.isEmpty()) return null;
+        for (OptionItem row : subtitles) {
+            if (id.equals(row.id)) return row;
+        }
+        return null;
+    }
+
+    private static boolean subtitleCodecNeedsBurn(@Nullable String codec) {
+        if (codec == null || codec.trim().isEmpty()) return false;
+        return codec.matches("(?i)pgs|vobsub|dvd|dvdsub|image|bluray|dvbsub|xsub");
+    }
+
+    private boolean isDirectPlayUrl(@Nullable String url) {
+        return url != null && !url.isEmpty() && !isTranscodeUrl(url);
+    }
+
+    @Nullable
+    private String preferredTextLanguage() {
+        OptionItem row = findSubtitleOption(subtitleStreamId);
+        if (row == null) return null;
+        if (row.language != null && !row.language.trim().isEmpty()) {
+            String lang = row.language.trim();
+            int dash = lang.indexOf('-');
+            return dash > 0 ? lang.substring(0, dash) : lang;
+        }
+        String label = row.label == null ? "" : row.label.trim();
+        if (label.length() >= 2 && label.length() <= 3 && label.chars().allMatch(Character::isLetter)) {
+            return label.toLowerCase(Locale.US);
+        }
+        // "English (SRT)" / "eng · Forced"
+        String head = label.split("[·(\\[]")[0].trim();
+        if (head.length() >= 2 && head.length() <= 3 && head.chars().allMatch(Character::isLetter)) {
+            return head.toLowerCase(Locale.US);
+        }
+        return null;
+    }
+
+    private void clearSubtitleCues() {
+        PlayerView playerView = findViewById(R.id.player_view);
+        if (playerView == null) return;
+        SubtitleView subtitleView = playerView.getSubtitleView();
+        if (subtitleView != null) subtitleView.setCues(null);
+    }
+
+    private void applyTextTrackPreference() {
+        if (player == null || applyingTextTracks) return;
+        TrackSelector selector = player.getTrackSelector();
+        if (!(selector instanceof DefaultTrackSelector)) return;
+        DefaultTrackSelector dts = (DefaultTrackSelector) selector;
+        TrackSelectionParameters.Builder builder = dts.getParameters().buildUpon();
+        boolean sidecar = sidecarSubtitleUrl != null && !sidecarSubtitleUrl.trim().isEmpty();
+        boolean off = subtitleStreamId == null || subtitleStreamId.isEmpty() || subtitleStreamId.startsWith("os:");
+        OptionItem subRow = findSubtitleOption(subtitleStreamId);
+        boolean burn = !off && subRow != null && subtitleCodecNeedsBurn(subRow.codec);
+        // HLS / burn-in already paints captions in-frame — keep Exo text off or they stack.
+        if (isTranscodeUrl(currentUrl) || burn) {
+            builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true);
+        } else if (off && !sidecar) {
+            builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true);
+        } else if (!off && !sidecar) {
+            builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false);
+            builder.setSelectUndeterminedTextLanguage(true);
+            String lang = preferredTextLanguage();
+            if (lang != null && !lang.isEmpty()) {
+                builder.setPreferredTextLanguage(lang);
+            }
+        } else {
+            // Sidecar SubtitleConfiguration owns captions — disable embedded text.
+            builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true);
+        }
+        applyingTextTracks = true;
+        try {
+            dts.setParameters(builder.build());
+        } finally {
+            applyingTextTracks = false;
+        }
+    }
+
+    private void notifyTracksOnlyChange() {
+        JSObject data = new JSObject();
+        data.put("qualityId", qualityId == null ? "" : qualityId);
+        data.put("audioStreamId", audioStreamId == null ? "" : audioStreamId);
+        data.put("subtitleStreamId", subtitleStreamId == null ? "" : subtitleStreamId);
+        data.put("mediaIndex", mediaIndex);
+        data.put("positionMs", Math.max(0, contentPositionMs()));
+        data.put("reason", "tracks");
+        PlayerBridge.get().emit("streamChange", data);
     }
 
     private void showZoomMenu() {
@@ -1838,6 +1986,8 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void requestStreamChange(String q, String a, String s, int mi, long positionMs, @Nullable String reason) {
+        // Coalesce with in-flight seek/quality rebuilds so PMS doesn't mint ghost sessions.
+        markStreamSwap();
         JSObject data = new JSObject();
         data.put("qualityId", q == null ? "" : q);
         data.put("audioStreamId", a == null ? "" : a);
@@ -1883,7 +2033,7 @@ public class PlayerActivity extends AppCompatActivity {
         boolean show = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
             && !isTelevision()
             && getPackageManager().hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE);
-        pipBtn.setVisibility(show ? View.VISIBLE : View.GONE);
+        if (pipBtn != null) pipBtn.setVisibility(show ? View.VISIBLE : View.GONE);
     }
 
     private boolean isTelevision() {
@@ -2547,8 +2697,11 @@ public class PlayerActivity extends AppCompatActivity {
             scrubHoldUntilMs = android.os.SystemClock.elapsedRealtime() + 8000;
             pendingTranscodeSeekMs = target;
             mainHandler.removeCallbacks(transcodeSeekRunnable);
-            if (immediate) transcodeSeekRunnable.run();
-            else mainHandler.postDelayed(transcodeSeekRunnable, 400);
+            // Never stack stream rebuilds while one is in flight — that mints ghost
+            // Now Playing sessions on PMS. Coalesce to the latest target instead.
+            if (streamSwapInFlight) return;
+            // Debounce even "immediate" scrub releases so rapid seeks share one restart.
+            mainHandler.postDelayed(transcodeSeekRunnable, immediate ? 180 : 400);
             return;
         }
         scrubHoldUntilMs = android.os.SystemClock.elapsedRealtime() + 1600;
@@ -2596,6 +2749,7 @@ public class PlayerActivity extends AppCompatActivity {
     /**
      * ExoPlayer reports ERROR_CODE_IO_BAD_HTTP_STATUS when the portal returns JSON
      * (409 Direct Play refused, 502 transcode). Switch file→HLS, then Original→1080p.
+     * plexDirect Direct Play uses /library/parts/ — rewrite that to a PMS HLS session.
      */
     private boolean tryStreamFallback(PlaybackException error) {
         int code = error.errorCode;
@@ -2603,23 +2757,98 @@ public class PlayerActivity extends AppCompatActivity {
             || code == PlaybackException.ERROR_CODE_IO_UNSPECIFIED
             || code == PlaybackException.ERROR_CODE_IO_INVALID_HTTP_CONTENT_TYPE
             || code == PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED
-            || code == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED;
+            || code == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED
+            || code == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED
+            || code == PlaybackException.ERROR_CODE_DECODING_FAILED;
         if (!io || currentUrl == null || currentUrl.isEmpty()) return false;
-        // Plex's own transcode and file URLs reject the portal quality rewrite.
-        if (currentUrl.contains("/video/:/transcode/") || currentUrl.contains("/library/parts/")) return false;
         String next = null;
-        if (currentUrl.contains("/file/") && streamFallbackStage < 1) {
+        if (currentUrl.contains("/library/parts/") && streamFallbackStage < 1) {
+            streamFallbackStage = 1;
+            next = partsUrlToPmsHls(currentUrl, ratingKey, mediaIndex, contentPositionMs());
+        } else if (currentUrl.contains("/file/") && streamFallbackStage < 1) {
             streamFallbackStage = 1;
             next = fileUrlToHls(currentUrl);
         } else if ((currentUrl.contains("/hls/") || currentUrl.contains(".m3u8")) && streamFallbackStage < 2) {
             streamFallbackStage = 2;
             next = withHlsQuality(currentUrl, "1080-12");
         }
+        // Already on a PMS transcode playlist with nowhere left to go.
+        if (next == null && currentUrl.contains("/video/:/transcode/")) return false;
         if (next == null || next.equals(currentUrl)) return false;
         Log.w(TAG, "Stream fallback → " + summarizeUrl(next));
         long offset = contentPositionMs();
         applyUpdateSrc(next, headersJson, offset);
         return true;
+    }
+
+    /**
+     * Build a PMS universal HLS URL from a failed Direct Play /library/parts/ stream.
+     * Uses timeline credentials when present; otherwise pulls token/host from the part URL.
+     */
+    private String partsUrlToPmsHls(String partUrl, String key, int mediaIdx, long offsetMs) {
+        if (key == null || key.trim().isEmpty()) return null;
+        try {
+            Uri part = Uri.parse(partUrl);
+            String origin = timelineOrigin != null ? timelineOrigin.trim().replaceAll("/+$", "") : "";
+            if (origin.isEmpty()) {
+                String scheme = part.getScheme();
+                String authority = part.getAuthority();
+                if (scheme == null || authority == null) return null;
+                origin = scheme + "://" + authority;
+            }
+            String token = timelineToken != null ? timelineToken.trim() : "";
+            if (token.isEmpty()) {
+                token = part.getQueryParameter("X-Plex-Token");
+                if (token == null || token.isEmpty()) token = part.getQueryParameter("access_token");
+            }
+            if (token == null || token.isEmpty()) return null;
+            String clientId = timelineClientId != null && !timelineClientId.isEmpty()
+                ? timelineClientId
+                : part.getQueryParameter("X-Plex-Client-Identifier");
+            if (clientId == null || clientId.isEmpty()) clientId = "streampilot-android";
+            String sessionId = timelineSessionId != null && !timelineSessionId.isEmpty()
+                ? timelineSessionId
+                : part.getQueryParameter("X-Plex-Session-Identifier");
+            if (sessionId == null || sessionId.isEmpty()) {
+                sessionId = part.getQueryParameter("session");
+            }
+            if (sessionId == null || sessionId.isEmpty()) sessionId = "smp-fb-" + System.currentTimeMillis();
+            Uri.Builder builder = Uri.parse(origin + "/video/:/transcode/universal/start.m3u8").buildUpon();
+            builder.appendQueryParameter("hasMDE", "1");
+            builder.appendQueryParameter("path", "/library/metadata/" + key.trim());
+            builder.appendQueryParameter("mediaIndex", String.valueOf(Math.max(0, mediaIdx)));
+            builder.appendQueryParameter("partIndex", "0");
+            builder.appendQueryParameter("protocol", "hls");
+            builder.appendQueryParameter("fastSeek", "1");
+            builder.appendQueryParameter("directPlay", "0");
+            builder.appendQueryParameter("directStream", "1");
+            builder.appendQueryParameter("directStreamAudio", "1");
+            builder.appendQueryParameter("subtitleSize", "0");
+            builder.appendQueryParameter("subtitles", "none");
+            builder.appendQueryParameter("advancedSubtitles", "none");
+            builder.appendQueryParameter("subtitleStreamID", "0");
+            builder.appendQueryParameter("audioBoost", "100");
+            builder.appendQueryParameter("videoQuality", "100");
+            builder.appendQueryParameter("videoResolution", "3840x2160");
+            builder.appendQueryParameter("maxVideoBitrate", "200000");
+            builder.appendQueryParameter("session", sessionId);
+            builder.appendQueryParameter("X-Plex-Platform", "Android");
+            builder.appendQueryParameter("X-Plex-Product", "StreamPilot");
+            builder.appendQueryParameter("X-Plex-Device", "Android TV");
+            builder.appendQueryParameter("X-Plex-Client-Identifier", clientId);
+            builder.appendQueryParameter("X-Plex-Session-Identifier", sessionId);
+            builder.appendQueryParameter("X-Plex-Token", token);
+            builder.appendQueryParameter("access_token", token);
+            if (offsetMs > 0) {
+                builder.appendQueryParameter("offset", String.valueOf(Math.max(0, offsetMs / 1000L)));
+            }
+            if (audioStreamId != null && !audioStreamId.isEmpty() && audioStreamId.matches("\\d+")) {
+                builder.appendQueryParameter("audioStreamID", audioStreamId);
+            }
+            return builder.build().toString();
+        } catch (Throwable ignored) {
+            return null;
+        }
     }
 
     static String fileUrlToHls(String url) {

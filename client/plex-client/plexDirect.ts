@@ -1070,6 +1070,41 @@ const mapFirstCharacters = (data: any) => {
     }).sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true }));
 };
 
+const FILTER_FACET_CAP = 250;
+
+/** Plex section facet Directory → { key, title } for /all?facet=… filters. */
+const mapFilterFacet = (data: any, facet: string) => {
+    const param = String(facet || '').trim();
+    const rows = asList<PlexMeta>(containerOf(data).Directory).map((row) => {
+        const title = String(row.title || row.tag || '').trim();
+        const keyRaw = String(row.key || row.id || '').trim();
+        const fast = String(row.fastKey || '');
+        const fromFast = param && fast
+            ? fast.match(new RegExp(`[?&]${param}=([^&]+)`, 'i'))
+            : null;
+        let key = fromFast
+            ? decodeURIComponent(fromFast[1])
+            : (keyRaw && !keyRaw.startsWith('/') ? keyRaw : '');
+        if (!key && param) {
+            const fromKey = keyRaw.match(new RegExp(`(?:${param}\\/)?([^/?&=]+)$`, 'i'));
+            key = fromKey?.[1] ? decodeURIComponent(fromKey[1]) : '';
+        }
+        if (!key) key = String(row.tag || title || '').trim();
+        return { key, title: title || key };
+    }).filter((row) => row.key && row.title);
+    const seen = new Set<string>();
+    const unique = rows.filter((row) => {
+        if (seen.has(row.key)) return false;
+        seen.add(row.key);
+        return true;
+    });
+    if (unique.length <= FILTER_FACET_CAP) return unique;
+    return unique
+        .slice()
+        .sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }))
+        .slice(0, FILTER_FACET_CAP);
+};
+
 /** "The Matrix" is filed under M. */
 const sortTitleHead = (title?: string | null) => String(title || '').replace(/^(the|a|an)\s+/i, '').trim();
 
@@ -1391,7 +1426,18 @@ const pickSubtitleId = (subtitles: PlexMeta[], requested: string | null, mode: s
     return String(selected?.id || text[0]?.id || '');
 };
 
-const playSrc = (meta: PlexMeta, mediaIndex: number, qualityId: string, audioStreamId = '', subtitleStreamId = '', offsetMs = 0, forceHls = false) => {
+const PLAY_SESSION_REUSE = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|smp-[a-z0-9-]{6,40}|plex-\d{1,16})$/i;
+
+const playSrc = (
+    meta: PlexMeta,
+    mediaIndex: number,
+    qualityId: string,
+    audioStreamId = '',
+    subtitleStreamId = '',
+    offsetMs = 0,
+    forceHls = false,
+    reuseSessionId = '',
+) => {
     const server = mapServer || readServer();
     if (!server) throw new Error('No Plex server selected');
     const medias = asList<PlexMeta>(meta.Media);
@@ -1408,10 +1454,23 @@ const playSrc = (meta: PlexMeta, mediaIndex: number, qualityId: string, audioStr
         || audioStreams[0]
         || {};
     const audioOk = nativeAudioPlayable(chosenAudio);
-    const session = `smp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const reuse = String(reuseSessionId || '').trim();
+    const session = PLAY_SESSION_REUSE.test(reuse)
+        ? reuse
+        : `smp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     const hasVideo = asList<PlexMeta>(part?.Stream).some((stream) => Number(stream.streamType) === 1);
     const audioOnly = !hasVideo;
-    const direct = !forceHls && !subtitleId && audioOk && !!part?.key && (
+    // Text subs (SRT/ASS/…) can Direct Play — ExoPlayer selects the embedded track.
+    // Image subs (PGS/VobSub) still need a burn-in transcode.
+    const subStream = subtitleId
+        ? asList<PlexMeta>(part?.Stream).find((stream) => (
+            Number(stream.streamType) === 3 && String(stream.id || '') === subtitleId
+        ))
+        : null;
+    // Only burn when we know the stream is image-based. Missing metadata must not
+    // force burn-in (that stacks under Exo text captions during quality swaps).
+    const burnSubtitles = Boolean(subtitleId) && !!subStream && !isTextSubtitle(subStream);
+    const direct = !forceHls && !burnSubtitles && audioOk && !!part?.key && (
         audioOnly || !quality || quality.id === 'original'
     );
     const metadataPath = String(meta.key || '').startsWith('/')
@@ -1481,16 +1540,16 @@ const playSrc = (meta: PlexMeta, mediaIndex: number, qualityId: string, audioStr
         protocol: 'hls',
         fastSeek: '1',
         directPlay: '0',
-        directStream: subtitleId || (quality && quality.id !== 'original') ? '0' : '1',
+        directStream: burnSubtitles || (quality && quality.id !== 'original') ? '0' : '1',
         directStreamAudio: audioOk ? '1' : '0',
         ...(audioOk ? {} : { audioCodec: 'aac' }),
-        subtitleSize: subtitleId ? '100' : '0',
-        subtitles: subtitleId ? 'burn' : 'none',
-        advancedSubtitles: subtitleId ? 'burn' : 'none',
+        subtitleSize: burnSubtitles ? '100' : '0',
+        subtitles: burnSubtitles ? 'burn' : 'none',
+        advancedSubtitles: burnSubtitles ? 'burn' : 'none',
         session,
         ...(offsetSec > 0 ? { offset: String(offsetSec) } : {}),
         ...(audioId ? { audioStreamID: audioId } : {}),
-        subtitleStreamID: subtitleId || '0',
+        subtitleStreamID: burnSubtitles ? subtitleId : '0',
         audioBoost: '100',
         videoQuality: String(quality?.videoQuality || 60),
         videoResolution: quality?.videoResolution || '720',
@@ -1648,16 +1707,29 @@ const writeHomeUserId = (id: string) => writeStoredValue(STORAGE_PLEX_HOME_USER,
 
 const truthy = (value: unknown) => value === true || value === 1 || /^(1|true|yes)$/i.test(String(value || '').trim());
 
+const homeUserThumb = (raw: PlexMeta) => {
+    const value = String(raw.thumb || raw.avatar || '').trim();
+    if (!value) return null;
+    if (value.startsWith('//')) return `https:${value}`;
+    return value;
+};
+
 const normalizeHomeUser = (raw: PlexMeta | null | undefined): HomeUser | null => {
-    if (!raw) return null;
+    if (!raw || typeof raw !== 'object') return null;
+    // Never treat the Plex Home container ({ id, name: "X's home", users: [...] }) as a profile.
+    if (raw.users != null || raw.User != null) return null;
     const id = String(raw.id || raw.userID || raw.userId || raw.uuid || '').trim();
     if (!id) return null;
+    const friendly = String(raw.friendlyName || '').trim();
+    const title = String(raw.title || '').trim();
+    const username = String(raw.username || '').trim();
     return {
         id,
         uuid: String(raw.uuid || '').trim(),
-        title: String(raw.title || raw.friendlyName || raw.username || raw.name || 'Plex User').trim(),
-        username: String(raw.username || '').trim(),
-        thumb: String(raw.thumb || raw.avatar || '').trim() || null,
+        // Do not fall back to `name` — that is the Home container title ("Jason's home").
+        title: friendly || title || username || 'Plex User',
+        username,
+        thumb: homeUserThumb(raw),
         restricted: truthy(raw.restricted),
         admin: truthy(raw.admin),
         protected: truthy(raw.protected),
@@ -1675,17 +1747,41 @@ const publicHomeUser = (user: HomeUser) => ({
     protected: user.protected,
 });
 
+/** Expand Plex Home user lists from JSON (array, single user, or { user: [...] }). */
+const expandHomeUserCandidate = (candidate: unknown): PlexMeta[] => {
+    if (candidate == null) return [];
+    if (Array.isArray(candidate)) return candidate as PlexMeta[];
+    if (typeof candidate !== 'object') return [];
+    const row = candidate as PlexMeta & { user?: unknown; User?: unknown };
+    if (Array.isArray(row.user)) return row.user as PlexMeta[];
+    if (Array.isArray(row.User)) return row.User as PlexMeta[];
+    if (row.user && typeof row.user === 'object') return asList(row.user as PlexMeta);
+    if (row.User && typeof row.User === 'object') return asList(row.User as PlexMeta);
+    if (row.id != null || row.uuid != null) return [row];
+    return [];
+};
+
 const parseHomeUsers = (payload: any): HomeUser[] => {
+    if (!payload) return [];
+    if (Array.isArray(payload)) {
+        return payload.map(normalizeHomeUser).filter((user): user is HomeUser => !!user);
+    }
+    if (typeof payload !== 'object') return [];
+    // Prefer nested profile lists. Never map the home root ({ name: "X's home" }) first.
     const lists = [
-        payload,
-        payload?.users,
-        payload?.User,
-        payload?.MediaContainer?.User,
-        payload?.MediaContainer?.users,
+        payload.users,
+        payload.user,
+        payload.User,
+        payload.MediaContainer?.User,
+        payload.MediaContainer?.user,
+        payload.MediaContainer?.users,
+        payload.mediaContainer?.User,
     ];
     for (const candidate of lists) {
         if (candidate == null) continue;
-        const users = asList<PlexMeta>(candidate).map(normalizeHomeUser).filter((user): user is HomeUser => !!user);
+        const users = expandHomeUserCandidate(candidate)
+            .map(normalizeHomeUser)
+            .filter((user): user is HomeUser => !!user);
         if (users.length) return users;
     }
     return [];
@@ -1693,7 +1789,8 @@ const parseHomeUsers = (payload: any): HomeUser[] => {
 
 const parseHomeUsersXml = (xml: string): HomeUser[] => {
     const users: HomeUser[] = [];
-    const re = /<User\b([^>]*)\/?>/gi;
+    // v2 uses lowercase <user>; older home/users uses <User>.
+    const re = /<user\b([^>]*)\/?>/gi;
     let match: RegExpExecArray | null;
     while ((match = re.exec(xml))) {
         const attrs: PlexMeta = {};
@@ -1707,17 +1804,23 @@ const parseHomeUsersXml = (xml: string): HomeUser[] => {
 };
 
 const fetchHomeUsers = async (token: string): Promise<HomeUser[]> => {
-    const load = async (url: string) => {
-        const data = await plexFetch(url, token).catch(() => null);
+    const load = async (url: string, asJson: boolean) => {
+        const data = await plexFetch(url, token, asJson ? {} : {
+            headers: { Accept: 'application/xml' },
+        }).catch(() => null);
         if (data == null) return [];
         if (typeof data === 'string') return parseHomeUsersXml(data);
         const users = parseHomeUsers(data);
         if (users.length) return users;
-        return parseHomeUsersXml(typeof data === 'string' ? data : '');
+        return [];
     };
-    const v2 = await load(`${PLEX_TV}/api/v2/home/users`).catch(() => []);
-    if (v2.length) return v2;
-    return load(`${PLEX_TV}/api/home/users`).catch(() => []);
+    const v2Json = await load(`${PLEX_TV}/api/v2/home/users`, true).catch(() => []);
+    if (v2Json.length) return v2Json;
+    const v2Xml = await load(`${PLEX_TV}/api/v2/home/users`, false).catch(() => []);
+    if (v2Xml.length) return v2Xml;
+    const v1Json = await load(`${PLEX_TV}/api/home/users`, true).catch(() => []);
+    if (v1Json.length) return v1Json;
+    return load(`${PLEX_TV}/api/home/users`, false).catch(() => []);
 };
 
 const sameHomeUser = (user: HomeUser, targetId: string) => {
@@ -3142,7 +3245,12 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
             ? (await fetchHomeUsers(readOwnerToken()).catch(() => [] as HomeUser[])).find((row) => sameHomeUser(row, homeId))
             : null;
         return {
-            username: homeUser?.title || user?.username || user?.title || server?.name || 'Plex',
+            username: homeUser?.title
+                || user?.friendlyName
+                || user?.username
+                || user?.title
+                || server?.name
+                || 'Plex',
             thumb: homeUser?.thumb || user?.thumb || null,
             isAdmin: homeUser ? homeUser.admin : true,
         };
@@ -3281,27 +3389,73 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
         });
         const sort = query.get('sort');
         if (sort) params.set('sort', sort);
-        if (query.get('genre')) params.set('genre', query.get('genre') || '');
-        if (query.get('unwatched') === '1') params.set('unwatched', '1');
-        if (query.get('inProgress') === '1') params.set('inProgress', '1');
+        for (const facet of [
+            'genre',
+            'decade',
+            'year',
+            'contentRating',
+            'resolution',
+            'studio',
+            'network',
+            'country',
+            'collection',
+            'audioLanguage',
+            'subtitleLanguage',
+            'actor',
+            'director',
+            'writer',
+            'producer',
+            'label',
+        ] as const) {
+            const value = String(query.get(facet) || '').trim();
+            if (value) params.set(facet, value);
+        }
+        if (query.get('inProgress') === '1') params.set('filters', 'inProgress=1');
+        else if (query.get('unwatched') === '1') params.set('unwatched', '1');
+        if (query.get('hdr') === '1') params.set('hdr', '1');
+        if (query.get('duplicate') === '1') params.set('duplicate', '1');
         const letter = letterCharOf(String(query.get('letter') || ''));
         const pinnedType = sectionAllType(sectionRow?.type || '');
         if (pinnedType) params.set('type', pinnedType);
         const listPath = `/library/sections/${encodeURIComponent(section)}/all?`;
         let data: any = null;
         let items: ReturnType<typeof mapList> = [];
+        let windowOffset = Math.max(0, Number(start) || 0);
         if (letter && pinnedType) {
+            // Jump into the full title-sorted library at this letter (prev letters above,
+            // next below). Never use Plex's filtered firstCharacter directory as the page.
             if (!params.get('sort') || params.get('sort') === 'titleSort') params.set('sort', 'titleSort:asc');
             const pageStart = Math.max(0, Number(start) || 0);
             const pageSize = Math.max(1, Number(size) || 50);
             const wantedRank = letterRank(letter);
             const wantedUpper = letter.toUpperCase();
-            const cacheKey = `${server?.id || ''}:${section}:${wantedUpper}:${params.get('genre') || ''}:${params.get('unwatched') || ''}:${params.get('inProgress') || ''}`;
-            const firstRank = (rows: ReturnType<typeof mapList>) => titleLetterRank(rows[0]?.title);
+            const filterStamp = [
+                'genre',
+                'decade',
+                'year',
+                'contentRating',
+                'resolution',
+                'studio',
+                'network',
+                'country',
+                'collection',
+                'audioLanguage',
+                'subtitleLanguage',
+                'actor',
+                'director',
+                'writer',
+                'producer',
+                'label',
+                'unwatched',
+                'filters',
+                'hdr',
+                'duplicate',
+            ].map((key) => params.get(key) || '').join('|');
+            const cacheKey = `${server?.id || ''}:${section}:${wantedUpper}:${filterStamp}`;
             const isWantedLetter = (rows: ReturnType<typeof mapList>) => {
                 if (!rows.length) return false;
-                if (wantedUpper === '#') return firstRank(rows) === 0;
-                return firstRank(rows) === wantedRank;
+                const rank = titleLetterRank(rows[0]?.title);
+                return wantedUpper === '#' ? rank === 0 : rank === wantedRank;
             };
             const loadAt = async (index: number, count: number) => {
                 const next = new URLSearchParams(params);
@@ -3311,86 +3465,91 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                 return withMapServer(server, () => pms(`${listPath}${next}`, server, 8000).catch(() => null));
             };
 
-            // Plex's letter index starts at the first title for that character.
-            const indexParams = new URLSearchParams(params);
-            indexParams.delete('firstCharacter');
-            const indexed = await withMapServer(server, () => pms(
-                `/library/sections/${encodeURIComponent(section)}/firstCharacter/${encodeURIComponent(wantedUpper)}?${indexParams}`,
-                server,
-                8000,
-            ).catch(() => null));
-            const indexedItems = mapList(indexed);
-            if (indexedItems.length && isWantedLetter(indexedItems)) {
-                data = indexed;
-                items = indexedItems;
-            }
-
-            if (!data) {
-                let origin = wantedUpper === '#' ? 0 : letterOriginCache.get(cacheKey);
-                let searchable = wantedUpper === '#' || origin != null;
-                if (origin == null) {
-                    const probe = await loadAt(0, 1);
-                    const total = Number(containerOf(probe).totalSize || 0);
-                    searchable = Number.isFinite(total) && total > 0;
-                    let lo = 0;
-                    let hi = searchable ? total : 0;
-                    let probes = 0;
-                    while (lo < hi && probes < 18) {
-                        const mid = Math.floor((lo + hi) / 2);
-                        probes += 1;
-                        const row = mapList(await loadAt(mid, 1))[0];
-                        if (!row) {
-                            hi = mid;
-                            continue;
-                        }
-                        if (titleLetterRank(row.title) < wantedRank) lo = mid + 1;
-                        else hi = mid;
+            let origin = wantedUpper === '#' ? 0 : letterOriginCache.get(cacheKey);
+            let searchable = wantedUpper === '#' || origin != null;
+            if (origin == null) {
+                const probe = await loadAt(0, 1);
+                const total = Number(containerOf(probe).totalSize || 0);
+                searchable = Number.isFinite(total) && total > 0;
+                let lo = 0;
+                let hi = searchable ? total : 0;
+                let probes = 0;
+                while (lo < hi && probes < 18) {
+                    const mid = Math.floor((lo + hi) / 2);
+                    probes += 1;
+                    const row = mapList(await loadAt(mid, 1))[0];
+                    if (!row) {
+                        hi = mid;
+                        continue;
                     }
-                    origin = lo;
-                    const landed = mapList(await loadAt(origin, 1));
-                    if (searchable && landed.length && !isWantedLetter(landed)) {
-                        origin = -1;
-                    } else if (searchable && origin > 0 && isWantedLetter(landed)) {
-                        // Walk back so a letter jump never opens on the last few titles.
-                        let back = origin;
-                        for (let step = 0; step < 8 && back > 0; step += 1) {
-                            const prevIndex = Math.max(0, back - pageSize);
-                            const prevPage = mapList(await loadAt(prevIndex, pageSize));
-                            let firstWanted = -1;
-                            for (let i = 0; i < prevPage.length; i += 1) {
-                                const rank = titleLetterRank(prevPage[i]?.title);
-                                const match = wantedUpper === '#' ? rank === 0 : rank === wantedRank;
-                                if (match) {
-                                    if (firstWanted < 0) firstWanted = i;
-                                } else if (firstWanted >= 0) {
-                                    break;
-                                }
-                            }
-                            if (firstWanted < 0) break;
-                            back = prevIndex + firstWanted;
-                            if (prevIndex === 0) break;
-                        }
-                        origin = back;
-                    }
-                    if (searchable && origin >= 0) letterOriginCache.set(cacheKey, origin);
+                    if (titleLetterRank(row.title) < wantedRank) lo = mid + 1;
+                    else hi = mid;
                 }
-                if (searchable && origin != null && origin >= 0) {
+                origin = lo;
+                const landed = mapList(await loadAt(origin, 1));
+                if (searchable && landed.length && !isWantedLetter(landed)) {
+                    origin = -1;
+                } else if (searchable && origin > 0 && isWantedLetter(landed)) {
+                    // Walk back so a letter jump never opens on the last few titles.
+                    let back = origin;
+                    for (let step = 0; step < 8 && back > 0; step += 1) {
+                        const prevIndex = Math.max(0, back - pageSize);
+                        const prevPage = mapList(await loadAt(prevIndex, pageSize));
+                        let firstWanted = -1;
+                        for (let i = 0; i < prevPage.length; i += 1) {
+                            const rank = titleLetterRank(prevPage[i]?.title);
+                            const match = wantedUpper === '#' ? rank === 0 : rank === wantedRank;
+                            if (match) {
+                                if (firstWanted < 0) firstWanted = i;
+                            } else if (firstWanted >= 0) {
+                                break;
+                            }
+                        }
+                        if (firstWanted < 0) break;
+                        back = prevIndex + firstWanted;
+                        if (prevIndex === 0) break;
+                    }
+                    origin = back;
+                }
+                if (searchable && origin >= 0) letterOriginCache.set(cacheKey, origin);
+            }
+            if (searchable && origin != null && origin >= 0) {
+                if (pageStart === 0 && origin > 0) {
+                    const beforeCount = Math.min(origin, pageSize);
+                    const beforeData = await loadAt(origin - beforeCount, beforeCount);
+                    const atData = await loadAt(origin, pageSize);
+                    const beforeItems = mapList(beforeData);
+                    const atItems = mapList(atData);
+                    items = [...beforeItems, ...atItems];
+                    data = atData || beforeData;
+                    windowOffset = origin - beforeItems.length;
+                    if (atItems.length && !isWantedLetter(atItems)) {
+                        letterOriginCache.delete(cacheKey);
+                        data = { MediaContainer: { totalSize: 0 } };
+                        items = [];
+                        windowOffset = 0;
+                    }
+                } else {
                     data = await loadAt(origin + pageStart, pageSize);
                     items = mapList(data);
+                    windowOffset = origin + pageStart;
                     if (pageStart === 0 && items.length && !isWantedLetter(items)) {
                         letterOriginCache.delete(cacheKey);
                         data = { MediaContainer: { totalSize: 0 } };
                         items = [];
+                        windowOffset = 0;
                     }
                 }
             }
             if (!data) {
                 data = { MediaContainer: { totalSize: 0 } };
                 items = [];
+                windowOffset = 0;
             }
-                } else if (letter) {
+        } else if (letter) {
             data = { MediaContainer: { totalSize: 0 } };
             items = [];
+            windowOffset = 0;
         } else {
             data = await withMapServer(server, () => pms(`${listPath}${params}`, server));
             items = mapList(data);
@@ -3400,6 +3559,7 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
             title: sectionRow?.title || 'Library',
             type: sectionRow?.type || 'movie',
             total: Number(container.totalSize || container.size || 0),
+            offset: windowOffset,
             items,
         };
     }
@@ -3436,7 +3596,8 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                         items: await refreshContinueEpisodeThumbs(hub.items, active),
                     });
                 }
-                return next;
+                // Match Home: stamp Heros/Heroes collection labels as widescreen rows.
+                return attachHeroCoverArt(await stampHeroRows(next, active), active);
             });
             return { title: sectionRow?.title || 'Library', type: sectionRow?.type || 'movie', hubs: stamped };
         }
@@ -3462,20 +3623,80 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
     const libraryFilters = path.match(/^\/api\/media-player\/libraries\/([^/]+)\/filters$/);
     if (libraryFilters) {
         const { server, section } = splitLibraryKey(libraryFilters[1]);
-        const [genres, letters] = await Promise.all([
-            pms(`/library/sections/${encodeURIComponent(section)}/genre`, server).then((data) => (
-                asList<PlexMeta>(containerOf(data).Directory).map((row) => ({
-                    key: String(row.key || row.fastKey || ''),
-                    title: String(row.title || ''),
-                })).filter((row) => row.key && row.title)
-            )).catch(() => [] as Array<{ key: string; title: string }>),
+        const sections = mapSections(await pms('/library/sections', server).catch(() => null));
+        const sectionRow = sections.find((row) => row.key === section);
+        const pinnedType = sectionAllType(sectionRow?.type || '');
+        const typeQs = pinnedType ? `type=${encodeURIComponent(pinnedType)}&` : '';
+        const facet = (name: string) => (
             pms(
-                `/library/sections/${encodeURIComponent(section)}/firstCharacter`,
+                `/library/sections/${encodeURIComponent(section)}/${name}?${typeQs}X-Plex-Container-Size=${FILTER_FACET_CAP}`,
+                server,
+                8000,
+            )
+                .then((data) => mapFilterFacet(data, name))
+                .catch(() => [] as Array<{ key: string; title: string }>)
+        );
+        const videoLibrary = pinnedType === '1' || pinnedType === '2';
+        const [
+            genres,
+            decades,
+            years,
+            contentRatings,
+            resolutions,
+            studios,
+            networks,
+            countries,
+            collections,
+            audioLanguages,
+            subtitleLanguages,
+            actors,
+            directors,
+            writers,
+            producers,
+            labels,
+            letters,
+        ] = await Promise.all([
+            facet('genre'),
+            facet('decade'),
+            facet('year'),
+            facet('contentRating'),
+            facet('resolution'),
+            facet('studio'),
+            pinnedType === '2' ? facet('network') : Promise.resolve([] as Array<{ key: string; title: string }>),
+            facet('country'),
+            facet('collection'),
+            facet('audioLanguage'),
+            facet('subtitleLanguage'),
+            videoLibrary ? facet('actor') : Promise.resolve([] as Array<{ key: string; title: string }>),
+            videoLibrary ? facet('director') : Promise.resolve([] as Array<{ key: string; title: string }>),
+            videoLibrary ? facet('writer') : Promise.resolve([] as Array<{ key: string; title: string }>),
+            videoLibrary ? facet('producer') : Promise.resolve([] as Array<{ key: string; title: string }>),
+            videoLibrary ? facet('label') : Promise.resolve([] as Array<{ key: string; title: string }>),
+            pms(
+                `/library/sections/${encodeURIComponent(section)}/firstCharacter?${typeQs}X-Plex-Container-Size=50`,
                 server,
                 8000,
             ).then(mapFirstCharacters).catch(() => [] as Array<{ key: string; title: string }>),
         ]);
-        return { genres, decades: [], resolutions: [], studios: [], letters };
+        return {
+            genres,
+            decades,
+            years,
+            contentRatings,
+            resolutions,
+            studios,
+            networks,
+            countries,
+            collections,
+            audioLanguages,
+            subtitleLanguages,
+            actors,
+            directors,
+            writers,
+            producers,
+            labels,
+            letters,
+        };
     }
     const libraryCollections = path.match(/^\/api\/media-player\/libraries\/([^/]+)\/collections$/);
     if (libraryCollections) {
@@ -3684,6 +3905,7 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                 subtitleStreamId,
                 offsetMs,
                 query.get('delivery') === 'hls',
+                String(query.get('sessionId') || '').trim(),
             );
             const item = mapItem(meta);
             if (item.ratingKey) rememberItem(item.ratingKey, server);

@@ -16,7 +16,14 @@ export { MediaRatingPills } from '../discovery/MediaRatingPills';
 export type { CombinedRatings } from '../discovery/mediaDetailUtils';
 export { PersonProfileHeader } from '../discovery/PersonProfileHeader';
 export { DiscoverPosterCard } from '../screens';
-export { DiscoverHomeSkeleton, DiscoverHomeRowSkeleton, PlayerHomeHeroSkeleton, PlayerHomeSkeleton, PosterGridSkeleton } from '../shared/skeletons';
+export {
+    DiscoverHomeSkeleton,
+    DiscoverHomeRowSkeleton,
+    PlayerHomeHeroSkeleton,
+    PlayerHomeSkeleton,
+    PlayerTvHomeStageSkeleton,
+    PosterGridSkeleton,
+} from '../shared/skeletons';
 export { MediaPlayerAlphaBanner } from '../shared/BetaBadge';
 export { NoPosterPlaceholder } from '../shared/NoPosterPlaceholder';
 export {

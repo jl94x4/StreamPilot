@@ -2009,6 +2009,31 @@ html[data-phone="1"].branded-skeleton .skeleton-base::after {
   animation: none !important;
 }
 
+/* TV home loading: match the stage and allow a soft shimmer. */
+html[data-tv="1"] .player-tv-home-skel .skeleton-base {
+  animation: discover-skeleton-pulse 1.8s ease-in-out infinite !important;
+  background-color: rgba(255, 255, 255, 0.1);
+}
+html[data-tv="1"] .player-tv-home-skel .skeleton-base::after {
+  content: '' !important;
+  display: block !important;
+  animation: skeleton-shimmer 1.55s ease-in-out infinite !important;
+  background-image: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0,
+    rgba(255, 255, 255, 0.08) 35%,
+    rgba(255, 255, 255, 0.2) 50%,
+    rgba(255, 255, 255, 0.08) 65%,
+    rgba(255, 255, 255, 0)
+  ) !important;
+}
+html[data-tv="1"] .player-tv-home-skel-still {
+  background: rgb(var(--tv-page-surface, 6 10 16));
+}
+html[data-tv="1"] .player-tv-home-skel-still .skeleton-base {
+  opacity: 0.55;
+}
+
 html[data-tv="1"] .media-details-page .animate-pulse,
 html[data-phone="1"] .media-details-page .animate-pulse,
 html[data-tv="1"] .player-home-page .animate-pulse,
@@ -2156,7 +2181,8 @@ html[data-tv="1"] .media-details-page [data-tv-play="1"]:focus-visible {
   filter: none !important;
   outline: none !important;
 }
-html[data-tv="1"] .media-details-page [data-tv-trailer="1"] {
+html[data-tv="1"] .media-details-page [data-tv-trailer="1"],
+html[data-tv="1"] .media-details-page [data-tv-start-over="1"] {
   height: 3.15rem !important;
   min-height: 3.15rem !important;
   min-width: 8.75rem;
@@ -2166,7 +2192,9 @@ html[data-tv="1"] .media-details-page [data-tv-trailer="1"] {
   border-radius: 999px !important;
 }
 html[data-tv="1"] .media-details-page [data-tv-trailer="1"]:focus,
-html[data-tv="1"] .media-details-page [data-tv-trailer="1"]:focus-visible {
+html[data-tv="1"] .media-details-page [data-tv-trailer="1"]:focus-visible,
+html[data-tv="1"] .media-details-page [data-tv-start-over="1"]:focus,
+html[data-tv="1"] .media-details-page [data-tv-start-over="1"]:focus-visible {
   border-radius: 999px !important;
 }
 html[data-tv="1"] .media-details-page [data-tv-action-row="1"] .media-details-action-chips [data-tv-action="1"] {
@@ -2449,6 +2477,28 @@ html[data-tv="1"] .media-details-episode-heading {
   text-align: left;
   text-shadow: 0 2px 16px rgba(0, 0, 0, 0.55);
 }
+@keyframes media-details-hub-meta-in {
+  from { opacity: 0; transform: translateY(0.35rem); }
+  to { opacity: 1; transform: translateY(0); }
+}
+html[data-tv="1"] .media-details-hub-meta-swap {
+  animation: media-details-hub-meta-in 0.28s ease-out;
+}
+html[data-tv="1"] .media-details-hero-backdrop img.media-details-hub-art {
+  transition: opacity 0.45s ease;
+}
+html[data-tv="1"] .media-details-hero-backdrop img.media-details-hub-art.is-front {
+  opacity: 1;
+}
+html[data-tv="1"] .media-details-hero-backdrop img.media-details-hub-art.is-behind {
+  opacity: 0;
+}
+html[data-tv="1"][data-reduce-motion="1"] .media-details-hub-meta-swap {
+  animation: none !important;
+}
+html[data-tv="1"][data-reduce-motion="1"] .media-details-hero-backdrop img.media-details-hub-art {
+  transition: none !important;
+}
 html[data-tv="1"] [data-tv-kind="episode"],
 html[data-tv="1"] [data-tv-kind="season"] {
   min-height: calc(100vh / var(--tv-zoom, 1));
@@ -2549,8 +2599,8 @@ html[data-tv="1"] [data-tv-kind="season"] .media-details-episodes .player-rail-a
 }
 html[data-tv="1"] [data-tv-kind="episode"] .media-details-episodes [data-tv-poster-rail="1"],
 html[data-tv="1"] [data-tv-kind="season"] .media-details-episodes [data-tv-poster-rail="1"] {
-  padding-top: 0.55rem !important;
-  padding-bottom: 0.55rem !important;
+  padding-top: 0.85rem !important;
+  padding-bottom: 0.85rem !important;
   padding-right: 2.75rem !important;
   scroll-padding-left: 1.35rem !important;
   scroll-snap-type: none !important;
@@ -2746,28 +2796,81 @@ html[data-tv="1"] .player-home-focus-still img.is-front {
 html[data-tv="1"] .player-home-focus-still img.is-behind {
   opacity: 0;
 }
-html[data-tv="1"] .player-home-spot {
+html[data-tv="1"] .player-home-spot-stage {
   position: absolute;
   left: 6.9rem;
   top: auto;
   bottom: 23.5rem;
   z-index: 2;
-  width: min(36rem, 42%);
-  max-height: 42%;
+  width: min(38rem, 44%);
+  /* Tall enough for logo + tagline + meta + 3-line synopsis + cast. */
+  height: 16.75rem;
+  max-height: 48%;
+  pointer-events: none;
+  overflow: visible;
+  isolation: isolate;
+}
+html[data-tv="1"][data-tv-nav-open="1"] .player-home-spot-stage {
+  left: 18.7rem;
+}
+html[data-tv="1"] .player-home-spot {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-  gap: 0.45rem;
+  gap: 0.4rem;
+  width: 100%;
+  max-height: 100%;
   overflow: visible;
   pointer-events: none;
+  backface-visibility: hidden;
+  will-change: transform, opacity;
+  transform: translate3d(0, 0, 0);
 }
-html[data-tv="1"][data-tv-nav-open="1"] .player-home-spot {
-  left: 18.7rem;
+html[data-tv="1"] .player-home-spot.is-exit {
+  z-index: 2;
+}
+html[data-tv="1"] .player-home-spot.is-enter {
+  z-index: 1;
+}
+html[data-tv="1"] .player-home-spot.is-exit-up {
+  animation: player-home-spot-exit-up 0.42s ease-out forwards;
+}
+html[data-tv="1"] .player-home-spot.is-exit-down {
+  animation: player-home-spot-exit-down 0.42s ease-out forwards;
+}
+html[data-tv="1"] .player-home-spot.is-enter-up {
+  animation: player-home-spot-enter-up 0.38s ease-out both;
+  animation-delay: 0.1s;
+}
+html[data-tv="1"] .player-home-spot.is-enter-down {
+  animation: player-home-spot-enter-down 0.38s ease-out both;
+  animation-delay: 0.1s;
+}
+/* Short travel + early fade — no long slide that reads as a bounce. */
+@keyframes player-home-spot-exit-up {
+  0% { opacity: 1; transform: translate3d(0, 0, 0); }
+  100% { opacity: 0; transform: translate3d(0, -1.35rem, 0); }
+}
+@keyframes player-home-spot-exit-down {
+  0% { opacity: 1; transform: translate3d(0, 0, 0); }
+  100% { opacity: 0; transform: translate3d(0, 1.35rem, 0); }
+}
+@keyframes player-home-spot-enter-up {
+  0% { opacity: 0; transform: translate3d(0, -1.1rem, 0); }
+  100% { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+@keyframes player-home-spot-enter-down {
+  0% { opacity: 0; transform: translate3d(0, 1.1rem, 0); }
+  100% { opacity: 1; transform: translate3d(0, 0, 0); }
 }
 html[data-tv="1"] .player-home-spot-logo {
   display: block;
   flex-shrink: 0;
-  height: 5.35rem;
+  height: 4.85rem;
   width: auto;
   max-width: min(100%, 22rem);
   object-fit: contain;
@@ -2777,6 +2880,7 @@ html[data-tv="1"] .player-home-spot-logo {
 }
 html[data-tv="1"] .player-home-spot-title {
   margin: 0;
+  flex-shrink: 0;
   font-size: 2.15rem;
   font-weight: 700;
   letter-spacing: -0.03em;
@@ -2786,6 +2890,7 @@ html[data-tv="1"] .player-home-spot-title {
 }
 html[data-tv="1"] .player-home-spot-tagline {
   margin: 0;
+  flex-shrink: 0;
   font-size: 1.05rem;
   font-weight: 500;
   font-style: italic;
@@ -2793,6 +2898,7 @@ html[data-tv="1"] .player-home-spot-tagline {
 }
 html[data-tv="1"] .player-home-spot-meta {
   margin: 0;
+  flex-shrink: 0;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -2816,7 +2922,9 @@ html[data-tv="1"] .player-home-spot-watched {
 }
 html[data-tv="1"] .player-home-spot-summary {
   margin: 0;
-  max-width: 34rem;
+  flex: 0 1 auto;
+  min-height: 0;
+  max-width: 36rem;
   font-size: 0.92rem;
   line-height: 1.45;
   color: rgba(255, 255, 255, 0.78) !important;
@@ -2824,10 +2932,15 @@ html[data-tv="1"] .player-home-spot-summary {
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  text-overflow: ellipsis;
+  /* Keep at least two full lines — never crush mid-glyph. */
+  min-height: calc(0.92rem * 1.45 * 2);
 }
 html[data-tv="1"] .player-home-spot-cast {
   margin: 0;
+  flex-shrink: 0;
   font-size: 0.82rem;
+  line-height: 1.35;
   color: rgba(255, 255, 255, 0.55) !important;
 }
 html[data-tv="1"] {
@@ -2856,6 +2969,11 @@ html[data-tv="1"] .player-tv-clock {
   letter-spacing: 0.04em;
   line-height: 1;
   font-variant-numeric: tabular-nums;
+}
+/* Options sheet sits under the clock corner — tuck it away while the menu is open. */
+html[data-tv="1"]:has([data-tv-item-menu="1"]) .player-tv-clock,
+html[data-tv="1"]:has([data-tv-context-sheet="1"]) .player-tv-clock {
+  display: none !important;
 }
 html[data-tv="1"] .player-home-now-playing {
   position: absolute;
@@ -3144,6 +3262,30 @@ html[data-tv="1"] .player-library-title {
 html[data-tv="1"] [data-tv-library-tabs="1"] {
   margin-bottom: 0.15rem;
 }
+/* Match the clock pill silhouette; keep each tab’s own fill/border colours. */
+html[data-tv="1"] [data-tv-library-tabs="1"] [data-tv-item="1"] {
+  border-radius: 999px !important;
+  min-height: 2.15rem;
+  padding: 0.5rem 1rem 0.52rem !important;
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+/* Browse filter chips match Recommended / Browse / Collections pills. */
+html[data-tv="1"] [data-tv-library-filters="1"] button,
+html[data-tv="1"] [data-tv-library-filters="1"] [data-tv-item="1"] {
+  border-radius: 999px !important;
+}
+html[data-tv="1"] [data-tv-library-filters="1"] {
+  /* Keep focus ring inside the overflow clip on the horizontal filter scroller. */
+  padding-top: calc(6px / var(--tv-zoom, 1));
+  padding-bottom: calc(6px / var(--tv-zoom, 1));
+  padding-left: calc(6px / var(--tv-zoom, 1));
+  padding-right: calc(6px / var(--tv-zoom, 1));
+}
+.player-library-filter-select button {
+  border-radius: 999px !important;
+}
 html[data-tv="1"] .player-person-hero {
   align-items: flex-end;
   gap: 2rem;
@@ -3158,6 +3300,12 @@ html[data-phone="1"] .player-mobile-context-modal {
   background-color: rgb(var(--tv-details-surface, var(--color-bg))) !important;
 }
 
+/* TV Switch User PIN keypad: fit full pad (incl. 0/Del/OK) without scroll. */
+html[data-tv="1"] [data-tv-home-switch="1"][data-tv-home-switch-pin="1"] {
+  max-height: min(96vh, 56rem) !important;
+  overflow: hidden !important;
+}
+
 .discover-content-enter {
   animation: discover-enter 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
@@ -3169,8 +3317,21 @@ html[data-phone="1"] .player-mobile-context-modal {
 @media (prefers-reduced-motion: reduce) {
   .skeleton-base,
   .skeleton-base::after,
-  html.branded-skeleton .skeleton-base::after {
+  html.branded-skeleton .skeleton-base::after,
+  html[data-tv="1"] .player-tv-home-skel .skeleton-base,
+  html[data-tv="1"] .player-tv-home-skel .skeleton-base::after,
+  html[data-tv="1"] .player-home-spot.is-exit-up,
+  html[data-tv="1"] .player-home-spot.is-exit-down,
+  html[data-tv="1"] .player-home-spot.is-enter-up,
+  html[data-tv="1"] .player-home-spot.is-enter-down {
     animation: none !important;
+  }
+  html[data-tv="1"] .player-home-spot.is-exit-up,
+  html[data-tv="1"] .player-home-spot.is-exit-down,
+  html[data-tv="1"] .player-home-spot.is-enter-up,
+  html[data-tv="1"] .player-home-spot.is-enter-down {
+    opacity: 1 !important;
+    transform: none !important;
   }
 
   .discover-content-enter,
@@ -3250,6 +3411,17 @@ html[data-tv="1"] .player-watch-bar {
 
 html[data-tv="1"] [data-tv-poster-btn="1"][data-tv-focused="1"]:focus,
 html[data-tv="1"] [data-tv-poster-btn="1"][data-tv-focused="1"]:focus-visible {
+  transform: scale(1.042);
+}
+
+html[data-tv="1"] [data-tv-episode-btn="1"] {
+  transition: transform 0.18s ease-out, box-shadow 0.18s ease-out;
+  transform: scale(1);
+  transform-origin: center center;
+}
+
+html[data-tv="1"] [data-tv-episode-btn="1"][data-tv-focused="1"]:focus,
+html[data-tv="1"] [data-tv-episode-btn="1"][data-tv-focused="1"]:focus-visible {
   transform: scale(1.042);
 }
 

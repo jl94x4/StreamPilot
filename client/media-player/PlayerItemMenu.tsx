@@ -386,6 +386,12 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
             window.removeEventListener('touchstart', onPointer);
             window.removeEventListener(TV_MENU_CLOSE_EVENT, onTvClose);
             window.removeEventListener('smp-tv-overlay-close', onTvClose);
+            // Unmount / navigate-away while open must not leave Back stuck closing a ghost menu.
+            try {
+                delete document.documentElement.dataset.tvMenuOpen;
+            } catch {
+                /* ignore */
+            }
         };
     }, [open]);
 
@@ -1160,9 +1166,9 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                     onClose={() => setFileInfoItem(null)}
                 />
             ) : null}
-            {trackPicker ? (
+            {trackPicker && typeof document !== 'undefined' ? createPortal(
                 <div
-                    className="fixed inset-0 z-[3500] flex items-center justify-center bg-black/70 p-4"
+                    className="fixed inset-0 z-[3600] flex items-center justify-center bg-black/85 p-4"
                     role="dialog"
                     aria-modal="true"
                     data-tv-track-dialog="1"
@@ -1177,7 +1183,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                             data-tv-rail="1"
                             data-tv-overlay-scroll="1"
                         >
-                            <div className="flex flex-col gap-2 pr-1">
+                            <div className="flex flex-col gap-3 py-1">
                                 {(trackPicker === 'audio'
                                     ? audioTracks
                                     : [{ id: '0', label: t('mediaPlayerPage.subtitlesOff') }, ...subtitleTracks]
@@ -1219,7 +1225,8 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                             {t('common.close')}
                         </button>
                     </div>
-                </div>
+                </div>,
+                document.body,
             ) : null}
             {seasonWatchOpen && (item.type === 'season' || canMarkSeasonWatched) ? (
                 <PlayerSeasonWatchDialog

@@ -1,16 +1,17 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
     ChevronRight,
-    Film,
+    Clapperboard,
     Bookmark,
     Home,
+    Image as ImageIcon,
     ListMusic,
     LogOut,
     Menu,
     Music,
     Search,
     Settings,
-    Tv,
+    TvMinimal,
     User,
     X,
 } from 'lucide-react';
@@ -50,10 +51,21 @@ type Props = {
     offline?: boolean;
 };
 
+/** Fixed slot so every row’s glyph shares one vertical column (Lucide viewBoxes differ). */
+const NAV_ICON_SLOT = 'inline-flex h-5 w-5 shrink-0 items-center justify-center';
+const NAV_ICON_CLASS = 'h-4 w-4';
+
+const NavIcon: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+    <span className={NAV_ICON_SLOT} aria-hidden>
+        {children}
+    </span>
+);
+
 const libraryIcon = (type: string) => {
-    if (type === 'show') return Tv;
+    if (type === 'show') return TvMinimal;
     if (type === 'artist') return Music;
-    return Film;
+    if (type === 'photo') return ImageIcon;
+    return Clapperboard;
 };
 
 const NavAvatar: React.FC<{ profile: PlayerProfile | null; sizeClass: string }> = ({ profile, sizeClass }) => {
@@ -80,7 +92,7 @@ const NavAvatar: React.FC<{ profile: PlayerProfile | null; sizeClass: string }> 
 const navButtonClass = (active: boolean, expanded: boolean, tv = false) => (
     `flex items-center text-left text-sm font-semibold transition-colors ${
         expanded
-            ? 'w-full gap-3 rounded-full px-3.5 py-2.5'
+            ? 'w-full gap-3 rounded-full px-3 py-2.5'
             : 'h-9 w-9 justify-center rounded-full'
     } ${
         active && expanded && !tv
@@ -279,7 +291,7 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                     title={expanded ? t('mediaPlayerPage.collapseNav') : t('mediaPlayerPage.expandNav')}
                     aria-label={expanded ? t('mediaPlayerPage.collapseNav') : t('mediaPlayerPage.expandNav')}
                 >
-                    <Menu className="h-4 w-4 shrink-0" />
+                    <Menu className={NAV_ICON_CLASS} />
                 </button>
             ) : null}
             {offline && showLabels ? (
@@ -308,7 +320,7 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                     onClick={() => go(onHome)}
                     title={t('mediaPlayerPage.navHome')}
                 >
-                    <Home className="h-4 w-4 shrink-0" />
+                    <NavIcon><Home className={NAV_ICON_CLASS} /></NavIcon>
                     {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.navHome')}</span> : null}
                 </button>
                 <button
@@ -318,7 +330,7 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                     onClick={() => go(onWatchlist)}
                     title={t('mediaPlayerPage.navWatchlist')}
                 >
-                    <Bookmark className="h-4 w-4 shrink-0" />
+                    <NavIcon><Bookmark className={NAV_ICON_CLASS} /></NavIcon>
                     {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.navWatchlist')}</span> : null}
                 </button>
                 <button
@@ -328,7 +340,7 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                     onClick={() => go(onSearch)}
                     title={t('mediaPlayerPage.navSearch')}
                 >
-                    <Search className="h-4 w-4 shrink-0" />
+                    <NavIcon><Search className={NAV_ICON_CLASS} /></NavIcon>
                     {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.navSearch')}</span> : null}
                 </button>
             </div>
@@ -348,7 +360,7 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                     ) : null}
                     <div
                         data-tv-nav-libraries-scroll="1"
-                        className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto hide-scrollbar px-1 py-0.5"
+                        className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto hide-scrollbar py-0.5"
                     >
                         {orderedLibraries.map((section) => {
                             const Icon = libraryIcon(section.type);
@@ -362,7 +374,7 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                                     onClick={() => go(() => onOpenLibrary(section))}
                                     title={section.title}
                                 >
-                                    <Icon className="h-4 w-4 shrink-0" />
+                                    <NavIcon><Icon className={NAV_ICON_CLASS} /></NavIcon>
                                     <span className="player-nav-label min-w-0 truncate">{section.title}</span>
                                 </button>
                             );
@@ -375,7 +387,7 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                                 onClick={() => go(onOpenPlaylists)}
                                 title={t('mediaPlayerPage.playlists')}
                             >
-                                <ListMusic className="h-4 w-4 shrink-0" />
+                                <NavIcon><ListMusic className={NAV_ICON_CLASS} /></NavIcon>
                                 <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.playlists')}</span>
                             </button>
                         ) : null}
@@ -394,7 +406,7 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                     onClick={() => go(onOpenSettings)}
                     title={t('mediaPlayerPage.navSettings')}
                 >
-                    <Settings className="h-4 w-4 shrink-0" />
+                    <NavIcon><Settings className={NAV_ICON_CLASS} /></NavIcon>
                     {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.navSettings')}</span> : null}
                 </button>
                 {showLabels && isPlexClient ? (
@@ -405,7 +417,7 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                         onClick={() => go(logoutMediaPlayer)}
                         title={t('mediaPlayerPage.logOut')}
                     >
-                        <LogOut className="h-4 w-4 shrink-0" />
+                        <NavIcon><LogOut className={NAV_ICON_CLASS} /></NavIcon>
                         <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.logOut')}</span>
                     </button>
                 ) : null}
@@ -417,27 +429,27 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                         onClick={() => go(exitToPortal)}
                         title={t('mediaPlayerPage.exitToPortal')}
                     >
-                        <LogOut className="h-4 w-4 shrink-0" />
+                        <NavIcon><LogOut className={NAV_ICON_CLASS} /></NavIcon>
                         <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.exitToPortal')}</span>
                     </button>
                 ) : null}
                 <button
                     type="button"
                     {...tvNavProps(isTvShell, expanded, false)}
-                    className={showLabels
-                        ? 'mt-1 flex min-w-0 w-full items-center gap-3 rounded-full px-2 py-1.5 text-left hover:bg-white/10'
-                        : 'flex h-9 w-9 items-center justify-center rounded-full hover:bg-white/10'}
+                    className={navButtonClass(false, showLabels, isTvShell)}
                     onClick={() => { void openHomeSwitcher(); }}
                     title={t('mediaPlayerPage.switchUser')}
                 >
-                    <NavAvatar
-                        key={profile?.thumb || profile?.username || 'avatar'}
-                        profile={profile}
-                        sizeClass={showLabels ? 'h-9 w-9' : 'h-7 w-7'}
-                    />
+                    <NavIcon>
+                        <NavAvatar
+                            key={profile?.thumb || profile?.username || 'avatar'}
+                            profile={profile}
+                            sizeClass="h-5 w-5"
+                        />
+                    </NavIcon>
                     {showLabels ? (
                         <>
-                            <span className="min-w-0 flex-1 truncate text-sm font-bold text-white">
+                            <span className="player-nav-label min-w-0 flex-1 truncate">
                                 {t('mediaPlayerPage.switchUser')}
                             </span>
                             <ChevronRight className="h-4 w-4 shrink-0 text-white/40" />

@@ -1,4 +1,5 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ArrowLeft, Bookmark, BookmarkCheck, Calendar, Check, ChevronDown, Clock, Eye, EyeOff, Film, Info, ListPlus, Loader2, Play, RotateCcw, Shuffle, SkipForward, Star, Users } from 'lucide-react';
 import {
     Carousel,
@@ -413,6 +414,12 @@ export const MediaPlayerDetails: React.FC<Props> = ({
     const [backdropFailed, setBackdropFailed] = useState(false);
     const [posterReady, setPosterReady] = useState(false);
     const [backdropReady, setBackdropReady] = useState(false);
+    const [hubArtFront, setHubArtFront] = useState('');
+    const [hubArtBack, setHubArtBack] = useState('');
+    const [hubArtFrontOn, setHubArtFrontOn] = useState(true);
+    const hubArtCurrentRef = useRef('');
+    const hubArtPendingRef = useRef('');
+    const hubArtFrontOnRef = useRef(true);
     const [logoFailed, setLogoFailed] = useState(false);
     const [logoReady, setLogoReady] = useState(false);
     const [mediaIndex, setMediaIndex] = useState(0);
@@ -428,6 +435,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
     const [seasonWatchBusy, setSeasonWatchBusy] = useState(false);
     const episodeSwipeRef = useRef<{ x: number; y: number } | null>(null);
     const seasonEntryFocusKey = useRef('');
+    const spotlightFocusTimerRef = useRef(0);
     const heldMenuRef = useRef<PlayerItemMenuHandle | null>(null);
     const [heldMenuItem, setHeldMenuItem] = useState<PlayerItem | null>(null);
     const [heldMenuToken, setHeldMenuToken] = useState(0);
@@ -552,6 +560,12 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         setBackdropFailed(false);
         setPosterReady(false);
         setBackdropReady(false);
+        setHubArtFront('');
+        setHubArtBack('');
+        setHubArtFrontOn(true);
+        hubArtCurrentRef.current = '';
+        hubArtPendingRef.current = '';
+        hubArtFrontOnRef.current = true;
         setLogoFailed(false);
         setLogoReady(false);
         setMediaIndex(readMediaIndexChoice(ratingKey) ?? 0);
@@ -732,8 +746,36 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             `[data-tv-episode-btn="1"][data-tv-key="${focusKey.replace(/"/g, '')}"]`,
         );
         if (!currentEp) return;
+        // Season list arriving mid-scrub must not yank the rail back to the page episode.
+        const active = document.activeElement as HTMLElement | null;
+        const focusedEp = active?.closest?.('[data-tv-episode-btn="1"]') as HTMLElement | null;
+        if (focusedEp && focusedEp !== currentEp) return;
         revealTvEpisodeCard(currentEp);
     }, [isTvShell, item?.ratingKey, item?.type, showSeasons, seasonEpisodes]);
+
+    // Held L/R remounts hub meta every focus — debounce so scrubbing stays smooth.
+    const queueTvSpotlight = (key: string, immediate = false) => {
+        if (!isTvShell) {
+            setSpotlightKey(key);
+            return;
+        }
+        if (spotlightFocusTimerRef.current) {
+            window.clearTimeout(spotlightFocusTimerRef.current);
+            spotlightFocusTimerRef.current = 0;
+        }
+        if (immediate) {
+            setSpotlightKey(key);
+            return;
+        }
+        spotlightFocusTimerRef.current = window.setTimeout(() => {
+            spotlightFocusTimerRef.current = 0;
+            setSpotlightKey(key);
+        }, 90);
+    };
+
+    useEffect(() => () => {
+        if (spotlightFocusTimerRef.current) window.clearTimeout(spotlightFocusTimerRef.current);
+    }, []);
 
     useEffect(() => {
         if (!isTvShell || !item || (item.type !== 'episode' && item.type !== 'season')) {
@@ -1193,9 +1235,10 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             ? seasonEpisodes
             : children.filter((row) => row.type === 'episode');
         if (!episodeRows.length) return undefined;
-        if (hasRememberedTvFocus()) return undefined;
-        if (seasonEntryFocusKey.current === item.ratingKey) return undefined;
-        seasonEntryFocusKey.current = item.ratingKey;
+        // Re-run when the season list arrives — entry focus often started before
+        // episode buttons existed (Continue Watching → episode hub).
+        if (seasonEntryFocusKey.current === `${item.ratingKey}:${episodeRows.length}`) return undefined;
+        seasonEntryFocusKey.current = `${item.ratingKey}:${episodeRows.length}`;
         focusSeasonEpisodeWhenReady();
         return undefined;
     }, [isTvShell, item?.ratingKey, item?.type, children, seasonEpisodes]);
@@ -1298,6 +1341,59 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         clearTvDetailsSurface();
     }, []);
 
+    const episodeHubBackdropUrl = useMemo(() => {
+        if (!isTvShell || !item || (item.type !== 'episode' && item.type !== 'season')) return '';
+        const rows = item.type === 'episode' && seasonEpisodes.length
+            ? seasonEpisodes
+            : children.filter((row) => row.type === 'episode');
+        const spotlightRow = rows.find((row) => String(row.ratingKey) === String(spotlightKey)) || null;
+        const hub = (
+            (spotlightDetail && String(spotlightDetail.ratingKey) === String(spotlightKey) ? spotlightDetail : null)
+            || spotlightRow
+            || (item.type === 'episode' ? item : null)
+        ) || item;
+        return plexBackdropUrl(hub.art || hub.thumb || item.art || item.thumb) || '';
+    }, [isTvShell, item, seasonEpisodes, children, spotlightKey, spotlightDetail]);
+
+    useEffect(() => {
+        if (!episodeHubBackdropUrl) return;
+        if (episodeHubBackdropUrl === hubArtCurrentRef.current) return;
+        if (!hubArtCurrentRef.current) {
+            setHubArtFront(episodeHubBackdropUrl);
+            setHubArtBack('');
+            hubArtFrontOnRef.current = true;
+            setHubArtFrontOn(true);
+            hubArtCurrentRef.current = episodeHubBackdropUrl;
+            hubArtPendingRef.current = '';
+            setBackdropReady(true);
+            setBackdropFailed(false);
+            return;
+        }
+        hubArtPendingRef.current = episodeHubBackdropUrl;
+        const img = new Image();
+        img.onload = () => {
+            if (hubArtPendingRef.current !== episodeHubBackdropUrl) return;
+            if (hubArtFrontOnRef.current) {
+                setHubArtBack(episodeHubBackdropUrl);
+                hubArtFrontOnRef.current = false;
+                setHubArtFrontOn(false);
+            } else {
+                setHubArtFront(episodeHubBackdropUrl);
+                hubArtFrontOnRef.current = true;
+                setHubArtFrontOn(true);
+            }
+            hubArtCurrentRef.current = episodeHubBackdropUrl;
+            setBackdropReady(true);
+            setBackdropFailed(false);
+        };
+        img.onerror = () => {
+            if (hubArtPendingRef.current !== episodeHubBackdropUrl) return;
+            hubArtPendingRef.current = '';
+            setBackdropFailed(true);
+        };
+        img.src = episodeHubBackdropUrl;
+    }, [episodeHubBackdropUrl]);
+
     if (loading && !hasDetailsHero(item)) {
         if (isTvShell) {
             return (
@@ -1346,8 +1442,6 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         posterHeight,
         { quality: 70 },
     ), posterWidth, posterHeight);
-    const backdropUrl = plexBackdropUrl(item.art || item.thumb);
-    const backdropPreviewUrl = plexBackdropPreviewUrl(item.art || item.thumb);
     const logoUrl = plexLogoUrl(item.logo);
     const logoPending = Boolean(logoUrl) && !logoReady && !logoFailed;
     const showLogo = Boolean(logoUrl) && !logoFailed && logoReady;
@@ -1372,6 +1466,13 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                 || (item.type === 'episode' ? item : null))
             : item
     ) || item;
+    const isEpisodeHub = isTvShell && (item.type === 'episode' || item.type === 'season');
+    const backdropUrl = episodeHubBackdropUrl || plexBackdropUrl(item.art || item.thumb);
+    const backdropPreviewUrl = plexBackdropPreviewUrl(
+        isEpisodeHub
+            ? (hubItem.art || hubItem.thumb || item.art || item.thumb)
+            : (item.art || item.thumb),
+    );
     const hubTechPills = isTvShell && (item.type === 'episode' || item.type === 'season')
         ? episodeTechPills(hubItem)
         : [];
@@ -1413,13 +1514,14 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         : 'inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-plex px-4 text-sm font-bold text-white shadow-lg shadow-plex/20 transition-colors hover:bg-plex-hover disabled:cursor-not-allowed disabled:opacity-50 max-md:w-full';
     const showStartFromBeginning = playLabel === t('mediaPlayerPage.resume');
     const startOverButtonClass = isTvShell
-        ? 'inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/5 px-4 text-sm font-bold text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50'
+        ? 'inline-flex h-11 items-center justify-center gap-2 rounded-full border border-white/20 bg-white/5 px-4 text-sm font-bold text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50'
         : 'inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-4 text-sm font-bold text-white transition-colors hover:border-plex/40 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50 max-md:w-full';
     const startOverButton = showStartFromBeginning ? (
         <button
             type="button"
             data-tv-item="1"
             data-tv-action="1"
+            data-tv-start-over="1"
             data-tv-key={`start-over:${item.ratingKey}`}
             onClick={onStartFromBeginning}
             disabled={playing || playbackActive}
@@ -1793,7 +1895,24 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             ) : null}
             {preplayUi && (item.type === 'episode' || (isTvShell && item.type === 'season')) ? (
                 isTvShell ? (
-                    <p className="media-details-episode-heading">{hubItem.title}</p>
+                    <div
+                        key={String(hubItem.ratingKey || spotlightKey || hubItem.title)}
+                        className="media-details-hub-meta-swap"
+                    >
+                        <p className="media-details-episode-heading">{hubItem.title}</p>
+                        {hubItem.type === 'episode' ? (
+                            <p className="media-details-billboard-line mt-1.5 max-w-[22rem] text-center text-[12px] font-semibold tracking-wide text-white/75 drop-shadow-[0_4px_12px_rgba(0,0,0,0.7)]">
+                                {[
+                                    formatEpisodeCode(hubItem) || (hubItem.index != null ? `E${hubItem.index}` : ''),
+                                    formatPlayerDate(hubItem.originallyAvailableAt, locale),
+                                    formatPlayerDuration(hubItem.durationMs),
+                                ].filter(Boolean).join('  •  ')}
+                            </p>
+                        ) : null}
+                        {hubSummary ? (
+                            <p className="media-details-billboard-summary">{hubSummary}</p>
+                        ) : null}
+                    </div>
                 ) : phoneSeasonClickable ? (
                     <button
                         type="button"
@@ -1808,19 +1927,10 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                     <p className="mt-1 text-[1.05rem] font-bold text-white/90">{item.title}</p>
                 )
             ) : null}
-            {phoneBillboardMeta || (isTvShell && hubItem.type === 'episode') ? (
+            {!isTvShell && phoneBillboardMeta ? (
                 <p className="media-details-billboard-line mt-1.5 max-w-[22rem] text-center text-[12px] font-semibold tracking-wide text-white/75 drop-shadow-[0_4px_12px_rgba(0,0,0,0.7)]">
-                    {isTvShell && hubItem.type === 'episode'
-                        ? [
-                            formatEpisodeCode(hubItem) || (hubItem.index != null ? `E${hubItem.index}` : ''),
-                            formatPlayerDate(hubItem.originallyAvailableAt, locale),
-                            formatPlayerDuration(hubItem.durationMs),
-                        ].filter(Boolean).join('  •  ')
-                        : phoneBillboardMeta}
+                    {phoneBillboardMeta}
                 </p>
-            ) : null}
-            {isTvShell && (item.type === 'episode' || item.type === 'season') && hubSummary ? (
-                <p className="media-details-billboard-summary">{hubSummary}</p>
             ) : null}
             {preplayUi && !(isTvShell && (item.type === 'episode' || item.type === 'season')) ? (
                 <div className="media-details-billboard-ratings pointer-events-auto mt-2.5 flex w-full flex-col items-center gap-2">
@@ -1873,7 +1983,27 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             <div data-tv-page-top="1" className="h-0 w-full" aria-hidden />
             <div className="media-details-hero relative isolate">
                 <div className="media-details-hero-backdrop absolute inset-0 overflow-hidden pointer-events-none" aria-hidden>
-                    {backdropUrl && !backdropFailed ? (
+                    {isEpisodeHub && (hubArtFront || hubArtBack) && !backdropFailed ? (
+                        <>
+                            {hubArtBack ? (
+                                <img
+                                    src={hubArtBack}
+                                    alt=""
+                                    className={`media-details-hub-art absolute inset-0 w-full h-full object-cover ${hubArtFrontOn ? 'is-behind' : 'is-front'}`}
+                                    decoding="async"
+                                />
+                            ) : null}
+                            {hubArtFront ? (
+                                <img
+                                    src={hubArtFront}
+                                    alt=""
+                                    className={`media-details-hub-art absolute inset-0 w-full h-full object-cover ${hubArtFrontOn ? 'is-front' : 'is-behind'}`}
+                                    decoding="async"
+                                    fetchPriority="high"
+                                />
+                            ) : null}
+                        </>
+                    ) : backdropUrl && !backdropFailed ? (
                         <PlayerBackdropImage
                             key={backdropUrl}
                             src={backdropUrl}
@@ -2633,7 +2763,10 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                         )}
                         <div className="media-details-episodes-stage">
                         {isTvShell && hubTechPills.length ? (
-                            <div className="media-details-episode-tech">
+                            <div
+                                key={`tech:${hubItem.ratingKey || spotlightKey}`}
+                                className="media-details-episode-tech media-details-hub-meta-swap"
+                            >
                                 {hubTechPills.map((pill) => (
                                     <span
                                         key={`${pill.key}-${pill.label}`}
@@ -2659,11 +2792,11 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                         data-tv-watched={row.watched ? '1' : '0'}
                                         data-tv-key={row.ratingKey}
                                         onFocus={() => {
-                                            if (isTvShell) setSpotlightKey(String(row.ratingKey));
+                                            if (isTvShell) queueTvSpotlight(String(row.ratingKey));
                                         }}
                                         onClick={() => {
                                             if (isTvShell) {
-                                                setSpotlightKey(String(row.ratingKey));
+                                                queueTvSpotlight(String(row.ratingKey), true);
                                                 playEpisodeTile(row);
                                                 return;
                                             }
@@ -2911,9 +3044,9 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                     onClose={() => setFileInfoOpen(false)}
                 />
             ) : null}
-            {versionPickerOpen ? (
+            {versionPickerOpen && typeof document !== 'undefined' ? createPortal(
                 <div
-                    className="fixed inset-0 z-[3500] flex items-center justify-center bg-black/70 p-4"
+                    className="fixed inset-0 z-[3600] flex items-center justify-center bg-black/85 p-4"
                     role="dialog"
                     aria-modal="true"
                     data-tv-version-dialog="1"
@@ -2921,7 +3054,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                     <div className="player-version-sheet player-popup-surface w-full max-w-md rounded-2xl border border-white/10 p-5 shadow-2xl">
                         <p className="text-xs font-black uppercase tracking-widest text-muted">{t('mediaPlayerPage.selectVersion')}</p>
                         <h2 className="mt-2 text-lg font-bold text-text">{item.title}</h2>
-                        <div className="mt-5 flex flex-col gap-2" data-tv-rail="1">
+                        <div className="mt-5 flex flex-col gap-3 py-1" data-tv-rail="1">
                             {versionChoices.map((row, index) => (
                                 <button
                                     key={row.id || row.mediaIndex}
@@ -2946,7 +3079,8 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                             </button>
                         </div>
                     </div>
-                </div>
+                </div>,
+                document.body,
             ) : null}
             {heldMenuItem ? (
                 <PlayerItemMenu

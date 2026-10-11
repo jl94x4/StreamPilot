@@ -1,9 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Loader2 } from 'lucide-react';
 import {
     CustomSelect,
     DiscoverGridSizeSelect,
-    DiscoverHomeRowSkeleton,
     discoveryTheme,
     PosterGridSkeleton,
     homeRailPosterDensity,
@@ -146,13 +145,19 @@ const mergeServerLibraryHubs = (serverHubs: PlayerLibraryHub[], prev: PlayerLibr
 
 const SORT_IDS = [
     'titleSort',
+    'titleSort:desc',
     'addedAt:desc',
     'year:desc',
     'originallyAvailableAt:desc',
     'audienceRating:desc',
+    'rating:desc',
     'lastViewedAt:desc',
     'viewCount:desc',
+    'duration:desc',
+    'mediaHeight:desc',
 ] as const;
+
+type FilterOption = { key: string; title: string };
 
 export const MediaPlayerLibrary: React.FC<Props> = ({
     sectionKey,
@@ -209,14 +214,18 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
     const [loading, setLoading] = useState(() => tab === 'home' ? !readLibraryHomeCache(sectionKey)?.hubs?.length : true);
     const [loadingMore, setLoadingMore] = useState(false);
     const [browseHasMore, setBrowseHasMore] = useState(false);
+    const [browseAbsStart, setBrowseAbsStart] = useState(0);
     const browseSentinelRef = useRef<HTMLDivElement>(null);
     const browseLoadingRef = useRef(false);
     const browseHasMoreRef = useRef(false);
     const browseGenRef = useRef(0);
+    /** Absolute library index after the last loaded browse item (end exclusive). */
     const browseCountRef = useRef(0);
+    /** Absolute library index of items[0] in the current browse window. */
+    const browseAbsStartRef = useRef(0);
     const browseColumnsRef = useRef(0);
     const browseRowRef = useRef(-1);
-    /** Absolute index of the focused browse poster, used to prefetch the next page. */
+    /** Index within the loaded window of the focused browse poster. */
     const browseFocusAbsRef = useRef(-1);
     const itemsLengthRef = useRef(0);
     const itemsRef = useRef(items);
@@ -230,17 +239,43 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
     const [sort, setSort] = useState<string>('titleSort');
     const [genre, setGenre] = useState('');
     const [decade, setDecade] = useState('');
+    const [year, setYear] = useState('');
+    const [contentRating, setContentRating] = useState('');
     const [resolution, setResolution] = useState('');
     const [studio, setStudio] = useState('');
+    const [network, setNetwork] = useState('');
+    const [country, setCountry] = useState('');
+    const [collection, setCollection] = useState('');
+    const [audioLanguage, setAudioLanguage] = useState('');
+    const [subtitleLanguage, setSubtitleLanguage] = useState('');
+    const [actor, setActor] = useState('');
+    const [director, setDirector] = useState('');
+    const [writer, setWriter] = useState('');
+    const [producer, setProducer] = useState('');
+    const [label, setLabel] = useState('');
     const [unwatched, setUnwatched] = useState(false);
     const [inProgress, setInProgress] = useState(false);
+    const [hdr, setHdr] = useState(false);
+    const [duplicate, setDuplicate] = useState(false);
     const [letter, setLetter] = useState('');
     const [scrollLetter, setScrollLetter] = useState('');
-    const [letters, setLetters] = useState<Array<{ key: string; title: string }>>([]);
-    const [genres, setGenres] = useState<Array<{ key: string; title: string }>>([]);
-    const [decades, setDecades] = useState<Array<{ key: string; title: string }>>([]);
-    const [resolutions, setResolutions] = useState<Array<{ key: string; title: string }>>([]);
-    const [studios, setStudios] = useState<Array<{ key: string; title: string }>>([]);
+    const [letters, setLetters] = useState<FilterOption[]>([]);
+    const [genres, setGenres] = useState<FilterOption[]>([]);
+    const [decades, setDecades] = useState<FilterOption[]>([]);
+    const [years, setYears] = useState<FilterOption[]>([]);
+    const [contentRatings, setContentRatings] = useState<FilterOption[]>([]);
+    const [resolutions, setResolutions] = useState<FilterOption[]>([]);
+    const [studios, setStudios] = useState<FilterOption[]>([]);
+    const [networks, setNetworks] = useState<FilterOption[]>([]);
+    const [countries, setCountries] = useState<FilterOption[]>([]);
+    const [collectionOptions, setCollectionOptions] = useState<FilterOption[]>([]);
+    const [audioLanguages, setAudioLanguages] = useState<FilterOption[]>([]);
+    const [subtitleLanguages, setSubtitleLanguages] = useState<FilterOption[]>([]);
+    const [actors, setActors] = useState<FilterOption[]>([]);
+    const [directors, setDirectors] = useState<FilterOption[]>([]);
+    const [writers, setWriters] = useState<FilterOption[]>([]);
+    const [producers, setProducers] = useState<FilterOption[]>([]);
+    const [labels, setLabels] = useState<FilterOption[]>([]);
     const homeHubs = useMemo(() => {
         let keptContinue = false;
         return hubs.filter((hub) => {
@@ -378,9 +413,11 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
         return Math.min(BROWSE_MAX_PAGE, Math.max(1, browseColumnsRef.current) * BROWSE_PAGE_ROWS);
     };
 
-    const loadBrowse = useCallback(async (start: number, append: boolean) => {
-        if (append) {
-            if (browseLoadingRef.current || !browseHasMoreRef.current) return;
+    const loadBrowse = useCallback(async (start: number, append: boolean, prepend = false) => {
+        if (append || prepend) {
+            if (browseLoadingRef.current) return;
+            if (append && !browseHasMoreRef.current) return;
+            if (prepend && browseAbsStartRef.current <= 0) return;
             browseLoadingRef.current = true;
             setLoadingMore(true);
         } else {
@@ -388,7 +425,9 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
             browseLoadingRef.current = true;
             browseHasMoreRef.current = false;
             browseCountRef.current = 0;
+            browseAbsStartRef.current = 0;
             browseFocusAbsRef.current = -1;
+            setBrowseAbsStart(0);
             setBrowseHasMore(false);
             setLoading(true);
             if (activeRef.current) {
@@ -398,40 +437,95 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
         }
         const gen = browseGenRef.current;
         const pageSize = browsePageSize();
+        const jumpLetter = !append && !prepend && sort === 'titleSort' ? letter : '';
+        const fetchStart = prepend
+            ? Math.max(0, browseAbsStartRef.current - pageSize)
+            : start;
+        const fetchSize = prepend
+            ? Math.max(1, browseAbsStartRef.current - fetchStart)
+            : pageSize;
         try {
-            const data = await fetchMediaPlayerLibrary(sectionKey, start, pageSize, {
+            const data = await fetchMediaPlayerLibrary(sectionKey, fetchStart, fetchSize, {
                 sort,
                 genre,
                 decade,
+                year,
+                contentRating,
                 resolution,
                 studio,
+                network,
+                country,
+                collection,
+                audioLanguage,
+                subtitleLanguage,
+                actor,
+                director,
+                writer,
+                producer,
+                label,
                 unwatched,
                 inProgress,
-                letter: sort === 'titleSort' ? letter : '',
+                hdr,
+                duplicate,
+                letter: jumpLetter,
             });
             if (gen !== browseGenRef.current) return;
             const batch = data.items || [];
             const reported = Number(data.total) || 0;
-            const loaded = start + batch.length;
-            const pageFull = batch.length >= pageSize;
-            const knownTotal = reported > batch.length ? reported : 0;
-            const hasMore = pageFull && (knownTotal === 0 || loaded < knownTotal);
+            const offset = Number(data.offset);
+            const absStart = Number.isFinite(offset) ? Math.max(0, offset) : Math.max(0, fetchStart);
+            const windowEnd = prepend
+                ? Math.max(browseCountRef.current, absStart + batch.length)
+                : absStart + batch.length;
+            const knownTotal = reported > 0 ? reported : 0;
+            const hasMore = knownTotal > 0
+                ? windowEnd < knownTotal
+                : !prepend && batch.length >= pageSize;
             browseHasMoreRef.current = hasMore;
-            browseCountRef.current = loaded;
             setTitle(data.title || t('mediaPlayerPage.libraries'));
             if (data.type) setLibraryType(data.type);
             setTotal(knownTotal || reported);
             setBrowseHasMore(hasMore);
-            if (append) {
+            if (prepend) {
+                if (batch.length) {
+                    browseAbsStartRef.current = absStart;
+                    setBrowseAbsStart(absStart);
+                    setItems((prev) => {
+                        const seen = new Set(batch.map((row) => row.ratingKey));
+                        return [...batch, ...prev.filter((row) => !seen.has(row.ratingKey))];
+                    });
+                } else {
+                    browseAbsStartRef.current = 0;
+                    setBrowseAbsStart(0);
+                }
+            } else if (append) {
+                browseCountRef.current = windowEnd;
                 // New posters go on the end. Do not move scroll or focus — same as Plex.
                 setItems((prev) => [...prev, ...batch]);
             } else {
-                const jumped = browseLetterOf(batch[0]?.title);
+                browseAbsStartRef.current = absStart;
+                setBrowseAbsStart(absStart);
+                browseCountRef.current = windowEnd;
+                const jumped = (jumpLetter && (jumpLetter === '#' || /^[A-Z]$/i.test(jumpLetter)))
+                    ? jumpLetter.toUpperCase()
+                    : browseLetterOf(batch[0]?.title);
                 if (jumped) {
                     scrollLetterRef.current = jumped;
                     setScrollLetter(jumped);
                 }
                 setItems(batch);
+                if (jumpLetter && batch.length) {
+                    let focusAt = batch.findIndex((row) => browseLetterOf(row.title) === jumped);
+                    if (focusAt < 0) focusAt = 0;
+                    browseFocusAbsRef.current = focusAt;
+                    browseRowRef.current = -1;
+                    window.setTimeout(() => {
+                        const btn = document.querySelector<HTMLElement>(
+                            `[data-browse-index="${focusAt}"] [data-tv-poster-btn="1"]`,
+                        );
+                        btn?.focus();
+                    }, 80);
+                }
             }
             setError(null);
         } catch (err: any) {
@@ -444,7 +538,32 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                 setLoadingMore(false);
             }
         }
-    }, [decade, genre, inProgress, letter, resolution, sectionKey, sort, studio, t, unwatched]);
+    }, [
+        actor,
+        audioLanguage,
+        collection,
+        contentRating,
+        country,
+        decade,
+        director,
+        duplicate,
+        genre,
+        hdr,
+        inProgress,
+        label,
+        letter,
+        network,
+        producer,
+        resolution,
+        sectionKey,
+        sort,
+        studio,
+        subtitleLanguage,
+        t,
+        unwatched,
+        writer,
+        year,
+    ]);
 
     const loadCollections = useCallback(async () => {
         setLoading(true);
@@ -505,7 +624,8 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
         if (!active || tab !== 'browse' || !browseHasMore || !items.length) return;
         const el = document.getElementById(PLAYER_SCROLL_ID);
         if (!el || el.scrollHeight > el.clientHeight + 8) return;
-        if (browseCountRef.current > items.length) return;
+        const paintedEnd = browseAbsStartRef.current + items.length;
+        if (browseCountRef.current > paintedEnd) return;
         if (items.length >= browsePageSize() * 2) return;
         void loadBrowse(browseCountRef.current, true);
     }, [active, browseHasMore, items.length, loadBrowse, tab]);
@@ -532,7 +652,8 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
         };
         const maybeLoad = (rowIndex: number, paintedRows: number, paintedCount: number, movingDown: boolean) => {
             if (!movingDown || rowIndex < 0 || paintedRows <= 0) return;
-            if (browseCountRef.current > paintedCount) return;
+            const paintedEnd = browseAbsStartRef.current + paintedCount;
+            if (browseCountRef.current > paintedEnd) return;
             if (rowIndex + 1 < paintedRows - BROWSE_PREFETCH_LEAD) return;
             void loadBrowse(browseCountRef.current, true);
         };
@@ -628,11 +749,17 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
             if (!browseHasMoreRef.current || browseLoadingRef.current) return;
             void loadBrowse(browseCountRef.current, true);
         };
+        const onNeedBefore = () => {
+            if (browseLoadingRef.current || browseAbsStartRef.current <= 0) return;
+            void loadBrowse(0, false, true);
+        };
         window.addEventListener(BROWSE_FOCUS_ABS_EVENT, onFocusAbs);
         window.addEventListener('smp-browse-need-more', onNeedMore);
+        window.addEventListener('smp-browse-need-before', onNeedBefore);
         return () => {
             window.removeEventListener(BROWSE_FOCUS_ABS_EVENT, onFocusAbs);
             window.removeEventListener('smp-browse-need-more', onNeedMore);
+            window.removeEventListener('smp-browse-need-before', onNeedBefore);
         };
     }, [loadBrowse, tab]);
 
@@ -641,7 +768,6 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
 
     useEffect(() => {
         if (tab !== 'browse') return undefined;
-        if (loading && items.length === 0) return undefined;
         if (filtersKey.current === sectionKey) return undefined;
         filtersKey.current = sectionKey;
         let started = false;
@@ -653,8 +779,20 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                     if (cancelled) return;
                     setGenres(data.genres || []);
                     setDecades(data.decades || []);
+                    setYears(data.years || []);
+                    setContentRatings(data.contentRatings || []);
                     setResolutions(data.resolutions || []);
                     setStudios(data.studios || []);
+                    setNetworks(data.networks || []);
+                    setCountries(data.countries || []);
+                    setCollectionOptions(data.collections || []);
+                    setAudioLanguages(data.audioLanguages || []);
+                    setSubtitleLanguages(data.subtitleLanguages || []);
+                    setActors(data.actors || []);
+                    setDirectors(data.directors || []);
+                    setWriters(data.writers || []);
+                    setProducers(data.producers || []);
+                    setLabels(data.labels || []);
                     setLetters(data.letters || []);
                 })
                 .catch(() => {
@@ -662,17 +800,29 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                     filtersKey.current = '';
                     setGenres([]);
                     setDecades([]);
+                    setYears([]);
+                    setContentRatings([]);
                     setResolutions([]);
                     setStudios([]);
+                    setNetworks([]);
+                    setCountries([]);
+                    setCollectionOptions([]);
+                    setAudioLanguages([]);
+                    setSubtitleLanguages([]);
+                    setActors([]);
+                    setDirectors([]);
+                    setWriters([]);
+                    setProducers([]);
+                    setLabels([]);
                     setLetters([]);
                 });
-        }, 80);
+        }, 40);
         return () => {
             cancelled = true;
             window.clearTimeout(handle);
             if (!started && filtersKey.current === sectionKey) filtersKey.current = '';
         };
-    }, [items.length, loading, sectionKey, tab]);
+    }, [sectionKey, tab]);
 
     const posterReady = tab === 'home'
         ? homeHubs.some((hub) => hub.items?.length)
@@ -698,17 +848,37 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
         setSort(saved.sort);
         setGenre(saved.genre);
         setDecade(saved.decade);
+        setYear(saved.year);
+        setContentRating(saved.contentRating);
         setResolution(saved.resolution);
         setStudio(saved.studio);
+        setNetwork(saved.network);
+        setCountry(saved.country);
+        setCollection(saved.collection);
+        setAudioLanguage(saved.audioLanguage);
+        setSubtitleLanguage(saved.subtitleLanguage);
+        setActor(saved.actor);
+        setDirector(saved.director);
+        setWriter(saved.writer);
+        setProducer(saved.producer);
+        setLabel(saved.label);
         setUnwatched(saved.unwatched);
         setInProgress(saved.inProgress);
+        setHdr(saved.hdr);
+        setDuplicate(saved.duplicate);
         setLetter('');
         setLetters([]);
+        filtersKey.current = '';
         if (cachedHome?.hubs?.length) {
             setTitle(cachedHome.title || t('mediaPlayerPage.libraries'));
             setHubs(cachedHome.hubs);
+            setLoading(false);
         } else {
             setHubs([]);
+            setCollections([]);
+            setItems([]);
+            // Avoid a blank Recommended frame before loadHome sets busy.
+            setLoading(true);
         }
         setHydrated(true);
     }, [sectionKey, t]);
@@ -719,12 +889,50 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
             sort,
             genre,
             decade,
+            year,
+            contentRating,
             resolution,
             studio,
+            network,
+            country,
+            collection,
+            audioLanguage,
+            subtitleLanguage,
+            actor,
+            director,
+            writer,
+            producer,
+            label,
             unwatched,
             inProgress,
+            hdr,
+            duplicate,
         });
-    }, [decade, genre, hydrated, inProgress, resolution, sectionKey, sort, studio, unwatched]);
+    }, [
+        actor,
+        audioLanguage,
+        collection,
+        contentRating,
+        country,
+        decade,
+        director,
+        duplicate,
+        genre,
+        hdr,
+        hydrated,
+        inProgress,
+        label,
+        network,
+        producer,
+        resolution,
+        sectionKey,
+        sort,
+        studio,
+        subtitleLanguage,
+        unwatched,
+        writer,
+        year,
+    ]);
 
     useEffect(() => {
         const onProgress = (event: Event) => {
@@ -825,12 +1033,29 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
     const sortLabels: Record<string, string> = {
         'addedAt:desc': t('mediaPlayerPage.sortAdded'),
         titleSort: t('mediaPlayerPage.sortTitle'),
+        'titleSort:desc': t('mediaPlayerPage.sortTitleDesc'),
         'year:desc': t('mediaPlayerPage.sortYear'),
         'originallyAvailableAt:desc': t('mediaPlayerPage.sortReleased'),
         'audienceRating:desc': t('mediaPlayerPage.sortRating'),
+        'rating:desc': t('mediaPlayerPage.sortCriticRating'),
         'lastViewedAt:desc': t('mediaPlayerPage.sortLastPlayed'),
         'viewCount:desc': t('mediaPlayerPage.sortPlayCount'),
+        'duration:desc': t('mediaPlayerPage.sortDuration'),
+        'mediaHeight:desc': t('mediaPlayerPage.sortResolution'),
     };
+    const tvShell = isTvShell();
+    const filterSelectClass = 'player-library-filter-select min-w-[10rem] max-md:min-w-0 max-md:flex-1 max-md:basis-[calc(50%-0.25rem)]';
+    const filterTriggerClass = 'rounded-full';
+    const filterToggleClass = (on: boolean) => (
+        `rounded-full border px-3 py-2 text-xs font-bold ${
+            on ? 'border-plex/50 bg-plex/15 text-plex' : 'border-border bg-white/5 text-muted'
+        }`
+    );
+    const tvFilterTrigger = (key: string) => (
+        tvShell
+            ? { 'data-tv-item': '1' as const, 'data-tv-action': '1' as const, 'data-tv-key': key, className: filterTriggerClass }
+            : { className: filterTriggerClass }
+    );
 
     const browseCols = Math.max(1, browseColumnsRef.current || estimateBrowseColumns(gridSize));
     const alphaLetters = letters.length ? letters : STATIC_ALPHA;
@@ -845,7 +1070,6 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
         const top = btn.offsetTop - (bar.clientHeight - btn.offsetHeight) / 2;
         bar.scrollTop = Math.max(0, top);
     }, [markedLetter, tab, alphaLetters.length]);
-    const tvShell = isTvShell();
 
     const libraryChrome = (
         <>
@@ -882,7 +1106,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                             data-tv-key={`library-tab-${row.id}`}
                             aria-current={selected ? 'page' : undefined}
                             onClick={() => onChangeTab(row.id)}
-                            className={`rounded-full border px-4 py-2 text-sm font-bold ${
+                            className={`player-library-tab-pill rounded-full border px-4 py-2 text-sm font-bold ${
                                 selected
                                     ? 'border-plex/50 bg-plex/15 text-plex'
                                     : 'border-border bg-white/5 text-muted hover:text-text'
@@ -935,8 +1159,8 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                             if (value !== 'titleSort') setLetter('');
                         }}
                         dropdownClassName="player-filter-menu"
-                        className="min-w-[11rem] max-md:min-w-0 max-md:flex-1 max-md:basis-[calc(50%-0.25rem)]"
-                        triggerProps={tvShell ? { 'data-tv-item': '1', 'data-tv-action': '1', 'data-tv-key': 'library-sort' } : undefined}
+                        className={`${filterSelectClass} min-w-[11rem]`}
+                        triggerProps={tvFilterTrigger('library-sort')}
                         options={SORT_IDS.map((id) => ({ value: id, label: sortLabels[id] || id }))}
                     />
                     <CustomSelect
@@ -944,8 +1168,8 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                         value={genre}
                         onChange={setGenre}
                         dropdownClassName="player-filter-menu"
-                        className="min-w-[10rem] max-md:min-w-0 max-md:flex-1 max-md:basis-[calc(50%-0.25rem)]"
-                        triggerProps={tvShell ? { 'data-tv-item': '1', 'data-tv-action': '1', 'data-tv-key': 'library-genre' } : undefined}
+                        className={filterSelectClass}
+                        triggerProps={tvFilterTrigger('library-genre')}
                         options={[
                             { value: '', label: t('mediaPlayerPage.allGenres') },
                             ...genres.map((row) => ({ value: row.key, label: row.title })),
@@ -955,13 +1179,47 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                         <CustomSelect
                             compact
                             value={decade}
-                            onChange={setDecade}
+                            onChange={(value) => {
+                                setDecade(value);
+                                if (value) setYear('');
+                            }}
                             dropdownClassName="player-filter-menu"
-                            className="min-w-[10rem] max-md:min-w-0 max-md:flex-1 max-md:basis-[calc(50%-0.25rem)]"
-                            triggerProps={tvShell ? { 'data-tv-item': '1', 'data-tv-action': '1', 'data-tv-key': 'library-decade' } : undefined}
+                            className={filterSelectClass}
+                            triggerProps={tvFilterTrigger('library-decade')}
                             options={[
                                 { value: '', label: t('mediaPlayerPage.allDecades') },
                                 ...decades.map((row) => ({ value: row.key, label: row.title })),
+                            ]}
+                        />
+                    ) : null}
+                    {years.length ? (
+                        <CustomSelect
+                            compact
+                            value={year}
+                            onChange={(value) => {
+                                setYear(value);
+                                if (value) setDecade('');
+                            }}
+                            dropdownClassName="player-filter-menu"
+                            className={`${filterSelectClass} min-w-[9rem]`}
+                            triggerProps={tvFilterTrigger('library-year')}
+                            options={[
+                                { value: '', label: t('mediaPlayerPage.allYears') },
+                                ...years.map((row) => ({ value: row.key, label: row.title })),
+                            ]}
+                        />
+                    ) : null}
+                    {contentRatings.length ? (
+                        <CustomSelect
+                            compact
+                            value={contentRating}
+                            onChange={setContentRating}
+                            dropdownClassName="player-filter-menu"
+                            className={filterSelectClass}
+                            triggerProps={tvFilterTrigger('library-content-rating')}
+                            options={[
+                                { value: '', label: t('mediaPlayerPage.allContentRatings') },
+                                ...contentRatings.map((row) => ({ value: row.key, label: row.title })),
                             ]}
                         />
                     ) : null}
@@ -971,11 +1229,25 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                             value={resolution}
                             onChange={setResolution}
                             dropdownClassName="player-filter-menu"
-                            className="min-w-[10rem] max-md:min-w-0 max-md:flex-1 max-md:basis-[calc(50%-0.25rem)]"
-                            triggerProps={tvShell ? { 'data-tv-item': '1', 'data-tv-action': '1', 'data-tv-key': 'library-resolution' } : undefined}
+                            className={filterSelectClass}
+                            triggerProps={tvFilterTrigger('library-resolution')}
                             options={[
                                 { value: '', label: t('mediaPlayerPage.allResolutions') },
                                 ...resolutions.map((row) => ({ value: row.key, label: row.title })),
+                            ]}
+                        />
+                    ) : null}
+                    {networks.length ? (
+                        <CustomSelect
+                            compact
+                            value={network}
+                            onChange={setNetwork}
+                            dropdownClassName="player-filter-menu"
+                            className={filterSelectClass}
+                            triggerProps={tvFilterTrigger('library-network')}
+                            options={[
+                                { value: '', label: t('mediaPlayerPage.allNetworks') },
+                                ...networks.map((row) => ({ value: row.key, label: row.title })),
                             ]}
                         />
                     ) : null}
@@ -985,11 +1257,137 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                             value={studio}
                             onChange={setStudio}
                             dropdownClassName="player-filter-menu"
-                            className="min-w-[10rem] max-md:min-w-0 max-md:flex-1 max-md:basis-[calc(50%-0.25rem)]"
-                            triggerProps={tvShell ? { 'data-tv-item': '1', 'data-tv-action': '1', 'data-tv-key': 'library-studio' } : undefined}
+                            className={filterSelectClass}
+                            triggerProps={tvFilterTrigger('library-studio')}
                             options={[
                                 { value: '', label: t('mediaPlayerPage.allStudios') },
                                 ...studios.map((row) => ({ value: row.key, label: row.title })),
+                            ]}
+                        />
+                    ) : null}
+                    {countries.length ? (
+                        <CustomSelect
+                            compact
+                            value={country}
+                            onChange={setCountry}
+                            dropdownClassName="player-filter-menu"
+                            className={filterSelectClass}
+                            triggerProps={tvFilterTrigger('library-country')}
+                            options={[
+                                { value: '', label: t('mediaPlayerPage.allCountries') },
+                                ...countries.map((row) => ({ value: row.key, label: row.title })),
+                            ]}
+                        />
+                    ) : null}
+                    {collectionOptions.length ? (
+                        <CustomSelect
+                            compact
+                            value={collection}
+                            onChange={setCollection}
+                            dropdownClassName="player-filter-menu"
+                            className={filterSelectClass}
+                            triggerProps={tvFilterTrigger('library-collection')}
+                            options={[
+                                { value: '', label: t('mediaPlayerPage.allCollections') },
+                                ...collectionOptions.map((row) => ({ value: row.key, label: row.title })),
+                            ]}
+                        />
+                    ) : null}
+                    {audioLanguages.length ? (
+                        <CustomSelect
+                            compact
+                            value={audioLanguage}
+                            onChange={setAudioLanguage}
+                            dropdownClassName="player-filter-menu"
+                            className={filterSelectClass}
+                            triggerProps={tvFilterTrigger('library-audio-language')}
+                            options={[
+                                { value: '', label: t('mediaPlayerPage.allAudioLanguages') },
+                                ...audioLanguages.map((row) => ({ value: row.key, label: row.title })),
+                            ]}
+                        />
+                    ) : null}
+                    {subtitleLanguages.length ? (
+                        <CustomSelect
+                            compact
+                            value={subtitleLanguage}
+                            onChange={setSubtitleLanguage}
+                            dropdownClassName="player-filter-menu"
+                            className={filterSelectClass}
+                            triggerProps={tvFilterTrigger('library-subtitle-language')}
+                            options={[
+                                { value: '', label: t('mediaPlayerPage.allSubtitleLanguages') },
+                                ...subtitleLanguages.map((row) => ({ value: row.key, label: row.title })),
+                            ]}
+                        />
+                    ) : null}
+                    {actors.length ? (
+                        <CustomSelect
+                            compact
+                            value={actor}
+                            onChange={setActor}
+                            dropdownClassName="player-filter-menu"
+                            className={filterSelectClass}
+                            triggerProps={tvFilterTrigger('library-actor')}
+                            options={[
+                                { value: '', label: t('mediaPlayerPage.allActors') },
+                                ...actors.map((row) => ({ value: row.key, label: row.title })),
+                            ]}
+                        />
+                    ) : null}
+                    {directors.length ? (
+                        <CustomSelect
+                            compact
+                            value={director}
+                            onChange={setDirector}
+                            dropdownClassName="player-filter-menu"
+                            className={filterSelectClass}
+                            triggerProps={tvFilterTrigger('library-director')}
+                            options={[
+                                { value: '', label: t('mediaPlayerPage.allDirectors') },
+                                ...directors.map((row) => ({ value: row.key, label: row.title })),
+                            ]}
+                        />
+                    ) : null}
+                    {writers.length ? (
+                        <CustomSelect
+                            compact
+                            value={writer}
+                            onChange={setWriter}
+                            dropdownClassName="player-filter-menu"
+                            className={filterSelectClass}
+                            triggerProps={tvFilterTrigger('library-writer')}
+                            options={[
+                                { value: '', label: t('mediaPlayerPage.allWriters') },
+                                ...writers.map((row) => ({ value: row.key, label: row.title })),
+                            ]}
+                        />
+                    ) : null}
+                    {producers.length ? (
+                        <CustomSelect
+                            compact
+                            value={producer}
+                            onChange={setProducer}
+                            dropdownClassName="player-filter-menu"
+                            className={filterSelectClass}
+                            triggerProps={tvFilterTrigger('library-producer')}
+                            options={[
+                                { value: '', label: t('mediaPlayerPage.allProducers') },
+                                ...producers.map((row) => ({ value: row.key, label: row.title })),
+                            ]}
+                        />
+                    ) : null}
+                    {labels.length ? (
+                        <CustomSelect
+                            compact
+                            value={label}
+                            onChange={setLabel}
+                            dropdownClassName="player-filter-menu"
+                            className={filterSelectClass}
+                            triggerProps={tvFilterTrigger('library-label')}
+                            options={[
+                                { value: '', label: t('mediaPlayerPage.allLabels') },
+                                ...labels.map((row) => ({ value: row.key, label: row.title })),
                             ]}
                         />
                     ) : null}
@@ -1002,9 +1400,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                             setUnwatched((prev) => !prev);
                             setInProgress(false);
                         }}
-                        className={`rounded-lg border px-3 py-2 text-xs font-bold ${
-                            unwatched ? 'border-plex/50 bg-plex/15 text-plex' : 'border-border bg-white/5 text-muted'
-                        }`}
+                        className={filterToggleClass(unwatched)}
                     >
                         {t('mediaPlayerPage.unwatched')}
                     </button>
@@ -1017,20 +1413,41 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                             setInProgress((prev) => !prev);
                             setUnwatched(false);
                         }}
-                        className={`rounded-lg border px-3 py-2 text-xs font-bold ${
-                            inProgress ? 'border-plex/50 bg-plex/15 text-plex' : 'border-border bg-white/5 text-muted'
-                        }`}
+                        className={filterToggleClass(inProgress)}
                     >
                         {t('mediaPlayerPage.inProgress')}
                     </button>
+                    {!musicLibrary ? (
+                        <>
+                            <button
+                                type="button"
+                                data-tv-item={tvShell ? '1' : undefined}
+                                data-tv-action={tvShell ? '1' : undefined}
+                                data-tv-key={tvShell ? 'library-hdr' : undefined}
+                                onClick={() => setHdr((prev) => !prev)}
+                                className={filterToggleClass(hdr)}
+                            >
+                                {t('mediaPlayerPage.hdr')}
+                            </button>
+                            <button
+                                type="button"
+                                data-tv-item={tvShell ? '1' : undefined}
+                                data-tv-action={tvShell ? '1' : undefined}
+                                data-tv-key={tvShell ? 'library-duplicates' : undefined}
+                                onClick={() => setDuplicate((prev) => !prev)}
+                                className={filterToggleClass(duplicate)}
+                            >
+                                {t('mediaPlayerPage.duplicates')}
+                            </button>
+                        </>
+                    ) : null}
                 </div>
             ) : null}
 
             {loading && tab === 'home' && !homeHubs.length ? (
-                <div className="flex w-full flex-col gap-6">
-                    <DiscoverHomeRowSkeleton />
-                    <DiscoverHomeRowSkeleton />
-                    <DiscoverHomeRowSkeleton />
+                <div className="flex min-h-[40vh] w-full flex-col items-center justify-center gap-3">
+                    <Loader2 className="h-10 w-10 animate-spin text-white/70" aria-hidden />
+                    <p className="text-sm font-semibold text-muted">{t('mediaPlayerPage.loading')}</p>
                 </div>
             ) : loading && tab === 'collections' && !collections.length && !tvShell ? (
                 <PosterGridSkeleton
@@ -1184,6 +1601,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                                     className={upgraderPosterGridClass(gridSize)}
                                     style={upgraderPosterGridStyle(gridSize)}
                                     data-tv-browse-grid="1"
+                                    data-browse-abs-start={browseAbsStart}
                                     data-tv-rail={tvShell ? '1' : undefined}
                                 >
                                     {items.map((item, index) => {

@@ -937,6 +937,12 @@ export const resolveStartPlaybackQualityId = (
     return def;
 };
 
+const IMAGE_SUBTITLE_CODEC = /^(pgs|vobsub|dvd|dvdsub|image|bluray|dvbsub|xsub)$/i;
+
+export const subtitleCodecNeedsBurn = (codec?: string | null) => (
+    IMAGE_SUBTITLE_CODEC.test(String(codec || '').trim())
+);
+
 export const nativeDirectPlayEligible = (input: {
     canDirectPlay?: boolean;
     playbackMode?: string;
@@ -944,17 +950,22 @@ export const nativeDirectPlayEligible = (input: {
     audioStreamId?: string | null;
     subtitleStreamId?: string | null;
     audioTracks?: Array<{ id: string; codec?: string | null }>;
+    subtitles?: Array<{ id: string; codec?: string | null }>;
     source?: { audioCodec?: string | null };
 }, opts?: {
     qualityId?: string | null;
     audioStreamId?: string | null;
     subtitleStreamId?: string | null;
 }) => {
+    const sub = String(opts?.subtitleStreamId ?? input.subtitleStreamId ?? '').replace(/\D/g, '');
+    if (sub) {
+        const track = (input.subtitles || []).find((row) => String(row.id || '') === sub);
+        // Image subs still need burn-in. Text / unknown ride with Direct Play.
+        if (track && subtitleCodecNeedsBurn(track.codec)) return false;
+    }
     if (input.playbackMode === 'directPlay') return true;
     const quality = nativeSafeQualityId(opts?.qualityId ?? input.qualityId);
     if (quality !== 'original' || !input.canDirectPlay) return false;
-    const sub = String(opts?.subtitleStreamId ?? input.subtitleStreamId ?? '').replace(/\D/g, '');
-    if (sub) return false;
     const audioId = opts?.audioStreamId ?? input.audioStreamId ?? '';
     const codec = (input.audioTracks || []).find((row) => row.id === audioId)?.codec
         || input.source?.audioCodec
@@ -975,6 +986,7 @@ export const buildNativePlaybackSrc = (
         canDirectPlay?: boolean;
         playbackMode?: string;
         audioTracks?: Array<{ id: string; codec?: string | null }>;
+        subtitles?: Array<{ id: string; codec?: string | null }>;
         source?: { audioCodec?: string | null };
     },
     opts?: {
@@ -1012,6 +1024,11 @@ export const buildNativePlaybackSrc = (
     // still apply the new session / offset / stream ids on rebuilds.
     if (/^https?:\/\//i.test(src)) {
         const transcode = /\/transcode\/|\.m3u8(\?|$)/i.test(src);
+        // Cannot turn an HLS URL back into Direct Play by patching query params —
+        // leave empty so the caller retries startMediaPlayerPlayback /portal play.
+        if (transcode && eligible && qualityId === 'original') {
+            return '';
+        }
         return withPlayerStreamQuery(src, {
             session: sessionId,
             'X-Plex-Session-Identifier': sessionId,
@@ -1137,8 +1154,8 @@ export const buildPlaybackSrc = (ratingKey: string, {
     mediaIndex?: number;
 } = {}) => {
     const original = !qualityId || qualityId === 'original';
-    const noSubs = !String(subtitleStreamId || '').replace(/\D/g, '');
-    if (directFile && original && noSubs) {
+    // Native Direct Play can keep text subs via ExoPlayer track selection.
+    if (directFile && original) {
         const caps = browserPlaybackCaps();
         const native = isPlexNativePlayback();
         return buildFilePlaybackSrc(ratingKey, {

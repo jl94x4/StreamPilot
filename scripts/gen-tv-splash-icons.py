@@ -65,9 +65,23 @@ def make_square(logo: Image.Image, size: int, fill: float, bg=BG) -> Image.Image
     return paste_center(canvas, mark)
 
 
+def make_badge(logo: Image.Image) -> Image.Image:
+    """Crop the Pilot "P" (with play triangle) for readable launcher icons."""
+    h = logo.height
+    side = min(logo.width, h)
+    # Wordmark is Stream|Pilot — keep the right square on the P mark.
+    left = max(0, logo.width - side)
+    badge = logo.crop((left, 0, left + side, h))
+    bbox = badge.getbbox()
+    if bbox:
+        badge = badge.crop(bbox)
+    return badge
+
+
 def main() -> None:
     logo = load_logo()
-    print("logo", logo.size)
+    badge = make_badge(logo)
+    print("logo", logo.size, "badge", badge.size)
 
     save(make_square(logo, 420, 0.9), RES / "drawable-nodpi" / "splash_icon.png")
 
@@ -86,11 +100,11 @@ def main() -> None:
         "xxxhdpi": 432,
     }
     for dens, size in launcher.items():
-        icon = make_square(logo, size, 0.92)
+        icon = make_square(badge, size, 0.86)
         save(icon, RES / f"mipmap-{dens}" / "ic_launcher.png")
         save(icon, RES / f"mipmap-{dens}" / "ic_launcher_round.png")
     for dens, size in foreground.items():
-        save(make_square(logo, size, 0.78, bg=(0, 0, 0, 0)), RES / f"mipmap-{dens}" / "ic_launcher_foreground.png")
+        save(make_square(badge, size, 0.72, bg=(0, 0, 0, 0)), RES / f"mipmap-{dens}" / "ic_launcher_foreground.png")
 
     banner = make_banner(logo, 320, 180)
     save(banner, RES / "drawable" / "tv_banner.png")
@@ -118,11 +132,11 @@ def main() -> None:
         save(make_splash(logo, w, h, wf, hf), RES / folder / "splash.png")
 
     for size, fill, name in (
-        (192, 0.9, "pwa-icon-192.png"),
-        (512, 0.9, "pwa-icon-512.png"),
-        (512, 0.72, "pwa-icon-maskable-512.png"),
+        (192, 0.86, "pwa-icon-192.png"),
+        (512, 0.86, "pwa-icon-512.png"),
+        (512, 0.7, "pwa-icon-maskable-512.png"),
     ):
-        save(make_square(logo, size, fill, bg=(11, 15, 25, 255)), STATIC / name)
+        save(make_square(badge, size, fill, bg=(11, 15, 25, 255)), STATIC / name)
 
 
 if __name__ == "__main__":

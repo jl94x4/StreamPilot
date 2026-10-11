@@ -34,6 +34,7 @@ import {
     isFilePlaybackSrc,
     isPlexPartPlaybackSrc,
     isPlexNativePlayback,
+    nativeDirectPlayEligible,
     nativeSafeQualityId,
     offsetMsFromSrc,
     playbackModeFromSrc,
@@ -242,11 +243,30 @@ const hlsErrorMessage = (data: { response?: { code?: number; text?: string; data
     return fallback;
 };
 
-const stopPlaybackSession = (sessionId?: string | null, serverId?: string | null, ratingKey?: string | null) => {
+const stopPlaybackSession = (
+    sessionId?: string | null,
+    serverId?: string | null,
+    ratingKey?: string | null,
+    opts?: { timeMs?: number; durationMs?: number },
+) => {
     const id = String(sessionId || '').trim();
     if (!id) return Promise.resolve();
+    const key = String(ratingKey || '').trim();
+    const stopWork = Promise.all([
+        key
+            ? reportMediaPlayerTimeline({
+                ratingKey: key,
+                sessionId: id,
+                state: 'stopped',
+                timeMs: Math.max(0, Math.floor(opts?.timeMs || 0)),
+                durationMs: Math.max(0, Math.floor(opts?.durationMs || 0)),
+                serverId,
+            })
+            : Promise.resolve(),
+        stopMediaPlayerTranscode(id, { serverId, ratingKey: key || null }),
+    ]).then(() => undefined);
     return Promise.race([
-        stopMediaPlayerTranscode(id, { serverId, ratingKey }),
+        stopWork,
         new Promise<void>((resolve) => window.setTimeout(resolve, 4000)),
     ]);
 };
@@ -422,6 +442,10 @@ export const MediaPlayerVideo: React.FC<Props> = ({
     const lastTapRef = useRef<{ at: number; x: number } | null>(null);
     const hideTimerRef = useRef<number>(0);
     const streamRestartGenRef = useRef(0);
+    /** Cancels superseded native stream rebuilds (seek / track / quality) so ghosts don't pile up. */
+    const streamChangeGenRef = useRef(0);
+    /** Blocks timeline pings while stop→start rebuild runs (avoids resurrecting stopped sessions). */
+    const streamRebuildInFlightRef = useRef(false);
     const playbackSrcRef = useRef(session.src);
     const nativeExclusiveRef = useRef(nativeExclusive);
     nativeExclusiveRef.current = nativeExclusive;
@@ -686,7 +710,12 @@ export const MediaPlayerVideo: React.FC<Props> = ({
             qualities: (session.qualities || []).map((row) => ({ id: row.id, label: row.label })),
             audioTracks: (session.audioTracks || []).map((row) => ({ id: row.id, label: row.label })),
             subtitles: [
-                ...(session.subtitles || []).map((row) => ({ id: row.id, label: row.label })),
+                ...(session.subtitles || []).map((row) => ({
+                    id: row.id,
+                    label: row.label,
+                    language: row.language || row.languageTag || null,
+                    codec: row.codec || null,
+                })),
                 ...sidecarSubs,
             ],
             versions: (session.versions || []).map((row) => ({
@@ -892,6 +921,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                             setDurationMs(next);
                         }
                         if (event.state === 'stopped') return;
+                        if (streamRebuildInFlightRef.current) return;
                         const state = event.state === 'paused' || event.state === 'buffering'
                             ? event.state
                             : 'playing';
@@ -909,11 +939,6 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                         const nextMediaIndex = event.mediaIndex != null ? event.mediaIndex : (session.mediaIndex || 0);
                         if (event.mediaIndex != null) {
                             writeMediaIndexChoice(session.item.ratingKey, nextMediaIndex);
-                        }
-                        const offset = Math.max(0, Math.floor(event.positionMs ?? currentMsRef.current ?? 0));
-                        const previous = playSessionIdFromSrc(playbackSrcRef.current);
-                        if (previous) {
-                            await stopPlaybackSession(previous, session.item.serverId, session.item.ratingKey);
                         }
                         if (event.qualityId != null) {
                             setQualityId(event.qualityId);
@@ -937,37 +962,99 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                                 session.subtitles || [],
                             );
                         }
+                        // In-place text-track switch on Direct Play — no stream rebuild / seek break.
+                        if (event.reason === 'tracks') return;
+                        const changeGen = ++streamChangeGenRef.current;
+                        streamRebuildInFlightRef.current = true;
+                        const offset = Math.max(0, Math.floor(event.positionMs ?? currentMsRef.current ?? 0));
+                        const previous = playSessionIdFromSrc(playbackSrcRef.current) || session.sessionId;
+                        const serverId = session.item.serverId;
+                        const ratingKey = session.item.ratingKey;
+                        const durationHint = Math.max(0, Math.floor(durationMsRef.current || session.item.durationMs || 0));
+                        // Reuse after stop for seek AND quality/audio rebuilds — one Now Playing row.
+                        const reuseSessionId = previous || '';
+                        const abandonStarted = (startedId: string) => {
+                            // Never stop a reused id on cancel — a newer rebuild still owns it.
+                            if (startedId && startedId !== reuseSessionId) {
+                                void stopPlaybackSession(startedId, serverId, ratingKey, {
+                                    timeMs: offset,
+                                    durationMs: durationHint,
+                                });
+                            }
+                        };
+                        if (previous) {
+                            await stopPlaybackSession(previous, serverId, ratingKey, {
+                                timeMs: offset,
+                                durationMs: durationHint,
+                            });
+                        }
+                        if (cancelled || gen !== nativeOpenGenRef.current || changeGen !== streamChangeGenRef.current) {
+                            if (changeGen === streamChangeGenRef.current) streamRebuildInFlightRef.current = false;
+                            return;
+                        }
                         const safeQuality = nativeSafeQualityId(nextQuality);
                         let nextSrc = '';
+                        let startedId = '';
                         if (isPlexDirectMode()) {
-                            const fresh = await startMediaPlayerPlayback(session.item.ratingKey, {
+                            const startOpts = {
                                 offsetMs: offset,
                                 qualityId: safeQuality,
                                 mediaIndex: nextMediaIndex,
                                 audioStreamId: nextAudio,
                                 subtitleStreamId: nextSub,
-                                serverId: session.item.serverId,
-                                delivery: event.reason === 'seek' ? 'hls' : undefined,
-                            }).catch(() => null);
+                                serverId,
+                                delivery: event.reason === 'seek' ? 'hls' as const : undefined,
+                                sessionId: reuseSessionId || undefined,
+                            };
+                            let fresh = await startMediaPlayerPlayback(ratingKey, startOpts).catch(() => null);
+                            // Original←transcode sometimes races stop; one retry after a beat.
+                            if (!fresh?.src && safeQuality === 'original') {
+                                await new Promise<void>((resolve) => window.setTimeout(resolve, 250));
+                                if (cancelled || gen !== nativeOpenGenRef.current || changeGen !== streamChangeGenRef.current) {
+                                    if (changeGen === streamChangeGenRef.current) streamRebuildInFlightRef.current = false;
+                                    return;
+                                }
+                                fresh = await startMediaPlayerPlayback(ratingKey, startOpts).catch(() => null);
+                            }
                             nextSrc = String(fresh?.src || '');
+                            startedId = String(fresh?.sessionId || playSessionIdFromSrc(nextSrc) || '');
                         }
-                        if (!nextSrc) nextSrc = buildNativePlaybackSrc(session.item.ratingKey, {
-                            ...session,
-                            playbackMode: safeQuality === 'original' && session.canDirectPlay
-                                ? session.playbackMode
-                                : 'transcode',
-                        }, {
-                            sessionId: newPlaySessionId(),
-                            offsetMs: offset,
-                            qualityId: safeQuality,
-                            audioStreamId: nextAudio,
-                            subtitleStreamId: nextSub,
-                            mediaIndex: nextMediaIndex,
-                        });
-                        playbackSrcRef.current = nextSrc;
-                        setPlaybackSrc(nextSrc);
-                        setPlaybackMode(playbackModeFromSrc(nextSrc, nextQuality, session.canCopyOriginal));
+                        if (cancelled || gen !== nativeOpenGenRef.current || changeGen !== streamChangeGenRef.current) {
+                            abandonStarted(startedId);
+                            if (changeGen === streamChangeGenRef.current) streamRebuildInFlightRef.current = false;
+                            return;
+                        }
+                        if (!nextSrc) {
+                            nextSrc = buildNativePlaybackSrc(ratingKey, {
+                                ...session,
+                                src: playbackSrcRef.current || session.src,
+                                playbackMode: safeQuality === 'original' && session.canDirectPlay
+                                    ? 'directPlay'
+                                    : 'transcode',
+                                qualityId: safeQuality,
+                                canDirectPlay: session.canDirectPlay,
+                            }, {
+                                sessionId: reuseSessionId || newPlaySessionId(),
+                                offsetMs: offset,
+                                qualityId: safeQuality,
+                                audioStreamId: nextAudio,
+                                subtitleStreamId: nextSub,
+                                mediaIndex: nextMediaIndex,
+                            });
+                            startedId = playSessionIdFromSrc(nextSrc) || reuseSessionId;
+                        }
+                        if (cancelled || gen !== nativeOpenGenRef.current || changeGen !== streamChangeGenRef.current) {
+                            abandonStarted(startedId);
+                            if (changeGen === streamChangeGenRef.current) streamRebuildInFlightRef.current = false;
+                            return;
+                        }
+                        if (!nextSrc) {
+                            // Stay on the current stream rather than loading an empty URL.
+                            streamRebuildInFlightRef.current = false;
+                            return;
+                        }
                         const nextAuth = absoluteWithAuth(nextSrc);
+                        // Native first so JS timeline doesn't switch session while Exo still pings the old URL.
                         await updateNativePlayerSrc({
                             url: nextAuth.url,
                             headers: nextAuth.headers,
@@ -979,6 +1066,15 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                                 mediaIndex: nextMediaIndex,
                             }),
                         });
+                        if (cancelled || gen !== nativeOpenGenRef.current || changeGen !== streamChangeGenRef.current) {
+                            abandonStarted(startedId);
+                            if (changeGen === streamChangeGenRef.current) streamRebuildInFlightRef.current = false;
+                            return;
+                        }
+                        playbackSrcRef.current = nextSrc;
+                        setPlaybackSrc(nextSrc);
+                        setPlaybackMode(playbackModeFromSrc(nextSrc, nextQuality, session.canCopyOriginal));
+                        streamRebuildInFlightRef.current = false;
                     },
                     onSubtitleSearch: ({ ratingKey }) => {
                         if (cancelled || gen !== nativeOpenGen) return;
@@ -1003,13 +1099,23 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                         if (cancelled || gen !== nativeOpenGen || nativeClosedRef.current) return;
                         const current = playbackSrcRef.current;
                         // One Direct Play→HLS retry. A second failure must not open the web player.
-                        const canRetry = isFilePlaybackSrc(current) || isPlexPartPlaybackSrc(current);
+                        // plexDirect serves absolute PMS URLs (/library/parts/ or host m3u8).
+                        const absolutePms = /^https?:\/\//i.test(String(current || ''))
+                            && !String(current || '').includes('/api/media-player/');
+                        const canRetry = isFilePlaybackSrc(current)
+                            || isPlexPartPlaybackSrc(current)
+                            || (isPlexDirectMode() && absolutePms && !/\.m3u8(\?|$)/i.test(String(current || '')));
                         if (nativeFileHlsFallbackRef.current || !canRetry) return;
                         nativeFileHlsFallbackRef.current = true;
                         void (async () => {
                             const offset = Math.max(0, Math.floor(currentMsRef.current || session.offsetMs || 0));
+                            const previous = playSessionIdFromSrc(current) || session.sessionId;
+                            if (previous) {
+                                await stopPlaybackSession(previous, session.item.serverId, session.item.ratingKey);
+                            }
+                            if (cancelled || gen !== nativeOpenGenRef.current || nativeClosedRef.current) return;
                             let hlsSrc = '';
-                            if (isPlexPartPlaybackSrc(current) || isPlexDirectMode()) {
+                            if (isPlexPartPlaybackSrc(current) || isPlexDirectMode() || absolutePms) {
                                 const fresh = await startMediaPlayerPlayback(session.item.ratingKey, {
                                     offsetMs: offset,
                                     qualityId: nativeSafeQualityId(qualityIdRef.current || session.qualityId),
@@ -1018,12 +1124,13 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                                     mediaIndex: session.mediaIndex || 0,
                                     serverId: session.item.serverId,
                                     delivery: 'hls',
+                                    sessionId: previous || undefined,
                                 }).catch(() => null);
                                 hlsSrc = String(fresh?.src || '');
                             }
                             if (!hlsSrc) {
                                 hlsSrc = buildPlaybackSrc(session.item.ratingKey, {
-                                    sessionId: newPlaySessionId(),
+                                    sessionId: previous || newPlaySessionId(),
                                     offsetMs: offset,
                                     qualityId: nativeSafeQualityId(qualityIdRef.current || session.qualityId),
                                     audioStreamId: audioStreamIdRef.current || session.audioStreamId,
@@ -1033,6 +1140,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                                     mediaIndex: session.mediaIndex || 0,
                                 });
                             }
+                            if (!hlsSrc || cancelled || gen !== nativeOpenGenRef.current || nativeClosedRef.current) return;
                             playbackSrcRef.current = hlsSrc;
                             setPlaybackSrc(hlsSrc);
                             setPlaybackMode(playbackModeFromSrc(hlsSrc, qualityIdRef.current, session.canCopyOriginal));
@@ -1150,7 +1258,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
         const previous = playSessionIdFromSrc(playbackSrcRef.current);
         const gen = ++streamRestartGenRef.current;
         if (nextMode) setPlaybackMode(nextMode);
-        void stopPlaybackSession(previous).finally(() => {
+        void stopPlaybackSession(previous, session.item.serverId, session.item.ratingKey).finally(() => {
             if (streamRestartGenRef.current !== gen) return;
             playbackSrcRef.current = nextSrc;
             setPlaybackSrc(nextSrc);
@@ -1362,6 +1470,8 @@ export const MediaPlayerVideo: React.FC<Props> = ({
             timeOverride?: number,
             extra?: { ended?: boolean },
         ) => {
+            // Rebuild owns stop/start — don't revive the old session mid-swap.
+            if (state !== 'stopped' && streamRebuildInFlightRef.current) return;
             const video = nativeExclusive ? null : videoRef.current;
             const timeMs = timeOverride != null
                 ? Math.max(0, Math.floor(timeOverride))
@@ -1629,13 +1739,23 @@ export const MediaPlayerVideo: React.FC<Props> = ({
             Math.floor(((videoRef.current?.currentTime || 0) * 1000) || currentMsRef.current || 0),
         );
         const audioUnchanged = !nextAudio || nextAudio === (session.audioStreamId || audioStreamId);
+        const directFile = audioUnchanged && nativeDirectPlayEligible({
+            canDirectPlay: session.canDirectPlay,
+            playbackMode: session.playbackMode,
+            qualityId: nextQuality,
+            audioStreamId: nextAudio,
+            subtitleStreamId: nextSub,
+            audioTracks,
+            subtitles,
+            source: session.source,
+        }, { qualityId: nextQuality, audioStreamId: nextAudio, subtitleStreamId: nextSub });
         const nextSrc = buildPlaybackSrc(session.item.ratingKey, {
             sessionId: newPlaySessionId(),
             offsetMs: offset,
             qualityId: nextQuality,
             audioStreamId: nextAudio,
             subtitleStreamId: nextSub,
-            directFile: !!session.canDirectPlay && (nextQuality === 'original' || !nextQuality) && !String(nextSub || '').replace(/\D/g, '') && audioUnchanged,
+            directFile,
             copy: nextQuality !== 'original' || session.canCopyOriginal !== false,
             mediaIndex: session.mediaIndex || 0,
         });
@@ -1811,7 +1931,16 @@ export const MediaPlayerVideo: React.FC<Props> = ({
             qualityId: qualityId || session.qualityId || 'original',
             audioStreamId,
             subtitleStreamId,
-            directFile: !!session.canDirectPlay && !String(subtitleStreamId || '').replace(/\D/g, ''),
+            directFile: nativeDirectPlayEligible({
+                canDirectPlay: session.canDirectPlay,
+                playbackMode: session.playbackMode,
+                qualityId: qualityId || session.qualityId,
+                audioStreamId,
+                subtitleStreamId,
+                audioTracks: session.audioTracks,
+                subtitles: session.subtitles,
+                source: session.source,
+            }, { qualityId: qualityId || session.qualityId, audioStreamId, subtitleStreamId }),
             copy: (qualityId || session.qualityId) !== 'original' || session.canCopyOriginal !== false,
             mediaIndex: session.mediaIndex || 0,
         }));
