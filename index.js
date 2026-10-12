@@ -18,10 +18,11 @@ import net from 'net';
 import dns from 'dns/promises';
 import v8 from 'v8';
 import os from 'os';
-import { makeCircularPwaIconPng, makeMaskablePwaIconPng, makeNotificationBadgePng, makeNotificationBadgeMaskPng } from './lib/circular-icon.js';
+import { makeHomeScreenIconPng, makeNotificationBadgePng, makeNotificationBadgeMaskPng } from './lib/circular-icon.js';
 import {
     getPortalBrandingIconCacheKey,
     fetchPortalBrandingRasterBuffer,
+    readApplicationLogoBuffer,
     syncPortalPwaStaticIcons,
     fetchPortalEmailLogoBuffer,
     resolvePortalPushIconUrl,
@@ -16582,58 +16583,63 @@ const detectRasterImageType = (buffer) => {
     return null;
 };
 
-/** Cover-crop + circular mask — matches login/hero `rounded-full object-cover` treatment. */
-const sendCircularPwaIcon = async (res, buffer, size = 192) => {
+/** Opaque launcher / apple-touch icon (wide wordmarks letterboxed; square marks circular-on-dark). */
+const sendHomeScreenPwaIcon = async (res, buffer, size = 192) => {
     try {
         if (!detectRasterImageType(buffer)) {
             return sendPwaSizedIconFile(res, size);
         }
-        const png = makeCircularPwaIconPng(buffer, size, { badgeScale: SERVER_PWA_ICON_BADGE_SCALE });
+        const png = makeHomeScreenIconPng(buffer, size, { badgeScale: SERVER_PWA_ICON_BADGE_SCALE });
         res.setHeader('Content-Type', 'image/png');
         res.setHeader('Cache-Control', 'public, max-age=3600');
         return res.send(png);
     } catch (e) {
-        log(`Circular PWA icon failed: ${e.message}`);
+        log(`Home-screen PWA icon failed: ${e.message}`);
         return sendPwaSizedIconFile(res, size);
     }
 };
 
-/** Tab favicon: fill the canvas (no PWA launcher padding) so corners stay transparent. */
+/** Tab favicon + apple-touch: always opaque so iOS does not fall back to a letter glyph. */
 const FAVICON_SIZE = 180;
 
-const sendCircularFaviconPng = async (res, buffer) => {
-    const png = makeCircularPwaIconPng(buffer, FAVICON_SIZE, { badgeScale: 1 });
+const sendHomeScreenFaviconPng = async (res, buffer) => {
+    const png = makeHomeScreenIconPng(buffer, FAVICON_SIZE, {
+        badgeScale: 1,
+        wideLogoScale: 0.92,
+    });
     res.setHeader('Content-Type', 'image/png');
     res.setHeader('Cache-Control', 'public, max-age=3600');
     return res.send(png);
 };
 
-const sendCircularStaticLogoFallback = async (res) => {
+const sendHomeScreenStaticLogoFallback = async (res) => {
     try {
-        const logoPath = path.join(process.cwd(), 'static', 'logo.png');
-        const buffer = await fs.readFile(logoPath);
-        return sendCircularFaviconPng(res, buffer);
+        const buffer = await readApplicationLogoBuffer(path.join(process.cwd(), 'static'), {
+            preferAppIcon: true,
+        });
+        if (!buffer) throw new Error('no application logo');
+        return sendHomeScreenFaviconPng(res, buffer);
     } catch (e) {
-        log(`Circular static logo failed: ${e.message}`);
+        log(`Home-screen static logo failed: ${e.message}`);
         return sendStaticLogoFallback(res);
     }
 };
 
-const sendCircularFavicon = async (res, buffer) => {
+const sendHomeScreenFavicon = async (res, buffer) => {
     try {
         if (!detectRasterImageType(buffer)) {
-            return sendCircularStaticLogoFallback(res);
+            return sendHomeScreenStaticLogoFallback(res);
         }
-        return sendCircularFaviconPng(res, buffer);
+        return sendHomeScreenFaviconPng(res, buffer);
     } catch (e) {
-        log(`Circular favicon failed: ${e.message}`);
-        return sendCircularStaticLogoFallback(res);
+        log(`Home-screen favicon failed: ${e.message}`);
+        return sendHomeScreenStaticLogoFallback(res);
     }
 };
 
 const sendBrandingImageBuffer = async (res, buffer, contentTypeHint = '', pwaSize = 0) => {
     if (pwaSize) {
-        return sendCircularPwaIcon(res, buffer, pwaSize);
+        return sendHomeScreenPwaIcon(res, buffer, pwaSize);
     }
     const detected = detectRasterImageType(buffer);
     if (!detected) {
@@ -16684,23 +16690,23 @@ app.get('/api/public/pwa-icon', publicReadRateLimit, async (req, res) => {
             });
         }
         if (!buffer) {
-            log('[Branding] PWA icon route: server branding unavailable');
-            return res.status(404).send('');
+            log('[Branding] PWA icon route: server branding unavailable — falling back to app logo');
+            return sendHomeScreenStaticLogoFallback(res);
         }
 
         if (maskable) {
-            const png = makeMaskablePwaIconPng(buffer, size, { badgeScale: SERVER_PWA_MASKABLE_BADGE_SCALE });
+            const png = makeHomeScreenIconPng(buffer, size, {
+                badgeScale: SERVER_PWA_MASKABLE_BADGE_SCALE,
+                wideLogoScale: 0.88,
+            });
             res.setHeader('Content-Type', 'image/png');
             res.setHeader('Cache-Control', 'public, max-age=3600');
             return res.send(png);
         }
-        return sendCircularPwaIcon(res, buffer, size);
+        return sendHomeScreenPwaIcon(res, buffer, size);
     } catch (e) {
         log(`PWA icon failed: ${e.message}`);
-        if (normalizePwaIconSource((await loadFile(CONFIG_PATH, {}).catch(() => ({}))).pwaIconSource) === 'application') {
-            return sendPwaSizedIconFile(res, size);
-        }
-        return res.status(500).send('');
+        return sendHomeScreenStaticLogoFallback(res);
     }
 });
 
@@ -16760,7 +16766,7 @@ app.get('/api/public/branding-icon', publicReadRateLimit, async (req, res) => {
     try {
         const config = await loadFile(CONFIG_PATH, {});
         if (normalizePwaIconSource(config.pwaIconSource) === 'application') {
-            return sendCircularStaticLogoFallback(res);
+            return sendHomeScreenStaticLogoFallback(res);
         }
         const customFaviconUrl = String(config.customFaviconUrl || '').trim();
         if (customFaviconUrl) {
@@ -16769,7 +16775,8 @@ app.get('/api/public/branding-icon', publicReadRateLimit, async (req, res) => {
                 BRANDING_DIR,
             );
             if (faviconBuffer) {
-                return sendBrandingImageBuffer(res, faviconBuffer);
+                // Custom favicon uploads are usually already square; still force opaque home-screen output.
+                return sendHomeScreenFavicon(res, faviconBuffer);
             }
         }
         const profile = await getAdminProfile(config);
@@ -16778,12 +16785,12 @@ app.get('/api/public/branding-icon', publicReadRateLimit, async (req, res) => {
             timeoutMs: 10000,
         });
         if (buffer) {
-            return sendCircularFavicon(res, buffer);
+            return sendHomeScreenFavicon(res, buffer);
         }
-        return sendCircularStaticLogoFallback(res);
+        return sendHomeScreenStaticLogoFallback(res);
     } catch (e) {
         log(`Branding icon failed: ${e.message}`);
-        return sendCircularStaticLogoFallback(res);
+        return sendHomeScreenStaticLogoFallback(res);
     }
 });
 

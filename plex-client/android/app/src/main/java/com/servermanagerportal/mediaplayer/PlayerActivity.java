@@ -1674,6 +1674,7 @@ public class PlayerActivity extends AppCompatActivity {
     void applyUpdateSrc(String url, @Nullable String nextHeadersJson, long offsetMs, boolean resetFallbackLadder) {
         if (player == null || url == null || url.trim().isEmpty()) return;
         errorGeneration++;
+        final String previousUrl = currentUrl;
         currentUrl = url.trim();
         absorbTimelineFromUrl(currentUrl);
         if (nextHeadersJson != null && !nextHeadersJson.isEmpty()) {
@@ -1699,12 +1700,23 @@ public class PlayerActivity extends AppCompatActivity {
         clearSubtitleCues();
         applyAudioTrackPreference();
         applyTextTrackPreference();
+        // HLS↔Direct Play needs a hard media reset — setMediaItem alone can leave Exo
+        // buffering on the old HLS pipeline after Original is selected again.
+        final boolean crossDelivery = (previousUrl != null && !previousUrl.isEmpty())
+            && (isTranscodeUrl(previousUrl) != isTranscodeUrl(currentUrl));
         // stop() only when something is loaded — idle+stop left some TVs unable to play().
         if (player.getPlaybackState() != Player.STATE_IDLE || player.getMediaItemCount() > 0) {
             try {
                 player.stop();
             } catch (Throwable ignored) {
                 /* Media3 stop is best-effort before replacing the item. */
+            }
+        }
+        if (crossDelivery) {
+            try {
+                player.clearMediaItems();
+            } catch (Throwable ignored) {
+                /* best-effort before queueStartPosition */
             }
         }
         queueStartPosition(currentUrl, offsetMs);

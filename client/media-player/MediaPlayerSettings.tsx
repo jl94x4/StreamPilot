@@ -628,27 +628,6 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                 <SettingsTabBar tabs={settingsTabs} value={settingsTab} onChange={setSettingsTab} tv />
 
                 <div className="flex flex-col gap-3" data-tv-settings-panel="1">
-                {settingsTab === 'home' && canEditHero ? (
-                    <section className="flex flex-col gap-3">
-                        <h2 className="text-xs font-black uppercase tracking-widest text-muted">
-                            {t('mediaPlayerPage.homeHeroMode')}
-                        </h2>
-                        <TvChoiceRow
-                            title={t('mediaPlayerPage.homeHeroMode')}
-                            description={t('mediaPlayerPage.homeHeroModeHint')}
-                            value={heroMode}
-                            options={heroModeOptions}
-                            onChange={(value) => setHeroMode(value as HeroMode)}
-                        />
-                        <TvToggleRow
-                            title={t('mediaPlayerPage.homeHeroSeasonalWindow')}
-                            description={t('mediaPlayerPage.homeHeroSeasonalWindowHint')}
-                            checked={heroSeasonalOnly}
-                            onChange={setHeroSeasonalOnly}
-                        />
-                    </section>
-                ) : null}
-
                 {settingsTab === 'home' ? (
                 <section className="flex flex-col gap-3">
                     <TvToggleRow

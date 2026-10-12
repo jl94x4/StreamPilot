@@ -11,6 +11,8 @@
     "build:version": "node build-version.js && node build-release-notes.js",
     "build": "npm run build:css && npm run build:js && npm run build:version",
     "build:plex-client": "node scripts/build-plex-client.mjs",
+    "bump:plex-client-version": "node scripts/bump-plex-client-version.mjs",
+    "build:apk": "node scripts/build-plex-client-apk.mjs",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs",

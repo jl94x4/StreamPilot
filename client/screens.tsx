@@ -279,10 +279,10 @@ export const updateFavicon = (thumbUrl: string | null | undefined) => {
         appleLink.setAttribute('sizes', '180x180');
         document.head.appendChild(appleLink);
     }
-    // Always use the circular branding-icon — raw custom logos are square PNGs
-    // (the hero/nav clip them with CSS; favicons cannot).
+    // Opaque home-screen branding-icon (wide wordmarks letterboxed). iOS rejects
+    // near-transparent circular crops and falls back to a letter glyph.
     const version = encodeURIComponent(String(thumbUrl || 'default').slice(-64));
-    const href = portalUrl(`/api/public/branding-icon?v=${version}&round=1`);
+    const href = portalUrl(`/api/public/branding-icon?v=${version}&hs=2`);
     link.href = href;
     appleLink.href = href;
 };

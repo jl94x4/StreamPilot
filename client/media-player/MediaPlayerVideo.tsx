@@ -1008,9 +1008,21 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                         let nextSrc = '';
                         let startedId = '';
                         if (isPlexDirectMode()) {
-                            // Native only emits reason=seek when a remux/restart is required
-                            // (transcode window or unseekable Direct Play). Always answer with HLS —
-                            // handing back another /library/parts/ URL leaves Exo stuck and looks like a crash.
+                            const currentSrc = String(playbackSrcRef.current || '');
+                            const currentlyHls = isHlsPlaybackSrc(currentSrc)
+                                || /\/hls\//i.test(currentSrc)
+                                || /\/video\/:\/transcode\//i.test(currentSrc)
+                                || /\/transcode\//i.test(currentSrc);
+                            // Seek remux always needs HLS. Ladder quality switches stay on HLS.
+                            // Returning to Original must NOT force HLS — that blocks Direct Play
+                            // (Tautulli keeps showing Transcode after 720→Original).
+                            const wantOriginal = safeQuality === 'original';
+                            const forceHls = event.reason === 'seek' || (currentlyHls && !wantOriginal);
+                            // Fresh session when leaving a capped HLS ladder for Original so PMS
+                            // does not keep the prior 720/1080 decision on the reused session id.
+                            const sessionForStart = (currentlyHls && wantOriginal)
+                                ? newPlaySessionId()
+                                : (reuseSessionId || undefined);
                             const startOpts = {
                                 offsetMs: offset,
                                 qualityId: safeQuality,
@@ -1018,21 +1030,33 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                                 audioStreamId: nextAudio,
                                 subtitleStreamId: nextSub,
                                 serverId,
-                                delivery: event.reason === 'seek' ? 'hls' as const : undefined,
-                                sessionId: reuseSessionId || undefined,
+                                delivery: forceHls ? 'hls' as const : undefined,
+                                sessionId: sessionForStart,
                             };
                             let fresh = await startMediaPlayerPlayback(ratingKey, startOpts).catch(() => null);
-                            // Original←transcode sometimes races stop; retry with backoff.
-                            if (!fresh?.src && safeQuality === 'original') {
+                            // Original←transcode sometimes races stop; retry Direct Play first.
+                            if (!fresh?.src && wantOriginal) {
                                 for (const waitMs of [250, 600]) {
                                     await new Promise<void>((resolve) => window.setTimeout(resolve, waitMs));
                                     if (cancelled || gen !== nativeOpenGenRef.current || changeGen !== streamChangeGenRef.current) {
                                         if (changeGen === streamChangeGenRef.current) streamRebuildInFlightRef.current = false;
                                         return;
                                     }
-                                    fresh = await startMediaPlayerPlayback(ratingKey, startOpts).catch(() => null);
+                                    fresh = await startMediaPlayerPlayback(ratingKey, {
+                                        ...startOpts,
+                                        delivery: undefined,
+                                        sessionId: newPlaySessionId(),
+                                    }).catch(() => null);
                                     if (fresh?.src) break;
                                 }
+                            }
+                            // Last resort for Original: remux HLS if Direct Play still refused.
+                            if (!fresh?.src && wantOriginal) {
+                                fresh = await startMediaPlayerPlayback(ratingKey, {
+                                    ...startOpts,
+                                    delivery: 'hls',
+                                    sessionId: newPlaySessionId(),
+                                }).catch(() => null);
                             }
                             nextSrc = String(fresh?.src || '');
                             startedId = String(fresh?.sessionId || playSessionIdFromSrc(nextSrc) || '');
@@ -1061,6 +1085,20 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                             });
                             startedId = playSessionIdFromSrc(nextSrc) || reuseSessionId;
                         }
+                        if (!nextSrc && isPlexDirectMode()) {
+                            const forced = await startMediaPlayerPlayback(ratingKey, {
+                                offsetMs: offset,
+                                qualityId: safeQuality,
+                                mediaIndex: nextMediaIndex,
+                                audioStreamId: nextAudio,
+                                subtitleStreamId: nextSub,
+                                serverId,
+                                delivery: safeQuality === 'original' ? undefined : 'hls',
+                                sessionId: newPlaySessionId(),
+                            }).catch(() => null);
+                            nextSrc = String(forced?.src || '');
+                            startedId = String(forced?.sessionId || playSessionIdFromSrc(nextSrc) || '');
+                        }
                         if (cancelled || gen !== nativeOpenGenRef.current || changeGen !== streamChangeGenRef.current) {
                             abandonStarted(startedId);
                             if (changeGen === streamChangeGenRef.current) streamRebuildInFlightRef.current = false;
@@ -1068,6 +1106,22 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                         }
                         if (!nextSrc) {
                             // Stay on the current stream rather than loading an empty URL.
+                            // Re-assert current src so native clears the buffering spinner.
+                            const stay = String(playbackSrcRef.current || '');
+                            if (stay) {
+                                const stayAuth = absoluteWithAuth(stay);
+                                await updateNativePlayerSrc({
+                                    url: stayAuth.url,
+                                    headers: stayAuth.headers,
+                                    offsetMs: offset,
+                                    session: buildNativeSession(nextItemRef.current, {
+                                        qualityId: qualityIdRef.current || session.qualityId,
+                                        audioStreamId: nextAudio,
+                                        subtitleStreamId: nextSub,
+                                        mediaIndex: nextMediaIndex,
+                                    }),
+                                }).catch(() => false);
+                            }
                             streamRebuildInFlightRef.current = false;
                             return;
                         }
