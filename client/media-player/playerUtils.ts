@@ -1081,11 +1081,12 @@ export const nativeAudioIsDirectPlayable = (codec?: string | null) => {
     if (!BITSTREAM_NATIVE_AUDIO.test(value)) return true;
     try {
         const passthrough = window.localStorage?.getItem('portal-media-player-settings');
-        if (!passthrough) return true;
+        if (!passthrough) return false;
         const parsed = JSON.parse(passthrough);
-        return parsed?.audioPassthrough !== false;
+        // Opt-in only — bitstream DP can native-abort on TVs without passthrough.
+        return parsed?.audioPassthrough === true;
     } catch {
-        return true;
+        return false;
     }
 };
 

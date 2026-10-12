@@ -7,6 +7,7 @@ import { getPortalBaseUrl, getSessionToken, writeStoredSessionToken } from './co
 import { STORAGE_PLEX_CLIENT_ID, STORAGE_PLEX_HOME_USER, STORAGE_PLEX_OWNER_TOKEN, STORAGE_PLEX_SERVER, STORAGE_PLEX_SERVERS } from './configStorageKeys';
 import { DEFAULT_PLAYER_SETTINGS, type PlayerSettings } from '../media-player/playerSettings';
 import { PLAYER_SERVERS_EVENT } from '../media-player/playerMemory';
+import { canHttpDirectPlay, subtitleCodecNeedsBurn } from '../../lib/media-player/directPlayCaps.js';
 
 type PlexServer = {
     id: string;
@@ -1360,24 +1361,27 @@ const QUALITIES = [
     { id: '480-1.5', label: '480p · 1.5 Mbps', videoResolution: '480', maxVideoBitrate: 1500, videoQuality: 40 },
 ];
 
-const IMAGE_SUBTITLE_CODECS = /^(pgs|vobsub|dvd|dvdsub|image|bluray|dvbsub|xsub)$/i;
+const nativeAudioPassthroughEnabled = () => {
+    try {
+        const raw = window.localStorage?.getItem('portal-media-player-settings');
+        if (!raw) return false;
+        const parsed = JSON.parse(raw);
+        // Opt-in only — TrueHD/DTS DP hard-crashes SoCs without real HDMI passthrough.
+        return parsed?.audioPassthrough === true;
+    } catch {
+        return false;
+    }
+};
 
 const nativeAudioPlayable = (stream?: PlexMeta | null) => {
     const codec = String(stream?.codec || '').toLowerCase();
     if (!codec) return true;
     if (!/^(truehd|mlp|dca|dts|dtsc|dtsh|dtshd|dtsma|dtsl)$/i.test(codec)) return true;
-    try {
-        const raw = window.localStorage?.getItem('portal-media-player-settings');
-        if (!raw) return true;
-        const parsed = JSON.parse(raw);
-        return parsed?.audioPassthrough !== false;
-    } catch {
-        return true;
-    }
+    return nativeAudioPassthroughEnabled();
 };
 
 const isTextSubtitle = (stream?: PlexMeta | null) => (
-    !IMAGE_SUBTITLE_CODECS.test(String(stream?.codec || '').toLowerCase())
+    !subtitleCodecNeedsBurn(stream?.codec)
 );
 
 const clampPlayOffsetMs = (offsetMs: number, durationMs: number) => {
@@ -1469,8 +1473,16 @@ const playSrc = (
         : null;
     // Only burn when we know the stream is image-based. Missing metadata must not
     // force burn-in (that stacks under Exo text captions during quality swaps).
-    const burnSubtitles = Boolean(subtitleId) && !!subStream && !isTextSubtitle(subStream);
-    const direct = !forceHls && !burnSubtitles && audioOk && !!part?.key && (
+    const burnSubtitles = Boolean(subtitleId) && !!subStream && subtitleCodecNeedsBurn(subStream.codec);
+    // Same rules as portal /file Direct Play (codec/container/subs/passthrough).
+    const capsOk = canHttpDirectPlay(meta, {
+        client: 'android',
+        mediaIndex,
+        audioStreamId: audioId,
+        subtitleStreamId: subtitleId,
+        audioPassthrough: nativeAudioPassthroughEnabled(),
+    });
+    const direct = !forceHls && !burnSubtitles && capsOk && !!part?.key && (
         audioOnly || !quality || quality.id === 'original'
     );
     const metadataPath = String(meta.key || '').startsWith('/')
@@ -2258,16 +2270,37 @@ const withPlexSortParam = (path: string, sort: string) => {
 };
 
 const isHeroRowLabel = (value: unknown) => /^(heros|heroes)$/i.test(String(value || '').trim());
+const isReservedHomeMergeLabel = (value: unknown) => {
+    const tag = String(value || '').trim();
+    if (!tag) return true;
+    if (isHeroRowLabel(tag)) return true;
+    if (/^(kometa|collexions)$/i.test(tag)) return true;
+    return false;
+};
+
+const collectionLabelsFromMeta = (meta: PlexMeta | null | undefined) => {
+    const out: string[] = [];
+    const seen = new Set<string>();
+    asList<PlexMeta>(meta?.Label).forEach((row) => {
+        const tag = String(typeof row === 'string' ? row : (row?.tag || row?.title || '')).trim();
+        if (!tag) return;
+        const key = tag.toLowerCase();
+        if (seen.has(key)) return;
+        seen.add(key);
+        out.push(tag);
+    });
+    return out;
+};
 
 const collectionMetaHasHeroLabel = (meta: PlexMeta | null | undefined) => (
-    asList<PlexMeta>(meta?.Label).some((row) => isHeroRowLabel(
-        typeof row === 'string' ? row : (row?.tag || row?.title || ''),
-    ))
+    collectionLabelsFromMeta(meta).some((label) => isHeroRowLabel(label))
 );
 
 const heroLabelCache = new Map<string, boolean>();
 const collectionRandomCache = new Map<string, boolean>();
+const collectionLabelsCache = new Map<string, string[]>();
 const HERO_LABEL_STORE = 'smp-hero-row-labels-v1';
+const COLLECTION_LABELS_STORE = 'smp-collection-labels-v1';
 let heroLabelStoreLoaded = false;
 
 const loadHeroLabelStore = () => {
@@ -2277,6 +2310,15 @@ const loadHeroLabelStore = () => {
         const parsed = JSON.parse(localStorage.getItem(HERO_LABEL_STORE) || '{}') as Record<string, unknown>;
         Object.entries(parsed).forEach(([key, value]) => {
             if (value === true || value === false) heroLabelCache.set(key, value);
+        });
+    } catch { /* ignore */ }
+    try {
+        const parsed = JSON.parse(localStorage.getItem(COLLECTION_LABELS_STORE) || '{}') as Record<string, unknown>;
+        Object.entries(parsed).forEach(([key, value]) => {
+            if (!Array.isArray(value)) return;
+            // Persist empty arrays too — otherwise unlabeled collections refetch every open.
+            const labels = value.map((row) => String(row || '').trim()).filter(Boolean);
+            collectionLabelsCache.set(key, labels);
         });
     } catch { /* ignore */ }
 };
@@ -2290,6 +2332,13 @@ const saveHeroLabelStore = () => {
         });
         localStorage.setItem(HERO_LABEL_STORE, JSON.stringify(out));
     } catch { /* ignore quota */ }
+    try {
+        const out: Record<string, string[]> = {};
+        collectionLabelsCache.forEach((value, key) => {
+            out[key] = value;
+        });
+        localStorage.setItem(COLLECTION_LABELS_STORE, JSON.stringify(out));
+    } catch { /* ignore quota */ }
 };
 
 const applyHeroRowFlags = <T extends {
@@ -2297,15 +2346,19 @@ const applyHeroRowFlags = <T extends {
     randomOrder?: boolean;
     hubKey?: string | null;
     items?: unknown[];
+    labels?: string[];
 }>(hubs: T[], server: PlexServer) => {
     loadHeroLabelStore();
     return hubs.map((hub) => {
         const id = String(hub.collectionRatingKey || '');
-        const hero = Boolean(id && heroLabelCache.get(`${server.id}:${id}`));
-        const random = Boolean(hub.randomOrder) || Boolean(id && collectionRandomCache.get(`${server.id}:${id}`));
-        if (!hero && !random) return hub;
+        const cacheKey = id ? `${server.id}:${id}` : '';
+        const hero = Boolean(cacheKey && heroLabelCache.get(cacheKey));
+        const random = Boolean(hub.randomOrder) || Boolean(cacheKey && collectionRandomCache.get(cacheKey));
+        const labels = cacheKey ? collectionLabelsCache.get(cacheKey) : undefined;
+        if (!hero && !random && !labels?.length) return hub;
         const next = {
             ...hub,
+            ...(labels?.length ? { labels } : {}),
             ...(hero ? { heroRow: true } : {}),
             ...(random ? { randomOrder: true } : {}),
         };
@@ -2321,19 +2374,38 @@ const stampHeroRows = async <T extends { collectionRatingKey?: string | null; ra
     loadHeroLabelStore();
     const ids = [...new Set(hubs.map((hub) => String(hub.collectionRatingKey || '')).filter(Boolean))];
     if (!ids.length) return applyHeroRowFlags(hubs, server);
-    await mapPool(ids, 4, async (id) => {
+    // Only hit PMS for collections missing from cache. Empty label arrays are valid hits
+    // (unlabeled collections) so libraries do not refetch them on every open.
+    const missing = ids.filter((id) => {
         const cacheKey = `${server.id}:${id}`;
-        if (heroLabelCache.has(cacheKey) && collectionRandomCache.has(cacheKey)) return;
-        const data = await pms(`/library/collections/${encodeURIComponent(id)}`, server, 6000).catch(() => null);
-        if (!data) return;
-        const container = containerOf(data);
-        const meta = asList<PlexMeta>(container.Metadata)[0]
-            || asList<PlexMeta>(container.Directory)[0]
-            || null;
-        heroLabelCache.set(cacheKey, collectionMetaHasHeroLabel(meta));
-        collectionRandomCache.set(cacheKey, isRandomOrderSource(meta));
+        return !(
+            heroLabelCache.has(cacheKey)
+            && collectionRandomCache.has(cacheKey)
+            && collectionLabelsCache.has(cacheKey)
+        );
     });
-    saveHeroLabelStore();
+    if (missing.length) {
+        await mapPool(missing, 4, async (id) => {
+            const cacheKey = `${server.id}:${id}`;
+            const data = await pms(`/library/collections/${encodeURIComponent(id)}`, server, 6000).catch(() => null);
+            if (!data) {
+                // Negative-cache so a dead collection does not block every library open.
+                heroLabelCache.set(cacheKey, false);
+                collectionRandomCache.set(cacheKey, false);
+                collectionLabelsCache.set(cacheKey, []);
+                return;
+            }
+            const container = containerOf(data);
+            const meta = asList<PlexMeta>(container.Metadata)[0]
+                || asList<PlexMeta>(container.Directory)[0]
+                || null;
+            const labels = collectionLabelsFromMeta(meta);
+            heroLabelCache.set(cacheKey, collectionMetaHasHeroLabel(meta));
+            collectionRandomCache.set(cacheKey, isRandomOrderSource(meta));
+            collectionLabelsCache.set(cacheKey, labels);
+        });
+        saveHeroLabelStore();
+    }
     return applyHeroRowFlags(hubs, server);
 };
 
@@ -2458,7 +2530,109 @@ const attachHeroCoverArt = async <T extends { heroRow?: boolean; items?: Array<{
     });
 };
 
-const mergeSameTitleHubs = <T extends { title?: string; heroRow?: boolean; randomOrder?: boolean; items?: Array<{ ratingKey?: string; dedupeKey?: string | null }> }>(rows: T[]) => {
+type MergeableHub = {
+    title?: string;
+    identifier?: string;
+    heroRow?: boolean;
+    randomOrder?: boolean;
+    labels?: string[];
+    hubKey?: string | null;
+    collectionRatingKey?: string | null;
+    items?: Array<{ ratingKey?: string; dedupeKey?: string | null }>;
+};
+
+const mergeHubItemLists = <T extends MergeableHub>(group: T[], opts: { title?: string; randomOrder?: boolean } = {}) => {
+    const seen = new Set<string>();
+    const items: NonNullable<T['items']> = [];
+    group.forEach((hub) => {
+        (hub.items || []).forEach((item) => {
+            const id = String(item.dedupeKey || item.ratingKey || '');
+            if (!id || seen.has(id)) return;
+            seen.add(id);
+            items.push(item);
+        });
+    });
+    const first = group[0];
+    return {
+        ...first,
+        ...(opts.title != null ? { title: opts.title } : {}),
+        heroRow: group.some((hub) => hub.heroRow) || undefined,
+        randomOrder: opts.randomOrder || undefined,
+        items: opts.randomOrder ? shuffleItems(items) : items,
+    };
+};
+
+/** Collections that share a non-Hero Plex Label become one home row titled with that label. */
+const mergeSameLabelHubs = <T extends MergeableHub>(rows: T[]) => {
+    const labelStats = new Map<string, { count: number; display: string }>();
+    rows.forEach((hub) => {
+        const seenOnHub = new Set<string>();
+        (hub.labels || []).forEach((raw) => {
+            const display = String(raw || '').trim();
+            if (!display || isReservedHomeMergeLabel(display)) return;
+            const key = display.toLowerCase();
+            if (seenOnHub.has(key)) return;
+            seenOnHub.add(key);
+            const cur = labelStats.get(key) || { count: 0, display };
+            cur.count += 1;
+            labelStats.set(key, cur);
+        });
+    });
+    const shared = new Set(
+        [...labelStats.entries()]
+            .filter(([, info]) => info.count >= 2)
+            .map(([key]) => key),
+    );
+    if (!shared.size) return rows;
+
+    const assignMergeKey = (hub: T) => {
+        const candidates = (hub.labels || [])
+            .map((raw) => String(raw || '').trim())
+            .filter((label) => label && !isReservedHomeMergeLabel(label))
+            .map((label) => label.toLowerCase())
+            .filter((key) => shared.has(key));
+        if (!candidates.length) return '';
+        candidates.sort((a, b) => {
+            const byCount = (labelStats.get(b)?.count || 0) - (labelStats.get(a)?.count || 0);
+            return byCount !== 0 ? byCount : a.localeCompare(b);
+        });
+        return candidates[0];
+    };
+
+    type OrderEntry = { type: 'hub'; index: number } | { type: 'label'; key: string };
+    const order: OrderEntry[] = [];
+    const groups = new Map<string, T[]>();
+    rows.forEach((hub, index) => {
+        const mergeKey = assignMergeKey(hub);
+        if (!mergeKey) {
+            order.push({ type: 'hub', index });
+            return;
+        }
+        if (!groups.has(mergeKey)) {
+            groups.set(mergeKey, []);
+            order.push({ type: 'label', key: mergeKey });
+        }
+        groups.get(mergeKey)?.push(hub);
+    });
+
+    return order.map((entry) => {
+        if (entry.type === 'hub') return rows[entry.index];
+        const group = groups.get(entry.key) || [];
+        if (group.length < 2) return group[0];
+        const randomOrder = group.some((hub) => hub.randomOrder);
+        const display = labelStats.get(entry.key)?.display || group[0]?.title || entry.key;
+        const labels = [...new Set(group.flatMap((hub) => hub.labels || []).map((label) => String(label || '').trim()).filter(Boolean))];
+        return {
+            ...mergeHubItemLists(group, { title: display, randomOrder }),
+            labels,
+            identifier: `label:${entry.key}`,
+            collectionRatingKey: group.find((hub) => hub.collectionRatingKey)?.collectionRatingKey || null,
+            hubKey: group.find((hub) => hub.hubKey)?.hubKey || null,
+        };
+    });
+};
+
+const mergeSameTitleHubs = <T extends MergeableHub>(rows: T[]) => {
     const order: string[] = [];
     const groups = new Map<string, T[]>();
     rows.forEach((hub) => {
@@ -2478,22 +2652,7 @@ const mergeSameTitleHubs = <T extends { title?: string; heroRow?: boolean; rando
             if (!randomOrder || !Array.isArray(hub.items) || hub.items.length < 2) return hub;
             return { ...hub, items: shuffleItems(hub.items) };
         }
-        const seen = new Set<string>();
-        const items: NonNullable<T['items']> = [];
-        group.forEach((hub) => {
-            (hub.items || []).forEach((item) => {
-                const id = String(item.dedupeKey || item.ratingKey || '');
-                if (!id || seen.has(id)) return;
-                seen.add(id);
-                items.push(item);
-            });
-        });
-        return {
-            ...group[0],
-            heroRow: group.some((hub) => hub.heroRow) || undefined,
-            randomOrder: randomOrder || undefined,
-            items: randomOrder ? shuffleItems(items) : items,
-        };
+        return mergeHubItemLists(group, { randomOrder });
     });
 };
 
@@ -3347,10 +3506,10 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                 partial: true,
             };
         }
-        const hubs = mergeSameTitleHubs(rows.flatMap((row) => row.hubs.map((hub) => ({
+        const hubs = mergeSameTitleHubs(mergeSameLabelHubs(rows.flatMap((row) => row.hubs.map((hub) => ({
             ...hub,
             identifier: many ? `${row.server.id}:${hub.identifier}` : hub.identifier,
-        }))));
+        })))));
         const libraries = rows.flatMap((row) => row.sections);
         return {
             libraries,
@@ -3596,10 +3755,14 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                         items: await refreshContinueEpisodeThumbs(hub.items, active),
                     });
                 }
-                // Match Home: stamp Heros/Heroes collection labels as widescreen rows.
+                // Match Home: stamp Heros/Heroes labels, then merge same-label / same-title rows.
                 return attachHeroCoverArt(await stampHeroRows(next, active), active);
             });
-            return { title: sectionRow?.title || 'Library', type: sectionRow?.type || 'movie', hubs: stamped };
+            return {
+                title: sectionRow?.title || 'Library',
+                type: sectionRow?.type || 'movie',
+                hubs: mergeSameTitleHubs(mergeSameLabelHubs(stamped)),
+            };
         }
         const pinnedType = sectionAllType(sectionRow?.type || '');
         if (!pinnedType || !requested.answered) {

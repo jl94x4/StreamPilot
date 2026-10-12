@@ -900,7 +900,7 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
     }
 
     return (
-        <div className="flex w-full flex-col gap-6 pb-24">
+        <div className="flex w-full flex-col gap-6 pb-24" data-player-settings="1">
             <MediaPlayerAlphaBanner />
             <div>
                 <button

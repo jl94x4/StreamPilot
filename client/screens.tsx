@@ -12679,7 +12679,8 @@ export const Navigation: React.FC<NavigationProps> = ({ currentRoute, onNavigate
         'watch-sync': { label: t('navigation.watchSync'), icon: Clapperboard, route: 'watch-sync', adminOnly: true },
         'requests': { label: t('navigation.requests'), icon: ClipboardList, route: 'requests', adminOnly: true },
         'request': { label: t('navigation.discoverRequest'), icon: Sparkles, route: 'discovery', adminOnly: false },
-        'media-player': { label: t('navigation.mediaPlayer'), icon: PlayCircle, route: 'media-player', adminOnly: false, alpha: true },
+        // Admin-only until member Plex identity is always resolved (owner-token fallback polluted CW).
+        'media-player': { label: t('navigation.mediaPlayer'), icon: PlayCircle, route: 'media-player', adminOnly: true, alpha: true },
         'about': { label: t('navigation.about'), icon: Info, route: 'about', adminOnly: false },
         'profile': { label: t('navigation.profile'), icon: User, route: 'profile', adminOnly: false },
         'preferences': { label: t('navigation.preferences'), icon: SlidersHorizontal, route: 'preferences', adminOnly: false },

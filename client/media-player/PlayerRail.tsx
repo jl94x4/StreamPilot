@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Carousel, DiscoverSectionHeader, discoverRowCardWidthClass, posterGridCardWidthStyle, posterGridScaleRem, useDiscoverI18n } from './host';
 import { PlayerPosterCard } from './PlayerPosterCard';
-import { PlayerViewMoreCard } from './PlayerViewMoreCard';
+import { PlayerViewMoreCard, type ViewMoreShelfSource } from './PlayerViewMoreCard';
 import { isMusicPlayerItem, playerCardImageUrl, prefetchPlayerImages, resizePlexArtUrl, resolvePlayerCardAspect } from './playerUtils';
 import type { PlayerItem, PlayerPlayOptions } from './types';
 
@@ -34,6 +34,8 @@ export const PlayerRail: React.FC<{
     aspect?: '2/3' | 'square' | '16/9';
     onViewAll?: () => void;
     viewAllLabel?: string;
+    /** Where to load View More shelf posters from (beyond the visible rail). */
+    viewMoreShelf?: ViewMoreShelfSource | null;
     staggerIndex?: number;
     /** Stable id for TV per-row focus restore (up/down). */
     rowId?: string;
@@ -58,6 +60,7 @@ export const PlayerRail: React.FC<{
     aspect,
     onViewAll,
     viewAllLabel,
+    viewMoreShelf = null,
     staggerIndex = 0,
     rowId,
     restoreFocusKey,
@@ -166,9 +169,13 @@ export const PlayerRail: React.FC<{
                         <PlayerViewMoreCard
                             label={moreLabel.startsWith('common.') ? 'View More' : moreLabel}
                             title={title}
-                            aspect={items.every((row) => isMusicPlayerItem(row) || row.cardAspect === 'square')
-                                ? 'square'
-                                : (aspect === 'square' || aspect === '16/9' ? aspect : '2/3')}
+                            aspect={aspect === '16/9' || aspect === 'square'
+                                ? aspect
+                                : (items.every((row) => isMusicPlayerItem(row) || row.cardAspect === 'square')
+                                    ? 'square'
+                                    : '2/3')}
+                            excludeRatingKeys={items.map((item) => String(item.ratingKey || '').trim()).filter(Boolean)}
+                            shelfSource={viewMoreShelf}
                             onClick={onViewAll}
                         />
                     </div>

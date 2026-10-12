@@ -437,6 +437,8 @@ export const MediaPlayerVideo: React.FC<Props> = ({
     const queuedNext = playNextQueue[0] || null;
     const upNextItem = queuedNext || nextItem;
     const fallbackUsedRef = useRef(false);
+    /** 0 = none, 1 = DP→HLS done, 2 = HLS→1080p done (matches ExoPlayer ladder). */
+    const streamFallbackStageRef = useRef(0);
     const nativeFileHlsFallbackRef = useRef(false);
     const clickTimerRef = useRef<number>(0);
     const lastTapRef = useRef<{ at: number; x: number } | null>(null);
@@ -575,6 +577,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
         setControlsVisible(true);
         fallbackUsedRef.current = false;
         nativeFileHlsFallbackRef.current = false;
+        streamFallbackStageRef.current = 0;
         setNativeExclusive(isPlexNativePlayback());
         setNativeCover(isPlexNativePlayback() && !nativeMinimizedRef.current);
     }, [session.sessionId]);
@@ -966,6 +969,9 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                         if (event.reason === 'tracks') return;
                         const changeGen = ++streamChangeGenRef.current;
                         streamRebuildInFlightRef.current = true;
+                        // Intentional rebuild — allow DP→HLS→1080 fallbacks again.
+                        streamFallbackStageRef.current = 0;
+                        nativeFileHlsFallbackRef.current = false;
                         const offset = Math.max(0, Math.floor(event.positionMs ?? currentMsRef.current ?? 0));
                         const previous = playSessionIdFromSrc(playbackSrcRef.current) || session.sessionId;
                         const serverId = session.item.serverId;
@@ -996,6 +1002,9 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                         let nextSrc = '';
                         let startedId = '';
                         if (isPlexDirectMode()) {
+                            // Native only emits reason=seek when a remux/restart is required
+                            // (transcode window or unseekable Direct Play). Always answer with HLS —
+                            // handing back another /library/parts/ URL leaves Exo stuck and looks like a crash.
                             const startOpts = {
                                 offsetMs: offset,
                                 qualityId: safeQuality,
@@ -1007,14 +1016,17 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                                 sessionId: reuseSessionId || undefined,
                             };
                             let fresh = await startMediaPlayerPlayback(ratingKey, startOpts).catch(() => null);
-                            // Original←transcode sometimes races stop; one retry after a beat.
+                            // Original←transcode sometimes races stop; retry with backoff.
                             if (!fresh?.src && safeQuality === 'original') {
-                                await new Promise<void>((resolve) => window.setTimeout(resolve, 250));
-                                if (cancelled || gen !== nativeOpenGenRef.current || changeGen !== streamChangeGenRef.current) {
-                                    if (changeGen === streamChangeGenRef.current) streamRebuildInFlightRef.current = false;
-                                    return;
+                                for (const waitMs of [250, 600]) {
+                                    await new Promise<void>((resolve) => window.setTimeout(resolve, waitMs));
+                                    if (cancelled || gen !== nativeOpenGenRef.current || changeGen !== streamChangeGenRef.current) {
+                                        if (changeGen === streamChangeGenRef.current) streamRebuildInFlightRef.current = false;
+                                        return;
+                                    }
+                                    fresh = await startMediaPlayerPlayback(ratingKey, startOpts).catch(() => null);
+                                    if (fresh?.src) break;
                                 }
-                                fresh = await startMediaPlayerPlayback(ratingKey, startOpts).catch(() => null);
                             }
                             nextSrc = String(fresh?.src || '');
                             startedId = String(fresh?.sessionId || playSessionIdFromSrc(nextSrc) || '');
@@ -1098,15 +1110,25 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                     onError: () => {
                         if (cancelled || gen !== nativeOpenGen || nativeClosedRef.current) return;
                         const current = playbackSrcRef.current;
-                        // One Direct Play→HLS retry. A second failure must not open the web player.
-                        // plexDirect serves absolute PMS URLs (/library/parts/ or host m3u8).
+                        // Match ExoPlayer: DP→HLS, then HLS Original→1080p. Do not open the web player.
                         const absolutePms = /^https?:\/\//i.test(String(current || ''))
                             && !String(current || '').includes('/api/media-player/');
-                        const canRetry = isFilePlaybackSrc(current)
+                        const onDirect = isFilePlaybackSrc(current)
                             || isPlexPartPlaybackSrc(current)
-                            || (isPlexDirectMode() && absolutePms && !/\.m3u8(\?|$)/i.test(String(current || '')));
-                        if (nativeFileHlsFallbackRef.current || !canRetry) return;
-                        nativeFileHlsFallbackRef.current = true;
+                            || (isPlexDirectMode() && absolutePms && !isHlsPlaybackSrc(current));
+                        const onHls = isHlsPlaybackSrc(current)
+                            || String(current || '').includes('/hls/')
+                            || String(current || '').includes('/video/:/transcode/');
+                        const stage = streamFallbackStageRef.current;
+                        if (onDirect && stage < 1) {
+                            streamFallbackStageRef.current = 1;
+                            nativeFileHlsFallbackRef.current = true;
+                        } else if (onHls && stage < 2) {
+                            streamFallbackStageRef.current = 2;
+                        } else {
+                            return;
+                        }
+                        const fallbackStage = streamFallbackStageRef.current;
                         void (async () => {
                             const offset = Math.max(0, Math.floor(currentMsRef.current || session.offsetMs || 0));
                             const previous = playSessionIdFromSrc(current) || session.sessionId;
@@ -1114,11 +1136,18 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                                 await stopPlaybackSession(previous, session.item.serverId, session.item.ratingKey);
                             }
                             if (cancelled || gen !== nativeOpenGenRef.current || nativeClosedRef.current) return;
+                            const qualityForStage = fallbackStage >= 2
+                                ? '1080-12'
+                                : nativeSafeQualityId(qualityIdRef.current || session.qualityId);
+                            if (fallbackStage >= 2) {
+                                setQualityId(qualityForStage);
+                                qualityIdRef.current = qualityForStage;
+                            }
                             let hlsSrc = '';
-                            if (isPlexPartPlaybackSrc(current) || isPlexDirectMode() || absolutePms) {
+                            if (isPlexPartPlaybackSrc(current) || isPlexDirectMode() || absolutePms || onHls) {
                                 const fresh = await startMediaPlayerPlayback(session.item.ratingKey, {
                                     offsetMs: offset,
-                                    qualityId: nativeSafeQualityId(qualityIdRef.current || session.qualityId),
+                                    qualityId: qualityForStage,
                                     audioStreamId: audioStreamIdRef.current || session.audioStreamId,
                                     subtitleStreamId: subtitleStreamIdRef.current ?? session.subtitleStreamId ?? '',
                                     mediaIndex: session.mediaIndex || 0,
@@ -1132,18 +1161,18 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                                 hlsSrc = buildPlaybackSrc(session.item.ratingKey, {
                                     sessionId: previous || newPlaySessionId(),
                                     offsetMs: offset,
-                                    qualityId: nativeSafeQualityId(qualityIdRef.current || session.qualityId),
+                                    qualityId: qualityForStage,
                                     audioStreamId: audioStreamIdRef.current || session.audioStreamId,
                                     subtitleStreamId: subtitleStreamIdRef.current ?? session.subtitleStreamId ?? '',
                                     directFile: false,
-                                    copy: session.canCopyOriginal !== false,
+                                    copy: fallbackStage < 2 && session.canCopyOriginal !== false,
                                     mediaIndex: session.mediaIndex || 0,
                                 });
                             }
                             if (!hlsSrc || cancelled || gen !== nativeOpenGenRef.current || nativeClosedRef.current) return;
                             playbackSrcRef.current = hlsSrc;
                             setPlaybackSrc(hlsSrc);
-                            setPlaybackMode(playbackModeFromSrc(hlsSrc, qualityIdRef.current, session.canCopyOriginal));
+                            setPlaybackMode(playbackModeFromSrc(hlsSrc, qualityForStage, session.canCopyOriginal));
                             const nextAuth = absoluteWithAuth(hlsSrc);
                             await updateNativePlayerSrc({
                                 url: nextAuth.url,
@@ -1375,12 +1404,14 @@ export const MediaPlayerVideo: React.FC<Props> = ({
 
         const fail = (message?: string) => {
             if (cancelled) return;
-            if (!fallbackUsedRef.current) {
+            const offset = Math.max(
+                0,
+                Math.floor(((video.currentTime || 0) * 1000) || currentMsRef.current || session.offsetMs || 0),
+            );
+            // Align with native: first force HLS, then step Original→1080p.
+            if (streamFallbackStageRef.current < 1) {
+                streamFallbackStageRef.current = 1;
                 fallbackUsedRef.current = true;
-                const offset = Math.max(
-                    0,
-                    Math.floor(((video.currentTime || 0) * 1000) || currentMsRef.current || session.offsetMs || 0),
-                );
                 const nextSrc = buildPlaybackSrc(session.item.ratingKey, {
                     sessionId: newPlaySessionId(),
                     offsetMs: offset,
@@ -1388,10 +1419,29 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                     audioStreamId,
                     subtitleStreamId,
                     directFile: false,
+                    copy: session.canCopyOriginal !== false,
+                    mediaIndex: session.mediaIndex || 0,
+                });
+                if (nextSrc !== playbackSrc) {
+                    swapPlaybackSrc(nextSrc, 'transcode');
+                    return;
+                }
+            }
+            if (streamFallbackStageRef.current < 2) {
+                streamFallbackStageRef.current = 2;
+                const nextSrc = buildPlaybackSrc(session.item.ratingKey, {
+                    sessionId: newPlaySessionId(),
+                    offsetMs: offset,
+                    qualityId: '1080-12',
+                    audioStreamId,
+                    subtitleStreamId,
+                    directFile: false,
                     copy: false,
                     mediaIndex: session.mediaIndex || 0,
                 });
                 if (nextSrc !== playbackSrc) {
+                    setQualityId('1080-12');
+                    qualityIdRef.current = '1080-12';
                     swapPlaybackSrc(nextSrc, 'transcode');
                     return;
                 }
@@ -1904,11 +1954,18 @@ export const MediaPlayerVideo: React.FC<Props> = ({
         return () => window.clearTimeout(hideTimerRef.current);
     }, [bumpControls]);
 
+    const qualityChip = String(qualityId || session.qualityId || '').trim();
+    const qualityShort = qualityChip === 'original' || !qualityChip
+        ? ''
+        : qualityChip.replace(/-/g, 'p · ').replace(/^(\d+)p/, '$1p');
     const modeLabel = playbackMode === 'directPlay'
         ? t('mediaPlayerPage.playbackDirectPlay')
         : playbackMode === 'directStream'
             ? t('mediaPlayerPage.playbackDirectStream')
-            : t('mediaPlayerPage.playbackTranscode');
+            : [
+                t('mediaPlayerPage.playbackTranscode'),
+                qualityShort || (streamFallbackStageRef.current >= 2 ? '1080p' : ''),
+            ].filter(Boolean).join(' · ');
     const sourceRes = formatPlayerResolution(session.source?.height, session.source?.videoResolution);
     const sourceCodec = String(session.source?.videoCodec || '').toUpperCase();
     const seekTo = (ms: number) => {

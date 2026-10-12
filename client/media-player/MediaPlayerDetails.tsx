@@ -157,22 +157,6 @@ const episodeTechPills = (ep?: PlayerItem | null): Array<FileInfoPill | { key: s
     return pills.filter((pill) => pill.label);
 };
 
-const isNewEpisodeBadge = (row: PlayerItem) => {
-    if (row.watched) return false;
-    const now = Date.now();
-    const windowMs = 6 * 24 * 60 * 60 * 1000;
-    const stamps: number[] = [];
-    const added = Number(row.addedAt || 0);
-    if (added) stamps.push(added > 1e12 ? added : added * 1000);
-    if (row.originallyAvailableAt) {
-        const aired = new Date(row.originallyAvailableAt).getTime();
-        if (Number.isFinite(aired)) stamps.push(aired);
-    }
-    if (!stamps.length) return false;
-    const newest = Math.max(...stamps);
-    return newest <= now + 24 * 60 * 60 * 1000 && now - newest < windowMs;
-};
-
 const applyTvDetailsSurface = (rgb: string) => {
     const tv = typeof document !== 'undefined' && (
         document.documentElement?.dataset?.tv === '1'
@@ -2827,9 +2811,6 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                             )}
                                             {isTvShell && row.index != null ? (
                                                 <span className="player-episode-index">E{row.index}</span>
-                                            ) : null}
-                                            {isTvShell && isNewEpisodeBadge(row) ? (
-                                                <span className="player-new-episode">{t('mediaPlayerPage.newEpisode')}</span>
                                             ) : null}
                                             {row.watched ? (
                                                 <span

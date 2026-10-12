@@ -104,7 +104,7 @@ export const en = {
     },
     mediaPlayerPage: {
         alphaTitle: 'Alpha feature',
-        alphaNotice: 'Media Player is in ALPHA. Libraries, details, and playback work, but this is not a full Plex client yet — live TV and mobile apps are still ahead.',
+        alphaNotice: 'Media Player is in ALPHA. Libraries, details, phone, and playback work, but this is not a full Plex client yet — live TV is still ahead.',
         continueWatching: 'Continue Watching',
         recentlyAddedMovies: 'Recently Added Movies',
         recentlyAddedShows: 'Recently Added Shows',

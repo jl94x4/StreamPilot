@@ -517,7 +517,7 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
     reduceMotion: false,
     nightMode: false,
     matchFrameRate: true,
-    audioPassthrough: true,
+    audioPassthrough: false,
     cinemaTrailers: false,
     subtitleSize: 100,
     subtitleColor: '#ffffff',
@@ -571,7 +571,7 @@ export const normalizePlayerSettings = (raw: Partial<PlayerSettings> | Record<st
         reduceMotion: raw?.reduceMotion === true,
         nightMode: raw?.nightMode === true,
         matchFrameRate: raw?.matchFrameRate !== false,
-        audioPassthrough: raw?.audioPassthrough !== false,
+        audioPassthrough: raw?.audioPassthrough === true,
         cinemaTrailers: raw?.cinemaTrailers === true,
         subtitleSize: Math.min(200, Math.max(50, Number(raw?.subtitleSize) || 100)),
         subtitleColor: /^#[0-9a-f]{6}$/i.test(String(raw?.subtitleColor || ''))

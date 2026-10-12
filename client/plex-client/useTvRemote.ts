@@ -188,17 +188,20 @@ const cancelEpisodeRailTween = () => {
 /**
  * Episode cards are ~3 per screen, so inline:nearest never moves the rail until
  * the focused card would clip. CSS zoom also ignores scrollLeft. Slide the
- * focused card to the rail start without letting scrollIntoView drag the page.
- * Single steps use a short tween; held / rapid L/R jumps so pans never fight.
+ * focused card flush to the rail's visible left edge without letting
+ * scrollIntoView drag the page. Single steps use a short tween; held / rapid
+ * L/R jumps so pans never fight.
  */
 const panEpisodeRail = (el: HTMLElement) => {
     const rail = overflowXRailOf(el);
     const card = (el.closest('.media-details-episode-card') as HTMLElement | null) || el;
     if (!rail) return;
-    const padL = Number.parseFloat(getComputedStyle(rail).paddingLeft) || 0;
     const page = document.getElementById(PLAYER_SCROLL_ID);
-    const box = offsetInScroller(rail, card);
     const max = Math.max(0, rail.scrollWidth - rail.clientWidth);
+    // Flush to the padded content edge — NOT the clip edge. Using box.left alone
+    // scrolls the card under padding-left and chops off the left ring/badge.
+    const box = offsetInScroller(rail, card);
+    const padL = Number.parseFloat(getComputedStyle(rail).paddingLeft) || 0;
     const next = Math.max(0, Math.min(max, box.left - padL));
     const now = Date.now();
     const instant = episodePanForceInstant || (now - lastEpisodePanAt < 220);
@@ -218,7 +221,10 @@ const panEpisodeRail = (el: HTMLElement) => {
     const jumpTo = () => {
         rail.scrollLeft = next;
         if (Math.abs(rail.scrollLeft - next) <= 2) return;
-        rail.style.scrollPaddingLeft = `${Math.round(padL)}px`;
+        const prevPad = rail.style.getPropertyValue('scroll-padding-left');
+        const prevPri = rail.style.getPropertyPriority('scroll-padding-left');
+        // Keep the focus pad — 0px scroll-padding flushes under the left clip.
+        rail.style.setProperty('scroll-padding-left', `${Math.round(padL)}px`, 'important');
         try {
             card.scrollIntoView({ inline: 'start', block: 'nearest', behavior: 'auto' });
         } catch {
@@ -228,7 +234,8 @@ const panEpisodeRail = (el: HTMLElement) => {
                 /* ignore */
             }
         }
-        rail.style.scrollPaddingLeft = '';
+        if (prevPad) rail.style.setProperty('scroll-padding-left', prevPad, prevPri);
+        else rail.style.removeProperty('scroll-padding-left');
     };
 
     if (instant || Math.abs(rail.scrollLeft - next) < 0.5) {
@@ -315,6 +322,11 @@ const freezePageForRail = (_rail: HTMLElement, fn: () => void) => {
 
 /** Plex slot: focused title sits at the left of the row, with a sliver of the previous poster. */
 export const pinTvRailItemToSlot = (el: HTMLElement) => {
+    // Episode hubs: flush the focused card — no previous-title peek.
+    if (el.closest('[data-tv-episode-btn="1"], .media-details-episodes')) {
+        panEpisodeRail(el);
+        return;
+    }
     const rail = overflowXRailOf(el);
     if (!rail) return;
     const card = (el.closest('[data-tv-poster-card="1"], [data-tv-poster-btn="1"], [data-tv-cast="1"]') as HTMLElement | null) || el;

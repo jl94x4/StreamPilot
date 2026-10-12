@@ -21,6 +21,7 @@ import { MediaPlayerHomeHero, type HomeHeroSlide } from './MediaPlayerHomeHero';
 import { MediaPlayerNowPlayingChip } from './MediaPlayerNowPlayingChip';
 import { PlayerPosterCard } from './PlayerPosterCard';
 import { PlayerRail } from './PlayerRail';
+import { viewMoreShelfFromHub, type ViewMoreShelfSource } from './PlayerViewMoreCard';
 import {
     applyHomeRowOrder,
     applyLibraryNavOrder,
@@ -100,6 +101,7 @@ type TvHomeRow = {
     showProgress?: boolean;
     showRemoveFromContinueWatching?: boolean;
     onViewAll?: () => void;
+    viewMoreShelf?: ViewMoreShelfSource | null;
 };
 
 const posterButtonFromTarget = (target: EventTarget | null) => {
@@ -703,13 +705,22 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             show: t('mediaPlayerPage.recentlyAddedShows'),
             artist: t('mediaPlayerPage.recentlyAddedMusic'),
         };
-        return typeOrder.map((type) => ({
-            id: `recent:${type}`,
-            title: titles[type],
-            items: (settings.hideWatchedFromRecents
-                ? hideWatchedPlayerItems(dedupeItems(buckets[type]))
-                : dedupeItems(buckets[type])).map(withShowPoster),
-        })).filter((row) => row.items.length);
+        return typeOrder.map((type) => {
+            const library = orderedLibraries.find((row) => {
+                const libraryType = row.type === 'show' ? 'show' : row.type === 'artist' ? 'artist' : 'movie';
+                return libraryType === type;
+            });
+            return {
+                id: `recent:${type}`,
+                title: titles[type],
+                items: (settings.hideWatchedFromRecents
+                    ? hideWatchedPlayerItems(dedupeItems(buckets[type]))
+                    : dedupeItems(buckets[type])).map(withShowPoster),
+                // Hub page pages recentlyAdded for months of titles (home rail stays short).
+                hubKey: library ? `/library/sections/${library.key}/recentlyAdded` : undefined,
+                identifier: 'recentlyAdded',
+            };
+        }).filter((row) => row.items.length);
     }, [home, orderedLibraries, settings.hideWatchedFromRecents, settings.mixLibraries, t]);
 
     const hideContinueWatchingRail = !isTvShell && heroEffectiveMode === 'continue_watching';
@@ -797,6 +808,12 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                     items: cwItems,
                     hubKey: '/library/onDeck',
                 }) : undefined,
+                viewMoreShelf: viewMoreShelfFromHub(cwHub || {
+                    identifier: 'home.continueWatching',
+                    hubKey: '/library/onDeck',
+                    items: cwItems,
+                    title: t('mediaPlayerPage.continueWatching'),
+                }),
             });
         }
         if (showWatchlistRail && watchlistItems.length) {
@@ -806,6 +823,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 items: watchlistItems,
                 aspect: '2/3',
                 onViewAll: onOpenWatchlist,
+                viewMoreShelf: { watchlist: true },
             });
         }
         const becauseHubs = plexHubs.filter(isBecauseYouWatchedHub);
@@ -830,6 +848,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 onViewAll: (hub.hubKey || hub.collectionRatingKey || hub.playlistRatingKey) && onOpenHub
                     ? () => onOpenHub(hub)
                     : undefined,
+                viewMoreShelf: viewMoreShelfFromHub(hub),
             });
         }
         if (!others.some(isRecentHub)) {
@@ -847,6 +866,9 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                         items: row.items,
                         hubKey: row.hubKey,
                     }) : undefined,
+                    viewMoreShelf: row.hubKey
+                        ? { path: row.hubKey, identifier: row.identifier || 'recentlyAdded' }
+                        : null,
                 });
             }
         }
@@ -860,6 +882,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                     onViewAll: (hub.hubKey || hub.collectionRatingKey || hub.playlistRatingKey) && onOpenHub
                         ? () => onOpenHub(hub)
                         : undefined,
+                    viewMoreShelf: viewMoreShelfFromHub(hub),
                 });
             }
         }
@@ -1640,8 +1663,9 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                         showProgress={tvActiveRow.showProgress}
                         showRemoveFromContinueWatching={tvActiveRow.showRemoveFromContinueWatching}
                         aspect={tvActiveRow.aspect}
-                        onViewAll={tvActiveRow.id === 'home.watchlist' ? tvActiveRow.onViewAll : undefined}
-                        viewAllLabel={tvActiveRow.id === 'home.watchlist' ? t('common.viewAll') : undefined}
+                        onViewAll={tvActiveRow.onViewAll}
+                        viewAllLabel={tvActiveRow.onViewAll ? t('common.viewMore') : undefined}
+                        viewMoreShelf={tvActiveRow.viewMoreShelf}
                         {...railMenuProps}
                     />
                     {tvNextRow ? (

@@ -107,6 +107,8 @@ const ADMIN_ONLY_NAV_KEYS = new Set([
     'maintenance',
     'settings',
     'logs',
+    // Alpha: keep off member nav until playback always uses their Plex identity.
+    'media-player',
 ]);
 
 /** Keys admins see that members never get in their nav (even if present in order). */

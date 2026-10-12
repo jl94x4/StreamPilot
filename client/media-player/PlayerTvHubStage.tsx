@@ -5,6 +5,7 @@ import { pinTvRailItemToSlot, visibleHomeStage } from '../plex-client/useTvRemot
 import { homeRailPosterDensity } from './host';
 import { PlayerClearLogo } from './PlayerClearLogo';
 import { PlayerRail } from './PlayerRail';
+import type { ViewMoreShelfSource } from './PlayerViewMoreCard';
 import { readPlayerItemCache } from './playerMemory';
 import { formatPlayerDate, formatPlayerDuration, plexBackdropPreviewUrl, plexLogoUrl } from './playerUtils';
 import { PlayerTvStatusPanel } from './PlayerTvStatusPanel';
@@ -20,6 +21,7 @@ export type PlayerTvHubStageRow = {
     showProgress?: boolean;
     showRemoveFromContinueWatching?: boolean;
     onViewAll?: () => void;
+    viewMoreShelf?: ViewMoreShelfSource | null;
 };
 
 type Density = ReturnType<typeof homeRailPosterDensity>;
@@ -469,6 +471,7 @@ export const PlayerTvHubStage: React.FC<Props> = ({
                         aspect={tvActiveRow.aspect}
                         onViewAll={allowViewAll ? tvActiveRow.onViewAll : undefined}
                         viewAllLabel={allowViewAll && tvActiveRow.onViewAll ? 'View More' : undefined}
+                        viewMoreShelf={allowViewAll ? tvActiveRow.viewMoreShelf : null}
                         {...menuProps}
                     />
                     {tvNextRow ? (

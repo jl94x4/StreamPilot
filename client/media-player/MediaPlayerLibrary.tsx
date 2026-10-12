@@ -23,6 +23,7 @@ import { readLibraryBrowseState, readLibraryHomeCache, writeLibraryBrowseState, 
 import { PLAYER_SCROLL_ID } from './paths';
 import { PlayerPosterCard } from './PlayerPosterCard';
 import { PlayerRail } from './PlayerRail';
+import { viewMoreShelfFromHub } from './PlayerViewMoreCard';
 import { PlayerTvHubStage, type PlayerTvHubStageRow } from './PlayerTvHubStage';
 import { PlayerTvStatusPanel } from './PlayerTvStatusPanel';
 import { classifyPlayerHomeHub, continueWatchingRailAspect, stabilizeContinueWatchingOrder } from './playerSettings';
@@ -338,6 +339,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                 onViewAll: (hub.collectionRatingKey || hub.playlistRatingKey || hub.hubKey) && onOpenHub
                     ? () => onOpenHub(hub)
                     : undefined,
+                viewMoreShelf: viewMoreShelfFromHub(hub),
             });
         }
         return rows;

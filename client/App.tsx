@@ -645,7 +645,9 @@ export const MainApp: React.FC = () => {
             else if (path.startsWith('/discovery') && expiredMember) bounceExpiredHome();
             else if (path.startsWith('/discovery')) setCurrentRoute('discovery');
             else if (path.startsWith(PLAYER_APP_BASE) && expiredMember) bounceExpiredHome();
-            else if (path.startsWith(PLAYER_APP_BASE) && data.navFeatures?.mediaPlayer !== false) setCurrentRoute('media-player');
+            else if (path.startsWith(PLAYER_APP_BASE) && data.session.isAdmin && data.navFeatures?.mediaPlayer !== false) {
+                setCurrentRoute('media-player');
+            }
             else if (path.startsWith(PLAYER_APP_BASE)) {
                 window.history.replaceState({}, '', portalUrl('/portal'));
                 setCurrentRoute('user');
@@ -1054,7 +1056,7 @@ export const MainApp: React.FC = () => {
                 </Suspense>
             );
         }
-        if (currentRoute === 'media-player' && sessionInfo?.navFeatures?.mediaPlayer !== false) {
+        if (currentRoute === 'media-player' && isAdmin && sessionInfo?.navFeatures?.mediaPlayer !== false) {
             return (
                 <Suspense fallback={<Loader isLoading={true} isCinematic={!!publicConfig?.useCinematicLoading} />}>
                     <MediaPlayerDashboard />

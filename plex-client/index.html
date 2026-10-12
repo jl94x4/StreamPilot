@@ -808,6 +808,103 @@
       border-radius: calc(6px / var(--tv-zoom, 1)) !important;
       overflow: hidden !important;
     }
+    html[data-tv="1"] .player-view-more-card {
+      position: relative;
+      isolation: isolate;
+      background:
+        radial-gradient(120% 80% at 50% 0%, rgba(245, 158, 11, 0.18) 0%, transparent 55%),
+        linear-gradient(165deg, #27272a 0%, #18181b 48%, #09090b 100%);
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+    }
+    html[data-tv="1"] .player-view-more-shelf {
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+      overflow: hidden;
+      pointer-events: none;
+    }
+    html[data-tv="1"] .player-view-more-shelf-poster {
+      position: absolute;
+      width: 58%;
+      aspect-ratio: 2 / 3;
+      object-fit: cover;
+      border-radius: 6px;
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.55);
+      opacity: 0.42;
+      filter: saturate(0.9) brightness(0.72);
+    }
+    html[data-tv="1"] .player-view-more-shelf-a {
+      left: 4%;
+      top: 10%;
+      transform: rotate(-14deg);
+      z-index: 1;
+    }
+    html[data-tv="1"] .player-view-more-shelf-b {
+      left: 22%;
+      top: 18%;
+      width: 62%;
+      transform: rotate(3deg);
+      z-index: 2;
+      opacity: 0.5;
+    }
+    html[data-tv="1"] .player-view-more-shelf-c {
+      right: 2%;
+      left: auto;
+      top: 8%;
+      transform: rotate(12deg);
+      z-index: 1;
+    }
+    html[data-tv="1"] .player-view-more-card::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+      pointer-events: none;
+      background:
+        linear-gradient(180deg, rgba(9, 9, 11, 0.28) 0%, rgba(9, 9, 11, 0.72) 52%, rgba(9, 9, 11, 0.92) 100%),
+        radial-gradient(90% 70% at 50% 42%, rgba(245, 158, 11, 0.14) 0%, transparent 65%);
+    }
+    html[data-tv="1"] .player-view-more-icon {
+      position: relative;
+      z-index: 2;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 3.25rem;
+      height: 3.25rem;
+      border-radius: 999px;
+      color: #fbbf24;
+      background: rgba(0, 0, 0, 0.45);
+      box-shadow:
+        inset 0 0 0 1px rgba(251, 191, 36, 0.35),
+        0 8px 22px rgba(0, 0, 0, 0.45);
+    }
+    html[data-tv="1"] .player-view-more-label {
+      position: relative;
+      z-index: 2;
+      color: #fff;
+      text-shadow: 0 1px 10px rgba(0, 0, 0, 0.7);
+    }
+    html[data-tv="1"] .player-view-more-sub {
+      position: relative;
+      z-index: 2;
+      max-width: 90%;
+      color: rgba(255, 255, 255, 0.62);
+      text-shadow: 0 1px 8px rgba(0, 0, 0, 0.65);
+    }
+    html[data-tv="1"] [data-tv-poster-btn="1"][data-tv-focused="1"]:focus .player-view-more-icon,
+    html[data-tv="1"] [data-tv-poster-btn="1"][data-tv-focused="1"]:focus-visible .player-view-more-icon {
+      color: #111;
+      background: #f59e0b;
+      box-shadow:
+        inset 0 0 0 1px rgba(0, 0, 0, 0.08),
+        0 10px 24px rgba(245, 158, 11, 0.35);
+    }
+    html[data-tv="1"] [data-tv-poster-btn="1"][data-tv-focused="1"]:focus .player-view-more-shelf-poster,
+    html[data-tv="1"] [data-tv-poster-btn="1"][data-tv-focused="1"]:focus-visible .player-view-more-shelf-poster {
+      opacity: 0.55;
+      filter: saturate(1) brightness(0.8);
+    }
     /* Root zoom rasterizes bitmaps at the shrunk size. Counter-zoom the still so it paints at full pixels. */
     html[data-tv="1"] .player-hero-frame > img {
       zoom: calc(1 / var(--tv-zoom, 1));
@@ -1446,7 +1543,7 @@
     html[data-tv="1"] .media-details-page[data-tv-kind="episode"]:has(.media-details-billboard-identity) .media-details-actions,
     html[data-tv="1"] .media-details-page[data-tv-kind="season"]:has(.media-details-billboard-identity) .media-details-actions {
       order: 5;
-      margin-top: 0.05rem;
+      margin-top: 0.55rem;
     }
     html[data-tv="1"] .media-details-page[data-tv-kind="episode"]:has(.media-details-billboard-identity) .media-details-episodes,
     html[data-tv="1"] .media-details-page[data-tv-kind="season"]:has(.media-details-billboard-identity) .media-details-episodes {
@@ -1492,13 +1589,24 @@
     html[data-tv="1"] [data-tv-kind="season"] .media-details-episodes .player-rail-arrows {
       display: none !important;
     }
+    /* Episode rails: stay inside the Watch column. Never negative-margin into the
+       clip (that chops E1). Focus pad stays on the rail; panEpisodeRail keeps
+       scrollLeft from eating it. */
     html[data-tv="1"] [data-tv-kind="episode"] .media-details-episodes [data-tv-poster-rail="1"],
     html[data-tv="1"] [data-tv-kind="season"] .media-details-episodes [data-tv-poster-rail="1"] {
-      padding-top: 0.85rem !important;
-      padding-bottom: 0.85rem !important;
+      width: 100% !important;
+      max-width: 100% !important;
+      margin-left: 0 !important;
+      margin-right: 0 !important;
+      padding-top: 1.15rem !important;
+      padding-bottom: 1.35rem !important;
+      padding-left: 0.75rem !important;
       padding-right: 2.75rem !important;
-      scroll-padding-left: 1.35rem !important;
+      gap: 1.2rem !important;
+      scroll-padding-left: 0.75rem !important;
       scroll-snap-type: none !important;
+      overflow-x: auto !important;
+      overflow-y: hidden !important;
     }
     html[data-tv="1"] [data-tv-kind="episode"] .media-details-episode-card,
     html[data-tv="1"] [data-tv-kind="season"] .media-details-episode-card {

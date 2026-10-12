@@ -52,6 +52,44 @@
         android:textSize="14sp"
         android:visibility="gone" />
 
+    <LinearLayout
+        android:id="@+id/player_burn_overlay"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:background="@drawable/player_menu_sheet"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:paddingHorizontal="28dp"
+        android:paddingVertical="20dp"
+        android:visibility="gone">
+
+        <ProgressBar
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:indeterminate="true"
+            android:indeterminateTint="@color/player_accent" />
+
+        <TextView
+            android:id="@+id/player_burn_message"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:gravity="center"
+            android:maxWidth="320dp"
+            android:text="@string/player_burning_subs"
+            android:textColor="@color/player_text_primary"
+            android:textSize="15sp" />
+
+        <Button
+            android:id="@+id/player_burn_cancel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:focusable="true"
+            android:text="@string/player_burning_subs_cancel" />
+    </LinearLayout>
+
     <TextView
         android:id="@+id/player_stats"
         android:layout_width="wrap_content"
@@ -164,7 +202,7 @@
         android:paddingStart="25dp"
         android:paddingTop="18dp"
         android:paddingEnd="25dp"
-        android:paddingBottom="25dp">
+        android:paddingBottom="@dimen/player_bottom_pad">
 
         <LinearLayout
             android:id="@+id/player_skip_row"
@@ -205,24 +243,24 @@
 
             <ImageButton
                 android:id="@+id/player_seek_back"
-                android:layout_width="35dp"
-                android:layout_height="35dp"
+                android:layout_width="@dimen/player_transport_size"
+                android:layout_height="@dimen/player_transport_size"
                 android:background="@drawable/player_control_icon_bg"
                 android:contentDescription="@string/player_seek_back"
                 android:defaultFocusHighlightEnabled="false"
                 android:focusable="true"
                 android:nextFocusRight="@id/player_play_pause"
                 android:nextFocusDown="@id/player_quality"
-                android:minWidth="35dp"
-                android:minHeight="35dp"
-                android:padding="8dp"
+                android:minWidth="@dimen/player_transport_size"
+                android:minHeight="@dimen/player_transport_size"
+                android:padding="@dimen/player_transport_padding"
                 android:scaleType="centerInside"
                 android:src="@drawable/ic_player_replay_10" />
 
             <ImageButton
                 android:id="@+id/player_play_pause"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
+                android:layout_width="@dimen/player_transport_play_size"
+                android:layout_height="@dimen/player_transport_play_size"
                 android:layout_marginHorizontal="7dp"
                 android:background="@drawable/player_control_icon_bg"
                 android:contentDescription="@string/player_play"
@@ -232,25 +270,25 @@
                 android:nextFocusLeft="@id/player_seek_back"
                 android:nextFocusRight="@id/player_seek_fwd"
                 android:nextFocusDown="@id/player_quality"
-                android:minWidth="40dp"
-                android:minHeight="40dp"
-                android:padding="10dp"
+                android:minWidth="@dimen/player_transport_play_size"
+                android:minHeight="@dimen/player_transport_play_size"
+                android:padding="@dimen/player_transport_padding"
                 android:scaleType="centerInside"
                 android:src="@drawable/ic_player_play" />
 
             <ImageButton
                 android:id="@+id/player_seek_fwd"
-                android:layout_width="35dp"
-                android:layout_height="35dp"
+                android:layout_width="@dimen/player_transport_size"
+                android:layout_height="@dimen/player_transport_size"
                 android:background="@drawable/player_control_icon_bg"
                 android:contentDescription="@string/player_seek_fwd"
                 android:defaultFocusHighlightEnabled="false"
                 android:focusable="true"
                 android:nextFocusLeft="@id/player_play_pause"
                 android:nextFocusDown="@id/player_quality"
-                android:minWidth="35dp"
-                android:minHeight="35dp"
-                android:padding="8dp"
+                android:minWidth="@dimen/player_transport_size"
+                android:minHeight="@dimen/player_transport_size"
+                android:padding="@dimen/player_transport_padding"
                 android:scaleType="centerInside"
                 android:src="@drawable/ic_player_forward_10" />
         </LinearLayout>

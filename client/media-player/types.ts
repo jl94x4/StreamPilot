@@ -252,6 +252,8 @@ export type PlayerLibraryHub = {
     hubKey?: string | null;
     collectionRatingKey?: string | null;
     playlistRatingKey?: string | null;
+    /** Plex collection labels (used to merge same-label home rows). */
+    labels?: string[];
     /** Pinned collection labeled Heros or Heroes. */
     heroRow?: boolean;
     /** Plex row or collection is sorted randomly. */

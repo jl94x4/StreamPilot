@@ -1177,6 +1177,62 @@ html[data-phone="1"] .player-hero-arrows,
 html[data-phone="1"] .player-rail-arrows {
   display: none !important;
 }
+
+/* Phone: touch-first settings, library browse, and long-press menus. */
+html[data-phone="1"] [data-tv-settings="1"] button,
+html[data-phone="1"] [data-player-settings="1"] button {
+  min-height: 2.75rem;
+}
+html[data-phone="1"] [data-tv-settings="1"] label,
+html[data-phone="1"] [data-player-settings="1"] label {
+  min-height: 2.75rem;
+  align-items: center;
+}
+html[data-phone="1"] [data-tv-library="1"] [data-tv-action="1"],
+html[data-phone="1"] [data-tv-library="1"] button,
+html[data-phone="1"] [data-tv-library-filters="1"] button {
+  min-height: 2.5rem;
+}
+html[data-phone="1"] .player-context-menu,
+html[data-phone="1"] .player-context-sheet,
+html[data-phone="1"] [data-player-context-menu="1"] {
+  width: min(22rem, calc(100vw - 1.5rem)) !important;
+  min-width: 0 !important;
+  max-width: calc(100vw - 1.5rem) !important;
+  padding: 0.35rem;
+  border-radius: 0.85rem;
+}
+html[data-phone="1"] .player-context-menu button,
+html[data-phone="1"] .player-context-sheet button,
+html[data-phone="1"] [data-player-context-menu="1"] button {
+  min-height: 2.75rem;
+  padding-left: 0.85rem;
+  padding-right: 0.85rem;
+  font-size: 0.95rem;
+  border-radius: 0.65rem;
+}
+html[data-phone="1"] .player-home-page [data-tv-row="1"],
+html[data-phone="1"] .player-library-page [data-tv-row="1"] {
+  scroll-padding-inline: 0.5rem;
+}
+html[data-phone="1"] .player-home-stage-rail,
+html[data-phone="1"] .player-tv-hub-stage {
+  /* Phone does not use the TV stage focus trap — keep scroll natural. */
+  overscroll-behavior-y: contain;
+}
+
+/* Phone web / portal player chrome (native Exo uses Android dimens). */
+html[data-phone="1"] [data-tv-playback="1"] button,
+html[data-phone="1"] [data-tv-playback-overlay="1"] button {
+  min-height: 2.75rem;
+  min-width: 2.75rem;
+  padding-left: 0.85rem;
+  padding-right: 0.85rem;
+  font-size: 0.95rem;
+}
+html[data-phone="1"] [role="dialog"][aria-modal="true"] .rounded-lg {
+  min-height: 2.5rem;
+}
 html[data-phone="1"] .media-details-page .media-details-hero-backdrop {
   left: 0 !important;
   right: 0 !important;
@@ -2551,7 +2607,7 @@ html[data-tv="1"] [data-tv-kind="season"] .media-details-hero-content {
 html[data-tv="1"] .media-details-page[data-tv-kind="episode"]:has(.media-details-billboard-identity) .media-details-actions,
 html[data-tv="1"] .media-details-page[data-tv-kind="season"]:has(.media-details-billboard-identity) .media-details-actions {
   order: 5;
-  margin-top: 0.05rem;
+  margin-top: 0.55rem;
 }
 html[data-tv="1"] .media-details-page[data-tv-kind="episode"]:has(.media-details-billboard-identity) .media-details-episodes,
 html[data-tv="1"] .media-details-page[data-tv-kind="season"]:has(.media-details-billboard-identity) .media-details-episodes {
@@ -2597,13 +2653,24 @@ html[data-tv="1"] [data-tv-kind="episode"] .media-details-episodes .player-rail-
 html[data-tv="1"] [data-tv-kind="season"] .media-details-episodes .player-rail-arrows {
   display: none !important;
 }
+/* Episode rails: stay inside the Watch column. Never negative-margin into the
+   clip (that chops E1). Focus pad stays on the rail; panEpisodeRail keeps
+   scrollLeft from eating it. */
 html[data-tv="1"] [data-tv-kind="episode"] .media-details-episodes [data-tv-poster-rail="1"],
 html[data-tv="1"] [data-tv-kind="season"] .media-details-episodes [data-tv-poster-rail="1"] {
-  padding-top: 0.85rem !important;
-  padding-bottom: 0.85rem !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  padding-top: 1.15rem !important;
+  padding-bottom: 1.35rem !important;
+  padding-left: 0.75rem !important;
   padding-right: 2.75rem !important;
-  scroll-padding-left: 1.35rem !important;
+  gap: 1.2rem !important;
+  scroll-padding-left: 0.75rem !important;
   scroll-snap-type: none !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
 }
 html[data-tv="1"] [data-tv-kind="episode"] .media-details-episode-card,
 html[data-tv="1"] [data-tv-kind="season"] .media-details-episode-card {
@@ -2710,21 +2777,6 @@ html[data-tv="1"] .player-episode-index {
   font-size: 0.82rem;
   font-weight: 800;
   letter-spacing: 0.04em;
-}
-html[data-tv="1"] .player-new-episode {
-  position: absolute;
-  left: 50%;
-  bottom: 0.55rem;
-  z-index: 12;
-  transform: translateX(-50%);
-  padding: 0.2rem 0.58rem;
-  border-radius: 0.28rem;
-  background: #e11d48;
-  color: #fff;
-  font-size: 0.68rem;
-  font-weight: 800;
-  letter-spacing: 0.02em;
-  white-space: nowrap;
 }
 html[data-tv="1"] .player-home-page {
   position: relative;
@@ -3397,6 +3449,110 @@ html[data-tv="1"] [data-tv-poster-card="1"] {
 html[data-tv="1"] [data-tv-poster="1"],
 html[data-tv="1"] .player-poster-frame {
   border: none;
+}
+
+/* End-of-rail View More — poster shelf washed into the card, amber CTA on top. */
+html[data-tv="1"] .player-view-more-card {
+  position: relative;
+  isolation: isolate;
+  background:
+    radial-gradient(120% 80% at 50% 0%, rgba(245, 158, 11, 0.18) 0%, transparent 55%),
+    linear-gradient(165deg, #27272a 0%, #18181b 48%, #09090b 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+html[data-tv="1"] .player-view-more-shelf {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+html[data-tv="1"] .player-view-more-shelf-poster {
+  position: absolute;
+  width: 78%;
+  height: 112%;
+  object-fit: cover;
+  border-radius: 4px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.6);
+  opacity: 0.48;
+  filter: saturate(0.95) brightness(0.7);
+}
+html[data-tv="1"] .player-view-more-shelf-a {
+  left: -28%;
+  top: -6%;
+  width: 72%;
+  height: 118%;
+  transform: rotate(-16deg);
+  z-index: 1;
+}
+html[data-tv="1"] .player-view-more-shelf-b {
+  left: 11%;
+  top: -8%;
+  width: 78%;
+  height: 120%;
+  transform: rotate(2deg);
+  z-index: 2;
+  opacity: 0.58;
+}
+html[data-tv="1"] .player-view-more-shelf-c {
+  right: -28%;
+  left: auto;
+  top: -6%;
+  width: 72%;
+  height: 118%;
+  transform: rotate(14deg);
+  z-index: 1;
+}
+html[data-tv="1"] .player-view-more-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(9, 9, 11, 0.28) 0%, rgba(9, 9, 11, 0.72) 52%, rgba(9, 9, 11, 0.92) 100%),
+    radial-gradient(90% 70% at 50% 42%, rgba(245, 158, 11, 0.14) 0%, transparent 65%);
+}
+html[data-tv="1"] .player-view-more-icon {
+  position: relative;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.25rem;
+  height: 3.25rem;
+  border-radius: 999px;
+  color: #fbbf24;
+  background: rgba(0, 0, 0, 0.45);
+  box-shadow:
+    inset 0 0 0 1px rgba(251, 191, 36, 0.35),
+    0 8px 22px rgba(0, 0, 0, 0.45);
+}
+html[data-tv="1"] .player-view-more-label {
+  position: relative;
+  z-index: 2;
+  color: #fff;
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.7);
+}
+html[data-tv="1"] .player-view-more-sub {
+  position: relative;
+  z-index: 2;
+  max-width: 90%;
+  color: rgba(255, 255, 255, 0.62);
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.65);
+}
+html[data-tv="1"] [data-tv-poster-btn="1"][data-tv-focused="1"]:focus .player-view-more-icon,
+html[data-tv="1"] [data-tv-poster-btn="1"][data-tv-focused="1"]:focus-visible .player-view-more-icon {
+  color: #111;
+  background: #f59e0b;
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.08),
+    0 10px 24px rgba(245, 158, 11, 0.35);
+}
+html[data-tv="1"] [data-tv-poster-btn="1"][data-tv-focused="1"]:focus .player-view-more-shelf-poster,
+html[data-tv="1"] [data-tv-poster-btn="1"][data-tv-focused="1"]:focus-visible .player-view-more-shelf-poster {
+  opacity: 0.55;
+  filter: saturate(1) brightness(0.8);
 }
 
 html[data-tv="1"] .player-watch-bar {

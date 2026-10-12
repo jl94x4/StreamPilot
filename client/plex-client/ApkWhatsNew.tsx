@@ -6,6 +6,169 @@ import { readApkWhatsNewSeen, writeApkWhatsNewSeen } from '../media-player/playe
 import { getPlexClientAppVersion } from './config';
 
 const NOTES_BY_VERSION: Record<string, { title: string; items: string[] }[]> = {
+    '1.0.119': [
+        {
+            title: 'Playback',
+            items: [
+                'Seek on unseekable Direct Play always remuxes to HLS (fixes play dying after scrub / resume)',
+                'Bitstream audio (TrueHD/DTS) Direct Play is opt-in — avoids MediaCodec crashes on TVs without passthrough',
+            ],
+        },
+    ],
+    '1.0.118': [
+        {
+            title: 'Playback',
+            items: [
+                'Fix hard crash when opening play with burn-in / non–Direct Play AV prefs (defer prepare until stream rebuild)',
+                'Safer stream swaps: stop ExoPlayer before replacing media; keep DP→HLS fallback stage across native retries',
+            ],
+        },
+    ],
+    '1.0.117': [
+        {
+            title: 'Details',
+            items: [
+                'Episode row no longer scrolls E1 under the left clip — full card + ring visible',
+            ],
+        },
+    ],
+    '1.0.116': [
+        {
+            title: 'Details',
+            items: [
+                'Episode zoom no longer overlaps neighbors; E1 flush with Watch and clear of the Watch button',
+            ],
+        },
+    ],
+    '1.0.115': [
+        {
+            title: 'Details',
+            items: [
+                'First episode card stays level with Watch (left-origin zoom + ring pad; no previous-card peek)',
+            ],
+        },
+    ],
+    '1.0.114': [
+        {
+            title: 'Details',
+            items: [
+                'Selected episode cards zoom again (center scale + orange ring; gutter peek still fixed)',
+            ],
+        },
+    ],
+    '1.0.113': [
+        {
+            title: 'Details',
+            items: [
+                'Episode focus ring visible again (inset ring was hidden under the artwork)',
+            ],
+        },
+    ],
+    '1.0.112': [
+        {
+            title: 'Details',
+            items: [
+                'Episode row no longer inherits the home poster gutter — previous cards stay off-screen when you scroll',
+            ],
+        },
+    ],
+    '1.0.111': [
+        {
+            title: 'Details',
+            items: [
+                'Episode focus no longer scales (no overlapping neighbors) and previous cards cannot peek',
+            ],
+        },
+    ],
+    '1.0.110': [
+        {
+            title: 'Details',
+            items: [
+                'Episode row flush fix actually sticks (APK styles no longer leave a previous-card peek)',
+            ],
+        },
+    ],
+    '1.0.109': [
+        {
+            title: 'Details',
+            items: [
+                'Removed the native New Episode tag on episode cards',
+                'Episode row no longer peeks the previous card when you step left or right',
+            ],
+        },
+    ],
+    '1.0.108': [
+        {
+            title: 'Details',
+            items: [
+                'Episode row no longer peeks the previous card when you step left or right',
+            ],
+        },
+    ],
+    '1.0.107': [
+        {
+            title: 'Playback',
+            items: [
+                'Direct Play rules match between portal and the app (codec, subs, passthrough)',
+                'Quality / seek rebuilds are steadier; failed streams step DP → HLS → 1080p',
+                'Image subtitles show a Burning… overlay with Cancel while Plex burns them in',
+            ],
+        },
+        {
+            title: 'Phone',
+            items: [
+                'Larger transport and quality chips on phone; settings and long-press menus are easier to tap',
+            ],
+        },
+    ],
+    '1.0.106': [
+        {
+            title: 'Libraries',
+            items: [
+                'Library Recommended loads much faster after the first open — collection labels are cached instead of re-fetched every time',
+            ],
+        },
+    ],
+    '1.0.105': [
+        {
+            title: 'Home',
+            items: [
+                'Kometa and ColleXions labels are ignored for home-row merging (use a themed label like Halloween to merge)',
+            ],
+        },
+    ],
+    '1.0.104': [
+        {
+            title: 'Home',
+            items: [
+                'Pinned collections that share the same Plex Label merge into one home row titled with that label',
+            ],
+        },
+    ],
+    '1.0.103': [
+        {
+            title: 'Home',
+            items: [
+                'View More poster shelf fills the whole tile and only uses titles that are not already on that row',
+            ],
+        },
+    ],
+    '1.0.102': [
+        {
+            title: 'Home',
+            items: [
+                'View More tiles show a faded poster shelf from that row behind the button',
+            ],
+        },
+    ],
+    '1.0.101': [
+        {
+            title: 'Home',
+            items: [
+                'Every home row ends with a View More tile — Recently Added opens months of titles, other rows open the full collection',
+            ],
+        },
+    ],
     '1.0.100': [
         {
             title: 'Playback',

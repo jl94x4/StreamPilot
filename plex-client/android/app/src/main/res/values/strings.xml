@@ -49,4 +49,6 @@
     <string name="player_sleep_end">End of episode</string>
     <string name="player_no_options">No options for this title</string>
     <string name="player_updating_stream">Updating…</string>
+    <string name="player_burning_subs">Burning subtitles… this can take a minute</string>
+    <string name="player_burning_subs_cancel">Cancel</string>
 </resources>

@@ -121,7 +121,11 @@ public class PlayerActivity extends AppCompatActivity {
     private View chrome;
     private View topBar;
     private View bufferingView;
+    private View burnOverlay;
+    private Button burnCancelBtn;
     private TextView errorView;
+    @Nullable private String burnCancelSubtitleId;
+    private boolean burnInProgress;
     private SeekBar seekBar;
     private TextView timeView;
     private TextView speedLabel;
@@ -445,28 +449,37 @@ public class PlayerActivity extends AppCompatActivity {
             applySubtitleLook(playerView);
             applyFrameRate(playerView);
 
-            Log.i(TAG, "Starting ExoPlayer url=" + summarizeUrl(currentUrl));
-            queueStartPosition(currentUrl, pendingSeekMs);
-            pendingSeekMs = 0;
-            player.setPlayWhenReady(true);
-            player.prepare();
+            // If saved AV prefs need a different stream (image-sub burn, etc.), do NOT
+            // prepare the opener URL first — swapping mid MediaCodec init hard-crashes
+            // some Android TV SoCs. Wait for JS updateSrc instead.
+            boolean needsAvRebuild = false;
+            if (avChanged) {
+                OptionItem restoredSub = findSubtitleOption(subtitleStreamId);
+                boolean burn = restoredSub != null && subtitleCodecNeedsBurn(restoredSub.codec);
+                // Text subs on Direct Play only need a track select — safe to prepare now.
+                needsAvRebuild = burn || !isDirectPlayUrl(currentUrl);
+            }
+
             wirePlayerListener();
             wireControls();
             updateActionVisibility();
             updateChipLabels();
             bumpChrome();
             if (playPauseBtn != null) playPauseBtn.requestFocus();
-            if (avChanged) {
-                OptionItem restoredSub = findSubtitleOption(subtitleStreamId);
-                boolean burn = restoredSub != null && subtitleCodecNeedsBurn(restoredSub.codec);
-                if (!burn && isDirectPlayUrl(currentUrl)) {
-                    applyTextTrackPreference();
-                    notifyTracksOnlyChange();
-                } else {
-                    requestStreamChange(qualityId, audioStreamId, subtitleStreamId, mediaIndex);
-                }
+
+            if (needsAvRebuild) {
+                Log.i(TAG, "Deferring prepare for AV rebuild url=" + summarizeUrl(currentUrl));
+                setBufferingVisible(true);
+                long offset = pendingSeekMs;
+                requestStreamChange(qualityId, audioStreamId, subtitleStreamId, mediaIndex, offset);
             } else {
+                Log.i(TAG, "Starting ExoPlayer url=" + summarizeUrl(currentUrl));
+                queueStartPosition(currentUrl, pendingSeekMs);
+                pendingSeekMs = 0;
+                player.setPlayWhenReady(true);
+                player.prepare();
                 applyTextTrackPreference();
+                if (avChanged) notifyTracksOnlyChange();
             }
             mainHandler.post(tickRunnable);
             mainHandler.postDelayed(progressEmitRunnable, 5000);
@@ -501,6 +514,11 @@ public class PlayerActivity extends AppCompatActivity {
             menuScrim.setOnClickListener(v -> hideOptionSheet());
         }
         bufferingView = findViewById(R.id.player_buffering);
+        burnOverlay = findViewById(R.id.player_burn_overlay);
+        burnCancelBtn = findViewById(R.id.player_burn_cancel);
+        if (burnCancelBtn != null) {
+            burnCancelBtn.setOnClickListener(v -> cancelBurnInSubtitles());
+        }
         errorView = findViewById(R.id.player_error);
         titleView = findViewById(R.id.player_title);
         clockView = findViewById(R.id.player_clock);
@@ -586,13 +604,16 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void wireControls() {
-        playPauseBtn.setOnClickListener(v -> togglePlayPause());
-        findViewById(R.id.player_seek_back).setOnClickListener(v -> seekBy(-10_000));
-        findViewById(R.id.player_seek_fwd).setOnClickListener(v -> seekBy(10_000));
-        skipIntroBtn.setOnClickListener(v -> doSkipIntro());
-        skipCreditsBtn.setOnClickListener(v -> doSkipCredits());
-        findViewById(R.id.player_up_next_play).setOnClickListener(v -> finishForPlayNext());
-        qualityBtn.setOnClickListener(v -> showOptionMenu(R.string.player_quality, "quality", qualities, qualityId));
+        if (playPauseBtn != null) playPauseBtn.setOnClickListener(v -> togglePlayPause());
+        View seekBack = findViewById(R.id.player_seek_back);
+        if (seekBack != null) seekBack.setOnClickListener(v -> seekBy(-10_000));
+        View seekFwd = findViewById(R.id.player_seek_fwd);
+        if (seekFwd != null) seekFwd.setOnClickListener(v -> seekBy(10_000));
+        if (skipIntroBtn != null) skipIntroBtn.setOnClickListener(v -> doSkipIntro());
+        if (skipCreditsBtn != null) skipCreditsBtn.setOnClickListener(v -> doSkipCredits());
+        View upNextPlay = findViewById(R.id.player_up_next_play);
+        if (upNextPlay != null) upNextPlay.setOnClickListener(v -> finishForPlayNext());
+        if (qualityBtn != null) qualityBtn.setOnClickListener(v -> showOptionMenu(R.string.player_quality, "quality", qualities, qualityId));
         if (upNextPlayBtn != null) upNextPlayBtn.setOnClickListener(v -> finishForPlayNext());
         if (upNextCreditsBtn != null) upNextCreditsBtn.setOnClickListener(v -> dismissUpNextWatchCredits());
         audioBtn.setOnClickListener(v -> showOptionMenu(R.string.player_audio, "audio", audioTracks, audioStreamId == null ? "" : audioStreamId));
@@ -670,6 +691,7 @@ public class PlayerActivity extends AppCompatActivity {
                 if (playbackState == Player.STATE_READY) {
                     playbackError = false;
                     hideError();
+                    hideBurnInProgress();
                     if (pendingSeekMs > 0 && !isTranscodeUrl(currentUrl)) {
                         long seekTo = pendingSeekMs;
                         pendingSeekMs = 0;
@@ -1593,6 +1615,10 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     void applyUpdateSrc(String url, @Nullable String nextHeadersJson, long offsetMs) {
+        applyUpdateSrc(url, nextHeadersJson, offsetMs, true);
+    }
+
+    void applyUpdateSrc(String url, @Nullable String nextHeadersJson, long offsetMs, boolean resetFallbackLadder) {
         if (player == null || url == null || url.trim().isEmpty()) return;
         errorGeneration++;
         currentUrl = url.trim();
@@ -1606,8 +1632,8 @@ public class PlayerActivity extends AppCompatActivity {
         pendingSeekMs = 0;
         scrubTargetMs = -1;
         seekingUi = false;
-        // Intentional JS rebuild — allow Direct Play fallbacks again after a prior HLS hop.
-        streamFallbackStage = 0;
+        // Intentional JS rebuild resets the ladder; native DP→HLS→1080 must keep its stage.
+        if (resetFallbackLadder) streamFallbackStage = 0;
         streamSwapInFlight = false;
         mainHandler.removeCallbacks(clearSwapRunnable);
         skippedIntro = false;
@@ -1616,8 +1642,14 @@ public class PlayerActivity extends AppCompatActivity {
         playbackEnded = false;
         playbackError = false;
         hideError();
+        // Keep burn overlay up until STATE_READY so the user still sees Cancel while PMS spins.
         clearSubtitleCues();
         applyTextTrackPreference();
+        try {
+            player.stop();
+        } catch (Throwable ignored) {
+            /* Media3 stop is best-effort before replacing the item. */
+        }
         queueStartPosition(currentUrl, offsetMs);
         player.prepare();
         player.setPlayWhenReady(!userPaused);
@@ -1734,6 +1766,7 @@ public class PlayerActivity extends AppCompatActivity {
 
     private void applySubtitleChoice(OptionItem picked) {
         String previousSidecar = sidecarSubtitleUrl;
+        String previousSubtitleId = subtitleStreamId == null ? "" : subtitleStreamId;
         subtitleStreamId = picked.id == null ? "" : picked.id;
         boolean sidecar = picked.id != null && picked.id.startsWith("os:") && !picked.url.isEmpty();
         sidecarSubtitleUrl = sidecar ? picked.url : "";
@@ -1750,10 +1783,44 @@ public class PlayerActivity extends AppCompatActivity {
         boolean burn = !off && subtitleCodecNeedsBurn(picked.codec);
         // Text / off on Direct Play: swap ExoPlayer text track — keep seekable bitstream.
         if (!burn && isDirectPlayUrl(currentUrl)) {
+            hideBurnInProgress();
             applyTextTrackPreference();
             notifyTracksOnlyChange();
             return;
         }
+        if (burn) {
+            // Cancel restores the track we had before this burn-in pick.
+            showBurnInProgress(previousSubtitleId);
+        } else {
+            hideBurnInProgress();
+        }
+        requestStreamChange(qualityId, audioStreamId, subtitleStreamId, mediaIndex);
+    }
+
+    private void showBurnInProgress(@Nullable String cancelToSubtitleId) {
+        burnInProgress = true;
+        burnCancelSubtitleId = cancelToSubtitleId == null ? "" : cancelToSubtitleId;
+        if (burnOverlay != null) burnOverlay.setVisibility(View.VISIBLE);
+        setBufferingVisible(true);
+        toast(getString(R.string.player_burning_subs));
+        if (burnCancelBtn != null) burnCancelBtn.requestFocus();
+    }
+
+    private void hideBurnInProgress() {
+        burnInProgress = false;
+        burnCancelSubtitleId = null;
+        if (burnOverlay != null) burnOverlay.setVisibility(View.GONE);
+    }
+
+    private void cancelBurnInSubtitles() {
+        if (!burnInProgress) return;
+        String restore = burnCancelSubtitleId == null ? "" : burnCancelSubtitleId;
+        hideBurnInProgress();
+        subtitleStreamId = restore;
+        sidecarSubtitleUrl = "";
+        saveAvPrefs();
+        updateChipLabels();
+        // Rebuild without image burn (Off or prior text track).
         requestStreamChange(qualityId, audioStreamId, subtitleStreamId, mediaIndex);
     }
 
@@ -1943,6 +2010,11 @@ public class PlayerActivity extends AppCompatActivity {
     private void reloadCurrentMedia() {
         if (player == null || currentUrl == null || currentUrl.isEmpty()) return;
         long offset = contentPositionMs();
+        try {
+            player.stop();
+        } catch (Throwable ignored) {
+            /* best-effort before replacing the item */
+        }
         queueStartPosition(currentUrl, isTranscodeUrl(currentUrl) ? 0 : offset);
         player.prepare();
         player.setPlayWhenReady(!userPaused);
@@ -2494,6 +2566,7 @@ public class PlayerActivity extends AppCompatActivity {
 
     private void showError(String message) {
         if (errorView == null) return;
+        hideBurnInProgress();
         errorView.setText(message);
         errorView.setVisibility(View.VISIBLE);
         setBufferingVisible(false);
@@ -2777,7 +2850,7 @@ public class PlayerActivity extends AppCompatActivity {
         if (next == null || next.equals(currentUrl)) return false;
         Log.w(TAG, "Stream fallback → " + summarizeUrl(next));
         long offset = contentPositionMs();
-        applyUpdateSrc(next, headersJson, offset);
+        applyUpdateSrc(next, headersJson, offset, false);
         return true;
     }
 

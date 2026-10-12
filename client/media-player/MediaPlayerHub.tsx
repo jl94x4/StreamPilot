@@ -131,7 +131,7 @@ export const MediaPlayerHub: React.FC<Props> = ({
                             {t('mediaPlayerPage.back')}
                         </button>
                     ) : null}
-                    <h1 className={discoveryTheme.heading}>{title}</h1>
+                    <h1 className={`${discoveryTheme.heading}${tvShell ? ' text-white' : ''}`}>{title}</h1>
                 </div>
                 {!tvShell ? (
                     <DiscoverGridSizeSelect value={gridSize} onChange={setGridSize} />
