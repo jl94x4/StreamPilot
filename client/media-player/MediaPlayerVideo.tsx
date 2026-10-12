@@ -711,7 +711,13 @@ export const MediaPlayerVideo: React.FC<Props> = ({
             mediaIndex: opts?.mediaIndex ?? session.mediaIndex ?? 0,
             durationMs: session.item.durationMs || durationMsRef.current || 0,
             qualities: (session.qualities || []).map((row) => ({ id: row.id, label: row.label })),
-            audioTracks: (session.audioTracks || []).map((row) => ({ id: row.id, label: row.label })),
+            audioTracks: (session.audioTracks || []).map((row) => ({
+                id: row.id,
+                label: row.label,
+                language: row.language || row.languageTag || null,
+                languageTag: row.languageTag || row.language || null,
+                codec: row.codec || null,
+            })),
             subtitles: [
                 ...(session.subtitles || []).map((row) => ({
                     id: row.id,

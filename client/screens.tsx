@@ -8067,7 +8067,7 @@ export const UserDashboard: React.FC<{
     const analyticsFetchGenRef = useRef(0);
     const analyticsLoadingGenRef = useRef(0);
 
-    const wrapUpClientCacheKey = (days: number | string) => `smp.wrapup.analytics.v4:${wrapUpSubjectId}:${days}`;
+    const wrapUpClientCacheKey = (days: number | string) => `smp.wrapup.analytics.v5:${wrapUpSubjectId}:${days}`;
     const readWrapUpClientCache = (days: number | string) => {
         try {
             const raw = sessionStorage.getItem(wrapUpClientCacheKey(days));

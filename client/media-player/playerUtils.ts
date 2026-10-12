@@ -1070,20 +1070,22 @@ export const buildNativePlaybackSrc = (
 };
 
 /**
- * Bitstream/passthrough codecs. HDMI sinks can take these as encoded audio;
- * if the stick cannot pass them through, ExoPlayer falls back to HLS remux.
+ * Bitstream/passthrough codecs only (TrueHD/DTS). EAC3/AC3 always Direct Play
+ * like official Plex — they are decoded or passed by Exo without this setting.
  */
 const BITSTREAM_NATIVE_AUDIO = /^(truehd|mlp|dca|dts|dtsc|dtsh|dtshd|dtsma|dtsl)$/i;
 
 export const nativeAudioIsDirectPlayable = (codec?: string | null) => {
     const value = String(codec || '').trim().toLowerCase();
     if (!value) return true;
+    // EAC3 / Atmos JOC / AC3 are never gated by Bitstream.
+    if (/eac3|ec-3|e-ac-3|ec\+3|joc|ac3|ac-3/.test(value)) return true;
     if (!BITSTREAM_NATIVE_AUDIO.test(value)) return true;
     try {
         const passthrough = window.localStorage?.getItem('portal-media-player-settings');
         if (!passthrough) return false;
         const parsed = JSON.parse(passthrough);
-        // Opt-in only — bitstream DP can native-abort on TVs without passthrough.
+        // Opt-in only — TrueHD/DTS DP can native-abort on TVs without passthrough.
         return parsed?.audioPassthrough === true;
     } catch {
         return false;

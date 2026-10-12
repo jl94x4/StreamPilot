@@ -4,7 +4,14 @@
  * need @capacitor/core (that dep lives only under plex-client/).
  */
 
-export type NativePlayerTrackOption = { id: string; label: string; url?: string };
+export type NativePlayerTrackOption = {
+    id: string;
+    label: string;
+    url?: string;
+    language?: string | null;
+    languageTag?: string | null;
+    codec?: string | null;
+};
 export type NativePlayerVersionOption = { id: string; label: string; mediaIndex?: number };
 
 export type NativePlayerSessionPayload = {

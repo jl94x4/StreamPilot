@@ -4,7 +4,6 @@ import { isAndroidTvUi } from './config';
 import { PLAYER_APP_BASE, PLAYER_NAVIGATE_EVENT, PLAYER_SCROLL_ID, PLAYER_TV_NAV_EVENT } from '../media-player/paths';
 import {
     PLAYER_SEARCH_INPUT_ID,
-    readLastLibraryPath,
     readPersistedTvFocus,
     requestPlayerHomeReset,
     requestPlayerSearchFocus,
@@ -1270,7 +1269,8 @@ const openPosterMenu = (poster: HTMLElement) => {
     return detail.handled;
 };
 
-const POSTER_LONG_PRESS_MS = 450;
+/** Deliberate hold — short Select must open the title, never the context menu. */
+const POSTER_LONG_PRESS_MS = 700;
 
 /** Land on the remembered poster, or the first one in this library. */
 export const focusFirstPoster = (root: ParentNode = document) => {
@@ -1710,11 +1710,19 @@ const handleTvBack = (): boolean => {
     }
     if (!isPlayerHomePath()) {
         const before = `${window.location.pathname}${window.location.search}`;
+        let popped = false;
+        const onPop = () => { popped = true; };
+        window.addEventListener('popstate', onPop);
         window.history.back();
         window.setTimeout(() => {
+            window.removeEventListener('popstate', onPop);
             const nowPath = `${window.location.pathname}${window.location.search}`;
-            if (nowPath === before) {
-                window.history.replaceState({}, '', readLastLibraryPath() || PLAYER_APP_BASE);
+            // Same URL after back can mean a duplicate history entry was popped —
+            // that still fired popstate. Only hard-fallback when history did nothing.
+            if (!popped && nowPath === before) {
+                window.history.replaceState({}, '', PLAYER_APP_BASE);
+                window.dispatchEvent(new Event(PLAYER_NAVIGATE_EVENT));
+            } else if (popped) {
                 window.dispatchEvent(new Event(PLAYER_NAVIGATE_EVENT));
             }
             restoreTvFocusWhenReady();
@@ -1757,11 +1765,17 @@ export const handlePhoneBack = (): boolean => {
     }
     if (!isPlayerHomePath()) {
         const before = `${window.location.pathname}${window.location.search}`;
+        let popped = false;
+        const onPop = () => { popped = true; };
+        window.addEventListener('popstate', onPop);
         window.history.back();
         window.setTimeout(() => {
+            window.removeEventListener('popstate', onPop);
             const now = `${window.location.pathname}${window.location.search}`;
-            if (now === before) {
-                window.history.replaceState({}, '', readLastLibraryPath() || PLAYER_APP_BASE);
+            if (!popped && now === before) {
+                window.history.replaceState({}, '', PLAYER_APP_BASE);
+                window.dispatchEvent(new Event(PLAYER_NAVIGATE_EVENT));
+            } else if (popped) {
                 window.dispatchEvent(new Event(PLAYER_NAVIGATE_EVENT));
             }
         }, 80);
@@ -1991,9 +2005,10 @@ export const useTvRemote = (enabled = true) => {
                         window.clearTimeout(posterReleaseTimer);
                         posterReleaseTimer = null;
                     }
-                    // Repeats, and keyup/keydown pairs from a held Select, must not
-                    // restart the timer or open the title.
+                    // First press arms. Repeats keep the same hold. A flaky keyup may
+                    // have cancelled the timer while Select is still held — re-arm then.
                     if (!posterSelectTarget) armPosterHold(posterForHold);
+                    else if (!posterSelectTimer && !posterSelectMenuOpened) armPosterHold(posterForHold);
                     return;
                 }
                 if (activateFocusedTvItem(event)) return;
@@ -2272,6 +2287,12 @@ export const useTvRemote = (enabled = true) => {
             if (released && released === episodeHoldDir) stopEpisodeHold();
             if (!isConfirmKey(event)) return;
             confirmHeld = false;
+            // Kill the long-press timer immediately. Waiting for the release debounce
+            // let a ~450ms timer still fire after a short Select and open the menu.
+            if (posterSelectTimer) {
+                window.clearTimeout(posterSelectTimer);
+                posterSelectTimer = null;
+            }
             const heldPoster = posterSelectTarget;
             const openedMenu = posterSelectMenuOpened;
             if (suppressMenuConfirm || openedMenu) {
@@ -2300,7 +2321,8 @@ export const useTvRemote = (enabled = true) => {
             event.stopPropagation();
             if (posterReleaseTimer) window.clearTimeout(posterReleaseTimer);
             // Some TV WebViews emit keyup between repeats. Wait briefly so the
-            // next keydown can keep the hold alive.
+            // next keydown can keep the hold alive — but only after the long-press
+            // timer is already cancelled above.
             posterReleaseTimer = window.setTimeout(() => {
                 posterReleaseTimer = null;
                 const poster = posterSelectTarget;

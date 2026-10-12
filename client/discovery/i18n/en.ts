@@ -453,7 +453,7 @@ export const en = {
         playFromHere: 'Play from here',
         watchlistEmpty: 'Titles on your Watchlist appear here once they are also on this server.',
         audioPassthrough: 'Bitstream audio',
-        audioPassthroughHint: 'Pass Dolby Digital, DTS, and TrueHD through HDMI when the TV or receiver supports it.',
+        audioPassthroughHint: 'HDMI passthrough for TrueHD/DTS only. AC3 and EAC3 (Dolby Digital Plus / Atmos) always Direct Play like official Plex. Off still Direct Plays those — it only avoids TrueHD/DTS when your TV cannot bitstream them.',
         cinemaTrailers: 'Cinema trailers',
         cinemaTrailersHint: 'Play attached trailers before a movie when you start from the beginning.',
         subtitleSearch: 'Search OpenSubtitles',

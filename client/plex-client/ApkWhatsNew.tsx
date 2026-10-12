@@ -6,6 +6,62 @@ import { readApkWhatsNewSeen, writeApkWhatsNewSeen } from '../media-player/playe
 import { getPlexClientAppVersion } from './config';
 
 const NOTES_BY_VERSION: Record<string, { title: string; items: string[] }[]> = {
+    '1.0.126': [
+        {
+            title: 'Playback',
+            items: [
+                'EAC3 / Dolby Digital Plus Direct Plays like official Plex — no more AAC audio convert; AC3/EAC3 never need Bitstream (that is TrueHD/DTS only)',
+            ],
+        },
+    ],
+    '1.0.125': [
+        {
+            title: 'Playback',
+            items: [
+                'Resume matches official Plex audio again — Direct Play selects the safe track (AC3/AAC), not default TrueHD/DTS; remux only if seek truly stalls',
+            ],
+        },
+    ],
+    '1.0.124': [
+        {
+            title: 'Browse',
+            items: [
+                'Short Select on Home opens the title again — context menu is long-press only',
+            ],
+        },
+    ],
+    '1.0.123': [
+        {
+            title: 'Playback',
+            items: [
+                'Prefer Direct Play/Stream again — resume no longer forces HLS; TrueHD/DTS without Bitstream uses an AC3/AAC track instead of audio transcode',
+            ],
+        },
+    ],
+    '1.0.122': [
+        {
+            title: 'Details',
+            items: [
+                'Episode cards play like Watch/Resume for that episode (resume dialog, no “play from here” queue)',
+            ],
+        },
+    ],
+    '1.0.121': [
+        {
+            title: 'Browse',
+            items: [
+                'Leaving playback returns to the screen you started from (Home stays Home — no jump into the movie library)',
+            ],
+        },
+    ],
+    '1.0.120': [
+        {
+            title: 'Playback',
+            items: [
+                'Fix play stuck paused after open — toggle uses play-when-ready, re-prepares after stream swap, debounce OK/click',
+            ],
+        },
+    ],
     '1.0.119': [
         {
             title: 'Playback',

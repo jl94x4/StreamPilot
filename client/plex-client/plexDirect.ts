@@ -7,7 +7,12 @@ import { getPortalBaseUrl, getSessionToken, writeStoredSessionToken } from './co
 import { STORAGE_PLEX_CLIENT_ID, STORAGE_PLEX_HOME_USER, STORAGE_PLEX_OWNER_TOKEN, STORAGE_PLEX_SERVER, STORAGE_PLEX_SERVERS } from './configStorageKeys';
 import { DEFAULT_PLAYER_SETTINGS, type PlayerSettings } from '../media-player/playerSettings';
 import { PLAYER_SERVERS_EVENT } from '../media-player/playerMemory';
-import { canHttpDirectPlay, subtitleCodecNeedsBurn } from '../../lib/media-player/directPlayCaps.js';
+import {
+    canHttpDirectPlay,
+    isBitstreamAudioCodec,
+    NATIVE_COPY_AUDIO_CODECS,
+    subtitleCodecNeedsBurn,
+} from '../../lib/media-player/directPlayCaps.js';
 
 type PlexServer = {
     id: string;
@@ -1374,9 +1379,8 @@ const nativeAudioPassthroughEnabled = () => {
 };
 
 const nativeAudioPlayable = (stream?: PlexMeta | null) => {
-    const codec = String(stream?.codec || '').toLowerCase();
-    if (!codec) return true;
-    if (!/^(truehd|mlp|dca|dts|dtsc|dtsh|dtshd|dtsma|dtsl)$/i.test(codec)) return true;
+    // EAC3/AC3/AAC/FLAC always Direct Play like official Plex. Only TrueHD/DTS need Bitstream.
+    if (!isBitstreamAudioCodec(stream?.codec)) return true;
     return nativeAudioPassthroughEnabled();
 };
 
@@ -1394,7 +1398,11 @@ const clampPlayOffsetMs = (offsetMs: number, durationMs: number) => {
 
 const pickAudioId = (audio: PlexMeta[], requested: string, language: string) => {
     const want = String(requested || '').replace(/\D/g, '');
-    if (want && audio.some((stream) => String(stream.id || '') === want)) return want;
+    if (want) {
+        const hit = audio.find((stream) => String(stream.id || '') === want);
+        // Honor the request only when Exo can Direct Play it (bitstream needs Settings → Bitstream).
+        if (hit && nativeAudioPlayable(hit)) return want;
+    }
     const lang = String(language || '').toLowerCase().trim();
     const langBase = lang.split(/[-_]/)[0];
     const matchesLang = (stream: PlexMeta) => {
@@ -1402,6 +1410,7 @@ const pickAudioId = (audio: PlexMeta[], requested: string, language: string) => 
         const blob = String(stream.languageTag || stream.languageCode || stream.language || '').toLowerCase();
         return blob === lang || blob.startsWith(langBase) || blob.includes(langBase);
     };
+    // Prefer AC3/EAC3/AAC over falling into HLS+AAC transcode when TrueHD/DTS is blocked.
     const playable = audio.filter((stream) => nativeAudioPlayable(stream));
     const pool = playable.length ? playable : audio;
     const langHit = lang ? pool.find((stream) => matchesLang(stream)) : null;
@@ -1448,16 +1457,16 @@ const playSrc = (
     const media = medias[mediaIndex] || medias[0] || {};
     const part = asList<PlexMeta>(media?.Part)[0] || null;
     const quality = QUALITIES.find((row) => row.id === qualityId);
-    const audioId = String(audioStreamId || '').replace(/\D/g, '');
+    let audioId = String(audioStreamId || '').replace(/\D/g, '');
     const rawSubtitleId = String(subtitleStreamId || '');
     const subtitleId = rawSubtitleId.startsWith('os:') ? '' : rawSubtitleId.replace(/\D/g, '');
     const audioStreams = asList<PlexMeta>(part?.Stream).filter((stream) => Number(stream.streamType) === 2);
     const selectedAudio = audioStreams.find((stream) => stream.selected === 1 || stream.selected === true);
-    const chosenAudio = (audioId ? audioStreams.find((stream) => String(stream.id || '') === audioId) : null)
+    let chosenAudio = (audioId ? audioStreams.find((stream) => String(stream.id || '') === audioId) : null)
         || selectedAudio
         || audioStreams[0]
         || {};
-    const audioOk = nativeAudioPlayable(chosenAudio);
+    const passthrough = nativeAudioPassthroughEnabled();
     const reuse = String(reuseSessionId || '').trim();
     const session = PLAY_SESSION_REUSE.test(reuse)
         ? reuse
@@ -1474,14 +1483,28 @@ const playSrc = (
     // Only burn when we know the stream is image-based. Missing metadata must not
     // force burn-in (that stacks under Exo text captions during quality swaps).
     const burnSubtitles = Boolean(subtitleId) && !!subStream && subtitleCodecNeedsBurn(subStream.codec);
-    // Same rules as portal /file Direct Play (codec/container/subs/passthrough).
-    const capsOk = canHttpDirectPlay(meta, {
+    const capsForAudio = (id: string) => canHttpDirectPlay(meta, {
         client: 'android',
         mediaIndex,
-        audioStreamId: audioId,
+        audioStreamId: id,
         subtitleStreamId: subtitleId,
-        audioPassthrough: nativeAudioPassthroughEnabled(),
+        audioPassthrough: passthrough,
     });
+    // Bitstream off + TrueHD/DTS → switch to AC3/AAC track so we Direct Play instead of HLS+AAC.
+    let capsOk = capsForAudio(audioId) && nativeAudioPlayable(chosenAudio);
+    if (!capsOk && !passthrough) {
+        const alt = audioStreams.find((stream) => {
+            const id = String(stream.id || '').replace(/\D/g, '');
+            return id && nativeAudioPlayable(stream) && capsForAudio(id);
+        });
+        if (alt?.id) {
+            audioId = String(alt.id).replace(/\D/g, '');
+            chosenAudio = alt;
+            capsOk = true;
+        }
+    }
+    const audioOk = nativeAudioPlayable(chosenAudio);
+    // Prefer Direct Play/Stream. Scrub on unseekable parts still remuxes via seek→HLS.
     const direct = !forceHls && !burnSubtitles && capsOk && !!part?.key && (
         audioOnly || !quality || quality.id === 'original'
     );
@@ -1554,7 +1577,9 @@ const playSrc = (
         directPlay: '0',
         directStream: burnSubtitles || (quality && quality.id !== 'original') ? '0' : '1',
         directStreamAudio: audioOk ? '1' : '0',
-        ...(audioOk ? {} : { audioCodec: 'aac' }),
+        // Tell PMS we accept EAC3/AC3 on remux — omitting this made some servers convert to AAC.
+        audioCodec: audioOk ? NATIVE_COPY_AUDIO_CODECS : 'aac',
+        ...(audioOk ? {} : { maxAudioChannels: '2' }),
         subtitleSize: burnSubtitles ? '100' : '0',
         subtitles: burnSubtitles ? 'burn' : 'none',
         advancedSubtitles: burnSubtitles ? 'burn' : 'none',
@@ -1563,9 +1588,9 @@ const playSrc = (
         ...(audioId ? { audioStreamID: audioId } : {}),
         subtitleStreamID: burnSubtitles ? subtitleId : '0',
         audioBoost: '100',
-        videoQuality: String(quality?.videoQuality || 60),
-        videoResolution: quality?.videoResolution || '720',
-        maxVideoBitrate: String(quality?.maxVideoBitrate || 4000),
+        videoQuality: String(quality?.videoQuality || 100),
+        videoResolution: quality?.videoResolution || '3840x2160',
+        maxVideoBitrate: String(quality?.maxVideoBitrate || 200000),
         'X-Plex-Platform': 'Android',
         'X-Plex-Client-Identifier': clientId(),
         'X-Plex-Product': 'StreamPilot',

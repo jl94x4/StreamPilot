@@ -52,6 +52,7 @@ import androidx.media3.common.MimeTypes;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.PlaybackParameters;
 import androidx.media3.common.Player;
+import androidx.media3.common.TrackSelectionOverride;
 import androidx.media3.common.TrackSelectionParameters;
 import androidx.media3.common.Tracks;
 import androidx.media3.common.util.UnstableApi;
@@ -179,6 +180,7 @@ public class PlayerActivity extends AppCompatActivity {
     private boolean skippedCredits;
     private boolean skipFocusGiven;
     private boolean userPaused;
+    private long lastToggleElapsedMs;
     private long pendingSeekMs;
     /** Content time already skipped by a transcode URL offset. Player time starts at 0. */
     private long timelineOriginMs;
@@ -260,6 +262,7 @@ public class PlayerActivity extends AppCompatActivity {
     private String sidecarSubtitleUrl = "";
     private boolean subtitleSearchPending;
     private boolean applyingTextTracks;
+    private boolean applyingAudioTracks;
     private String timelineOrigin = "";
     private String timelineToken = "";
     private String timelineClientId = "";
@@ -278,6 +281,39 @@ public class PlayerActivity extends AppCompatActivity {
         setChromeVisible(false);
     };
     private final Runnable clearSwapRunnable = () -> streamSwapInFlight = false;
+    /** Position when the resume kick was armed — only remux if it stays frozen. */
+    private long resumeKickArmPosMs = -1;
+    /** After resume/seek, some SoCs show a still frame with playWhenReady stuck ineffective. */
+    private final Runnable resumePlayKickRunnable = () -> {
+        if (player == null || userPaused || finishing) {
+            resumeKickArmPosMs = -1;
+            return;
+        }
+        player.setPlayWhenReady(true);
+        try {
+            player.play();
+        } catch (Throwable ignored) {
+            /* ignore */
+        }
+        long now = contentPositionMs();
+        // Seek buffering often leaves READY + !isPlaying briefly — do not remux yet.
+        if (player.isPlaying()
+            || player.getPlaybackState() == Player.STATE_BUFFERING
+            || (resumeKickArmPosMs >= 0 && Math.abs(now - resumeKickArmPosMs) > 800)) {
+            resumeKickArmPosMs = -1;
+            return;
+        }
+        // Still not advancing after a Direct Play resume — Direct Stream remux (copy audio).
+        if (player.getPlaybackState() == Player.STATE_READY
+            && isDirectPlayUrl(currentUrl)
+            && now >= 5000) {
+            Log.w(TAG, "Resume frozen on Direct Play — requesting HLS remux");
+            resumeKickArmPosMs = -1;
+            requestStreamChange(qualityId, audioStreamId, subtitleStreamId, mediaIndex, now, "seek");
+        } else {
+            resumeKickArmPosMs = -1;
+        }
+    };
     private final Runnable directSeekRunnable = () -> {
         if (player == null || scrubTargetMs < 0) return;
         player.seekTo(Math.max(0, scrubTargetMs - timelineOriginMs));
@@ -469,15 +505,19 @@ public class PlayerActivity extends AppCompatActivity {
 
             if (needsAvRebuild) {
                 Log.i(TAG, "Deferring prepare for AV rebuild url=" + summarizeUrl(currentUrl));
+                userPaused = false;
+                player.setPlayWhenReady(true);
                 setBufferingVisible(true);
                 long offset = pendingSeekMs;
                 requestStreamChange(qualityId, audioStreamId, subtitleStreamId, mediaIndex, offset);
             } else {
                 Log.i(TAG, "Starting ExoPlayer url=" + summarizeUrl(currentUrl));
+                userPaused = false;
                 queueStartPosition(currentUrl, pendingSeekMs);
                 pendingSeekMs = 0;
                 player.setPlayWhenReady(true);
                 player.prepare();
+                applyAudioTrackPreference();
                 applyTextTrackPreference();
                 if (avChanged) notifyTracksOnlyChange();
             }
@@ -705,7 +745,18 @@ public class PlayerActivity extends AppCompatActivity {
                         seekingUi = false;
                         scrubTargetMs = -1;
                     }
-                    if (!userPaused) player.setPlayWhenReady(true);
+                    if (!userPaused) {
+                        player.setPlayWhenReady(true);
+                        try {
+                            player.play();
+                        } catch (Throwable ignored) {
+                            /* ignore */
+                        }
+                        if (isDirectPlayUrl(currentUrl)) applyAudioTrackPreference();
+                        mainHandler.removeCallbacks(resumePlayKickRunnable);
+                        resumeKickArmPosMs = contentPositionMs();
+                        mainHandler.postDelayed(resumePlayKickRunnable, 2500);
+                    }
                     if (player.isPlaying()) {
                         mainHandler.removeCallbacks(hideChromeRunnable);
                         mainHandler.postDelayed(hideChromeRunnable, 2500);
@@ -758,6 +809,7 @@ public class PlayerActivity extends AppCompatActivity {
                     toast("Audio only — this file may need a transcode for this TV");
                 }
                 if (isDirectPlayUrl(currentUrl)) {
+                    applyAudioTrackPreference();
                     applyTextTrackPreference();
                 }
             }
@@ -1606,7 +1658,8 @@ public class PlayerActivity extends AppCompatActivity {
                 id = String.valueOf(row.optInt("mediaIndex", i));
             }
             if (!label.isEmpty()) {
-                String language = row.optString("languageTag", row.optString("language", ""));
+                String language = row.optString("languageTag", "");
+                if (language.isEmpty()) language = row.optString("language", "");
                 String codec = row.optString("codec", "");
                 out.add(new OptionItem(id, label, row.optString("url", ""), language, codec));
             }
@@ -1644,16 +1697,26 @@ public class PlayerActivity extends AppCompatActivity {
         hideError();
         // Keep burn overlay up until STATE_READY so the user still sees Cancel while PMS spins.
         clearSubtitleCues();
+        applyAudioTrackPreference();
         applyTextTrackPreference();
-        try {
-            player.stop();
-        } catch (Throwable ignored) {
-            /* Media3 stop is best-effort before replacing the item. */
+        // stop() only when something is loaded — idle+stop left some TVs unable to play().
+        if (player.getPlaybackState() != Player.STATE_IDLE || player.getMediaItemCount() > 0) {
+            try {
+                player.stop();
+            } catch (Throwable ignored) {
+                /* Media3 stop is best-effort before replacing the item. */
+            }
         }
         queueStartPosition(currentUrl, offsetMs);
-        player.prepare();
         player.setPlayWhenReady(!userPaused);
-        // Re-apply after prepare so Exo doesn't re-enable text on a burn-in / HLS swap.
+        player.prepare();
+        if (!userPaused && offsetMs >= 5000) {
+            mainHandler.removeCallbacks(resumePlayKickRunnable);
+            resumeKickArmPosMs = offsetMs;
+            mainHandler.postDelayed(resumePlayKickRunnable, 2500);
+        }
+        // Re-apply after prepare so Exo picks the intended audio/text tracks.
+        applyAudioTrackPreference();
         applyTextTrackPreference();
         if (!minimized) bumpChrome();
         // Seek pressed during the swap — fire one coalesced restart, not a stack of sessions.
@@ -1833,9 +1896,66 @@ public class PlayerActivity extends AppCompatActivity {
         return null;
     }
 
+    @Nullable
+    private OptionItem findAudioOption(@Nullable String id) {
+        if (id == null || id.isEmpty()) return null;
+        for (OptionItem row : audioTracks) {
+            if (id.equals(row.id)) return row;
+        }
+        return null;
+    }
+
     private static boolean subtitleCodecNeedsBurn(@Nullable String codec) {
         if (codec == null || codec.trim().isEmpty()) return false;
         return codec.matches("(?i)pgs|vobsub|dvd|dvdsub|image|bluray|dvbsub|xsub");
+    }
+
+    private static boolean isBitstreamAudioCodec(@Nullable String codec) {
+        if (codec == null || codec.trim().isEmpty()) return false;
+        return codec.matches("(?i)truehd|mlp|dca|dts|dtsc|dtsh|dtshd|dtsma|dtsl");
+    }
+
+    private static String normalizeLangTag(@Nullable String raw) {
+        if (raw == null) return "";
+        String lang = raw.trim().toLowerCase(Locale.US);
+        if (lang.isEmpty()) return "";
+        int dash = lang.indexOf('-');
+        int under = lang.indexOf('_');
+        int cut = dash > 0 ? dash : (under > 0 ? under : -1);
+        return cut > 0 ? lang.substring(0, cut) : lang;
+    }
+
+    private static String formatAudioCodec(@Nullable Format format) {
+        if (format == null) return "";
+        String mime = format.sampleMimeType == null ? "" : format.sampleMimeType.toLowerCase(Locale.US);
+        String codecs = format.codecs == null ? "" : format.codecs.toLowerCase(Locale.US);
+        String blob = mime + " " + codecs;
+        if (blob.contains("truehd") || blob.contains("mlp")) return "truehd";
+        if (blob.contains("eac3") || blob.contains("ec-3") || blob.contains("ec+3")) return "eac3";
+        if (blob.contains("ac3") || blob.contains("ac-3")) return "ac3";
+        if (blob.contains("dts") || blob.contains("dca")) return "dts";
+        if (blob.contains("flac")) return "flac";
+        if (blob.contains("opus")) return "opus";
+        if (blob.contains("mp4a") || blob.contains("aac")) return "aac";
+        if (blob.contains("mp3") || blob.contains("mpeg")) return "mp3";
+        return codecs.isEmpty() ? mime.replace("audio/", "") : codecs.split("[.,\\s]")[0];
+    }
+
+    private static boolean audioCodecMatches(String formatCodec, String wantCodec) {
+        String a = (formatCodec == null ? "" : formatCodec).toLowerCase(Locale.US);
+        String b = (wantCodec == null ? "" : wantCodec).toLowerCase(Locale.US)
+            .replace("ac-3", "ac3")
+            .replace("ec-3", "eac3")
+            .replace("ec+3", "eac3")
+            .replace("mp4a", "aac")
+            .replace("dca", "dts");
+        if (a.isEmpty() || b.isEmpty()) return false;
+        if (a.equals(b)) return true;
+        if (b.startsWith("eac3") && a.contains("eac3")) return true;
+        if (b.startsWith("ac3") && a.contains("ac3") && !a.contains("eac3")) return true;
+        if (b.startsWith("truehd") && (a.contains("truehd") || a.contains("mlp"))) return true;
+        if (b.startsWith("dts") && (a.contains("dts") || a.contains("dca"))) return true;
+        return a.contains(b) || b.contains(a);
     }
 
     private boolean isDirectPlayUrl(@Nullable String url) {
@@ -1861,6 +1981,72 @@ public class PlayerActivity extends AppCompatActivity {
             return head.toLowerCase(Locale.US);
         }
         return null;
+    }
+
+    /**
+     * Direct Play serves the whole file — Exo must pick the same audio we decided was
+     * Direct Play–safe (e.g. AC3 instead of default TrueHD). Official Plex does this too.
+     */
+    private void applyAudioTrackPreference() {
+        if (player == null || applyingAudioTracks) return;
+        TrackSelector selector = player.getTrackSelector();
+        if (!(selector instanceof DefaultTrackSelector)) return;
+        DefaultTrackSelector dts = (DefaultTrackSelector) selector;
+        OptionItem want = findAudioOption(audioStreamId);
+        String wantLang = want != null ? normalizeLangTag(want.language) : "";
+        String wantCodec = want != null && want.codec != null
+            ? want.codec.trim().toLowerCase(Locale.US)
+            : "";
+        if (wantLang.isEmpty() && want != null && want.label != null) {
+            String head = want.label.split("[·(\\[]")[0].trim();
+            if (head.length() >= 2 && head.length() <= 3 && head.chars().allMatch(Character::isLetter)) {
+                wantLang = head.toLowerCase(Locale.US);
+            }
+        }
+        Tracks tracks = player.getCurrentTracks();
+        TrackSelectionParameters.Builder builder = dts.getParameters().buildUpon();
+        builder.clearOverridesOfType(C.TRACK_TYPE_AUDIO);
+        if (!wantLang.isEmpty()) builder.setPreferredAudioLanguage(wantLang);
+
+        int bestGroup = -1;
+        int bestIndex = -1;
+        int bestScore = -1;
+        List<Tracks.Group> groups = tracks.getGroups();
+        for (int g = 0; g < groups.size(); g++) {
+            Tracks.Group group = groups.get(g);
+            if (group.getType() != C.TRACK_TYPE_AUDIO) continue;
+            for (int i = 0; i < group.length; i++) {
+                if (!group.isTrackSupported(i, false)) continue;
+                Format format = group.getTrackFormat(i);
+                String fmtCodec = formatAudioCodec(format);
+                String fmtLang = normalizeLangTag(format.language);
+                int score = 0;
+                if (!wantCodec.isEmpty() && audioCodecMatches(fmtCodec, wantCodec)) score += 20;
+                if (!wantLang.isEmpty() && !fmtLang.isEmpty() && fmtLang.equals(wantLang)) score += 10;
+                // Prefer decoded/compatible tracks over bitstream when we asked for AC3/AAC.
+                if (!wantCodec.isEmpty() && !isBitstreamAudioCodec(wantCodec) && isBitstreamAudioCodec(fmtCodec)) {
+                    score -= 15;
+                }
+                if (wantCodec.isEmpty() && isBitstreamAudioCodec(fmtCodec)) score -= 5;
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestGroup = g;
+                    bestIndex = i;
+                }
+            }
+        }
+        if (bestGroup >= 0 && bestIndex >= 0 && bestScore > 0) {
+            Tracks.Group group = groups.get(bestGroup);
+            builder.setOverrideForType(new TrackSelectionOverride(group.getMediaTrackGroup(), bestIndex));
+        }
+        applyingAudioTracks = true;
+        try {
+            dts.setParameters(builder.build());
+        } catch (Throwable ignored) {
+            /* track override is best-effort */
+        } finally {
+            applyingAudioTracks = false;
+        }
     }
 
     private void clearSubtitleCues() {
@@ -2010,14 +2196,16 @@ public class PlayerActivity extends AppCompatActivity {
     private void reloadCurrentMedia() {
         if (player == null || currentUrl == null || currentUrl.isEmpty()) return;
         long offset = contentPositionMs();
-        try {
-            player.stop();
-        } catch (Throwable ignored) {
-            /* best-effort before replacing the item */
+        if (player.getPlaybackState() != Player.STATE_IDLE || player.getMediaItemCount() > 0) {
+            try {
+                player.stop();
+            } catch (Throwable ignored) {
+                /* best-effort before replacing the item */
+            }
         }
         queueStartPosition(currentUrl, isTranscodeUrl(currentUrl) ? 0 : offset);
-        player.prepare();
         player.setPlayWhenReady(!userPaused);
+        player.prepare();
     }
 
     private void savePlayerLookPrefs() {
@@ -2114,14 +2302,27 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void togglePlayPause() {
-        applyPlayPause(player != null && !player.isPlaying());
+        if (player == null) return;
+        // Debounce OK/click double-delivery on Android TV remotes.
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (now - lastToggleElapsedMs < 280) return;
+        lastToggleElapsedMs = now;
+        // Use playWhenReady — isPlaying is false while buffering and made Play a no-op/double-toggle.
+        applyPlayPause(!player.getPlayWhenReady());
     }
 
     void applyPlayPause(boolean play) {
         if (player == null) return;
         userPaused = !play;
-        if (play) player.play();
-        else player.pause();
+        player.setPlayWhenReady(play);
+        if (play && player.getPlaybackState() == Player.STATE_IDLE && player.getMediaItemCount() > 0) {
+            try {
+                player.prepare();
+            } catch (Throwable ignored) {
+                /* prepare after stop/idle is best-effort */
+            }
+        }
+        updatePlayPauseLabel();
         if (!minimized) bumpChrome();
     }
 
@@ -2287,7 +2488,8 @@ public class PlayerActivity extends AppCompatActivity {
 
     private void updatePlayPauseLabel() {
         if (playPauseBtn == null || player == null) return;
-        boolean playing = player.isPlaying();
+        // Show Pause whenever we intend to play (incl. buffering), not only when frames advance.
+        boolean playing = player.getPlayWhenReady() && !userPaused;
         playPauseBtn.setImageResource(playing ? R.drawable.ic_player_pause : R.drawable.ic_player_play);
         playPauseBtn.setContentDescription(getString(playing ? R.string.player_pause : R.string.player_play));
     }
@@ -2896,6 +3098,8 @@ public class PlayerActivity extends AppCompatActivity {
             builder.appendQueryParameter("directPlay", "0");
             builder.appendQueryParameter("directStream", "1");
             builder.appendQueryParameter("directStreamAudio", "1");
+            // Accept EAC3/AC3 on remux like official Plex — do not force AAC convert.
+            builder.appendQueryParameter("audioCodec", "aac,mp3,ac3,eac3,eac3_joc,flac,opus,mp4a");
             builder.appendQueryParameter("subtitleSize", "0");
             builder.appendQueryParameter("subtitles", "none");
             builder.appendQueryParameter("advancedSubtitles", "none");

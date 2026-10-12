@@ -1477,7 +1477,7 @@ const plexMetadataCache = createTtlLruCache({
 
 // Personal Wrap-Up (`/api/plex/analytics/me`) — serve last payload instantly while refreshing.
 const PERSONAL_ANALYTICS_CACHE_MS = 10 * 60 * 1000;
-const PERSONAL_ANALYTICS_CACHE_VERSION = 'v9';
+const PERSONAL_ANALYTICS_CACHE_VERSION = 'v10';
 const PERSONAL_WRAPUP_HISTORY_DAYS = 730;
 const WRAP_UP_WARM_PERIODS = ['365', '120', '90', '30', '7'];
 const WRAP_UP_COMPARE_FETCH_MAX_DAYS = 180;
@@ -19142,6 +19142,7 @@ const analyticsSourceLabelFor = (source, { degraded = false, fallback = null } =
         if (degraded && fallback === 'tautulli_unavailable') return 'Plex (Tautulli unavailable)';
         if (degraded && fallback === 'tautulli_history_failed') return 'Plex (Tautulli history failed)';
         if (degraded && fallback === 'tautulli_history_empty') return 'Plex (Tautulli history empty)';
+        if (degraded && fallback === 'tautulli_stale') return 'Plex + Tautulli (Tautulli stopped recording)';
         if (degraded && fallback === 'rebuild_failed') return 'Plex (analytics rebuild failed)';
         return 'Plex';
     }
@@ -19154,8 +19155,48 @@ const TAUTULLI_ATTEMPTED_ANALYTICS_FALLBACKS = new Set([
     'tautulli_history_failed',
     'tautulli_history_empty',
     'tautulli_unavailable',
+    'tautulli_stale',
     'rebuild_failed',
 ]);
+
+/** Treat Tautulli as stopped recording when its newest play is older than this. */
+const TAUTULLI_HISTORY_STALE_SEC = 36 * 60 * 60;
+
+const newestHistoryViewedAt = (items = []) => {
+    let max = 0;
+    for (const item of Array.isArray(items) ? items : []) {
+        const at = historyViewedAtSeconds(item?.viewedAt);
+        if (at > max) max = at;
+    }
+    return max;
+};
+
+const historyItemDedupeKey = (item) => {
+    const at = historyViewedAtSeconds(item?.viewedAt);
+    const rk = String(item?.ratingKey || item?.key || item?.title || '');
+    const bucket = Math.floor(at / 60);
+    return `${rk}|${bucket}|${String(item?.type || '')}`;
+};
+
+/** Union two history lists (Plex fills gaps while Tautulli was down). */
+const mergeWatchHistoryItems = (primary = [], secondary = []) => {
+    const seen = new Set();
+    const out = [];
+    for (const item of [...(Array.isArray(primary) ? primary : []), ...(Array.isArray(secondary) ? secondary : [])]) {
+        if (!item) continue;
+        const key = historyItemDedupeKey(item);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(item);
+    }
+    out.sort((a, b) => historyViewedAtSeconds(b.viewedAt) - historyViewedAtSeconds(a.viewedAt));
+    return out;
+};
+
+const tautulliHistoryLooksStale = (items = [], nowSec = Math.floor(Date.now() / 1000)) => {
+    if (!Array.isArray(items) || !items.length) return true;
+    return newestHistoryViewedAt(items) < (nowSec - TAUTULLI_HISTORY_STALE_SEC);
+};
 
 const analyticsCacheAlreadyAttemptedTautulli = (cache) => (
     !!cache?.degraded
@@ -20289,7 +20330,13 @@ const loadPersonalWrapUpHistory = async ({
     const cacheKey = `v1:${accountID}`;
     const cached = personalHistoryCache.get(cacheKey);
     const cacheFresh = cached && (Date.now() - cached.at) < PERSONAL_ANALYTICS_CACHE_MS;
-    if (cacheFresh && Number(cached.afterUnixSec) <= afterUnixSec) {
+    // Do not reuse a Tautulli-only cache once recording has gone stale — Home wrap-up
+    // would keep showing 0 streams for "Last 7 days" while Plex still has plays.
+    const cachedTautulliStale = cacheFresh
+        && String(cached.source || '') === 'tautulli'
+        && !cached.degraded
+        && tautulliHistoryLooksStale(cached.items);
+    if (cacheFresh && Number(cached.afterUnixSec) <= afterUnixSec && !cachedTautulliStale) {
         return {
             items: filterHistoryByUnixWindow(cached.items, { startSec: afterUnixSec }),
             source: cached.source,
@@ -20315,17 +20362,34 @@ const loadPersonalWrapUpHistory = async ({
             accountID,
             afterUnixSec,
             maxItems,
+        }).catch((error) => {
+            log(`Tautulli wrap-up history failed for account ${accountID}: ${error.message}`);
+            return [];
         });
-        if (historyItems.length) {
-            historySource = 'tautulli';
-        } else {
-            historyItems = await fetchPlexAccountHistory(uri, config, accountID, {
+        const tautulliEmpty = !historyItems.length;
+        const tautulliStale = !tautulliEmpty && tautulliHistoryLooksStale(historyItems);
+        if (tautulliEmpty || tautulliStale) {
+            const plexItems = await fetchPlexAccountHistory(uri, config, accountID, {
                 afterUnixSec,
                 maxItems,
             });
-            historySource = 'plex';
-            historyFallback = 'tautulli_unavailable';
-            historyDegraded = true;
+            if (tautulliEmpty) {
+                historyItems = plexItems;
+                historySource = 'plex';
+                historyFallback = 'tautulli_unavailable';
+                historyDegraded = true;
+            } else if (plexItems.length) {
+                // Keep older Tautulli rows; fill the downtime gap from Plex session history.
+                historyItems = mergeWatchHistoryItems(plexItems, historyItems);
+                historySource = 'plex';
+                historyFallback = 'tautulli_stale';
+                historyDegraded = true;
+                log(`Tautulli history looks stale for account ${accountID} — merged ${plexItems.length} Plex plays into wrap-up.`);
+            } else {
+                historySource = 'tautulli';
+            }
+        } else {
+            historySource = 'tautulli';
         }
     } else {
         historyItems = await fetchPlexAccountHistory(uri, config, accountID, {
@@ -21074,9 +21138,12 @@ app.get('/api/plex/analytics/me', requireAuth, requireMember, async (req, res) =
                     plexAccountName: plexAccountNameForHistory,
                     accountID,
                     maxItems: 80,
-                });
-                if (!historyItems.length) {
-                    historyItems = await fetchPlexAccountHistory(uri, config, accountID, { maxItems: 80 });
+                }).catch(() => []);
+                if (!historyItems.length || tautulliHistoryLooksStale(historyItems)) {
+                    const plexItems = await fetchPlexAccountHistory(uri, config, accountID, { maxItems: 80 });
+                    historyItems = historyItems.length
+                        ? mergeWatchHistoryItems(plexItems, historyItems)
+                        : plexItems;
                 }
             } else {
                 historyItems = await fetchPlexAccountHistory(uri, config, accountID, { maxItems: 80 });

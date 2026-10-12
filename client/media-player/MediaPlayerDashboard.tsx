@@ -212,7 +212,6 @@ export const MediaPlayerDashboard: React.FC = () => {
     playSessionRef.current = playSession;
     /** Keep a black bridge while ExoPlayer closes and the next episode opens. */
     const [playNextBridge, setPlayNextBridge] = useState(false);
-    const closingToOverviewRef = useRef(false);
     const [playNextQueue, setPlayNextQueue] = useState<PlayerItem[]>([]);
     const [isAdmin, setIsAdmin] = useState(false);
     const [startingPlay, setStartingPlay] = useState(false);
@@ -605,6 +604,8 @@ export const MediaPlayerDashboard: React.FC = () => {
                 audioLanguage: savedAv?.audioLanguage || settings.audioLanguage,
                 subtitleMode: settings.subtitleMode,
                 serverId: item.serverId,
+                // Prefer Direct Play/Stream from the resume offset. Unseekable parts
+                // still hop to HLS on scrub via native reason=seek.
             };
             let session = await startMediaPlayerPlayback(item.ratingKey, {
                 ...baseOpts,
@@ -765,11 +766,6 @@ export const MediaPlayerDashboard: React.FC = () => {
             return undefined;
         }
         if (!isAndroidTvUi()) return undefined;
-        // Returning to a title overview — don't yank focus back to Home.
-        if (closingToOverviewRef.current) {
-            closingToOverviewRef.current = false;
-            return undefined;
-        }
         const id = window.setTimeout(() => restoreTvFocusWhenReady(), 120);
         return () => window.clearTimeout(id);
     }, [playSession]);
@@ -1050,7 +1046,6 @@ export const MediaPlayerDashboard: React.FC = () => {
                 <MediaPlayerVideo
                     session={playSession}
                     onClose={(meta) => {
-                        const item = meta?.item || playSession.item;
                         const chaining = !!meta?.playNext;
                         if (chaining) {
                             setPlayNextBridge(true);
@@ -1059,16 +1054,9 @@ export const MediaPlayerDashboard: React.FC = () => {
                         }
                         setPlayNextBridge(false);
                         setPlaySession(null);
-                        // Movies / episodes (incl. last episode): land on the overview, not a blank Home.
-                        if (item?.ratingKey && (
-                            item.type === 'movie'
-                            || item.type === 'episode'
-                            || item.type === 'clip'
-                            || item.type === 'trailer'
-                        )) {
-                            closingToOverviewRef.current = true;
-                            openItem(item);
-                        }
+                        // Stay on the screen that started playback (Home, library, details, …).
+                        // Forcing openItem() pushed a duplicate /item URL so the next Back
+                        // looked like a no-op and fell through to the last library.
                     }}
                     onPlaybackError={(message) => notify(message, 'error')}
                     autoplayNext={settings.autoplayNext}

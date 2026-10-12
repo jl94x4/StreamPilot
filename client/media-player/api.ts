@@ -758,6 +758,13 @@ export const startMediaPlayerPlayback = (ratingKey: string, opts: {
         qs.set('textSubs', '1');
         qs.set('hevc', '1');
         qs.set('ac3', '1');
+        // Match Settings → Bitstream so portal Direct Play picks the same audio as Exo.
+        try {
+            const raw = window.localStorage?.getItem('portal-media-player-settings');
+            if (raw && JSON.parse(raw)?.audioPassthrough === true) qs.set('audioPassthrough', '1');
+        } catch {
+            /* ignore */
+        }
     }
     if (opts.offsetMs != null) qs.set('offsetMs', String(opts.offsetMs));
     if (opts.qualityId && opts.qualityId !== 'auto') qs.set('qualityId', opts.qualityId);

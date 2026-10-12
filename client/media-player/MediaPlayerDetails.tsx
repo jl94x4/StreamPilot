@@ -241,8 +241,10 @@ const PhoneEpisodeList: React.FC<{
     rows: PlayerItem[];
     heading: string;
     locale: string;
-    onOpenItem: (item: PlayerItem) => void;
-}> = ({ rows, heading, locale, onOpenItem }) => (
+    playLabel: string;
+    resumeLabel: string;
+    onPlayEpisode: (row: PlayerItem) => void;
+}> = ({ rows, heading, locale, playLabel, resumeLabel, onPlayEpisode }) => (
     <section className="media-details-episodes media-details-episode-list mt-2">
         <h3 className="mb-3 text-[1.05rem] font-black tracking-tight text-text">{heading}</h3>
         <div className="flex flex-col gap-3.5">
@@ -250,12 +252,14 @@ const PhoneEpisodeList: React.FC<{
                 const row = applyRememberedProgress(raw);
                 const aired = formatPlayerDate(row.originallyAvailableAt, locale);
                 const code = row.index != null ? `E${row.index}` : '';
+                const action = shouldOfferResume(row) ? resumeLabel : playLabel;
                 return (
                     <button
                         key={row.ratingKey}
                         type="button"
-                        onClick={() => onOpenItem(row)}
+                        onClick={() => onPlayEpisode(row)}
                         className="flex w-full items-start gap-3 text-left"
+                        aria-label={`${action}: ${row.title}`}
                     >
                         <div className="relative w-[7.4rem] shrink-0 overflow-hidden rounded-lg bg-black/40">
                             {row.thumb ? (
@@ -1011,6 +1015,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         onPlay(applyRememberedProgress(tvHubPlayTarget()), { ...playOpts, mediaIndex: index });
     };
     const playEpisodeTile = (row: PlayerItem) => {
+        // Same as Watch/Resume for this episode — not a "play from here" season queue.
         const detailed = (
             (spotlightDetail && String(spotlightDetail.ratingKey) === String(row.ratingKey) ? spotlightDetail : null)
             || episodeDetailCache.current.get(String(row.ratingKey))
@@ -1018,14 +1023,16 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         );
         const playable = applyRememberedProgress({
             ...detailed,
+            type: 'episode',
             thumb: detailed.thumb || row.thumb || item?.thumb,
             art: detailed.art || row.art || item?.art,
             showTitle: detailed.showTitle || row.showTitle || item?.title || item?.showTitle,
         });
-        onPlay(playable, {
-            ...(String(row.ratingKey) === String(item?.ratingKey) ? playOpts : {}),
-            playFromHere: true,
-        });
+        // Keep page AV picks only when activating the episode this page is already on.
+        onPlay(
+            playable,
+            String(row.ratingKey) === String(item?.ratingKey) ? { ...playOpts } : undefined,
+        );
     };
     const playNextNeighbor = neighbors.next;
     const onPlayPress = () => {
@@ -2738,7 +2745,9 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                         rows={phoneListEpisodes}
                         heading={t('mediaPlayerPage.episodeCountHeading', { count: phoneListEpisodes.length })}
                         locale={locale}
-                        onOpenItem={onOpenItem}
+                        playLabel={startLabel}
+                        resumeLabel={t('mediaPlayerPage.resume')}
+                        onPlayEpisode={playEpisodeTile}
                     />
                     ) : tvEpisodeRows.length ? (
                     <section className="media-details-episodes mt-6" data-tv-row="1" data-tv-row-id={`episodes:${item.ratingKey}`}>
@@ -2767,6 +2776,9 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                 const row = raw.type === 'episode' ? applyRememberedProgress(raw) : raw;
                                 const filePills = settings.showEpisodeFilePills ? fileInfoPills(row) : [];
                                 const isCurrentEpisode = isTvShell && String(row.ratingKey) === String(spotlightKey || item.ratingKey);
+                                const rowPlayLabel = shouldOfferResume(row)
+                                    ? t('mediaPlayerPage.resume')
+                                    : (isTvShell && !musicItem ? t('mediaPlayerPage.watch') : t('mediaPlayerPage.play'));
                                 return (
                                 <div key={row.ratingKey} className={`media-details-episode-card group w-[17rem] shrink-0 snap-start sm:w-[20rem]${isCurrentEpisode ? ' is-current' : ''}`}>
                                     <button
@@ -2779,20 +2791,11 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                             if (isTvShell) queueTvSpotlight(String(row.ratingKey));
                                         }}
                                         onClick={() => {
-                                            if (isTvShell) {
-                                                queueTvSpotlight(String(row.ratingKey), true);
-                                                playEpisodeTile(row);
-                                                return;
-                                            }
-                                            onOpenItem({
-                                                ...row,
-                                                thumb: row.thumb || item.thumb,
-                                                art: row.art || item.art,
-                                                showTitle: row.showTitle || item.title || item.showTitle,
-                                            });
+                                            if (isTvShell) queueTvSpotlight(String(row.ratingKey), true);
+                                            playEpisodeTile(row);
                                         }}
                                         className="relative z-0 block w-full overflow-visible rounded-[12px] border-0 bg-transparent p-0 text-left outline-none"
-                                        aria-label={row.title}
+                                        aria-label={`${rowPlayLabel}: ${row.title}`}
                                     >
                                         <div
                                             data-tv-episode-art="1"

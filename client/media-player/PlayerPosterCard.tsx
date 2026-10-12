@@ -31,7 +31,7 @@ type Props = {
     browseIndex?: number;
 };
 
-const LONG_PRESS_MS = 450;
+const LONG_PRESS_MS = 700;
 const LONG_PRESS_MOVE_PX = 12;
 
 export const PlayerPosterCard = memo(function PlayerPosterCard({
@@ -187,11 +187,16 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
                 event.preventDefault();
                 event.stopPropagation();
                 if (!canLongPressMenu) return;
+                // TV Select-hold is owned by useTvRemote — synthetic contextmenu must not open the sheet.
+                if (isTvShell) return;
                 openMenuAt(event.clientX, event.clientY);
             }}
             onDragStart={(event) => event.preventDefault()}
             onPointerDown={(event) => {
                 if (!canLongPressMenu) return;
+                // TV remotes: Select long-press is handled in useTvRemote. Pointer long-press
+                // here raced Select and opened the menu on ordinary presses.
+                if (isTvShell) return;
                 if (event.pointerType === 'mouse' && event.button !== 0) return;
                 clearLongPress();
                 longPressOriginRef.current = { x: event.clientX, y: event.clientY };
@@ -221,6 +226,7 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
                 }, LONG_PRESS_MS);
             }}
             onPointerMove={(event) => {
+                if (isTvShell) return;
                 const origin = longPressOriginRef.current;
                 if (!origin) return;
                 const dx = Math.abs(event.clientX - origin.x);
