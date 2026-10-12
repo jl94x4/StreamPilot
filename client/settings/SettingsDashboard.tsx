@@ -87,10 +87,9 @@ import {
     type MediaAutomationSettingsConfig,
 } from '../media-automation/types';
 import { useDiscoverI18n } from '../discovery/i18n';
-import { BetaBadge, PosterSetsBetaBanner, SpotifySyncBetaBanner } from '../shared/BetaBadge';
+import { BetaBadge, PosterSetsBetaBanner } from '../shared/BetaBadge';
 
 const SETTINGS_TAB_BETA_NOTICE: Record<string, string> = {
-    'spotify-sync': 'spotifySyncPage.betaNotice',
     'poster-sets': 'posterSetsPage.betaNotice',
 };
 
@@ -5288,13 +5287,11 @@ export const SettingsDashboard: React.FC = () => {
                             <IntegrationHeading
                                 app="lidarr"
                                 title="Spotify Sync"
-                                badge={<BetaBadge title={t('spotifySyncPage.betaNotice')} />}
                                 subtitle={initialSettings.spotifyToPlexBundled
                                     ? 'Sync Spotify playlists to Plex — spotify-to-plex is bundled in the portal image (no separate Compose service required).'
                                     : 'Sync Spotify playlists to Plex via the spotify-to-plex Compose service — credentials are written to config/spotify-to-plex.env, not the host .env'}
                             />
                             <section id={getSettingsSectionElementId('spotify-sync')} className="space-y-3 scroll-mt-24">
-                                <SpotifySyncBetaBanner />
                                 <SettingsToggleRow
                                     title="Enable Spotify Sync"
                                     hint={<SettingHint>

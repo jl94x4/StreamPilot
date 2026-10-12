@@ -14,7 +14,7 @@ import type { CustomNavDisplay, CustomNavTab } from '../shared/types';
 import { useDiscoverI18n } from '../discovery/i18n';
 import { SettingsToggleRow } from '../shared/ui';
 import { SettingHint } from './SettingHint';
-import { AlphaBadge, BetaBadge } from '../shared/BetaBadge';
+import { BetaBadge } from '../shared/BetaBadge';
 import { AppletNavIconPreview, NavItemIconPanel, NavItemIconTrigger } from './NavItemIconEditor';
 
 type NavFeatureStatus = {
@@ -374,10 +374,8 @@ const NavOrderColumn: React.FC<ColumnProps> = ({
                                         })}</span>
                                         {key === 'poster-sets' ? (
                                             <BetaBadge title={translate('posterSetsPage.betaNotice')} className="scale-90" />
-                                        ) : key === 'spotify-sync' ? (
-                                            <BetaBadge title={translate('spotifySyncPage.betaNotice')} className="scale-90" />
                                         ) : key === 'media-player' ? (
-                                            <AlphaBadge title={translate('mediaPlayerPage.alphaNotice')} className="scale-90" />
+                                            <BetaBadge title={translate('mediaPlayerPage.betaNotice')} className="scale-90" />
                                         ) : null}
                                     </div>
                                     {isHidden ? (

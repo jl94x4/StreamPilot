@@ -38,8 +38,6 @@ import {
     dashboardSubnavLinkClass,
 } from '../shared/dashboard/DashboardChrome';
 import { usePoll } from '../shared/usePoll';
-import { BetaBadge, SpotifySyncBetaBanner } from '../shared/BetaBadge';
-import { useDiscoverI18n } from '../discovery/i18n';
 import { CustomSelect } from '../shared/ui';
 import { SpotifySyncMark } from './SpotifySyncMark';
 import { formatWhen, workerFetch, workerImageUrl } from './spotifySyncApi';
@@ -181,8 +179,6 @@ const SYNC_TYPES = [
 ];
 
 export const SpotifySyncPage: React.FC = () => {
-    const { t } = useDiscoverI18n();
-    const betaNotice = t('spotifySyncPage.betaNotice');
     const [tab, setTab] = useState<TabId>(() => {
         if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('spotify') === 'connected') {
             return 'users';
@@ -333,15 +329,9 @@ export const SpotifySyncPage: React.FC = () => {
 
     return (
         <DashboardPageShell>
-            <SpotifySyncBetaBanner />
             <DashboardHero
                 accent="plex"
-                eyebrow={
-                    <span className="inline-flex items-center gap-2">
-                        <span>Spotify Sync</span>
-                        <BetaBadge title={betaNotice} />
-                    </span>
-                }
+                eyebrow="Spotify Sync"
                 title="Turn Spotify playlists into Plex playlists"
                 description="This is not a Spotify player. It finds songs you already have in Plex, then creates or updates a Plex playlist in the same order as Spotify. Tracks that are missing from Plex are skipped."
                 icon={<SpotifySyncMark className="h-5 w-5" />}

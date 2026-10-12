@@ -84,10 +84,13 @@ export const AlphaFeatureBanner: React.FC<{
     );
 };
 
-export const MediaPlayerAlphaBanner: React.FC<{ className?: string }> = ({ className = '' }) => (
-    <AlphaFeatureBanner
-        titleKey="mediaPlayerPage.alphaTitle"
-        noticeKey="mediaPlayerPage.alphaNotice"
+export const MediaPlayerBetaBanner: React.FC<{ className?: string }> = ({ className = '' }) => (
+    <BetaFeatureBanner
+        titleKey="mediaPlayerPage.betaTitle"
+        noticeKey="mediaPlayerPage.betaNotice"
         className={className}
     />
 );
+
+/** @deprecated Use MediaPlayerBetaBanner */
+export const MediaPlayerAlphaBanner = MediaPlayerBetaBanner;

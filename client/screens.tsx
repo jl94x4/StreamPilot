@@ -12670,7 +12670,7 @@ export const Navigation: React.FC<NavigationProps> = ({ currentRoute, onNavigate
         'maintenance': { label: t('navigation.cleaner'), icon: Shield, route: 'maintenance', adminOnly: true },
         'upgrader': { label: t('navigation.upgrader'), icon: ArrowUpCircle, route: 'upgrader', adminOnly: true },
         'collexions': { label: t('navigation.collexions'), icon: Layers, route: 'collexions', adminOnly: true },
-        'spotify-sync': { label: t('navigation.spotifySync'), icon: Music, route: 'spotify-sync', adminOnly: true, beta: true },
+        'spotify-sync': { label: t('navigation.spotifySync'), icon: Music, route: 'spotify-sync', adminOnly: true },
         'scanner': { label: t('navigation.scanner'), icon: Radar, route: 'scanner', adminOnly: true },
         'media-automation': { label: t('navigation.mediaAutomation'), icon: Cpu, route: 'media-automation', adminOnly: true },
         'poster-sets': { label: t('navigation.posterSets'), icon: ImageIcon, route: 'poster-sets', adminOnly: true, beta: true },
@@ -12680,7 +12680,7 @@ export const Navigation: React.FC<NavigationProps> = ({ currentRoute, onNavigate
         'requests': { label: t('navigation.requests'), icon: ClipboardList, route: 'requests', adminOnly: true },
         'request': { label: t('navigation.discoverRequest'), icon: Sparkles, route: 'discovery', adminOnly: false },
         // Admin-only until member Plex identity is always resolved (owner-token fallback polluted CW).
-        'media-player': { label: t('navigation.mediaPlayer'), icon: PlayCircle, route: 'media-player', adminOnly: true, alpha: true },
+        'media-player': { label: t('navigation.mediaPlayer'), icon: PlayCircle, route: 'media-player', adminOnly: true, beta: true },
         'about': { label: t('navigation.about'), icon: Info, route: 'about', adminOnly: false },
         'profile': { label: t('navigation.profile'), icon: User, route: 'profile', adminOnly: false },
         'preferences': { label: t('navigation.preferences'), icon: SlidersHorizontal, route: 'preferences', adminOnly: false },
@@ -12942,12 +12942,10 @@ export const Navigation: React.FC<NavigationProps> = ({ currentRoute, onNavigate
     const identityDensity = IDENTITY_STYLES[identityStyleIndex];
 
     const NAV_BETA_NOTICE_KEYS: Record<string, string> = {
-        'spotify-sync': 'spotifySyncPage.betaNotice',
         'poster-sets': 'posterSetsPage.betaNotice',
+        'media-player': 'mediaPlayerPage.betaNotice',
     };
-    const NAV_ALPHA_NOTICE_KEYS: Record<string, string> = {
-        'media-player': 'mediaPlayerPage.alphaNotice',
-    };
+    const NAV_ALPHA_NOTICE_KEYS: Record<string, string> = {};
 
     const renderNavAction = (
         key: string,
@@ -12958,10 +12956,10 @@ export const Navigation: React.FC<NavigationProps> = ({ currentRoute, onNavigate
         const label = options.compactLabel || item.label;
         const badgeCount = options.badgeCount || 0;
         const betaTitle = item.beta
-            ? t(NAV_BETA_NOTICE_KEYS[item.route] || 'spotifySyncPage.betaNotice')
+            ? t(NAV_BETA_NOTICE_KEYS[item.route] || 'mediaPlayerPage.betaNotice')
             : '';
         const alphaTitle = item.alpha
-            ? t(NAV_ALPHA_NOTICE_KEYS[item.route] || 'mediaPlayerPage.alphaNotice')
+            ? t(NAV_ALPHA_NOTICE_KEYS[item.route] || 'mediaPlayerPage.betaNotice')
             : '';
         const statusBadge = item.alpha
             ? <AlphaBadge title={alphaTitle} />
@@ -13774,10 +13772,10 @@ export const Navigation: React.FC<NavigationProps> = ({ currentRoute, onNavigate
                                     };
                                     const badgeCount = getNavBadgeCount(key);
                                     const betaTitle = item.beta
-                                        ? t(NAV_BETA_NOTICE_KEYS[item.route] || 'spotifySyncPage.betaNotice')
+                                        ? t(NAV_BETA_NOTICE_KEYS[item.route] || 'mediaPlayerPage.betaNotice')
                                         : '';
                                     const alphaTitle = item.alpha
-                                        ? t(NAV_ALPHA_NOTICE_KEYS[item.route] || 'mediaPlayerPage.alphaNotice')
+                                        ? t(NAV_ALPHA_NOTICE_KEYS[item.route] || 'mediaPlayerPage.betaNotice')
                                         : '';
                                     return (
                                         <button key={key} onClick={handleActivate} className="flex flex-col items-center gap-2 relative bg-transparent border-0">

@@ -2,8 +2,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Clock3, RefreshCw } from 'lucide-react';
 import { apiFetch } from '../shared/api';
 import { usePoll } from '../shared/usePoll';
-import { BetaBadge } from '../shared/BetaBadge';
-import { useDiscoverI18n } from '../discovery/i18n';
 import { SpotifySyncMark } from './SpotifySyncMark';
 import { formatWhen } from './spotifySyncApi';
 
@@ -25,8 +23,6 @@ type Props = {
 };
 
 export const SpotifySyncHomeWidget: React.FC<Props> = ({ onOpen }) => {
-    const { t } = useDiscoverI18n();
-    const betaNotice = t('spotifySyncPage.betaNotice');
     const [status, setStatus] = useState<SpotifySyncStatus | null>(null);
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(true);
@@ -68,9 +64,8 @@ export const SpotifySyncHomeWidget: React.FC<Props> = ({ onOpen }) => {
                             <SpotifySyncMark className="w-10 h-10" />
                         </div>
                         <div className="min-w-0">
-                            <p className="text-muted text-[10px] uppercase tracking-widest font-bold flex items-center gap-1.5 flex-wrap">
-                                <span>Spotify Sync</span>
-                                <BetaBadge title={betaNotice} className="scale-90" />
+                            <p className="text-muted text-[10px] uppercase tracking-widest font-bold">
+                                Spotify Sync
                             </p>
                             <p className="text-text font-bold text-base truncate">Playlists from Spotify to Plex</p>
                         </div>

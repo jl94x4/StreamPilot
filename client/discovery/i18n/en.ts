@@ -103,8 +103,8 @@ export const en = {
         betaNotice: 'Poster Sets is in BETA and still heavily in development. Expect rough edges, missing features, and breaking changes.',
     },
     mediaPlayerPage: {
-        alphaTitle: 'Alpha feature',
-        alphaNotice: 'Media Player is in ALPHA. Libraries, details, phone, and playback work, but this is not a full Plex client yet — live TV is still ahead.',
+        betaTitle: 'Beta feature',
+        betaNotice: 'Media Player is in BETA. Libraries, details, phone, and playback work, but this is not a full Plex client yet — live TV is still ahead.',
         continueWatching: 'Continue Watching',
         recentlyAddedMovies: 'Recently Added Movies',
         recentlyAddedShows: 'Recently Added Shows',

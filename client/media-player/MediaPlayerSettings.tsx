@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowLeft, Check, ChevronDown, ChevronUp, Loader2, Save, X } from 'lucide-react';
-import { CustomSelect, discoveryTheme, MediaPlayerAlphaBanner, SettingsToggleRow, StickySaveBar, useDiscoverI18n } from './host';
+import { CustomSelect, discoveryTheme, MediaPlayerBetaBanner, SettingsToggleRow, StickySaveBar, useDiscoverI18n } from './host';
 import { fetchMediaPlayerHomeHeroConfig, fetchMediaPlayerLibraries, fetchMediaPlayerServers, saveMediaPlayerHomeHeroConfig, saveMediaPlayerServers } from './api';
 import { clearHeroSlidesCache, notifyPlayerServersChanged, PLAYER_SERVERS_EVENT } from './playerMemory';
 import {
@@ -901,7 +901,7 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
 
     return (
         <div className="flex w-full flex-col gap-6 pb-24" data-player-settings="1">
-            <MediaPlayerAlphaBanner />
+            <MediaPlayerBetaBanner />
             <div>
                 <button
                     type="button"

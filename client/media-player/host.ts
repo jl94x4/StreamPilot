@@ -24,7 +24,7 @@ export {
     PlayerTvHomeStageSkeleton,
     PosterGridSkeleton,
 } from '../shared/skeletons';
-export { MediaPlayerAlphaBanner } from '../shared/BetaBadge';
+export { MediaPlayerBetaBanner, MediaPlayerAlphaBanner } from '../shared/BetaBadge';
 export { NoPosterPlaceholder } from '../shared/NoPosterPlaceholder';
 export {
     discoverRowCardWidthClass,
