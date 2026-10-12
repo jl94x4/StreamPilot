@@ -1414,7 +1414,8 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                 0,
                 Math.floor(((video.currentTime || 0) * 1000) || currentMsRef.current || session.offsetMs || 0),
             );
-            // Align with native: first force HLS, then step Original→1080p.
+            // Browser: force AAC remux (copy=false) — EAC3 Direct Stream HLS is unplayable in hls.js.
+            // Native Exo keeps copy when possible (handled on the native onError path).
             if (streamFallbackStageRef.current < 1) {
                 streamFallbackStageRef.current = 1;
                 fallbackUsedRef.current = true;
@@ -1425,7 +1426,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                     audioStreamId,
                     subtitleStreamId,
                     directFile: false,
-                    copy: session.canCopyOriginal !== false,
+                    copy: false,
                     mediaIndex: session.mediaIndex || 0,
                 });
                 if (nextSrc !== playbackSrc) {
