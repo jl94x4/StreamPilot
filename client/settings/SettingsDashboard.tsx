@@ -5522,12 +5522,12 @@ export const SettingsDashboard: React.FC = () => {
                             <IntegrationHeading
                                 app="tmdb"
                                 title="Metadata Fill"
-                                subtitle="Fill TBA / empty episode title, summary, and air date from TMDB and TheTVDB into Plex (fields are locked so agents do not wipe them)."
+                                subtitle="Fill TBA / empty episode title, summary, and air date from TMDB, TheTVDB, and TVmaze into Plex (fields are locked so agents do not wipe them)."
                             />
                             <section id={getSettingsSectionElementId('metadata-fill')} className="space-y-3 scroll-mt-24">
                                 <SettingsToggleRow
                                     title="Enable Metadata Fill"
-                                    hint={<SettingHint>Shows Metadata Fill in admin nav. OFF by default. Requires TMDB and/or TVDB API keys.</SettingHint>}
+                                    hint={<SettingHint>Shows Metadata Fill in admin nav. OFF by default. Uses TMDB/TVDB keys when set; TVmaze needs no key (lookup via TVDB/IMDb ids).</SettingHint>}
                                     checked={metadataFillEnabled}
                                     onChange={(next) => {
                                         setMetadataFillEnabled(next);

@@ -30,6 +30,7 @@ type Status = {
     autoImport: boolean;
     tmdbConfigured: boolean;
     tvdbConfigured: boolean;
+    tvmazeConfigured: boolean;
     log: FillLogRow[];
 };
 
@@ -53,6 +54,7 @@ export const MetadataFillPage: React.FC = () => {
                 autoImport: data?.autoImport !== false,
                 tmdbConfigured: !!data?.tmdbConfigured,
                 tvdbConfigured: !!data?.tvdbConfigured,
+                tvmazeConfigured: data?.tvmazeConfigured !== false,
                 log: Array.isArray(data?.log) ? data.log : [],
             });
         } catch (e: any) {
@@ -129,8 +131,8 @@ export const MetadataFillPage: React.FC = () => {
             <DashboardHero
                 accent="plex"
                 eyebrow="Metadata Fill"
-                title="Fill TBA episode metadata from TMDB and TVDB"
-                description="When Plex is slow to scrape, write locked title, summary, and air date from TMDB and TheTVDB — automatically on Sonarr import, or manually per show."
+                title="Fill TBA episode metadata from TMDB, TVDB, and TVmaze"
+                description="When Plex is slow to scrape, write locked title, summary, and air date from TMDB, TheTVDB, and TVmaze — automatically on Sonarr import, or manually per show."
                 icon={<Wand2 className="h-5 w-5" />}
                 secondaryBlob
                 actions={(
@@ -171,8 +173,10 @@ export const MetadataFillPage: React.FC = () => {
                         />
                     </label>
                     <p className="text-xs text-muted">
-                        Sources: TMDB {status?.tmdbConfigured ? 'ready' : 'missing key'} · TVDB {status?.tvdbConfigured ? 'ready' : 'missing key'}
-                        {' '}(configure under Settings → Integrations / Request).
+                        Sources: TMDB {status?.tmdbConfigured ? 'ready' : 'missing key'}
+                        {' · '}TVDB {status?.tvdbConfigured ? 'ready' : 'missing key'}
+                        {' · '}TVmaze {status?.tvmazeConfigured !== false ? 'ready (no key)' : 'off'}
+                        {' '}— TMDB under Media Stack; TVDB under Request → Metadata providers (Portal engine).
                     </p>
                     <p className="text-xs text-muted">
                         Auto-import uses the Scanner Sonarr webhook. Enable Scanner and point Sonarr at the same Download trigger.

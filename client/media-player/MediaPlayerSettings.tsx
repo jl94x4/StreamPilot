@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowLeft, Check, ChevronDown, ChevronUp, Loader2, Save, X } from 'lucide-react';
 import { CustomSelect, discoveryTheme, MediaPlayerBetaBanner, SettingsToggleRow, StickySaveBar, useDiscoverI18n } from './host';
@@ -91,7 +91,16 @@ type TvChoiceRowProps = {
 const TvChoiceRow: React.FC<TvChoiceRowProps> = ({ title, description, value, options, onChange }) => {
     const { t } = useDiscoverI18n();
     const [open, setOpen] = useState(false);
+    const triggerRef = useRef<HTMLButtonElement | null>(null);
     const selected = options.find((row) => row.value === value) || options[0];
+
+    const closePicker = useCallback(() => {
+        setOpen(false);
+        // Portal unmount drops focus to body; put it back on the settings row.
+        window.requestAnimationFrame(() => {
+            triggerRef.current?.focus({ preventScroll: true });
+        });
+    }, []);
 
     useEffect(() => {
         if (!open) return undefined;
@@ -101,17 +110,18 @@ const TvChoiceRow: React.FC<TvChoiceRowProps> = ({ title, description, value, op
                 || dialog?.querySelector<HTMLElement>('[data-tv-item="1"]');
             target?.focus();
         }, 30);
-        const close = () => setOpen(false);
+        const close = () => closePicker();
         window.addEventListener('smp-tv-overlay-close', close);
         return () => {
             window.clearTimeout(id);
             window.removeEventListener('smp-tv-overlay-close', close);
         };
-    }, [open]);
+    }, [open, closePicker]);
 
     return (
         <>
             <button
+                ref={triggerRef}
                 type="button"
                 data-tv-item="1"
                 data-tv-action="1"
@@ -144,7 +154,7 @@ const TvChoiceRow: React.FC<TvChoiceRowProps> = ({ title, description, value, op
                                 data-tv-item="1"
                                 data-tv-action="1"
                                 aria-label={t('common.close')}
-                                onClick={() => setOpen(false)}
+                                onClick={() => closePicker()}
                             >
                                 <X aria-hidden="true" />
                             </button>
@@ -167,7 +177,7 @@ const TvChoiceRow: React.FC<TvChoiceRowProps> = ({ title, description, value, op
                                         aria-pressed={isSelected}
                                         onClick={() => {
                                             onChange(row.value);
-                                            setOpen(false);
+                                            closePicker();
                                         }}
                                     >
                                         <span className="smp-choice-label">{row.label}</span>

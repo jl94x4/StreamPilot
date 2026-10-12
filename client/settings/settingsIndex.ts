@@ -102,7 +102,7 @@ export const SETTINGS_INDEX: SettingsIndexEntry[] = [
     { id: 'upgrader', tabId: 'upgrader', label: 'Library Upgrader', group: 'Automation', keywords: ['upgrader', 'hevc', 'h264', 'codec', 'upgrade', 'sonarr', 'radarr'] },
     { id: 'collexions', tabId: 'collexions', label: 'Collexions', group: 'Automation', keywords: ['collexions', 'collections', 'plex', 'trakt', 'sidecar', 'pinning', 'autostart', 'auto start'] },
     { id: 'spotify-sync', tabId: 'spotify-sync', label: 'Spotify Sync', group: 'Automation', keywords: ['spotify', 'sync', 'playlist', 'music', 'lidarr', 'plex', 'sidecar'] },
-    { id: 'metadata-fill', tabId: 'metadata-fill', label: 'Metadata Fill', group: 'Automation', keywords: ['metadata', 'tmdb', 'tvdb', 'tba', 'tbc', 'episode', 'scraper', 'sonarr', 'plex', 'summary'] },
+    { id: 'metadata-fill', tabId: 'metadata-fill', label: 'Metadata Fill', group: 'Automation', keywords: ['metadata', 'tmdb', 'tvdb', 'tvmaze', 'tba', 'tbc', 'episode', 'scraper', 'sonarr', 'plex', 'summary'] },
     { id: 'scanner', tabId: 'scanner', label: 'Scanner', group: 'Automation', keywords: ['scanner', 'autoscan', 'plex scan', 'webhook', 'sonarr', 'radarr', 'lidarr', 'triggers', 'library refresh'] },
     { id: 'media-automation', tabId: 'media-automation', label: 'Media Automation', group: 'Automation', keywords: ['media', 'automation', 'ffmpeg', 'worker', 'transcode', 'remux', 'pipeline', 'hardware', 'nvenc', 'qsv', 'vaapi', 'quiet hours', 'schedule', 'overnight', 'gotify'] },
     { id: 'poster-sets', tabId: 'poster-sets', label: 'Poster Sets', group: 'Automation', keywords: ['poster', 'sets', 'mediux', 'theposterdb', 'artwork', 'plex posters', 'title cards'] },
