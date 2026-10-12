@@ -20,6 +20,8 @@ import { AppletNavIconPreview, NavItemIconPanel, NavItemIconTrigger } from './Na
 type NavFeatureStatus = {
     upgrader?: boolean;
     collexions?: boolean;
+    spotifySync?: boolean;
+    metadataFill?: boolean;
     scanner?: boolean;
     mediaAutomation?: boolean;
     posterSets?: boolean;
@@ -54,6 +56,8 @@ type Props = {
 const FEATURE_OFF_SECTIONS: Record<string, string> = {
     upgrader: 'settings.navigation.tabs.upgrader',
     collexions: 'settings.navigation.tabs.collexions',
+    'spotify-sync': 'settings.navigation.tabs.spotifySync',
+    'metadata-fill': 'settings.navigation.tabs.metadataFill',
     scanner: 'settings.navigation.tabs.scanner',
     'media-automation': 'settings.navigation.tabs.mediaAutomation',
     'poster-sets': 'settings.navigation.tabs.posterSets',
@@ -71,7 +75,7 @@ const NAV_ITEM_TRANSLATION_KEYS: Record<string, string> = {
     'media-player': 'navigation.mediaPlayer',
     analytics: 'navigation.analytics', achievements: 'navigation.achievements', chat: 'navigation.chat', support: 'navigation.support',
     users: 'navigation.users', downloads: 'navigation.downloads', upgrader: 'navigation.upgrader',
-    collexions: 'navigation.collexions', scanner: 'navigation.scanner', 'media-automation': 'navigation.mediaAutomation',
+    collexions: 'navigation.collexions', 'spotify-sync': 'navigation.spotifySync', 'metadata-fill': 'navigation.metadataFill', scanner: 'navigation.scanner', 'media-automation': 'navigation.mediaAutomation',
     'poster-sets': 'navigation.posterSets', overlays: 'navigation.overlays', editions: 'navigation.editions',
     'watch-sync': 'navigation.watchSync',
     mediastack: 'navigation.calendar', status: 'navigation.status',
@@ -285,6 +289,8 @@ const NavOrderColumn: React.FC<ColumnProps> = ({
                         let sectionKey: string | null = null;
                         if (key === 'upgrader' && featureStatus?.upgrader === false) sectionKey = FEATURE_OFF_SECTIONS.upgrader;
                         if (key === 'collexions' && featureStatus?.collexions === false) sectionKey = FEATURE_OFF_SECTIONS.collexions;
+                        if (key === 'spotify-sync' && featureStatus?.spotifySync === false) sectionKey = FEATURE_OFF_SECTIONS['spotify-sync'];
+                        if (key === 'metadata-fill' && featureStatus?.metadataFill === false) sectionKey = FEATURE_OFF_SECTIONS['metadata-fill'];
                         if (key === 'scanner' && featureStatus?.scanner === false) sectionKey = FEATURE_OFF_SECTIONS.scanner;
                         if (key === 'media-automation' && featureStatus?.mediaAutomation === false) sectionKey = FEATURE_OFF_SECTIONS['media-automation'];
                         if (key === 'poster-sets' && featureStatus?.posterSets === false) sectionKey = FEATURE_OFF_SECTIONS['poster-sets'];

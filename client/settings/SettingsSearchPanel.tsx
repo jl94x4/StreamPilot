@@ -20,7 +20,7 @@ const SETTINGS_INDEX_TAB_KEYS: Record<string, string> = {
     request: 'settings.navigation.tabs.request', status: 'settings.navigation.tabs.status', notifications: 'settings.navigation.tabs.notifications',
     newsletter: 'settings.navigation.tabs.newsletter', broadcast: 'settings.navigation.tabs.broadcast', invites: 'settings.navigation.tabs.invites',
     cleanup: 'settings.navigation.tabs.cleanup', cleaner: 'settings.navigation.tabs.cleaner', tasks: 'settings.navigation.tabs.tasks', upgrader: 'settings.navigation.tabs.upgrader',
-    collexions: 'settings.navigation.tabs.collexions', 'spotify-sync': 'settings.navigation.tabs.spotifySync', scanner: 'settings.navigation.tabs.scanner',
+    collexions: 'settings.navigation.tabs.collexions', 'spotify-sync': 'settings.navigation.tabs.spotifySync', 'metadata-fill': 'settings.navigation.tabs.metadataFill', scanner: 'settings.navigation.tabs.scanner',
     'media-automation': 'settings.navigation.tabs.mediaAutomation', 'poster-sets': 'settings.navigation.tabs.posterSets', overlays: 'settings.navigation.tabs.overlays',
     editions: 'settings.navigation.tabs.editions', 'watch-sync': 'settings.navigation.tabs.watchSync', system: 'settings.navigation.tabs.system', logs: 'settings.navigation.tabs.logs',
 };

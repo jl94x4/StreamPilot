@@ -268,6 +268,7 @@ const SETTINGS_TAB_ICONS: Record<string, React.ComponentType<{ className?: strin
     upgrader: Wand2,
     collexions: Layers,
     'spotify-sync': Music,
+    'metadata-fill': Wand2,
     scanner: Activity,
     'media-automation': Cpu,
     'poster-sets': ImageIcon,
@@ -363,6 +364,7 @@ const SETTINGS_TAB_TRANSLATION_KEYS: Record<string, string> = {
     upgrader: 'settings.navigation.tabs.upgrader',
     collexions: 'settings.navigation.tabs.collexions',
     'spotify-sync': 'settings.navigation.tabs.spotifySync',
+    'metadata-fill': 'settings.navigation.tabs.metadataFill',
     scanner: 'settings.navigation.tabs.scanner',
     'media-automation': 'settings.navigation.tabs.mediaAutomation',
     'poster-sets': 'settings.navigation.tabs.posterSets',
@@ -559,7 +561,7 @@ export const SettingsDashboard: React.FC = () => {
         if (mediaServerType === 'plex') return SETTINGS_TAB_GROUPS;
         return SETTINGS_TAB_GROUPS.map((group) => ({
             ...group,
-            tabs: group.tabs.filter((tab) => tab.id !== 'collexions' && tab.id !== 'spotify-sync' && tab.id !== 'overlays' && tab.id !== 'editions'),
+            tabs: group.tabs.filter((tab) => tab.id !== 'collexions' && tab.id !== 'spotify-sync' && tab.id !== 'metadata-fill' && tab.id !== 'overlays' && tab.id !== 'editions'),
         })).filter((group) => group.tabs.length > 0);
     }, [mediaServerType]);
     const settingsTabsFlat = settingsTabGroups.flatMap((group) => group.tabs);
@@ -704,6 +706,8 @@ export const SettingsDashboard: React.FC = () => {
     const [upgraderEnabled, setUpgraderEnabled] = useState(false);
     const [collexionsEnabled, setCollexionsEnabled] = useState(false);
     const [spotifyToPlexEnabled, setSpotifyToPlexEnabled] = useState(false);
+    const [metadataFillEnabled, setMetadataFillEnabled] = useState(false);
+    const [metadataFillAutoImport, setMetadataFillAutoImport] = useState(true);
     const [scannerEnabled, setScannerEnabled] = useState(false);
     const [scannerHomeWidgetEnabled, setScannerHomeWidgetEnabled] = useState(false);
     const [mediaAutomationEnabled, setMediaAutomationEnabled] = useState(false);
@@ -1664,6 +1668,8 @@ export const SettingsDashboard: React.FC = () => {
             if (initialSettings.upgraderEnabled !== undefined) setUpgraderEnabled(!!initialSettings.upgraderEnabled);
             if (initialSettings.collexionsEnabled !== undefined) setCollexionsEnabled(!!initialSettings.collexionsEnabled);
             if (initialSettings.spotifyToPlexEnabled !== undefined) setSpotifyToPlexEnabled(!!initialSettings.spotifyToPlexEnabled);
+            if (initialSettings.metadataFillEnabled !== undefined) setMetadataFillEnabled(!!initialSettings.metadataFillEnabled);
+            if (initialSettings.metadataFillAutoImport !== undefined) setMetadataFillAutoImport(initialSettings.metadataFillAutoImport !== false);
             if (initialSettings.scannerEnabled !== undefined) setScannerEnabled(!!initialSettings.scannerEnabled);
             if (initialSettings.scannerHomeWidgetEnabled !== undefined) {
                 setScannerHomeWidgetEnabled(!!initialSettings.scannerHomeWidgetEnabled);
@@ -2363,6 +2369,8 @@ export const SettingsDashboard: React.FC = () => {
             upgraderEnabled,
             collexionsEnabled,
             spotifyToPlexEnabled,
+            metadataFillEnabled,
+            metadataFillAutoImport,
             scannerEnabled,
             scannerHomeWidgetEnabled,
             scannerWebhooksVisible,
@@ -2753,7 +2761,7 @@ export const SettingsDashboard: React.FC = () => {
                                                 setCollexionsEnabled(false);
                                                 setCollexionsAutostart(false);
                                                 setSpotifyToPlexEnabled(false);
-                                                if (activeTab === 'collexions' || activeTab === 'spotify-sync') setActiveTab('plex');
+                                                if (activeTab === 'collexions' || activeTab === 'spotify-sync' || activeTab === 'metadata-fill') setActiveTab('plex');
                                             }
                                         }}
                                         options={[
@@ -4248,6 +4256,7 @@ export const SettingsDashboard: React.FC = () => {
                                         upgrader: upgraderEnabled,
                                         collexions: collexionsEnabled,
                                         spotifySync: spotifyToPlexEnabled,
+                                        metadataFill: metadataFillEnabled,
                                         scanner: scannerEnabled,
                                         mediaAutomation: mediaAutomationEnabled,
                                         posterSets: posterSetsEnabled,
@@ -5502,6 +5511,45 @@ export const SettingsDashboard: React.FC = () => {
                                         onClick={() => window.location.assign(portalUrl('/spotify-sync'))}
                                     >
                                         Open Spotify Sync
+                                    </button>
+                                )}
+                                <p className="text-[11px] text-muted mt-2">Click Save Settings at the top after editing this tab.</p>
+                            </section>
+                        </div>
+                    )}
+                    {activeTab === 'metadata-fill' && mediaServerType === 'plex' && (
+                        <div className="mb-8 animate-fade-in space-y-6">
+                            <IntegrationHeading
+                                app="tmdb"
+                                title="Metadata Fill"
+                                subtitle="Fill TBA / empty episode title, summary, and air date from TMDB and TheTVDB into Plex (fields are locked so agents do not wipe them)."
+                            />
+                            <section id={getSettingsSectionElementId('metadata-fill')} className="space-y-3 scroll-mt-24">
+                                <SettingsToggleRow
+                                    title="Enable Metadata Fill"
+                                    hint={<SettingHint>Shows Metadata Fill in admin nav. OFF by default. Requires TMDB and/or TVDB API keys.</SettingHint>}
+                                    checked={metadataFillEnabled}
+                                    onChange={(next) => {
+                                        setMetadataFillEnabled(next);
+                                    }}
+                                />
+                                <SettingsToggleRow
+                                    title="Auto-fill on Sonarr import"
+                                    hint={<SettingHint>Uses the Scanner Sonarr Download webhook. Debounces ~60s so Plex can finish scanning first.</SettingHint>}
+                                    checked={metadataFillAutoImport}
+                                    onChange={setMetadataFillAutoImport}
+                                    disabled={!metadataFillEnabled}
+                                />
+                                <p className={`text-xs mt-2 font-semibold ${metadataFillEnabled ? 'text-green-300' : 'text-yellow-300'}`}>
+                                    Current status: {metadataFillEnabled ? 'Enabled' : 'Disabled'}
+                                </p>
+                                {metadataFillEnabled && (
+                                    <button
+                                        type="button"
+                                        className="mt-3 px-4 py-2 rounded-md font-bold transition-all bg-plex text-background hover:bg-plex-hover"
+                                        onClick={() => window.location.assign(portalUrl('/metadata-fill'))}
+                                    >
+                                        Open Metadata Fill
                                     </button>
                                 )}
                                 <p className="text-[11px] text-muted mt-2">Click Save Settings at the top after editing this tab.</p>

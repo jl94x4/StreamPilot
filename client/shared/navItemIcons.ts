@@ -25,6 +25,7 @@ export const DEFAULT_NAV_ITEM_ICONS: Record<string, string> = {
     upgrader: 'ArrowUpCircle',
     collexions: 'Layers',
     'spotify-sync': 'Music',
+    'metadata-fill': 'Wand2',
     scanner: 'Radar',
     'media-automation': 'Cpu',
     'poster-sets': 'Image',

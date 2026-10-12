@@ -4,6 +4,7 @@ export type NavFeatureFlags = {
     collexions?: boolean;
     spotifySync?: boolean;
     spotifySyncHomeWidget?: boolean;
+    metadataFill?: boolean;
     scanner?: boolean;
     mediaAutomation?: boolean;
     posterSets?: boolean;
@@ -36,6 +37,7 @@ export const DEFAULT_NAV_ORDER = [
     'upgrader',
     'collexions',
     'spotify-sync',
+    'metadata-fill',
     'scanner',
     'media-automation',
     'poster-sets',
@@ -74,6 +76,7 @@ export const NAV_ITEM_LABELS: Record<string, string> = {
     upgrader: 'Upgrader',
     collexions: 'ColleXions',
     'spotify-sync': 'Spotify Sync',
+    'metadata-fill': 'Metadata Fill',
     scanner: 'Scanner',
     'media-automation': 'Media Automation',
     'poster-sets': 'Poster Sets',
@@ -97,6 +100,7 @@ const ADMIN_ONLY_NAV_KEYS = new Set([
     'upgrader',
     'collexions',
     'spotify-sync',
+    'metadata-fill',
     'scanner',
     'media-automation',
     'poster-sets',
@@ -420,6 +424,7 @@ export const filterNavOrder = (
     const upgraderEnabled = !!features.upgrader;
     const collexionsEnabled = !!features.collexions;
     const spotifySyncEnabled = !!features.spotifySync;
+    const metadataFillEnabled = !!features.metadataFill;
     const scannerEnabled = !!features.scanner;
     const mediaAutomationEnabled = !!features.mediaAutomation;
     const posterSetsEnabled = !!features.posterSets;
@@ -461,12 +466,13 @@ export const filterNavOrder = (
         // Review queue now lives as a Discover & Request tab — never show a standalone nav item.
         if (key === 'requests') return false;
         if (hidden.has(key) && !alwaysVisible.has(key)) return false;
-        if ((key === 'users' || key === 'settings' || key === 'maintenance' || key === 'upgrader' || key === 'collexions' || key === 'spotify-sync' || key === 'scanner' || key === 'media-automation' || key === 'poster-sets' || key === 'overlays' || key === 'editions' || key === 'watch-sync') && !options.isAdmin) return false;
+        if ((key === 'users' || key === 'settings' || key === 'maintenance' || key === 'upgrader' || key === 'collexions' || key === 'spotify-sync' || key === 'metadata-fill' || key === 'scanner' || key === 'media-automation' || key === 'poster-sets' || key === 'overlays' || key === 'editions' || key === 'watch-sync') && !options.isAdmin) return false;
         if (key === 'downloads' && !options.isAdmin && features.downloads === false) return false;
         if (key === 'maintenance' && !maintenanceEnabled) return false;
         if (key === 'upgrader' && !upgraderEnabled) return false;
         if (key === 'collexions' && !collexionsEnabled) return false;
         if (key === 'spotify-sync' && !spotifySyncEnabled) return false;
+        if (key === 'metadata-fill' && !metadataFillEnabled) return false;
         if (key === 'scanner' && !scannerEnabled) return false;
         if (key === 'media-automation' && !mediaAutomationEnabled) return false;
         if (key === 'poster-sets' && !posterSetsEnabled) return false;

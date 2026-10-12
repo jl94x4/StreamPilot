@@ -48,6 +48,7 @@ import {
     Users,
     Zap,
     Clapperboard,
+    Wand2,
     type LucideIcon,
 } from 'lucide-react';
 import type { CustomNavTab } from './types';
@@ -64,7 +65,7 @@ export const CUSTOM_NAV_ICON_OPTIONS = [
     'LayoutDashboard', 'AppWindow', 'Layers', 'Activity', 'Download', 'MessageSquare',
     'Users', 'User', 'BarChart3', 'Trophy', 'LifeBuoy', 'DownloadCloud', 'Calendar',
     'ArrowUpCircle', 'Radar', 'ClipboardList', 'Sparkles', 'Info', 'SlidersHorizontal',
-    'Settings', 'LogOut', 'FileText', 'Image', 'Clapperboard',
+    'Settings', 'LogOut', 'FileText', 'Image', 'Clapperboard', 'Wand2',
 ] as const;
 
 export type CustomNavIconName = typeof CUSTOM_NAV_ICON_OPTIONS[number];
@@ -119,6 +120,7 @@ const CUSTOM_NAV_ICON_MAP: Record<CustomNavIconName, LucideIcon> = {
     FileText,
     Image,
     Clapperboard,
+    Wand2,
 };
 
 export const customNavTabKey = (id: string) => `${CUSTOM_NAV_KEY_PREFIX}${String(id || '').trim()}`;

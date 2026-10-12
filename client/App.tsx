@@ -34,6 +34,7 @@ import { useMediaAutomationActiveCount } from './media-automation/useMediaAutoma
 const UpgraderDashboard = lazy(() => import('./upgrader/UpgraderDashboard').then(m => ({ default: m.UpgraderDashboard })));
 const CollexionsDashboard = lazy(() => import('./collexions/CollexionsDashboard').then(m => ({ default: m.CollexionsDashboard })));
 const SpotifySyncPage = lazy(() => import('./spotify-sync/SpotifySyncPage').then(m => ({ default: m.SpotifySyncPage })));
+const MetadataFillPage = lazy(() => import('./metadata-fill/MetadataFillPage').then(m => ({ default: m.MetadataFillPage })));
 const ScannerDashboard = lazy(() => import('./scanner/ScannerDashboard').then(m => ({ default: m.ScannerDashboard })));
 const MediaAutomationDashboard = lazy(() => import('./media-automation/MediaAutomationDashboard').then(m => ({ default: m.MediaAutomationDashboard })));
 const PosterSetsDashboard = lazy(() => import('./poster-sets/PosterSetsDashboard').then(m => ({ default: m.PosterSetsDashboard })));
@@ -163,7 +164,7 @@ export const MainApp: React.FC = () => {
         closeConfirm();
     };
 
-    const [currentRoute, setCurrentRoute] = useState<'login' | 'admin' | 'user' | 'users' | 'status' | 'dashboard' | 'settings' | 'logs' | 'analytics' | 'achievements' | 'support' | 'chat' | 'downloads' | 'mediastack' | 'maintenance' | 'upgrader' | 'collexions' | 'spotify-sync' | 'scanner' | 'media-automation' | 'poster-sets' | 'overlays' | 'editions' | 'watch-sync' | 'requests' | 'discovery' | 'media-player' | 'about' | 'preferences' | 'profile' | 'invite' | 'onboarding' | 'external' | 'loading'>('loading');
+    const [currentRoute, setCurrentRoute] = useState<'login' | 'admin' | 'user' | 'users' | 'status' | 'dashboard' | 'settings' | 'logs' | 'analytics' | 'achievements' | 'support' | 'chat' | 'downloads' | 'mediastack' | 'maintenance' | 'upgrader' | 'collexions' | 'spotify-sync' | 'metadata-fill' | 'scanner' | 'media-automation' | 'poster-sets' | 'overlays' | 'editions' | 'watch-sync' | 'requests' | 'discovery' | 'media-player' | 'about' | 'preferences' | 'profile' | 'invite' | 'onboarding' | 'external' | 'loading'>('loading');
     const [profilePath, setProfilePath] = useState(() => (
         typeof window !== 'undefined' ? stripBasePath(window.location.pathname) : '/profile'
     ));
@@ -370,7 +371,7 @@ export const MainApp: React.FC = () => {
         setShowWhatsNew(false);
     }, [publicConfig?.appVersion]);
 
-    const setRoute = useCallback((route: 'login' | 'admin' | 'user' | 'users' | 'status' | 'dashboard' | 'settings' | 'logs' | 'analytics' | 'achievements' | 'support' | 'chat' | 'downloads' | 'mediastack' | 'maintenance' | 'upgrader' | 'collexions' | 'spotify-sync' | 'scanner' | 'media-automation' | 'poster-sets' | 'overlays' | 'editions' | 'watch-sync' | 'requests' | 'discovery' | 'media-player' | 'about' | 'preferences' | 'profile' | 'invite' | 'onboarding' | 'external' | 'loading', options?: { hash?: string; reviewId?: number; path?: string }) => {
+    const setRoute = useCallback((route: 'login' | 'admin' | 'user' | 'users' | 'status' | 'dashboard' | 'settings' | 'logs' | 'analytics' | 'achievements' | 'support' | 'chat' | 'downloads' | 'mediastack' | 'maintenance' | 'upgrader' | 'collexions' | 'spotify-sync' | 'metadata-fill' | 'scanner' | 'media-automation' | 'poster-sets' | 'overlays' | 'editions' | 'watch-sync' | 'requests' | 'discovery' | 'media-player' | 'about' | 'preferences' | 'profile' | 'invite' | 'onboarding' | 'external' | 'loading', options?: { hash?: string; reviewId?: number; path?: string }) => {
         const session = sessionInfoRef.current;
         if (session?.needsOnboarding && !session?.session?.isAdmin && route !== 'login' && route !== 'loading' && route !== 'invite' && route !== 'onboarding') {
             route = 'onboarding';
@@ -416,6 +417,7 @@ export const MainApp: React.FC = () => {
             if (route === 'upgrader') path = '/upgrader';
             if (route === 'collexions') path = '/collexions';
             if (route === 'spotify-sync') path = '/spotify-sync';
+            if (route === 'metadata-fill') path = '/metadata-fill';
             if (route === 'scanner') path = '/scanner';
             if (route === 'media-automation') path = '/media-automation';
             if (route === 'poster-sets') path = '/poster-sets';
@@ -600,6 +602,16 @@ export const MainApp: React.FC = () => {
                 && String(data.mediaServerType || 'plex').toLowerCase() === 'plex'
             ) setCurrentRoute('spotify-sync');
             else if (path.startsWith('/spotify-sync')) {
+                window.history.replaceState({}, '', portalUrl('/portal'));
+                setCurrentRoute('user');
+            }
+            else if (
+                path.startsWith('/metadata-fill')
+                && data.session.isAdmin
+                && data.navFeatures?.metadataFill
+                && String(data.mediaServerType || 'plex').toLowerCase() === 'plex'
+            ) setCurrentRoute('metadata-fill');
+            else if (path.startsWith('/metadata-fill')) {
                 window.history.replaceState({}, '', portalUrl('/portal'));
                 setCurrentRoute('user');
             }
@@ -986,6 +998,18 @@ export const MainApp: React.FC = () => {
             return (
                 <Suspense fallback={<Loader isLoading={true} isCinematic={!!publicConfig?.useCinematicLoading} />}>
                     <SpotifySyncPage />
+                </Suspense>
+            );
+        }
+        if (
+            currentRoute === 'metadata-fill'
+            && isAdmin
+            && sessionInfo?.navFeatures?.metadataFill
+            && String(sessionInfo?.mediaServerType || publicConfig?.mediaServerType || 'plex').toLowerCase() === 'plex'
+        ) {
+            return (
+                <Suspense fallback={<Loader isLoading={true} isCinematic={!!publicConfig?.useCinematicLoading} />}>
+                    <MetadataFillPage />
                 </Suspense>
             );
         }

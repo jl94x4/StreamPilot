@@ -85,6 +85,7 @@ import {
     spawnCommand,
 } from './lib/media-automation/index.js';
 import { createPosterSetsRouter, startPosterSetsWatcher, setPosterSetsNotifyDigest, schedulePosterSetsArrHook, startTpdbCacheDailyRefresh } from './lib/poster-sets/index.js';
+import { createMetadataFillRouter, scheduleMetadataFillArrHook } from './lib/metadata-fill/index.js';
 import { createMediaPlayerRouter } from './lib/media-player/index.js';
 import { normalizePlayerSettings } from './lib/media-player/mapItem.js';
 import { normalizeMediaPlayerHomeHeroMode } from './lib/media-player/homeHero.js';
@@ -6332,6 +6333,7 @@ app.get('/api/users/me', requireAuth, async (req, res) => {
         collexions: !!config.collexionsEnabled && isPlexMediaServer,
         spotifySync: !!config.spotifyToPlexEnabled && isPlexMediaServer,
         spotifySyncHomeWidget: !!config.spotifyToPlexEnabled && isPlexMediaServer && !!config.spotifyToPlexHomeWidgetEnabled,
+        metadataFill: !!config.metadataFillEnabled && isPlexMediaServer,
         scanner: !!config.scannerEnabled,
         scannerHomeWidget: !!config.scannerEnabled && !!config.scannerHomeWidgetEnabled,
         mediaAutomation: !!config.mediaAutomationEnabled,
@@ -6903,6 +6905,8 @@ app.get('/api/config', requireAdmin, async (req, res) => {
                 collexionsBundled: isCollexionsBundledAvailable(),
                 collexionsEmbedded: getCollexionsEmbeddedStatus(),
                 spotifyToPlexEnabled: !!config.spotifyToPlexEnabled,
+                metadataFillEnabled: !!config.metadataFillEnabled,
+                metadataFillAutoImport: config.metadataFillAutoImport !== false,
                 spotifyToPlexInternalUrl: config.spotifyToPlexInternalUrl || '',
                 spotifyToPlexClientId: config.spotifyToPlexClientId || '',
                 spotifyToPlexClientSecret: config.spotifyToPlexClientSecret ? '********' : '',
@@ -7111,6 +7115,8 @@ app.get('/api/config', requireAdmin, async (req, res) => {
                 collexionsBundled: isCollexionsBundledAvailable(),
                 collexionsEmbedded: getCollexionsEmbeddedStatus(),
                 spotifyToPlexEnabled: false,
+                metadataFillEnabled: false,
+                metadataFillAutoImport: true,
                 spotifyToPlexInternalUrl: '',
                 spotifyToPlexClientId: '',
                 spotifyToPlexClientSecret: '',
@@ -7158,7 +7164,7 @@ app.post('/api/config', setupRateLimit, async (req, res) => {
         inactiveCleanupEnabled, inactiveCleanupDays,
         primaryColor, customLogoUrl, customLoginLogoUrl, loginLogoCircleFrame, customFaviconUrl, customBadgeUrl, brandingTheme, sidebarIdentityPosition, pwaIconSource, backgroundImageUrl, useScrollRevealAnimations, useCinematicLoading, useBrandedSkeleton, useTrendingSlideshow, trendingSlideshowInterval, tmdbApiKey, referralEnabled, referralTrialDays, referralRewardDays, announcement, expiredPortalTitle, expiredPortalMessage, navOrder, navHiddenKeys, memberNavOrder, memberNavHiddenKeys, customNavTabs, navItemIcons, customNavDisplay, arrOpenInPortalEmbed, homeCustomModules, hideStreamUsers, defaultLibraryIds, use24HourClock, allowTemporaryAccess, showPosterQualityBadges, mediaPlayerHomeHeroEnabled, mediaPlayerHomeHeroMode, mediaPlayerHomeHeroSeasonalInWindowOnly, mediaPlayerContinueWatchingSeasonPoster, showDashboardWatchingBadge, dashboardWatchingBadgePollSeconds,
         showPublicStatusMonitor, showPublicLibraryStats,
-        autoBackupEnabled, autoBackupIntervalDays, autoBackupRetentionCount, maintenanceExperimentalEnabled, upgraderEnabled, collexionsEnabled, spotifyToPlexEnabled, scannerEnabled, scannerHomeWidgetEnabled, scannerWebhooksVisible, scannerManualPathVisible, scanner, mediaAutomationEnabled, mediaAutomationHomeWidgetEnabled, mediaAutomation, posterSetsEnabled, overlaysEnabled, editionsEnabled, watchSyncEnabled, achievementsEnabled, supportTicketsEnabled, chatEnabled, chatMentionNotifyInApp, achievementsLeaderboardEnabled, achievementsHomeWidgetEnabled, achievementsShowOnProfile, achievementsXpWeights, achievementsDisabledBadgeIds, achievementsMinPercentComplete, achievementsSeasons, requestAvailableNotifyEnabled, requestAvailableNotifyEmail, requestAvailableNotifyInApp, requestAvailableNotifyWebPush, requestAvailableNotifyDiscord, requestAvailableDiscordWebhookUrl, requestNotReleasedNotifyEnabled, requestNotReleasedNotifyEmail, requestNotReleasedNotifyInApp, requestNotReleasedNotifyWebPush, notifyReleaseDatePreference, scannerNotifyDeleted, scannerNotifyUpgrade, scannerNotifyImport, scannerNotifyGrab, scannerNotifyUpdate, scannerNotifyInteraction, notificationTemplates, emailTemplates, ntfyEnabled, ntfyServerUrl, ntfyTopic, ntfyToken, ntfyPriority, ntfyEvents, webhookEnabled, webhookUrl, webhookHeadersJson, webhookEvents, webPushEnabled, watchHistorySource, collexionsAutostart, collexionsInternalUrl, collexionsServiceKey, spotifyToPlexInternalUrl, spotifyToPlexClientId, spotifyToPlexClientSecret, spotifyToPlexEncryptionKey, spotifyToPlexHomeWidgetEnabled, spotifyToPlexScheduleMode, spotifyToPlexScheduledSyncEnabled, spotifyToPlexScheduledSyncIntervalHours, upgraderDefaultPreset, upgraderMinSizeGB, upgraderAutomationEnabled, upgraderProfileMap, upgraderMaxActionsPerHour, upgraderDefaultSort, upgraderDrawerPosition, dashboardLayout,
+        autoBackupEnabled, autoBackupIntervalDays, autoBackupRetentionCount, maintenanceExperimentalEnabled, upgraderEnabled, collexionsEnabled, spotifyToPlexEnabled, metadataFillEnabled, metadataFillAutoImport, scannerEnabled, scannerHomeWidgetEnabled, scannerWebhooksVisible, scannerManualPathVisible, scanner, mediaAutomationEnabled, mediaAutomationHomeWidgetEnabled, mediaAutomation, posterSetsEnabled, overlaysEnabled, editionsEnabled, watchSyncEnabled, achievementsEnabled, supportTicketsEnabled, chatEnabled, chatMentionNotifyInApp, achievementsLeaderboardEnabled, achievementsHomeWidgetEnabled, achievementsShowOnProfile, achievementsXpWeights, achievementsDisabledBadgeIds, achievementsMinPercentComplete, achievementsSeasons, requestAvailableNotifyEnabled, requestAvailableNotifyEmail, requestAvailableNotifyInApp, requestAvailableNotifyWebPush, requestAvailableNotifyDiscord, requestAvailableDiscordWebhookUrl, requestNotReleasedNotifyEnabled, requestNotReleasedNotifyEmail, requestNotReleasedNotifyInApp, requestNotReleasedNotifyWebPush, notifyReleaseDatePreference, scannerNotifyDeleted, scannerNotifyUpgrade, scannerNotifyImport, scannerNotifyGrab, scannerNotifyUpdate, scannerNotifyInteraction, notificationTemplates, emailTemplates, ntfyEnabled, ntfyServerUrl, ntfyTopic, ntfyToken, ntfyPriority, ntfyEvents, webhookEnabled, webhookUrl, webhookHeadersJson, webhookEvents, webPushEnabled, watchHistorySource, collexionsAutostart, collexionsInternalUrl, collexionsServiceKey, spotifyToPlexInternalUrl, spotifyToPlexClientId, spotifyToPlexClientSecret, spotifyToPlexEncryptionKey, spotifyToPlexHomeWidgetEnabled, spotifyToPlexScheduleMode, spotifyToPlexScheduledSyncEnabled, spotifyToPlexScheduledSyncIntervalHours, upgraderDefaultPreset, upgraderMinSizeGB, upgraderAutomationEnabled, upgraderProfileMap, upgraderMaxActionsPerHour, upgraderDefaultSort, upgraderDrawerPosition, dashboardLayout,
         showUsernamesInAnalytics, useTrendingSlideshowOnLogin, downloadsVisibleToMembers
     } = req.body;
 
@@ -7871,6 +7877,14 @@ app.post('/api/config', setupRateLimit, async (req, res) => {
         spotifyToPlexEnabled: (() => {
             if (normalizedMediaServerType !== 'plex') return false;
             return spotifyToPlexEnabled !== undefined ? !!spotifyToPlexEnabled : !!existingConfig.spotifyToPlexEnabled;
+        })(),
+        metadataFillEnabled: (() => {
+            if (normalizedMediaServerType !== 'plex') return false;
+            return metadataFillEnabled !== undefined ? !!metadataFillEnabled : !!existingConfig.metadataFillEnabled;
+        })(),
+        metadataFillAutoImport: (() => {
+            if (metadataFillAutoImport !== undefined) return !!metadataFillAutoImport;
+            return existingConfig.metadataFillAutoImport !== false;
         })(),
         spotifyToPlexInternalUrl: nextSpotifyToPlexInternalUrl,
         spotifyToPlexClientId: (() => {
@@ -30559,6 +30573,30 @@ const requirePosterSets = async (req, res, next) => {
     }
 };
 
+const requireMetadataFill = async (req, res, next) => {
+    try {
+        const config = await loadFile(CONFIG_PATH, {});
+        if (!config.metadataFillEnabled || String(config.mediaServerType || 'plex').toLowerCase() !== 'plex') {
+            return res.status(403).json({ error: 'Metadata Fill is disabled. Enable it in Settings first.' });
+        }
+        return next();
+    } catch {
+        return res.status(500).json({ error: 'Failed to check Metadata Fill feature flag.' });
+    }
+};
+
+const resolveMetadataFillPlex = async (config = {}) => {
+    if (String(config.mediaServerType || 'plex').toLowerCase() !== 'plex') {
+        return { baseUrl: '', token: '' };
+    }
+    const baseUrl = resolveConfiguredPlexServerUrl(config);
+    const token = normalizePlexToken(config.plexToken);
+    if (!baseUrl || !token || token === SECRET_MASK) {
+        return { baseUrl: '', token: '' };
+    }
+    return { baseUrl, token, rewrite: [] };
+};
+
 const resolveOverlaysPlex = async () => {
     const config = await loadFile(CONFIG_PATH, {});
     if (String(config.mediaServerType || 'plex').toLowerCase() !== 'plex') {
@@ -30696,6 +30734,15 @@ app.use('/api/media-player', createMediaPlayerRouter({
         });
         return next;
     },
+}));
+
+app.use('/api/metadata-fill', createMetadataFillRouter({
+    Router: express.Router,
+    requireAdmin,
+    requireMetadataFill,
+    loadConfig: async () => loadFile(CONFIG_PATH, {}),
+    saveConfig: async (cfg) => saveFile(CONFIG_PATH, cfg),
+    resolvePlex: resolveMetadataFillPlex,
 }));
 
 app.use('/api/poster-sets', createPosterSetsRouter({
@@ -30976,6 +31023,10 @@ const handleArrTrigger = async (req, res, kind) => {
             notifyScannerActivity(config, meta);
             if (kind === 'sonarr' && /^download$/i.test(eventType)) {
                 void schedulePosterSetsArrHook(event).catch(() => undefined);
+                void scheduleMetadataFillArrHook(event, {
+                    loadConfig: async () => loadFile(CONFIG_PATH, {}),
+                    resolvePlex: resolveMetadataFillPlex,
+                }).catch(() => undefined);
             }
             return res.status(200).json({ ok: true, queued: 0 });
         }
@@ -30991,6 +31042,10 @@ const handleArrTrigger = async (req, res, kind) => {
         log(`[scanner] Queued ${scans.length} from ${kind}:${trigger.name} (${eventType}${scans[0]?.reason ? ` · ${scans[0].reason}` : ''}): ${scans.map((s) => s.folder).join(' | ')}`);
         if (kind === 'sonarr' && /^download$/i.test(eventType)) {
             void schedulePosterSetsArrHook(event).catch(() => undefined);
+            void scheduleMetadataFillArrHook(event, {
+                loadConfig: async () => loadFile(CONFIG_PATH, {}),
+                resolvePlex: resolveMetadataFillPlex,
+            }).catch(() => undefined);
         }
         return res.status(200).json({ ok: true, queued: scans.length, folders: scans.map((s) => s.folder) });
     } catch (e) {
