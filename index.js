@@ -30601,7 +30601,10 @@ const resolveMetadataFillPlex = async (config = {}) => {
     if (!baseUrl || !token || token === SECRET_MASK) {
         return { baseUrl: '', token: '' };
     }
-    return { baseUrl, token, rewrite: [] };
+    // Same mount maps Scanner uses — Sonarr host paths often differ from Plex library roots.
+    const scanner = normalizeScannerConfig(config.scanner, getDefaultScannerConfig());
+    const rewrite = collectScannerPathRewrites(scanner);
+    return { baseUrl, token, rewrite };
 };
 
 const resolveOverlaysPlex = async () => {

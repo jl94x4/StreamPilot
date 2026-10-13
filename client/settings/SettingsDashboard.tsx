@@ -5534,8 +5534,8 @@ export const SettingsDashboard: React.FC = () => {
                                     }}
                                 />
                                 <SettingsToggleRow
-                                    title="Auto-fill on Sonarr import"
-                                    hint={<SettingHint>Uses the Scanner Sonarr Download webhook. Debounces ~60s so Plex can finish scanning first.</SettingHint>}
+                                    title="Auto-fill on Sonarr On Import"
+                                    hint={<SettingHint>Uses the Scanner Sonarr webhook when a file is imported (Sonarr’s event is named “Download”, not Grab). Enable On Import / On Upgrade in Sonarr Connect. Waits ~3 minutes, then polls Plex for up to ~2 more minutes (~5 min total) so the episode can finish scanning.</SettingHint>}
                                     checked={metadataFillAutoImport}
                                     onChange={setMetadataFillAutoImport}
                                     disabled={!metadataFillEnabled}
