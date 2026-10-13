@@ -1,4 +1,8 @@
-"""Emit splash, Fire TV banner, launcher, and PWA icons from static/logo.png."""
+"""Emit splash, Fire TV banner, launcher, and PWA icons from brand logos.
+
+- static/logo.png      → wide wordmark (banners / splash)
+- static/logo-app.png  → stacked square mark (launcher / PWA)
+"""
 from __future__ import annotations
 
 import os
@@ -10,11 +14,12 @@ ROOT = Path(__file__).resolve().parents[1]
 RES = ROOT / "plex-client" / "android" / "app" / "src" / "main" / "res"
 STATIC = ROOT / "static"
 LOGO = STATIC / "logo.png"
-BG = (7, 8, 12, 255)  # #07080C
+LOGO_APP = STATIC / "logo-app.png"
+BG = (0, 0, 0, 255)  # match stacked app mark plate
 
 
-def load_logo() -> Image.Image:
-    rgba = Image.open(LOGO).convert("RGBA")
+def load_logo(path: Path = LOGO) -> Image.Image:
+    rgba = Image.open(path).convert("RGBA")
     bbox = rgba.getbbox()
     if bbox:
         rgba = rgba.crop(bbox)
@@ -65,25 +70,14 @@ def make_square(logo: Image.Image, size: int, fill: float, bg=BG) -> Image.Image
     return paste_center(canvas, mark)
 
 
-def make_badge(logo: Image.Image) -> Image.Image:
-    """Crop the Pilot "P" (with play triangle) for readable launcher icons."""
-    h = logo.height
-    side = min(logo.width, h)
-    # Wordmark is Stream|Pilot — keep the right square on the P mark.
-    left = max(0, logo.width - side)
-    badge = logo.crop((left, 0, left + side, h))
-    bbox = badge.getbbox()
-    if bbox:
-        badge = badge.crop(bbox)
-    return badge
-
-
 def main() -> None:
-    logo = load_logo()
-    badge = make_badge(logo)
-    print("logo", logo.size, "badge", badge.size)
+    logo = load_logo(LOGO)
+    # Prefer stacked square mark for launchers / PWA; fall back to wide wordmark.
+    app_path = LOGO_APP if LOGO_APP.exists() else LOGO
+    app = load_logo(app_path)
+    print("logo", logo.size, "app", app.size, app_path.name)
 
-    save(make_square(logo, 420, 0.9), RES / "drawable-nodpi" / "splash_icon.png")
+    save(make_square(app, 420, 0.92), RES / "drawable-nodpi" / "splash_icon.png")
 
     launcher = {
         "mdpi": 48,
@@ -100,11 +94,11 @@ def main() -> None:
         "xxxhdpi": 432,
     }
     for dens, size in launcher.items():
-        icon = make_square(badge, size, 0.86)
+        icon = make_square(app, size, 0.92)
         save(icon, RES / f"mipmap-{dens}" / "ic_launcher.png")
         save(icon, RES / f"mipmap-{dens}" / "ic_launcher_round.png")
     for dens, size in foreground.items():
-        save(make_square(badge, size, 0.72, bg=(0, 0, 0, 0)), RES / f"mipmap-{dens}" / "ic_launcher_foreground.png")
+        save(make_square(app, size, 0.78, bg=(0, 0, 0, 0)), RES / f"mipmap-{dens}" / "ic_launcher_foreground.png")
 
     banner = make_banner(logo, 320, 180)
     save(banner, RES / "drawable" / "tv_banner.png")
@@ -131,12 +125,14 @@ def main() -> None:
     for folder, (w, h, wf, hf) in splashes.items():
         save(make_splash(logo, w, h, wf, hf), RES / folder / "splash.png")
 
+    # Full stacked mark on black — used when PWA icon source is Application
+    # (or as fallback when server branding is unavailable).
     for size, fill, name in (
-        (192, 0.86, "pwa-icon-192.png"),
-        (512, 0.86, "pwa-icon-512.png"),
-        (512, 0.7, "pwa-icon-maskable-512.png"),
+        (192, 1.0, "pwa-icon-192.png"),
+        (512, 1.0, "pwa-icon-512.png"),
+        (512, 0.88, "pwa-icon-maskable-512.png"),
     ):
-        save(make_square(badge, size, fill, bg=(11, 15, 25, 255)), STATIC / name)
+        save(make_square(app, size, fill, bg=BG), STATIC / name)
 
 
 if __name__ == "__main__":
