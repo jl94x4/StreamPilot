@@ -94,11 +94,12 @@ def main() -> None:
         "xxxhdpi": 432,
     }
     for dens, size in launcher.items():
-        icon = make_square(app, size, 0.92)
+        # ~11% inset so the mark sits in the middle of the launcher box.
+        icon = make_square(app, size, 0.78)
         save(icon, RES / f"mipmap-{dens}" / "ic_launcher.png")
         save(icon, RES / f"mipmap-{dens}" / "ic_launcher_round.png")
     for dens, size in foreground.items():
-        save(make_square(app, size, 0.78, bg=(0, 0, 0, 0)), RES / f"mipmap-{dens}" / "ic_launcher_foreground.png")
+        save(make_square(app, size, 0.66, bg=(0, 0, 0, 0)), RES / f"mipmap-{dens}" / "ic_launcher_foreground.png")
 
     banner = make_banner(logo, 320, 180)
     save(banner, RES / "drawable" / "tv_banner.png")
@@ -125,21 +126,21 @@ def main() -> None:
     for folder, (w, h, wf, hf) in splashes.items():
         save(make_splash(logo, w, h, wf, hf), RES / folder / "splash.png")
 
-    # Full stacked mark on black — used when PWA icon source is Application
-    # (or as fallback when server branding is unavailable).
+    # Stacked mark on black with launcher inset — used when PWA icon source is
+    # Application (or as fallback when server branding is unavailable).
     for size, fill, name in (
-        (192, 1.0, "pwa-icon-192.png"),
-        (512, 1.0, "pwa-icon-512.png"),
-        (512, 0.88, "pwa-icon-maskable-512.png"),
+        (192, 0.78, "pwa-icon-192.png"),
+        (512, 0.78, "pwa-icon-512.png"),
+        (512, 0.66, "pwa-icon-maskable-512.png"),
     ):
         save(make_square(app, size, fill, bg=BG), STATIC / name)
 
     # Well-known iOS probes (/apple-touch-icon.png) should hit a real PNG file,
     # not a rate-limited API that can return JSON 429 → letter glyph.
-    touch = make_square(app, 180, 1.0, bg=BG)
+    touch = make_square(app, 180, 0.78, bg=BG)
     save(touch, STATIC / "apple-touch-icon.png")
     save(touch, STATIC / "apple-touch-icon-precomposed.png")
-    save(make_square(app, 192, 1.0, bg=BG), STATIC / "apple-touch-icon-192.png")
+    save(make_square(app, 192, 0.78, bg=BG), STATIC / "apple-touch-icon-192.png")
 
 
 if __name__ == "__main__":

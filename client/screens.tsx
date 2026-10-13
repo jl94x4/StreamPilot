@@ -282,7 +282,7 @@ export const updateFavicon = (thumbUrl: string | null | undefined) => {
     // Prefer static PNG (never rate-limited JSON). Well-known /apple-touch-icon.png
     // is also served as a real file for Safari's automatic A2HS probe.
     const version = encodeURIComponent(String(thumbUrl || 'default').slice(-64));
-    const href = portalUrl(`/static/apple-touch-icon.png?v=${version}&hs=6`);
+    const href = portalUrl(`/static/apple-touch-icon.png?v=${version}&hs=8`);
     link.href = href;
     appleLink.href = href;
 };

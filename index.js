@@ -22241,8 +22241,7 @@ const buildPwaManifest = async () => {
     // App home is /portal when BASE_PATH is empty — matches login redirect + client router.
     const startUrl = BASE_PATH ? `${BASE_PATH}/` : '/portal';
     const scope = BASE_PATH ? `${BASE_PATH}/` : '/';
-    // Server mode serves install icons from /api/public/pwa-icon so the installed app
-    // always matches live branding. Application mode keeps pre-synced static PNGs.
+    // Always point install icons at /static PNGs (not well-known /apple-touch-icon.png).
     // Absolute icon URLs are more reliable for iOS "Open as Web App" installs.
     const icon192 = absolutizePublicHref(
         resolvePortalPwaManifestIconHref(config, profile, resolvePublicAssetHref, { size: 192 }),
@@ -22257,7 +22256,7 @@ const buildPwaManifest = async () => {
         publicBase,
     );
     const touchIcon = absolutizePublicHref(
-        `${resolvePublicAssetHref('/apple-touch-icon.png')}?v=${getPortalBrandingIconCacheKey(config, profile)}&hs=${HOME_SCREEN_ICON_REV}`,
+        `${resolvePublicAssetHref('/static/apple-touch-icon.png')}?v=${getPortalBrandingIconCacheKey(config, profile)}&hs=${HOME_SCREEN_ICON_REV}`,
         publicBase,
     );
     return {
