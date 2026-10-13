@@ -35,6 +35,24 @@ type ShowHit = {
     tvdbId?: string | null;
 };
 
+type LibraryRow = { key: string; title: string };
+
+type FillFields = {
+    title: boolean;
+    summary: boolean;
+    originallyAvailableAt: boolean;
+};
+
+type AuditItem = {
+    ratingKey: string;
+    showRatingKey?: string;
+    showTitle?: string;
+    libraryTitle?: string | null;
+    seasonNumber?: number;
+    episodeNumber?: number;
+    title?: string;
+};
+
 type RetryItem = {
     id: string;
     showTitle?: string | null;
@@ -84,6 +102,11 @@ type ScanState = {
 type Status = {
     enabled: boolean;
     autoImport: boolean;
+    fields: FillFields;
+    sourcePreference: 'auto' | 'tmdb' | 'tvdb';
+    requireTitleAgreement: boolean;
+    libraryKeys: string[];
+    libraries: LibraryRow[];
     tmdbConfigured: boolean;
     tvdbConfigured: boolean;
     tvmazeConfigured: boolean;
@@ -91,6 +114,12 @@ type Status = {
     retryQueue: RetryItem[];
     scan: ScanState | null;
 };
+
+const defaultFields = (): FillFields => ({
+    title: true,
+    summary: true,
+    originallyAvailableAt: true,
+});
 
 type LogFilter = 'all' | 'filled' | 'failed' | 'preview' | 'skipped' | 'reverted';
 
@@ -127,15 +156,31 @@ export const MetadataFillPage: React.FC = () => {
     const [logFilter, setLogFilter] = useState<LogFilter>('all');
     const [logQuery, setLogQuery] = useState('');
     const [rowBusy, setRowBusy] = useState('');
+    const [auditBusy, setAuditBusy] = useState(false);
+    const [auditItems, setAuditItems] = useState<AuditItem[]>([]);
+    const [bulkBusy, setBulkBusy] = useState('');
 
     const load = useCallback(async (silent = false) => {
         if (!silent) setLoading(true);
         setError('');
         try {
             const data = await apiFetch('/api/metadata-fill/status');
+            const fields = data?.fields && typeof data.fields === 'object'
+                ? {
+                    title: data.fields.title !== false,
+                    summary: data.fields.summary !== false,
+                    originallyAvailableAt: data.fields.originallyAvailableAt !== false,
+                }
+                : defaultFields();
+            const pref = String(data?.sourcePreference || 'auto').toLowerCase();
             setStatus({
                 enabled: !!data?.enabled,
                 autoImport: data?.autoImport !== false,
+                fields,
+                sourcePreference: pref === 'tmdb' || pref === 'tvdb' ? pref : 'auto',
+                requireTitleAgreement: !!data?.requireTitleAgreement,
+                libraryKeys: Array.isArray(data?.libraryKeys) ? data.libraryKeys.map(String) : [],
+                libraries: Array.isArray(data?.libraries) ? data.libraries : [],
                 tmdbConfigured: !!data?.tmdbConfigured,
                 tvdbConfigured: !!data?.tvdbConfigured,
                 tvmazeConfigured: data?.tvmazeConfigured !== false,
@@ -168,8 +213,8 @@ export const MetadataFillPage: React.FC = () => {
         return () => window.clearInterval(id);
     }, [scanRunning, load]);
 
-    const saveSettings = async (patch: { enabled?: boolean; autoImport?: boolean }) => {
-        setBusyToggle(patch.enabled !== undefined ? 'enabled' : 'auto');
+    const saveSettings = async (patch: Record<string, unknown>, busyKey = 'settings') => {
+        setBusyToggle(busyKey);
         setError('');
         try {
             const data = await apiFetch('/api/metadata-fill/settings', {
@@ -180,6 +225,16 @@ export const MetadataFillPage: React.FC = () => {
                 ...prev,
                 enabled: !!data?.enabled,
                 autoImport: data?.autoImport !== false,
+                fields: data?.fields && typeof data.fields === 'object' ? {
+                    title: data.fields.title !== false,
+                    summary: data.fields.summary !== false,
+                    originallyAvailableAt: data.fields.originallyAvailableAt !== false,
+                } : prev.fields,
+                sourcePreference: (data?.sourcePreference === 'tmdb' || data?.sourcePreference === 'tvdb')
+                    ? data.sourcePreference
+                    : (data?.sourcePreference ? 'auto' : prev.sourcePreference),
+                requireTitleAgreement: !!data?.requireTitleAgreement,
+                libraryKeys: Array.isArray(data?.libraryKeys) ? data.libraryKeys.map(String) : prev.libraryKeys,
             } : prev);
             await load(true);
         } catch (e: any) {
@@ -187,6 +242,14 @@ export const MetadataFillPage: React.FC = () => {
         } finally {
             setBusyToggle('');
         }
+    };
+
+    const toggleLibraryKey = (key: string) => {
+        if (!status) return;
+        const set = new Set(status.libraryKeys);
+        if (set.has(key)) set.delete(key);
+        else set.add(key);
+        void saveSettings({ libraryKeys: [...set] }, 'libraries');
     };
 
     const runSearch = async () => {
@@ -215,17 +278,65 @@ export const MetadataFillPage: React.FC = () => {
                 body: JSON.stringify({ ratingKey, dryRun }),
             });
             await load(true);
+            const still = Array.isArray(result?.stillTba) ? result.stillTba.length : 0;
             if (dryRun) {
                 setNotice(`Preview: ${result?.previewed || 0} episode(s) would be filled.`);
             } else if (result?.failed > 0) {
-                setError(`Filled ${result.filled || 0}, skipped ${result.skipped || 0}, failed ${result.failed}.`);
+                setError(`Filled ${result.filled || 0}, skipped ${result.skipped || 0}, failed ${result.failed}${still ? `, still TBA ${still}` : ''}.`);
             } else {
-                setNotice(`Filled ${result.filled || 0}, skipped ${result.skipped || 0}.`);
+                setNotice(`Filled ${result.filled || 0}, skipped ${result.skipped || 0}${still ? `, still TBA ${still}` : ''}.`);
+                if (still) setAuditItems(result.stillTba);
             }
         } catch (e: any) {
             setError(e?.message || 'Fill failed');
         } finally {
             setFillingKey('');
+        }
+    };
+
+    const bulkShow = async (ratingKey: string, mode: 'unlock' | 'revert') => {
+        setBulkBusy(`${mode}:${ratingKey}`);
+        setError('');
+        setNotice('');
+        try {
+            const result = await apiFetch(`/api/metadata-fill/bulk-${mode}`, {
+                method: 'POST',
+                body: JSON.stringify({ showRatingKey: ratingKey }),
+            });
+            await load(true);
+            if (mode === 'unlock') {
+                setNotice(`Unlocked ${result?.unlocked || 0} episode(s) for this show.`);
+            } else {
+                setNotice(`Reverted ${result?.reverted || 0} episode(s) for this show.`);
+            }
+        } catch (e: any) {
+            setError(e?.message || `Bulk ${mode} failed`);
+        } finally {
+            setBulkBusy('');
+        }
+    };
+
+    const runAudit = async (showRatingKey?: string) => {
+        setAuditBusy(true);
+        setError('');
+        try {
+            const result = await apiFetch('/api/metadata-fill/audit', {
+                method: 'POST',
+                body: JSON.stringify({
+                    showRatingKey: showRatingKey || undefined,
+                    libraryKeys: status?.libraryKeys?.length ? status.libraryKeys : undefined,
+                    limit: 200,
+                }),
+            });
+            const items = Array.isArray(result?.items) ? result.items : [];
+            setAuditItems(items);
+            setNotice(items.length
+                ? `Audit found ${items.length} episode(s) still needing fill${result?.truncated ? ' (truncated)' : ''}.`
+                : 'Audit: nothing still TBA in scope.');
+        } catch (e: any) {
+            setError(e?.message || 'Audit failed');
+        } finally {
+            setAuditBusy(false);
         }
     };
 
@@ -418,7 +529,7 @@ export const MetadataFillPage: React.FC = () => {
                             type="checkbox"
                             checked={!!status?.enabled}
                             disabled={!!busyToggle || loading}
-                            onChange={(e) => { void saveSettings({ enabled: e.target.checked }); }}
+                            onChange={(e) => { void saveSettings({ enabled: e.target.checked }, 'enabled'); }}
                         />
                     </label>
                     <label className="flex items-center justify-between gap-3 text-sm text-text">
@@ -427,18 +538,64 @@ export const MetadataFillPage: React.FC = () => {
                             type="checkbox"
                             checked={status?.autoImport !== false}
                             disabled={!status?.enabled || !!busyToggle || loading}
-                            onChange={(e) => { void saveSettings({ autoImport: e.target.checked }); }}
+                            onChange={(e) => { void saveSettings({ autoImport: e.target.checked }, 'auto'); }}
+                        />
+                    </label>
+                    <div className="pt-1 space-y-2">
+                        <p className="text-[11px] font-bold uppercase tracking-wider text-muted">Write fields</p>
+                        {([
+                            ['title', 'Title'],
+                            ['summary', 'Summary'],
+                            ['originallyAvailableAt', 'Air date'],
+                        ] as const).map(([key, label]) => (
+                            <label key={key} className="flex items-center justify-between gap-3 text-sm text-text">
+                                <span>{label}</span>
+                                <input
+                                    type="checkbox"
+                                    checked={status?.fields?.[key] !== false}
+                                    disabled={!status?.enabled || !!busyToggle}
+                                    onChange={(e) => {
+                                        void saveSettings({
+                                            fields: {
+                                                ...(status?.fields || defaultFields()),
+                                                [key]: e.target.checked,
+                                            },
+                                        }, 'fields');
+                                    }}
+                                />
+                            </label>
+                        ))}
+                    </div>
+                    <label className="flex flex-col gap-1 text-sm text-text">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-muted">Source preference</span>
+                        <select
+                            className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm"
+                            value={status?.sourcePreference || 'auto'}
+                            disabled={!status?.enabled || !!busyToggle}
+                            onChange={(e) => {
+                                void saveSettings({ sourcePreference: e.target.value }, 'source');
+                            }}
+                        >
+                            <option value="auto">Auto (TMDB → TVDB → TVmaze)</option>
+                            <option value="tmdb">Prefer TMDB</option>
+                            <option value="tvdb">Prefer TVDB</option>
+                        </select>
+                    </label>
+                    <label className="flex items-center justify-between gap-3 text-sm text-text">
+                        <span>Skip title when TMDB &amp; TVDB disagree</span>
+                        <input
+                            type="checkbox"
+                            checked={!!status?.requireTitleAgreement}
+                            disabled={!status?.enabled || !!busyToggle}
+                            onChange={(e) => {
+                                void saveSettings({ requireTitleAgreement: e.target.checked }, 'agree');
+                            }}
                         />
                     </label>
                     <p className="text-xs text-muted">
                         Sources: TMDB {status?.tmdbConfigured ? 'ready' : 'missing key'}
                         {' · '}TVDB {status?.tvdbConfigured ? 'ready' : 'missing key'}
                         {' · '}TVmaze {status?.tvmazeConfigured !== false ? 'ready (no key)' : 'off'}
-                        {' '}— TMDB under Media Stack; TVDB under Request → Metadata providers (Portal engine).
-                    </p>
-                    <p className="text-xs text-muted">
-                        Auto-import runs after Sonarr On Import / On Upgrade (webhook eventType “Download” — not Grab).
-                        Waits ~3 min, then polls Plex up to ~5 min total. Misses land in the retry queue.
                     </p>
                 </section>
 
@@ -480,10 +637,10 @@ export const MetadataFillPage: React.FC = () => {
                                         TMDB {hit.tmdbId || '—'} · TVDB {hit.tvdbId || '—'}
                                     </p>
                                 </div>
-                                <div className="flex shrink-0 gap-1.5">
+                                <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
                                     <button
                                         type="button"
-                                        disabled={!!fillingKey}
+                                        disabled={!!fillingKey || !!bulkBusy}
                                         onClick={() => { void fillShow(hit.ratingKey, true); }}
                                         className="rounded-lg border border-white/15 px-2 py-1.5 text-[11px] font-bold text-muted"
                                     >
@@ -493,13 +650,31 @@ export const MetadataFillPage: React.FC = () => {
                                     </button>
                                     <button
                                         type="button"
-                                        disabled={!!fillingKey}
+                                        disabled={!!fillingKey || !!bulkBusy}
                                         onClick={() => { void fillShow(hit.ratingKey, false); }}
                                         className="rounded-lg border border-plex/40 bg-plex/15 px-2.5 py-1.5 text-xs font-bold text-plex"
                                     >
                                         {fillingKey === `${hit.ratingKey}:fill` ? (
                                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
                                         ) : 'Fill'}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        disabled={!!bulkBusy || !status?.enabled}
+                                        onClick={() => { void bulkShow(hit.ratingKey, 'unlock'); }}
+                                        className="rounded-lg border border-white/15 px-2 py-1.5 text-[11px] font-bold text-muted"
+                                        title="Unlock all filled fields for this show"
+                                    >
+                                        {bulkBusy === `unlock:${hit.ratingKey}` ? '…' : 'Unlock'}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        disabled={!!bulkBusy || !status?.enabled}
+                                        onClick={() => { void bulkShow(hit.ratingKey, 'revert'); }}
+                                        className="rounded-lg border border-amber-400/30 px-2 py-1.5 text-[11px] font-bold text-amber-300"
+                                        title="Revert Metadata Fill writes for this show"
+                                    >
+                                        {bulkBusy === `revert:${hit.ratingKey}` ? '…' : 'Revert'}
                                     </button>
                                 </div>
                             </li>
@@ -525,10 +700,44 @@ export const MetadataFillPage: React.FC = () => {
                     </label>
                 </div>
                 <p className="text-xs text-muted">
-                    Manual start. Walks all TV libraries for episodes that still need fill.
+                    Manual start. Walks selected TV libraries (or all if none selected).
                     If interrupted, Resume continues from the last show/episode.
                     Prefer dry-run first, then Apply preview.
                 </p>
+                {(status?.libraries?.length || 0) > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                        {status?.libraries?.map((lib) => {
+                            const selected = !status.libraryKeys.length || status.libraryKeys.includes(String(lib.key));
+                            const explicitlyOn = status.libraryKeys.includes(String(lib.key));
+                            return (
+                                <button
+                                    key={lib.key}
+                                    type="button"
+                                    disabled={!status?.enabled || !!busyToggle || scanRunning}
+                                    onClick={() => { toggleLibraryKey(String(lib.key)); }}
+                                    className={`rounded-lg px-2.5 py-1.5 text-[11px] font-bold ${
+                                        (status.libraryKeys.length ? explicitlyOn : selected)
+                                            ? 'border border-plex/40 bg-plex/15 text-plex'
+                                            : 'border border-white/10 text-muted'
+                                    }`}
+                                    title={status.libraryKeys.length ? 'Toggle library in scan scope' : 'Click to limit scan to selected libraries'}
+                                >
+                                    {lib.title}
+                                </button>
+                            );
+                        })}
+                        {(status?.libraryKeys?.length || 0) > 0 && (
+                            <button
+                                type="button"
+                                disabled={!!busyToggle || scanRunning}
+                                onClick={() => { void saveSettings({ libraryKeys: [] }, 'libraries'); }}
+                                className="rounded-lg border border-white/10 px-2.5 py-1.5 text-[11px] font-semibold text-muted"
+                            >
+                                Clear (scan all)
+                            </button>
+                        )}
+                    </div>
+                )}
                 <div className="flex flex-wrap gap-2">
                     <button
                         type="button"
@@ -611,6 +820,43 @@ export const MetadataFillPage: React.FC = () => {
                         ))}
                     </ul>
                 )}
+            </section>
+
+            <section className="mt-6 rounded-2xl border border-white/10 bg-background/40 p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                    <h2 className="text-sm font-bold uppercase tracking-wider text-muted">
+                        Still TBA audit
+                    </h2>
+                    <button
+                        type="button"
+                        disabled={!status?.enabled || auditBusy}
+                        onClick={() => { void runAudit(); }}
+                        className="inline-flex items-center gap-2 rounded-xl border border-plex/40 bg-plex/15 px-3 py-1.5 text-xs font-bold text-plex disabled:opacity-40"
+                    >
+                        {auditBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
+                        Run audit
+                    </button>
+                </div>
+                <p className="text-xs text-muted">
+                    Lists episodes that still look like TBA / empty after fill attempts — scoped to selected libraries when set.
+                </p>
+                <ul className="max-h-48 space-y-1.5 overflow-auto text-xs">
+                    {auditItems.slice(0, 80).map((item) => (
+                        <li key={item.ratingKey} className="rounded-lg border border-white/5 px-2.5 py-1.5 text-muted">
+                            <span className="text-text font-semibold">
+                                {item.showTitle || 'Show'}
+                                {item.seasonNumber != null && item.episodeNumber != null
+                                    ? ` S${String(item.seasonNumber).padStart(2, '0')}E${String(item.episodeNumber).padStart(2, '0')}`
+                                    : ''}
+                            </span>
+                            {item.title ? ` — ${item.title}` : ''}
+                            {item.libraryTitle ? ` · ${item.libraryTitle}` : ''}
+                        </li>
+                    ))}
+                    {!auditItems.length && (
+                        <li className="text-muted">No audit results yet — run after a fill or library scan.</li>
+                    )}
+                </ul>
             </section>
 
             <section className="mt-6 rounded-2xl border border-white/10 bg-background/40 p-4 space-y-3">
