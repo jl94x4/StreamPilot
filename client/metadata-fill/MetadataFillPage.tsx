@@ -84,6 +84,9 @@ type ScanState = {
     };
     preview?: Array<{
         ratingKey: string;
+        ok?: boolean;
+        skipped?: boolean;
+        reason?: string;
         showTitle?: string;
         seasonNumber?: number;
         episodeNumber?: number;
@@ -122,13 +125,27 @@ const defaultFields = (): FillFields => ({
 });
 
 type LogFilter = 'all' | 'filled' | 'failed' | 'preview' | 'skipped' | 'reverted';
+type PreviewFilter = 'all' | 'ok' | 'failed' | 'skipped';
+
+const reasonLabel = (reason?: string) => {
+    switch (String(reason || '')) {
+        case 'no-source-data': return 'no metadata from sources';
+        case 'no-usable-fields': return 'nothing useful left to write';
+        case 'title-source-conflict': return 'title sources disagree';
+        case 'already-filled': return 'already filled';
+        case 'missing-season-episode': return 'missing season/episode numbers';
+        case 'bad-episode-index': return 'bad episode index';
+        case 'nothing-to-write': return 'nothing to write';
+        default: return reason || '';
+    }
+};
 
 const statusLabel = (row: FillLogRow) => {
     if (row.unlocked) return 'Unlocked';
     if (row.reverted) return 'Reverted';
-    if (row.ok === false) return 'Failed';
+    if (row.ok === false) return 'Error';
     if (row.dryRun) return 'Preview';
-    if (row.skipped) return 'Skipped';
+    if (row.skipped) return 'Left alone';
     return 'Filled';
 };
 
@@ -155,6 +172,7 @@ export const MetadataFillPage: React.FC = () => {
     const [retryBusy, setRetryBusy] = useState(false);
     const [logFilter, setLogFilter] = useState<LogFilter>('all');
     const [logQuery, setLogQuery] = useState('');
+    const [previewFilter, setPreviewFilter] = useState<PreviewFilter>('all');
     const [rowBusy, setRowBusy] = useState('');
     const [auditBusy, setAuditBusy] = useState(false);
     const [auditItems, setAuditItems] = useState<AuditItem[]>([]);
@@ -282,9 +300,9 @@ export const MetadataFillPage: React.FC = () => {
             if (dryRun) {
                 setNotice(`Preview: ${result?.previewed || 0} episode(s) would be filled.`);
             } else if (result?.failed > 0) {
-                setError(`Filled ${result.filled || 0}, skipped ${result.skipped || 0}, failed ${result.failed}${still ? `, still TBA ${still}` : ''}.`);
+                setError(`Filled ${result.filled || 0}, left alone ${result.skipped || 0}, errors ${result.failed}${still ? `, still TBA ${still}` : ''}.`);
             } else {
-                setNotice(`Filled ${result.filled || 0}, skipped ${result.skipped || 0}${still ? `, still TBA ${still}` : ''}.`);
+                setNotice(`Filled ${result.filled || 0}, left alone ${result.skipped || 0}${still ? `, still TBA ${still}` : ''}.`);
                 if (still) setAuditItems(result.stillTba);
             }
         } catch (e: any) {
@@ -494,6 +512,13 @@ export const MetadataFillPage: React.FC = () => {
     }, [status?.log, logFilter, logQuery]);
 
     const scan = status?.scan;
+    const filteredPreview = useMemo(() => {
+        const rows = scan?.preview || [];
+        if (previewFilter === 'failed') return rows.filter((r) => r.ok === false);
+        if (previewFilter === 'skipped') return rows.filter((r) => r.skipped);
+        if (previewFilter === 'ok') return rows.filter((r) => r.ok !== false && !r.skipped);
+        return rows;
+    }, [scan?.preview, previewFilter]);
     const stats = scan?.stats;
 
     return (
@@ -792,8 +817,8 @@ export const MetadataFillPage: React.FC = () => {
                             {' · '}need fill {stats?.needingFill || 0}
                             {' · '}previewed {stats?.previewed || 0}
                             {' · '}filled {stats?.filled || 0}
-                            {' · '}skipped {stats?.skipped || 0}
-                            {' · '}failed {stats?.failed || 0}
+                            {' · '}left alone {stats?.skipped || 0}
+                            {' · '}errors {stats?.failed || 0}
                         </p>
                         {(scan.cursor?.libraryTitle || scan.cursor?.showTitle) && (
                             <p>
@@ -804,21 +829,60 @@ export const MetadataFillPage: React.FC = () => {
                     </div>
                 )}
                 {(scan?.preview?.length || 0) > 0 && (
-                    <ul className="max-h-48 space-y-1.5 overflow-auto text-xs">
-                        {(scan?.preview || []).slice(-30).reverse().map((row) => (
-                            <li key={row.ratingKey} className="rounded-lg border border-white/5 px-2.5 py-1.5 text-text">
-                                <span className="font-semibold">
-                                    {row.showTitle}
-                                    {row.seasonNumber != null && row.episodeNumber != null
-                                        ? ` S${String(row.seasonNumber).padStart(2, '0')}E${String(row.episodeNumber).padStart(2, '0')}`
-                                        : ''}
-                                </span>
-                                {row.title ? ` → ${row.title}` : ''}
-                                {row.airDate ? ` · ${row.airDate}` : ''}
-                                {row.sources?.length ? ` · ${row.sources.join('+')}` : ''}
-                            </li>
-                        ))}
-                    </ul>
+                    <div className="space-y-2">
+                        <div className="flex flex-wrap gap-2">
+                            {([
+                                ['all', 'All'],
+                                ['skipped', 'Left alone'],
+                                ['failed', 'Errors'],
+                                ['ok', 'Would fill'],
+                            ] as Array<[PreviewFilter, string]>).map(([key, label]) => (
+                                <button
+                                    key={key}
+                                    type="button"
+                                    onClick={() => setPreviewFilter(key)}
+                                    className={`rounded-lg px-2 py-1 text-[11px] font-bold ${
+                                        previewFilter === key
+                                            ? 'bg-plex/20 text-plex'
+                                            : 'border border-white/10 text-muted'
+                                    }`}
+                                >
+                                    {label}
+                                    {key === 'skipped' && (stats?.skipped || 0) > 0 ? ` (${stats?.skipped})` : ''}
+                                    {key === 'failed' && (stats?.failed || 0) > 0 ? ` (${stats?.failed})` : ''}
+                                </button>
+                            ))}
+                        </div>
+                        <ul className="max-h-56 space-y-1.5 overflow-auto text-xs">
+                            {filteredPreview.slice(-40).reverse().map((row, index) => (
+                                <li
+                                    key={`${row.ratingKey || 'row'}-${index}`}
+                                    className={`rounded-lg border px-2.5 py-1.5 ${
+                                        row.ok === false
+                                            ? 'border-red-400/25 text-red-200'
+                                            : row.skipped
+                                                ? 'border-white/5 text-muted'
+                                                : 'border-white/5 text-text'
+                                    }`}
+                                >
+                                    <span className="font-semibold">
+                                        {row.ok === false ? 'Error · ' : row.skipped ? 'Left alone · ' : ''}
+                                        {row.showTitle}
+                                        {row.seasonNumber != null && row.episodeNumber != null
+                                            ? ` S${String(row.seasonNumber).padStart(2, '0')}E${String(row.episodeNumber).padStart(2, '0')}`
+                                            : ''}
+                                    </span>
+                                    {row.title ? ` → ${row.title}` : ''}
+                                    {row.airDate ? ` · ${row.airDate}` : ''}
+                                    {row.sources?.length ? ` · ${row.sources.join('+')}` : ''}
+                                    {row.reason ? ` · ${reasonLabel(row.reason)}` : ''}
+                                </li>
+                            ))}
+                            {!filteredPreview.length && (
+                                <li className="text-muted">No matching preview rows in the recent window.</li>
+                            )}
+                        </ul>
+                    </div>
                 )}
             </section>
 
@@ -918,7 +982,14 @@ export const MetadataFillPage: React.FC = () => {
                             placeholder="Filter log…"
                             className="w-40 rounded-lg border border-white/10 bg-black/20 px-2 py-1 text-xs text-text"
                         />
-                        {(['all', 'filled', 'failed', 'preview', 'skipped', 'reverted'] as LogFilter[]).map((f) => (
+                        {([
+                            ['all', 'all'],
+                            ['filled', 'filled'],
+                            ['skipped', 'left alone'],
+                            ['failed', 'errors'],
+                            ['preview', 'preview'],
+                            ['reverted', 'reverted'],
+                        ] as Array<[LogFilter, string]>).map(([f, label]) => (
                             <button
                                 key={f}
                                 type="button"
@@ -929,7 +1000,7 @@ export const MetadataFillPage: React.FC = () => {
                                         : 'border border-white/10 text-muted'
                                 }`}
                             >
-                                {f}
+                                {label}
                             </button>
                         ))}
                     </div>
@@ -956,7 +1027,7 @@ export const MetadataFillPage: React.FC = () => {
                                         {row.at ? new Date(row.at).toLocaleString() : ''}
                                         {row.source ? ` · ${row.source}` : ''}
                                         {row.sources?.length ? ` · ${row.sources.join('+')}` : ''}
-                                        {row.reason ? ` · ${row.reason}` : ''}
+                                        {row.reason ? ` · ${reasonLabel(row.reason)}` : ''}
                                         {row.airDate ? ` · air ${row.airDate}` : ''}
                                     </p>
                                     {(row.before || row.after) && (
