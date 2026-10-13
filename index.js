@@ -16688,37 +16688,35 @@ const sendBrandingImageBuffer = async (res, buffer, contentTypeHint = '', pwaSiz
 app.get('/api/public/pwa-icon', async (req, res) => {
     const size = Number(req.query.size) >= 512 ? 512 : 192;
     const maskable = req.query.maskable === '1' || req.query.maskable === 'true';
+    // Prefer pre-synced static files so Cloudflare never waits on Plex branding.
+    if (maskable) {
+        const sentMaskable = await sendStaticHomeScreenIconFile(res, ['pwa-icon-maskable-512.png']);
+        if (sentMaskable) return sentMaskable;
+    } else {
+        const sentSized = await sendStaticHomeScreenIconFile(res, [
+            `pwa-icon-${size >= 512 ? 512 : 192}.png`,
+            'apple-touch-icon-192.png',
+            'apple-touch-icon.png',
+        ]);
+        if (sentSized) return sentSized;
+    }
     try {
         const config = await loadFile(CONFIG_PATH, {});
         if (normalizePwaIconSource(config.pwaIconSource) === 'application') {
-            if (maskable) {
-                const maskablePath = path.join(process.cwd(), 'static', 'pwa-icon-maskable-512.png');
-                try {
-                    await fs.access(maskablePath);
-                    res.setHeader('Content-Type', 'image/png');
-                    res.setHeader('Cache-Control', 'public, max-age=3600');
-                    return res.sendFile(maskablePath);
-                } catch {
-                    return sendPwaSizedIconFile(res, 512);
-                }
-            }
-            return sendPwaSizedIconFile(res, size);
+            return sendHomeScreenStaticLogoFallback(res);
         }
 
-        const profile = await getAdminProfile(config);
+        const profile = await Promise.race([
+            getAdminProfile(config),
+            new Promise((resolve) => setTimeout(() => resolve(null), 1500)),
+        ]);
         const brandingDeps = getPortalBrandingDeps();
-        let buffer = await fetchPortalBrandingRasterBuffer(config, profile, brandingDeps, {
+        const buffer = await fetchPortalBrandingRasterBuffer(config, profile || {}, brandingDeps, {
             brandingDir: BRANDING_DIR,
-            timeoutMs: 5000,
+            timeoutMs: 2000,
         });
         if (!buffer) {
-            buffer = await fetchPortalBrandingRasterBuffer(config, profile, brandingDeps, {
-                brandingDir: BRANDING_DIR,
-                timeoutMs: 10000,
-            });
-        }
-        if (!buffer) {
-            log('[Branding] PWA icon route: server branding unavailable — falling back to app logo');
+            log('[Branding] PWA icon route: server branding unavailable, falling back to app logo');
             return sendHomeScreenStaticLogoFallback(res);
         }
 
@@ -16728,7 +16726,8 @@ app.get('/api/public/pwa-icon', async (req, res) => {
                 wideLogoScale: 0.88,
             });
             res.setHeader('Content-Type', 'image/png');
-            res.setHeader('Cache-Control', 'public, max-age=3600');
+            res.setHeader('Cache-Control', HOME_SCREEN_ICON_CACHE);
+            res.setHeader('X-Content-Type-Options', 'nosniff');
             return res.send(png);
         }
         return sendHomeScreenPwaIcon(res, buffer, size);

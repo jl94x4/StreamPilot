@@ -364,7 +364,7 @@ export const MetadataFillPage: React.FC = () => {
         setScanBusy(true);
         try {
             await apiFetch('/api/metadata-fill/scan/cancel', { method: 'POST', body: '{}' });
-            setNotice('Cancel requested — scan will stop after the current episode.');
+            setNotice('Cancel requested. Scan will stop after the current episode.');
             await load(true);
         } catch (e: any) {
             setError(e?.message || 'Failed to cancel scan');
@@ -502,7 +502,7 @@ export const MetadataFillPage: React.FC = () => {
                 accent="plex"
                 eyebrow="Metadata Fill"
                 title="Fill TBA episode metadata from TMDB, TVDB, and TVmaze"
-                description="When Plex is slow to scrape, write locked title, summary, and air date — on Sonarr On Import, per show, or via a resumable library scan. Preview first, then apply; revert or unlock anytime."
+                description="When Plex is slow to scrape, write locked title, summary, and air date on Sonarr On Import, per show, or via a resumable library scan. Preview first, then apply; revert or unlock anytime."
                 icon={<Wand2 className="h-5 w-5" />}
                 secondaryBlob
                 actions={(
@@ -634,7 +634,7 @@ export const MetadataFillPage: React.FC = () => {
                                         {hit.title}{hit.year ? ` (${hit.year})` : ''}
                                     </p>
                                     <p className="text-[11px] text-muted truncate">
-                                        TMDB {hit.tmdbId || '—'} · TVDB {hit.tvdbId || '—'}
+                                        TMDB {hit.tmdbId || '-'} · TVDB {hit.tvdbId || '-'}
                                     </p>
                                 </div>
                                 <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
@@ -838,7 +838,7 @@ export const MetadataFillPage: React.FC = () => {
                     </button>
                 </div>
                 <p className="text-xs text-muted">
-                    Lists episodes that still look like TBA / empty after fill attempts — scoped to selected libraries when set.
+                    Lists episodes that still look like TBA / empty after fill attempts, scoped to selected libraries when set.
                 </p>
                 <ul className="max-h-48 space-y-1.5 overflow-auto text-xs">
                     {auditItems.slice(0, 80).map((item) => (
@@ -849,12 +849,12 @@ export const MetadataFillPage: React.FC = () => {
                                     ? ` S${String(item.seasonNumber).padStart(2, '0')}E${String(item.episodeNumber).padStart(2, '0')}`
                                     : ''}
                             </span>
-                            {item.title ? ` — ${item.title}` : ''}
+                            {item.title ? ` - ${item.title}` : ''}
                             {item.libraryTitle ? ` · ${item.libraryTitle}` : ''}
                         </li>
                     ))}
                     {!auditItems.length && (
-                        <li className="text-muted">No audit results yet — run after a fill or library scan.</li>
+                        <li className="text-muted">No audit results yet. Run after a fill or library scan.</li>
                     )}
                 </ul>
             </section>
@@ -899,7 +899,7 @@ export const MetadataFillPage: React.FC = () => {
                         </li>
                     ))}
                     {!status?.retryQueue?.length && (
-                        <li className="text-muted">Empty — failed imports / lookups appear here automatically.</li>
+                        <li className="text-muted">Empty. Failed imports / lookups appear here automatically.</li>
                     )}
                 </ul>
             </section>
@@ -949,7 +949,7 @@ export const MetadataFillPage: React.FC = () => {
                                             {row.seasonNumber != null && row.episodeNumber != null
                                                 ? ` S${String(row.seasonNumber).padStart(2, '0')}E${String(row.episodeNumber).padStart(2, '0')}`
                                                 : ''}
-                                            {row.title ? ` — ${row.title}` : ''}
+                                            {row.title ? ` - ${row.title}` : ''}
                                         </span>
                                     </div>
                                     <p className="mt-0.5 text-muted">
