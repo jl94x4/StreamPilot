@@ -16620,17 +16620,20 @@ const sendStaticHomeScreenIconFile = async (res, fileNames = []) => {
     const staticRoot = path.join(process.cwd(), 'static');
     for (const name of fileNames) {
         const filePath = path.join(staticRoot, name);
+        let buffer;
         try {
-            await fs.access(filePath);
-            res.setHeader('Content-Type', 'image/png');
-            res.setHeader('Cache-Control', HOME_SCREEN_ICON_CACHE);
-            res.setHeader('X-Content-Type-Options', 'nosniff');
-            return res.sendFile(filePath);
+            buffer = await fs.readFile(filePath);
         } catch {
             // try next
+            continue;
         }
+        res.setHeader('Content-Type', 'image/png');
+        res.setHeader('Cache-Control', HOME_SCREEN_ICON_CACHE);
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.send(buffer);
+        return true;
     }
-    return null;
+    return false;
 };
 
 const sendHomeScreenStaticLogoFallback = async (res) => {
