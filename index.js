@@ -16602,6 +16602,8 @@ const sendHomeScreenPwaIcon = async (res, buffer, size = 192) => {
 
 /** Tab favicon + apple-touch: always opaque so iOS does not fall back to a letter glyph. */
 const FAVICON_SIZE = 180;
+/** Short revalidate — never cache a failed HTML/JSON body for long on CDNs / Safari. */
+const HOME_SCREEN_ICON_CACHE = 'public, max-age=300, must-revalidate';
 
 const sendHomeScreenFaviconPng = async (res, buffer) => {
     const png = makeHomeScreenIconPng(buffer, FAVICON_SIZE, {
@@ -16609,11 +16611,35 @@ const sendHomeScreenFaviconPng = async (res, buffer) => {
         wideLogoScale: 0.92,
     });
     res.setHeader('Content-Type', 'image/png');
-    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.setHeader('Cache-Control', HOME_SCREEN_ICON_CACHE);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     return res.send(png);
 };
 
+const sendStaticHomeScreenIconFile = async (res, fileNames = []) => {
+    const staticRoot = path.join(process.cwd(), 'static');
+    for (const name of fileNames) {
+        const filePath = path.join(staticRoot, name);
+        try {
+            await fs.access(filePath);
+            res.setHeader('Content-Type', 'image/png');
+            res.setHeader('Cache-Control', HOME_SCREEN_ICON_CACHE);
+            res.setHeader('X-Content-Type-Options', 'nosniff');
+            return res.sendFile(filePath);
+        } catch {
+            // try next
+        }
+    }
+    return null;
+};
+
 const sendHomeScreenStaticLogoFallback = async (res) => {
+    const sent = await sendStaticHomeScreenIconFile(res, [
+        'apple-touch-icon.png',
+        'apple-touch-icon-192.png',
+        'pwa-icon-192.png',
+    ]);
+    if (sent) return sent;
     try {
         const buffer = await readApplicationLogoBuffer(path.join(process.cwd(), 'static'), {
             preferAppIcon: true,
@@ -16658,7 +16684,8 @@ const sendBrandingImageBuffer = async (res, buffer, contentTypeHint = '', pwaSiz
  * Firefox aborts Install if the first manifest icon fails/times out; never point the
  * manifest at slow/unreliable branding URLs without this guarantee.
  */
-app.get('/api/public/pwa-icon', publicReadRateLimit, async (req, res) => {
+// No rate limit — install / A2HS icon fetches must not receive JSON 429 bodies.
+app.get('/api/public/pwa-icon', async (req, res) => {
     const size = Number(req.query.size) >= 512 ? 512 : 192;
     const maskable = req.query.maskable === '1' || req.query.maskable === 'true';
     try {
@@ -16796,11 +16823,24 @@ const sendPortalBrandingIcon = async (req, res) => {
     }
 };
 
-app.get('/api/public/branding-icon', publicReadRateLimit, sendPortalBrandingIcon);
+/**
+ * Well-known / link-tag home-screen icons must NEVER return HTML or JSON.
+ * Do not attach publicReadRateLimit — a 429 JSON body makes iOS show a letter glyph.
+ */
+const sendWellKnownAppleTouchIcon = async (req, res) => {
+    const sent = await sendStaticHomeScreenIconFile(res, [
+        'apple-touch-icon.png',
+        'apple-touch-icon-precomposed.png',
+        'apple-touch-icon-192.png',
+        'pwa-icon-192.png',
+    ]);
+    if (sent) return sent;
+    return sendPortalBrandingIcon(req, res);
+};
 
-// iOS Safari auto-fetches these well-known paths when adding to Home Screen.
-// If they fall through to the SPA HTML shell, Safari rejects the body and shows
-// a letter glyph (e.g. "B" for BkFTV) instead of the portal icon.
+// No rate limit — Safari probes these during A2HS; 429/HTML ⇒ letter glyph (e.g. "B").
+app.get('/api/public/branding-icon', sendPortalBrandingIcon);
+
 const appleTouchIconPaths = [
     '/apple-touch-icon.png',
     '/apple-touch-icon-precomposed.png',
@@ -16811,9 +16851,9 @@ const appleTouchIconPaths = [
     '/favicon.ico',
 ];
 for (const iconPath of appleTouchIconPaths) {
-    app.get(iconPath, publicReadRateLimit, sendPortalBrandingIcon);
+    app.get(iconPath, sendWellKnownAppleTouchIcon);
     if (BASE_PATH) {
-        app.get(`${BASE_PATH}${iconPath}`, publicReadRateLimit, sendPortalBrandingIcon);
+        app.get(`${BASE_PATH}${iconPath}`, sendWellKnownAppleTouchIcon);
     }
 }
 
@@ -22185,18 +22225,42 @@ if (BASE_PATH) {
     app.use(`${BASE_PATH}/static`, express.static(staticDir, staticAssetOptions));
 }
 
+const absolutizePublicHref = (href, baseUrl = '') => {
+    const trimmed = String(href || '').trim();
+    if (!trimmed) return trimmed;
+    if (/^https?:\/\//i.test(trimmed)) return trimmed;
+    const root = String(baseUrl || runtimePublicBaseUrl || '').replace(/\/+$/, '');
+    if (root && trimmed.startsWith('/')) return `${root}${trimmed}`;
+    return trimmed;
+};
+
 const buildPwaManifest = async () => {
     const config = await loadFile(CONFIG_PATH, {});
     const profile = await getAdminProfile(config);
     const serverName = profile.serverName || 'StreamPilot';
+    const publicBase = resolvePublicBaseUrlFromConfig(config) || runtimePublicBaseUrl || '';
     // App home is /portal when BASE_PATH is empty — matches login redirect + client router.
     const startUrl = BASE_PATH ? `${BASE_PATH}/` : '/portal';
     const scope = BASE_PATH ? `${BASE_PATH}/` : '/';
     // Server mode serves install icons from /api/public/pwa-icon so the installed app
     // always matches live branding. Application mode keeps pre-synced static PNGs.
-    const icon192 = resolvePortalPwaManifestIconHref(config, profile, resolvePublicAssetHref, { size: 192 });
-    const icon512 = resolvePortalPwaManifestIconHref(config, profile, resolvePublicAssetHref, { size: 512 });
-    const iconMaskable = resolvePortalPwaManifestIconHref(config, profile, resolvePublicAssetHref, { size: 512, maskable: true });
+    // Absolute icon URLs are more reliable for iOS "Open as Web App" installs.
+    const icon192 = absolutizePublicHref(
+        resolvePortalPwaManifestIconHref(config, profile, resolvePublicAssetHref, { size: 192 }),
+        publicBase,
+    );
+    const icon512 = absolutizePublicHref(
+        resolvePortalPwaManifestIconHref(config, profile, resolvePublicAssetHref, { size: 512 }),
+        publicBase,
+    );
+    const iconMaskable = absolutizePublicHref(
+        resolvePortalPwaManifestIconHref(config, profile, resolvePublicAssetHref, { size: 512, maskable: true }),
+        publicBase,
+    );
+    const touchIcon = absolutizePublicHref(
+        `${resolvePublicAssetHref('/apple-touch-icon.png')}?v=${getPortalBrandingIconCacheKey(config, profile)}&hs=${HOME_SCREEN_ICON_REV}`,
+        publicBase,
+    );
     return {
         id: startUrl,
         name: `${serverName} Portal`,
@@ -22208,6 +22272,7 @@ const buildPwaManifest = async () => {
         background_color: '#0b0f19',
         theme_color: '#0b0f19',
         icons: [
+            { src: touchIcon, sizes: '180x180', type: 'image/png', purpose: 'any' },
             { src: icon192, sizes: '192x192', type: 'image/png', purpose: 'any' },
             { src: icon512, sizes: '512x512', type: 'image/png', purpose: 'any' },
             { src: iconMaskable, sizes: '512x512', type: 'image/png', purpose: 'maskable' }
@@ -22358,8 +22423,8 @@ const resolvePublicAssetHref = (url = '/static/logo.png') => {
 };
 
 const resolvePortalBrandingIconHref = (config = {}, profile = {}, baseUrl = '') => {
-    // Prefer the well-known apple-touch path — iOS also probes it automatically.
-    const href = `${resolvePublicAssetHref('/apple-touch-icon.png')}?v=${getPortalBrandingIconCacheKey(config, profile)}&hs=${HOME_SCREEN_ICON_REV}`;
+    // Static file first (no API/rate-limit). Well-known /apple-touch-icon.png mirrors it.
+    const href = `${resolvePublicAssetHref('/static/apple-touch-icon.png')}?v=${getPortalBrandingIconCacheKey(config, profile)}&hs=${HOME_SCREEN_ICON_REV}`;
     const root = String(baseUrl || '').replace(/\/+$/, '');
     if (root && href.startsWith('/')) return `${root}${href}`;
     return href;

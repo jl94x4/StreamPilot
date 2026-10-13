@@ -134,6 +134,13 @@ def main() -> None:
     ):
         save(make_square(app, size, fill, bg=BG), STATIC / name)
 
+    # Well-known iOS probes (/apple-touch-icon.png) should hit a real PNG file,
+    # not a rate-limited API that can return JSON 429 → letter glyph.
+    touch = make_square(app, 180, 1.0, bg=BG)
+    save(touch, STATIC / "apple-touch-icon.png")
+    save(touch, STATIC / "apple-touch-icon-precomposed.png")
+    save(make_square(app, 192, 1.0, bg=BG), STATIC / "apple-touch-icon-192.png")
+
 
 if __name__ == "__main__":
     os.chdir(ROOT)

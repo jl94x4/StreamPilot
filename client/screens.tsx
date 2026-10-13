@@ -279,10 +279,10 @@ export const updateFavicon = (thumbUrl: string | null | undefined) => {
         appleLink.setAttribute('sizes', '180x180');
         document.head.appendChild(appleLink);
     }
-    // Well-known apple-touch path (opaque PNG). iOS also probes /apple-touch-icon.png
-    // itself — if that returns HTML, Safari shows a letter glyph instead of the logo.
+    // Prefer static PNG (never rate-limited JSON). Well-known /apple-touch-icon.png
+    // is also served as a real file for Safari's automatic A2HS probe.
     const version = encodeURIComponent(String(thumbUrl || 'default').slice(-64));
-    const href = portalUrl(`/apple-touch-icon.png?v=${version}&hs=4`);
+    const href = portalUrl(`/static/apple-touch-icon.png?v=${version}&hs=6`);
     link.href = href;
     appleLink.href = href;
 };
