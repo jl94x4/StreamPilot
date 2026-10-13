@@ -279,10 +279,10 @@ export const updateFavicon = (thumbUrl: string | null | undefined) => {
         appleLink.setAttribute('sizes', '180x180');
         document.head.appendChild(appleLink);
     }
-    // Opaque home-screen branding-icon (wide wordmarks letterboxed). iOS rejects
-    // near-transparent circular crops and falls back to a letter glyph.
+    // Well-known apple-touch path (opaque PNG). iOS also probes /apple-touch-icon.png
+    // itself — if that returns HTML, Safari shows a letter glyph instead of the logo.
     const version = encodeURIComponent(String(thumbUrl || 'default').slice(-64));
-    const href = portalUrl(`/api/public/branding-icon?v=${version}&hs=2`);
+    const href = portalUrl(`/apple-touch-icon.png?v=${version}&hs=4`);
     link.href = href;
     appleLink.href = href;
 };

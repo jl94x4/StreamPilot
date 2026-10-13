@@ -28,6 +28,7 @@ import {
     resolvePortalPushIconUrl,
     resolvePortalPushBadgeUrl,
     resolvePortalPwaManifestIconHref,
+    HOME_SCREEN_ICON_REV,
     SERVER_PWA_ICON_BADGE_SCALE,
     SERVER_PWA_MASKABLE_BADGE_SCALE,
 } from './lib/portal-branding.js';
@@ -16762,7 +16763,8 @@ app.get('/api/public/pwa-badge', publicReadRateLimit, async (req, res) => {
     }
 });
 
-app.get('/api/public/branding-icon', publicReadRateLimit, async (req, res) => {
+/** Opaque 180×180 home-screen / tab icon (server branding or StreamPilot fallback). */
+const sendPortalBrandingIcon = async (req, res) => {
     try {
         const config = await loadFile(CONFIG_PATH, {});
         if (normalizePwaIconSource(config.pwaIconSource) === 'application') {
@@ -16792,7 +16794,28 @@ app.get('/api/public/branding-icon', publicReadRateLimit, async (req, res) => {
         log(`Branding icon failed: ${e.message}`);
         return sendHomeScreenStaticLogoFallback(res);
     }
-});
+};
+
+app.get('/api/public/branding-icon', publicReadRateLimit, sendPortalBrandingIcon);
+
+// iOS Safari auto-fetches these well-known paths when adding to Home Screen.
+// If they fall through to the SPA HTML shell, Safari rejects the body and shows
+// a letter glyph (e.g. "B" for BkFTV) instead of the portal icon.
+const appleTouchIconPaths = [
+    '/apple-touch-icon.png',
+    '/apple-touch-icon-precomposed.png',
+    '/apple-touch-icon-120x120.png',
+    '/apple-touch-icon-152x152.png',
+    '/apple-touch-icon-167x167.png',
+    '/apple-touch-icon-180x180.png',
+    '/favicon.ico',
+];
+for (const iconPath of appleTouchIconPaths) {
+    app.get(iconPath, publicReadRateLimit, sendPortalBrandingIcon);
+    if (BASE_PATH) {
+        app.get(`${BASE_PATH}${iconPath}`, publicReadRateLimit, sendPortalBrandingIcon);
+    }
+}
 
 /** Public poster/art for social crawlers (Discord, Slack, Facebook, Twitter/X, etc.). */
 const mediaPlayerOgPreviewCache = createTtlLruCache({
@@ -22334,22 +22357,27 @@ const resolvePublicAssetHref = (url = '/static/logo.png') => {
     return withBasePath(stripBasePathFromUrl(path));
 };
 
-const resolvePortalBrandingIconHref = (config = {}, profile = {}) => {
-    const href = resolvePublicAssetHref('/api/public/branding-icon');
-    return `${href}?v=${getPortalBrandingIconCacheKey(config, profile)}&round=1`;
+const resolvePortalBrandingIconHref = (config = {}, profile = {}, baseUrl = '') => {
+    // Prefer the well-known apple-touch path — iOS also probes it automatically.
+    const href = `${resolvePublicAssetHref('/apple-touch-icon.png')}?v=${getPortalBrandingIconCacheKey(config, profile)}&hs=${HOME_SCREEN_ICON_REV}`;
+    const root = String(baseUrl || '').replace(/\/+$/, '');
+    if (root && href.startsWith('/')) return `${root}${href}`;
+    return href;
 };
 
 const injectAppIconLinks = (html, iconHref) => {
-    const safeHref = escapeHtmlAttr(iconHref || resolvePublicAssetHref('/static/logo.png'));
+    const safeHref = escapeHtmlAttr(iconHref || resolvePublicAssetHref('/apple-touch-icon.png'));
     const manifestHref = escapeHtmlAttr(withBasePath('/manifest.webmanifest'));
     const manifestTag = `<link rel="manifest" href="${manifestHref}" />`;
     const iconLinks = [
         `<link rel="icon" type="image/png" href="${safeHref}" />`,
-        `<link rel="apple-touch-icon" sizes="180x180" href="${safeHref}" />`
+        `<link rel="apple-touch-icon" href="${safeHref}" />`,
+        `<link rel="apple-touch-icon" sizes="180x180" href="${safeHref}" />`,
+        `<link rel="apple-touch-icon-precomposed" href="${safeHref}" />`,
     ].join('\n    ');
     let updated = html
         .replace(/<link\b(?=[^>]*\brel=["'][^"']*manifest[^"']*["'])[^>]*>\s*/gi, '')
-        .replace(/<link\b(?=[^>]*\brel=["'][^"']*(?:apple-touch-icon|icon)[^"']*["'])[^>]*>\s*/gi, '');
+        .replace(/<link\b(?=[^>]*\brel=["'][^"']*(?:apple-touch-icon(?:-precomposed)?|icon)[^"']*["'])[^>]*>\s*/gi, '');
     // Firefox discovers the manifest from the initial HTML head — keep it near the top.
     if (/<base\b[^>]*>/i.test(updated)) {
         updated = updated.replace(/(<base\b[^>]*>)/i, `$1\n    ${manifestTag}`);
@@ -22487,7 +22515,7 @@ const buildSocialMetaTags = async (req) => {
         card,
     });
 
-    return { title, tags, iconHref: resolvePortalBrandingIconHref(config, profile) };
+    return { title, tags, iconHref: resolvePortalBrandingIconHref(config, profile, baseUrl) };
 };
 
 /**
@@ -22558,7 +22586,7 @@ const readPortalIndexHtml = async () => {
 };
 
 // Serve the main index.html for SPA routes (after base-path strip, paths are root-relative)
-app.get(/^\/(?!api\/|static\/|manifest\.(?:webmanifest|json)|site\.webmanifest|service-worker\.js).*$/, async (req, res) => {
+app.get(/^\/(?!api\/|static\/|manifest\.(?:webmanifest|json)|site\.webmanifest|service-worker\.js|apple-touch-icon(?:-precomposed)?(?:-\d+x\d+)?\.png$|favicon\.ico$).*$/, async (req, res) => {
     if (!arePortalFrontendAssetsReady()) {
         res.status(503);
         res.setHeader('Content-Type', 'text/html; charset=utf-8');
