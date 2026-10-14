@@ -76,7 +76,8 @@ import {
     type NativePlayerSessionPayload,
     type NativePlayerTrackOption,
 } from '../plex-client/nativePlayer';
-import { getSessionToken, isPlexDirectMode } from '../plex-client/config';
+import { getSessionToken, isAndroidTvUi, isPlexDirectMode } from '../plex-client/config';
+import { restoreTvFocusWhenReady } from '../plex-client/useTvRemote';
 
 export type PlayerCloseMeta = {
     /** True when another episode/title is about to start. */
@@ -830,14 +831,17 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                 const sendStopped = sendTimelineRef.current;
                 const queued = playNextQueueRef.current[0];
                 const neighbor = nextItemRef.current;
-                const nativeNext = result?.playNext && result.nextRatingKey ? String(result.nextRatingKey) : '';
-                const fallbackNext = (
-                    result?.ended
-                    && autoplayNextRef.current
-                    && (queued?.ratingKey || neighbor?.ratingKey)
-                ) ? String(queued?.ratingKey || neighbor?.ratingKey) : '';
-                const nextKey = result?.error ? '' : (nativeNext || fallbackNext);
-                const willPlayNext = Boolean(nextKey);
+                // Only chain when native explicitly asked for play-next and we
+                // still have that item. A blind JS fallback kept the black cover
+                // up after movies / last episodes with no next.
+                const nextKey = (
+                    !result?.error
+                    && result?.playNext
+                    && result.nextRatingKey
+                ) ? String(result.nextRatingKey) : '';
+                const willPlayNext = Boolean(nextKey) && (
+                    queued?.ratingKey === nextKey || neighbor?.ratingKey === nextKey
+                );
                 if (result?.error) {
                     onPlaybackErrorRef.current?.('Playback failed. Check your connection and try again.');
                 }
@@ -911,6 +915,10 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                         }
                         if (event.state === 'paused') nativeTimelineStateRef.current = 'paused';
                         publishMusicNowPlayingRef.current(true);
+                        // Return D-pad focus to the browse surface that started play.
+                        if (isAndroidTvUi()) {
+                            window.setTimeout(() => restoreTvFocusWhenReady(), 140);
+                        }
                     },
                     onRestored: () => {
                         if (cancelled || gen !== nativeOpenGenRef.current) return;
@@ -1328,9 +1336,13 @@ export const MediaPlayerVideo: React.FC<Props> = ({
 
     useEffect(() => {
         const close = () => {
+            // Minimized music: Back should keep browsing / navigating, not kill audio.
+            if (nativeMinimizedRef.current && isMusicPlayerItem(sessionRef.current.item)) {
+                return false;
+            }
             void closeNativePlayer();
             sendTimelineRef.current('stopped');
-            onCloseRef.current({ ended: false, item: session.item });
+            onCloseRef.current({ ended: false, item: sessionRef.current.item });
             return true;
         };
         window.__SMP_CLOSE_PLAYBACK__ = close;

@@ -3755,17 +3755,47 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
         const many = enabledServers().length > 1;
         const active = server || readServer()!;
         const emptyHubs = [] as Array<{ title: string; identifier: string; items: ReturnType<typeof mapItem>[] }>;
-        const requested = await pms(`/hubs/sections/${encodeURIComponent(section)}?count=18`, active, 12000)
+        // Prefer includeMeta so pinned shells often arrive with items (matches portal).
+        const requested = await pms(
+            `/hubs/sections/${encodeURIComponent(section)}?includeMeta=1&count=18`,
+            active,
+            12000,
+        )
             .then((data) => ({ data, answered: true }))
             .catch(() => ({ data: null, answered: false }));
         let hubs = requested.answered
             ? await withMapServer(active, () => sectionPinnedHubs(requested.data, active, many))
             : [];
-        if (!hubs.length && requested.answered) {
-            hubs = await withMapServer(active, async () => {
-                const inline = await pms(`/hubs/sections/${encodeURIComponent(section)}?includeMeta=1&count=12`, active, 12000).catch(() => null);
-                return inline ? sectionPinnedHubs(inline, active, many) : [];
+        // Continue Watching alone is not a finished library home — retry without
+        // includeMeta (some PMS builds fill shells better that way), then add Recently Added.
+        if (requested.answered && !hubs.some(contentHomeHub)) {
+            const retry = await withMapServer(active, async () => {
+                const plain = await pms(
+                    `/hubs/sections/${encodeURIComponent(section)}?count=18`,
+                    active,
+                    12000,
+                ).catch(() => null);
+                return plain ? sectionPinnedHubs(plain, active, many) : [];
             });
+            if (retry.some(contentHomeHub)) hubs = retry;
+            else if (retry.length > hubs.length) hubs = retry;
+        }
+        if (requested.answered && !hubs.some(contentHomeHub)) {
+            const pinnedType = sectionAllType(sectionRow?.type || '');
+            if (pinnedType) {
+                const recent = await withMapServer(active, () => (
+                    pms(
+                        `/library/sections/${encodeURIComponent(section)}/recentlyAdded?X-Plex-Container-Size=18`,
+                        active,
+                    ).then(mapList).catch(() => [])
+                ));
+                if (recent.length) {
+                    hubs = uniquifyHubs([
+                        ...hubs,
+                        { title: 'Recently Added', identifier: 'recentlyAdded', items: recent },
+                    ]);
+                }
+            }
         }
         if (hubs.length) {
             const stamped = await withMapServer(active, async () => {
@@ -3789,8 +3819,15 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                 hubs: mergeSameTitleHubs(mergeSameLabelHubs(stamped)),
             };
         }
+        if (!requested.answered) {
+            return {
+                title: sectionRow?.title || 'Library',
+                type: sectionRow?.type || 'movie',
+                hubs: emptyHubs,
+            };
+        }
         const pinnedType = sectionAllType(sectionRow?.type || '');
-        if (!pinnedType || !requested.answered) {
+        if (!pinnedType) {
             return {
                 title: sectionRow?.title || 'Library',
                 type: sectionRow?.type || 'movie',

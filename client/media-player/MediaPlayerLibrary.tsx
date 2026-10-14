@@ -371,7 +371,17 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                 if (recent.type) setLibraryType(recent.type);
                 const recentItems = recent.items || [];
                 const releasedItems = released.items || [];
-                setHubs((prev) => withLibraryListRows(prev, recentItems, releasedItems));
+                setHubs((prev) => {
+                    const next = withLibraryListRows(prev, recentItems, releasedItems);
+                    if (next.some((hub) => hub.items?.length && !isContinueWatchingHub(hub))) {
+                        writeLibraryHomeCache(sectionKey, {
+                            title: recent.title || undefined,
+                            type: recent.type || undefined,
+                            hubs: next,
+                        });
+                    }
+                    return next;
+                });
                 setError(null);
                 setLoading(false);
                 return recentItems.length > 0 || releasedItems.length > 0;
@@ -384,19 +394,24 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
             if (!alive()) return;
             setTitle(data.title || t('mediaPlayerPage.libraries'));
             if (data.type) setLibraryType(data.type);
+            const incoming = data.hubs || [];
+            // Continue Watching alone is incomplete — keep older richer hubs and
+            // still run list fallbacks for Recently Added / Released.
+            const hasContentHub = incoming.some((hub) => hub.items?.length && !isContinueWatchingHub(hub));
             setHubs((prev) => {
-                const incoming = data.hubs || [];
-                if (incoming.length > 1) {
+                if (hasContentHub && incoming.length > 1) {
                     writeLibraryHomeCache(sectionKey, { ...data, hubs: incoming });
                     return incoming;
                 }
                 if (prev.length > incoming.length) return prev;
                 const next = mergeServerLibraryHubs(incoming, prev);
-                if (next.length) writeLibraryHomeCache(sectionKey, { ...data, hubs: next });
+                if (next.some((hub) => hub.items?.length && !isContinueWatchingHub(hub))) {
+                    writeLibraryHomeCache(sectionKey, { ...data, hubs: next });
+                }
                 return next.length ? next : prev;
             });
             setError(null);
-            if (!(data.hubs || []).length) await paintLists();
+            if (!hasContentHub) await paintLists();
         } catch (err: any) {
             const painted = await paintLists();
             if (!alive()) return;
@@ -589,9 +604,11 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
             setError(null);
             clearPrefetchedPlayerImages();
         }
+        // Wait for section hydrate so we don't start+abort a duplicate home fetch.
+        if (!hydrated) return;
         if (tab === 'home') void loadHome();
         else if (tab === 'collections') void loadCollections();
-        else if (hydrated) {
+        else {
             setItems([]);
             clearPrefetchedPlayerImages();
             void loadBrowse(0, false);

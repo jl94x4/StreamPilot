@@ -3027,18 +3027,23 @@ html[data-tv="1"]:has([data-tv-item-menu="1"]) .player-tv-clock,
 html[data-tv="1"]:has([data-tv-context-sheet="1"]) .player-tv-clock {
   display: none !important;
 }
+/* Global music dock — fixed bottom bar on every browse surface while minimized. */
 html[data-tv="1"] .player-home-now-playing {
-  position: absolute;
-  top: 1.15rem;
-  right: 7.4rem;
-  z-index: 6;
+  position: fixed;
+  left: 6.75rem;
+  right: 1rem;
+  bottom: 1rem;
+  top: auto;
+  z-index: 90;
   display: flex;
   align-items: stretch;
   gap: 0.45rem;
-  max-width: min(28rem, calc(100vw - 9rem));
+  max-width: none;
+  pointer-events: auto;
 }
 html[data-tv="1"][data-tv-nav-open="1"] .player-home-now-playing {
-  max-width: min(26rem, calc(100vw - 20rem));
+  left: 18.5rem;
+  max-width: none;
 }
 html[data-tv="1"] .player-home-now-playing-card {
   position: relative;

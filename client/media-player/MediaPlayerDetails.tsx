@@ -46,6 +46,8 @@ import {
     type FileInfoPill,
     isPlayerTrailer,
     isMusicPlayerItem,
+    MUSIC_NOW_PLAYING_EVENT,
+    type MusicNowPlayingDetail,
     plexImageUrl,
     resizePlexArtUrl,
     plexBackdropPreviewUrl,
@@ -388,6 +390,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
     const [onDeck, setOnDeck] = useState<PlayerItem | null>(() => readPlayerItemCache(ratingKey)?.onDeck ?? null);
     const [phoneSeasonEpisodes, setPhoneSeasonEpisodes] = useState<PlayerItem[] | null>(null);
     const [neighbors, setNeighbors] = useState<{ previous: PlayerItem | null; next: PlayerItem | null }>({ previous: null, next: null });
+    const [nowPlayingTrackKey, setNowPlayingTrackKey] = useState<string | null>(null);
     const [showSeasons, setShowSeasons] = useState<PlayerItem[]>([]);
     const [seasonEpisodes, setSeasonEpisodes] = useState<PlayerItem[]>([]);
     const [spotlightKey, setSpotlightKey] = useState('');
@@ -434,6 +437,16 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         || window.__PLEX_CLIENT__?.isTv === true
     );
     const phoneUi = !isTvShell && isPhoneDetailsUi();
+
+    useEffect(() => {
+        const onNowPlaying = (event: Event) => {
+            const detail = (event as CustomEvent<MusicNowPlayingDetail>).detail || null;
+            const key = detail?.item?.ratingKey ? String(detail.item.ratingKey) : null;
+            setNowPlayingTrackKey(key);
+        };
+        window.addEventListener(MUSIC_NOW_PLAYING_EVENT, onNowPlaying);
+        return () => window.removeEventListener(MUSIC_NOW_PLAYING_EVENT, onNowPlaying);
+    }, []);
 
     const paintWatched = (watched: boolean, season: boolean) => {
         setItem((prev) => {
@@ -2655,7 +2668,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                     {musicTracks.length ? (
                         <MediaPlayerMusicTracks
                             tracks={musicTracks}
-                            activeKey={item.type === 'track' ? item.ratingKey : null}
+                            activeKey={nowPlayingTrackKey || (item.type === 'track' ? item.ratingKey : null)}
                             onPlayTrack={(row) => onPlay(row, { playFromHere: true, skipResume: true, offsetMs: 0 })}
                         />
                     ) : null}

@@ -10,6 +10,7 @@ import {
     writePersistedTvFocus,
 } from '../media-player/playerMemory';
 import { requestBrowseFocusAbs } from '../media-player/playerUtils';
+import { showNativePlayer } from './nativePlayer';
 
 const TV_ITEM = '[data-tv-item="1"]';
 const TV_RAIL = '[data-tv-rail="1"]';
@@ -1685,6 +1686,12 @@ const handleTvBack = (): boolean => {
     }
     if (isNavOpen()) {
         leaveNavToContent();
+        return true;
+    }
+    // Focused music dock: Back restores the full native player (resume).
+    const nowPlayingCard = document.activeElement as HTMLElement | null;
+    if (nowPlayingCard?.closest?.('[data-tv-now-playing="1"], .player-home-now-playing')) {
+        void showNativePlayer();
         return true;
     }
     if (window.__SMP_CLOSE_PLAYBACK__?.()) {

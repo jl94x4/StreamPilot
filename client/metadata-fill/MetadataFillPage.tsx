@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-    FileText, Loader2, Play, RefreshCw, RotateCcw, Search, Square, Unlock, Wand2,
+    ChevronLeft, ChevronRight, FileText, Loader2, Play, RefreshCw, RotateCcw, Search, Square, Unlock, Wand2,
 } from 'lucide-react';
 import { apiFetch } from '../shared/api';
 import { DashboardHero, DashboardPageShell } from '../shared/dashboard/DashboardChrome';
@@ -110,6 +110,7 @@ type Status = {
     requireTitleAgreement: boolean;
     libraryKeys: string[];
     libraries: LibraryRow[];
+    librariesError?: string | null;
     tmdbConfigured: boolean;
     tvdbConfigured: boolean;
     tvmazeConfigured: boolean;
@@ -126,6 +127,8 @@ const defaultFields = (): FillFields => ({
 
 type LogFilter = 'all' | 'filled' | 'failed' | 'preview' | 'skipped' | 'reverted';
 type PreviewFilter = 'all' | 'ok' | 'failed' | 'skipped';
+
+const LOG_PAGE_SIZE = 25;
 
 const reasonLabel = (reason?: string) => {
     switch (String(reason || '')) {
@@ -153,7 +156,7 @@ const statusClass = (row: FillLogRow) => {
     if (row.unlocked || row.reverted) return 'text-amber-300';
     if (row.ok === false) return 'text-red-300';
     if (row.dryRun) return 'text-sky-300';
-    if (row.skipped) return 'text-muted';
+    if (row.skipped) return 'text-orange-300';
     return 'text-green-300';
 };
 
@@ -172,6 +175,7 @@ export const MetadataFillPage: React.FC = () => {
     const [retryBusy, setRetryBusy] = useState(false);
     const [logFilter, setLogFilter] = useState<LogFilter>('all');
     const [logQuery, setLogQuery] = useState('');
+    const [logPage, setLogPage] = useState(1);
     const [previewFilter, setPreviewFilter] = useState<PreviewFilter>('all');
     const [rowBusy, setRowBusy] = useState('');
     const [auditBusy, setAuditBusy] = useState(false);
@@ -199,6 +203,7 @@ export const MetadataFillPage: React.FC = () => {
                 requireTitleAgreement: !!data?.requireTitleAgreement,
                 libraryKeys: Array.isArray(data?.libraryKeys) ? data.libraryKeys.map(String) : [],
                 libraries: Array.isArray(data?.libraries) ? data.libraries : [],
+                librariesError: data?.librariesError ? String(data.librariesError) : null,
                 tmdbConfigured: !!data?.tmdbConfigured,
                 tvdbConfigured: !!data?.tvdbConfigured,
                 tvmazeConfigured: data?.tvmazeConfigured !== false,
@@ -513,8 +518,23 @@ export const MetadataFillPage: React.FC = () => {
                 return hay.includes(q);
             });
         }
-        return rows.slice(0, 80);
+        return rows;
     }, [status?.log, logFilter, logQuery]);
+
+    const logPageCount = Math.max(1, Math.ceil(filteredLog.length / LOG_PAGE_SIZE));
+    const safeLogPage = Math.min(logPage, logPageCount);
+    const pagedLog = useMemo(() => {
+        const start = (safeLogPage - 1) * LOG_PAGE_SIZE;
+        return filteredLog.slice(start, start + LOG_PAGE_SIZE);
+    }, [filteredLog, safeLogPage]);
+
+    useEffect(() => {
+        setLogPage(1);
+    }, [logFilter, logQuery]);
+
+    useEffect(() => {
+        if (logPage > logPageCount) setLogPage(logPageCount);
+    }, [logPage, logPageCount]);
 
     const scan = status?.scan;
     const filteredPreview = useMemo(() => {
@@ -734,7 +754,7 @@ export const MetadataFillPage: React.FC = () => {
                     If interrupted, Resume continues from the last show/episode.
                     Prefer dry-run first, then Apply preview.
                 </p>
-                {(status?.libraries?.length || 0) > 0 && (
+                {(status?.libraries?.length || 0) > 0 ? (
                     <div className="flex flex-wrap gap-2">
                         {status?.libraries?.map((lib) => {
                             const selected = !status.libraryKeys.length || status.libraryKeys.includes(String(lib.key));
@@ -766,6 +786,22 @@ export const MetadataFillPage: React.FC = () => {
                                 Clear (scan all)
                             </button>
                         )}
+                    </div>
+                ) : (
+                    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-400/25 bg-amber-400/5 px-3 py-2 text-xs text-amber-100">
+                        <span className="min-w-0 flex-1">
+                            {status?.librariesError
+                                ? `Could not load TV libraries from Plex: ${status.librariesError}`
+                                : 'No TV libraries loaded from Plex yet.'}
+                        </span>
+                        <button
+                            type="button"
+                            disabled={loading || !!busyToggle}
+                            onClick={() => { void load(); }}
+                            className="rounded-lg border border-amber-400/40 px-2.5 py-1 text-[11px] font-bold text-amber-200 disabled:opacity-40"
+                        >
+                            Retry
+                        </button>
                     </div>
                 )}
                 <div className="flex flex-wrap gap-2">
@@ -865,12 +901,16 @@ export const MetadataFillPage: React.FC = () => {
                                         row.ok === false
                                             ? 'border-red-400/25 text-red-200'
                                             : row.skipped
-                                                ? 'border-white/5 text-muted'
+                                                ? 'border-orange-400/20 text-text'
                                                 : 'border-white/5 text-text'
                                     }`}
                                 >
                                     <span className="font-semibold">
-                                        {row.ok === false ? 'Error · ' : row.skipped ? 'Left alone · ' : ''}
+                                        {row.ok === false ? (
+                                            <span className="text-red-300">Error · </span>
+                                        ) : row.skipped ? (
+                                            <span className="text-orange-300">Left alone · </span>
+                                        ) : null}
                                         {row.showTitle}
                                         {row.seasonNumber != null && row.episodeNumber != null
                                             ? ` S${String(row.seasonNumber).padStart(2, '0')}E${String(row.episodeNumber).padStart(2, '0')}`
@@ -1009,8 +1049,38 @@ export const MetadataFillPage: React.FC = () => {
                         ))}
                     </div>
                 </div>
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted">
+                    <span>
+                        {filteredLog.length
+                            ? `Showing ${(safeLogPage - 1) * LOG_PAGE_SIZE + 1}–${Math.min(safeLogPage * LOG_PAGE_SIZE, filteredLog.length)} of ${filteredLog.length}`
+                            : 'No matching activity'}
+                    </span>
+                    <div className="flex items-center gap-1">
+                        <button
+                            type="button"
+                            disabled={safeLogPage <= 1}
+                            onClick={() => setLogPage((p) => Math.max(1, p - 1))}
+                            className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-2 py-1 font-bold text-text disabled:opacity-40"
+                        >
+                            <ChevronLeft className="h-3.5 w-3.5" />
+                            Prev
+                        </button>
+                        <span className="px-2 font-semibold text-text">
+                            {safeLogPage} / {logPageCount}
+                        </span>
+                        <button
+                            type="button"
+                            disabled={safeLogPage >= logPageCount}
+                            onClick={() => setLogPage((p) => Math.min(logPageCount, p + 1))}
+                            className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-2 py-1 font-bold text-text disabled:opacity-40"
+                        >
+                            Next
+                            <ChevronRight className="h-3.5 w-3.5" />
+                        </button>
+                    </div>
+                </div>
                 <ul className="space-y-2 max-h-[28rem] overflow-auto">
-                    {filteredLog.map((row, index) => (
+                    {pagedLog.map((row, index) => (
                         <li
                             key={`${row.id || row.at || index}-${row.ratingKey || index}`}
                             className="rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2 text-xs"
@@ -1091,10 +1161,32 @@ export const MetadataFillPage: React.FC = () => {
                             </div>
                         </li>
                     ))}
-                    {!filteredLog.length && (
+                    {!pagedLog.length && (
                         <li className="text-xs text-muted">No matching activity.</li>
                     )}
                 </ul>
+                {filteredLog.length > LOG_PAGE_SIZE && (
+                    <div className="mt-2 flex justify-end gap-1 text-[11px]">
+                        <button
+                            type="button"
+                            disabled={safeLogPage <= 1}
+                            onClick={() => setLogPage((p) => Math.max(1, p - 1))}
+                            className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-2 py-1 font-bold text-text disabled:opacity-40"
+                        >
+                            <ChevronLeft className="h-3.5 w-3.5" />
+                            Prev
+                        </button>
+                        <button
+                            type="button"
+                            disabled={safeLogPage >= logPageCount}
+                            onClick={() => setLogPage((p) => Math.min(logPageCount, p + 1))}
+                            className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-2 py-1 font-bold text-text disabled:opacity-40"
+                        >
+                            Next
+                            <ChevronRight className="h-3.5 w-3.5" />
+                        </button>
+                    </div>
+                )}
             </section>
         </DashboardPageShell>
     );

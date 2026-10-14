@@ -20,13 +20,23 @@ import { MediaPlayerStudio } from './MediaPlayerStudio';
 import { MediaPlayerSettings } from './MediaPlayerSettings';
 import { MediaPlayerVideo } from './MediaPlayerVideo';
 import { MediaPlayerNav } from './MediaPlayerNav';
+import { MediaPlayerNowPlayingChip } from './MediaPlayerNowPlayingChip';
 import { captureTvFocusSnapshot, rememberTvFocusKey, restoreTvFocusWhenReady } from '../plex-client/useTvRemote';
 import { isAndroidTvUi } from '../plex-client/config';
 import { PLAYER_APP_BASE, PLAYER_NAVIGATE_EVENT, PLAYER_SCROLL_ID, PLAYER_TV_NAV_EVENT } from './paths';
 import { usePlayerSettings } from './usePlayerSettings';
 import { PlayerResumeDialog } from './PlayerResumeDialog';
 import { PlayerStillWatchingDialog } from './PlayerStillWatchingDialog';
-import { isPlayerTrailer, playSessionIdFromSrc, resolveStartPlaybackQualityId, shouldOfferResume, sliceQueueToNextUnwatched } from './playerUtils';
+import {
+    isMusicPlayerItem,
+    isPlayerTrailer,
+    MUSIC_NOW_PLAYING_EVENT,
+    playSessionIdFromSrc,
+    resolveStartPlaybackQualityId,
+    shouldOfferResume,
+    sliceQueueToNextUnwatched,
+    type MusicNowPlayingDetail,
+} from './playerUtils';
 import {
     consumePlayerSearchFocus,
     focusPlayerSearchInput,
@@ -212,6 +222,8 @@ export const MediaPlayerDashboard: React.FC = () => {
     playSessionRef.current = playSession;
     /** Keep a black bridge while ExoPlayer closes and the next episode opens. */
     const [playNextBridge, setPlayNextBridge] = useState(false);
+    /** Minimized music now-playing dock (TV): pad browse content and show global chip. */
+    const [musicMinimized, setMusicMinimized] = useState(false);
     const [playNextQueue, setPlayNextQueue] = useState<PlayerItem[]>([]);
     const [isAdmin, setIsAdmin] = useState(false);
     const [startingPlay, setStartingPlay] = useState(false);
@@ -568,6 +580,15 @@ export const MediaPlayerDashboard: React.FC = () => {
     }, [openSearch]);
 
     useEffect(() => {
+        const onNowPlaying = (event: Event) => {
+            const detail = (event as CustomEvent<MusicNowPlayingDetail>).detail || null;
+            setMusicMinimized(Boolean(detail?.minimized));
+        };
+        window.addEventListener(MUSIC_NOW_PLAYING_EVENT, onNowPlaying);
+        return () => window.removeEventListener(MUSIC_NOW_PLAYING_EVENT, onNowPlaying);
+    }, []);
+
+    useEffect(() => {
         const onKey = (event: KeyboardEvent) => {
             if (event.key !== '/' || event.metaKey || event.ctrlKey || event.altKey) return;
             const tag = String((event.target as HTMLElement | null)?.tagName || '').toLowerCase();
@@ -585,12 +606,20 @@ export const MediaPlayerDashboard: React.FC = () => {
     }, [goHome]);
 
     const startPlayback = useCallback(async (item: PlayerItem, opts: PlayerPlayOptions = {}) => {
-        if (startingPlayRef.current || playSessionRef.current) return;
+        const current = playSessionRef.current;
+        // Music can swap tracks in-place (native updateSrc) while a session is live —
+        // including while minimized — so browse → pick another track keeps working.
+        const replacingMusic = Boolean(
+            current
+            && isMusicPlayerItem(current.item)
+            && isMusicPlayerItem(item),
+        );
+        if (startingPlayRef.current || (current && !replacingMusic)) return;
         startingPlayRef.current = true;
-        if (isAndroidTvUi()) captureTvFocusSnapshot();
+        if (isAndroidTvUi() && !replacingMusic) captureTvFocusSnapshot();
         setStartingPlay(true);
         setPendingResume(null);
-        setPlayNextBridge(true);
+        if (!replacingMusic) setPlayNextBridge(true);
         try {
             const savedAv = readAvChoice(item.grandparentRatingKey || item.parentRatingKey, item.ratingKey);
             const rememberedIndex = opts.mediaIndex != null
@@ -848,7 +877,7 @@ export const MediaPlayerDashboard: React.FC = () => {
                                 ? (tvShell ? 'pl-[18.5rem]' : 'md:pl-[18.25rem]')
                                 : (tvShell ? 'pl-[6.75rem]' : 'md:pl-[6.5rem]')
                         }`
-                } ${playSession ? 'pb-36' : ''}`}
+                } ${musicMinimized ? 'pb-36' : ''}`}
                 style={isItemView ? { '--player-nav-inset': navContentInset } as React.CSSProperties : undefined}
             >
                 <div className={`mx-auto flex w-full flex-col ${isItemView ? 'max-w-none gap-0' : 'max-w-[2400px] gap-4'}`}>
@@ -1070,6 +1099,8 @@ export const MediaPlayerDashboard: React.FC = () => {
             {playNextBridge && !playSession ? (
                 <div className="fixed inset-0 z-[4000] bg-black" aria-hidden data-tv-playback-overlay="1" />
             ) : null}
+            {/* Global TV music dock — visible on home, library, details, search, etc. */}
+            {tvShell ? <MediaPlayerNowPlayingChip /> : null}
             <ToastContainer toasts={toasts} setToasts={setToasts} />
                 </div>
             </div>

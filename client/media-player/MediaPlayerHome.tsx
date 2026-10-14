@@ -18,7 +18,6 @@ import { fetchMediaPlayerHome, fetchMediaPlayerHomeFull, fetchMediaPlayerHomeHer
 import { isPlexDirectMode } from '../plex-client/config';
 import { pinTvRailItemToSlot, visibleHomeStage } from '../plex-client/useTvRemote';
 import { MediaPlayerHomeHero, type HomeHeroSlide } from './MediaPlayerHomeHero';
-import { MediaPlayerNowPlayingChip } from './MediaPlayerNowPlayingChip';
 import { PlayerPosterCard } from './PlayerPosterCard';
 import { PlayerRail } from './PlayerRail';
 import { viewMoreShelfFromHub, type ViewMoreShelfSource } from './PlayerViewMoreCard';
@@ -1475,7 +1474,6 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                     rowDir={tvRowDir}
                 />
             ) : null}
-            {tvStage ? <MediaPlayerNowPlayingChip active={active} /> : null}
             {!isTvShell && !searchActive && heroSlides.length ? (
                 <MediaPlayerHomeHero
                     items={heroSlides}

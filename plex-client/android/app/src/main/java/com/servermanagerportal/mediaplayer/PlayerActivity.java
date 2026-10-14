@@ -3348,12 +3348,9 @@ public class PlayerActivity extends AppCompatActivity {
             pingPlexTimeline("stopped");
         }
 
-        try {
-            PlayerView playerView = findViewById(R.id.player_view);
-            if (playerView != null) playerView.setPlayer(null);
-        } catch (Throwable ignored) {
-            /* view already gone */
-        }
+        // Do not detach PlayerView here. Clearing the surface while this activity
+        // is still foreground flashes a black frame on TV before the overview
+        // returns. onDestroy detaches/releases the player.
 
         Intent data = new Intent();
         data.putExtra(EXTRA_ENDED, endedOut);
@@ -3364,6 +3361,20 @@ public class PlayerActivity extends AppCompatActivity {
             data.putExtra(EXTRA_NEXT_RATING_KEY, nextRatingKey);
         }
         setResult(RESULT_OK, data);
+
+        // Movies / last episodes (no next): bring the WebView host forward first
+        // so the details/overview paints immediately instead of sitting on the
+        // black player window during teardown.
+        if (!playNext && !musicMode) {
+            try {
+                Intent home = new Intent(this, MainActivity.class);
+                home.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                startActivity(home);
+            } catch (Throwable ignored) {
+                /* host may already be finishing */
+            }
+        }
+
         finish();
         try {
             overridePendingTransition(0, 0);
