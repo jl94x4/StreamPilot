@@ -380,9 +380,14 @@ export const MetadataFillPage: React.FC = () => {
 
     const cancelScan = async () => {
         setScanBusy(true);
+        setError('');
         try {
             await apiFetch('/api/metadata-fill/scan/cancel', { method: 'POST', body: '{}' });
             setNotice('Cancel requested. Scan will stop after the current episode.');
+            setStatus((prev) => (prev?.scan ? {
+                ...prev,
+                scan: { ...prev.scan, cancelRequested: true },
+            } : prev));
             await load(true);
         } catch (e: any) {
             setError(e?.message || 'Failed to cancel scan');
@@ -786,12 +791,12 @@ export const MetadataFillPage: React.FC = () => {
                     {scanRunning && (
                         <button
                             type="button"
-                            disabled={scanBusy}
+                            disabled={scanBusy || !!scan?.cancelRequested}
                             onClick={() => { void cancelScan(); }}
-                            className="inline-flex items-center gap-2 rounded-xl border border-red-400/40 px-3 py-2 text-sm font-semibold text-red-300"
+                            className="inline-flex items-center gap-2 rounded-xl border border-red-400/40 px-3 py-2 text-sm font-semibold text-red-300 disabled:opacity-50"
                         >
                             <Square className="h-3.5 w-3.5" />
-                            Cancel
+                            {scan?.cancelRequested ? 'Cancelling…' : 'Cancel'}
                         </button>
                     )}
                     {(scan?.preview?.length || 0) > 0 && !scanRunning && (
@@ -810,6 +815,7 @@ export const MetadataFillPage: React.FC = () => {
                         <p>
                             Status: <span className="text-text font-semibold">{scan.status || 'idle'}</span>
                             {scan.dryRun ? ' · dry-run' : ' · write'}
+                            {scan.cancelRequested && scanRunning ? ' · cancelling' : ''}
                             {scan.error ? ` · ${scan.error}` : ''}
                         </p>
                         <p>
