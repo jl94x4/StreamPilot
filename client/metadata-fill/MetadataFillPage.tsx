@@ -838,11 +838,11 @@ export const MetadataFillPage: React.FC = () => {
                     <div className="space-y-2">
                         <div className="flex flex-wrap gap-2">
                             {([
-                                ['all', 'All'],
-                                ['skipped', 'Left alone'],
-                                ['failed', 'Errors'],
-                                ['ok', 'Would fill'],
-                            ] as Array<[PreviewFilter, string]>).map(([key, label]) => (
+                                ['all', 'All', (stats?.previewed || 0) + (stats?.skipped || 0) + (stats?.failed || 0)],
+                                ['skipped', 'Left alone', stats?.skipped || 0],
+                                ['failed', 'Errors', stats?.failed || 0],
+                                ['ok', 'Would fill', stats?.previewed || 0],
+                            ] as Array<[PreviewFilter, string, number]>).map(([key, label, count]) => (
                                 <button
                                     key={key}
                                     type="button"
@@ -853,9 +853,7 @@ export const MetadataFillPage: React.FC = () => {
                                             : 'border border-white/10 text-muted'
                                     }`}
                                 >
-                                    {label}
-                                    {key === 'skipped' && (stats?.skipped || 0) > 0 ? ` (${stats?.skipped})` : ''}
-                                    {key === 'failed' && (stats?.failed || 0) > 0 ? ` (${stats?.failed})` : ''}
+                                    {label} ({count})
                                 </button>
                             ))}
                         </div>
