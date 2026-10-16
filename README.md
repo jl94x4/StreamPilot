@@ -736,21 +736,21 @@ StreamPilot is available in the **Unraid Community Applications (CA) store**!
 1. Open the **Apps** tab in your Unraid dashboard
 2. Search for **"StreamPilot"**
 3. Click **Install**
-4. Set your **JWT Secret** and adjust appdata paths if needed (default: `/mnt/user/appdata/server-manager-portal/`)
+4. Set your **JWT Secret** and adjust appdata paths if needed (default: `/mnt/user/appdata/streampilot/`)
 5. Click **Apply** and open the WebUI — you're done! 🎉
 
 #### Manual Template Installation (Alternative)
 
 If you prefer to install the template manually on Unraid 6+:
 
-1. Download the template file: [`unraid/server-manager-portal.xml`](unraid/server-manager-portal.xml)
-2. Rename the file with a `my-` prefix, e.g. `my-server-manager-portal.xml`
+1. Download the template file: [`unraid/streampilot.xml`](unraid/streampilot.xml)
+2. Rename the file with a `my-` prefix, e.g. `my-streampilot.xml`
 3. Upload it to your Unraid server at: `/boot/config/plugins/dockerMan/templates-user/`
 4. Go to **Docker** → **Add Container** and select **StreamPilot** from the **User Templates** dropdown
-5. Set **JWT Secret** and adjust appdata paths (defaults: `/mnt/user/appdata/server-manager-portal/`)
+5. Set **JWT Secret** and adjust appdata paths (defaults: `/mnt/user/appdata/streampilot/`)
 6. Apply and open the WebUI
 
-The template uses `ghcr.io/jl94x4/streampilot:latest` by default. Other tags: `:beta`, `:nightly`, or a pinned version such as `:1.8.0`.
+The template uses `ghcr.io/jl94x4/streampilot:latest` by default. Other tags: `:beta`, `:nightly`, or a pinned version such as `:1.8.0`. Existing installs can keep `/mnt/user/appdata/server-manager-portal/` if that is where your data already lives.
 
 #### Media Automation paths and GPU (Unraid)
 
@@ -902,7 +902,8 @@ StreamPilot/
 ├── .github/workflows/
 │   └── docker-publish.yml  # Publishes :latest, :beta, :nightly, and :testing to GHCR
 ├── unraid/
-│   └── server-manager-portal.xml
+│   ├── streampilot.xml
+│   └── server-manager-portal.xml  # legacy filename (same template)
 ├── .env.example
 ├── package.json
 └── .env                # JWT_SECRET (not committed to git)

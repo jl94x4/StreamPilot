@@ -134,9 +134,9 @@ Full product notes: [ColleXions](/features/collexions).
 
 ## Unraid
 
-StreamPilot includes an Unraid template at `unraid/server-manager-portal.xml`.
+StreamPilot includes an Unraid template at `unraid/streampilot.xml` (legacy filename `unraid/server-manager-portal.xml` is kept in sync).
 
-The template uses `ghcr.io/jl94x4/streampilot:latest` and stores app data under `/mnt/user/appdata/server-manager-portal/` by default. It includes a writable Media Automation work path; the optional media path is empty until configured.
+The template uses `ghcr.io/jl94x4/streampilot:latest` and stores app data under `/mnt/user/appdata/streampilot/` by default. It includes a writable Media Automation work path; the optional media path is empty until configured. Existing installs can keep `/mnt/user/appdata/server-manager-portal/`.
 
 For Intel/AMD, add `/dev/dri` as a device (the entrypoint attaches those device GIDs for `PUID`). For NVIDIA, use the NVIDIA Container Toolkit/runtime. Do not enable privileged mode.
 
