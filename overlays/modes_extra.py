@@ -140,10 +140,10 @@ def _stamp_show_badge(
     config: dict | None = None,
 ) -> dict:
     """Stamp via clean-base layer stack (apply_fn kept for call-site compatibility)."""
-    from core import _download_poster
+    from core import _item_poster_image
     from layer_stack import apply_banner_layer, drop_conflicting_mode_logs
 
-    poster = _download_poster(plex, getattr(show, "thumb", None) or "")
+    poster = _item_poster_image(plex, show)
     if poster is None:
         raise RuntimeError(f"Failed to download poster for {getattr(show, 'title', '')}")
 

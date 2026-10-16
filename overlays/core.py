@@ -781,26 +781,93 @@ def _apply_show_overlay(
     )
 
 
+def _plex_image_session(plex: PlexServer | None):
+    """Prefer plexapi's session (SSL verify / headers for plex.direct)."""
+    session = getattr(plex, "_session", None) if plex is not None else None
+    return session if session is not None else requests
+
+
+def _plex_image_url(plex: PlexServer | None, thumb_path: str) -> str:
+    """Build an absolute poster URL, reusing plex.url when available."""
+    raw = str(thumb_path or "").strip()
+    if not raw:
+        return ""
+    token = str(getattr(plex, "_token", None) or "") if plex is not None else ""
+    base = str(getattr(plex, "_baseurl", "") or "").rstrip("/") if plex is not None else ""
+
+    if raw.startswith("http://") or raw.startswith("https://"):
+        url = raw
+        if token and "X-Plex-Token=" not in url:
+            url = f"{url}{'&' if '?' in url else '?'}X-Plex-Token={token}"
+        return url
+
+    path = raw if raw.startswith("/") else f"/{raw}"
+    # plex.url() matches how plexapi itself fetches thumbs (token + baseurl).
+    url_fn = getattr(plex, "url", None) if plex is not None else None
+    if callable(url_fn):
+        try:
+            return str(url_fn(path, includeToken=True) or "")
+        except TypeError:
+            try:
+                built = str(url_fn(path) or "")
+                if token and built and "X-Plex-Token=" not in built:
+                    built = f"{built}{'&' if '?' in built else '?'}X-Plex-Token={token}"
+                return built
+            except Exception:
+                pass
+        except Exception:
+            pass
+    if not base:
+        return ""
+    url = f"{base}{path}"
+    if token:
+        url = f"{url}{'&' if '?' in url else '?'}X-Plex-Token={token}"
+    return url
+
+
+def _thumb_path_fallbacks(thumb_path: str, rating_key: str | None = None) -> list[str]:
+    """Candidate Plex image paths — strip stale /thumb/<ts> then try ratingKey."""
+    seen: set[str] = set()
+    out: list[str] = []
+
+    def add(path: str) -> None:
+        value = str(path or "").strip()
+        if not value or value in seen:
+            return
+        seen.add(value)
+        out.append(value)
+
+    raw = str(thumb_path or "").strip()
+    add(raw)
+    # Stale timestamped thumbs 404 after Poster Sets / unlock; unversioned still works.
+    if "/thumb/" in raw:
+        add(raw.rsplit("/thumb/", 1)[0] + "/thumb")
+    key = str(rating_key or "").strip()
+    if key:
+        add(f"/library/metadata/{key}/thumb")
+    return out
+
+
 def _download_poster(plex: PlexServer, thumb_path: str) -> Image.Image | None:
     if not thumb_path:
         return None
+    url = _plex_image_url(plex, thumb_path)
+    if not url:
+        return None
     try:
-        token = getattr(plex, "_token", None) or ""
-        base = str(getattr(plex, "_baseurl", "") or "").rstrip("/")
-        raw = str(thumb_path).strip()
-        if raw.startswith("http://") or raw.startswith("https://"):
-            url = raw
-            if token and "X-Plex-Token=" not in url:
-                url = f"{url}{'&' if '?' in url else '?'}X-Plex-Token={token}"
-        else:
-            if not raw.startswith("/"):
-                raw = f"/{raw}"
-            url = f"{base}{raw}"
-            if token:
-                url = f"{url}{'&' if '?' in url else '?'}X-Plex-Token={token}"
-        response = requests.get(url, timeout=60)
+        session = _plex_image_session(plex)
+        headers = {
+            "Accept": "image/*,*/*",
+            "X-Plex-Token": str(getattr(plex, "_token", None) or ""),
+        }
+        response = session.get(url, timeout=60, headers=headers)
         if response.status_code != 200 or not response.content:
             return None
+        content_type = str(response.headers.get("Content-Type") or "").lower()
+        if content_type and "image" not in content_type and "octet-stream" not in content_type:
+            # Plex sometimes returns HTML/XML error bodies with a 200.
+            if response.content[:16].lstrip().startswith((b"<", b"{")):
+                return None
         img = Image.open(io.BytesIO(response.content))
         img.load()
         return img.convert("RGBA")
@@ -809,18 +876,30 @@ def _download_poster(plex: PlexServer, thumb_path: str) -> Image.Image | None:
 
 
 def _item_poster_image(plex: PlexServer, item) -> Image.Image | None:
-    """Download show/episode art, trying thumb then provider posters."""
+    """Download show/movie art: thumb (+ unversioned), then provider posters()."""
     if item is None or plex is None:
         return None
     thumb = getattr(item, "thumb", None) or ""
-    img = _download_poster(plex, thumb)
-    if img is not None:
-        return img
+    rating_key = str(getattr(item, "ratingKey", None) or "").strip() or None
+    for path in _thumb_path_fallbacks(thumb, rating_key):
+        img = _download_poster(plex, path)
+        if img is not None:
+            return img
+    try:
+        if hasattr(item, "reload") and callable(item.reload):
+            item.reload()
+            thumb = getattr(item, "thumb", None) or thumb
+            for path in _thumb_path_fallbacks(thumb, rating_key):
+                img = _download_poster(plex, path)
+                if img is not None:
+                    return img
+    except Exception:
+        pass
     try:
         posters = list(item.posters() or [])
     except Exception:
         posters = []
-    for poster in posters[:5]:
+    for poster in posters[:8]:
         key = getattr(poster, "key", None) or getattr(poster, "thumb", None) or ""
         img = _download_poster(plex, str(key))
         if img is not None:
@@ -1791,7 +1870,7 @@ def process_show_overlay(
     preset_id = str(config.get("overlayPresetId") or "new-season")
     placement = _effective_placement(config, "show", preset_id)
 
-    show_poster = _download_poster(plex, getattr(show, "thumb", None) or "")
+    show_poster = _item_poster_image(plex, show)
     if show_poster is None:
         raise RuntimeError(f"Failed to download show poster for {show.title}")
 
@@ -1987,7 +2066,7 @@ def process_season_new_episode_overlay(
     overlay_img = _load_show_overlay_image(
         config, paths, season_index=getattr(latest, "index", None)
     )
-    season_poster = _download_poster(plex, getattr(latest, "thumb", None) or "")
+    season_poster = _item_poster_image(plex, latest)
     if season_poster is None:
         raise RuntimeError(f"Failed to download season poster for {show.title}")
 
@@ -2537,7 +2616,7 @@ def process_episode_overlay(
     config: dict | None = None,
 ) -> dict:
     overlay_img = _load_episode_overlay_image(config, paths)
-    thumb = _download_poster(plex, getattr(episode, "thumb", None) or "")
+    thumb = _item_poster_image(plex, episode)
     if thumb is None:
         raise RuntimeError(f"Failed to download episode thumb for {meta.get('title') or episode}")
 

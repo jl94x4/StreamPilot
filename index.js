@@ -31,6 +31,7 @@ import {
     HOME_SCREEN_ICON_REV,
     SERVER_PWA_ICON_BADGE_SCALE,
     SERVER_PWA_MASKABLE_BADGE_SCALE,
+    APP_PWA_ICON_LOGO_SCALE,
 } from './lib/portal-branding.js';
 import { resolvePackageVersion } from './lib/resolve-package-version.js';
 import { registrableDomainFromHost } from './lib/registrable-domain.js';
@@ -2488,7 +2489,9 @@ const alertRuleEnabled = (config, rule) => normalizeAlertRules(config?.alertRule
 async function getEmailLogoAttachments(config) {
     try {
         const profile = await getAdminProfile(config);
-        const logoBuf = await fetchPortalEmailLogoBuffer(config, profile, getPortalBrandingDeps());
+        const logoBuf = await fetchPortalEmailLogoBuffer(config, profile, getPortalBrandingDeps(), {
+            brandingDir: BRANDING_DIR,
+        });
         if (!logoBuf) return [];
         return [{
             filename: 'logo.png',
@@ -8316,13 +8319,14 @@ const saveUploadedBrandingImage = async (req, res, assetName, responseKey) => {
             return res.status(400).json({ error: 'Invalid image file.' });
         }
         const saved = await writeBrandingAsset(BRANDING_DIR, assetName, buf);
-        if (assetName === 'logo') {
+        // Logo and favicon both feed PWA home-screen icons when source is "server".
+        if (assetName === 'logo' || assetName === 'favicon') {
             try {
                 const config = await loadFile(CONFIG_PATH, {});
                 const profile = await getAdminProfile(config);
                 await refreshPortalBrandingAssets(config, profile);
             } catch (error) {
-                log(`[Branding] logo-upload icon sync failed: ${error.message}`);
+                log(`[Branding] ${assetName}-upload icon sync failed: ${error.message}`);
             }
         }
         const label = assetName === 'logo' ? 'Logo' : (assetName === 'favicon' ? 'Favicon' : (assetName === 'login' ? 'Login logo' : 'Background'));
@@ -10143,7 +10147,9 @@ const generateNewsletterHtml = async (config, options = {}) => {
 
     try {
         const profile = await getAdminProfile(config);
-        const logoBuf = await fetchPortalEmailLogoBuffer(config, profile, getPortalBrandingDeps());
+        const logoBuf = await fetchPortalEmailLogoBuffer(config, profile, getPortalBrandingDeps(), {
+            brandingDir: BRANDING_DIR,
+        });
         if (logoBuf) {
             attachments.push({ filename: 'logo.png', content: logoBuf, cid: 'logo' });
         }
@@ -16546,7 +16552,10 @@ function getPortalBrandingDeps() {
 
 const refreshPortalBrandingAssets = async (config, profile = null) => {
     const profileData = profile || await getAdminProfile(config);
-    return syncPortalPwaStaticIcons(config, profileData, getPortalBrandingDeps());
+    return syncPortalPwaStaticIcons(config, profileData, getPortalBrandingDeps(), {
+        brandingDir: BRANDING_DIR,
+        timeoutMs: 5000,
+    });
 };
 
 const sendStaticLogoFallback = async (res) => {
@@ -16590,7 +16599,11 @@ const sendHomeScreenPwaIcon = async (res, buffer, size = 192) => {
         if (!detectRasterImageType(buffer)) {
             return sendPwaSizedIconFile(res, size);
         }
-        const png = makeHomeScreenIconPng(buffer, size, { badgeScale: SERVER_PWA_ICON_BADGE_SCALE });
+        const png = makeHomeScreenIconPng(buffer, size, {
+            badgeScale: SERVER_PWA_ICON_BADGE_SCALE,
+            wideLogoScale: APP_PWA_ICON_LOGO_SCALE,
+            plateLogoScale: APP_PWA_ICON_LOGO_SCALE,
+        });
         res.setHeader('Content-Type', 'image/png');
         res.setHeader('Cache-Control', 'public, max-age=3600');
         return res.send(png);
@@ -16608,7 +16621,8 @@ const HOME_SCREEN_ICON_CACHE = 'public, max-age=300, must-revalidate';
 const sendHomeScreenFaviconPng = async (res, buffer) => {
     const png = makeHomeScreenIconPng(buffer, FAVICON_SIZE, {
         badgeScale: 1,
-        wideLogoScale: 0.92,
+        wideLogoScale: APP_PWA_ICON_LOGO_SCALE,
+        plateLogoScale: APP_PWA_ICON_LOGO_SCALE,
     });
     res.setHeader('Content-Type', 'image/png');
     res.setHeader('Cache-Control', HOME_SCREEN_ICON_CACHE);
@@ -16767,7 +16781,9 @@ app.get('/api/public/pwa-badge', publicReadRateLimit, async (req, res) => {
         }
         const brandingDeps = getPortalBrandingDeps();
         const profile = await getAdminProfile(config);
-        let buffer = await fetchPortalEmailLogoBuffer(config, profile, brandingDeps);
+        let buffer = await fetchPortalEmailLogoBuffer(config, profile, brandingDeps, {
+            brandingDir: BRANDING_DIR,
+        });
         if (!buffer) {
             buffer = await fetchPortalBrandingRasterBuffer(config, profile, brandingDeps, {
                 brandingDir: BRANDING_DIR,

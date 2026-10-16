@@ -2156,11 +2156,23 @@ const hubsFrom = (data: any, server: PlexServer, many: boolean) => {
             const title = String(hub.title || identifier || 'Hub');
             const mapped = collapseRecentShows(mapList({ MediaContainer: { Metadata: rows } }), identifier, title);
             const hubKind = String(hub.type || '').toLowerCase();
-            const musicHub = /^(artist|album|track|audio)$/.test(hubKind)
-                || /\b(music|artists?|albums?)\b/i.test(`${identifier} ${title}`);
+            const idLower = identifier.toLowerCase();
+            // Never treat movie/TV collection hubs as music — title words like "Music"
+            // (e.g. "Music Movies") used to stamp every child as album/square art.
+            const movieOrShowHub = /^(movie|show|tv)\./.test(idLower)
+                || /(^|[.\s_-])(movie|show|tv|film)([.\s_-]|collection)/.test(idLower);
+            const musicHub = !movieOrShowHub && (
+                /^(artist|album|track|audio)$/.test(hubKind)
+                || /^(artist|music|album)\./.test(idLower)
+            );
             const seasonPoster = continueHub({ identifier, title }) && readHeroConfig().continueWatchingSeasonPoster;
             const items = mapped.map((item) => {
-                const next = musicHub ? { ...item, cardAspect: 'square' as const } : item;
+                const itemType = String(item?.type || '').toLowerCase();
+                const movieOrShowItem = /^(movie|show|season|episode|collection)$/.test(itemType);
+                // Only stamp square on confirmed music hubs / non-movie children.
+                const next = (musicHub && !movieOrShowItem)
+                    ? { ...item, cardAspect: 'square' as const }
+                    : item;
                 return seasonPoster && next.type === 'episode' ? { ...next, preferSeasonPoster: true } : next;
             });
             const rawKey = String(hub.key || hub.hubKey || '').trim();

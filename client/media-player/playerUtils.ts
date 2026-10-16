@@ -60,8 +60,11 @@ export const resolvePlayerCardAspect = (
     item: { type?: string | null; cardAspect?: '2/3' | 'square' | '16/9' | null },
     forced?: '2/3' | 'square' | '16/9' | null,
 ): '2/3' | 'square' | '16/9' => {
-    if (isMusicPlayerItem(item) || item.cardAspect === 'square') return 'square';
+    // Real music items always stay square. A wrong hub stamp must not override a
+    // portrait rail (e.g. movie collections titled "Music …").
+    if (isMusicPlayerItem(item)) return 'square';
     if (forced) return forced;
+    if (item.cardAspect === 'square') return 'square';
     if (item.cardAspect) return item.cardAspect;
     if (String(item.type || '') === 'episode') return '16/9';
     return '2/3';

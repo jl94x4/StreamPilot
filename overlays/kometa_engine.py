@@ -1350,15 +1350,22 @@ def _sanitize(name: str) -> str:
 
 
 def _download_original(plex, item) -> Image.Image | None:
-    from core import _download_poster
+    from core import _item_poster_image
 
-    return _download_poster(plex, getattr(item, "thumb", None) or "")
+    return _item_poster_image(plex, item)
 
 
 def _should_ignore_overlay_backup(item, extra_labels=None) -> bool:
     """True when Overlay / Layer stamp tags were removed — current Plex art wins."""
-    from core import _item_has_overlay_tracking_labels
+    from core import _item_has_overlay_tracking_labels, _item_plex_label_tags
 
+    # Library listings sometimes omit Label children — reload before treating as removed.
+    if not _item_plex_label_tags(item) and extra_labels:
+        try:
+            if hasattr(item, "reload") and callable(item.reload):
+                item.reload()
+        except Exception:
+            pass
     return not _item_has_overlay_tracking_labels(item, extra_labels)
 
 
@@ -1399,7 +1406,8 @@ def _load_stamp_original(
 
     poster = _download_original(plex, item)
     if poster is None:
-        raise RuntimeError("failed to download poster")
+        thumb = str(getattr(item, "thumb", None) or "").strip() or "(empty)"
+        raise RuntimeError(f"failed to download poster (thumb={thumb})")
     original = poster.convert("RGBA")
 
     if ignore_backup and backup.exists():

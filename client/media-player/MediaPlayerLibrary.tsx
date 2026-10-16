@@ -1510,7 +1510,11 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                                 onToggleWatched={toggleWatched}
                                 showProgress={isCw}
                                 showRemoveFromContinueWatching={isCw}
-                                aspect={musicLibrary || isMusicPlayerItem(hub.items?.[0])
+                                aspect={musicLibrary
+                                    || classifyPlayerHomeHub(hub) === 'artist'
+                                    || (hub.items?.length
+                                        ? hub.items.every((row) => isMusicPlayerItem(row))
+                                        : false)
                                     ? 'square'
                                     : (isCw
                                         ? continueWatchingAspect

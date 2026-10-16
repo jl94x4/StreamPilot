@@ -337,13 +337,21 @@ export const classifyPlayerHomeHub = (hub: {
     playlistRatingKey?: string | null;
     items?: Array<{ type?: string | null; librarySectionID?: string | null }> | null;
 } = {}): PlayerHomeHubMediaKind => {
-    const blob = `${hub.identifier || ''} ${hub.title || ''}`.toLowerCase();
+    const identifier = String(hub.identifier || '');
+    const idLower = identifier.toLowerCase();
+    const blob = `${identifier} ${hub.title || ''}`.toLowerCase();
     if (/continue\s*watch|ondeck|on[.\s_-]?deck|in[.\s_-]?progress/.test(blob)) return 'continueWatching';
-    if (/because\s+you\s+watched/.test(blob) || /^because:/.test(String(hub.identifier || ''))) return 'becauseYouWatched';
+    if (/because\s+you\s+watched/.test(blob) || /^because:/.test(identifier)) return 'becauseYouWatched';
     if (hub.playlistRatingKey || /playlist/.test(blob)) return 'playlist';
-    if (/(^|[.\s_-])(tv|show)([.\s_-]|$)/.test(blob) || /\b(series|episode)\b/.test(blob)) return 'show';
-    if (/(^|[.\s_-])(music|artist|album|track|audio)([.\s_-]|$)/.test(blob)) return 'artist';
-    if (/(^|[.\s_-])(movie|film)([.\s_-]|$)/.test(blob)) return 'movie';
+    // Prefer hubIdentifier structure over title words — "Music Movies" collections
+    // are movie.collection.* hubs, not albums.
+    if (/^(movie|film)\./.test(idLower) || /(^|[.\s_-])(movie|film)([.\s_-]|$)/.test(idLower)) return 'movie';
+    if (/^(tv|show)\./.test(idLower) || /(^|[.\s_-])(tv|show)([.\s_-]|$)/.test(idLower) || /\b(series|episode)\b/.test(blob)) {
+        return 'show';
+    }
+    if (/^(artist|music|album)\./.test(idLower) || /(^|[.\s_-])(music|artist|album|track|audio)([.\s_-]|$)/.test(idLower)) {
+        return 'artist';
+    }
     const counts: Record<'movie' | 'show' | 'artist', number> = { movie: 0, show: 0, artist: 0 };
     for (const item of hub.items || []) {
         const kind = normalizeLibraryMediaType(item?.type);
@@ -352,6 +360,10 @@ export const classifyPlayerHomeHub = (hub: {
     const ranked = (Object.entries(counts) as Array<['movie' | 'show' | 'artist', number]>)
         .sort((a, b) => b[1] - a[1]);
     if (ranked[0]?.[1]) return ranked[0][0];
+    // Title-only heuristics last (after item majority).
+    if (/(^|[.\s_-])(music|artist|album|track|audio)([.\s_-]|$)/.test(blob)) return 'artist';
+    if (/(^|[.\s_-])(movie|film)([.\s_-]|$)/.test(blob)) return 'movie';
+    if (/(^|[.\s_-])(tv|show)([.\s_-]|$)/.test(blob)) return 'show';
     return 'other';
 };
 

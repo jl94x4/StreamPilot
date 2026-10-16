@@ -173,9 +173,9 @@ def ensure_base_poster(
                 f"Saved clean base poster: {rating_key}",
             )
         if plex is not None and show is not None:
-            from core import _download_poster
+            from core import _item_poster_image
 
-            poster = _download_poster(plex, getattr(show, "thumb", None) or "")
+            poster = _item_poster_image(plex, show)
             if poster is None:
                 return None
             return _save_base_poster(
