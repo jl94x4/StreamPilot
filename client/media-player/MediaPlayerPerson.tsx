@@ -22,6 +22,7 @@ import { PlayerBackdropImage } from './PlayerBackdropImage';
 import { PlayerPosterCard } from './PlayerPosterCard';
 import { PlayerRail } from './PlayerRail';
 import { formatPersonDate, personAgeYears, splitBiography } from '../discovery/personCredits';
+import { safeImageSrc } from '../shared/safeUrl';
 import type { PlayerItem, PlayerPersonCreditRow, PlayerPersonProfile, PlayerPlayOptions } from './types';
 
 type Props = {
@@ -182,7 +183,9 @@ export const MediaPlayerPerson: React.FC<Props> = ({ actorId, name, thumb, onBac
     const age = personAgeYears(birthday, deathday || null);
     const deceased = Boolean(deathday);
     const statusKnown = Boolean(birthday || deathday);
-    const photoUrl = tmdbProfileUrl(profile?.profilePath) || (photo ? plexImageUrl(photo, 600, 600, { quality: 72 }) : '');
+    const photoUrl = safeImageSrc(
+        tmdbProfileUrl(profile?.profilePath) || (photo ? plexImageUrl(photo, 600, 600, { quality: 72 }) : ''),
+    );
 
     // Ambient art: random title from their on-server catalogue (prefer real backdrops).
     const artSource = useMemo(() => {

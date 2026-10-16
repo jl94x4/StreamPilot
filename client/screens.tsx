@@ -179,13 +179,21 @@ const writeStoredReferralRef = (ref: string) => {
 const clearStoredReferralRef = () => {
     try { sessionStorage.removeItem(REFERRAL_REF_STORAGE_KEY); } catch { /* ignore */ }
 };
+const nowPlayingCompanionPrefKey = (subjectId: string): string =>
+    `${NOW_PLAYING_COMPANION_PREF_KEY}:${String(subjectId || '').trim()}`;
+
 const readNowPlayingCompanionEnabled = (subjectId: string): boolean => {
     try {
+        const key = String(subjectId || '').trim();
+        if (!key) return true;
+        // Per-subject keys avoid read-modify-write of opaque localStorage blobs.
+        const single = localStorage.getItem(nowPlayingCompanionPrefKey(key));
+        if (single === '0') return false;
+        if (single === '1') return true;
         const raw = localStorage.getItem(NOW_PLAYING_COMPANION_PREF_KEY);
         if (!raw) return true;
         const parsed = JSON.parse(raw);
-        const key = String(subjectId || '');
-        if (!parsed || typeof parsed !== 'object' || !key) return true;
+        if (!parsed || typeof parsed !== 'object') return true;
         if (!(key in parsed)) return true;
         return parsed[key] !== false;
     } catch {
@@ -195,13 +203,9 @@ const readNowPlayingCompanionEnabled = (subjectId: string): boolean => {
 
 const writeNowPlayingCompanionEnabled = (subjectId: string, enabled: boolean): void => {
     try {
-        const key = String(subjectId || '');
+        const key = String(subjectId || '').trim();
         if (!key) return;
-        const raw = localStorage.getItem(NOW_PLAYING_COMPANION_PREF_KEY);
-        const parsed = raw ? JSON.parse(raw) : {};
-        const next = parsed && typeof parsed === 'object' ? parsed : {};
-        next[key] = !!enabled;
-        localStorage.setItem(NOW_PLAYING_COMPANION_PREF_KEY, JSON.stringify(next));
+        localStorage.setItem(nowPlayingCompanionPrefKey(key), enabled ? '1' : '0');
     } catch {
         // Ignore persistence failures.
     }

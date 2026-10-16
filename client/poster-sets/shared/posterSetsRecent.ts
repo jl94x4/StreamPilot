@@ -169,12 +169,17 @@ export const parseSetRef = (rawUrl: string): {
     url: string;
 } => {
     const url = String(rawUrl || '').trim();
-    const lower = url.toLowerCase();
-    if (lower.includes('mediux.pro')) {
+    let host = '';
+    try {
+        host = new URL(url.includes('://') ? url : `https://${url}`).hostname.toLowerCase();
+    } catch {
+        host = '';
+    }
+    if (host === 'mediux.pro' || host.endsWith('.mediux.pro')) {
         const match = url.match(/\/sets?\/(\d+)/i);
         return { provider: 'mediux', setId: match?.[1] || null, kind: match ? 'set' : null, url };
     }
-    if (lower.includes('theposterdb.com')) {
+    if (host === 'theposterdb.com' || host.endsWith('.theposterdb.com')) {
         const posterMatch = url.match(/\/poster\/(\d+)/i);
         if (posterMatch) {
             return { provider: 'posterdb', setId: posterMatch[1], kind: 'poster', url };

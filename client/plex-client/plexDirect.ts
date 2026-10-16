@@ -4461,16 +4461,26 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
     return { ok: true };
 };
 
-const wikiText = (html: string) => html
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&quot;/g, '"')
-    .replace(/&#0?39;/g, "'")
-    .replace(/&nbsp;/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+const wikiText = (html: string) => {
+    let text = String(html || '');
+    for (let i = 0; i < 5; i += 1) {
+        const next = text
+            .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, ' ')
+            .replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, ' ')
+            .replace(/<\/?[a-z][^>]*>/gi, ' ');
+        if (next === text) break;
+        text = next;
+    }
+    return text
+        .replace(/&quot;/g, '"')
+        .replace(/&#0?39;/g, "'")
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&amp;/g, '&')
+        .replace(/\s+/g, ' ')
+        .trim();
+};
 
 const trimBiography = (text: string) => {
     const clean = String(text || '').trim();

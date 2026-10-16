@@ -37,6 +37,7 @@ import { PlacementEditor } from './PlacementEditor';
 import { OverlayJobCard, OverlayJobTitleTest, OverlaySettingsGroup } from './OverlayJobCard';
 import { formatRunSummaryDetail, formatRunSummaryWhen, inferRunBundle, parseRunSummary } from './runSummary';
 import { api as collexionsApi } from '../collexions/api';
+import { safeImageSrc } from '../shared/safeUrl';
 
 /** Primary tabs after UX overhaul. Legacy hashes map via parseOverlaysTab. */
 type TabId = 'home' | 'badges' | 'tracked' | 'look' | 'activity';
@@ -325,6 +326,7 @@ export const OverlaysDashboard: React.FC = () => {
     const [newCollectionRuleFile, setNewCollectionRuleFile] = useState<File | null>(null);
     const [newCollectionSearch, setNewCollectionSearch] = useState('');
     const [newCollectionFilePreview, setNewCollectionFilePreview] = useState<string | null>(null);
+    const collectionBadgePreviewSrc = safeImageSrc(newCollectionFilePreview);
     const sampleLoadedRef = React.useRef(false);
     const wasRunningRef = React.useRef(false);
     const reconnectedRunRef = React.useRef(false);
@@ -2261,9 +2263,9 @@ export const OverlaysDashboard: React.FC = () => {
                         </div>
                     ) : null}
                     <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border/70 bg-background/30 px-3 py-4 transition-colors hover:border-plex/40 hover:bg-plex/5">
-                        {newCollectionFilePreview ? (
+                        {collectionBadgePreviewSrc ? (
                             <img
-                                src={newCollectionFilePreview}
+                                src={collectionBadgePreviewSrc}
                                 alt=""
                                 className="h-14 max-w-[180px] object-contain"
                             />

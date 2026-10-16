@@ -17,7 +17,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Callable, Iterable, List, Optional, Sequence, Set, Tuple
 
-from urllib.parse import quote, unquote
+from urllib.parse import quote, unquote, urlparse
 
 import plexapi.exceptions
 import requests
@@ -37,6 +37,30 @@ except ImportError:  # pragma: no cover - Dockerfile must COPY plex_identity.py
 
 ProgressFn = Optional[Callable[[str], None]]
 BatchFn = Optional[Callable[[dict], None]]
+
+
+def _url_hostname(url: str) -> str:
+    raw = str(url or "").strip()
+    if not raw:
+        return ""
+    try:
+        parsed = urlparse(raw if "://" in raw else f"https://{raw}")
+        return (parsed.hostname or "").lower()
+    except Exception:
+        return ""
+
+
+def _url_host_matches(url: str, *domains: str) -> bool:
+    host = _url_hostname(url)
+    if not host:
+        return False
+    for domain in domains:
+        needle = str(domain or "").strip().lower().lstrip(".")
+        if not needle:
+            continue
+        if host == needle or host.endswith("." + needle):
+            return True
+    return False
 
 
 IMAGE_HEADERS = {
@@ -272,11 +296,10 @@ def download_image(url: str, progress: ProgressFn = None, *, config: dict | None
             emit(progress, f"Local image cache miss/error: {exc}")
 
     headers = dict(IMAGE_HEADERS)
-    lower = target.lower()
-    is_tpdb = "theposterdb.com" in lower
+    is_tpdb = _url_host_matches(target, "theposterdb.com")
     if is_tpdb:
         headers["Referer"] = "https://theposterdb.com/"
-    elif "mediux.pro" in lower:
+    elif _url_host_matches(target, "mediux.pro"):
         headers["Referer"] = "https://mediux.pro/"
 
     session = None
@@ -528,10 +551,11 @@ def apply_poster_or_art(upload_target, poster: dict, *, art: bool = False, progr
     url = poster.get("url") or ""
     source = str(poster.get("source") or "").strip().lower()
     path = None
+    api_host = _url_hostname(url)
     needs_download = (
         source in {"mediux", "posterdb"}
-        or "api.mediux.pro/assets/" in url
-        or "theposterdb.com" in url.lower()
+        or (api_host == "api.mediux.pro" and "/assets/" in str(url or ""))
+        or _url_host_matches(url, "theposterdb.com")
     )
     if needs_download:
         path = download_image(url, progress=progress, config=config)
@@ -823,7 +847,9 @@ def _posterdb_cookie_expired(row: dict) -> bool:
 
 
 def _posterdb_session_cache_key(user: str, password: str) -> str:
-    digest = hashlib.sha256(f"{user}\0{password}".encode("utf-8")).hexdigest()[:20]
+    # Fingerprint for in-memory session cache only — not password verification/storage.
+    material = f"{user}\0{password}".encode("utf-8")
+    digest = hashlib.sha256(material).hexdigest()[:20]  # codeql[py/weak-sensitive-data-hashing]
     return f"{user.lower()}:{digest}"
 
 
@@ -1628,10 +1654,9 @@ _CLOUDFLARE_ORIGIN_HINTS = {
 
 
 def _page_host_label(url: str) -> str:
-    hay = str(url or "").lower()
-    if "mediux.pro" in hay:
+    if _url_host_matches(url, "mediux.pro"):
         return "MediUX"
-    if "theposterdb.com" in hay:
+    if _url_host_matches(url, "theposterdb.com"):
         return "ThePosterDB"
     return "The poster site"
 
@@ -1665,10 +1690,11 @@ def cook_soup(
     timeout: float | None = None,
     retries: int = 3,
 ) -> BeautifulSoup:
-    wait = 20 if timeout is None and "theposterdb.com/search" in str(url or "").lower() else timeout
+    path = (urlparse(str(url or "")).path or "").lower()
+    wait = 20 if timeout is None and _url_host_matches(url, "theposterdb.com") and "/search" in path else timeout
     if wait is None:
         wait = 60
-    is_tpdb = "theposterdb.com" in str(url or "").lower()
+    is_tpdb = _url_host_matches(url, "theposterdb.com")
     client = _posterdb_http_client(config) if is_tpdb else requests
     authenticated = isinstance(client, requests.Session)
     ua = _posterdb_session_user_agent(client if authenticated else None)
@@ -2676,7 +2702,7 @@ def scrape_mediux(soup, mediux_filters: Optional[Sequence[str]] = None, progress
 
 
 def scrape(url: str, mediux_filters: Optional[Sequence[str]] = None, progress: ProgressFn = None) -> Tuple[list, list, list, dict]:
-    if "theposterdb.com" in url:
+    if _url_host_matches(url, "theposterdb.com"):
         if "/set/" in url or "/user/" in url:
             soup = cook_soup(url)
             movieposters, showposters, collectionposters = scrape_posterdb(soup)
@@ -2719,7 +2745,7 @@ def scrape(url: str, mediux_filters: Optional[Sequence[str]] = None, progress: P
                 "resolvedUrl": set_url,
             }
         raise RuntimeError("Poster set not found. Check the link you are inputting.")
-    if "mediux.pro" in url and "sets" in url:
+    if _url_host_matches(url, "mediux.pro") and "/sets" in str(url or ""):
         return scrape_mediux(cook_soup(url), mediux_filters=mediux_filters, progress=progress)
     raise RuntimeError("Poster set not found. Check the link you are inputting.")
 
@@ -2744,17 +2770,16 @@ def summarize_posters(movieposters, showposters, collectionposters) -> dict:
 def parse_set_ref(url: str) -> dict:
     """Extract provider + set/poster id from a MediUX or ThePosterDB URL."""
     value = str(url or "").strip()
-    lower = value.lower()
     provider = None
     set_id = None
     kind = None
-    if "mediux.pro" in lower:
+    if _url_host_matches(value, "mediux.pro"):
         provider = "mediux"
         match = re.search(r"/sets?/(\d+)", value, re.I)
         if match:
             set_id = match.group(1)
             kind = "set"
-    elif "theposterdb.com" in lower:
+    elif _url_host_matches(value, "theposterdb.com"):
         provider = "posterdb"
         match = re.search(r"/poster/(\d+)", value, re.I)
         if match:
@@ -2983,10 +3008,9 @@ def filter_posters_by_ids(
 
 
 def _infer_source_from_url(url: str) -> str:
-    lower = str(url or "").lower()
-    if "theposterdb.com" in lower:
+    if _url_host_matches(url, "theposterdb.com"):
         return "posterdb"
-    if "mediux" in lower:
+    if _url_host_matches(url, "mediux.pro"):
         return "mediux"
     return "mediux"
 
@@ -6230,7 +6254,7 @@ def apply_bulk(urls: Sequence[str], config: dict, progress: ProgressFn = None) -
     emit(progress, f"Starting bulk apply ({total} URL{'s' if total != 1 else ''})")
     for index, url in enumerate(urls, start=1):
         emit(progress, f"Set {index}/{total} · {url}")
-        if "/user/" in url and "theposterdb.com" in url:
+        if "/user/" in url and _url_host_matches(url, "theposterdb.com"):
             emit(progress, f"Scraping user uploads from {url}")
             soup = cook_soup(url)
             pages = scrape_posterd_user_info(soup) or 1

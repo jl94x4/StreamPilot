@@ -9,6 +9,7 @@ import { isTitleCardSet } from './posterSetsRecent';
 import { CreatorPill, ProviderCornerBadge, ProviderPill, SetKindPill } from './posterSetsPills';
 import { providerLabel } from './posterSetsFormat';
 import { coverageBadgeClass, coverageBadgeLabel, type TpdbCoverageLevel } from './tpdbCacheUi';
+import { safeHttpUrl, safeImageSrc } from '../../shared/safeUrl';
 
 /** Proxied poster thumb with retry + graceful fallback when TPDB rate-limits. */
 export const PosterThumb: React.FC<{
@@ -21,7 +22,7 @@ export const PosterThumb: React.FC<{
 }> = ({ src, alt = '', className = '', imgClassName = '', loading = 'lazy', onLoad }) => {
     const [failed, setFailed] = useState(false);
     const [attempt, setAttempt] = useState(0);
-    const resolved = String(src || '').trim();
+    const resolved = safeImageSrc(src);
     useEffect(() => {
         setFailed(false);
         setAttempt(0);
@@ -64,8 +65,8 @@ export const PosterImageLightbox: React.FC<{
     provider?: string | null;
     onClose: () => void;
 }> = ({ open, src, title, setUrl, provider, onClose }) => {
-    const resolved = String(src || '').trim();
-    const link = String(setUrl || '').trim();
+    const resolved = safeImageSrc(src);
+    const link = safeHttpUrl(setUrl);
     const label = providerLabel(provider) || 'source site';
 
     useEffect(() => {
