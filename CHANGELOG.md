@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.0.0](https://github.com/jl94x4/StreamPilot/compare/v1.9.3...v2.0.0) (2026-10-16)
+
+
+### Features
+
+* **media-player:** ship TV library stage, Direct Play polish, and Media Player BETA promotion
+* **metadata-fill:** add library scan, preview/revert, field toggles, and TMDB/TVDB/TVmaze fills
+* **media-automation:** add native FFmpeg job pipelines with CPU/GPU workers and operator UI
+* **brand:** ship StreamPilot wordmark and stacked PWA / home-screen marks
+* **poster-sets / overlays:** harden TPDB/MediUX host checks and overlay poster downloads
+* **collexions:** hub management, templates, and safer API error surfaces
+* **platform:** Express 5, Unraid CA rename to StreamPilot, and Docker publish from nightly
+
+
+### Bug Fixes
+
+* **security:** clear CodeQL findings (URL host checks, XSS sinks, session IDs, stack-trace exposure)
+* **pwa:** stable manifest / apple-touch icons without Cloudflare 502s
+* **tv / playback:** stabilize hubs, quality switches, and post-playback return
+* **ci:** Node build, Docker publish, and CodeQL config for the nightly → main merge
+
 ## [1.9.3](https://github.com/jl94x4/StreamPilot/compare/v1.9.2...v1.9.3) (2026-10-16)
 
 
