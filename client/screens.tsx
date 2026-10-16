@@ -268,6 +268,8 @@ type BeforeInstallPromptEvent = Event & {
 };
 
 
+const HOME_SCREEN_FALLBACK_REV = 'hs12-ios-stacked-app';
+
 export const updateFavicon = (thumbUrl: string | null | undefined) => {
     let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
     if (!link) {
@@ -283,12 +285,29 @@ export const updateFavicon = (thumbUrl: string | null | undefined) => {
         appleLink.setAttribute('sizes', '180x180');
         document.head.appendChild(appleLink);
     }
-    // Prefer static PNG (never rate-limited JSON). Well-known /apple-touch-icon.png
-    // is also served as a real file for Safari's automatic A2HS probe.
-    const version = encodeURIComponent(String(thumbUrl || 'default').slice(-64));
-    const href = portalUrl(`/static/apple-touch-icon.png?v=${version}&hs=8`);
+    // Prefer the server-stamped apple-touch path (rev + cache key in the filename).
+    // Never add a ?query — iOS 26+ "Open as Web App" rendered a letter glyph for every
+    // query-string icon URL. Always keep a same-origin relative URL — absolute
+    // publicDomain hosts the phone cannot reach also fall back to a letter.
+    void thumbUrl;
+    const fromConfig = typeof window !== 'undefined'
+        ? String((window as any).__APPLE_TOUCH_ICON_HREF__ || '').trim()
+        : '';
+    const raw = fromConfig || portalUrl(`/static/apple-touch-${HOME_SCREEN_FALLBACK_REV}.png`);
+    let href = raw;
+    try {
+        if (/^https?:\/\//i.test(raw) && typeof window !== 'undefined') {
+            const parsed = new URL(raw, window.location.origin);
+            href = parsed.origin === window.location.origin
+                ? `${parsed.pathname}${parsed.search}`
+                : portalUrl(`/static/apple-touch-${HOME_SCREEN_FALLBACK_REV}.png`);
+        }
+    } catch {
+        href = portalUrl(`/static/apple-touch-${HOME_SCREEN_FALLBACK_REV}.png`);
+    }
     link.href = href;
     appleLink.href = href;
+    appleLink.setAttribute('sizes', '180x180');
 };
 
 // --- Components ---
