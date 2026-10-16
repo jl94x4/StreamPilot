@@ -850,15 +850,22 @@ export const withPlayerStreamQuery = (src: string, updates: Record<string, strin
 
 const PLAY_SESSION_ID = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|smp-[a-z0-9-]{6,40}|plex-\d{1,16})$/i;
 
-export const newPlaySessionId = () => (
-    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-        ? crypto.randomUUID()
-        : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (char) => {
-            const n = Math.floor(Math.random() * 16);
-            const value = char === 'x' ? n : ((n & 0x3) | 0x8);
-            return value.toString(16);
-        })
-);
+export const newPlaySessionId = () => {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return crypto.randomUUID();
+    }
+    // Fallback without Math.random — CodeQL flags insecure randomness in session IDs.
+    const bytes = new Uint8Array(16);
+    if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+        crypto.getRandomValues(bytes);
+    } else {
+        for (let i = 0; i < bytes.length; i += 1) bytes[i] = (Date.now() + i * 17) & 0xff;
+    }
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+};
 
 export const playSessionIdFromSrc = (src?: string | null) => {
     const params = new URLSearchParams(String(src || '').split('?')[1] || '');

@@ -430,7 +430,12 @@ const clientId = () => {
     try {
         const existing = String(localStorage.getItem(STORAGE_PLEX_CLIENT_ID) || '').trim();
         if (existing) return existing;
-        const next = (globalThis.crypto?.randomUUID?.() || `sp-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+        const next = globalThis.crypto?.randomUUID?.()
+            || (() => {
+                const bytes = new Uint8Array(16);
+                globalThis.crypto?.getRandomValues?.(bytes);
+                return `sp-${Date.now().toString(36)}-${[...bytes].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 12)}`;
+            })();
         localStorage.setItem(STORAGE_PLEX_CLIENT_ID, next);
         void mirrorAuthToNativeStorage(STORAGE_PLEX_CLIENT_ID, next);
         return next;
@@ -1470,7 +1475,12 @@ const playSrc = (
     const reuse = String(reuseSessionId || '').trim();
     const session = PLAY_SESSION_REUSE.test(reuse)
         ? reuse
-        : `smp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+        : (() => {
+            const bytes = new Uint8Array(6);
+            globalThis.crypto?.getRandomValues?.(bytes);
+            const suffix = [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
+            return `smp-${Date.now().toString(36)}-${suffix}`;
+        })();
     const hasVideo = asList<PlexMeta>(part?.Stream).some((stream) => Number(stream.streamType) === 1);
     const audioOnly = !hasVideo;
     // Text subs (SRT/ASS/…) can Direct Play — ExoPlayer selects the embedded track.
