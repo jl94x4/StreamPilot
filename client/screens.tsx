@@ -268,6 +268,8 @@ type BeforeInstallPromptEvent = Event & {
 };
 
 
+const HOME_SCREEN_FALLBACK_REV = 'hs12-ios-stacked-app';
+
 export const updateFavicon = (thumbUrl: string | null | undefined) => {
     let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
     if (!link) {
@@ -285,11 +287,24 @@ export const updateFavicon = (thumbUrl: string | null | undefined) => {
     }
     // Prefer the server-stamped apple-touch path (rev in the filename). iOS often
     // ignores ?query cache-busts and will keep a letter-glyph forever otherwise.
+    // Always keep a same-origin relative URL — absolute publicDomain hosts that the
+    // phone cannot reach make Safari fall back to a letter (e.g. "B" from the server name).
     const fromConfig = typeof window !== 'undefined'
         ? String((window as any).__APPLE_TOUCH_ICON_HREF__ || '').trim()
         : '';
-    const href = fromConfig
-        || portalUrl(`/static/apple-touch-hs12-ios-stacked-app.png?v=${encodeURIComponent(String(thumbUrl || 'default').slice(-64))}`);
+    const raw = fromConfig
+        || portalUrl(`/static/apple-touch-${HOME_SCREEN_FALLBACK_REV}.png?v=${encodeURIComponent(String(thumbUrl || 'default').slice(-64))}`);
+    let href = raw;
+    try {
+        if (/^https?:\/\//i.test(raw) && typeof window !== 'undefined') {
+            const parsed = new URL(raw, window.location.origin);
+            href = parsed.origin === window.location.origin
+                ? `${parsed.pathname}${parsed.search}`
+                : portalUrl(`/static/apple-touch-${HOME_SCREEN_FALLBACK_REV}.png`);
+        }
+    } catch {
+        href = portalUrl(`/static/apple-touch-${HOME_SCREEN_FALLBACK_REV}.png`);
+    }
     link.href = href;
     appleLink.href = href;
     appleLink.setAttribute('sizes', '180x180');

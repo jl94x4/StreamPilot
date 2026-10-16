@@ -16860,7 +16860,17 @@ const sendWellKnownAppleTouchIcon = async (req, res) => {
         'pwa-icon-192.png',
     ]);
     if (sent) return sent;
-    return sendPortalBrandingIcon(req, res);
+    // Never fall through to slow/auth branding for Safari's root probe — generate
+    // the stacked application mark in-process so a missing static file cannot yield HTML/JSON.
+    try {
+        const buffer = await readApplicationLogoBuffer(path.join(process.cwd(), 'static'), {
+            preferAppIcon: true,
+        });
+        if (buffer) return sendHomeScreenFaviconPng(res, buffer);
+    } catch (error) {
+        log(`Well-known apple-touch fallback failed: ${error.message}`);
+    }
+    return sendHomeScreenStaticLogoFallback(res);
 };
 
 // No rate limit — Safari probes these during A2HS; 429/HTML ⇒ letter glyph (e.g. "B").
@@ -22610,7 +22620,14 @@ const buildSocialMetaTags = async (req) => {
         card,
     });
 
-    return { title, tags, iconHref: resolvePortalBrandingIconHref(config, profile, baseUrl) };
+    return {
+        title,
+        tags,
+        // Absolute OK for Open Graph crawlers; apple-touch must stay same-origin relative
+        // (a wrong publicDomain absolute URL makes iOS show a letter glyph).
+        iconHref: resolvePortalBrandingIconHref(config, profile, baseUrl),
+        appleTouchHref: resolveAppleTouchIconHref(config, profile, resolvePublicAssetHref),
+    };
 };
 
 /**
@@ -22693,7 +22710,7 @@ app.get(/^\/(?!api\/|static\/|manifest\.(?:webmanifest|json)|site\.webmanifest|s
         const socialMeta = await buildSocialMetaTags(req);
         const updatedHtml = injectBasePathHtml(injectAppIconLinks(html
             .replace(/<title>[\s\S]*?<\/title>/i, `<title>${escapeHtmlAttr(socialMeta.title)}</title>`)
-            .replace('</head>', `    ${socialMeta.tags}\n</head>`), socialMeta.iconHref));
+            .replace('</head>', `    ${socialMeta.tags}\n</head>`), socialMeta.appleTouchHref || socialMeta.iconHref));
         res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
         res.setHeader('Pragma', 'no-cache');
         res.setHeader('Content-Type', 'text/html; charset=utf-8');
