@@ -22260,41 +22260,23 @@ if (BASE_PATH) {
     app.use(`${BASE_PATH}/static`, express.static(staticDir, staticAssetOptions));
 }
 
-const absolutizePublicHref = (href, baseUrl = '') => {
-    const trimmed = String(href || '').trim();
-    if (!trimmed) return trimmed;
-    if (/^https?:\/\//i.test(trimmed)) return trimmed;
-    const root = String(baseUrl || runtimePublicBaseUrl || '').replace(/\/+$/, '');
-    if (root && trimmed.startsWith('/')) return `${root}${trimmed}`;
-    return trimmed;
-};
-
 const buildPwaManifest = async () => {
     const config = await loadFile(CONFIG_PATH, {});
     const profile = await getAdminProfile(config);
     const serverName = profile.serverName || 'StreamPilot';
-    const publicBase = resolvePublicBaseUrlFromConfig(config) || runtimePublicBaseUrl || '';
     // App home is /portal when BASE_PATH is empty — matches login redirect + client router.
     const startUrl = BASE_PATH ? `${BASE_PATH}/` : '/portal';
     const scope = BASE_PATH ? `${BASE_PATH}/` : '/';
     // Always point install icons at /static PNGs (not well-known /apple-touch-icon.png).
-    // Absolute icon URLs are more reliable for iOS "Open as Web App" installs.
-    const icon192 = absolutizePublicHref(
-        resolvePortalPwaManifestIconHref(config, profile, resolvePublicAssetHref, { size: 192 }),
-        publicBase,
-    );
-    const icon512 = absolutizePublicHref(
-        resolvePortalPwaManifestIconHref(config, profile, resolvePublicAssetHref, { size: 512 }),
-        publicBase,
-    );
-    const iconMaskable = absolutizePublicHref(
-        resolvePortalPwaManifestIconHref(config, profile, resolvePublicAssetHref, { size: 512, maskable: true }),
-        publicBase,
-    );
-    const touchIcon = absolutizePublicHref(
-        resolveAppleTouchIconHref(config, profile, resolvePublicAssetHref),
-        publicBase,
-    );
+    // Icon srcs MUST stay same-origin relative. iOS "Open as Web App" installs read icons
+    // from this manifest (not apple-touch-icon); when they were absolutized with the
+    // configured Public Base URL (LAN IP / other host / http), the phone could not fetch
+    // them and Safari fell back to a letter glyph from short_name (e.g. "S" for SubZero).
+    // Relative srcs resolve against the manifest URL, i.e. whatever origin the user is on.
+    const icon192 = resolvePortalPwaManifestIconHref(config, profile, resolvePublicAssetHref, { size: 192 });
+    const icon512 = resolvePortalPwaManifestIconHref(config, profile, resolvePublicAssetHref, { size: 512 });
+    const iconMaskable = resolvePortalPwaManifestIconHref(config, profile, resolvePublicAssetHref, { size: 512, maskable: true });
+    const touchIcon = resolveAppleTouchIconHref(config, profile, resolvePublicAssetHref);
     return {
         id: startUrl,
         name: `${serverName} Portal`,
