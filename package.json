@@ -47,6 +47,7 @@
       "react": "$react",
       "react-dom": "$react-dom",
       "@types/react": "$@types/react"
-    }
+    },
+    "proxy-addr": "2.0.8"
   }
 }

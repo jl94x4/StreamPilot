@@ -42,6 +42,7 @@ export default defineConfig({
           { text: 'ColleXions', link: '/features/collexions' },
           { text: 'Scanner', link: '/features/scanner' },
           { text: 'Upgrader', link: '/features/upgrader' },
+          { text: 'Media Automation', link: '/features/media-automation' },
           { text: 'Cleaner', link: '/features/cleaner' },
         ],
       },
