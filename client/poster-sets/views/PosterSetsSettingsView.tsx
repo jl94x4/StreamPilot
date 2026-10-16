@@ -560,15 +560,35 @@ export const PosterSetsSettingsView: React.FC = () => {
                             <BetaBadge title="Poster Sets is in BETA and still heavily in development. Expect rough edges, missing features, and breaking changes." />
                         </h2>
                         <p className={sectionBodyClass}>
-                            Same layout as the original helper config.json — used only by this feature.
-                            You can pull URL, token, and libraries from Settings → Media Player.
+                            Plex URL and token come from Settings → Media Player.
+                            Import library names from there, then tune Poster Sets options below.
                         </p>
                     </div>
                     <PosterSetsBetaBanner />
+                    <div className="rounded-xl border border-white/10 bg-black/20 px-4 py-3 space-y-1">
+                        <p className="text-sm font-semibold text-text">Plex connection</p>
+                        {configDraft.portalPlexAvailable || configDraft.configured ? (
+                            <>
+                                <p className="text-xs text-muted">
+                                    Using Settings → Media Player
+                                    {configDraft.effective_base_url
+                                        ? <> (<span className="font-mono text-text/80">{String(configDraft.effective_base_url).replace(/\/+$/, '')}</span>)</>
+                                        : null}.
+                                </p>
+                                <p className="text-[11px] text-muted">
+                                    Change the Direct Plex URL or token under Media Player — Poster Sets picks them up automatically.
+                                </p>
+                            </>
+                        ) : (
+                            <p className="text-xs text-amber-200/90">
+                                Set Direct Plex URL and token under Settings → Media Player first.
+                            </p>
+                        )}
+                    </div>
                     <div className="flex flex-wrap gap-2">
                         <button type="button" className={buttonClass} disabled={busy !== null} onClick={() => void importFromPortal()}>
                             {busy === 'import' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                            Import from Media Player
+                            Import libraries from Media Player
                         </button>
                     </div>
                     <div className="rounded-xl border border-white/10 bg-black/20 px-4 py-3 space-y-1">
@@ -691,26 +711,6 @@ export const PosterSetsSettingsView: React.FC = () => {
                         </div>
                     ) : null}
                     <div className="grid gap-4 sm:grid-cols-2">
-                        <label className="block sm:col-span-2">
-                            <span className="text-xs font-bold uppercase tracking-wide text-muted">base_url</span>
-                            <input
-                                className={`${fieldClass} mt-2`}
-                                placeholder="http://192.168.1.10:32400/"
-                                value={configDraft.base_url}
-                                onChange={(event) => setConfigDraft((prev) => ({ ...prev, base_url: event.target.value }))}
-                            />
-                        </label>
-                        <label className="block sm:col-span-2">
-                            <span className="text-xs font-bold uppercase tracking-wide text-muted">token</span>
-                            <input
-                                className={`${fieldClass} mt-2`}
-                                type="password"
-                                autoComplete="off"
-                                placeholder={configDraft.hasToken ? '•••••••• (unchanged)' : 'Plex token'}
-                                value={configDraft.token === '********' ? '' : configDraft.token}
-                                onChange={(event) => setConfigDraft((prev) => ({ ...prev, token: event.target.value }))}
-                            />
-                        </label>
                         {isTpdbEnabled(configDraft) ? (
                         <>
                         <label className="block">

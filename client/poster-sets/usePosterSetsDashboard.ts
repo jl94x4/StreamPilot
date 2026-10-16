@@ -946,7 +946,7 @@ export function usePosterSetsDashboardState() {
             setBlocklistText(listToText(cfg.creatorBlocklist));
             const tvCount = response.imported?.tv_library?.length || 0;
             const movieCount = response.imported?.movie_library?.length || 0;
-            toast(`Imported from Media Player (${tvCount} TV, ${movieCount} movie libraries).`);
+            toast(`Imported libraries from Media Player (${tvCount} TV, ${movieCount} movie).`);
             await load();
         } catch (error) {
             toast(error instanceof Error ? error.message : 'Import failed', 'error');

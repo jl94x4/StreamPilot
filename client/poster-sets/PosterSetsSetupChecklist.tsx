@@ -68,7 +68,9 @@ export function PosterSetsSetupChecklist({
                 <CheckItem
                     done={hasToken && configured}
                     label="Plex connection"
-                    detail={hasToken ? 'Token saved — run a test to confirm.' : 'Add your Plex URL and token in Settings.'}
+                    detail={hasToken
+                        ? 'Using Settings → Media Player — run a test to confirm.'
+                        : 'Set Direct Plex URL and token under Settings → Media Player.'}
                 />
                 <CheckItem
                     done={librariesOk}

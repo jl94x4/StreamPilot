@@ -221,15 +221,52 @@ def ensure_dir_exists(file_path):
         os.makedirs(directory, exist_ok=True)
         logging.info(f"Created directory: {directory}")
 
-def load_config():
+def _read_raw_config():
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, 'r') as f:
-                return json.load(f)
+                data = json.load(f)
+                return data if isinstance(data, dict) else {}
         except Exception as e:
             logging.error(f"Error loading config: {e}")
             return {}
     return {}
+
+def _portal_plex_defaults():
+    """Pull Plex URL/token from portal Media Player settings when local fields are empty."""
+    portal_url = ''
+    portal_token = ''
+    portal_path = str(os.environ.get('COLLEXIONS_PORTAL_CONFIG') or '').strip()
+    if portal_path and os.path.exists(portal_path):
+        try:
+            with open(portal_path, 'r', encoding='utf-8') as f:
+                portal = json.load(f)
+            if isinstance(portal, dict):
+                media_type = str(portal.get('mediaServerType') or 'plex').strip().lower()
+                if media_type == 'plex':
+                    portal_url = str(portal.get('plexServerUrl') or '').strip().rstrip('/')
+                    portal_token = str(portal.get('plexToken') or '').strip()
+        except Exception as e:
+            logging.debug(f"Could not read portal plex defaults: {e}")
+    if not portal_url:
+        portal_url = str(os.environ.get('PLEX_SERVER_URL') or '').strip().rstrip('/')
+    if not portal_token:
+        portal_token = str(os.environ.get('PLEX_TOKEN') or '').strip()
+    return portal_url, portal_token
+
+def with_portal_plex(config):
+    cfg = dict(config or {})
+    if not (PORTAL_MODE or os.environ.get('COLLEXIONS_PORTAL_CONFIG') or os.environ.get('PLEX_SERVER_URL')):
+        return cfg
+    portal_url, portal_token = _portal_plex_defaults()
+    if not str(cfg.get('plex_url') or '').strip() and portal_url:
+        cfg['plex_url'] = portal_url
+    if not str(cfg.get('plex_token') or '').strip() and portal_token:
+        cfg['plex_token'] = portal_token
+    return cfg
+
+def load_config():
+    return with_portal_plex(_read_raw_config())
 
 def save_config(new_data, merge=True):
     """
@@ -237,7 +274,8 @@ def save_config(new_data, merge=True):
     If merge is True, it merges new_data into the existing config.
     """
     try:
-        config = load_config() if merge else {}
+        # Persist only on-disk values — portal Media Player fills empty plex fields at read time.
+        config = _read_raw_config() if merge else {}
         if merge:
             config.update(new_data)
         else:
@@ -3585,7 +3623,7 @@ def health():
     plex_ok, plex_error = _check_plex_quick(config)
     issues = []
     if not has_url or not has_token:
-        issues.append('Plex URL or token is not configured in Collexions.')
+        issues.append('Plex URL or token missing — set them under Settings → Media Player.')
     elif not plex_ok:
         issues.append(f'Cannot reach Plex: {plex_error}')
     if not libraries:
@@ -3856,7 +3894,15 @@ def clear_logs():
 def config_endpoint():
     global _plex_cache, GALLERY_CACHE, SUMMARY_CACHE
     if request.method == 'POST':
-        payload = request.json or {}
+        payload = dict(request.json or {})
+        portal_url, portal_token = _portal_plex_defaults()
+        # When Media Player has Plex credentials, keep ColleXions linked to them
+        # instead of storing a duplicate URL/token that can go stale.
+        if PORTAL_MODE and portal_url and portal_token:
+            payload['plex_url'] = ''
+            payload['plex_token'] = ''
+        payload.pop('_plex_from_portal', None)
+        payload.pop('_portal_plex_url', None)
         if save_config(payload, merge=True):
             # Config changes (especially plex_url/token) must not keep a stale PlexServer.
             _plex_cache = None
@@ -3866,27 +3912,50 @@ def config_endpoint():
             SUMMARY_CACHE['timestamp'] = 0
             return jsonify({"success": True})
         return jsonify({"error": "Failed to save configuration"}), 500
-    
-    return jsonify(load_config())
+
+    raw = _read_raw_config()
+    effective = with_portal_plex(raw)
+    portal_url, portal_token = _portal_plex_defaults()
+    from_portal = bool(
+        PORTAL_MODE
+        and portal_url
+        and portal_token
+        and (
+            not str(raw.get('plex_url') or '').strip()
+            or not str(raw.get('plex_token') or '').strip()
+        )
+    )
+    out = dict(effective)
+    out['_plex_from_portal'] = from_portal
+    out['_portal_plex_url'] = portal_url if from_portal else ''
+    return jsonify(out)
 
 
 @app.route('/api/config/validate', methods=['POST'])
 @require_auth
 def validate_config_endpoint():
     """Validate a draft config (does not save). Checks fields + live Plex libraries."""
-    data = request.json or {}
+    data = with_portal_plex(request.json or {})
     errors = []
     warnings = []
     available = []
 
     url = str(data.get('plex_url') or '').strip()
     token = str(data.get('plex_token') or '').strip()
+    portal_url, portal_token = _portal_plex_defaults()
+    plex_from_portal = bool(PORTAL_MODE and portal_url and portal_token)
     if not url:
-        errors.append('Plex URL is required.')
+        errors.append(
+            'Plex URL is required.' if not plex_from_portal
+            else 'Plex URL missing — set Direct Plex URL under Settings → Media Player.'
+        )
     elif not (url.startswith('http://') or url.startswith('https://')):
         warnings.append('Plex URL should start with http:// or https://')
     if not token:
-        errors.append('Plex token is required.')
+        errors.append(
+            'Plex token is required.' if not plex_from_portal
+            else 'Plex token missing — set it under Settings → Media Player.'
+        )
 
     libs_raw = data.get('library_names') or []
     if not isinstance(libs_raw, list):

@@ -32,7 +32,9 @@ const ConfigPage: React.FC = () => {
     const [activeTab, setActiveTab] = useState<'general' | 'libraries' | 'exclusions' | 'specials' | 'categories' | 'integrations'>('general');
     const [importingPortal, setImportingPortal] = useState(false);
     const [importMessage, setImportMessage] = useState('');
+    const [portalPlexAvailable, setPortalPlexAvailable] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const plexFromPortal = Boolean(config._plex_from_portal || portalPlexAvailable);
 
     const isDirty = originalConfig && JSON.stringify(config) !== JSON.stringify(originalConfig);
     const conflicts = useMemo(() => findConfigConflicts(config), [config]);
@@ -65,9 +67,14 @@ const ConfigPage: React.FC = () => {
     const loadData = async () => {
         setLoading(true);
         try {
-            const [c] = await Promise.all([api.getConfig(), api.getStatus()]);
+            const [c, , defaults] = await Promise.all([
+                api.getConfig(),
+                api.getStatus(),
+                api.getPortalDefaults().catch(() => null),
+            ]);
             setConfig(c);
             setOriginalConfig(c);
+            setPortalPlexAvailable(Boolean(defaults?.sources?.plex));
         } catch (e) {
             console.error(e);
         } finally {
@@ -116,7 +123,7 @@ const ConfigPage: React.FC = () => {
         setSaveStatus('idle');
         setValidationIssues([]);
         try {
-            const local = validateConfigLocal(config);
+            const local = validateConfigLocal(config, { plexFromPortal });
             const { errors: localErrors } = partitionValidationIssues(local);
             if (localErrors.length) {
                 setValidationIssues(local);
@@ -220,22 +227,18 @@ const ConfigPage: React.FC = () => {
             const defaults = await api.getPortalDefaults();
             const updates: Partial<AppConfig> = {};
             const imported: string[] = [];
-            if (defaults.plex_url && (overwrite || !config.plex_url)) {
-                updates.plex_url = defaults.plex_url;
-                imported.push('Plex URL');
-            }
-            if (defaults.plex_token && (overwrite || !config.plex_token)) {
-                updates.plex_token = defaults.plex_token;
-                imported.push('Plex token');
-            }
+            setPortalPlexAvailable(Boolean(defaults?.sources?.plex));
+            // Plex URL/token always resolve from Media Player when available — only import TMDB here.
             if (defaults.tmdb_api_key && (overwrite || !config.tmdb_api_key)) {
                 updates.tmdb_api_key = defaults.tmdb_api_key;
                 imported.push('TMDB');
             }
             if (imported.length === 0) {
-                setImportMessage(defaults.sources?.plex || defaults.sources?.tmdb
-                    ? 'Nothing to import — fields already set. Use overwrite if you want to replace them.'
-                    : 'Portal has no Plex URL/token or TMDB key saved yet.');
+                setImportMessage(defaults.sources?.tmdb
+                    ? 'Nothing to import — TMDB already set. Use overwrite if you want to replace it.'
+                    : defaults.sources?.plex
+                        ? 'Plex already comes from Settings → Media Player. Portal has no TMDB key to import.'
+                        : 'Portal has no TMDB key saved yet.');
             } else {
                 setConfig((prev) => ({ ...prev, ...updates }));
                 setImportMessage(`Imported from portal: ${imported.join(', ')}. Save Config to apply.`);
@@ -642,10 +645,27 @@ const ConfigPage: React.FC = () => {
                 {activeTab === 'general' && (
                     <div className="grid gap-6">
                         <Card title="Plex Connection">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <Input label="Plex URL" value={config.plex_url} onChange={e => updateField('plex_url', e.target.value)} placeholder="http://localhost:32400" tooltip="The local or remote address of your Plex server. Include the port (default 32400)." />
-                                <Input label="Plex Token" type="password" value={config.plex_token} onChange={e => updateField('plex_token', e.target.value)} tooltip="Your X-Plex-Token used for authentication. Can be found in the URL of any XML page on your Plex server." />
-                            </div>
+                            {plexFromPortal ? (
+                                <div className="rounded-xl border border-border bg-background/40 px-4 py-3 space-y-1">
+                                    <p className="text-sm font-semibold text-text">Using Settings → Media Player</p>
+                                    <p className="text-xs text-muted">
+                                        {(config._portal_plex_url || config.plex_url)
+                                            ? <>Direct Plex URL: <span className="font-mono text-text/80">{config._portal_plex_url || config.plex_url}</span></>
+                                            : 'Plex URL and token come from Media Player automatically.'}
+                                    </p>
+                                    <p className="text-[11px] text-muted">
+                                        Update them under Settings → Media Player — ColleXions picks them up without a separate copy here.
+                                    </p>
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <Input label="Plex URL" value={config.plex_url} onChange={e => updateField('plex_url', e.target.value)} placeholder="http://localhost:32400" tooltip="The local or remote address of your Plex server. Include the port (default 32400)." />
+                                    <Input label="Plex Token" type="password" value={config.plex_token} onChange={e => updateField('plex_token', e.target.value)} tooltip="Your X-Plex-Token used for authentication. Can be found in the URL of any XML page on your Plex server." />
+                                    <p className="md:col-span-2 text-xs text-amber-200/90">
+                                        Tip: set Direct Plex URL and token under Settings → Media Player so ColleXions can use them automatically.
+                                    </p>
+                                </div>
+                            )}
                         </Card>
 
                         <Card title="Execution Controls">

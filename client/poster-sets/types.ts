@@ -27,6 +27,11 @@ export type PosterSetsConfig = {
     hasTpdbPassword?: boolean;
     hasToken?: boolean;
     configured?: boolean;
+    /** True when URL/token resolve from Settings → Media Player. */
+    usingPortalPlex?: boolean;
+    portalPlexAvailable?: boolean;
+    /** Effective Plex URL after Media Player fallback (display only). */
+    effective_base_url?: string;
     /** Persist TPDB scrapes for library titles (fast reopen + offline apply). */
     tpdbLocalCacheEnabled?: boolean;
     /** After a library title loads, hydrate all its TPDB set assets/images in the background. */

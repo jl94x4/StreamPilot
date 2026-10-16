@@ -311,6 +311,39 @@ def is_regex_excluded(title, patterns):
             return False
     return False
 
+def _portal_plex_defaults():
+    """Fill empty plex_url / plex_token from portal Media Player settings."""
+    portal_url = ''
+    portal_token = ''
+    portal_path = str(os.environ.get('COLLEXIONS_PORTAL_CONFIG') or '').strip()
+    if portal_path and os.path.exists(portal_path):
+        try:
+            with open(portal_path, 'r', encoding='utf-8') as f:
+                portal = json.load(f)
+            if isinstance(portal, dict):
+                media_type = str(portal.get('mediaServerType') or 'plex').strip().lower()
+                if media_type == 'plex':
+                    portal_url = str(portal.get('plexServerUrl') or '').strip().rstrip('/')
+                    portal_token = str(portal.get('plexToken') or '').strip()
+        except Exception as e:
+            logging.debug(f"Could not read portal plex defaults: {e}")
+    if not portal_url:
+        portal_url = str(os.environ.get('PLEX_SERVER_URL') or '').strip().rstrip('/')
+    if not portal_token:
+        portal_token = str(os.environ.get('PLEX_TOKEN') or '').strip()
+    return portal_url, portal_token
+
+def apply_portal_plex_defaults(config_data):
+    data = dict(config_data or {})
+    portal_url, portal_token = _portal_plex_defaults()
+    if not str(data.get('plex_url') or '').strip() and portal_url:
+        data['plex_url'] = portal_url
+        logging.info("Using Plex URL from portal Media Player settings.")
+    if not str(data.get('plex_token') or '').strip() and portal_token:
+        data['plex_token'] = portal_token
+        logging.info("Using Plex token from portal Media Player settings.")
+    return data
+
 def load_config():
     global _DRY_RUN_MODE_ACTIVE
     if not os.path.exists(CONFIG_DIR):
@@ -330,6 +363,7 @@ def load_config():
         with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
             config_data = json.load(f)
 
+        config_data = apply_portal_plex_defaults(config_data)
         validate(instance=config_data, schema=CONFIG_SCHEMA)
         logging.info("Configuration successfully validated against schema.")
 
