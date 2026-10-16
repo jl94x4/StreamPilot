@@ -6048,7 +6048,7 @@ def collections_web_health():
             library = plex.library.section(name)
             collections = list(library.collections() or [])
         except Exception as exc:
-            errors.append(f"{name}: {exc}")
+            errors.append(_client_error(f"Failed to load library {name}", exc))
             continue
         scanned += len(collections)
         try:
@@ -6058,7 +6058,7 @@ def collections_web_health():
                 ):
                     _add_suspect(row)
         except Exception as exc:
-            errors.append(f"{name} page scan: {exc}")
+            errors.append(_client_error(f"Failed to scan library {name}", exc))
         workers = min(8, max(1, len(collections)))
         with ThreadPoolExecutor(max_workers=workers) as pool:
             futures = [
