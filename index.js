@@ -29,6 +29,7 @@ import {
     resolvePortalPushBadgeUrl,
     resolvePortalPwaManifestIconHref,
     resolveAppleTouchIconHref,
+    parseStampedPwaIconFileName,
     homeScreenIconFileRev,
     HOME_SCREEN_ICON_REV,
     SERVER_PWA_ICON_BADGE_SCALE,
@@ -16635,7 +16636,7 @@ const sendHomeScreenFaviconPng = async (res, buffer) => {
     return res.send(png);
 };
 
-const sendStaticHomeScreenIconFile = async (res, fileNames = []) => {
+const sendStaticHomeScreenIconFile = async (res, fileNames = [], cacheControl = HOME_SCREEN_ICON_CACHE) => {
     const staticRoot = path.join(process.cwd(), 'static');
     for (const name of fileNames) {
         const filePath = path.join(staticRoot, name);
@@ -16647,7 +16648,7 @@ const sendStaticHomeScreenIconFile = async (res, fileNames = []) => {
             continue;
         }
         res.setHeader('Content-Type', 'image/png');
-        res.setHeader('Cache-Control', HOME_SCREEN_ICON_CACHE);
+        res.setHeader('Cache-Control', cacheControl);
         res.setHeader('X-Content-Type-Options', 'nosniff');
         res.send(buffer);
         return true;
@@ -22260,6 +22261,30 @@ if (BASE_PATH) {
     app.use(`${BASE_PATH}/static`, express.static(staticDir, staticAssetOptions));
 }
 
+/**
+ * Filename-stamped install icons (/static/pwa-icon-192-v<key>.png, /static/apple-touch-<rev>-v<key>.png).
+ * The stamp replaces ?v= query strings: iOS 26+ "Open as Web App" fetches manifest /
+ * apple-touch icons with Safari's own loader at add-time and rendered a letter glyph for
+ * every query-string URL, while bare .png paths work. Falls through to express.static
+ * first (no such file on disk), then maps the stamped name to its base file here.
+ * Must never answer with HTML/JSON — iOS treats that as "no icon".
+ */
+const sendStampedPwaIcon = async (req, res, next) => {
+    const baseFile = parseStampedPwaIconFileName(req.params.file);
+    if (!baseFile) return next();
+    const sent = await sendStaticHomeScreenIconFile(
+        res,
+        [baseFile, 'apple-touch-icon.png', 'pwa-icon-192.png'],
+        'public, max-age=86400',
+    );
+    if (sent) return sent;
+    return sendWellKnownAppleTouchIcon(req, res);
+};
+app.get('/static/:file', sendStampedPwaIcon);
+if (BASE_PATH) {
+    app.get(`${BASE_PATH}/static/:file`, sendStampedPwaIcon);
+}
+
 const buildPwaManifest = async () => {
     const config = await loadFile(CONFIG_PATH, {});
     const profile = await getAdminProfile(config);
@@ -22268,15 +22293,14 @@ const buildPwaManifest = async () => {
     const startUrl = BASE_PATH ? `${BASE_PATH}/` : '/portal';
     const scope = BASE_PATH ? `${BASE_PATH}/` : '/';
     // Always point install icons at /static PNGs (not well-known /apple-touch-icon.png).
-    // Icon srcs MUST stay same-origin relative. iOS "Open as Web App" installs read icons
-    // from this manifest (not apple-touch-icon); when they were absolutized with the
-    // configured Public Base URL (LAN IP / other host / http), the phone could not fetch
-    // them and Safari fell back to a letter glyph from short_name (e.g. "S" for SubZero).
-    // Relative srcs resolve against the manifest URL, i.e. whatever origin the user is on.
+    // Keep this list textbook — iOS 26+ "Open as Web App" reads icons from here:
+    //  * same-origin relative srcs (absolute Public Base URL hosts may be unreachable
+    //    from the phone),
+    //  * NO query strings (stamp is in the filename — ?v= URLs produced a letter glyph),
+    //  * 192 + 512 purpose "any" (what iOS actually uses) plus a maskable for Android.
     const icon192 = resolvePortalPwaManifestIconHref(config, profile, resolvePublicAssetHref, { size: 192 });
     const icon512 = resolvePortalPwaManifestIconHref(config, profile, resolvePublicAssetHref, { size: 512 });
     const iconMaskable = resolvePortalPwaManifestIconHref(config, profile, resolvePublicAssetHref, { size: 512, maskable: true });
-    const touchIcon = resolveAppleTouchIconHref(config, profile, resolvePublicAssetHref);
     return {
         id: startUrl,
         name: `${serverName} Portal`,
@@ -22288,7 +22312,6 @@ const buildPwaManifest = async () => {
         background_color: '#0b0f19',
         theme_color: '#0b0f19',
         icons: [
-            { src: touchIcon, sizes: '180x180', type: 'image/png', purpose: 'any' },
             { src: icon192, sizes: '192x192', type: 'image/png', purpose: 'any' },
             { src: icon512, sizes: '512x512', type: 'image/png', purpose: 'any' },
             { src: iconMaskable, sizes: '512x512', type: 'image/png', purpose: 'maskable' }
@@ -22449,18 +22472,17 @@ const resolvePortalBrandingIconHref = (config = {}, profile = {}, baseUrl = '') 
 const injectAppIconLinks = (html, iconHref) => {
     const rawHref = String(iconHref || resolvePublicAssetHref(`/static/apple-touch-${homeScreenIconFileRev()}.png`)).trim();
     const safeHref = escapeHtmlAttr(rawHref);
-    const wellKnownHref = escapeHtmlAttr(resolvePublicAssetHref('/apple-touch-icon.png'));
     const manifestHref = escapeHtmlAttr(withBasePath('/manifest.webmanifest'));
     const manifestTag = `<link rel="manifest" href="${manifestHref}" />`;
     const bootScript = `<script>window.__APPLE_TOUCH_ICON_HREF__=${JSON.stringify(rawHref)};window.__HOME_SCREEN_ICON_REV__=${JSON.stringify(HOME_SCREEN_ICON_REV)};</script>`;
+    // Exactly one apple-touch-icon (180x180, same-origin, no query string) — the
+    // textbook shape iOS 26+ install reliably honours. Extra precomposed / duplicate
+    // links and ?hs= / ?v= query URLs were present on every deployment that showed a
+    // letter glyph instead of the logo. /apple-touch-icon.png is still served for probes.
     const iconLinks = [
         bootScript,
-        `<link rel="icon" type="image/png" href="${safeHref}" />`,
-        `<link rel="apple-touch-icon" href="${safeHref}" />`,
+        `<link rel="icon" type="image/png" sizes="180x180" href="${safeHref}" />`,
         `<link rel="apple-touch-icon" sizes="180x180" href="${safeHref}" />`,
-        `<link rel="apple-touch-icon-precomposed" href="${safeHref}" />`,
-        // Safari also probes /apple-touch-icon.png; keep a second link for that probe path.
-        `<link rel="apple-touch-icon" sizes="180x180" href="${wellKnownHref}?hs=${encodeURIComponent(HOME_SCREEN_ICON_REV)}" />`,
     ].join('\n    ');
     let updated = html
         .replace(/<link\b(?=[^>]*\brel=["'][^"']*manifest[^"']*["'])[^>]*>\s*/gi, '')

@@ -285,15 +285,15 @@ export const updateFavicon = (thumbUrl: string | null | undefined) => {
         appleLink.setAttribute('sizes', '180x180');
         document.head.appendChild(appleLink);
     }
-    // Prefer the server-stamped apple-touch path (rev in the filename). iOS often
-    // ignores ?query cache-busts and will keep a letter-glyph forever otherwise.
-    // Always keep a same-origin relative URL — absolute publicDomain hosts that the
-    // phone cannot reach make Safari fall back to a letter (e.g. "B" from the server name).
+    // Prefer the server-stamped apple-touch path (rev + cache key in the filename).
+    // Never add a ?query — iOS 26+ "Open as Web App" rendered a letter glyph for every
+    // query-string icon URL. Always keep a same-origin relative URL — absolute
+    // publicDomain hosts the phone cannot reach also fall back to a letter.
+    void thumbUrl;
     const fromConfig = typeof window !== 'undefined'
         ? String((window as any).__APPLE_TOUCH_ICON_HREF__ || '').trim()
         : '';
-    const raw = fromConfig
-        || portalUrl(`/static/apple-touch-${HOME_SCREEN_FALLBACK_REV}.png?v=${encodeURIComponent(String(thumbUrl || 'default').slice(-64))}`);
+    const raw = fromConfig || portalUrl(`/static/apple-touch-${HOME_SCREEN_FALLBACK_REV}.png`);
     let href = raw;
     try {
         if (/^https?:\/\//i.test(raw) && typeof window !== 'undefined') {
