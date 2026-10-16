@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <CommunityApplications>
-  <Profile>Official StreamPilot repository for Unraid Community Applications.&#xD;&#xA;&#xD;&#xA;StreamPilot is a self-hosted management and analytics portal for Plex, Jellyfin, and Emby — user onboarding, access expiry, Discover &amp; Request, analytics, ColleXions, Poster Sets, Overlays, Scanner, and Native Media Automation.&#xD;&#xA;&#xD;&#xA;Docker image: ghcr.io/jl94x4/streampilot (tags: latest, beta, nightly). Template: unraid/streampilot.xml. Support via GitHub Issues.</Profile>
+  <Profile>Official StreamPilot repository for Unraid Community Applications.&#xD;&#xA;&#xD;&#xA;StreamPilot is a self-hosted management and analytics portal for Plex, Jellyfin, and Emby - user onboarding, access expiry, Discover &amp; Request, analytics, ColleXions, Poster Sets, Overlays, Scanner, and Native Media Automation.&#xD;&#xA;&#xD;&#xA;Docker image: ghcr.io/jl94x4/streampilot (tags: latest, beta, nightly). Template: unraid/streampilot.xml. Support via GitHub Issues.</Profile>
   <Icon>https://raw.githubusercontent.com/jl94x4/StreamPilot/main/static/logo.png</Icon>
   <WebPage>https://github.com/jl94x4/StreamPilot</WebPage>
   <Forum>https://github.com/jl94x4/StreamPilot/issues</Forum>
