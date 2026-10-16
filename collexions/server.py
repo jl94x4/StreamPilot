@@ -26,6 +26,13 @@ except ImportError:
 # Configure logging for the API
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
+
+def _client_error(fallback="Request failed", exc=None):
+    """Log exception details server-side; never return exception text to API clients."""
+    if exc is not None:
+        logging.error("%s: %s", fallback, exc, exc_info=True)
+    return fallback
+
 # Patch plexapi BEFORE any PlexServer() so Docker hostname is never the device name.
 try:
     from plex_identity import configure_plex_identity, plex_request_headers
@@ -4165,7 +4172,7 @@ def history_endpoint():
                 json.dump(data, f, indent=4)
             return jsonify({"success": True})
         except Exception as e:
-            return jsonify({"error": str(e)}), 500
+            return jsonify({"error": _client_error("Failed to save history", e)}), 500
     
     # Auto-sync from logs before returning GET
     sync_logs_to_history()
@@ -4190,7 +4197,7 @@ def history_endpoint():
                 "unique_count": unique_count
             })
         except Exception as e:
-            return jsonify({"events": [], "total_count": 0, "unique_count": 0, "error": str(e)})
+            return jsonify({"events": [], "total_count": 0, "unique_count": 0, "error": _client_error("Failed to read history", e)})
     return jsonify({"events": [], "total_count": 0, "unique_count": 0})
 
 def start_background_process(wait_until_due=False):
@@ -4240,8 +4247,7 @@ def start_background_process(wait_until_due=False):
             
         return True, process.pid
     except Exception as e:
-        logging.error(f"Failed to start background process: {e}")
-        return False, str(e)
+        return False, _client_error("Failed to start background process", e)
 
 @app.route('/api/run', methods=['POST'])
 @require_auth
@@ -4497,7 +4503,7 @@ def list_collection_items(rating_key):
             start += page_size
     except Exception as exc:
         logging.warning("collection items %s failed: %s", key, exc)
-        return jsonify({"error": f"Failed to list collection items: {exc}"}), 500
+        return jsonify({"error": _client_error("Failed to list collection items", exc)}), 500
 
     return jsonify({
         "ratingKey": key,
@@ -4611,7 +4617,7 @@ def bulk_pin_collections():
                 log_action(f"Unpinned '{title}' successfully.")
             results.append({"title": title, "library": library_name, "ok": True})
         except Exception as e:
-            results.append({"title": title, "library": library_name, "ok": False, "error": str(e)})
+            results.append({"title": title, "library": library_name, "ok": False, "error": _client_error("Pin update failed", e)})
 
     GALLERY_CACHE['data'] = None
     GALLERY_CACHE['timestamp'] = 0
@@ -4654,8 +4660,7 @@ def plex_libraries():
             })
         return jsonify(libraries)
     except Exception as e:
-        logging.error(f"Failed to fetch Plex libraries: {e}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": _client_error("Failed to fetch Plex libraries", e)}), 500
 
 
 def _hub_to_dict(hub):
@@ -4698,8 +4703,7 @@ def list_managed_hubs():
             'hubs': hubs,
         })
     except Exception as e:
-        logging.error(f"list_managed_hubs error: {e}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': _client_error('Failed to list managed hubs', e)}), 500
 
 
 @app.route('/api/hubs/move', methods=['POST'])
@@ -4733,8 +4737,7 @@ def move_managed_hub():
         hubs = [_hub_to_dict(h) for h in library.managedHubs()]
         return jsonify({'success': True, 'hubs': hubs})
     except Exception as e:
-        logging.error(f"move_managed_hub error: {e}", exc_info=True)
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': _client_error('Failed to move managed hub', e)}), 500
 
 
 @app.route('/api/hubs/visibility', methods=['POST'])
@@ -4775,8 +4778,7 @@ def update_managed_hub_visibility():
         refreshed = _find_managed_hub(library, identifier) or hub
         return jsonify({'success': True, 'hub': _hub_to_dict(refreshed)})
     except Exception as e:
-        logging.error(f"update_managed_hub_visibility error: {e}", exc_info=True)
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': _client_error('Failed to update hub visibility', e)}), 500
 
 
 @app.route('/api/trending', methods=['GET'])
@@ -4980,7 +4982,7 @@ def pin_collection():
         SUMMARY_CACHE['timestamp'] = 0
         return jsonify({"success": True})
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _client_error("Failed to pin collection", e)}), 500
 
 @app.route('/api/jobs', methods=['GET'])
 @require_auth
@@ -5025,7 +5027,7 @@ def preview_job_items():
     try:
         library = plex.library.section(job.get('library'))
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 400
+        return jsonify({"success": False, "error": _client_error("Library not found", e)}), 400
     source_type = normalize_source_type(job.get('source_type'), job.get('source_id'))
     source_items = fetch_source_items(source_type, job.get('source_id'), config) or []
     skip_tmdb, skip_keys, extra_keys = _job_item_overrides(job)
@@ -5117,7 +5119,7 @@ def update_job_items():
     try:
         library = plex.library.section(job.get('library'))
     except Exception as e:
-        return jsonify({"success": False, "error": str(e), "saved": True}), 400
+        return jsonify({"success": False, "error": _client_error("Library not found", e), "saved": True}), 400
     source_type = normalize_source_type(job.get('source_type'), job.get('source_id'))
     source_items = fetch_source_items(source_type, job.get('source_id'), config) or []
     label = config.get('collexions_label', 'Collexions')
@@ -5166,8 +5168,7 @@ def update_job_items():
             "removed": delta.get('removed', 0),
         })
     except Exception as e:
-        logging.error(f"Job item update failed: {e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e), "saved": True}), 500
+        return jsonify({"success": False, "error": _client_error("Job item update failed", e), "saved": True}), 500
 
 @app.route('/api/jobs/run', methods=['POST'])
 @require_auth
@@ -5217,7 +5218,7 @@ def run_job_now():
                 "last_error": last_error,
             })
         except Exception as e:
-            return jsonify({"success": False, "error": str(e)}), 500
+            return jsonify({"success": False, "error": _client_error("Job run failed", e)}), 500
         finally:
             _job_run_set(running=False, current='', current_id='')
             _JOB_RUN_LOCK.release()
@@ -5430,7 +5431,7 @@ def unpin_collection():
         SUMMARY_CACHE['timestamp'] = 0
         return jsonify({"success": True})
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _client_error("Failed to unpin collection", e)}), 500
 
 
 def _normalize_plex_metadata_type(raw_type):
@@ -6080,7 +6081,7 @@ def collections_web_health():
                 try:
                     row = fut.result()
                 except Exception as exc:
-                    errors.append(str(exc))
+                    errors.append(_client_error("Collection probe failed", exc))
                     continue
                 if row and row.get('issues'):
                     _add_suspect(row)
@@ -6198,8 +6199,7 @@ def fix_collection_art():
             pass
         return jsonify({"success": True, "ok_count": ok_count, "results": results})
     except Exception as e:
-        logging.error(f"fix_collection_art error: {e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _client_error("Failed to fix collection art", e)}), 500
 
 
 @app.route('/api/stop', methods=['POST'])
@@ -6269,10 +6269,9 @@ def create_custom_collection():
             
             return jsonify({"success": True, "art_set": bool(art_set), "web_fixes": web_fixes})
     except RuntimeError as e:
-        return jsonify({"success": False, "error": str(e)}), 409
+        return jsonify({"success": False, "error": _client_error("Collection create conflict", e)}), 409
     except Exception as e:
-        logging.error(f"Error creating collection: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _client_error("Failed to create collection", e)}), 500
 
 @app.route('/api/search/local')
 @require_auth
@@ -6675,8 +6674,7 @@ def franchise_search():
             })
         return jsonify(results)
     except Exception as e:
-        logging.error(f"Franchise search error: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': _client_error('Franchise search failed', e)}), 500
 
 
 @app.route('/api/templates/create', methods=['POST'])
@@ -6868,8 +6866,7 @@ def search_trakt_lists():
             })
         return jsonify(results)
     except Exception as e:
-        logging.error(f"Trakt list search error: {e}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': _client_error('Trakt list search failed', e)}), 500
 
 
 @app.route('/api/trakt/list')
@@ -6894,8 +6891,7 @@ def get_trakt_list():
         items = _fetch_trakt_list_items(trakt_id, username, slug)
         return jsonify(items)
     except Exception as e:
-        logging.error(f"Trakt list error: {e}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": _client_error("Failed to fetch Trakt list", e)}), 500
 
 @app.route('/api/mdblist/list')
 @require_auth
@@ -6939,8 +6935,7 @@ def get_mdblist():
             return jsonify({"error": f"MDBList API error: {resp.status_code} - {resp.text}"}), 400
             
     except Exception as e:
-        logging.error(f"MDBList fetch error: {e}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": _client_error("Failed to fetch MDBList", e)}), 500
 
 
 

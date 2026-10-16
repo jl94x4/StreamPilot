@@ -847,10 +847,15 @@ def _posterdb_cookie_expired(row: dict) -> bool:
 
 
 def _posterdb_session_cache_key(user: str, password: str) -> str:
-    # Fingerprint for in-memory session cache only — not password verification/storage.
-    material = f"{user}\0{password}".encode("utf-8")
-    # codeql[py/weak-sensitive-data-hashing]: cache-key fingerprint, not password hashing
-    digest = hashlib.sha256(material).hexdigest()[:20]
+    # Bind session-cache entries to credentials without storing them.
+    # PBKDF2 is intentionally expensive so this is not a fast SHA digest of a password.
+    digest = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        f"streampilot-tpdb:{user.lower()}".encode("utf-8"),
+        120_000,
+        dklen=10,
+    ).hex()
     return f"{user.lower()}:{digest}"
 
 

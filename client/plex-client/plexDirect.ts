@@ -4239,7 +4239,7 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
     const scrobble = path.match(/^\/api\/media-player\/(scrobble|unscrobble)\/([^/]+)$/);
     if (scrobble && method === 'POST') {
         const key = decodeURIComponent(scrobble[2]);
-        await pms(`/:/${scrobble[1]}?identifier=com.plexapp.plugins.library&key=${encodeURIComponent(key)}`.replace('/:/', '/:/'), resolveServer('', key));
+        await pms(`/:/${scrobble[1]}?identifier=com.plexapp.plugins.library&key=${encodeURIComponent(key)}`, resolveServer('', key));
         return { ok: true };
     }
     const ratePath = path.match(/^\/api\/media-player\/item\/([^/]+)\/rate$/);
