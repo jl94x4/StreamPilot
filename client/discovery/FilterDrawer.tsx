@@ -80,6 +80,26 @@ const TV_SORT_OPTIONS = [
     { value: 'first_air_date.asc', label: 'Premiere Date (Oldest)' },
 ];
 
+const SORT_LABEL_KEYS: Record<string, string> = {
+    'popularity.desc': 'filters.mostPopular',
+    'vote_average.desc': 'filters.topRated',
+    'vote_count.desc': 'filters.mostVoted',
+    'revenue.desc': 'filters.highestRevenue',
+    'primary_release_date.desc': 'filters.releaseNewest',
+    'primary_release_date.asc': 'filters.releaseOldest',
+    'first_air_date.desc': 'filters.premiereNewest',
+    'first_air_date.asc': 'filters.premiereOldest',
+};
+
+const PRESET_LABEL_KEYS: Record<string, string> = {
+    'hidden-gems': 'filters.hiddenGems',
+    'critically-acclaimed': 'filters.criticallyAcclaimed',
+    fresh: 'filters.freshReleases',
+    family: 'filters.familyNight',
+    short: 'filters.shortWatch',
+    binge: 'filters.bingeReady',
+};
+
 type FilterPreset = {
     id: string;
     label: string;
@@ -167,7 +187,11 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({ isOpen, onClose, typ
         setLocalFilters(filters);
     }, [filters, isOpen]);
 
-    const sortOptions = type === 'movie' ? MOVIE_SORT_OPTIONS : TV_SORT_OPTIONS;
+    const sortOptions = (type === 'movie' ? MOVIE_SORT_OPTIONS : TV_SORT_OPTIONS)
+        .map((option) => ({
+            ...option,
+            label: t(SORT_LABEL_KEYS[option.value] || option.label),
+        }));
     const genreOptions = useMemo(
         () => (type === 'movie' ? MOVIE_GENRES : TV_GENRES).map((genre) => ({
             value: String(genre.id),
@@ -287,7 +311,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({ isOpen, onClose, typ
                                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold border border-border bg-white/5 text-muted hover:text-text hover:border-plex/50 transition-colors"
                                 >
                                     <Sparkles className="w-3 h-3 text-plex" />
-                                    {preset.label}
+                                    {t(PRESET_LABEL_KEYS[preset.id] || preset.label)}
                                 </button>
                             ))}
                         </div>
@@ -317,7 +341,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({ isOpen, onClose, typ
                                 mode="company"
                                 values={studioOptions}
                                 staticOptions={studioStatic}
-                                placeholder="Search studios..."
+                                placeholder={t('filters.searchStudios')}
                                 onChange={(options) => {
                                     const next = options.slice(-1);
                                     patch({
@@ -333,7 +357,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({ isOpen, onClose, typ
                                 mode="company"
                                 values={networkOptions}
                                 staticOptions={networkStatic}
-                                placeholder="Search networks..."
+                                placeholder={t('filters.searchNetworks')}
                                 onChange={(options) => {
                                     const next = options.slice(-1);
                                     patch({
@@ -367,7 +391,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({ isOpen, onClose, typ
                         <AsyncTagSelect
                             mode="keyword"
                             values={keywordOptions}
-                            placeholder="Search keywords..."
+                            placeholder={t('filters.searchKeywords')}
                             onChange={(options) => setKeywordOptions(options)}
                         />
                     </FilterField>
@@ -376,7 +400,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({ isOpen, onClose, typ
                         <AsyncTagSelect
                             mode="keyword"
                             values={excludeKeywordOptions}
-                            placeholder="Search keywords to exclude..."
+                            placeholder={t('filters.searchExcludeKeywords')}
                             onChange={(options) => setKeywordOptions(options, true)}
                         />
                     </FilterField>
@@ -439,7 +463,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({ isOpen, onClose, typ
                                 voteCountGte: String(minValue),
                                 voteCountLte: String(maxValue),
                             })}
-                            formatValue={(value) => `${value} votes`}
+                            formatValue={(value) => t('filters.votes', { count: value })}
                         />
                     </FilterField>
 

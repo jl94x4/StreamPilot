@@ -17,9 +17,13 @@ function Save-PwaIcon {
     $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
     $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
     $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
-    $draw = [int][Math]::Round($Size * $LogoScale)
-    $offset = [int][Math]::Round(($Size - $draw) / 2.0)
-    $g.DrawImage($img, $offset, $offset, $draw, $draw)
+    $max = [int][Math]::Round($Size * $LogoScale)
+    $scale = [Math]::Min($max / [double]$img.Width, $max / [double]$img.Height)
+    $drawW = [int][Math]::Max(1, [Math]::Round($img.Width * $scale))
+    $drawH = [int][Math]::Max(1, [Math]::Round($img.Height * $scale))
+    $offsetX = [int][Math]::Round(($Size - $drawW) / 2.0)
+    $offsetY = [int][Math]::Round(($Size - $drawH) / 2.0)
+    $g.DrawImage($img, $offsetX, $offsetY, $drawW, $drawH)
     $out = Join-Path $staticDir $OutName
     $bmp.Save($out, [System.Drawing.Imaging.ImageFormat]::Png)
     $g.Dispose()
@@ -28,9 +32,9 @@ function Save-PwaIcon {
     Write-Output "$OutName $($fi.Length) bytes (logoScale=$LogoScale)"
 }
 
-# "any": zoom past logo.png padding so the emblem fills the square (avoids blank Chrome icons)
+# Contain the wordmark on a dark square (logo.png is a wide banner, not a badge).
 foreach ($size in 192, 512) {
-    Save-PwaIcon -Size $size -LogoScale 1.22 -OutName "pwa-icon-$size.png"
+    Save-PwaIcon -Size $size -LogoScale 0.9 -OutName "pwa-icon-$size.png"
 }
 
 # Maskable: opaque full-bleed background; keep emblem inside the ~80% safe zone

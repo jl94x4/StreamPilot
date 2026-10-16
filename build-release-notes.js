@@ -43,7 +43,7 @@ const parseLatestRelease = (changelog) => {
         date,
         title: `What's new in v${version}`,
         sections,
-        changelogUrl: 'https://github.com/jl94x4/Server-Manager-Portal/blob/main/CHANGELOG.md',
+        changelogUrl: 'https://github.com/jl94x4/StreamPilot/blob/main/CHANGELOG.md',
     };
 };
 
@@ -54,7 +54,7 @@ try {
         date: null,
         title: "What's new",
         sections: [],
-        changelogUrl: 'https://github.com/jl94x4/Server-Manager-Portal/blob/main/CHANGELOG.md',
+        changelogUrl: 'https://github.com/jl94x4/StreamPilot/blob/main/CHANGELOG.md',
     };
     fs.mkdirSync('static', { recursive: true });
     fs.writeFileSync('static/release-notes.json', `${JSON.stringify(release, null, 2)}\n`);
@@ -67,6 +67,6 @@ try {
         date: null,
         title: "What's new",
         sections: [],
-        changelogUrl: 'https://github.com/jl94x4/Server-Manager-Portal/blob/main/CHANGELOG.md',
+        changelogUrl: 'https://github.com/jl94x4/StreamPilot/blob/main/CHANGELOG.md',
     }, null, 2)}\n`);
 }

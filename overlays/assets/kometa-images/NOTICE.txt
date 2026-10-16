@@ -1,0 +1,10 @@
+Kometa overlay images vendored in this directory come from:
+
+  https://github.com/Kometa-Team/Kometa
+  path: defaults/overlays/images
+
+Inter fonts under fonts/ come from:
+
+  https://github.com/Kometa-Team/Default-Images
+
+Re-sync with: python scripts/sync-kometa-overlay-images.py

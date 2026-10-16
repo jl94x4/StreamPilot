@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { apiFetch } from '../shared/api';
+import { createDiscoverTranslate } from './i18n';
+import { readDiscoverUiLocale } from './i18n/types';
 
 export type DiscoveryMeProfile = {
     configured?: boolean;
+    musicConfigured?: boolean;
     userMapped: boolean;
     seerrUserId: number | null;
     displayName?: string | null;
@@ -14,10 +17,12 @@ export type DiscoveryMeProfile = {
         request: boolean;
         requestMovie?: boolean;
         requestTv?: boolean;
+        requestMusic?: boolean;
         request4k: boolean;
         request4kMovie?: boolean;
         request4kTv?: boolean;
         requestAdvanced?: boolean;
+        requestTags?: boolean;
         createIssues: boolean;
         viewIssues?: boolean;
         autoApprove?: boolean;
@@ -40,6 +45,12 @@ export type DiscoveryMeProfile = {
         requests4k?: boolean;
         movies4k?: boolean;
         tv4k?: boolean;
+    };
+    discovery?: {
+        showRecentlyAdded?: boolean;
+        showWatchlist?: boolean;
+        nowPlayingEnabled?: boolean;
+        showNowPlaying?: boolean;
     };
 };
 
@@ -87,7 +98,8 @@ export const useDiscoveryMe = (enabled = true) => {
             });
             setError(null);
         } catch (e: any) {
-            setError(e?.message || 'Failed to load request permissions');
+            const t = createDiscoverTranslate(readDiscoverUiLocale());
+            setError(e?.message || t('request.permissionsLoadFailed'));
             setProfile(DEFAULT_PROFILE);
         } finally {
             setLoading(false);
@@ -96,6 +108,9 @@ export const useDiscoveryMe = (enabled = true) => {
 
     useEffect(() => {
         refresh();
+        const onRefresh = () => refresh();
+        window.addEventListener('portal-discover-me-refresh', onRefresh);
+        return () => window.removeEventListener('portal-discover-me-refresh', onRefresh);
     }, [refresh]);
 
     return { profile, loading, error, refresh };

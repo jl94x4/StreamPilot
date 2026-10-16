@@ -3,11 +3,12 @@ import { Loader2, Search, X } from 'lucide-react';
 import { apiFetch } from '../shared/api';
 import { CustomSelect } from '../shared/ui';
 import { DISCOVER_REGION_OPTIONS } from '../settings/discoverySettingsOptions';
+import { useDiscoverI18n } from './i18n';
 
 export type FilterOption = { id: string; label: string };
 
 const inputClass =
-    'w-full bg-background/60 border border-border focus:border-plex rounded-xl px-4 py-3 text-sm text-text font-medium outline-none transition-colors shadow-inner';
+    'w-full appearance-none bg-background/60 border border-border focus:border-plex rounded-xl px-4 py-3 text-[16px] leading-5 text-text font-medium outline-none transition-colors shadow-inner';
 
 const chipClass =
     'inline-flex items-center gap-1.5 max-w-full rounded-lg border border-plex/30 bg-plex/10 text-plex text-xs font-bold px-2.5 py-1';
@@ -44,18 +45,22 @@ export const DateRangeInputs: React.FC<{
     to: string;
     onFromChange: (value: string) => void;
     onToChange: (value: string) => void;
-}> = ({ from, to, onFromChange, onToChange }) => (
-    <div className="grid grid-cols-2 gap-3">
-        <div className="flex flex-col gap-1.5">
-            <span className="text-[10px] uppercase tracking-wider text-muted font-bold">From</span>
-            <input type="date" value={from} onChange={(e) => onFromChange(e.target.value)} className={inputClass} />
+}> = ({ from, to, onFromChange, onToChange }) => {
+    const { t } = useDiscoverI18n();
+
+    return (
+        <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1.5">
+                <span className="text-[10px] uppercase tracking-wider text-muted font-bold">{t('common.from')}</span>
+                <input type="date" value={from} onChange={(e) => onFromChange(e.target.value)} className={inputClass} />
+            </div>
+            <div className="flex flex-col gap-1.5">
+                <span className="text-[10px] uppercase tracking-wider text-muted font-bold">{t('common.to')}</span>
+                <input type="date" value={to} onChange={(e) => onToChange(e.target.value)} className={inputClass} />
+            </div>
         </div>
-        <div className="flex flex-col gap-1.5">
-            <span className="text-[10px] uppercase tracking-wider text-muted font-bold">To</span>
-            <input type="date" value={to} onChange={(e) => onToChange(e.target.value)} className={inputClass} />
-        </div>
-    </div>
-);
+    );
+};
 
 export const DualRangeSlider: React.FC<{
     min: number;
@@ -201,6 +206,7 @@ export const AsyncTagSelect: React.FC<{
     placeholder: string;
     staticOptions?: FilterOption[];
 }> = ({ mode, values, onChange, placeholder, staticOptions = [] }) => {
+    const { t } = useDiscoverI18n();
     const [query, setQuery] = useState('');
     const [open, setOpen] = useState(false);
     const [loading, setLoading] = useState(false);
@@ -267,7 +273,7 @@ export const AsyncTagSelect: React.FC<{
                                 type="button"
                                 className="hover:text-white"
                                 onClick={() => onChange(values.filter((entry) => entry.id !== value.id))}
-                                aria-label={`Remove ${value.label}`}
+                                aria-label={`${t('common.remove')} ${value.label}`}
                             >
                                 <X className="w-3 h-3" />
                             </button>
@@ -293,7 +299,7 @@ export const AsyncTagSelect: React.FC<{
                 {open && (results.length > 0 || query.trim().length >= 2) && (
                     <div className="absolute z-30 mt-2 w-full max-h-56 overflow-y-auto custom-scrollbar rounded-xl border border-border bg-card shadow-2xl">
                         {results.length === 0 ? (
-                            <p className="px-4 py-3 text-sm text-muted">No matches</p>
+                            <p className="px-4 py-3 text-sm text-muted">{t('common.noMatches')}</p>
                         ) : (
                             results.map((option) => (
                                 <button
@@ -320,6 +326,7 @@ export const WatchProviderPicker: React.FC<{
     selectedIds: string[];
     onChange: (region: string, providerIds: string[]) => void;
 }> = ({ type, region, selectedIds, onChange }) => {
+    const { t } = useDiscoverI18n();
     const [providers, setProviders] = useState<{ id: string; name: string; logoPath?: string }[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -354,13 +361,13 @@ export const WatchProviderPicker: React.FC<{
             .catch((err) => {
                 if (cancelled) return;
                 setProviders([]);
-                setError(err?.message || 'Failed to load streaming providers.');
+                setError(err?.message || t('filters.providersLoadFailed'));
             })
             .finally(() => {
                 if (!cancelled) setLoading(false);
             });
         return () => { cancelled = true; };
-    }, [type, effectiveRegion]);
+    }, [type, effectiveRegion, t]);
 
     const selectedSet = useMemo(() => new Set(selectedIds.map(String)), [selectedIds]);
 
@@ -374,7 +381,7 @@ export const WatchProviderPicker: React.FC<{
             />
             {loading ? (
                 <p className="text-xs text-muted flex items-center gap-2">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading services…
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> {t('filters.loadingServices')}
                 </p>
             ) : error ? (
                 <p className="text-xs text-red-300">{error}</p>
@@ -405,7 +412,7 @@ export const WatchProviderPicker: React.FC<{
                     })}
                     {!providers.length && (
                         <p className="text-xs text-muted">
-                            No streaming providers for {effectiveRegion}. Try another region.
+                            {t('filters.noProviders', { region: effectiveRegion })}
                         </p>
                     )}
                 </div>

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CheckCircle, ChevronDown, ChevronUp, Film, Loader2, Tv, X } from 'lucide-react';
+import { Bell, CheckCircle, ChevronDown, ChevronUp, Film, Loader2, Tv, X } from 'lucide-react';
 import { apiFetch } from '../shared/api';
 import { ModalPortal } from '../shared/ModalPortal';
 import { NoPosterPlaceholder } from '../shared/NoPosterPlaceholder';
@@ -7,10 +7,16 @@ import { CustomSelect } from '../shared/ui';
 import type { PortalServiceOptions } from '../requests/types';
 import type { RequestOptionsPayload } from './requestSeasonUtils';
 import {
+    formatNotifyMeHint,
     formatQuotaHint,
+    isMainSeasonNumber,
     seasonStatusBadgeClass,
 } from './requestSeasonUtils';
 import { resolveTmdbImageUrl } from './tmdbImageUrl';
+import { translateDiscoverStatus, useDiscoverI18n } from './i18n';
+import { mediaStatusChipClass } from './DiscoverStatusOverlay';
+import { formatRootFolderLabel } from '../../lib/portal-request/rootFolderLabel.js';
+import { resolveAnimeAwareRootFolder } from '../../lib/portal-request/animeMedia.js';
 
 type Props = {
     open: boolean;
@@ -21,8 +27,9 @@ type Props = {
     posterPath?: string | null;
     overview?: string | null;
     onClose: () => void;
-    onSuccess: (message: string) => void;
+    onSuccess: (message: string, meta?: { notify?: boolean }) => void;
     onError: (message: string) => void;
+    onNotifyChange?: (watching: boolean) => void;
 };
 
 type QualityKey = 'hd' | '4k';
@@ -47,18 +54,34 @@ const emptyQualityForm = (): QualityFormState => ({
     loading: false,
 });
 
-const formatBytes = (bytes?: number | null) => {
+const formatBytes = (bytes?: number | null, freeLabel = 'free') => {
     const n = Number(bytes);
     if (!Number.isFinite(n) || n <= 0) return '';
     const k = 1024;
     const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
     const i = Math.min(sizes.length - 1, Math.max(0, Math.floor(Math.log(n) / Math.log(k))));
-    return `${parseFloat((n / Math.pow(k, i)).toFixed(1))} ${sizes[i]} free`;
+    return `${parseFloat((n / Math.pow(k, i)).toFixed(1))} ${sizes[i]} ${freeLabel}`;
 };
 
-const rootFolderLabel = (folder: { path: string; freeSpace?: number | null }) => {
-    const free = formatBytes(folder.freeSpace);
-    return free ? `${folder.path} (${free})` : folder.path;
+const rootFolderLabel = (
+    folder: { path: string; freeSpace?: number | null },
+    folders: { path: string }[] = [],
+    freeLabel = 'free',
+) => formatRootFolderLabel(folder, {
+    folders,
+    freeText: formatBytes(folder.freeSpace, freeLabel),
+});
+
+const formatSeasonName = (
+    name: string | undefined,
+    seasonNumber: number,
+    t: ReturnType<typeof useDiscoverI18n>['t'],
+) => {
+    const raw = String(name || '').trim();
+    if (raw === 'Specials') return t('common.specials');
+    const seasonMatch = raw.match(/^Season\s+(\d+)$/i);
+    if (seasonMatch) return t('common.seasonN', { number: seasonMatch[1] });
+    return raw || t('common.seasonN', { number: seasonNumber });
 };
 
 export const RequestModal: React.FC<Props> = ({
@@ -71,14 +94,16 @@ export const RequestModal: React.FC<Props> = ({
     onClose,
     onSuccess,
     onError,
+    onNotifyChange,
 }) => {
+    const { t } = useDiscoverI18n();
     const [loading, setLoading] = useState(true);
     const [submitting, setSubmitting] = useState(false);
     const [options, setOptions] = useState<RequestOptionsPayload | null>(null);
     const [selectedQualities, setSelectedQualities] = useState<Set<QualityKey>>(() => new Set(['hd']));
     const [advancedQuality, setAdvancedQuality] = useState<QualityKey>('hd');
     const [selectedSeasons, setSelectedSeasons] = useState<number[]>([]);
-    const [showAdvanced, setShowAdvanced] = useState(true);
+    const [showAdvanced, setShowAdvanced] = useState(false);
     const [qualityForms, setQualityForms] = useState<Record<QualityKey, QualityFormState>>({
         hd: emptyQualityForm(),
         '4k': emptyQualityForm(),
@@ -88,6 +113,7 @@ export const RequestModal: React.FC<Props> = ({
     const [tagSuggestionsOpen, setTagSuggestionsOpen] = useState(false);
     const loadGenRef = useRef(0);
     const advancedSectionRef = useRef<HTMLDivElement>(null);
+    const scrollBodyRef = useRef<HTMLDivElement>(null);
     const onErrorRef = useRef(onError);
     const onSuccessRef = useRef(onSuccess);
     const onCloseRef = useRef(onClose);
@@ -122,10 +148,12 @@ export const RequestModal: React.FC<Props> = ({
 
         let nextRootFolder = defaults?.rootFolder ? String(defaults.rootFolder) : '';
         if (!nextRootFolder) {
-            const activeFolder = isAnime && server.activeAnimeDirectory
-                ? server.activeAnimeDirectory
-                : (server.activeDirectory || '');
-            nextRootFolder = activeFolder || folders[0]?.path || '';
+            nextRootFolder = resolveAnimeAwareRootFolder({
+                isAnime,
+                activeAnimeDirectory: server.activeAnimeDirectory,
+                activeDirectory: server.activeDirectory,
+                rootFolders: folders,
+            });
         }
 
         const nextTags = Array.isArray(defaults?.tags)
@@ -191,10 +219,10 @@ export const RequestModal: React.FC<Props> = ({
                 if (timer) window.clearTimeout(timer);
             }
         } catch (e: any) {
-            onErrorRef.current(e?.message || 'Failed to load request options');
+            onErrorRef.current(e?.message || t('request.loadFailed'));
             updateQualityForm(quality, { serviceOptions: null, loading: false, loaded: false });
         }
-    }, [applyServiceDefaults, mediaType, updateQualityForm]);
+    }, [applyServiceDefaults, mediaType, t, updateQualityForm]);
 
     const qualityFormsRef = useRef(qualityForms);
     qualityFormsRef.current = qualityForms;
@@ -274,11 +302,15 @@ export const RequestModal: React.FC<Props> = ({
             setOptions(payload);
 
             const initial = new Set<QualityKey>();
+            const hdInLibrary = !!payload.libraryQualities?.hd;
+            const fourKInLibrary = !!payload.libraryQualities?.['4k'];
             const hdOk = payload.hasHdServer !== false
+                && !hdInLibrary
                 && !(payload.standardQuotaBlocked
                     || (payload.quota?.standard && payload.quota.standard.limit > 0 && payload.quota.standard.remaining === 0));
             const fourKOk = !!payload.canRequest4k
                 && !!payload.has4kServer
+                && !fourKInLibrary
                 && !(payload.fourKQuotaBlocked
                     || (payload.quota?.fourK && payload.quota.fourK.limit > 0 && payload.quota.fourK.remaining === 0));
             if (hdOk) initial.add('hd');
@@ -286,13 +318,14 @@ export const RequestModal: React.FC<Props> = ({
             else initial.add('hd');
             setSelectedQualities(initial);
             setAdvancedQuality(initial.has('hd') ? 'hd' : '4k');
-            // Beta: keep Advanced open so quality / language profiles are visible for HD + 4K.
-            setShowAdvanced(true);
+            // Keep Advanced collapsed — Destination / profile / root stay optional.
+            setShowAdvanced(false);
 
             if (payload.mediaType === 'tv' && Array.isArray(payload.seasons)) {
+                // Match Seerr: never auto-select Specials (season 0) — user must opt in.
                 setSelectedSeasons(
                     payload.seasons
-                        .filter((s) => s.requestable)
+                        .filter((s) => s.requestable && isMainSeasonNumber(Number(s.seasonNumber)))
                         .map((s) => Number(s.seasonNumber))
                         .filter((n) => Number.isFinite(n)),
                 );
@@ -304,18 +337,58 @@ export const RequestModal: React.FC<Props> = ({
             if (gen === loadGenRef.current) setLoading(false);
         } catch (e: any) {
             if (gen !== loadGenRef.current) return;
-            onErrorRef.current(e?.message || 'Failed to load request options');
+            onErrorRef.current(e?.message || t('request.loadFailed'));
             setOptions(null);
             if (gen === loadGenRef.current) setLoading(false);
         }
-    }, [mediaId, mediaType]);
+    }, [mediaId, mediaType, t]);
 
-    // Preload only the active quality first — load the other when the user switches tabs.
+    // Load *arr routing options only when the member opens Advanced.
     useEffect(() => {
-        if (!open || !options?.canRequestAdvanced) return undefined;
+        if (!open || !options?.canRequestAdvanced || !showAdvanced) return undefined;
         void loadAdvancedForQuality(options, advancedQuality);
         return undefined;
-    }, [open, options, advancedQuality, loadAdvancedForQuality]);
+    }, [open, options, advancedQuality, showAdvanced, loadAdvancedForQuality]);
+
+    // #170: after Advanced expands, scroll just enough that Root Folder isn't
+    // clipped under the sticky submit bar. Prefer the section bottom so Destination
+    // + Quality + Root are all reachable even when the block is taller than the sheet.
+    const advancedForm = qualityForms[advancedQuality];
+    useEffect(() => {
+        if (!open || !showAdvanced) return undefined;
+        if (advancedForm.loading && !advancedForm.loaded) return undefined;
+        let cancelled = false;
+        const reveal = () => {
+            if (cancelled) return;
+            const el = advancedSectionRef.current;
+            const scroller = scrollBodyRef.current;
+            if (!el || !scroller) return;
+            const elRect = el.getBoundingClientRect();
+            const scrollerRect = scroller.getBoundingClientRect();
+            const pad = 12;
+            if (elRect.bottom > scrollerRect.bottom - pad) {
+                scroller.scrollTo({
+                    top: scroller.scrollTop + (elRect.bottom - scrollerRect.bottom) + pad,
+                    behavior: 'smooth',
+                });
+            } else if (elRect.top < scrollerRect.top + pad) {
+                scroller.scrollTo({
+                    top: Math.max(0, scroller.scrollTop + (elRect.top - scrollerRect.top) - pad),
+                    behavior: 'smooth',
+                });
+            }
+        };
+        // Two frames: wait until Destination / Quality / Root have laid out.
+        let frame2 = 0;
+        const frame1 = window.requestAnimationFrame(() => {
+            frame2 = window.requestAnimationFrame(reveal);
+        });
+        return () => {
+            cancelled = true;
+            window.cancelAnimationFrame(frame1);
+            window.cancelAnimationFrame(frame2);
+        };
+    }, [open, showAdvanced, advancedQuality, advancedForm.loading, advancedForm.loaded]);
 
     useEffect(() => {
         if (!open) return undefined;
@@ -344,6 +417,10 @@ export const RequestModal: React.FC<Props> = ({
         () => (options?.seasons || []).filter((s) => s.requestable),
         [options?.seasons],
     );
+    const requestableMainSeasons = useMemo(
+        () => requestableSeasons.filter((s) => isMainSeasonNumber(Number(s.seasonNumber))),
+        [requestableSeasons],
+    );
 
     const hdQuotaBlocked = !!(
         options?.standardQuotaBlocked
@@ -354,11 +431,15 @@ export const RequestModal: React.FC<Props> = ({
         || (options?.quota?.fourK && options.quota.fourK.limit > 0 && options.quota.fourK.remaining === 0)
     );
 
-    const hdAllowed = !!options?.canRequest && !hdQuotaBlocked && options?.hasHdServer !== false;
+    const hdAllowed = !!options?.canRequest && !hdQuotaBlocked && options?.hasHdServer !== false
+        && !options?.libraryQualities?.hd
+        && !options?.requestedQualities?.hd;
     const fourKAllowed = !!options?.canRequest
         && !!options?.canRequest4k
         && !!options?.has4kServer
-        && !fourKQuotaBlocked;
+        && !fourKQuotaBlocked
+        && !options?.libraryQualities?.['4k']
+        && !options?.requestedQualities?.['4k'];
 
     const activeForm = qualityForms[advancedQuality];
     const filteredServers = useMemo(() => {
@@ -387,15 +468,15 @@ export const RequestModal: React.FC<Props> = ({
         const label = mediaType === 'tv' ? 'TV' : 'movie';
         const hints: string[] = [];
         if (selectedQualities.has('hd')) {
-            const hint = formatQuotaHint(options.quota?.standard, label);
+            const hint = formatQuotaHint(options.quota?.standard, label, t);
             if (hint) hints.push(hint);
         }
         if (selectedQualities.has('4k')) {
-            const hint = formatQuotaHint(options.quota?.fourK, `4K ${label}`);
+            const hint = formatQuotaHint(options.quota?.fourK, `4K ${label}`, t);
             if (hint) hints.push(hint);
         }
         return hints;
-    }, [options, selectedQualities, mediaType]);
+    }, [options, selectedQualities, mediaType, t]);
 
     const canSubmitRequest = !!options?.canRequest
         && selectedQualities.size > 0
@@ -431,7 +512,7 @@ export const RequestModal: React.FC<Props> = ({
 
     const selectAllRequestable = () => {
         setSelectedSeasons(
-            requestableSeasons
+            requestableMainSeasons
                 .map((s) => Number(s.seasonNumber))
                 .filter((n) => Number.isFinite(n)),
         );
@@ -442,7 +523,7 @@ export const RequestModal: React.FC<Props> = ({
     };
 
     const selectMissingOnly = () => {
-        const missing = requestableSeasons
+        const missing = requestableMainSeasons
             .filter((s) => s.statusLabel === 'Not requested')
             .map((s) => Number(s.seasonNumber))
             .filter((n) => Number.isFinite(n));
@@ -544,18 +625,31 @@ export const RequestModal: React.FC<Props> = ({
         if (!options) return null;
         const is4k = quality === '4k';
         const form = qualityForms[quality];
-        const allRequestableSelected = mediaType === 'tv'
-            && requestableSeasons.length > 0
-            && selectedSeasons.length === requestableSeasons.length
-            && requestableSeasons.every((s) => selectedSeasons.includes(Number(s.seasonNumber)));
+        const allMainRequestableSelected = mediaType === 'tv'
+            && requestableMainSeasons.length > 0
+            && requestableMainSeasons.every((s) => selectedSeasons.includes(Number(s.seasonNumber)));
+        const hasSpecialsSelected = selectedSeasons.some((n) => !isMainSeasonNumber(n));
 
         const body: Record<string, unknown> = {
             mediaType,
             mediaId,
             is4k: is4k || undefined,
         };
+        const posterPath = options.posterPath || fallbackPosterPath || null;
+        if (posterPath) body.posterPath = posterPath;
+        const requestTitle = String(options.title || fallbackTitle || '').trim();
+        if (requestTitle) body.title = requestTitle;
+        const requestOverview = String(options.overview || fallbackOverview || '').trim();
+        if (requestOverview) body.overview = requestOverview;
+        if (options.year != null) body.year = options.year;
         if (mediaType === 'tv') {
-            body.seasons = allRequestableSelected && requestableSeasons.length === (options.seasons?.length || 0)
+            // Prefer explicit season lists when Specials are in play so we never
+            // accidentally request season 0 via Seerr's seasons:"all".
+            const allSeasonsAreMain = (options.seasons || []).every((s) => isMainSeasonNumber(Number(s.seasonNumber)));
+            body.seasons = allMainRequestableSelected
+                && !hasSpecialsSelected
+                && requestableMainSeasons.length === (options.seasons?.length || 0)
+                && allSeasonsAreMain
                 ? 'all'
                 : [...selectedSeasons].sort((a, b) => a - b);
         }
@@ -564,15 +658,17 @@ export const RequestModal: React.FC<Props> = ({
             || (options.servers || []).find((server) => server.isDefault)
             || (options.servers || [])[0]
             || null;
-        if (options.canRequestAdvanced && form.loaded) {
+        // Only send profile / root / tags when Advanced was opened and options loaded.
+        if (options.canRequestAdvanced && showAdvanced && form.loaded) {
             if (form.serverId != null) body.serverId = form.serverId;
             else if (fallbackServer?.id != null) body.serverId = fallbackServer.id;
             if (form.profileId != null) body.profileId = form.profileId;
             if (form.rootFolder) body.rootFolder = form.rootFolder;
-            if (form.selectedTags.length) body.tags = form.selectedTags;
+            if (options.canRequestTags !== false && form.selectedTags.length) body.tags = form.selectedTags;
         } else if (fallbackServer?.id != null) {
             body.serverId = fallbackServer.id;
         }
+        if (options.isAnime) body.isAnime = true;
         return body;
     };
 
@@ -581,19 +677,19 @@ export const RequestModal: React.FC<Props> = ({
 
         const qualities = [...selectedQualities].filter((q) => (q === 'hd' ? hdAllowed : fourKAllowed));
         if (!qualities.length) {
-            onError('Select at least one available quality.');
+            onError(t('request.selectQuality'));
             return;
         }
         if (mediaType === 'tv' && selectedSeasons.length === 0) {
-            onError('Select at least one season to request.');
+            onError(t('request.selectSeason'));
             return;
         }
-        // Only enforce Advanced fields when that quality's options were actually loaded/edited.
-        if (options.canRequestAdvanced) {
+        // Only enforce Advanced fields when the member opened Advanced and options loaded.
+        if (options.canRequestAdvanced && showAdvanced) {
             for (const quality of qualities) {
                 const form = qualityForms[quality];
                 if (form.loaded && !form.rootFolder) {
-                    onError(`Select a root folder for the ${quality === '4k' ? '4K' : 'HD'} request.`);
+                    onError(t('request.selectRootFolder', { quality: quality === '4k' ? '4K' : 'HD' }));
                     setAdvancedQuality(quality);
                     setShowAdvanced(true);
                     return;
@@ -602,6 +698,7 @@ export const RequestModal: React.FC<Props> = ({
         }
 
         setSubmitting(true);
+        onCloseRef.current();
         const successes: string[] = [];
         const failures: string[] = [];
 
@@ -610,7 +707,7 @@ export const RequestModal: React.FC<Props> = ({
                 const label = quality === '4k' ? '4K' : 'HD';
                 try {
                     const body = buildRequestBody(quality);
-                    if (!body) throw new Error('Invalid request');
+                    if (!body) throw new Error(t('request.invalidRequest'));
                     const res = await apiFetch('/api/discovery/request', {
                         method: 'POST',
                         body: JSON.stringify(body),
@@ -618,23 +715,49 @@ export const RequestModal: React.FC<Props> = ({
                     if (res?.error) throw new Error(res.error);
                     successes.push(label);
                 } catch (e: any) {
-                    failures.push(`${label}: ${e?.message || 'Failed'}`);
+                    failures.push(`${label}: ${e?.message || t('status.failed')}`);
                 }
             }
 
             if (successes.length && !failures.length) {
                 onSuccessRef.current(
                     mediaType === 'tv'
-                        ? `Series request submitted (${successes.join(' + ')})!`
-                        : `Movie request submitted (${successes.join(' + ')})!`,
+                        ? t('request.submittedSeries', { qualities: successes.join(' + ') })
+                        : t('request.submittedMovie', { qualities: successes.join(' + ') }),
                 );
-                onCloseRef.current();
             } else if (successes.length && failures.length) {
-                onSuccessRef.current(`Submitted ${successes.join(' + ')}. Failed: ${failures.join('; ')}`);
-                onCloseRef.current();
+                onSuccessRef.current(t('request.submittedPartial', {
+                    successes: successes.join(' + '),
+                    failures: failures.join('; '),
+                }));
             } else {
-                onErrorRef.current(failures.join('; ') || 'Failed to submit request');
+                onErrorRef.current(failures.join('; ') || t('request.submitFailed'));
             }
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    const handleNotifyToggle = async () => {
+        if (!options?.canNotify && !options?.isWatching) return;
+        try {
+            setSubmitting(true);
+            const res = await apiFetch('/api/discovery/request/notify', {
+                method: 'POST',
+                body: JSON.stringify({
+                    mediaType,
+                    mediaId,
+                    subscribe: !options.isWatching,
+                }),
+            });
+            if (res?.error) throw new Error(res.error);
+            const watching = !!res?.isWatching;
+            setOptions((prev) => (prev ? { ...prev, isWatching: watching, canNotify: true } : prev));
+            onNotifyChange?.(watching);
+            onSuccessRef.current(watching ? t('request.notifySaved') : t('request.notifyRemoved'), { notify: true });
+            if (watching) onCloseRef.current();
+        } catch (e: any) {
+            onErrorRef.current(e?.message || t('request.notifyFailed'));
         } finally {
             setSubmitting(false);
         }
@@ -642,29 +765,34 @@ export const RequestModal: React.FC<Props> = ({
 
     if (!open) return null;
 
-    const displayTitle = options?.title || fallbackTitle || 'Request media';
+    const displayTitle = options?.title || fallbackTitle || t('request.requestMedia');
     const overview = (options?.overview || fallbackOverview || '').trim();
     const posterUrl = resolveTmdbImageUrl(options?.posterPath || fallbackPosterPath, 'w342');
-    const showAdvancedSection = !!options?.canRequestAdvanced;
+    const notifyOnly = !!(options?.canNotify || options?.isWatching);
+    const showTagsField = options?.canRequestTags !== false;
+    const advancedProfiles = activeForm.serviceOptions?.profiles || [];
+    const advancedFolders = activeForm.serviceOptions?.rootFolders || [];
+    const showServerSelect = filteredServers.length > 1;
+    const showProfileSelect = advancedProfiles.length !== 1;
+    const showFolderSelect = advancedFolders.length !== 1;
+    const bothQualitiesSelected = selectedQualities.has('hd') && selectedQualities.has('4k');
+    const advancedHasChoices = showTagsField
+        || !activeForm.loaded
+        || showServerSelect
+        || showProfileSelect
+        || showFolderSelect;
+    const showAdvancedSection = !!options?.canRequestAdvanced && !notifyOnly && advancedHasChoices;
     // Show HD + UHD chips whenever a 4K *arr exists, or 4K requests are allowed
     // (so members still see the dual picker when permissions are on).
-    const showQualityPicker = !!options?.has4kServer || !!options?.canRequest4k
-        || ((options?.servers || []).length > 1);
-    const advancedLoading = showAdvancedSection && activeForm.loading && !activeForm.loaded;
-    const bothQualitiesSelected = selectedQualities.has('hd') && selectedQualities.has('4k');
-    // Surface Destination / Quality / Root with the active *arr options (not buried only in Advanced).
-    const showRoutingSection = showAdvancedSection && !advancedLoading && (
-        filteredServers.length > 0
-        || (activeForm.serviceOptions?.rootFolders || []).length > 0
-        || (activeForm.serviceOptions?.profiles || []).length > 0
-        || !!activeForm.rootFolder
-        || !!activeForm.profileId
-    );
+    const showQualityPicker = !notifyOnly && (!!options?.has4kServer || !!options?.canRequest4k
+        || ((options?.servers || []).length > 1));
+    const advancedLoading = showAdvancedSection && showAdvanced && activeForm.loading && !activeForm.loaded;
+    const showRoutingFields = !advancedLoading && (showServerSelect || showProfileSelect || showFolderSelect);
 
-    const seasonsSection = mediaType === 'tv' && (options?.seasons?.length || 0) > 0 ? (
+    const seasonsSection = !notifyOnly && mediaType === 'tv' && (options?.seasons?.length || 0) > 0 ? (
         <div>
             <div className="flex items-center justify-between gap-3 mb-3">
-                <p className="text-xs font-bold uppercase tracking-wider text-white/40">Seasons</p>
+                <p className="text-xs font-bold uppercase tracking-wider text-white/40">{t('request.seasons')}</p>
                 {requestableSeasons.length > 0 && (
                     <div className="flex flex-wrap gap-x-2 gap-y-1 justify-end">
                         <button
@@ -672,7 +800,7 @@ export const RequestModal: React.FC<Props> = ({
                             onClick={selectAllRequestable}
                             className="text-[11px] font-bold text-plex hover:text-plex-hover transition-colors"
                         >
-                            Select all
+                            {t('request.selectAll')}
                         </button>
                         <span className="text-white/20">·</span>
                         <button
@@ -680,7 +808,7 @@ export const RequestModal: React.FC<Props> = ({
                             onClick={deselectAllSeasons}
                             className="text-[11px] font-bold text-plex hover:text-plex-hover transition-colors"
                         >
-                            Deselect all
+                            {t('request.deselectAll')}
                         </button>
                         <span className="text-white/20">·</span>
                         <button
@@ -688,12 +816,16 @@ export const RequestModal: React.FC<Props> = ({
                             onClick={selectMissingOnly}
                             className="text-[11px] font-bold text-plex hover:text-plex-hover transition-colors"
                         >
-                            Missing only
+                            {t('request.missingOnly')}
                         </button>
                     </div>
                 )}
             </div>
-            <div className="flex flex-col gap-2 max-h-none sm:max-h-64 sm:overflow-y-auto custom-scrollbar pr-1">
+            {/* #170: cap on mobile too — an uncapped list pushed Advanced off-screen. */}
+            <div
+                data-modal-scroll=""
+                className="flex flex-col gap-2 max-h-[min(40vh,20rem)] overflow-y-auto overscroll-contain custom-scrollbar pr-1"
+            >
                 {(options?.seasons || []).map((season) => {
                     const seasonNumber = Number(season.seasonNumber);
                     const selected = selectedSeasons.includes(seasonNumber);
@@ -728,15 +860,15 @@ export const RequestModal: React.FC<Props> = ({
                             <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2">
                                     <span className="text-sm font-bold text-white truncate">
-                                        {season.name}
+                                        {formatSeasonName(season.name, seasonNumber, t)}
                                     </span>
-                                    <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full border ${seasonStatusBadgeClass(season.statusLabel, season.requestable)}`}>
-                                        {season.statusLabel}
+                                    <span className={`${mediaStatusChipClass} ${seasonStatusBadgeClass(season.statusLabel, season.requestable)}`}>
+                                        {translateDiscoverStatus(t, season.statusLabel)}
                                     </span>
                                 </div>
                                 {season.episodeCount > 0 && (
                                     <p className="text-xs text-white/45 mt-0.5">
-                                        {season.episodeCount} episode{season.episodeCount === 1 ? '' : 's'}
+                                        {t('common.episodeCount', { count: season.episodeCount })}
                                     </p>
                                 )}
                             </div>
@@ -749,11 +881,15 @@ export const RequestModal: React.FC<Props> = ({
 
     return (
         <ModalPortal open={open}>
-        <div className="fixed inset-x-0 top-0 z-[340] flex items-end sm:items-center justify-center p-0 sm:p-4 bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] sm:inset-0 sm:bottom-0">
+        {/* Hug the form (no full-screen gap under Advanced). Cap at the overlay
+            height so long TV season lists still scroll above the tab bar.
+            Size the overlay with top + bottom only — a second h-[calc(100dvh-…)]
+            fights iOS insets (height wins, bottom is ignored). */}
+        <div className="fixed inset-x-0 top-0 z-[340] flex min-h-0 items-end overflow-hidden sm:items-center justify-center p-0 sm:p-4 bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] sm:inset-0">
             <button
                 type="button"
-                aria-label="Close request modal"
-                className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+                aria-label={t('request.closeAria')}
+                className="absolute inset-0 bg-black/80 backdrop-blur-sm touch-none"
                 onClick={() => { if (!submitting) onClose(); }}
             />
             <div
@@ -761,7 +897,7 @@ export const RequestModal: React.FC<Props> = ({
                 aria-modal="true"
                 aria-labelledby="request-modal-title"
                 onMouseDown={(event) => event.stopPropagation()}
-                className="relative w-full sm:max-w-3xl lg:max-w-4xl h-auto max-h-full sm:max-h-[85vh] min-h-0 bg-card border border-white/10 rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+                className="relative w-full max-h-full sm:max-w-3xl lg:max-w-4xl sm:max-h-[85vh] min-h-0 bg-card border border-white/10 rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden"
             >
                 <div className="flex items-start justify-between gap-4 p-5 border-b border-white/10 bg-black/20 shrink-0">
                     <div className="flex items-start gap-4 min-w-0">
@@ -780,7 +916,9 @@ export const RequestModal: React.FC<Props> = ({
                                     <Tv className="w-4 h-4 text-plex" />
                                 )}
                                 <span className="text-[10px] font-bold uppercase tracking-widest text-plex">
-                                    Request {mediaType === 'movie' ? 'Movie' : 'Series'}
+                                    {notifyOnly
+                                        ? t('request.notifyMe')
+                                        : (mediaType === 'movie' ? t('request.requestMovie') : t('request.requestSeries'))}
                                 </span>
                             </div>
                             <h2 id="request-modal-title" className="text-xl sm:text-2xl font-black text-white leading-tight">
@@ -791,7 +929,7 @@ export const RequestModal: React.FC<Props> = ({
                                     {overview}
                                 </p>
                             ) : null}
-                            {quotaHints.length > 0 && (
+                            {quotaHints.length > 0 && !notifyOnly && (
                                 <div className="mt-2 flex flex-col gap-0.5">
                                     {quotaHints.map((hint) => (
                                         <p key={hint} className="text-xs text-white/45">{hint}</p>
@@ -810,40 +948,61 @@ export const RequestModal: React.FC<Props> = ({
                     </button>
                 </div>
 
-                <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-contain touch-pan-y custom-scrollbar p-5 flex flex-col gap-5">
+                <div
+                    ref={scrollBodyRef}
+                    data-modal-scroll=""
+                    className="flex-1 min-h-0 overflow-y-auto overscroll-contain touch-pan-y custom-scrollbar [-webkit-overflow-scrolling:touch] p-5 pb-8 space-y-5"
+                >
                     {loading ? (
                         <div className="flex flex-col items-center justify-center gap-3 py-10">
                             <Loader2 className="w-7 h-7 text-plex animate-spin" />
-                            <p className="text-sm text-white/45">Loading seasons and request options…</p>
+                            <p className="text-sm text-white/45">{t('request.loadingOptions')}</p>
                         </div>
                     ) : !options ? (
-                        <p className="text-sm text-muted text-center py-8">Unable to load request options.</p>
+                        <p className="text-sm text-muted text-center py-8">{t('request.unableToLoad')}</p>
                     ) : (
                         <>
                             {options.blockReason && !options.canRequest && (
                                 <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
                                     {options.blockReason}
+                                    {options.canNotify ? (
+                                        <p className="mt-2 text-[13px] text-amber-100/80">
+                                            {formatNotifyMeHint(t, options.requestedByName, options.requestedByCount)}
+                                        </p>
+                                    ) : null}
                                 </div>
                             )}
 
-                            {hdQuotaBlocked && selectedQualities.has('hd') && (
-                                <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-                                    You have used all {options.quota?.standard?.limit} HD requests for this period.
+                            {notifyOnly && (!options.blockReason || options.canRequest) && (
+                                <div className="rounded-xl border border-sky-500/25 bg-sky-500/10 px-4 py-3 text-sm text-sky-100">
+                                    {formatNotifyMeHint(t, options.requestedByName, options.requestedByCount)}
                                 </div>
                             )}
 
-                            {fourKQuotaBlocked && selectedQualities.has('4k') && (
+                            {options.availabilityNote && options.canRequest && (
+                                <div className="rounded-xl border border-sky-500/25 bg-sky-500/10 px-4 py-3 text-sm text-sky-100">
+                                    {options.availabilityNote}
+                                </div>
+                            )}
+
+                            {hdQuotaBlocked && selectedQualities.has('hd') && !notifyOnly && (
                                 <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-                                    You have used all {options.quota?.fourK?.limit} 4K requests for this period.
+                                    {t('request.quotaUsed', { count: options.quota?.standard?.limit || 0, quality: 'HD' })}
+                                </div>
+                            )}
+
+                            {fourKQuotaBlocked && selectedQualities.has('4k') && !notifyOnly && (
+                                <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+                                    {t('request.quotaUsed', { count: options.quota?.fourK?.limit || 0, quality: '4K' })}
                                 </div>
                             )}
 
                             {showQualityPicker && (
                                 <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
                                     <p className="text-xs font-bold uppercase tracking-wider text-white/40 mb-3">
-                                        Quality
+                                        {t('request.quality')}
                                         <span className="ml-2 font-medium normal-case tracking-normal text-white/30">
-                                            Select HD, UHD, or both
+                                            {t('request.selectHdUhd')}
                                         </span>
                                     </p>
                                     <div className="grid grid-cols-2 gap-2">
@@ -854,9 +1013,13 @@ export const RequestModal: React.FC<Props> = ({
                                                 badge: 'HD',
                                                 serverName: hdServerName,
                                                 allowed: hdAllowed,
-                                                blockedHint: hdQuotaBlocked
-                                                    ? 'HD quota used up'
-                                                    : 'HD requests unavailable',
+                                                blockedHint: options?.libraryQualities?.hd
+                                                    ? t('request.alreadyInLibrary')
+                                                    : options?.requestedQualities?.hd
+                                                        ? t('request.alreadyRequested')
+                                                        : hdQuotaBlocked
+                                                        ? t('request.hdQuotaUsedUp')
+                                                        : t('request.hdUnavailable'),
                                             },
                                             {
                                                 key: '4k' as QualityKey,
@@ -864,11 +1027,15 @@ export const RequestModal: React.FC<Props> = ({
                                                 badge: '4K',
                                                 serverName: fourKServerName,
                                                 allowed: fourKAllowed,
-                                                blockedHint: fourKQuotaBlocked
-                                                    ? '4K quota used up'
-                                                    : (!options?.canRequest4k
-                                                        ? '4K requests disabled in settings'
-                                                        : 'No 4K server configured'),
+                                                blockedHint: options?.libraryQualities?.['4k']
+                                                    ? t('request.alreadyInLibrary')
+                                                    : options?.requestedQualities?.['4k']
+                                                        ? t('request.alreadyRequested')
+                                                        : fourKQuotaBlocked
+                                                        ? t('request.fourKQuotaUsedUp')
+                                                        : (!options?.canRequest4k
+                                                            ? t('request.fourKDisabled')
+                                                            : t('request.noFourKServer')),
                                             },
                                         ]).map((entry) => {
                                             const selected = selectedQualities.has(entry.key);
@@ -910,110 +1077,11 @@ export const RequestModal: React.FC<Props> = ({
                                 </div>
                             )}
 
-                            {showRoutingSection && (
-                                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 flex flex-col gap-3">
-                                    {bothQualitiesSelected && (
-                                        <div className="flex gap-1">
-                                            {(['hd', '4k'] as QualityKey[]).map((q) => (
-                                                <button
-                                                    key={q}
-                                                    type="button"
-                                                    onClick={() => setAdvancedQuality(q)}
-                                                    className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wide border transition-colors ${
-                                                        advancedQuality === q
-                                                            ? 'bg-white/10 border-white/20 text-white'
-                                                            : 'bg-transparent border-transparent text-white/40 hover:text-white/70'
-                                                    }`}
-                                                >
-                                                    {q === '4k' ? '4K options' : 'HD options'}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    )}
-
-                                    {(filteredServers.length > 0) && (
-                                        <div>
-                                            <label className="block text-xs font-bold uppercase tracking-wider text-white/40 mb-2">
-                                                Destination Server
-                                            </label>
-                                            {filteredServers.length === 1 ? (
-                                                <p className="rounded-lg border border-white/10 bg-black/20 px-3 py-2.5 text-sm text-white/80">
-                                                    {filteredServers[0].isDefault
-                                                        ? `${filteredServers[0].name} (Default)`
-                                                        : filteredServers[0].name}
-                                                </p>
-                                            ) : (
-                                                <CustomSelect
-                                                    value={String(activeForm.serverId ?? '')}
-                                                    onChange={(val) => {
-                                                        const nextId = Number(val);
-                                                        updateQualityForm(advancedQuality, { serverId: nextId });
-                                                        if (options) {
-                                                            loadServiceOptions(options, advancedQuality, nextId, null, {
-                                                                preserveSelections: false,
-                                                            });
-                                                        }
-                                                    }}
-                                                    options={filteredServers.map((server) => ({
-                                                        value: String(server.id),
-                                                        label: server.isDefault ? `${server.name} (Default)` : server.name,
-                                                    }))}
-                                                />
-                                            )}
-                                        </div>
-                                    )}
-
-                                    <div>
-                                        <label className="block text-xs font-bold uppercase tracking-wider text-white/40 mb-2">
-                                            Quality Profile
-                                        </label>
-                                        {(activeForm.serviceOptions?.profiles || []).length > 0 ? (
-                                            <CustomSelect
-                                                value={String(activeForm.profileId ?? '')}
-                                                onChange={(val) => updateQualityForm(advancedQuality, {
-                                                    profileId: Number(val),
-                                                })}
-                                                options={(activeForm.serviceOptions?.profiles || []).map((profile) => ({
-                                                    value: String(profile.id),
-                                                    label: profile.name,
-                                                }))}
-                                            />
-                                        ) : (
-                                            <p className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
-                                                No quality profiles returned from Sonarr/Radarr for this server.
-                                            </p>
-                                        )}
-                                    </div>
-
-                                    <div>
-                                        <label className="block text-xs font-bold uppercase tracking-wider text-white/40 mb-2">
-                                            Root Folder
-                                        </label>
-                                        {(activeForm.serviceOptions?.rootFolders || []).length > 0 ? (
-                                            <CustomSelect
-                                                value={activeForm.rootFolder}
-                                                onChange={(val) => updateQualityForm(advancedQuality, {
-                                                    rootFolder: val,
-                                                })}
-                                                options={(activeForm.serviceOptions?.rootFolders || []).map((folder) => ({
-                                                    value: folder.path,
-                                                    label: rootFolderLabel(folder),
-                                                }))}
-                                            />
-                                        ) : (
-                                            <p className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
-                                                No root folders returned from Sonarr/Radarr for this server.
-                                            </p>
-                                        )}
-                                    </div>
-                                </div>
-                            )}
-
-                            {options.canRequest && !showAdvancedSection && (
+                            {options.canRequest && !notifyOnly && !showAdvancedSection && (
                                 <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 text-sm text-white/70">
                                     {mediaType === 'tv'
-                                        ? 'Choose seasons and quality below. An admin will review it unless auto-approval is enabled.'
-                                        : 'Submit a request for this movie. An admin will review it unless auto-approval is enabled.'}
+                                        ? t('request.chooseTv')
+                                        : t('request.chooseMovie')}
                                 </div>
                             )}
 
@@ -1024,29 +1092,18 @@ export const RequestModal: React.FC<Props> = ({
                                 >
                                     <button
                                         type="button"
-                                        onClick={() => {
-                                            setShowAdvanced((prev) => {
-                                                const next = !prev;
-                                                if (next) {
-                                                    window.requestAnimationFrame(() => {
-                                                        advancedSectionRef.current?.scrollIntoView({
-                                                            behavior: 'smooth',
-                                                            block: 'nearest',
-                                                        });
-                                                    });
-                                                }
-                                                return next;
-                                            });
-                                        }}
+                                        onClick={() => setShowAdvanced((prev) => !prev)}
                                         className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-white/[0.03] transition-colors"
                                     >
                                         <span className="min-w-0 flex flex-col gap-0.5">
-                                            <span className="text-xs font-bold uppercase tracking-wider text-white/50">Advanced</span>
-                                            {!showAdvanced && activeForm.profileId != null ? (
+                                            <span className="text-xs font-bold uppercase tracking-wider text-white/50">{t('request.advanced')}</span>
+                                            {!showAdvanced ? (
                                                 <span className="text-[11px] font-medium normal-case tracking-normal text-white/35 truncate">
-                                                    {(activeForm.serviceOptions?.profiles || [])
-                                                        .find((profile) => Number(profile.id) === Number(activeForm.profileId))
-                                                        ?.name || 'Quality profile'}
+                                                    {activeForm.loaded && activeForm.profileId != null
+                                                        ? ((activeForm.serviceOptions?.profiles || [])
+                                                            .find((profile) => Number(profile.id) === Number(activeForm.profileId))
+                                                            ?.name || t('request.qualityProfile'))
+                                                        : t('request.optionalArrDefaults')}
                                                 </span>
                                             ) : null}
                                         </span>
@@ -1060,7 +1117,7 @@ export const RequestModal: React.FC<Props> = ({
                                             {advancedLoading ? (
                                                 <div className="flex items-center gap-2 py-6 justify-center text-white/50 text-sm">
                                                     <Loader2 className="w-4 h-4 animate-spin text-plex" />
-                                                    Loading server options…
+                                                    {t('request.loadingServerOptions')}
                                                 </div>
                                             ) : (
                                                 <>
@@ -1077,15 +1134,92 @@ export const RequestModal: React.FC<Props> = ({
                                                                             : 'bg-transparent border-transparent text-white/40 hover:text-white/70'
                                                                     }`}
                                                                 >
-                                                                    {q === '4k' ? '4K options' : 'HD options'}
+                                                                    {q === '4k' ? t('request.fourKOptions') : t('request.hdOptions')}
                                                                 </button>
                                                             ))}
                                                         </div>
                                                     )}
 
-                                                    <div className={bothQualitiesSelected ? '' : 'pt-3'}>
+                                                    {showRoutingFields && (
+                                                        <div className={`flex flex-col gap-3 ${bothQualitiesSelected ? '' : 'pt-3'}`}>
+                                                            {showServerSelect && (
+                                                                <div>
+                                                                    <label className="block text-xs font-bold uppercase tracking-wider text-white/40 mb-2">
+                                                                        {t('request.destinationServer')}
+                                                                    </label>
+                                                                    <CustomSelect
+                                                                        value={String(activeForm.serverId ?? '')}
+                                                                        onChange={(val) => {
+                                                                            const nextId = Number(val);
+                                                                            updateQualityForm(advancedQuality, { serverId: nextId });
+                                                                            if (options) {
+                                                                                loadServiceOptions(options, advancedQuality, nextId, null, {
+                                                                                    preserveSelections: false,
+                                                                                });
+                                                                            }
+                                                                        }}
+                                                                        options={filteredServers.map((server) => ({
+                                                                            value: String(server.id),
+                                                                            label: server.isDefault ? `${server.name} (${t('common.default')})` : server.name,
+                                                                        }))}
+                                                                    />
+                                                                </div>
+                                                            )}
+
+                                                            {showProfileSelect && (
+                                                            <div>
+                                                                <label className="block text-xs font-bold uppercase tracking-wider text-white/40 mb-2">
+                                                                    {t('request.qualityProfile')}
+                                                                </label>
+                                                                {advancedProfiles.length > 0 ? (
+                                                                    <CustomSelect
+                                                                        value={String(activeForm.profileId ?? '')}
+                                                                        onChange={(val) => updateQualityForm(advancedQuality, {
+                                                                            profileId: Number(val),
+                                                                        })}
+                                                                        options={advancedProfiles.map((profile) => ({
+                                                                            value: String(profile.id),
+                                                                            label: profile.name,
+                                                                        }))}
+                                                                    />
+                                                                ) : (
+                                                                    <p className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
+                                                                        {t('request.noQualityProfiles')}
+                                                                    </p>
+                                                                )}
+                                                            </div>
+                                                            )}
+
+                                                            {showFolderSelect && (
+                                                            <div>
+                                                                <label className="block text-xs font-bold uppercase tracking-wider text-white/40 mb-2">
+                                                                    {t('request.rootFolder')}
+                                                                </label>
+                                                                {advancedFolders.length > 0 ? (
+                                                                    <CustomSelect
+                                                                        value={activeForm.rootFolder}
+                                                                        onChange={(val) => updateQualityForm(advancedQuality, {
+                                                                            rootFolder: val,
+                                                                        })}
+                                                                        options={advancedFolders.map((folder) => ({
+                                                                            value: folder.path,
+                                                                            label: rootFolderLabel(folder, advancedFolders, t('storage.free')),
+                                                                        }))}
+                                                                    />
+                                                                ) : (
+                                                                    <p className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
+                                                                        {t('request.noRootFolders')}
+                                                                    </p>
+                                                                )}
+                                                            </div>
+                                                            )}
+                                                        </div>
+                                                    )}
+
+                                                    {showTagsField && (
+                                                    <div className={showRoutingFields || bothQualitiesSelected ? '' : 'pt-3'}>
                                                         <label className="block text-xs font-bold uppercase tracking-wider text-white/40 mb-2">
-                                                            Tags
+                                                            {t('request.tags')}
                                                         </label>
                                                         <div className="flex flex-wrap gap-1.5 mb-2 min-h-[1.5rem]">
                                                             {selectedTagLabels.map((tag) => (
@@ -1122,7 +1256,7 @@ export const RequestModal: React.FC<Props> = ({
                                                                         removeTag(activeForm.selectedTags[activeForm.selectedTags.length - 1]);
                                                                     }
                                                                 }}
-                                                                placeholder="Type a tag and press Enter"
+                                                                placeholder={t('request.tagPlaceholder')}
                                                                 className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-plex/40"
                                                             />
                                                             {tagCreating && (
@@ -1145,9 +1279,10 @@ export const RequestModal: React.FC<Props> = ({
                                                             )}
                                                         </div>
                                                         <p className="text-[11px] text-white/35 mt-1.5">
-                                                            Match an existing tag or create one in Radarr/Sonarr when portal Arr credentials allow it.
+                                                            {t('request.tagHint')}
                                                         </p>
                                                     </div>
+                                                    )}
                                                 </>
                                             )}
                                         </div>
@@ -1168,21 +1303,41 @@ export const RequestModal: React.FC<Props> = ({
                         disabled={submitting}
                         className="flex-1 py-3 rounded-xl border border-white/10 text-white/70 font-bold hover:bg-white/5 transition-colors disabled:opacity-50"
                     >
-                        Cancel
+                        {t('common.cancel')}
                     </button>
-                    <button
-                        type="button"
-                        onClick={handleSubmit}
-                        disabled={submitting || loading || !canSubmitRequest}
-                        className="flex-1 py-3 rounded-xl bg-plex text-black font-black hover:bg-plex-hover transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-                    >
-                        {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                        {submitting
-                            ? 'Submitting…'
-                            : selectedQualities.size > 1
-                                ? 'Submit HD + 4K'
-                                : 'Submit Request'}
-                    </button>
+                    {!options?.canRequest && !loading && !notifyOnly ? (
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="flex-1 py-3 rounded-xl bg-plex text-black font-black hover:bg-plex-hover transition-colors"
+                        >
+                            {t('common.close')}
+                        </button>
+                    ) : notifyOnly ? (
+                            <button
+                                type="button"
+                                onClick={handleNotifyToggle}
+                                disabled={submitting || loading}
+                                className="flex-1 py-3 rounded-xl bg-plex text-black font-black hover:bg-plex-hover transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                            >
+                                {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Bell className="w-4 h-4" />}
+                                {options?.isWatching ? t('request.stopNotify') : t('request.notifyMe')}
+                            </button>
+                    ) : (
+                        <button
+                            type="button"
+                            onClick={handleSubmit}
+                            disabled={submitting || loading || !canSubmitRequest}
+                            className="flex-1 py-3 rounded-xl bg-plex text-black font-black hover:bg-plex-hover transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                        >
+                            {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                            {submitting
+                                ? t('request.submitting')
+                                : selectedQualities.size > 1
+                                    ? t('request.submitHd4k')
+                                    : t('request.submit')}
+                        </button>
+                    )}
                 </div>
             </div>
         </div>

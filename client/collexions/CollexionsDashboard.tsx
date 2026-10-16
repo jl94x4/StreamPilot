@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { BrowserRouter, Navigate, Outlet, Route, Routes } from 'react-router-dom';
+import { Layers } from 'lucide-react';
 import { getBasePath } from '../shared/basePath';
+import { DashboardHero, DashboardPageShell } from '../shared/dashboard/DashboardChrome';
 import { api } from './api';
 import { CollexionsSubnav } from './CollexionsSubnav';
 import Dashboard from './pages/Dashboard';
@@ -14,14 +16,18 @@ import LogsPage from './pages/Logs';
 import Onboarding from './pages/Onboarding';
 
 const Shell: React.FC = () => (
-    <div className="animate-fade-in">
-        <div className="mb-4">
-            <h1 className="text-2xl md:text-3xl font-bold text-text tracking-tight">Collexions</h1>
-            <p className="text-sm text-muted mt-1">Manage automated Plex collections from the portal</p>
-        </div>
+    <DashboardPageShell>
+        <DashboardHero
+            accent="plex"
+            eyebrow="Collexions"
+            title="Automated Plex collections"
+            description="Pin fresh titles into Plex collections on a schedule — specials, category rolls, and fairness rules keep libraries feeling curated."
+            icon={<Layers className="h-3.5 w-3.5" />}
+            secondaryBlob
+        />
         <CollexionsSubnav />
         <Outlet />
-    </div>
+    </DashboardPageShell>
 );
 
 const CollexionsRoutes: React.FC = () => {

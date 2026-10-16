@@ -1,0 +1,16 @@
+{
+  "appId": "com.servermanagerportal.mediaplayer",
+  "appName": "StreamPilot",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": true
+  },
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    }
+  }
+}

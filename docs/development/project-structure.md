@@ -1,7 +1,7 @@
 # Project Structure
 
 ```text
-Server-Manager-Portal/
+StreamPilot/
 ├── index.js
 ├── index.tsx
 ├── client/

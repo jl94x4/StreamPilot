@@ -14,6 +14,9 @@ export interface CategoryConfig {
 export interface AppConfig {
   plex_url: string;
   plex_token: string;
+  /** Set by worker when Plex URL/token resolve from Settings → Media Player. */
+  _plex_from_portal?: boolean;
+  _portal_plex_url?: string;
   collexions_label: string;
   dry_run: boolean;
   pinning_interval: number;
@@ -87,6 +90,7 @@ export interface PlexCollection {
   has_label: boolean;
   thumb?: string | null;
   ratingKey: string;
+  itemCount?: number;
   key?: string;
   /** Deep link to open this collection in the Plex web/app UI. */
   plexUrl?: string;

@@ -1,5 +1,5 @@
-import type { UpgraderGridSize } from '../shared/portalLayout';
-import { estimatePortalContentWidth } from '../shared/portalLayout';
+import type { PosterGridValue } from '../shared/portalLayout';
+import { estimatePortalContentWidth, posterGridScaleRem } from '../shared/portalLayout';
 
 export const DISCOVER_INITIAL_ROW_COUNT = 5;
 /** Expected titles per Seerr/TMDB discover page (used for initial-fill estimates). */
@@ -7,22 +7,15 @@ export const DISCOVER_API_PAGE_SIZE = 20;
 /** Target titles appended on each infinite-scroll load. */
 export const DISCOVER_LOAD_MORE_TARGET = 30;
 
-const GRID_MIN_PX: Record<Exclude<UpgraderGridSize, 'list'>, number> = {
-    small: 80,
-    medium: 112,
-    large: 152,
-    xlarge: 208,
-};
-
-export const estimateDiscoverGridColumns = (gridSize: UpgraderGridSize, containerWidth: number): number => {
+export const estimateDiscoverGridColumns = (gridSize: PosterGridValue, containerWidth: number): number => {
     if (gridSize === 'list') return 1;
     if (containerWidth <= 0) return 8;
-    const minPx = GRID_MIN_PX[gridSize];
+    const minPx = posterGridScaleRem(gridSize) * 16;
     const gap = 16;
     return Math.max(2, Math.floor((containerWidth + gap) / (minPx + gap)));
 };
 
-export const initialDiscoverPagesForGrid = (gridSize: UpgraderGridSize, containerWidth: number): number => {
+export const initialDiscoverPagesForGrid = (gridSize: PosterGridValue, containerWidth: number): number => {
     if (gridSize === 'list') {
         return DISCOVER_INITIAL_ROW_COUNT;
     }
@@ -30,7 +23,7 @@ export const initialDiscoverPagesForGrid = (gridSize: UpgraderGridSize, containe
     return Math.max(1, Math.ceil(targetItems / DISCOVER_API_PAGE_SIZE));
 };
 
-export const discoverSkeletonCountForGrid = (gridSize: UpgraderGridSize, containerWidth: number): number => {
+export const discoverSkeletonCountForGrid = (gridSize: PosterGridValue, containerWidth: number): number => {
     if (gridSize === 'list') return DISCOVER_INITIAL_ROW_COUNT * 3;
     const width = containerWidth > 0 ? containerWidth : estimatePortalContentWidth();
     return estimateDiscoverGridColumns(gridSize, width) * DISCOVER_INITIAL_ROW_COUNT;

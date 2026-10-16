@@ -3,10 +3,14 @@ export const ANALYTICS_PERIOD_OPTIONS = [
     { value: 30, label: 'Last 30 Days' },
     { value: 60, label: 'Last 60 Days' },
     { value: 90, label: 'Last 90 Days' },
+    { value: 120, label: 'Last 120 Days' },
     { value: 180, label: 'Last 180 Days' },
     { value: 365, label: 'Last 365 Days' },
     { value: 'all' as const, label: 'All Time' },
 ];
+
+/** Periods offered inside the wrap-up recap story (needs a comparable window). */
+export const WRAP_UP_RECAP_PERIODS = [7, 30, 90, 120, 365] as const;
 
 export type AnalyticsPeriodDays = number | 'all';
 

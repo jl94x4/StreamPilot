@@ -2,12 +2,12 @@
 layout: home
 
 hero:
-  name: Server Portal
+  name: StreamPilot
   text: Self-hosted Plex and Jellyfin management.
   tagline: Manage access, analytics, onboarding, status, and media-server operations from one polished portal.
   image:
     src: /logo.png
-    alt: Server Portal logo
+    alt: StreamPilot logo
   actions:
     - theme: brand
       text: Get Started
@@ -29,17 +29,19 @@ features:
     details: Browse TMDB and submit requests with the built-in engine. Seerr is optional. Admins approve into Sonarr and Radarr.
   - title: ColleXions
     details: Admin Plex collection automation with a bundled worker — trending presets, import lists, and scheduled syncs inside the portal.
+  - title: Spotify Sync
+    details: Admin Plex tool (BETA) that matches Spotify playlists and albums to your library and writes Plex playlists with artwork.
 ---
 
-## What Is Server Portal?
+## What Is StreamPilot?
 
-Server Portal is a Node.js, Express, React, and Tailwind CSS application for managing a Plex or Jellyfin media server community. It stores runtime data in local JSON files, so it does not require a database.
+StreamPilot is a Node.js, Express, React, and Tailwind CSS application for managing a Plex or Jellyfin media server community. It stores runtime data in local JSON files, so it does not require a database.
 
 Use these docs when you need to install the app, configure integrations, run it in Docker, operate background tasks, or understand the project structure.
 
 ## Integration Highlights
 
-Server Portal supports Plex, Jellyfin, Emby, Tautulli, Jellystat, Sonarr, Radarr, Lidarr, Bazarr, qBittorrent, Transmission, BitTorrent, Deluge, SABnzbd, NZBGet, Gotify, TMDB, and SMTP. Discover &amp; Request is built in by default; Seerr/Jellyseerr is optional as an engine or history import.
+StreamPilot supports Plex, Jellyfin, Emby, Tautulli, Jellystat, Sonarr, Radarr, Lidarr, Bazarr, qBittorrent, Transmission, BitTorrent, Deluge, SABnzbd, NZBGet, Gotify, TMDB, and SMTP. Discover &amp; Request is built in by default; Seerr/Jellyseerr is optional as an engine or history import.
 
 See the full [integration list](/guide/integrations) for setup notes and feature coverage.
 

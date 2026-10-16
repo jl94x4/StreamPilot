@@ -1,24 +1,28 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, ChevronRight, Film, Loader2, Pencil, RefreshCw, Tv } from 'lucide-react';
+import { Check, ChevronRight, Film, Loader2, Music, Pencil, RefreshCw, Tv } from 'lucide-react';
 import { apiFetch } from '../shared/api';
+import { usePoll } from '../shared/usePoll';
 import { RequestApprovalModal } from './RequestApprovalModal';
 import { RequestCardActions, RequestCardShell, requestCardActionBtnClass } from './RequestCardShell';
 import { RequestMetaChips } from './RequestMetaChips';
 import type { PortalRequestItem } from './types';
+import { useDiscoverI18n } from '../discovery/i18n';
+import type { DiscoverTranslate } from '../discovery/i18n/types';
+import { goToProfile, profileKeyForRequester } from '../profile/helpers';
 
-const formatRelativeTime = (value?: string | null) => {
+const formatRelativeTime = (t: DiscoverTranslate, value?: string | null) => {
     if (!value) return '';
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return '';
     const diffMs = Date.now() - date.getTime();
     const minutes = Math.floor(diffMs / 60000);
-    if (minutes < 1) return 'just now';
-    if (minutes < 60) return `${minutes}m ago`;
+    if (minutes < 1) return t('common.justNow');
+    if (minutes < 60) return t('common.minutesAgo', { count: minutes });
     const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}h ago`;
+    if (hours < 24) return t('common.hoursAgo', { count: hours });
     const days = Math.floor(hours / 24);
-    return `${days}d ago`;
+    return t('common.daysAgo', { count: days });
 };
 
 export const PendingRequestsHomeWidget: React.FC<{
@@ -29,6 +33,7 @@ export const PendingRequestsHomeWidget: React.FC<{
     layout?: 'compact' | 'wide';
     showEmpty?: boolean;
 }> = ({ onViewAll, onReviewRequest, onActionComplete, onToast, layout = 'compact', showEmpty = false }) => {
+    const { t } = useDiscoverI18n();
     const isWide = layout === 'wide';
     const [requests, setRequests] = useState<PortalRequestItem[]>([]);
     const [pendingTotal, setPendingTotal] = useState(0);
@@ -39,12 +44,16 @@ export const PendingRequestsHomeWidget: React.FC<{
     const [actionId, setActionId] = useState<number | null>(null);
     const [reviewTarget, setReviewTarget] = useState<PortalRequestItem | null>(null);
 
+    const loadGenRef = useRef(0);
+
     const load = useCallback(async (opts?: { silent?: boolean }) => {
+        const gen = ++loadGenRef.current;
         if (!opts?.silent) setLoading(true);
         else setRefreshing(true);
         setError(null);
         try {
             const data = await apiFetch(`/api/requests/pending?take=${isWide ? 6 : 5}`);
+            if (gen !== loadGenRef.current) return;
             if (!data?.configured) {
                 setConfigured(false);
                 setRequests([]);
@@ -53,7 +62,7 @@ export const PendingRequestsHomeWidget: React.FC<{
             }
             setConfigured(true);
             if (data?.connected === false) {
-                setError(data?.error || 'Cannot connect to your request app');
+                setError(data?.error || t('homeDashboard.admin.requestAppConnectFailed'));
                 setRequests([]);
                 setPendingTotal(0);
                 return;
@@ -63,19 +72,22 @@ export const PendingRequestsHomeWidget: React.FC<{
             setPendingTotal(Math.max(pending, results.length));
             setRequests(results);
         } catch (e: any) {
-            setError(e?.message || 'Could not reach your request app');
+            if (gen !== loadGenRef.current) return;
+            setError(e?.message || t('homeDashboard.admin.requestAppReachFailed'));
             setRequests([]);
         } finally {
-            setLoading(false);
-            setRefreshing(false);
+            if (gen === loadGenRef.current) {
+                setLoading(false);
+                setRefreshing(false);
+            }
         }
-    }, [isWide]);
+    }, [isWide, t]);
 
     useEffect(() => {
-        load();
-        const timer = window.setInterval(() => load({ silent: true }), 90_000);
-        return () => window.clearInterval(timer);
+        void load();
     }, [load]);
+
+    usePoll(() => { void load({ silent: true }); }, 90_000);
 
     const handleApprove = async (item: PortalRequestItem) => {
         setActionId(item.id);
@@ -84,11 +96,11 @@ export const PendingRequestsHomeWidget: React.FC<{
                 method: 'POST',
                 body: JSON.stringify({ title: item.title }),
             });
-            onToast?.(`Approved "${item.title}"`, 'success');
-            await load({ silent: true });
+            onToast?.(t('homeDashboard.admin.approvedToast', { title: item.title }), 'success');
             onActionComplete?.();
+            void load({ silent: true });
         } catch (e: any) {
-            onToast?.(e?.message || 'Failed to approve', 'error');
+            onToast?.(e?.message || t('homeDashboard.admin.approveFailed'), 'error');
         } finally {
             setActionId(null);
         }
@@ -104,12 +116,12 @@ export const PendingRequestsHomeWidget: React.FC<{
             <div className={`${cardClass} border-white/10`}>
                 <div className="flex items-start justify-between gap-3">
                     <div>
-                        <p className="text-sm font-semibold text-text">Jellyfin Requests</p>
-                        <p className="text-xs text-muted mt-1">Connect Jellyseerr, Overseerr, or Ombi to show request approvals here.</p>
+                        <p className="text-sm font-semibold text-text">{t('homeDashboard.admin.requestsTitle')}</p>
+                        <p className="text-xs text-muted mt-1">{t('homeDashboard.admin.requestsSetupHint')}</p>
                     </div>
                     {onViewAll && (
                         <button type="button" onClick={onViewAll} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 text-sm font-semibold text-text hover:bg-white/5 transition-colors">
-                            Open Requests <ChevronRight className="w-4 h-4" />
+                            {t('homeDashboard.admin.openRequests')} <ChevronRight className="w-4 h-4" />
                         </button>
                     )}
                 </div>
@@ -122,7 +134,7 @@ export const PendingRequestsHomeWidget: React.FC<{
             <div className={`${cardClass} min-h-[4.5rem] flex items-center`}>
                 <div className="flex items-center gap-2 text-muted text-sm">
                     <Loader2 className="w-4 h-4 animate-spin shrink-0" />
-                    <span>Checking pending requests...</span>
+                    <span>{t('homeDashboard.admin.checkingPendingRequests')}</span>
                 </div>
             </div>
         );
@@ -133,7 +145,7 @@ export const PendingRequestsHomeWidget: React.FC<{
             <div className={`${cardClass} border-red-500/30`}>
                 <div className="flex items-start justify-between gap-3">
                     <div>
-                        <p className="text-sm font-semibold text-text">Pending Requests</p>
+                        <p className="text-sm font-semibold text-text">{t('homeDashboard.admin.pendingRequests')}</p>
                         <p className="text-xs text-red-200 mt-1">{error}</p>
                     </div>
                     <button
@@ -142,7 +154,7 @@ export const PendingRequestsHomeWidget: React.FC<{
                         className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border text-xs font-semibold text-muted hover:text-text"
                     >
                         <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-                        Retry
+                        {t('common.retry')}
                     </button>
                 </div>
             </div>
@@ -160,14 +172,15 @@ export const PendingRequestsHomeWidget: React.FC<{
     };
 
     const renderRequestRow = (item: PortalRequestItem, wide: boolean) => {
-        const TypeIcon = item.type === 'tv' ? Tv : Film;
+        const TypeIcon = item.type === 'tv' ? Tv : item.type === 'music' ? Music : Film;
         const busy = actionId === item.id;
         if (wide) {
             return (
                 <RequestCardShell key={item.id} backdropUrl={item.backdropUrl} posterUrl={item.posterUrl}>
-                <div className="flex flex-col sm:flex-row gap-3 p-3">
-                    <div className="flex gap-3 min-w-0 flex-1">
-                        <div className="w-14 aspect-[2/3] rounded-lg overflow-hidden bg-card border border-border/40 shrink-0">
+                <div className="flex flex-col sm:flex-row sm:items-start gap-3 p-3">
+                    <div className="flex items-start gap-3 min-w-0 flex-1">
+                        {/* Explicit w×h — flex stretch overrides aspect-ratio and squeezes posters. */}
+                        <div className="w-16 h-24 rounded-lg overflow-hidden bg-card border border-border/40 shrink-0 self-start">
                             {item.posterUrl ? (
                                 <img src={item.posterUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
                             ) : (
@@ -182,7 +195,15 @@ export const PendingRequestsHomeWidget: React.FC<{
                                 {item.year ? <span className="text-muted font-medium"> ({item.year})</span> : null}
                             </p>
                             <p className="text-xs text-muted mt-1 truncate">
-                                {item.requestedBy.displayName} · {formatRelativeTime(item.createdAt)}
+                                <button
+                                    type="button"
+                                    className="hover:text-plex hover:underline"
+                                    onClick={() => goToProfile(undefined, profileKeyForRequester(item.requestedBy))}
+                                >
+                                    {item.requestedBy.displayName}
+                                </button>
+                                {' · '}
+                                {formatRelativeTime(t, item.createdAt)}
                                 {item.is4k ? ' · 4K' : ''}
                             </p>
                             <RequestMetaChips
@@ -204,7 +225,7 @@ export const PendingRequestsHomeWidget: React.FC<{
                             className={`${requestCardActionBtnClass} border border-plex/50 bg-background/80 text-plex font-bold hover:bg-plex/15`}
                         >
                             <Pencil className="w-3.5 h-3.5" />
-                            Review
+                            {t('homeDashboard.admin.review')}
                         </button>
                         <button
                             type="button"
@@ -213,7 +234,7 @@ export const PendingRequestsHomeWidget: React.FC<{
                             className={`${requestCardActionBtnClass} bg-plex text-background font-bold hover:bg-plex-hover shadow-sm shadow-black/20`}
                         >
                             {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                            Approve
+                            {t('homeDashboard.admin.approve')}
                         </button>
                     </RequestCardActions>
                 </div>
@@ -223,7 +244,7 @@ export const PendingRequestsHomeWidget: React.FC<{
         return (
             <RequestCardShell key={item.id} backdropUrl={item.backdropUrl} posterUrl={item.posterUrl}>
             <div className="flex items-center gap-3 p-2.5">
-                <div className="w-10 aspect-[2/3] rounded overflow-hidden bg-card border border-border/40 shrink-0">
+                <div className="w-12 h-[4.5rem] rounded overflow-hidden bg-card border border-border/40 shrink-0 self-center">
                     {item.posterUrl ? (
                         <img src={item.posterUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
                     ) : (
@@ -238,7 +259,15 @@ export const PendingRequestsHomeWidget: React.FC<{
                         {item.year ? <span className="text-muted font-normal"> ({item.year})</span> : null}
                     </p>
                     <p className="text-[11px] text-muted truncate">
-                        {item.requestedBy.displayName} · {formatRelativeTime(item.createdAt)}
+                        <button
+                            type="button"
+                            className="hover:text-plex hover:underline"
+                            onClick={() => goToProfile(undefined, profileKeyForRequester(item.requestedBy))}
+                        >
+                            {item.requestedBy.displayName}
+                        </button>
+                        {' · '}
+                        {formatRelativeTime(t, item.createdAt)}
                         {item.is4k ? ' · 4K' : ''}
                     </p>
                 </div>
@@ -247,7 +276,7 @@ export const PendingRequestsHomeWidget: React.FC<{
                     disabled={busy}
                     onClick={() => openReview(item)}
                     className="shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-md border border-plex/50 bg-background/90 text-plex hover:bg-plex/15 transition-colors disabled:opacity-50 shadow-sm shadow-black/20"
-                    title="Review"
+                    title={t('homeDashboard.admin.review')}
                 >
                     <Pencil className="w-3.5 h-3.5" />
                 </button>
@@ -256,7 +285,7 @@ export const PendingRequestsHomeWidget: React.FC<{
                     disabled={busy}
                     onClick={() => handleApprove(item)}
                     className="shrink-0 inline-flex items-center justify-center w-9 h-9 rounded-lg bg-plex text-background hover:bg-plex-hover transition-colors disabled:opacity-50"
-                    title="Quick approve"
+                    title={t('homeDashboard.admin.quickApprove')}
                 >
                     {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
                 </button>
@@ -269,10 +298,10 @@ export const PendingRequestsHomeWidget: React.FC<{
         <div className={cardClass}>
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3 md:mb-4">
                 <div className="min-w-0">
-                    <p className="text-muted text-sm uppercase tracking-widest font-semibold">Pending Requests</p>
+                    <p className="text-muted text-sm uppercase tracking-widest font-semibold">{t('homeDashboard.admin.pendingRequests')}</p>
                     <p className="text-xs text-muted mt-1">
-                        {pendingTotal} awaiting approval
-                        {isWide ? ' — approve from home' : ''}
+                        {t('homeDashboard.admin.awaitingApproval', { count: pendingTotal })}
+                        {isWide ? ` — ${t('homeDashboard.admin.approveFromHome')}` : ''}
                     </p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
@@ -281,7 +310,7 @@ export const PendingRequestsHomeWidget: React.FC<{
                         onClick={() => load({ silent: true })}
                         disabled={refreshing}
                         className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-white/10 text-xs font-semibold text-muted hover:text-text hover:bg-white/5 transition-colors"
-                        title="Refresh"
+                        title={t('homeDashboard.admin.refresh')}
                     >
                         <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
                     </button>
@@ -291,7 +320,7 @@ export const PendingRequestsHomeWidget: React.FC<{
                             onClick={onViewAll}
                             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 text-sm font-semibold text-text hover:bg-white/5 transition-colors"
                         >
-                            Open Requests <ChevronRight className="w-4 h-4" />
+                            {t('homeDashboard.admin.openRequests')} <ChevronRight className="w-4 h-4" />
                         </button>
                     )}
                 </div>
@@ -299,7 +328,9 @@ export const PendingRequestsHomeWidget: React.FC<{
 
             {requests.length === 0 ? (
                 <p className="text-sm text-muted">
-                    {pendingTotal > 0 ? `${pendingTotal} pending in your request app — open Requests to review them.` : 'No pending requests right now.'}
+                    {pendingTotal > 0
+                        ? t('homeDashboard.admin.pendingInRequestApp', { count: pendingTotal })
+                        : t('homeDashboard.admin.noPendingRequests')}
                 </p>
             ) : (
                 <div className={isWide ? 'grid grid-cols-1 xl:grid-cols-2 gap-3' : 'space-y-2'}>

@@ -168,7 +168,7 @@ export const buildMediaFactRows = (
     const rows: MediaFactRow[] = [];
 
     if (details?.status) {
-        rows.push({ key: 'status', label: 'Status', value: String(details.status) });
+        rows.push({ key: 'status', label: 'Production status', value: String(details.status) });
     }
 
     if (mediaType === 'movie') {

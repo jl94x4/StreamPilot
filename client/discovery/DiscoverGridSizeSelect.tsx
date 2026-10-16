@@ -1,31 +1,30 @@
 import React from 'react';
-import { CustomSelect } from '../shared/ui';
-import {
-    normalizeUpgraderGridSize,
-    type UpgraderGridSize,
-} from '../shared/portalLayout';
+import { PosterGridSizeSlider } from '../shared/PosterGridSizeSlider';
+import type { PosterGridValue } from '../shared/portalLayout';
 import { useDiscoverI18n } from './i18n';
 
 export const DiscoverGridSizeSelect: React.FC<{
-    value: UpgraderGridSize;
-    onChange: (value: UpgraderGridSize) => void;
+    value: PosterGridValue;
+    onChange: (value: number) => void;
     className?: string;
-}> = ({ value, onChange, className = 'w-44' }) => {
+}> = ({ value, onChange, className = '' }) => {
     const { t } = useDiscoverI18n();
-    const options = [
-        { value: 'small', label: t('browse.gridSmall') },
-        { value: 'medium', label: t('browse.gridMedium') },
-        { value: 'large', label: t('browse.gridLarge') },
-        { value: 'xlarge', label: t('browse.gridXlarge') },
-    ];
-
+    try {
+        if (document.documentElement?.dataset?.tv === '1' || window.__PLEX_CLIENT__?.isTv === true) {
+            return null;
+        }
+    } catch {
+        /* ignore */
+    }
     return (
-        <CustomSelect
-            compact
+        <PosterGridSizeSlider
             value={value}
-            onChange={(next) => onChange(normalizeUpgraderGridSize(next))}
-            options={options}
+            onChange={(next) => {
+                if (typeof next === 'number') onChange(next);
+            }}
             className={className}
+            label={t('browse.gridSize')}
+            listLabel={t('browse.gridList')}
         />
     );
 };

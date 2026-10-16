@@ -8,6 +8,8 @@ type Props = {
     type: IntegrationTestType;
     payload?: Record<string, unknown>;
     label?: string;
+    successFallback?: string;
+    failureFallback?: string;
     disabled?: boolean;
     className?: string;
     onMessage?: (message: string, success: boolean) => void;
@@ -17,6 +19,8 @@ export const IntegrationTestButton: React.FC<Props> = ({
     type,
     payload = {},
     label = 'Test Connection',
+    successFallback = 'Connection successful',
+    failureFallback = 'Connection failed',
     disabled = false,
     className = '',
     onMessage,
@@ -32,12 +36,12 @@ export const IntegrationTestButton: React.FC<Props> = ({
                 method: 'POST',
                 body: JSON.stringify({ type, ...payload }),
             });
-            const msg = result.message || 'Connection successful';
+            const msg = result.message || successFallback;
             setStatus('success');
             setMessage(msg);
             onMessage?.(msg, true);
         } catch (e) {
-            const msg = e instanceof Error ? e.message : 'Connection failed';
+            const msg = e instanceof Error ? e.message : failureFallback;
             setStatus('error');
             setMessage(msg);
             onMessage?.(msg, false);

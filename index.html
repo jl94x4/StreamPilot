@@ -2,22 +2,32 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <!--
+      Use opaque `black` (not black-translucent). On iOS 26+/27 Home Screen PWAs,
+      black-translucent is edge-to-edge with _obscuredInsets.top === 0, so the
+      system scroll-pocket progressive blur can never be suppressed and paints a
+      frosted band over the top nav. Opaque style lets iOS reserve the status bar;
+      our fixed nav-shell then hides the scroll pocket. safe-area-inset-top is 0
+      in that mode, so existing env() padding stays correct.
+    -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="theme-color" content="#0b0f19" />
-    <title>Server Portal</title>
-    <link rel="icon" type="image/png" href="static/logo.png" />
+    <title>StreamPilot</title>
+    <link rel="icon" type="image/png" href="/static/apple-touch-icon.png" />
     <link rel="manifest" href="manifest.webmanifest" />
-    <link rel="apple-touch-icon" href="static/logo.png" />
-    <link rel="stylesheet" href="static/tailwind.css?v=43c0cc7-msf0tjjt" />
+    <link rel="apple-touch-icon" href="/static/apple-touch-icon.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png" />
+    <link rel="apple-touch-icon-precomposed" href="/static/apple-touch-icon-precomposed.png" />
+    <link rel="stylesheet" href="static/tailwind.css?v=a151dfb6-muo7u9qr" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="static/index.js?v=43c0cc7-msf0tjjt"></script>
+    <script type="module" src="static/index.js?v=a151dfb6-muo7u9qr"></script>
   </body>
 </html>

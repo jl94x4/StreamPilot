@@ -16,6 +16,8 @@ Task labels adapt to the selected media player:
 | Maintenance index | Build media/request index | Same |
 | Rolling backup | Create config backups | Same |
 
+Media Automation appears as a status row on **Settings → Background Tasks** (enabled / global dry-run) with links to its settings and dashboard. It is not a classic “Run now” cron job: the worker, library scan/watch, and ARR webhooks run inside the portal process with durable lease/heartbeat recovery. See [Native Media Automation](/features/media-automation).
+
 ## Diagnostics
 
 The Settings System diagnostics page uses the same media-aware task list. A Jellyfin portal is not expected to pass Plex-only checks, and Plex-only jobs are hidden where appropriate.

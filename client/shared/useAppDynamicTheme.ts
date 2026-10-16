@@ -76,7 +76,7 @@ export const useAppDynamicTheme = (
                 // Broad window so "last watched" is available even if they haven't watched in 30 days.
                 const res = isJellyfin
                     ? await apiFetch('/api/jellystat/analytics?days=365')
-                    : await apiFetch('/api/plex/analytics/me?days=365');
+                    : await apiFetch('/api/plex/analytics/me?days=365&lite=1');
                 return pickLastWatchedPoster(res?.recentHistory);
             } catch {
                 return null;

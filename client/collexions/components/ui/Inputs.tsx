@@ -24,7 +24,7 @@ export const Input: React.FC<InputProps> = ({ label, helperText, tooltip, classN
       )}
     </div>
     <input
-      className={`w-full bg-background border border-border rounded-lg px-3 py-2 text-text focus:outline-none focus:ring-1 focus:ring-plex focus:border-plex transition-all placeholder:text-muted ${className}`}
+      className={`w-full appearance-none bg-background border border-border rounded-lg px-3 py-2 text-[16px] leading-5 text-text focus:outline-none focus:ring-1 focus:ring-plex focus:border-plex transition-all placeholder:text-muted ${className}`}
       {...props}
     />
     {helperText && <p className="text-xs text-muted">{helperText}</p>}

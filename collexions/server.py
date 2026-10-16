@@ -12,8 +12,11 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import requests
 import random
 import threading
+from contextlib import contextmanager
 from flask import Flask, request, jsonify, send_from_directory, Response, abort
 from flask_cors import CORS
+
+from plex_match import pick_match_reason
 try:
     import psutil
     PSUTIL_AVAILABLE = True
@@ -22,6 +25,13 @@ except ImportError:
 
 # Configure logging for the API
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+
+
+def _client_error(fallback="Request failed", exc=None):
+    """Log exception details server-side; never return exception text to API clients."""
+    if exc is not None:
+        logging.error("%s: %s", fallback, exc, exc_info=True)
+    return fallback
 
 # Patch plexapi BEFORE any PlexServer() so Docker hostname is never the device name.
 try:
@@ -116,6 +126,10 @@ def require_auth(f):
         if _service_key_ok():
             return f(*args, **kwargs)
 
+        # Embedded/portal mode: only the portal service key is accepted (no JWT bootstrap).
+        if PORTAL_MODE:
+            return jsonify({'error': 'Authentication required'}), 401
+
         auth_header = request.headers.get('Authorization')
         if not auth_header or not auth_header.startswith('Bearer '):
             return jsonify({'error': 'Authentication required'}), 401
@@ -133,6 +147,9 @@ def require_auth_or_query_token(f):
     def decorated(*args, **kwargs):
         if _service_key_ok():
             return f(*args, **kwargs)
+
+        if PORTAL_MODE:
+            return jsonify({'error': 'Authentication required'}), 401
 
         auth_header = request.headers.get('Authorization')
         token = None
@@ -168,6 +185,9 @@ GALLERY_CACHE = {
     'ttl': 300, # 5 minutes
     'version': 2,  # bump when thumb shape/fallback changes
 }
+# Background refresh for stale-while-revalidate gallery lists (avoids Cloudflare 524).
+_GALLERY_REFRESH_LOCK = threading.Lock()
+_GALLERY_REFRESH_RUNNING = set()  # cache_version ints currently refreshing
 PRESETS_CACHE = {
     'data': None,
     'timestamp': 0,
@@ -175,6 +195,24 @@ PRESETS_CACHE = {
     'version': 3,  # bump when preset catalog changes
 }
 IMAGE_CACHE = {} # Cache for proxied posters: { thumb_path: { 'data': binary, 'mimetype': type } }
+# Plex truncates long /library/collections?uri= and /items?uri= query strings and
+# materialises the leftover path as a type-99 folder. One of those rows crashes
+# Plex Web's entire Collections tab ("Something went wrong" / "unknown type: 99").
+_COLLECTION_ITEM_BATCH = 20
+_REPAIR_LOCK = threading.Lock()
+_REPAIR_STATE = {
+    'running': False,
+    'started': False,
+    'phase': '',
+    'error': None,
+    'libraries': [],
+    'scanned': 0,
+    'purged': 0,
+    'pruned': 0,
+    'converted': 0,
+    'posters': 0,
+    'errors': [],
+}
 SUMMARY_CACHE = {
     'data': None,
     'timestamp': 0,
@@ -190,15 +228,52 @@ def ensure_dir_exists(file_path):
         os.makedirs(directory, exist_ok=True)
         logging.info(f"Created directory: {directory}")
 
-def load_config():
+def _read_raw_config():
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, 'r') as f:
-                return json.load(f)
+                data = json.load(f)
+                return data if isinstance(data, dict) else {}
         except Exception as e:
             logging.error(f"Error loading config: {e}")
             return {}
     return {}
+
+def _portal_plex_defaults():
+    """Pull Plex URL/token from portal Media Player settings when local fields are empty."""
+    portal_url = ''
+    portal_token = ''
+    portal_path = str(os.environ.get('COLLEXIONS_PORTAL_CONFIG') or '').strip()
+    if portal_path and os.path.exists(portal_path):
+        try:
+            with open(portal_path, 'r', encoding='utf-8') as f:
+                portal = json.load(f)
+            if isinstance(portal, dict):
+                media_type = str(portal.get('mediaServerType') or 'plex').strip().lower()
+                if media_type == 'plex':
+                    portal_url = str(portal.get('plexServerUrl') or '').strip().rstrip('/')
+                    portal_token = str(portal.get('plexToken') or '').strip()
+        except Exception as e:
+            logging.debug(f"Could not read portal plex defaults: {e}")
+    if not portal_url:
+        portal_url = str(os.environ.get('PLEX_SERVER_URL') or '').strip().rstrip('/')
+    if not portal_token:
+        portal_token = str(os.environ.get('PLEX_TOKEN') or '').strip()
+    return portal_url, portal_token
+
+def with_portal_plex(config):
+    cfg = dict(config or {})
+    if not (PORTAL_MODE or os.environ.get('COLLEXIONS_PORTAL_CONFIG') or os.environ.get('PLEX_SERVER_URL')):
+        return cfg
+    portal_url, portal_token = _portal_plex_defaults()
+    if not str(cfg.get('plex_url') or '').strip() and portal_url:
+        cfg['plex_url'] = portal_url
+    if not str(cfg.get('plex_token') or '').strip() and portal_token:
+        cfg['plex_token'] = portal_token
+    return cfg
+
+def load_config():
+    return with_portal_plex(_read_raw_config())
 
 def save_config(new_data, merge=True):
     """
@@ -206,7 +281,8 @@ def save_config(new_data, merge=True):
     If merge is True, it merges new_data into the existing config.
     """
     try:
-        config = load_config() if merge else {}
+        # Persist only on-disk values — portal Media Player fills empty plex fields at read time.
+        config = _read_raw_config() if merge else {}
         if merge:
             config.update(new_data)
         else:
@@ -936,6 +1012,7 @@ def fetch_source_items(source_type, source_id, config):
                             continue
                         items.append({
                             'title': part.get('title') or part.get('name'),
+                            'original_title': part.get('original_title') or '',
                             'tmdb_id': part.get('id'),
                             'type': 'movie',
                             'year': (part.get('release_date') or '')[:4],
@@ -1065,86 +1142,774 @@ def _plex_item_tmdb_ids(item):
     return ids
 
 
-def _match_external_to_plex(library, external_items, tmdb_cache=None):
-    """Match external {tmdb_id/id, title} items to local Plex items.
+def _plex_item_media_kind(item):
+    """Return 'movie' | 'show' for a Plex item, or None when not collection-safe."""
+    raw = getattr(item, 'type', None) or getattr(item, 'TYPE', None)
+    named = normalize_media_kind(raw)
+    if named:
+        return named
+    norm = _normalize_plex_metadata_type(raw)
+    if norm == 1:
+        return 'movie'
+    if norm == 2:
+        return 'show'
+    return None
 
-    For small lists (franchises / trending), prefer per-title search so we don't
-    scan the entire library (which often exceeds the portal proxy timeout).
+
+def _acceptable_collection_member(item, library_or_type=None):
+    """Only top-level movie/show rows belong in Plex collections."""
+    kind = _plex_item_media_kind(item)
+    if kind not in {'movie', 'show'}:
+        return False
+    lib_type = None
+    if library_or_type is not None:
+        if isinstance(library_or_type, str):
+            lib_type = normalize_media_kind(library_or_type)
+        else:
+            lib_type = normalize_media_kind(getattr(library_or_type, 'type', None))
+    if lib_type and kind != lib_type:
+        return False
+    norm = _normalize_plex_metadata_type(getattr(item, 'type', None) or getattr(item, 'TYPE', None))
+    if norm == 99:
+        return False
+    return True
+
+
+def _sanitize_collection_members(library, items):
+    """Drop seasons/episodes/folders/wrong-library rows before Plex collection writes."""
+    lib_type = normalize_media_kind(getattr(library, 'type', None))
+    lib_section = str(getattr(library, 'key', '') or '').strip()
+    clean = []
+    seen = set()
+    dropped = 0
+    for item in items or []:
+        rk = str(getattr(item, 'ratingKey', '') or '').strip()
+        if not rk or rk in seen:
+            continue
+        if not _acceptable_collection_member(item, lib_type):
+            dropped += 1
+            logging.warning(
+                "Skipping unsafe collection member %s (type=%s, library expects %s)",
+                getattr(item, 'title', rk),
+                getattr(item, 'type', None),
+                lib_type or 'any',
+            )
+            continue
+        item_section = getattr(item, 'librarySectionID', None)
+        if item_section is not None and lib_section and str(item_section) != lib_section:
+            dropped += 1
+            logging.warning(
+                "Skipping collection member %s from section %s (library section is %s)",
+                getattr(item, 'title', rk),
+                item_section,
+                lib_section,
+            )
+            continue
+        seen.add(rk)
+        clean.append(item)
+    if dropped:
+        log_action(f"Filtered {dropped} unsafe item(s) before writing collection members.")
+    return clean
+
+
+def _chunked(seq, size):
+    items = list(seq or [])
+    step = max(1, int(size or 1))
+    for i in range(0, len(items), step):
+        yield items[i:i + step]
+
+
+def _plex_connection_from(coll=None, config=None):
+    """Return (server, plex_base, token) for raw collection writes."""
+    config = config or load_config()
+    server = getattr(coll, '_server', None) if coll is not None else None
+    if server is None:
+        server = get_plex_instance()
+    url = str(getattr(server, '_baseurl', None) or config.get('plex_url') or '').rstrip('/')
+    token = str(getattr(server, '_token', None) or config.get('plex_token') or '')
+    return server, url, token
+
+
+def _invalidate_collection_items(coll):
+    if coll is None:
+        return
+    try:
+        coll.__dict__.pop('_items', None)
+    except Exception:
+        pass
+
+
+def _join_query_args(args):
+    from urllib.parse import quote
+    if not args:
+        return ''
+    parts = [f"{key}={quote(str(value), safe='')}" for key, value in args.items()]
+    return '?' + '&'.join(parts)
+
+
+def _collection_items_uri(server, rating_keys):
+    keys = [str(k).strip() for k in (rating_keys or []) if str(k).strip()]
+    if not keys or server is None:
+        return None
+    try:
+        root = str(server._uriRoot()).rstrip('/')
+    except Exception:
+        mid = str(getattr(server, 'machineIdentifier', '') or '')
+        if not mid:
+            return None
+        root = f'server://{mid}/com.plexapp.plugins.library'
+    return f'{root}/library/metadata/{",".join(keys)}'
+
+
+def _plex_delete_metadata(rating_key, server=None, plex_base='', token=''):
+    """Delete a metadata node by ratingKey without plexapi type parsing.
+
+    plexapi.fetchItem() raises UnknownType for type-99 folders, so the old
+    repair path logged a warning and left the row that crashes Plex Web.
     """
-    items = list(external_items or [])
-    if not items:
+    rk = str(rating_key or '').strip()
+    if not rk:
+        return False
+    if server is not None:
+        try:
+            server.query(f'/library/metadata/{rk}', method=server._session.delete)
+            return True
+        except Exception as exc:
+            logging.warning(f"Plex metadata DELETE {rk} via plexapi failed: {exc}")
+    if plex_base and token:
+        try:
+            resp = requests.delete(
+                f"{plex_base}/library/metadata/{rk}",
+                params={'X-Plex-Token': token},
+                headers=plex_request_headers(token),
+                timeout=12,
+                verify=PLEX_SSL_VERIFY,
+            )
+            return resp.status_code < 400
+        except Exception as exc:
+            logging.warning(f"Plex metadata DELETE {rk} via HTTP failed: {exc}")
+    return False
+
+
+def _add_collection_items_batched(coll, items):
+    """Add members in small URI batches. Never send one giant addItems URI."""
+    items = [item for item in (items or []) if getattr(item, 'ratingKey', None)]
+    if not items or coll is None:
+        return 0
+    if getattr(coll, 'smart', False):
+        logging.warning(
+            "Refusing to add items to smart collection '%s' — that rewrite crashes Plex Web.",
+            getattr(coll, 'title', '?'),
+        )
+        return 0
+    server = getattr(coll, '_server', None)
+    if server is None:
+        logging.warning("Cannot batch-add collection items: missing Plex server handle.")
+        return 0
+    coll_key = str(getattr(coll, 'key', '') or '').strip() or f"/library/metadata/{coll.ratingKey}"
+    subtype = str(getattr(coll, 'subtype', '') or '').strip()
+    added = 0
+    for chunk in _chunked(items, _COLLECTION_ITEM_BATCH):
+        safe = []
+        for item in chunk:
+            item_type = str(getattr(item, 'type', '') or '').strip()
+            if subtype and item_type and item_type != subtype:
+                logging.warning(
+                    "Skipping mixed-type add %s (%s) into '%s' (%s)",
+                    getattr(item, 'title', getattr(item, 'ratingKey', '?')),
+                    item_type,
+                    getattr(coll, 'title', '?'),
+                    subtype,
+                )
+                continue
+            safe.append(item)
+        if not safe:
+            continue
+        uri = _collection_items_uri(server, [item.ratingKey for item in safe])
+        if not uri:
+            continue
+        key = f"{coll_key}/items{_join_query_args({'uri': uri})}"
+        server.query(key, method=server._session.put)
+        added += len(safe)
+    _invalidate_collection_items(coll)
+    return added
+
+
+def _remove_collection_item_keys(coll, rating_keys):
+    """Remove members by ratingKey. Works for type-99 folders plexapi cannot parse."""
+    keys = [str(k).strip() for k in (rating_keys or []) if str(k).strip()]
+    if not keys or coll is None:
+        return 0
+    server = getattr(coll, '_server', None)
+    coll_key = str(getattr(coll, 'key', '') or '').strip() or f"/library/metadata/{getattr(coll, 'ratingKey', '')}"
+    if not server or not coll_key:
+        return 0
+    removed = 0
+    for rk in keys:
+        try:
+            server.query(f'{coll_key}/items/{rk}', method=server._session.delete)
+            removed += 1
+        except Exception as exc:
+            logging.warning(f"Failed to remove collection member {rk}: {exc}")
+    _invalidate_collection_items(coll)
+    return removed
+
+
+def _clear_collection_custom_poster(coll):
+    """Remove uploaded posters that often break Plex Web poster transcode."""
+    cleared = False
+    try:
+        coll.unlockPoster()
+        cleared = True
+    except Exception:
+        pass
+    try:
+        for poster in coll.posters() or []:
+            rk = str(getattr(poster, 'ratingKey', '') or '')
+            if rk.startswith('upload://'):
+                poster.delete()
+                cleared = True
+    except Exception as exc:
+        logging.warning(f"Could not delete uploaded collection posters: {exc}")
+    try:
+        coll.reload()
+    except Exception:
+        pass
+    return cleared
+
+
+def _collection_poster_probe_issues(coll, config):
+    """Return poster-related Plex Web probe issues for this collection."""
+    url = str((config or {}).get('plex_url') or '').rstrip('/')
+    token = str((config or {}).get('plex_token') or '')
+    if not url or not token or coll is None:
         return []
+    try:
+        row = _probe_collection_web_crash(url, token, coll, '')
+        issues = [str(i) for i in (row.get('issues') or [])]
+        return [i for i in issues if 'poster' in i.lower()]
+    except Exception as exc:
+        logging.warning(f"Collection poster probe failed: {exc}")
+        return []
+
+
+def _iter_collection_children_raw(plex_base, token, rating_key, page_size=100):
+    """Page through collection children via the raw API (includes type-99 folders)."""
+    from urllib.parse import quote
+
+    rk = str(rating_key or '').strip()
+    if not plex_base or not token or not rk:
+        return []
+    # JSON often omits type-99 folders; Plex Web uses XML and still crashes on them.
+    merged = {}
+    for accept in ('application/xml', 'application/json'):
+        start = 0
+        headers_base = plex_request_headers(token, {
+            'User-Agent': 'Mozilla/5.0 (Plex Web)',
+            'Accept': accept,
+        })
+        while True:
+            headers = dict(headers_base)
+            headers['X-Plex-Container-Start'] = str(start)
+            headers['X-Plex-Container-Size'] = str(page_size)
+            try:
+                resp = requests.get(
+                    f"{plex_base}/library/metadata/{quote(rk, safe='')}/children",
+                    params={
+                        'X-Plex-Token': token,
+                        'X-Plex-Container-Start': start,
+                        'X-Plex-Container-Size': page_size,
+                    },
+                    headers=headers,
+                    timeout=12,
+                    verify=PLEX_SSL_VERIFY,
+                )
+            except Exception as exc:
+                logging.warning(f"Collection children fetch failed for {rk} ({accept}): {exc}")
+                break
+            if resp.status_code >= 400:
+                break
+            page, total = _parse_plex_metadata_list(resp.content, resp.headers.get('Content-Type'))
+            for item in page:
+                child_rk = str(item.get('ratingKey') or '').strip()
+                dedupe = child_rk or f"{item.get('title')}|{item.get('type')}|{len(merged)}"
+                prev = merged.get(dedupe)
+                if prev is None:
+                    merged[dedupe] = item
+                elif (prev.get('type') is None or str(prev.get('type') or '').strip() == '') and item.get('type'):
+                    merged[dedupe] = item
+            if not page or start + len(page) >= (total or start + len(page)):
+                break
+            start += page_size
+            if start > 20000:
+                break
+    return list(merged.values())
+
+
+def _collection_list_row_should_purge(item):
+    """Rows on the collections list that crash Plex Web and are safe to DELETE.
+
+    Never delete movies/shows/seasons/episodes — those ratingKeys are library titles.
+    """
+    subtype = str((item or {}).get('subtype') or '').strip().lower()
+    if subtype in {'movie', 'show'}:
+        return False
+    raw = (item or {}).get('type')
+    tag = str((item or {}).get('tag') or '').strip().lower()
+    if raw is None or str(raw).strip() == '':
+        # Plex Web XML often emits folder rows as <Directory> with no type.
+        return tag == 'directory'
+    norm = _normalize_plex_metadata_type(raw)
+    if norm in (1, 2, 3, 4, 18):
+        return False
+    raw_text = str(raw).strip().lower()
+    if raw_text in {'movie', 'show', 'season', 'episode', 'collection'}:
+        return False
+    return True
+
+
+def _raw_member_is_unsafe(item):
+    """Members that are explicitly not a top-level movie/show.
+
+    Missing type is left alone — some PMS payloads omit it, and treating that
+    as unsafe would empty the collection.
+    """
+    raw = (item or {}).get('type')
+    if raw is None or str(raw).strip() == '':
+        return False
+    norm = _normalize_plex_metadata_type(raw)
+    if norm in (1, 2):
+        return False
+    if norm in (3, 4, 18, 99):
+        return True
+    return str(raw).strip().lower() in {'season', 'episode', 'collection', 'folder', '99'}
+
+
+def _remove_invalid_collection_members(coll, config=None):
+    """Remove collection members Plex Web cannot render (type 99 / non movie-show).
+
+    plexapi.Collection.items() silently drops UnknownType rows (type 99), so the
+    previous prune never saw the folders that crash the Collections tab.
+    """
+    if coll is None:
+        return 0
+    server, plex_base, token = _plex_connection_from(coll, config)
+    rk = str(getattr(coll, 'ratingKey', '') or '').strip()
+    bad_keys = []
+    if plex_base and token and rk:
+        for item in _iter_collection_children_raw(plex_base, token, rk):
+            child_rk = str(item.get('ratingKey') or '').strip()
+            if child_rk and _raw_member_is_unsafe(item):
+                bad_keys.append(child_rk)
+    else:
+        for item in list(coll.items() or []):
+            row = {
+                'ratingKey': str(getattr(item, 'ratingKey', '') or ''),
+                'title': str(getattr(item, 'title', '') or ''),
+                'type': getattr(item, 'type', None) or getattr(item, 'TYPE', None),
+            }
+            if _raw_member_is_unsafe(row) or not _acceptable_collection_member(item):
+                child_rk = row['ratingKey']
+                if child_rk:
+                    bad_keys.append(child_rk)
+    if not bad_keys:
+        return 0
+    return _remove_collection_item_keys(coll, bad_keys)
+
+
+def _fetch_section_collection_page(plex_base, token, section_key, *, list_path='collections', accept='application/xml', start=0, page_size=50):
+    """One page of the collections list, matching how Plex Web pages the tab."""
+    url_suffix = 'all' if list_path == 'all' else 'collections'
+    headers = plex_request_headers(token, {
+        'User-Agent': 'Mozilla/5.0 (Plex Web)',
+        'Accept': accept,
+    })
+    headers['X-Plex-Container-Start'] = str(start)
+    headers['X-Plex-Container-Size'] = str(page_size)
+    params = {
+        'includeCollections': 1,
+        'includeExternalMedia': 1,
+        'includeAdvanced': 1,
+        'includeMeta': 1,
+        'X-Plex-Token': token,
+        'X-Plex-Container-Start': start,
+        'X-Plex-Container-Size': page_size,
+    }
+    if list_path == 'all':
+        params['type'] = 18
+    resp = requests.get(
+        f"{plex_base}/library/sections/{section_key}/{url_suffix}",
+        params=params,
+        headers=headers,
+        timeout=15,
+        verify=PLEX_SSL_VERIFY,
+    )
+    return resp
+
+
+def _purge_phantom_collection_list_rows(plex_base, token, section_key, title=None, keep_rating_key=None, plex=None):
+    """
+    Delete folder / unknown-type rows from Plex's collections list.
+
+    Plex Web still loads XML; JSON often omits type-99 rows, so a JSON-only
+    scan can report "clean" while the Collections tab stays crashed.
+    Deleting shifts later pages, so each pass restarts at offset 0.
+    """
+    if not section_key or not plex_base or not token:
+        return 0
+    server = plex if plex is not None else get_plex_instance()
+    keep = str(keep_rating_key or '').strip()
+    want = _normalize_collection_title(title).casefold() if title else ''
+    purged = 0
+    failed = set()
+    logged_sample = False
+    variants = (
+        ('collections', 'application/xml'),
+        ('collections', 'application/json'),
+        ('all', 'application/xml'),
+        ('all', 'application/json'),
+    )
+    for list_path, accept in variants:
+        for _pass in range(12):
+            deleted_this_pass = 0
+            start = 0
+            page_size = 50
+            while True:
+                try:
+                    resp = _fetch_section_collection_page(
+                        plex_base, token, section_key,
+                        list_path=list_path, accept=accept,
+                        start=start, page_size=page_size,
+                    )
+                except Exception as exc:
+                    logging.warning(f"Phantom collection scan failed ({list_path}/{accept}): {exc}")
+                    break
+                if resp.status_code >= 400:
+                    logging.warning(
+                        "Phantom collection scan HTTP %s (%s/%s)",
+                        resp.status_code, list_path, accept,
+                    )
+                    break
+                items, total = _parse_plex_metadata_list(resp.content, resp.headers.get('Content-Type'))
+                if not logged_sample and items:
+                    sample = [
+                        f"{it.get('title') or '?'} type={it.get('type')!r} tag={it.get('tag')!r}"
+                        for it in items[:8]
+                    ]
+                    log_action(
+                        f"Collections list sample ({list_path}, {accept}): {'; '.join(sample)}"
+                    )
+                    logged_sample = True
+                for item in items:
+                    if not _collection_list_row_should_purge(item):
+                        continue
+                    rk = str(item.get('ratingKey') or '').strip()
+                    if not rk or rk == keep or rk in failed:
+                        continue
+                    if want:
+                        row_title = str(item.get('title') or '').strip().casefold()
+                        if row_title and row_title != want:
+                            continue
+                    if _plex_delete_metadata(rk, server=server, plex_base=plex_base, token=token):
+                        purged += 1
+                        deleted_this_pass += 1
+                        log_action(
+                            f"Purged crashy collections-list row '{item.get('title')}' "
+                            f"(key {rk}, type={item.get('type')!r}, tag={item.get('tag')!r})."
+                        )
+                    else:
+                        failed.add(rk)
+                        logging.warning(f"Failed to purge phantom collection row {rk}.")
+                # Deleting shifts later offsets; restart this pass from 0.
+                if deleted_this_pass:
+                    break
+                if not items or start + len(items) >= total:
+                    break
+                start += page_size
+            if not deleted_this_pass:
+                break
+    return purged
+
+
+def _finalize_collection_for_plex_web(coll, library, config=None):
+    """
+    Post-create hardening: prune bad members, fix crashy posters, purge type-99 phantoms.
+    Must never raise — a failure here used to kill the embedded gunicorn worker (code=1).
+    """
+    if coll is None:
+        return []
+    try:
+        config = config or load_config()
+        fixes = []
+        lib_name = str(getattr(library, 'title', '') or '')
+        section_key = str(getattr(library, 'key', '') or '').rstrip('/').split('/')[-1]
+        title = str(getattr(coll, 'title', '') or '')
+        rk = str(getattr(coll, 'ratingKey', '') or '')
+
+        removed = _remove_invalid_collection_members(coll, config)
+        if removed:
+            fixes.append(f'removed {removed} invalid member(s)')
+
+        if _collection_poster_probe_issues(coll, config):
+            if _clear_collection_custom_poster(coll):
+                fixes.append('cleared crashy custom poster')
+
+        url = str(config.get('plex_url') or '').rstrip('/')
+        token = str(config.get('plex_token') or '')
+        if url and token and section_key:
+            # Any type-99 row in this library crashes the whole Collections tab.
+            purged = _purge_phantom_collection_list_rows(url, token, section_key, keep_rating_key=rk)
+            if purged:
+                fixes.append(f'purged {purged} phantom list row(s)')
+
+            child_row = _probe_collection_children_types(url, token, rk, title, lib_name)
+            if child_row and child_row.get('issues'):
+                extra = _remove_invalid_collection_members(coll, config)
+                if extra:
+                    fixes.append(f'pruned {extra} bad member(s) after probe')
+
+            if _collection_poster_probe_issues(coll, config):
+                _clear_collection_custom_poster(coll)
+                fixes.append('cleared poster after re-probe')
+
+        if fixes:
+            log_action(f"Plex Web hardening for '{title}': {', '.join(fixes)}")
+        return fixes
+    except Exception as exc:
+        logging.error(f"Plex Web collection hardening failed: {exc}", exc_info=True)
+        return []
+
+
+def _id_list(values) -> list:
+    out = []
+    seen = set()
+    for value in values or []:
+        key = str(value or '').strip()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append(key)
+    return out
+
+
+def _job_item_overrides(job) -> tuple[set[str], set[str], list[str]]:
+    job = job if isinstance(job, dict) else {}
+    skip_tmdb = set(_id_list(job.get('excluded_tmdb_ids')))
+    skip_keys = set(_id_list(job.get('excluded_rating_keys')))
+    extra_keys = _id_list(job.get('extra_rating_keys'))
+    return skip_tmdb, skip_keys, extra_keys
+
+
+def _plex_candidate_dict(item) -> dict:
+    return {
+        'acceptable': True,
+        'title': getattr(item, 'title', '') or '',
+        'originalTitle': getattr(item, 'originalTitle', '') or '',
+        'titleSort': getattr(item, 'titleSort', '') or '',
+        'year': getattr(item, 'year', None),
+        'tmdb_ids': _plex_item_tmdb_ids(item),
+    }
+
+
+def _pick_strict_plex_match(results, ext, lib_type):
+    """Return (item, reason) using TMDB guid or normalized title+year — never first hit."""
+    for item in list(results or [])[:25]:
+        if not _acceptable_collection_member(item, lib_type):
+            continue
+        reason = pick_match_reason(_plex_candidate_dict(item), ext if isinstance(ext, dict) else {})
+        if reason:
+            return item, reason
+    return None, None
+
+
+def _fetch_library_items_by_keys(library, keys):
+    items = []
+    lib_type = normalize_media_kind(getattr(library, 'type', None))
+    for key in _id_list(keys):
+        try:
+            item = library.fetchItem(int(key))
+        except Exception:
+            continue
+        if _acceptable_collection_member(item, lib_type):
+            items.append(item)
+    return items
+
+
+def _match_external_to_plex(
+    library,
+    external_items,
+    tmdb_cache=None,
+    *,
+    report=False,
+    skip_tmdb_ids=None,
+    skip_rating_keys=None,
+):
+    """Match external {tmdb_id/id, title, year} items to local Plex items.
+
+    Requires a TMDB guid or a normalized title match (year when known).
+    The old first-search-result fallback pulled unrelated library movies
+    into franchise collections.
+    """
+    items = [ext for ext in (external_items or []) if isinstance(ext, dict)]
+    skip_tmdb = {str(x).strip() for x in (skip_tmdb_ids or []) if str(x).strip()}
+    skip_keys = {str(x).strip() for x in (skip_rating_keys or []) if str(x).strip()}
+    empty = [] if not report else ([], [])
+    if not items:
+        return empty if report else []
 
     matched = []
     seen_keys = set()
+    rows = []
+    lib_type = normalize_media_kind(getattr(library, 'type', None))
+    cache = tmdb_cache
+    if cache is None and len(items) > 80:
+        logging.info(f"Building full TMDB cache for {len(items)} items (slow path)")
+        cache = _build_library_tmdb_cache(library)
 
-    # Fast path: title search (+ TMDB guid verify) for modest lists.
-    if tmdb_cache is None and len(items) <= 80:
-        logging.info(f"Matching {len(items)} items via title search (fast path)")
-        for ext in items:
-            tmdb_id = str(ext.get('tmdb_id') or ext.get('id') or '').strip()
-            title = str(ext.get('title') or '').strip()
-            libtype = 'movie' if str(ext.get('type') or 'movie') == 'movie' else 'show'
-            if not title and not tmdb_id:
+    unmatched = []
+    for ext in items:
+        tmdb_id = str(ext.get('tmdb_id') or ext.get('id') or '').strip()
+        title = str(ext.get('title') or ext.get('name') or '').strip()
+        year = ext.get('year')
+        if tmdb_id and tmdb_id in skip_tmdb:
+            rows.append({
+                'title': title, 'tmdb_id': tmdb_id, 'year': year,
+                'status': 'excluded', 'reason': 'excluded',
+            })
+            continue
+        if not title and not tmdb_id:
+            continue
+
+        pick = None
+        reason = None
+        if cache is not None and tmdb_id:
+            cached = cache.get(tmdb_id)
+            if cached is not None and _acceptable_collection_member(cached, lib_type):
+                pick, reason = cached, 'tmdb'
+
+        if pick is None:
+            unmatched.append(ext)
+        else:
+            key = str(getattr(pick, 'ratingKey', '') or '').strip()
+            if key and key in skip_keys:
+                rows.append({
+                    'title': title, 'tmdb_id': tmdb_id, 'year': year,
+                    'status': 'excluded', 'reason': 'excluded',
+                    'plex_title': getattr(pick, 'title', ''),
+                    'rating_key': key,
+                })
                 continue
-            pick = None
+            if key and key not in seen_keys:
+                seen_keys.add(key)
+                matched.append(pick)
+            rows.append({
+                'title': title, 'tmdb_id': tmdb_id, 'year': year,
+                'status': 'matched', 'reason': reason,
+                'plex_title': getattr(pick, 'title', ''),
+                'rating_key': key,
+                'plex_year': getattr(pick, 'year', None),
+            })
+
+    can_search = unmatched and (len(items) <= 80 or len(unmatched) <= 40)
+    if can_search:
+        logging.info(f"Matching {len(unmatched)} items via strict title search")
+        for ext in unmatched:
+            tmdb_id = str(ext.get('tmdb_id') or ext.get('id') or '').strip()
+            title = str(ext.get('title') or ext.get('name') or '').strip()
+            year = ext.get('year')
+            libtype = 'movie' if str(ext.get('type') or 'movie') == 'movie' else 'show'
             try:
                 results = library.search(title=title, libtype=libtype) if title else []
             except Exception as e:
                 logging.debug("Plex title search failed for an external list item", exc_info=True)
                 results = []
-            if tmdb_id and results:
-                for r in results[:20]:
-                    if tmdb_id in _plex_item_tmdb_ids(r):
-                        pick = r
-                        break
-            if pick is None and title and results:
-                for r in results[:10]:
-                    if (getattr(r, 'title', '') or '').casefold() == title.casefold():
-                        pick = r
-                        break
-            if pick is None and results:
-                pick = results[0]
-            if pick is not None:
-                key = getattr(pick, 'ratingKey', None)
-                if key not in seen_keys:
-                    seen_keys.add(key)
-                    matched.append(pick)
-        return matched
+            pick, reason = _pick_strict_plex_match(results, ext, lib_type)
+            if pick is None:
+                rows.append({
+                    'title': title, 'tmdb_id': tmdb_id, 'year': year,
+                    'status': 'unmatched', 'reason': 'no_match',
+                })
+                continue
+            key = str(getattr(pick, 'ratingKey', '') or '').strip()
+            if key and key in skip_keys:
+                rows.append({
+                    'title': title, 'tmdb_id': tmdb_id, 'year': year,
+                    'status': 'excluded', 'reason': 'excluded',
+                    'plex_title': getattr(pick, 'title', ''),
+                    'rating_key': key,
+                })
+                continue
+            if key and key not in seen_keys:
+                seen_keys.add(key)
+                matched.append(pick)
+            rows.append({
+                'title': title, 'tmdb_id': tmdb_id, 'year': year,
+                'status': 'matched', 'reason': reason,
+                'plex_title': getattr(pick, 'title', ''),
+                'rating_key': key,
+                'plex_year': getattr(pick, 'year', None),
+            })
+    else:
+        for ext in unmatched:
+            rows.append({
+                'title': str(ext.get('title') or ''),
+                'tmdb_id': str(ext.get('tmdb_id') or ext.get('id') or ''),
+                'year': ext.get('year'),
+                'status': 'unmatched', 'reason': 'no_match',
+            })
 
-    if tmdb_cache is None:
-        logging.info(f"Building full TMDB cache for {len(items)} items (slow path)")
-        tmdb_cache = _build_library_tmdb_cache(library)
-
-    for ext in items:
-        tmdb_id_val = ext.get('tmdb_id') or ext.get('id')
-        if not tmdb_id_val:
-            continue
-        local_item = tmdb_cache.get(str(tmdb_id_val))
-        if not local_item:
-            continue
-        key = getattr(local_item, 'ratingKey', None)
-        if key in seen_keys:
-            continue
-        seen_keys.add(key)
-        matched.append(local_item)
-    return matched
+    clean = _sanitize_collection_members(library, matched)
+    if report:
+        return clean, rows
+    return clean
 
 
-def _register_managed_job(library_name, title, source_type, source_id, sort_order='custom', auto_sync=True):
+def _managed_job_id(library_name, title):
+    """Stable unique id — avoid space-collapse collisions (Movies+'Top Rated' vs 'Movies Top'+'Rated')."""
+    lib = str(library_name or '').strip()
+    name = str(title or '').strip()
+    return f"{lib}::{name}".lower()
+
+
+def _register_managed_job(library_name, title, source_type, source_id, sort_order='custom', auto_sync=True, rating_key=None):
     managed = load_managed_collections()
-    job_id = f"{library_name}_{title}".replace(' ', '_').lower()
-    managed[job_id] = {
+    job_id = _managed_job_id(library_name, title)
+    existing = managed.get(job_id) if isinstance(managed.get(job_id), dict) else {}
+    # Drop legacy colliding ids that match this library+title under the old format.
+    legacy_id = f"{library_name}_{title}".replace(' ', '_').lower()
+    for jid, job in list(managed.items()):
+        if not isinstance(job, dict):
+            continue
+        if jid == job_id:
+            continue
+        if job.get('library') == library_name and job.get('name') == title:
+            if not existing:
+                existing = job
+            del managed[jid]
+        elif jid == legacy_id:
+            if not existing:
+                existing = job
+            del managed[jid]
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    payload = {
         "name": title,
         "library": library_name,
         "source_type": source_type,
         "source_id": source_id or '',
-        "sort_order": sort_order,
+        "sort_order": _normalize_sort_order(sort_order),
         "auto_sync": bool(auto_sync),
-        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "last_run": "Never",
-        "next_run": (datetime.now() + timedelta(hours=6)).strftime("%Y-%m-%d %H:%M:%S"),
+        "created_at": existing.get('created_at') or now,
+        "last_run": existing.get('last_run') or "Never",
+        "next_run": existing.get('next_run') or (datetime.now() + timedelta(hours=6)).strftime("%Y-%m-%d %H:%M:%S"),
     }
+    keep_key = str(rating_key or existing.get('rating_key') or existing.get('ratingKey') or '').strip()
+    if keep_key:
+        payload['rating_key'] = keep_key
+    for field in ('excluded_tmdb_ids', 'excluded_rating_keys', 'extra_rating_keys'):
+        kept = _id_list(existing.get(field))
+        if kept:
+            payload[field] = kept
+    managed[job_id] = payload
     save_managed_collections(managed)
     log_action(f"Registered Auto-Sync job for '{title}' (Source: {source_type})")
     return job_id
@@ -1166,44 +1931,953 @@ def _unregister_jobs_for_collection(library_name, title):
     return removed
 
 
-def _delete_plex_collection(library_name, title):
+_collection_create_locks = {}
+_collection_create_locks_guard = threading.Lock()
+
+
+def _normalize_collection_title(title):
+    return str(title or '').strip()
+
+
+@contextmanager
+def _collection_create_lock(library_name, title):
+    """Serialize create/update for the same library + title to prevent duplicate Plex collections."""
+    key = _managed_job_id(library_name, title)
+    with _collection_create_locks_guard:
+        lock = _collection_create_locks.setdefault(key, threading.Lock())
+    if not lock.acquire(timeout=180):
+        raise RuntimeError(f"Collection '{title}' is already being created or updated.")
+    try:
+        yield
+    finally:
+        lock.release()
+
+
+def _find_collections_by_title(library, title):
+    """Return every Plex collection in this library whose title matches (case-insensitive)."""
+    title = _normalize_collection_title(title)
+    if not title:
+        return []
+    norm = title.lower()
+    matches = []
+    seen_keys = set()
+    try:
+        filtered = library.collections(title=title)
+        for coll in filtered or []:
+            rk = getattr(coll, 'ratingKey', None)
+            if rk is not None and rk not in seen_keys:
+                matches.append(coll)
+                seen_keys.add(rk)
+    except Exception as e:
+        logging.warning(f"Title-filtered collection lookup failed for '{title}': {e}")
+    try:
+        for coll in library.collections():
+            rk = getattr(coll, 'ratingKey', None)
+            if rk is None or rk in seen_keys:
+                continue
+            if str(coll.title or '').strip().lower() == norm:
+                matches.append(coll)
+                seen_keys.add(rk)
+    except Exception as e:
+        logging.warning(f"Collection scan failed for '{title}': {e}")
+    return matches
+
+
+def _collection_item_count(coll, allow_fetch=False):
+    """Best-effort item count. Gallery list must pass allow_fetch=False (never coll.items())."""
+    try:
+        child_count = getattr(coll, 'childCount', None)
+        if child_count is not None:
+            return int(child_count)
+        if not allow_fetch:
+            return 0
+        if getattr(coll, 'smart', False):
+            return len(coll.items())
+        return len(coll.items())
+    except Exception:
+        return 0
+
+
+def _collection_item_count_light(coll):
+    """Gallery-safe count — childCount only, never fetches items (CF 524 hotspot)."""
+    return _collection_item_count(coll, allow_fetch=False)
+
+
+def _item_rating_keys(items):
+    keys = set()
+    for item in items or []:
+        rk = str(getattr(item, 'ratingKey', '') or '').strip()
+        if rk:
+            keys.add(rk)
+    return keys
+
+
+def _pick_primary_collection(collections):
+    """Keep the original/pinned collection — never prefer a newer duplicate ratingKey."""
+    if not collections:
+        return None
+    return max(
+        collections,
+        key=lambda coll: (
+            1 if _collection_is_pinned(coll) else 0,
+            _collection_item_count(coll, allow_fetch=True),
+            # Older keys usually hold Library/Home/Friends pins and overlay rules.
+            -int(getattr(coll, 'ratingKey', 0) or 0),
+        ),
+    )
+
+
+def _delete_duplicate_collections(library, title, keep_rating_key=None):
+    """Delete unpinned same-title duplicates, never touching the kept or home-pinned copy."""
+    keep = str(keep_rating_key) if keep_rating_key is not None else None
+    removed = 0
+    for coll in _find_collections_by_title(library, title):
+        rk = str(getattr(coll, 'ratingKey', ''))
+        if keep and rk == keep:
+            continue
+        if _collection_is_pinned(coll):
+            logging.warning(
+                "Leaving pinned duplicate '%s' (key %s) — deleting it would drop Home/Library/Friends.",
+                getattr(coll, 'title', title),
+                rk,
+            )
+            continue
+        try:
+            coll.delete()
+            removed += 1
+            log_action(f"Removed duplicate collection '{coll.title}' (key {rk}).")
+        except Exception as e:
+            logging.warning(f"Failed to delete duplicate collection '{coll.title}': {e}")
+    return removed
+
+
+def _update_collection_items_in_place(coll, matched_items, label):
+    """Sync collection membership. Returns {changed, added, removed, memberKeys}."""
+    current_by_key = {}
+    for item in list(coll.items() or []):
+        rk = str(getattr(item, 'ratingKey', '') or '').strip()
+        if rk:
+            current_by_key[rk] = item
+    target_by_key = {}
+    for item in matched_items or []:
+        rk = str(getattr(item, 'ratingKey', '') or '').strip()
+        if rk:
+            target_by_key[rk] = item
+    to_add = [item for rk, item in target_by_key.items() if rk not in current_by_key]
+    to_remove = [item for rk, item in current_by_key.items() if rk not in target_by_key]
+    if to_add:
+        _add_collection_items_batched(coll, to_add)
+    if to_remove:
+        removed_keys = [str(getattr(item, 'ratingKey', '') or '') for item in to_remove]
+        try:
+            _remove_collection_item_keys(coll, removed_keys)
+        except Exception as e:
+            logging.warning(f"Failed to remove old items from '{coll.title}': {e}")
+    if not _collection_has_label(coll, label):
+        try:
+            coll.addLabel(label)
+        except Exception:
+            pass
+    return {
+        'changed': bool(to_add or to_remove),
+        'added': len(to_add),
+        'removed': len(to_remove),
+        'memberKeys': sorted(target_by_key.keys()),
+    }
+
+
+def _update_smart_collection_in_place(coll, matched_items, sort_order='custom', label='Collexions'):
+    """Fallback when a smart collection cannot be converted to regular."""
+    current = _item_rating_keys(list(coll.items() or []))
+    if not _collection_has_label(coll, label):
+        try:
+            coll.addLabel(label)
+        except Exception:
+            pass
+    logging.warning(
+        "Left smart collection '%s' unchanged — convert it from Gallery → Repair Plex tab.",
+        getattr(coll, 'title', '?'),
+    )
+    return {
+        'changed': False,
+        'added': 0,
+        'removed': 0,
+        'memberKeys': sorted(current),
+        'skipped_smart': True,
+    }
+
+
+def _collection_has_label(coll, label):
+    want = str(label or '').strip().lower()
+    if not want:
+        return False
+    try:
+        for lab in getattr(coll, 'labels', []) or []:
+            tag = str(getattr(lab, 'tag', lab) or '').strip().lower()
+            if tag == want:
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def _collection_section_id(coll):
+    sid = getattr(coll, 'librarySectionID', None)
+    if sid:
+        return str(sid)
+    try:
+        key = str(getattr(coll.section(), 'key', '') or '')
+        return key.rstrip('/').split('/')[-1]
+    except Exception:
+        return ''
+
+
+def _iter_visibility_hubs(coll):
+    """Hubs that hold Show on Home / Friends / Recommended for this collection."""
+    if coll is None:
+        return []
+    hubs = []
+    try:
+        raw = coll.visibility()
+    except Exception:
+        raw = None
+    if isinstance(raw, list):
+        hubs.extend([hub for hub in raw if hub])
+    elif raw:
+        hubs.append(raw)
+    if hubs:
+        return hubs
+    try:
+        section = coll.section()
+        sid = _collection_section_id(coll)
+        rk = str(getattr(coll, 'ratingKey', '') or '')
+        want = f'custom.collection.{sid}.{rk}'
+        for hub in section.managedHubs() or []:
+            ident = str(getattr(hub, 'identifier', '') or '')
+            if ident == want or (rk and ident.endswith(f'.{rk}')):
+                return [hub]
+    except Exception:
+        pass
+    return []
+
+
+def _capture_collection_visibility(coll):
+    vis = {'home': False, 'shared': False, 'recommended': False}
+    for hub in _iter_visibility_hubs(coll):
+        vis['home'] = vis['home'] or bool(getattr(hub, 'promotedToOwnHome', False))
+        vis['shared'] = vis['shared'] or bool(getattr(hub, 'promotedToSharedHome', False))
+        vis['recommended'] = vis['recommended'] or bool(getattr(hub, 'promotedToRecommended', False))
+    return vis
+
+
+def _restore_visibility_via_manage_api(coll, vis):
+    server = getattr(coll, '_server', None)
+    sid = _collection_section_id(coll)
+    rk = str(getattr(coll, 'ratingKey', '') or '')
+    if not server or not sid or not rk:
+        return False
+    params = {'metadataItemId': rk}
+    if vis.get('recommended'):
+        params['promotedToRecommended'] = 1
+    if vis.get('home'):
+        params['promotedToOwnHome'] = 1
+    if vis.get('shared'):
+        params['promotedToSharedHome'] = 1
+    if len(params) == 1:
+        return False
+    try:
+        server.query(
+            f"/hubs/sections/{sid}/manage{_join_query_args(params)}",
+            method=server._session.put,
+        )
+        return True
+    except Exception as exc:
+        logging.warning(
+            "Could not restore home visibility for '%s' via manage API: %s",
+            getattr(coll, 'title', '?'),
+            exc,
+        )
+        return False
+
+
+def _restore_collection_visibility(coll, vis):
+    """Re-apply Show on Home / Friends after Plex clears them on collection writes."""
+    if coll is None or not vis or not any(vis.values()):
+        return
+    kwargs = {}
+    if vis.get('home'):
+        kwargs['home'] = True
+    if vis.get('shared'):
+        kwargs['shared'] = True
+    if vis.get('recommended'):
+        kwargs['recommended'] = True
+    for hub in _iter_visibility_hubs(coll):
+        if kwargs and hasattr(hub, 'updateVisibility'):
+            try:
+                hub.updateVisibility(**kwargs)
+                return
+            except Exception as exc:
+                logging.warning(
+                    "updateVisibility failed for '%s': %s",
+                    getattr(coll, 'title', '?'),
+                    exc,
+                )
+        try:
+            if vis.get('home') and hasattr(hub, 'promoteHome'):
+                hub.promoteHome()
+            if vis.get('shared') and hasattr(hub, 'promoteShared'):
+                hub.promoteShared()
+            if vis.get('recommended') and hasattr(hub, 'promoteRecommended'):
+                try:
+                    hub.promoteRecommended()
+                except Exception:
+                    pass
+            return
+        except Exception as exc:
+            logging.warning(
+                "Could not restore pins for '%s': %s",
+                getattr(coll, 'title', '?'),
+                exc,
+            )
+    _restore_visibility_via_manage_api(coll, vis)
+
+
+def _copy_collection_poster(src, dest):
+    try:
+        url = getattr(src, 'posterUrl', None)
+        if url:
+            dest.uploadPoster(url=url)
+            try:
+                dest.lockPoster()
+            except Exception:
+                pass
+            return True
+    except Exception as exc:
+        logging.warning("Could not copy poster from '%s': %s", getattr(src, 'title', '?'), exc)
+    return False
+
+
+def _normalize_sort_order(sort_order):
+    order = str(sort_order or 'custom').strip().lower()
+    return order if order in ('custom', 'random', 'release') else 'custom'
+
+
+def _shuffle_collection_custom_order(coll, matched_items=None):
+    """Reorder a regular collection via Plex custom sort (safe — not a smart filter)."""
+    if coll is None or getattr(coll, 'smart', False):
+        return False
+    items = [item for item in list(matched_items or []) if getattr(item, 'ratingKey', None)]
+    if len(items) < 2:
+        try:
+            items = [item for item in list(coll.items() or []) if getattr(item, 'ratingKey', None)]
+        except Exception:
+            items = []
+    if len(items) < 2:
+        return False
+    random.shuffle(items)
+    try:
+        if hasattr(coll, 'moveItem'):
+            coll.moveItem(items[0])
+            prev = items[0]
+            for item in items[1:]:
+                coll.moveItem(item, after=prev)
+                prev = item
+        else:
+            server = getattr(coll, '_server', None)
+            coll_key = str(getattr(coll, 'key', '') or '').strip() or f"/library/metadata/{getattr(coll, 'ratingKey', '')}"
+            if not server or not coll_key:
+                return False
+            put = server._session.put
+            server.query(f'{coll_key}/items/{items[0].ratingKey}/move', method=put)
+            prev = items[0]
+            for item in items[1:]:
+                server.query(f'{coll_key}/items/{item.ratingKey}/move?after={prev.ratingKey}', method=put)
+                prev = item
+        log_action(
+            f"Shuffled '{getattr(coll, 'title', '?')}' into a new random custom order "
+            f"({len(items)} items)."
+        )
+        return True
+    except Exception as e:
+        logging.warning("Failed to shuffle '%s': %s", getattr(coll, 'title', '?'), e)
+        return False
+
+
+def _apply_collection_sort(coll, matched_items, sort_order='custom', reorder=True):
+    """Apply sort on a regular collection. Random here is a one-off shuffle fallback —
+    the real per-view random lives in _ensure_random_smart_collection (label smart)."""
+    if coll is None:
+        return
+    order = _normalize_sort_order(sort_order)
+    if order == 'release':
+        try:
+            coll.sortUpdate('release')
+        except Exception as e:
+            logging.warning("Failed to set release sort on '%s': %s", getattr(coll, 'title', '?'), e)
+        return
+    try:
+        coll.sortUpdate('custom')
+    except Exception as e:
+        logging.warning("Failed to set custom sort on '%s': %s", getattr(coll, 'title', '?'), e)
+    if order == 'random' and reorder:
+        _shuffle_collection_custom_order(coll, matched_items)
+
+
+def _convert_smart_collection_to_regular(library, coll, matched_items=None, label='Collexions', sort_order='custom'):
+    """Rebuild a smart collection as a regular one, keeping title, items, art, and pins.
+
+    Plex cannot flip smart→regular on the same ratingKey. Park the smart copy
+    under a temporary title, create a regular collection with the original
+    name, restore poster/pins, then delete the smart copy.
     """
-    Permanently delete a collection from Plex and drop matching managed jobs.
+    if coll is None or not getattr(coll, 'smart', False):
+        return coll, False
+    title = _normalize_collection_title(getattr(coll, 'title', ''))
+    if not title:
+        return coll, False
+    items = list(matched_items or [])
+    if not items:
+        try:
+            items = list(coll.items() or [])
+        except Exception:
+            items = []
+    items = _sanitize_collection_members(library, items)
+    if not items:
+        logging.warning("Cannot convert smart collection '%s' — no valid members.", title)
+        return coll, False
+
+    vis = _capture_collection_visibility(coll)
+    old_rk = str(getattr(coll, 'ratingKey', '') or '')
+    parked_title = f'{title} (legacy smart)'
+    try:
+        coll.editTitle(parked_title)
+        try:
+            coll.reload()
+        except Exception:
+            pass
+    except Exception as exc:
+        logging.warning("Could not rename smart collection '%s' before convert: %s", title, exc)
+        return coll, False
+
+    try:
+        new_coll = _create_plex_collection(library, title, items, sort_order=sort_order, label=label)
+    except Exception as exc:
+        logging.warning("Convert failed creating regular '%s': %s", title, exc)
+        try:
+            coll.editTitle(title)
+        except Exception:
+            pass
+        return coll, False
+
+    _copy_collection_poster(coll, new_coll)
+    _restore_collection_visibility(new_coll, vis)
+    try:
+        coll.delete()
+        log_action(
+            f"Converted smart collection '{title}' to a regular collection "
+            f"(old key {old_rk} → {getattr(new_coll, 'ratingKey', '?')})."
+        )
+    except Exception as exc:
+        logging.warning("Converted '%s' but failed to delete the old smart copy: %s", title, exc)
+    return new_coll, True
+
+
+def _random_label_tag(title, base_label='Collexions'):
+    """Per-collection member label used by Kometa-style random smart collections."""
+    base = str(base_label or 'Collexions').strip() or 'Collexions'
+    name = _normalize_collection_title(title)
+    return f"{base}: {name}"
+
+
+def _smart_collection_is_label_based(coll):
+    """True when a smart collection filters on a label (tiny URI — safe shape)."""
+    try:
+        content = str(getattr(coll, 'content', '') or '')
+        return 'label=' in content or 'label%3d' in content.lower()
+    except Exception:
+        return False
+
+
+def _set_items_label(library, items, tag, add=True):
+    """Add or remove a label on library items in small batches (never one giant URI)."""
+    items = [item for item in (items or []) if getattr(item, 'ratingKey', None)]
+    if not items:
+        return 0
+    done = 0
+    for chunk in _chunked(items, 50):
+        try:
+            editor = library.batchMultiEdits(chunk)
+            (editor.addLabel(tag) if add else editor.removeLabel(tag))
+            editor.saveMultiEdits()
+            done += len(chunk)
+            continue
+        except Exception:
+            pass
+        for item in chunk:
+            try:
+                if add:
+                    item.addLabel(tag)
+                else:
+                    item.removeLabel(tag)
+                done += 1
+            except Exception as e:
+                logging.warning(
+                    "Label '%s' %s failed on '%s': %s",
+                    tag, 'add' if add else 'remove', getattr(item, 'title', '?'), e,
+                )
+    return done
+
+
+def _label_filter_key(library, tag, retries=6, delay=2):
+    """Resolve a label to its numeric Plex filter id (Kometa filters by id, not text)."""
+    want = str(tag or '').strip().lower()
+    for attempt in range(retries):
+        try:
+            for choice in library.listFilterChoices('label') or []:
+                if str(getattr(choice, 'title', '') or '').strip().lower() == want:
+                    return str(choice.key)
+        except Exception as e:
+            logging.debug("listFilterChoices('label') failed: %s", e)
+        if attempt < retries - 1:
+            time.sleep(delay)
+    raise RuntimeError(f"Label '{tag}' has not appeared in Plex section filters yet")
+
+
+def _random_smart_uri(library, label_key):
+    """Smart-filter URI shaped exactly like Kometa's smart_label builder."""
+    server = library._server
+    smart_type = 2 if normalize_media_kind(getattr(library, 'type', None)) == 'show' else 1
+    section_key = str(getattr(library, 'key', '') or '').rstrip('/').split('/')[-1]
+    uri = (
+        f"server://{server.machineIdentifier}/com.plexapp.plugins.library"
+        f"/library/sections/{section_key}/all?type={smart_type}&sort=random&label={label_key}"
+    )
+    return uri, smart_type, section_key
+
+
+def _create_random_smart_collection(library, title, tag):
+    """Create a label-filtered smart collection sorted randomly, using the exact raw
+    endpoint, numeric label id, and URI shape Kometa uses for smart_label builds."""
+    server = library._server
+    label_key = _label_filter_key(library, tag)
+    uri, smart_type, section_key = _random_smart_uri(library, label_key)
+    args = {'type': smart_type, 'title': title, 'smart': 1, 'sectionId': section_key, 'uri': uri}
+    server.query(f"/library/collections{_join_query_args(args)}", method=server._session.post)
+    for cand in _find_collections_by_title(library, title):
+        if getattr(cand, 'smart', False):
+            return _as_live_collection(library, cand) or cand
+    raise RuntimeError(f"Smart collection '{title}' was not created")
+
+
+def _update_random_smart_filter(library, coll, tag):
+    """Repoint an existing smart collection at our label + random sort (Kometa's PUT)."""
+    server = library._server
+    label_key = _label_filter_key(library, tag)
+    uri, _smart_type, _section_key = _random_smart_uri(library, label_key)
+    coll_key = f"/library/collections/{coll.ratingKey}"
+    server.query(f"{coll_key}/items{_join_query_args({'uri': uri})}", method=server._session.put)
+    try:
+        coll.reload()
+    except Exception:
+        pass
+
+
+def _collection_list_row_unsafe(library, coll, config=None):
+    """Check the raw collections-list row Plex wrote for this collection.
+
+    Some PMS builds write corrupt rows for API-created smart collections; this
+    scans the same XML list Plex Web renders and flags rows the tab cannot draw.
+    """
+    try:
+        config = config or load_config()
+        url = str(config.get('plex_url') or '').rstrip('/')
+        token = str(config.get('plex_token') or '')
+        section_key = str(getattr(library, 'key', '') or '').rstrip('/').split('/')[-1]
+        rk = str(getattr(coll, 'ratingKey', '') or '').strip()
+        if not (url and token and section_key and rk):
+            return False
+        start, page_size = 0, 50
+        while True:
+            resp = _fetch_section_collection_page(
+                url, token, section_key,
+                list_path='collections', accept='application/xml',
+                start=start, page_size=page_size,
+            )
+            if resp.status_code >= 400:
+                return False
+            items, total = _parse_plex_metadata_list(resp.content, resp.headers.get('Content-Type'))
+            for row in items:
+                if str(row.get('ratingKey') or '').strip() != rk:
+                    continue
+                if _collection_list_row_should_purge(row):
+                    return True
+                # A collection row without a movie/show subtype (e.g. a smart
+                # filter missing its type=) also crashes Plex Web's Collections
+                # tab, even though the row itself is type 18.
+                subtype = str(row.get('subtype') or '').strip().lower()
+                return subtype not in ('movie', 'show')
+            if not items or start + len(items) >= total:
+                return False
+            start += page_size
+    except Exception as exc:
+        logging.debug("Collections-list row probe failed: %s", exc)
+        return False
+
+
+def _ensure_random_smart_collection(library, title, matched_items, label='Collexions', keep_rating_key=None):
+    """Kometa-style random: label the members, then keep a smart collection filtered
+    on that single label with Plex sort=random, so the order reshuffles on every view.
+
+    After any smart create/update the raw collections-list row is verified; if this
+    PMS wrote a corrupt row, the collection is converted back to a regular shuffled
+    one so the Plex Web Collections tab never breaks.
+    Returns (collection, created_fresh, membership_delta).
+    """
+    tag = _random_label_tag(title, label)
+    target_by_key = {str(item.ratingKey): item for item in matched_items if getattr(item, 'ratingKey', None)}
+
+    try:
+        labeled = list(library.search(label=tag) or [])
+    except Exception as e:
+        logging.debug("Label lookup for '%s' failed (label may be new): %s", tag, e)
+        labeled = []
+    labeled_by_key = {str(getattr(item, 'ratingKey', '') or ''): item for item in labeled}
+    to_add = [item for key, item in target_by_key.items() if key not in labeled_by_key]
+    to_remove = [item for key, item in labeled_by_key.items() if key and key not in target_by_key]
+    if to_add:
+        _set_items_label(library, to_add, tag, add=True)
+    if to_remove:
+        _set_items_label(library, to_remove, tag, add=False)
+
+    def _delta(created):
+        return {
+            'changed': bool(to_add or to_remove) or created,
+            'added': len(to_add),
+            'removed': len(to_remove),
+            'memberKeys': sorted(target_by_key.keys()),
+        }
+
+    coll = None
+    keep_key = str(keep_rating_key or '').strip()
+    if keep_key:
+        coll = _resolve_collection(library, rating_key=keep_key)
+    if coll is None:
+        coll = _resolve_collection(library, title=title)
+
+    created_fresh = False
+    if coll is not None and not getattr(coll, 'smart', False):
+        # Regular → smart(label). Park the old copy, build the smart one under the
+        # original title, restore poster/pins, then delete the parked copy.
+        vis = _capture_collection_visibility(coll)
+        old = coll
+        old_rk = str(getattr(old, 'ratingKey', '') or '')
+        try:
+            old.editTitle(f'{title} (legacy manual)')
+            try:
+                old.reload()
+            except Exception:
+                pass
+        except Exception as exc:
+            logging.warning("Could not park '%s' before random conversion: %s", title, exc)
+            _apply_collection_sort(old, list(target_by_key.values()), 'random', reorder=True)
+            return old, False, _delta(False)
+        try:
+            coll = _create_random_smart_collection(library, title, tag)
+            created_fresh = True
+        except Exception as exc:
+            logging.warning("Random smart create failed for '%s': %s", title, exc)
+            try:
+                old.editTitle(title)
+            except Exception:
+                pass
+            _apply_collection_sort(old, list(target_by_key.values()), 'random', reorder=True)
+            return old, False, _delta(False)
+        _copy_collection_poster(old, coll)
+        _restore_collection_visibility(coll, vis)
+        try:
+            old.delete()
+        except Exception as exc:
+            logging.warning("Converted '%s' to random smart but could not delete old copy: %s", title, exc)
+        log_action(
+            f"Converted '{title}' to a random smart collection "
+            f"(label '{tag}', old key {old_rk} → {getattr(coll, 'ratingKey', '?')})."
+        )
+    elif coll is not None:
+        # Already smart. Membership is the label on titles — do not PUT the
+        # smart filter URI on every run. That rewrite clears Show on Home / Friends.
+        if not _smart_collection_is_label_based(coll):
+            vis = _capture_collection_visibility(coll)
+            try:
+                _update_random_smart_filter(library, coll, tag)
+            except Exception as e:
+                logging.warning("Could not update random smart filter on '%s': %s", title, e)
+            _restore_collection_visibility(coll, vis)
+    else:
+        coll = _create_random_smart_collection(library, title, tag)
+        created_fresh = True
+        log_action(f"Created random smart collection '{title}' (label '{tag}').")
+
+    # Trust but verify: if this PMS wrote a corrupt collections-list row for the
+    # smart collection, convert it straight back to a regular shuffled collection.
+    if getattr(coll, 'smart', False) and _collection_list_row_unsafe(library, coll):
+        log_action(
+            f"Plex wrote a corrupt collections-list row for smart '{title}' — "
+            f"this server cannot render API smart collections; falling back to a "
+            f"regular shuffled collection."
+        )
+        fallback, did = _convert_smart_collection_to_regular(
+            library, coll,
+            matched_items=list(target_by_key.values()),
+            label=label,
+            sort_order='random',
+        )
+        if did:
+            coll = fallback
+            created_fresh = True
+
+    if not _collection_has_label(coll, label):
+        vis_label = _capture_collection_visibility(coll)
+        try:
+            coll.addLabel(label)
+        except Exception:
+            pass
+        _restore_collection_visibility(coll, vis_label)
+    return coll, created_fresh, _delta(created_fresh)
+
+
+def _upsert_plex_collection(library, title, matched_items, sort_order='custom', label='Collexions', keep_rating_key=None):
+    """
+    Create or update exactly one Plex collection for title.
+    Never delete/recreate an existing collection — that drops Library/Home/Friends
+    pins and invalidates Overlays ratingKeys. Membership is written in small URI
+    batches so Plex cannot truncate the request into a type-99 folder.
+    Random uses a Kometa-style label-filtered smart collection (reshuffles per view);
+    other smart collections are converted to regular ones (same title, items, art, pins).
+    Returns (collection, created_fresh, membership_delta).
+    """
+    title = _normalize_collection_title(title)
+    if not title:
+        raise ValueError("Collection title is required")
+    matched_items = _sanitize_collection_members(library, matched_items)
+    if not matched_items:
+        raise ValueError("No valid matched items to add")
+
+    coll = None
+    keep_key = str(keep_rating_key or '').strip()
+    if keep_key:
+        coll = _resolve_collection(library, rating_key=keep_key)
+    existing_all = _find_collections_by_title(library, title)
+    if coll is None and existing_all:
+        coll = _as_live_collection(library, _pick_primary_collection(existing_all))
+
+    if _normalize_sort_order(sort_order) == 'random':
+        coll, created_fresh, delta = _ensure_random_smart_collection(
+            library, title, matched_items, label=label,
+            keep_rating_key=str(getattr(coll, 'ratingKey', '') or keep_key or '') or None,
+        )
+        new_key = str(getattr(coll, 'ratingKey', '') or '').strip()
+        removed = _delete_duplicate_collections(library, title, keep_rating_key=new_key or None)
+        if removed:
+            log_action(f"Removed {removed} duplicate collection(s) named '{title}'.")
+        return coll, created_fresh, delta
+
+    if coll is not None:
+        keep_key = str(getattr(coll, 'ratingKey', '') or keep_key or '').strip()
+        removed = _delete_duplicate_collections(library, title, keep_rating_key=keep_key)
+        if removed:
+            log_action(f"Removed {removed} duplicate collection(s) named '{title}'.")
+
+        is_smart = bool(getattr(coll, 'smart', False))
+        if is_smart:
+            converted, did = _convert_smart_collection_to_regular(
+                library, coll, matched_items=matched_items, label=label, sort_order=sort_order
+            )
+            if did:
+                coll = converted
+                keys = sorted(_item_rating_keys(matched_items))
+                return coll, True, {
+                    'changed': True,
+                    'added': len(keys),
+                    'removed': 0,
+                    'memberKeys': keys,
+                    'converted_smart': True,
+                }
+            delta = _update_smart_collection_in_place(coll, matched_items, sort_order=sort_order, label=label)
+            return coll, False, delta
+
+        vis = _capture_collection_visibility(coll)
+        try:
+            delta = _update_collection_items_in_place(coll, matched_items, label)
+            _apply_collection_sort(coll, matched_items, sort_order, reorder=True)
+            _restore_collection_visibility(coll, vis)
+            return coll, False, delta
+        except Exception as e:
+            _restore_collection_visibility(coll, vis)
+            if _as_live_collection(library, coll) is not None:
+                raise
+            logging.warning("Collection '%s' vanished during update (%s) — recreating.", title, e)
+            coll = None
+
+    log_action(f"Plex collection '{title}' was missing — creating it.")
+    coll = _create_plex_collection(library, title, matched_items, sort_order=sort_order, label=label)
+    keys = sorted(_item_rating_keys(matched_items))
+    return coll, True, {
+        'changed': True,
+        'added': len(keys),
+        'removed': 0,
+        'memberKeys': keys,
+    }
+
+
+def _notify_portal_collection_updated(coll, library_name, title, membership_delta=None):
+    """Tell the portal Overlays module a managed collection changed (best-effort).
+
+    Skips the hook when membership did not change — avoids needless overlay restamps.
+    """
+    delta = membership_delta if isinstance(membership_delta, dict) else {}
+    if delta and delta.get('changed') is False:
+        logging.debug(
+            "Skipping overlays hook for '%s' — membership unchanged",
+            title or getattr(coll, 'title', ''),
+        )
+        return
+    base = (
+        os.environ.get('PORTAL_CALLBACK_BASE')
+        or os.environ.get('COLLEXIONS_PORTAL_CALLBACK')
+        or ''
+    ).strip().rstrip('/')
+    service_key = str(os.environ.get('COLLEXIONS_SERVICE_KEY') or '').strip()
+    if not base or not service_key:
+        return
+    rating_key = str(getattr(coll, 'ratingKey', '') or '').strip()
+    if not rating_key and not title:
+        return
+    url = f"{base}/api/overlays/collexions-collection-updated"
+    try:
+        resp = requests.post(
+            url,
+            json={
+                'ratingKey': rating_key,
+                'title': _normalize_collection_title(title) or str(getattr(coll, 'title', '') or ''),
+                'library': str(library_name or '').strip(),
+                'added': int(delta.get('added') or 0),
+                'removed': int(delta.get('removed') or 0),
+                'changed': True if not delta else bool(delta.get('changed')),
+            },
+            headers={
+                'X-Collexions-Service-Key': service_key,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+            },
+            timeout=5,
+        )
+        if resp.status_code >= 400:
+            logging.debug(
+                'Portal overlays hook returned HTTP %s: %s',
+                resp.status_code,
+                (resp.text or '')[:200],
+            )
+    except Exception as exc:
+        logging.debug('Portal overlays hook failed: %s', exc)
+
+
+def _delete_plex_collection(library_name, title=None, rating_key=None):
+    """
+    Permanently delete Plex collection(s) and drop matching managed jobs when none remain.
+    With rating_key, deletes only that collection. With title, deletes all same-title copies.
     Returns (ok: bool, error: str|None, removed_jobs: list).
     """
     plex = get_plex_instance()
     if not plex:
         return False, "Plex connection failed", []
-    if not library_name or not title:
+    if not library_name or (not title and not rating_key):
         return False, "Missing title/library", []
     try:
         library = plex.library.section(library_name)
-        collection = library.collection(title)
-        collection.delete()
-        removed_jobs = _unregister_jobs_for_collection(library_name, title)
-        log_action(f"Deleted collection '{title}' from '{library_name}'.")
+        deleted_title = _normalize_collection_title(title)
+        if rating_key:
+            try:
+                coll = library.fetchItem(int(rating_key))
+                deleted_title = deleted_title or _normalize_collection_title(getattr(coll, 'title', ''))
+                coll.delete()
+                log_action(f"Deleted collection '{deleted_title}' (key {rating_key}) from '{library_name}'.")
+            except Exception as e:
+                logging.exception(f"Failed to delete collection key {rating_key} from '{library_name}'")
+                return False, "Failed to delete collection", []
+            remaining = _find_collections_by_title(library, deleted_title) if deleted_title else []
+            removed_jobs = _unregister_jobs_for_collection(library_name, deleted_title) if not remaining else []
+            return True, None, removed_jobs
+
+        deleted_title = _normalize_collection_title(title)
+        matches = _find_collections_by_title(library, deleted_title)
+        if not matches:
+            return False, "Collection not found", []
+        for coll in matches:
+            coll.delete()
+        removed_jobs = _unregister_jobs_for_collection(library_name, deleted_title)
+        log_action(f"Deleted {len(matches)} collection(s) named '{deleted_title}' from '{library_name}'.")
         return True, None, removed_jobs
     except Exception as e:
         logging.exception(f"Failed to delete collection '{title}' from '{library_name}'")
         return False, "Failed to delete collection", []
 
 
+def _as_live_collection(library, coll):
+    """Return coll only if it still exists on Plex as a collection in this library."""
+    if coll is None:
+        return None
+    try:
+        key = int(getattr(coll, 'ratingKey', 0) or 0)
+        if key <= 0:
+            return None
+        fresh = library.fetchItem(key)
+        ctype = str(getattr(fresh, 'type', '') or '').lower()
+        if ctype and ctype != 'collection':
+            return None
+        try:
+            fresh.reload()
+        except Exception:
+            return None
+        return fresh
+    except Exception:
+        return None
+
+
+def _resolve_collection(library, title=None, rating_key=None):
+    """Fetch a single collection by ratingKey, or the primary match for title."""
+    if rating_key:
+        try:
+            return _as_live_collection(library, library.fetchItem(int(rating_key)))
+        except Exception:
+            return None
+    if title:
+        matches = _find_collections_by_title(library, title)
+        return _as_live_collection(library, _pick_primary_collection(matches)) if matches else None
+    return None
+
+
 def _create_plex_collection(library, title, matched_items, sort_order='custom', label='Collexions'):
-    """Create a Plex collection from matched items. Returns the collection object."""
-    if sort_order == 'random':
-        collection = library.createCollection(
-            title=title,
-            smart=True,
-            sort='random',
-            filters={'id': [itm.ratingKey for itm in matched_items]},
-        )
-    else:
-        collection = library.createCollection(title, items=matched_items)
-        if sort_order == 'release':
-            try:
-                collection.sortUpdate('release')
-            except Exception as e:
-                logging.warning(f"Failed to set release sort: {e}")
+    """Create a regular Plex collection from matched items.
+
+    Always create with a single seed item, then add the rest in small URI
+    batches. A one-shot createCollection(items=hundreds) or a smart id-filter
+    writes a type-99 folder that crashes Plex Web's Collections tab.
+    """
+    items = list(matched_items or [])
+    if not items:
+        raise ValueError("No valid matched items to add")
+    order = _normalize_sort_order(sort_order)
+    if order == 'random':
+        random.shuffle(items)
+        log_action(f"Creating '{title}' with shuffled custom order ({len(items)} items).")
+    collection = library.createCollection(title, items=items[:1])
+    try:
+        collection.reload()
+    except Exception:
+        pass
+    if len(items) > 1:
+        _add_collection_items_batched(collection, items[1:])
+    _apply_collection_sort(collection, items, order, reorder=False)
     try:
         collection.addLabel(label)
     except Exception as e:
@@ -1391,8 +3065,12 @@ def _build_poster_mosaic(poster_urls, cell_w=500, cell_h=750):
             logging.debug(f"Mosaic cell compose failed: {e}")
 
     buf = io.BytesIO()
-    canvas.save(buf, format='JPEG', quality=90, optimize=True)
+    canvas.save(buf, format='JPEG', quality=88, optimize=True)
     buf.seek(0)
+    if buf.getbuffer().nbytes > 9_000_000:
+        buf = io.BytesIO()
+        canvas.save(buf, format='JPEG', quality=75, optimize=True)
+        buf.seek(0)
     return buf
 
 
@@ -1449,7 +3127,11 @@ def _ensure_collection_art(coll, source_type='', source_id='', external_items=No
             except Exception:
                 pass
             log_action(f"Set franchise poster for collection '{title}'.")
-            return True
+            if _collection_poster_probe_issues(coll, config):
+                logging.warning(f"Franchise poster failed Plex Web probe for '{title}' — clearing.")
+                _clear_collection_custom_poster(coll)
+            else:
+                return True
         except Exception as e:
             logging.warning(f"Failed to upload franchise poster for '{title}': {e}")
 
@@ -1470,7 +3152,11 @@ def _ensure_collection_art(coll, source_type='', source_id='', external_items=No
             except Exception:
                 pass
             log_action(f"Set 2x2 mosaic poster for collection '{title}' ({len(mosaic_urls)} titles).")
-            return True
+            if _collection_poster_probe_issues(coll, config):
+                logging.warning(f"Mosaic poster failed Plex Web probe for '{title}' — clearing.")
+                _clear_collection_custom_poster(coll)
+            else:
+                return True
         except Exception as e:
             logging.warning(f"Failed to upload mosaic poster for '{title}': {e}")
 
@@ -1483,6 +3169,8 @@ def create_collection_from_source(library_name, title, source_type, source_id=''
     Fetch source (or use provided items), match to Plex, create collection, optionally register Job.
     Returns dict: success, matched, total, job_id, title, error?
     """
+    title = _normalize_collection_title(title)
+    library_name = str(library_name or '').strip()
     config = load_config()
     label = config.get('collexions_label', 'Collexions')
     plex = get_plex_instance()
@@ -1514,76 +3202,133 @@ def create_collection_from_source(library_name, title, source_type, source_id=''
         return {"success": False, "error": err}
 
     try:
-        library = plex.library.section(library_name)
-        mismatch = library_media_mismatch_error(library, source_type, source_id, items)
-        if mismatch:
-            return {"success": False, "error": mismatch, "matched": 0, "total": len(items)}
-        logging.info(f"Matching {len(items)} source items against library '{library_name}'...")
-        matched_items = _match_external_to_plex(library, items)
-        if not matched_items:
-            return {"success": False, "error": "No items matched your local library", "matched": 0, "total": len(items)}
+        with _collection_create_lock(library_name, title):
+            library = plex.library.section(library_name)
+            mismatch = library_media_mismatch_error(library, source_type, source_id, items)
+            if mismatch:
+                return {"success": False, "error": mismatch, "matched": 0, "total": len(items)}
+            logging.info(f"Matching {len(items)} source items against library '{library_name}'...")
+            matched_items = _match_external_to_plex(library, items)
+            if not matched_items:
+                return {"success": False, "error": "No items matched your local library", "matched": 0, "total": len(items)}
 
-        # If a collection with this title already exists, update it instead of failing.
-        existing = library.collections(title=title)
-        created_fresh = False
-        if existing:
-            coll = existing[0]
-            is_smart = getattr(coll, 'smart', False)
-            if is_smart or sort_order == 'random':
-                try:
-                    coll.delete()
-                except Exception:
-                    pass
-                coll = _create_plex_collection(library, title, matched_items, sort_order=sort_order, label=label)
-                created_fresh = True
-            else:
-                current_items = coll.items()
-                current_titles = {i.title for i in current_items}
-                target_titles = {i.title for i in matched_items}
-                to_add = [i for i in matched_items if i.title not in current_titles]
-                to_remove = [i for i in current_items if i.title not in target_titles]
-                if to_add:
-                    coll.addItems(to_add)
-                if to_remove:
-                    try:
-                        coll.removeItems(to_remove)
-                    except Exception as e:
-                        logging.warning(f"Failed to remove old items from '{title}': {e}")
-                try:
-                    coll.addLabel(label)
-                except Exception:
-                    pass
-        else:
-            coll = _create_plex_collection(library, title, matched_items, sort_order=sort_order, label=label)
-            created_fresh = True
+            vis = _capture_collection_visibility(_resolve_collection(library, title=title))
+            coll, created_fresh, membership_delta = _upsert_plex_collection(
+                library,
+                title,
+                matched_items,
+                sort_order=sort_order,
+                label=label,
+            )
+            _notify_portal_collection_updated(coll, library_name, title, membership_delta)
 
-        art_set = _ensure_collection_art(
-            coll,
-            source_type=source_type,
-            source_id=source_id,
-            external_items=items,
-            matched_items=matched_items,
-            config=config,
-            force=created_fresh,
-        )
+            art_set = _ensure_collection_art(
+                coll,
+                source_type=source_type,
+                source_id=source_id,
+                external_items=items,
+                matched_items=matched_items,
+                config=config,
+                force=created_fresh,
+            )
+            web_fixes = _finalize_collection_for_plex_web(coll, library, config)
+            _restore_collection_visibility(coll, vis)
 
-        job_id = None
-        if auto_sync and source_type:
-            job_id = _register_managed_job(library_name, title, source_type, source_id, sort_order, auto_sync=True)
+            job_id = None
+            if auto_sync and source_type:
+                job_id = _register_managed_job(
+                    library_name,
+                    title,
+                    source_type,
+                    source_id,
+                    sort_order,
+                    auto_sync=True,
+                    rating_key=getattr(coll, 'ratingKey', None),
+                )
 
-        GALLERY_CACHE['data'] = None
-        log_action(f"Created/updated collection '{title}' with {len(matched_items)}/{len(items)} items matched.")
-        return {
-            "success": True,
-            "matched": len(matched_items),
-            "total": len(items),
-            "job_id": job_id,
-            "title": title,
-            "art_set": bool(art_set),
-        }
+            GALLERY_CACHE['data'] = None
+            log_action(f"Created/updated collection '{title}' with {len(matched_items)}/{len(items)} items matched.")
+            return {
+                "success": True,
+                "matched": len(matched_items),
+                "total": len(items),
+                "job_id": job_id,
+                "title": title,
+                "art_set": bool(art_set),
+                "web_fixes": web_fixes,
+            }
+    except RuntimeError as e:
+        return {"success": False, "error": "Failed to create collection"}
     except Exception as e:
         logging.error(f"create_collection_from_source error: {e}", exc_info=True)
         return {"success": False, "error": "Failed to create collection"}
+
+
+def _stamp_job_run(job, status, error=''):
+    job['last_run'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    job['next_run'] = (datetime.now() + timedelta(hours=6)).strftime("%Y-%m-%d %H:%M:%S")
+    job['last_status'] = status
+    job['last_error'] = str(error or '').strip()[:500]
+
+
+_JOB_RUN_LOCK = threading.Lock()
+_JOB_RUN_STATE_LOCK = threading.Lock()
+_JOB_RUN_STATE = {
+    'running': False,
+    'total': 0,
+    'done': 0,
+    'failed': 0,
+    'current': '',
+    'current_id': '',
+}
+
+
+def _job_run_set(**kwargs):
+    with _JOB_RUN_STATE_LOCK:
+        _JOB_RUN_STATE.update(kwargs)
+
+
+def _job_run_snapshot():
+    with _JOB_RUN_STATE_LOCK:
+        snap = dict(_JOB_RUN_STATE)
+    total = int(snap.get('total') or 0)
+    done = int(snap.get('done') or 0)
+    if total > 0:
+        percent = int(round(100.0 * min(done, total) / total))
+    else:
+        percent = 100 if not snap.get('running') else 0
+    snap['percent'] = max(0, min(100, percent))
+    return snap
+
+
+def _run_jobs_background(job_ids):
+    """Force-run managed jobs one after another. Caller must already hold _JOB_RUN_LOCK."""
+    ids = [str(jid) for jid in (job_ids or []) if jid]
+    log_action(f"Run-all started ({len(ids)} job(s)).")
+    try:
+        for jid in ids:
+            managed = load_managed_collections()
+            job = managed.get(jid) if isinstance(managed.get(jid), dict) else {}
+            _job_run_set(current=str((job or {}).get('name') or jid), current_id=jid)
+            failed = False
+            try:
+                run_sync_job(jid)
+                after = load_managed_collections().get(jid) or {}
+                failed = str(after.get('last_status') or '').lower() == 'failed'
+            except Exception as e:
+                failed = True
+                logging.warning("Run-all failed for %s: %s", jid, e)
+            with _JOB_RUN_STATE_LOCK:
+                _JOB_RUN_STATE['done'] = int(_JOB_RUN_STATE.get('done') or 0) + 1
+                if failed:
+                    _JOB_RUN_STATE['failed'] = int(_JOB_RUN_STATE.get('failed') or 0) + 1
+        log_action(f"Run-all finished ({len(ids)} job(s)).")
+    finally:
+        _job_run_set(running=False, current='', current_id='')
+        try:
+            _JOB_RUN_LOCK.release()
+        except RuntimeError:
+            pass
 
 
 def run_sync_job(job_id=None):
@@ -1598,6 +3343,9 @@ def run_sync_job(job_id=None):
     
     if not plex_url or not plex_token:
         log_action("Sync failed: Plex URL or Token missing.")
+        if job_id and job_id in managed:
+            _stamp_job_run(managed[job_id], 'failed', 'Plex URL or Token missing')
+            save_managed_collections(managed)
         return
 
     from plexapi.server import PlexServer
@@ -1606,6 +3354,9 @@ def run_sync_job(job_id=None):
         plex = PlexServer(plex_url, plex_token)
     except Exception as e:
         log_action(f"Sync failed: Plex connection error: {e}")
+        if job_id and job_id in managed:
+            _stamp_job_run(managed[job_id], 'failed', f'Plex connection error: {e}')
+            save_managed_collections(managed)
         return
 
     jobs_to_run = [job_id] if job_id else list(managed.keys())
@@ -1621,7 +3372,9 @@ def run_sync_job(job_id=None):
         source_type = normalize_source_type(job.get('source_type'), source_id)
         if source_type and source_type != job.get('source_type'):
             job['source_type'] = source_type
-        sort_order = job.get('sort_order', 'custom')
+        sort_order = _normalize_sort_order(job.get('sort_order', 'custom'))
+        if sort_order != job.get('sort_order'):
+            job['sort_order'] = sort_order
         
         # Respect schedule if not run manually
         if not job_id:
@@ -1635,15 +3388,12 @@ def run_sync_job(job_id=None):
                     pass # Invalid or missing format, proceed to run
             
         log_action(f"Auto-Sync: Syncing items for '{coll_name}'...")
-        
-        # Update run stats immediately so they persist even if we exit early
-        job['last_run'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        job['next_run'] = (datetime.now() + timedelta(hours=6)).strftime("%Y-%m-%d %H:%M:%S")
 
         # 1. Fetch latest items
         items = fetch_source_items(source_type, source_id, config)
         if not items:
             log_action(f"Auto-Sync: No items found for '{coll_name}'. Skipping.")
+            _stamp_job_run(job, 'failed', 'No items found from source')
             continue
             
         # 2. Update Plex Collection (recreate if missing)
@@ -1652,96 +3402,95 @@ def run_sync_job(job_id=None):
             mismatch = library_media_mismatch_error(library, source_type, source_id, items)
             if mismatch:
                 log_action(f"Auto-Sync: Skipping '{coll_name}' — {mismatch}")
+                _stamp_job_run(job, 'failed', mismatch)
                 continue
             label = config.get('collexions_label', 'Collexions')
             tmdb_cache = _build_library_tmdb_cache(library)
-            plex_items = _match_external_to_plex(library, items, tmdb_cache=tmdb_cache)
+            skip_tmdb, skip_keys, extra_keys = _job_item_overrides(job)
+            plex_items = _match_external_to_plex(
+                library,
+                items,
+                tmdb_cache=tmdb_cache,
+                skip_tmdb_ids=skip_tmdb,
+                skip_rating_keys=skip_keys,
+            )
+            if extra_keys:
+                for extra in _fetch_library_items_by_keys(library, extra_keys):
+                    key = str(getattr(extra, 'ratingKey', '') or '').strip()
+                    if key and key not in skip_keys and key not in {str(getattr(i, 'ratingKey', '') or '') for i in plex_items}:
+                        plex_items.append(extra)
 
-            # Fallback: title search for items without TMDB guid match
-            if len(plex_items) < max(1, len(items) // 4):
-                matched_keys = {getattr(i, 'ratingKey', None) for i in plex_items}
-                for itm in items:
-                    search_type = 'movie' if itm.get('type') == 'movie' else 'show'
-                    results = library.search(title=itm.get('title'), libtype=search_type)
-                    if results and results[0].ratingKey not in matched_keys:
-                        plex_items.append(results[0])
-                        matched_keys.add(results[0].ratingKey)
-
+            plex_items = _sanitize_collection_members(library, plex_items)
             if not plex_items:
                 log_action(f"Auto-Sync: No matching Plex items found for '{coll_name}'.")
+                _stamp_job_run(job, 'failed', 'No matching Plex items found')
                 continue
 
-            collections = library.collections(title=coll_name)
-            if not collections:
-                log_action(f"Auto-Sync: Collection '{coll_name}' missing — recreating with {len(plex_items)} items.")
-                coll = _create_plex_collection(library, coll_name, plex_items, sort_order=sort_order, label=label)
-                _ensure_collection_art(
-                    coll,
-                    source_type=source_type,
-                    source_id=source_id,
-                    external_items=items,
-                    matched_items=plex_items,
-                    config=config,
-                    force=True,
-                )
-                GALLERY_CACHE['data'] = None
-                continue
-
-            coll = collections[0]
-            is_smart = getattr(coll, 'smart', False)
-
-            if is_smart or sort_order == 'random':
-                log_action(f"Auto-Sync: Recreating '{coll_name}' ({'smart' if is_smart else 'random'}).")
-                try:
-                    coll.delete()
-                except Exception as e:
-                    logging.warning(f"Failed to delete collection before recreate: {e}")
-                coll = _create_plex_collection(library, coll_name, plex_items, sort_order=sort_order if sort_order == 'random' else 'custom', label=label)
-                _ensure_collection_art(
-                    coll,
-                    source_type=source_type,
-                    source_id=source_id,
-                    external_items=items,
-                    matched_items=plex_items,
-                    config=config,
-                    force=True,
-                )
-                log_action(f"Auto-Sync: Successfully recreated '{coll_name}'.")
-            else:
-                current_items = coll.items()
-                current_titles = [i.title for i in current_items]
-                target_titles = [i.title for i in plex_items]
-
-                new_items = [i for i in plex_items if i.title not in current_titles]
-                items_to_remove = [i for i in current_items if i.title not in target_titles]
-
-                if new_items:
-                    coll.addItems(new_items)
-                    log_action(f"Auto-Sync: Added {len(new_items)} new items to '{coll_name}'.")
-
-                if items_to_remove:
-                    try:
-                        coll.removeItems(items_to_remove)
-                        log_action(f"Auto-Sync: Removed {len(items_to_remove)} items from '{coll_name}'.")
-                    except Exception as e:
-                        logging.warning(f"Failed to remove old items from '{coll_name}': {e}")
-
-                if not new_items and not items_to_remove:
-                    log_action(f"Auto-Sync: '{coll_name}' is already up to date.")
-
-                # Fill blank posters for existing managed collections (won't overwrite custom uploads).
-                _ensure_collection_art(
-                    coll,
-                    source_type=source_type,
-                    source_id=source_id,
-                    external_items=items,
-                    matched_items=plex_items,
-                    config=config,
-                    force=False,
-                )
+            try:
+                with _collection_create_lock(lib_name, coll_name):
+                    keep_key = str(job.get('rating_key') or job.get('ratingKey') or '').strip() or None
+                    existing = _resolve_collection(library, title=coll_name, rating_key=keep_key)
+                    vis = _capture_collection_visibility(existing)
+                    coll, created_fresh, membership_delta = _upsert_plex_collection(
+                        library,
+                        coll_name,
+                        plex_items,
+                        sort_order=sort_order,
+                        label=label,
+                        keep_rating_key=keep_key,
+                    )
+                    coll_key = str(getattr(coll, 'ratingKey', '') or '').strip()
+                    if coll_key:
+                        job['rating_key'] = coll_key
+                    _notify_portal_collection_updated(coll, lib_name, coll_name, membership_delta)
+                    if membership_delta.get('converted_smart'):
+                        log_action(
+                            f"Auto-Sync: '{coll_name}' was a smart collection — converted to regular "
+                            f"(key {coll_key or '?'})."
+                        )
+                    elif membership_delta.get('changed'):
+                        log_action(
+                            f"Auto-Sync: '{coll_name}' membership +"
+                            f"{membership_delta.get('added', 0)}/-{membership_delta.get('removed', 0)}"
+                        )
+                    elif membership_delta.get('skipped_smart'):
+                        log_action(
+                            f"Auto-Sync: '{coll_name}' is a smart collection — membership rewrite skipped "
+                            f"to protect the Plex Collections tab. Use Gallery → Repair Plex tab to convert it."
+                        )
+                    _ensure_collection_art(
+                        coll,
+                        source_type=source_type,
+                        source_id=source_id,
+                        external_items=items,
+                        matched_items=plex_items,
+                        config=config,
+                        force=created_fresh,
+                    )
+                    _finalize_collection_for_plex_web(coll, library, config)
+                    _restore_collection_visibility(coll, vis)
+                    if created_fresh:
+                        log_action(f"Auto-Sync: Created '{coll_name}' with {len(plex_items)} items.")
+                    else:
+                        log_action(f"Auto-Sync: Updated '{coll_name}' in place (key {coll_key or keep_key or '?'}).")
+                    if membership_delta.get('skipped_smart'):
+                        _stamp_job_run(
+                            job,
+                            'warning',
+                            'Smart collection — membership not rewritten. Convert it from Gallery → Repair.',
+                        )
+                    else:
+                        _stamp_job_run(job, 'success')
+            except RuntimeError as e:
+                log_action(f"Auto-Sync: Skipping '{coll_name}' — {e}")
+                _stamp_job_run(job, 'failed', str(e))
+            except Exception as e:
+                log_action(f"Auto-Sync error for '{coll_name}': {e}")
+                _stamp_job_run(job, 'failed', str(e))
 
         except Exception as e:
             log_action(f"Auto-Sync error for '{coll_name}': {e}")
+            _stamp_job_run(job, 'failed', str(e))
 
     save_managed_collections(managed)
     GALLERY_CACHE['data'] = None
@@ -1771,19 +3520,78 @@ def log_action(message):
 
 def is_script_already_running():
     """Check via psutil if ColleXions.py is running in a process the server didn't start."""
+    return bool(_collexions_script_pids())
+
+
+def _collexions_script_pids():
+    """PIDs whose command line is the pinning script (not this Flask worker)."""
     if not PSUTIL_AVAILABLE:
-        return False
+        return []
+    pids = []
+    my_pid = os.getpid()
     try:
         for proc in psutil.process_iter(['pid', 'cmdline']):
             try:
+                pid = proc.info.get('pid')
+                if not pid or pid == my_pid:
+                    continue
                 cmdline = proc.info.get('cmdline') or []
-                if any(SCRIPT_NAME in (arg or '') for arg in cmdline):
-                    return True
+                if any(
+                    os.path.basename(str(arg or '').replace('\\', '/')) == SCRIPT_NAME
+                    for arg in cmdline
+                ):
+                    pids.append(pid)
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 pass
     except Exception:
         pass
-    return False
+    return pids
+
+
+def _mark_script_stopped():
+    """Persist Stopped so leftover Sleeping/Run-complete text cannot look live."""
+    data = _read_status_file()
+    data['status'] = 'Stopped'
+    data['next_run_timestamp'] = 0
+    data['last_update'] = datetime.now().isoformat()
+    try:
+        ensure_dir_exists(STATUS_FILE)
+        with open(STATUS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+    except Exception as e:
+        logging.warning(f"Could not write stopped status: {e}")
+
+
+def _stop_background_process():
+    """Stop the pinning script only. Never block or kill the Flask/gunicorn worker."""
+    global process
+    stopped = False
+    managed = process
+    process = None
+    if managed is not None and managed.poll() is None:
+        try:
+            managed.terminate()
+            stopped = True
+        except Exception as exc:
+            logging.warning(f"Failed to terminate managed ColleXions process: {exc}")
+    skip_pids = {os.getpid(), os.getppid()}
+    if PSUTIL_AVAILABLE:
+        for pid in _collexions_script_pids():
+            if pid in skip_pids:
+                continue
+            try:
+                proc = psutil.Process(pid)
+                cmdline = ' '.join(str(part) for part in (proc.cmdline() or [])).lower()
+                if 'gunicorn' in cmdline or 'server:app' in cmdline:
+                    continue
+                proc.terminate()
+                stopped = True
+            except (psutil.NoSuchProcess, psutil.AccessDenied) as exc:
+                logging.warning(f"Could not stop ColleXions pid {pid}: {exc}")
+            except Exception as exc:
+                logging.warning(f"Could not stop ColleXions pid {pid}: {exc}")
+    _mark_script_stopped()
+    return stopped
 
 def _is_mdblist_url(value):
     """True when value's host is mdblist.com (or a subdomain), not merely containing the string."""
@@ -1828,6 +3636,7 @@ def _check_plex_quick(config, timeout=3):
 
 
 @app.route('/api/health')
+@require_auth
 def health():
     """Worker health for portal diagnostics (config, script, Plex)."""
     global process
@@ -1845,13 +3654,11 @@ def health():
     plex_ok, plex_error = _check_plex_quick(config)
     issues = []
     if not has_url or not has_token:
-        issues.append('Plex URL or token is not configured in Collexions.')
+        issues.append('Plex URL or token missing — set them under Settings → Media Player.')
     elif not plex_ok:
         issues.append(f'Cannot reach Plex: {plex_error}')
     if not libraries:
         issues.append('No libraries selected — pinning has nothing to process.')
-    if script_status == 'stopped':
-        issues.append('Pinning service is stopped (Start Service or enable Auto-start).')
 
     return jsonify({
         'ok': plex_ok and bool(libraries),
@@ -1928,17 +3735,18 @@ def get_status():
     elif process is not None and process.poll() is not None and process.returncode not in (0, None):
         status = file_msg or "Error (Check Logs)"
     else:
-        status = file_msg if file_msg and file_msg.lower() not in ('running', 'initializing') else "Idle"
+        status = "Stopped"
 
     next_run_timestamp = 0
-    raw_next = file_status.get('next_run_timestamp')
-    try:
-        if raw_next is not None:
-            next_run_timestamp = float(raw_next)
-    except (TypeError, ValueError):
-        next_run_timestamp = 0
-    if next_run_timestamp <= 0:
-        next_run_timestamp = _next_run_from_logs() or 0
+    if process_alive:
+        raw_next = file_status.get('next_run_timestamp')
+        try:
+            if raw_next is not None:
+                next_run_timestamp = float(raw_next)
+        except (TypeError, ValueError):
+            next_run_timestamp = 0
+        if next_run_timestamp <= 0:
+            next_run_timestamp = _next_run_from_logs() or 0
 
     last_run_at = str(file_status.get('last_run_at') or '').strip()
     last_update = last_run_at or str(file_status.get('last_update') or '').strip()
@@ -1965,10 +3773,32 @@ def get_status():
     return jsonify(payload)
 
 
+def _last_run_pin_count(status_payload):
+    """Pins from the last completed cycle, not a live Plex census of leftover home pins."""
+    raw = status_payload.get('last_run_pinned') if isinstance(status_payload, dict) else None
+    try:
+        if raw is not None:
+            return max(0, int(raw))
+    except (TypeError, ValueError):
+        pass
+    libs = status_payload.get('libraries') if isinstance(status_payload, dict) else None
+    if not isinstance(libs, list) or not libs:
+        return None
+    total = 0
+    for lib in libs:
+        if not isinstance(lib, dict):
+            continue
+        try:
+            total += max(0, int(lib.get('pinned') or 0))
+        except (TypeError, ValueError):
+            continue
+    return total
+
+
 @app.route('/api/summary')
 @require_auth
 def get_summary():
-    """Compact status for the portal home widget (last/next run + labeled pin count)."""
+    """Compact status for the portal home widget (last/next run + last-cycle pin count)."""
     global SUMMARY_CACHE, GALLERY_CACHE
 
     now = time.time()
@@ -1992,39 +3822,40 @@ def get_summary():
             continue
     label = str(config.get('collexions_label') or 'Collexions').lower()
 
-    pinned_count = None
+    pinned_count = _last_run_pin_count(status_payload)
     labeled_count = 0
 
-    # Prefer a full gallery cache (pins already resolved)
-    cache_data = GALLERY_CACHE.get('data')
-    cache_ver = GALLERY_CACHE.get('version')
-    if isinstance(cache_data, list) and cache_ver == 4:
-        pinned_count = sum(1 for c in cache_data if c.get('is_pinned'))
-        labeled_count = sum(1 for c in cache_data if c.get('has_label'))
-    else:
-        plex = get_plex_instance()
-        if plex and lib_names:
-            pinned = 0
-            try:
-                for lib_name in lib_names:
-                    try:
-                        library = plex.library.section(lib_name)
-                        for coll in library.collections():
-                            has_label = any(
-                                getattr(l, 'tag', '').lower() == label
-                                for l in getattr(coll, 'labels', []) or []
-                            )
-                            if not has_label:
-                                continue
-                            labeled_count += 1
-                            if _collection_is_pinned(coll):
-                                pinned += 1
-                    except Exception as e:
-                        logging.warning(f"summary library '{lib_name}' failed: {e}")
-                pinned_count = pinned
-            except Exception as e:
-                logging.warning(f"summary pin count failed: {e}")
-                pinned_count = None
+    # Fallback only when the last cycle did not record pin stats: labeled + pinned.
+    if pinned_count is None:
+        cache_data = GALLERY_CACHE.get('data')
+        cache_ver = GALLERY_CACHE.get('version')
+        if isinstance(cache_data, list) and cache_ver == 4:
+            pinned_count = sum(1 for c in cache_data if c.get('has_label') and c.get('is_pinned'))
+            labeled_count = sum(1 for c in cache_data if c.get('has_label'))
+        else:
+            plex = get_plex_instance()
+            if plex and lib_names:
+                pinned = 0
+                try:
+                    for lib_name in lib_names:
+                        try:
+                            library = plex.library.section(lib_name)
+                            for coll in library.collections():
+                                has_label = any(
+                                    getattr(l, 'tag', '').lower() == label
+                                    for l in getattr(coll, 'labels', []) or []
+                                )
+                                if not has_label:
+                                    continue
+                                labeled_count += 1
+                                if _collection_is_pinned(coll):
+                                    pinned += 1
+                        except Exception as e:
+                            logging.warning(f"summary library '{lib_name}' failed: {e}")
+                    pinned_count = pinned
+                except Exception as e:
+                    logging.warning(f"summary pin count failed: {e}")
+                    pinned_count = None
 
     # Prefer slots from the last completed run when present; else config sum.
     status_slots = status_payload.get('pin_slots')
@@ -2094,31 +3925,70 @@ def clear_logs():
 @app.route('/api/config', methods=['GET', 'POST'])
 @require_auth
 def config_endpoint():
+    global _plex_cache, GALLERY_CACHE, SUMMARY_CACHE
     if request.method == 'POST':
-        if save_config(request.json, merge=True):
+        payload = dict(request.json or {})
+        portal_url, portal_token = _portal_plex_defaults()
+        # When Media Player has Plex credentials, keep ColleXions linked to them
+        # instead of storing a duplicate URL/token that can go stale.
+        if PORTAL_MODE and portal_url and portal_token:
+            payload['plex_url'] = ''
+            payload['plex_token'] = ''
+        payload.pop('_plex_from_portal', None)
+        payload.pop('_portal_plex_url', None)
+        if save_config(payload, merge=True):
+            # Config changes (especially plex_url/token) must not keep a stale PlexServer.
+            _plex_cache = None
+            GALLERY_CACHE['data'] = None
+            GALLERY_CACHE['timestamp'] = 0
+            SUMMARY_CACHE['data'] = None
+            SUMMARY_CACHE['timestamp'] = 0
             return jsonify({"success": True})
         return jsonify({"error": "Failed to save configuration"}), 500
-    
-    return jsonify(load_config())
+
+    raw = _read_raw_config()
+    effective = with_portal_plex(raw)
+    portal_url, portal_token = _portal_plex_defaults()
+    from_portal = bool(
+        PORTAL_MODE
+        and portal_url
+        and portal_token
+        and (
+            not str(raw.get('plex_url') or '').strip()
+            or not str(raw.get('plex_token') or '').strip()
+        )
+    )
+    out = dict(effective)
+    out['_plex_from_portal'] = from_portal
+    out['_portal_plex_url'] = portal_url if from_portal else ''
+    return jsonify(out)
 
 
 @app.route('/api/config/validate', methods=['POST'])
 @require_auth
 def validate_config_endpoint():
     """Validate a draft config (does not save). Checks fields + live Plex libraries."""
-    data = request.json or {}
+    data = with_portal_plex(request.json or {})
     errors = []
     warnings = []
     available = []
 
     url = str(data.get('plex_url') or '').strip()
     token = str(data.get('plex_token') or '').strip()
+    portal_url, portal_token = _portal_plex_defaults()
+    plex_from_portal = bool(PORTAL_MODE and portal_url and portal_token)
     if not url:
-        errors.append('Plex URL is required.')
+        errors.append(
+            'Plex URL is required.' if not plex_from_portal
+            else 'Plex URL missing — set Direct Plex URL under Settings → Media Player.'
+        )
     elif not (url.startswith('http://') or url.startswith('https://')):
         warnings.append('Plex URL should start with http:// or https://')
     if not token:
-        errors.append('Plex token is required.')
+        errors.append(
+            'Plex token is required.' if not plex_from_portal
+            else 'Plex token missing — set it under Settings → Media Player.'
+        )
 
     libs_raw = data.get('library_names') or []
     if not isinstance(libs_raw, list):
@@ -2302,8 +4172,7 @@ def history_endpoint():
                 json.dump(data, f, indent=4)
             return jsonify({"success": True})
         except Exception as e:
-            logging.exception("Failed to save history")
-            return jsonify({"error": "Failed to save history"}), 500
+            return jsonify({"error": _client_error("Failed to save history", e)}), 500
     
     # Auto-sync from logs before returning GET
     sync_logs_to_history()
@@ -2328,11 +4197,10 @@ def history_endpoint():
                 "unique_count": unique_count
             })
         except Exception as e:
-            logging.exception("Failed to read history")
-            return jsonify({"events": [], "total_count": 0, "unique_count": 0, "error": "Failed to read history"})
+            return jsonify({"events": [], "total_count": 0, "unique_count": 0, "error": _client_error("Failed to read history", e)})
     return jsonify({"events": [], "total_count": 0, "unique_count": 0})
 
-def start_background_process():
+def start_background_process(wait_until_due=False):
     """Helper to start the background process."""
     global process
     
@@ -2359,22 +4227,27 @@ def start_background_process():
                 cmd.append('--dry-run')
         except Exception:
             pass
+        if wait_until_due:
+            cmd.append('--wait-until-due')
 
         child_env = os.environ.copy()
         if _DATA_ROOT:
             child_env['COLLEXIONS_DATA_DIR'] = _DATA_ROOT
 
-        process = subprocess.Popen(
-            cmd,
-            cwd=_DATA_ROOT,
-            env=child_env,
-        )
+        popen_kwargs = {
+            'cwd': _DATA_ROOT,
+            'env': child_env,
+        }
+        if os.name == 'nt':
+            popen_kwargs['creationflags'] = subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            popen_kwargs['start_new_session'] = True
+        process = subprocess.Popen(cmd, **popen_kwargs)
         logging.info(f"Background process started with PID: {process.pid} (cwd={_DATA_ROOT})")
             
         return True, process.pid
     except Exception as e:
-        logging.error(f"Failed to start background process: {e}")
-        return False, "Failed to start background process"
+        return False, _client_error("Failed to start background process", e)
 
 @app.route('/api/run', methods=['POST'])
 @require_auth
@@ -2391,7 +4264,7 @@ def maybe_autostart_background_process():
     if not config_ready_for_background_process():
         return
 
-    success, result = start_background_process()
+    success, result = start_background_process(wait_until_due=True)
     if success:
         logging.info(f"Background service autostarted with PID: {result}")
     else:
@@ -2438,31 +4311,8 @@ def _collection_is_pinned(coll):
     return False
 
 
-@app.route('/api/collections')
-@require_auth
-def list_collections():
-    global GALLERY_CACHE
-
-    force_refresh = request.args.get('refresh', 'false').lower() == 'true'
-    # light=true (default): skip per-collection visibility() for fast first paint
-    light = request.args.get('light', 'true').lower() != 'false'
-    cache_version = 3 if light else 4
-
-    now = time.time()
-    if (
-        not force_refresh
-        and GALLERY_CACHE['data'] is not None
-        and GALLERY_CACHE.get('version') == cache_version
-        and now - GALLERY_CACHE['timestamp'] < GALLERY_CACHE['ttl']
-    ):
-        print(f"Serving collections from cache (light={light})")
-        return jsonify(GALLERY_CACHE['data'])
-
-    plex = get_plex_instance()
-    if not plex:
-        return jsonify({"error": "Plex not configured"}), 400
-
-    config = load_config()
+def _scan_collections_list(plex, config, light=True):
+    """Build the gallery collections payload (no coll.items() when light)."""
     lib_names = config.get('library_names', [])
     collexions_label = config.get('collexions_label', 'Collexions').lower()
     from urllib.parse import quote
@@ -2509,17 +4359,158 @@ def list_collections():
                     "has_label": has_label,
                     "thumb": thumb,
                     "ratingKey": str(coll.ratingKey),
+                    "itemCount": _collection_item_count_light(coll),
                     "key": meta_key,
                     "plexUrl": plex_url,
                 })
         except Exception as e:
             print(f"Error fetching collections from {lib_name}: {e}")
+    return all_collections
+
+
+def _refresh_gallery_cache_bg(cache_version, light):
+    """Background Plex scan so Cloudflare never waits on a full gallery rebuild."""
+    global GALLERY_CACHE, _GALLERY_REFRESH_RUNNING
+    try:
+        plex = get_plex_instance()
+        if not plex:
+            return
+        config = load_config()
+        all_collections = _scan_collections_list(plex, config, light=light)
+        GALLERY_CACHE['data'] = all_collections
+        GALLERY_CACHE['timestamp'] = time.time()
+        GALLERY_CACHE['version'] = cache_version
+        logging.info(
+            "Gallery cache refreshed in background (light=%s, count=%s)",
+            light,
+            len(all_collections),
+        )
+    except Exception as exc:
+        logging.warning("Background gallery refresh failed: %s", exc)
+    finally:
+        with _GALLERY_REFRESH_LOCK:
+            _GALLERY_REFRESH_RUNNING.discard(cache_version)
+
+
+def _schedule_gallery_refresh(cache_version, light):
+    with _GALLERY_REFRESH_LOCK:
+        if cache_version in _GALLERY_REFRESH_RUNNING:
+            return
+        _GALLERY_REFRESH_RUNNING.add(cache_version)
+    threading.Thread(
+        target=_refresh_gallery_cache_bg,
+        args=(cache_version, light),
+        daemon=True,
+        name=f"gallery-refresh-{cache_version}",
+    ).start()
+
+
+@app.route('/api/collections')
+@require_auth
+def list_collections():
+    global GALLERY_CACHE
+
+    force_refresh = request.args.get('refresh', 'false').lower() == 'true'
+    # light=true (default): skip per-collection visibility() for fast first paint
+    light = request.args.get('light', 'true').lower() != 'false'
+    cache_version = 3 if light else 4
+
+    now = time.time()
+    cache_hit = (
+        GALLERY_CACHE['data'] is not None
+        and GALLERY_CACHE.get('version') == cache_version
+    )
+    cache_fresh = cache_hit and (now - GALLERY_CACHE['timestamp'] < GALLERY_CACHE['ttl'])
+
+    # Fresh cache — serve immediately.
+    if cache_fresh and not force_refresh:
+        print(f"Serving collections from cache (light={light})")
+        return jsonify(GALLERY_CACHE['data'])
+
+    # Stale-while-revalidate: return last good list instantly (survives CF ~100s timeout)
+    # and refresh in the background. Manual refresh also prefers this when a prior scan exists.
+    if cache_hit:
+        print(f"Serving stale collections cache + background refresh (light={light}, force={force_refresh})")
+        _schedule_gallery_refresh(cache_version, light)
+        return jsonify(GALLERY_CACHE['data'])
+
+    plex = get_plex_instance()
+    if not plex:
+        return jsonify({"error": "Plex not configured"}), 400
+
+    config = load_config()
+    all_collections = _scan_collections_list(plex, config, light=light)
 
     GALLERY_CACHE['data'] = all_collections
     GALLERY_CACHE['timestamp'] = time.time()
     GALLERY_CACHE['version'] = cache_version
 
     return jsonify(all_collections)
+
+
+@app.route('/api/collections/<rating_key>/items')
+@require_auth
+def list_collection_items(rating_key):
+    """Return member ratingKeys for one Plex collection (used by overlays + tooling)."""
+    plex = get_plex_instance()
+    if not plex:
+        return jsonify({"error": "Plex not configured"}), 400
+
+    key = str(rating_key or '').strip()
+    if not key or not key.isdigit():
+        return jsonify({"error": "Invalid collection ratingKey"}), 400
+
+    try:
+        coll = plex.fetchItem(int(key))
+    except Exception as exc:
+        logging.warning("fetchItem collection %s failed: %s", key, exc)
+        return jsonify({"error": "Collection not found"}), 404
+
+    members = []
+    seen = set()
+    try:
+        # Paginate — Plex container defaults truncate large collections.
+        start = 0
+        page_size = 100
+        key_path = getattr(coll, 'key', None) or f'/library/metadata/{key}'
+        while True:
+            try:
+                batch = coll.fetchItems(f'{key_path}/children', container_start=start, container_size=page_size)
+            except TypeError:
+                batch = list(coll.items() or [])
+                start = -1  # signal single-shot
+            except Exception:
+                if start == 0:
+                    batch = list(coll.items() or [])
+                    start = -1
+                else:
+                    break
+            if not batch:
+                break
+            for item in batch:
+                rk = str(getattr(item, 'ratingKey', '') or '').strip()
+                if not rk or rk in seen:
+                    continue
+                seen.add(rk)
+                members.append({
+                    "ratingKey": rk,
+                    "title": getattr(item, 'title', '') or '',
+                    "type": str(getattr(item, 'type', '') or ''),
+                    "library": getattr(item, 'librarySectionTitle', None) or '',
+                })
+            if start < 0 or len(batch) < page_size:
+                break
+            start += page_size
+    except Exception as exc:
+        logging.warning("collection items %s failed: %s", key, exc)
+        return jsonify({"error": _client_error("Failed to list collection items", exc)}), 500
+
+    return jsonify({
+        "ratingKey": key,
+        "title": getattr(coll, 'title', '') or '',
+        "count": len(members),
+        "items": members,
+    })
 
 
 @app.route('/api/collections/resolve-pins', methods=['POST'])
@@ -2586,11 +4577,16 @@ def bulk_pin_collections():
     for item in items:
         title = str(item.get('title') or '').strip()
         library_name = str(item.get('library') or '').strip()
-        if not title or not library_name:
+        rating_key = str(item.get('ratingKey') or item.get('rating_key') or '').strip()
+        if not library_name or (not title and not rating_key):
             results.append({"title": title, "library": library_name, "ok": False, "error": "Missing title/library"})
             continue
         if action == 'delete':
-            ok, err, removed_jobs = _delete_plex_collection(library_name, title)
+            ok, err, removed_jobs = _delete_plex_collection(
+                library_name,
+                title=title or None,
+                rating_key=rating_key or None,
+            )
             results.append({
                 "title": title,
                 "library": library_name,
@@ -2601,7 +4597,10 @@ def bulk_pin_collections():
             continue
         try:
             library = plex.library.section(library_name)
-            collection = library.collection(title)
+            collection = _resolve_collection(library, title=title or None, rating_key=rating_key or None)
+            if not collection:
+                results.append({"title": title, "library": library_name, "ok": False, "error": "Collection not found"})
+                continue
             hub = collection.visibility()
             if action == 'pin':
                 collection.addLabel(label)
@@ -2618,8 +4617,7 @@ def bulk_pin_collections():
                 log_action(f"Unpinned '{title}' successfully.")
             results.append({"title": title, "library": library_name, "ok": True})
         except Exception as e:
-            logging.exception(f"Failed to unpin '{title}'")
-            results.append({"title": title, "library": library_name, "ok": False, "error": "Failed to unpin collection"})
+            results.append({"title": title, "library": library_name, "ok": False, "error": _client_error("Pin update failed", e)})
 
     GALLERY_CACHE['data'] = None
     GALLERY_CACHE['timestamp'] = 0
@@ -2662,8 +4660,7 @@ def plex_libraries():
             })
         return jsonify(libraries)
     except Exception as e:
-        logging.error(f"Failed to fetch Plex libraries: {e}")
-        return jsonify({"error": "Failed to fetch Plex libraries"}), 500
+        return jsonify({"error": _client_error("Failed to fetch Plex libraries", e)}), 500
 
 
 def _hub_to_dict(hub):
@@ -2706,8 +4703,7 @@ def list_managed_hubs():
             'hubs': hubs,
         })
     except Exception as e:
-        logging.error(f"list_managed_hubs error: {e}", exc_info=True)
-        return jsonify({'error': 'Failed to list managed hubs'}), 500
+        return jsonify({'error': _client_error('Failed to list managed hubs', e)}), 500
 
 
 @app.route('/api/hubs/move', methods=['POST'])
@@ -2741,8 +4737,7 @@ def move_managed_hub():
         hubs = [_hub_to_dict(h) for h in library.managedHubs()]
         return jsonify({'success': True, 'hubs': hubs})
     except Exception as e:
-        logging.error(f"move_managed_hub error: {e}", exc_info=True)
-        return jsonify({'success': False, 'error': 'Failed to move hub'}), 500
+        return jsonify({'success': False, 'error': _client_error('Failed to move managed hub', e)}), 500
 
 
 @app.route('/api/hubs/visibility', methods=['POST'])
@@ -2783,8 +4778,7 @@ def update_managed_hub_visibility():
         refreshed = _find_managed_hub(library, identifier) or hub
         return jsonify({'success': True, 'hub': _hub_to_dict(refreshed)})
     except Exception as e:
-        logging.error(f"update_managed_hub_visibility error: {e}", exc_info=True)
-        return jsonify({'success': False, 'error': 'Failed to update hub visibility'}), 500
+        return jsonify({'success': False, 'error': _client_error('Failed to update hub visibility', e)}), 500
 
 
 @app.route('/api/trending', methods=['GET'])
@@ -2933,8 +4927,16 @@ def proxy_image():
 
         mimetype = upstream.headers.get('Content-Type', 'image/jpeg')
         data = upstream.content
+        data_len = len(data) if data else 0
 
-        if len(IMAGE_CACHE) > 400:
+        # Bound binary poster cache — wipe-all at 400 could still hold hundreds of MB.
+        IMAGE_CACHE_MAX_ENTRIES = 120
+        IMAGE_CACHE_MAX_BYTES = 48 * 1024 * 1024
+        total_bytes = sum(len(v.get('data') or b'') for v in IMAGE_CACHE.values() if isinstance(v, dict))
+        if (
+            len(IMAGE_CACHE) >= IMAGE_CACHE_MAX_ENTRIES
+            or (total_bytes + data_len) > IMAGE_CACHE_MAX_BYTES
+        ):
             IMAGE_CACHE = {}
 
         IMAGE_CACHE[cache_key] = {'data': data, 'mimetype': mimetype}
@@ -2980,8 +4982,7 @@ def pin_collection():
         SUMMARY_CACHE['timestamp'] = 0
         return jsonify({"success": True})
     except Exception as e:
-        logging.exception("Failed to pin collection")
-        return jsonify({"success": False, "error": "Failed to pin collection"}), 500
+        return jsonify({"success": False, "error": _client_error("Failed to pin collection", e)}), 500
 
 @app.route('/api/jobs', methods=['GET'])
 @require_auth
@@ -2989,20 +4990,265 @@ def get_jobs():
     managed = heal_managed_job_sources(load_managed_collections())
     return jsonify(managed)
 
+
+def _job_or_404(job_id):
+    managed = heal_managed_job_sources(load_managed_collections())
+    job = managed.get(str(job_id or '').strip())
+    if not isinstance(job, dict):
+        return None, None, (jsonify({"success": False, "error": "Job not found"}), 404)
+    return managed, job, None
+
+
+def _serialize_member(item, *, status, reason='', source_title='', tmdb_id='', year=None):
+    return {
+        'title': str(getattr(item, 'title', '') or source_title or ''),
+        'plex_title': str(getattr(item, 'title', '') or ''),
+        'year': getattr(item, 'year', None) if item is not None else year,
+        'rating_key': str(getattr(item, 'ratingKey', '') or ''),
+        'tmdb_id': str(tmdb_id or ''),
+        'status': status,
+        'reason': reason,
+        'source_title': source_title,
+    }
+
+
+@app.route('/api/jobs/preview', methods=['GET'])
+@require_auth
+def preview_job_items():
+    """Source titles vs strict Plex matches vs unexpected collection members."""
+    job_id = str(request.args.get('id') or '').strip()
+    managed, job, err = _job_or_404(job_id)
+    if err:
+        return err
+    config = load_config()
+    plex = get_plex_instance()
+    if not plex:
+        return jsonify({"success": False, "error": "Plex connection failed"}), 500
+    try:
+        library = plex.library.section(job.get('library'))
+    except Exception as e:
+        return jsonify({"success": False, "error": _client_error("Library not found", e)}), 400
+    source_type = normalize_source_type(job.get('source_type'), job.get('source_id'))
+    source_items = fetch_source_items(source_type, job.get('source_id'), config) or []
+    skip_tmdb, skip_keys, extra_keys = _job_item_overrides(job)
+    tmdb_cache = _build_library_tmdb_cache(library)
+    matched, rows = _match_external_to_plex(
+        library,
+        source_items,
+        tmdb_cache=tmdb_cache,
+        report=True,
+        skip_tmdb_ids=skip_tmdb,
+        skip_rating_keys=skip_keys,
+    )
+    extra_items = _fetch_library_items_by_keys(library, extra_keys)
+    matched_keys = {str(getattr(i, 'ratingKey', '') or '') for i in matched}
+    extras = []
+    for item in extra_items:
+        key = str(getattr(item, 'ratingKey', '') or '')
+        if key and key not in matched_keys and key not in skip_keys:
+            extras.append(_serialize_member(item, status='extra', reason='manual'))
+            matched_keys.add(key)
+    coll = _resolve_collection(
+        library,
+        title=job.get('name'),
+        rating_key=str(job.get('rating_key') or job.get('ratingKey') or '').strip() or None,
+    )
+    unexpected = []
+    if coll is not None:
+        try:
+            current = list(coll.items() or [])
+        except Exception:
+            current = []
+        for item in current:
+            if not _acceptable_collection_member(item, library):
+                continue
+            key = str(getattr(item, 'ratingKey', '') or '')
+            if key and key not in matched_keys:
+                unexpected.append(_serialize_member(item, status='unexpected', reason='not_in_source'))
+    return jsonify({
+        "success": True,
+        "job_id": job_id,
+        "name": job.get('name'),
+        "library": job.get('library'),
+        "source_type": source_type,
+        "source_id": job.get('source_id') or '',
+        "source_count": len(source_items),
+        "matched": [row for row in rows if row.get('status') == 'matched'],
+        "unmatched": [row for row in rows if row.get('status') == 'unmatched'],
+        "excluded": [row for row in rows if row.get('status') == 'excluded'],
+        "extras": extras,
+        "unexpected": unexpected,
+        "excluded_tmdb_ids": _id_list(job.get('excluded_tmdb_ids')),
+        "excluded_rating_keys": _id_list(job.get('excluded_rating_keys')),
+        "extra_rating_keys": extra_keys,
+    })
+
+
+@app.route('/api/jobs/items', methods=['POST'])
+@require_auth
+def update_job_items():
+    """Exclude / pin members, then rewrite the Plex collection with strict matching."""
+    data = request.json or {}
+    job_id = str(data.get('id') or '').strip()
+    managed, job, err = _job_or_404(job_id)
+    if err:
+        return err
+    skip_tmdb = set(_id_list(job.get('excluded_tmdb_ids')))
+    skip_keys = set(_id_list(job.get('excluded_rating_keys')))
+    extra_keys = set(_id_list(job.get('extra_rating_keys')))
+    skip_tmdb.update(_id_list(data.get('exclude_tmdb_ids')))
+    skip_keys.update(_id_list(data.get('exclude_rating_keys') or data.get('remove_rating_keys')))
+    extra_keys.update(_id_list(data.get('extra_rating_keys') or data.get('add_rating_keys')))
+    for key in _id_list(data.get('remove_rating_keys') or data.get('exclude_rating_keys')):
+        extra_keys.discard(key)
+    for tid in _id_list(data.get('include_tmdb_ids')):
+        skip_tmdb.discard(tid)
+    job['excluded_tmdb_ids'] = sorted(skip_tmdb)
+    job['excluded_rating_keys'] = sorted(skip_keys)
+    job['extra_rating_keys'] = sorted(extra_keys)
+    save_managed_collections(managed)
+
+    apply = data.get('apply', True)
+    if not apply:
+        return jsonify({"success": True, "saved": True, "applied": False})
+
+    config = load_config()
+    plex = get_plex_instance()
+    if not plex:
+        return jsonify({"success": False, "error": "Plex connection failed", "saved": True}), 500
+    try:
+        library = plex.library.section(job.get('library'))
+    except Exception as e:
+        return jsonify({"success": False, "error": _client_error("Library not found", e), "saved": True}), 400
+    source_type = normalize_source_type(job.get('source_type'), job.get('source_id'))
+    source_items = fetch_source_items(source_type, job.get('source_id'), config) or []
+    label = config.get('collexions_label', 'Collexions')
+    tmdb_cache = _build_library_tmdb_cache(library)
+    plex_items = _match_external_to_plex(
+        library,
+        source_items,
+        tmdb_cache=tmdb_cache,
+        skip_tmdb_ids=skip_tmdb,
+        skip_rating_keys=skip_keys,
+    )
+    for extra in _fetch_library_items_by_keys(library, extra_keys):
+        key = str(getattr(extra, 'ratingKey', '') or '')
+        if key and key not in skip_keys and key not in {str(getattr(i, 'ratingKey', '') or '') for i in plex_items}:
+            plex_items.append(extra)
+    plex_items = _sanitize_collection_members(library, plex_items)
+    if not plex_items:
+        return jsonify({"success": False, "error": "No matching Plex items left", "saved": True}), 400
+    try:
+        with _collection_create_lock(job.get('library'), job.get('name')):
+            keep_key = str(job.get('rating_key') or job.get('ratingKey') or '').strip() or None
+            coll, _, delta = _upsert_plex_collection(
+                library,
+                job.get('name'),
+                plex_items,
+                sort_order=_normalize_sort_order(job.get('sort_order', 'custom')),
+                label=label,
+                keep_rating_key=keep_key,
+            )
+            coll_key = str(getattr(coll, 'ratingKey', '') or '').strip()
+            if coll_key:
+                job['rating_key'] = coll_key
+                save_managed_collections(managed)
+            _notify_portal_collection_updated(coll, job.get('library'), job.get('name'), delta)
+        GALLERY_CACHE['data'] = None
+        log_action(
+            f"Updated members for '{job.get('name')}' "
+            f"(+{delta.get('added', 0)}/-{delta.get('removed', 0)})."
+        )
+        return jsonify({
+            "success": True,
+            "saved": True,
+            "applied": True,
+            "matched": len(plex_items),
+            "added": delta.get('added', 0),
+            "removed": delta.get('removed', 0),
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": _client_error("Job item update failed", e), "saved": True}), 500
+
 @app.route('/api/jobs/run', methods=['POST'])
 @require_auth
 def run_job_now():
-    data = request.json
-    job_id = data.get('id')
-    if not job_id:
-        return jsonify({"success": False, "error": "Missing job ID"}), 400
-        
-    try:
-        run_sync_job(job_id)
-        return jsonify({"success": True})
-    except Exception as e:
-        logging.exception("Failed to run sync job")
-        return jsonify({"success": False, "error": "Failed to run sync job"}), 500
+    data = request.json or {}
+    managed = load_managed_collections()
+    if data.get('all'):
+        targets = [jid for jid, job in managed.items() if isinstance(job, dict)]
+    elif data.get('ids'):
+        targets = [str(jid) for jid in data.get('ids') or [] if str(jid) in managed]
+    else:
+        job_id = str(data.get('id') or '').strip()
+        if not job_id:
+            return jsonify({"success": False, "error": "Missing job ID"}), 400
+        if job_id not in managed:
+            return jsonify({"success": False, "error": "Job not found"}), 404
+        targets = [job_id]
+    if not targets:
+        return jsonify({"success": False, "error": "No jobs to run"}), 400
+
+    if not _JOB_RUN_LOCK.acquire(blocking=False):
+        return jsonify({
+            "success": False,
+            "error": "A sync is already running",
+            "running": True,
+            "progress": _job_run_snapshot(),
+        }), 409
+
+    if len(targets) == 1:
+        job_meta = managed.get(targets[0]) if isinstance(managed.get(targets[0]), dict) else {}
+        _job_run_set(
+            running=True,
+            total=1,
+            done=0,
+            failed=0,
+            current=str((job_meta or {}).get('name') or targets[0]),
+            current_id=targets[0],
+        )
+        try:
+            run_sync_job(targets[0])
+            job = load_managed_collections().get(targets[0]) or {}
+            last_status = job.get('last_status') or 'success'
+            last_error = job.get('last_error') or ''
+            return jsonify({
+                "success": last_status != 'failed',
+                "last_status": last_status,
+                "last_error": last_error,
+            })
+        except Exception as e:
+            return jsonify({"success": False, "error": _client_error("Job run failed", e)}), 500
+        finally:
+            _job_run_set(running=False, current='', current_id='')
+            _JOB_RUN_LOCK.release()
+
+    _job_run_set(
+        running=True,
+        total=len(targets),
+        done=0,
+        failed=0,
+        current='',
+        current_id='',
+    )
+    threading.Thread(
+        target=_run_jobs_background,
+        args=(list(targets),),
+        daemon=True,
+    ).start()
+    log_action(f"Queued run-all for {len(targets)} auto-sync job(s).")
+    return jsonify({
+        "success": True,
+        "queued": True,
+        "count": len(targets),
+        "progress": _job_run_snapshot(),
+    })
+
+
+@app.route('/api/jobs/progress', methods=['GET'])
+@require_auth
+def get_job_run_progress():
+    return jsonify(_job_run_snapshot())
 
 @app.route('/api/jobs/delete', methods=['POST'])
 @require_auth
@@ -3018,6 +5264,138 @@ def delete_job():
         save_managed_collections(managed)
         return jsonify({"success": True})
     return jsonify({"success": False, "error": "Job not found"}), 404
+
+
+def _apply_job_sort_on_plex(job, sort_order):
+    """Apply Manual / Random / Release on the live Plex collection for a managed job.
+
+    Random converts to a Kometa-style label smart collection (reshuffles per view);
+    Manual/Release converts back to a regular collection. Pins/posters survive.
+    """
+    plex = get_plex_instance()
+    if not plex or not isinstance(job, dict):
+        return False
+    lib_name = job.get('library')
+    title = job.get('name')
+    library = plex.library.section(lib_name)
+    coll = None
+    keep_key = str(job.get('rating_key') or job.get('ratingKey') or '').strip()
+    if keep_key:
+        coll = _resolve_collection(library, rating_key=keep_key)
+    if coll is None:
+        coll = _resolve_collection(library, title=title)
+    if coll is None:
+        return False
+    try:
+        items = _sanitize_collection_members(library, list(coll.items() or []))
+    except Exception:
+        items = []
+    if not items:
+        return False
+    config = load_config()
+    label = config.get('collexions_label', 'Collexions')
+    with _collection_create_lock(lib_name, title):
+        new_coll, _created, _delta = _upsert_plex_collection(
+            library,
+            title,
+            items,
+            sort_order=sort_order,
+            label=label,
+            keep_rating_key=str(getattr(coll, 'ratingKey', '') or '') or None,
+        )
+        # Conversions churn the collections list — purge any crash rows they left.
+        _finalize_collection_for_plex_web(new_coll, library, config)
+    new_key = str(getattr(new_coll, 'ratingKey', '') or '').strip()
+    if new_key:
+        job['rating_key'] = new_key
+    return True
+
+
+def _apply_sort_jobs_background(job_ids, sort_order):
+    managed = load_managed_collections()
+    for jid in job_ids or []:
+        job = managed.get(jid)
+        if not isinstance(job, dict):
+            continue
+        try:
+            _apply_job_sort_on_plex(job, sort_order)
+        except Exception as e:
+            logging.warning("Failed applying %s sort to '%s': %s", sort_order, job.get('name'), e)
+    save_managed_collections(managed)
+    GALLERY_CACHE['data'] = None
+
+
+@app.route('/api/jobs/update', methods=['POST'])
+@require_auth
+def update_job():
+    data = request.json or {}
+    raw_sort = data.get('sort_order', None)
+    sort_order = _normalize_sort_order(raw_sort) if raw_sort is not None else None
+    has_auto = 'auto_sync' in data
+    auto_sync = bool(data.get('auto_sync')) if has_auto else None
+    managed = load_managed_collections()
+    if data.get('all'):
+        targets = [jid for jid, job in managed.items() if isinstance(job, dict)]
+    elif data.get('ids'):
+        targets = [str(jid) for jid in data.get('ids') or [] if str(jid) in managed]
+    else:
+        job_id = str(data.get('id') or '').strip()
+        if not job_id:
+            return jsonify({"success": False, "error": "Missing job ID"}), 400
+        if job_id not in managed:
+            return jsonify({"success": False, "error": "Job not found"}), 404
+        targets = [job_id]
+    if not targets:
+        return jsonify({"success": False, "error": "No jobs to update"}), 400
+    if sort_order is None and auto_sync is None:
+        return jsonify({"success": False, "error": "Nothing to update"}), 400
+    if (data.get('all') or data.get('ids')) and sort_order is None:
+        return jsonify({"success": False, "error": "sort_order is required"}), 400
+
+    for jid in targets:
+        job = managed.get(jid)
+        if isinstance(job, dict):
+            if sort_order is not None:
+                job['sort_order'] = sort_order
+            if auto_sync is not None:
+                job['auto_sync'] = auto_sync
+    save_managed_collections(managed)
+
+    if sort_order is None:
+        return jsonify({
+            "success": True,
+            "updated": len(targets),
+            "auto_sync": auto_sync,
+        })
+
+    if len(targets) == 1:
+        applied = False
+        try:
+            applied = _apply_job_sort_on_plex(managed[targets[0]], sort_order)
+            save_managed_collections(managed)
+            GALLERY_CACHE['data'] = None
+        except Exception as e:
+            logging.warning("Updated job sort but failed to apply on Plex: %s", e)
+        return jsonify({
+            "success": True,
+            "sort_order": sort_order,
+            "auto_sync": managed[targets[0]].get('auto_sync', True) if isinstance(managed.get(targets[0]), dict) else True,
+            "updated": 1,
+            "applied": applied,
+        })
+
+    threading.Thread(
+        target=_apply_sort_jobs_background,
+        args=(list(targets), sort_order),
+        daemon=True,
+    ).start()
+    log_action(f"Queued {sort_order} sort for {len(targets)} auto-sync job(s).")
+    return jsonify({
+        "success": True,
+        "sort_order": sort_order,
+        "updated": len(targets),
+        "queued": True,
+    })
 
 @app.route('/api/collections/unpin', methods=['POST'])
 @require_auth
@@ -3053,8 +5431,684 @@ def unpin_collection():
         SUMMARY_CACHE['timestamp'] = 0
         return jsonify({"success": True})
     except Exception as e:
-        logging.exception("Failed to unpin collection")
-        return jsonify({"success": False, "error": "Failed to unpin collection"}), 500
+        return jsonify({"success": False, "error": _client_error("Failed to unpin collection", e)}), 500
+
+
+def _normalize_plex_metadata_type(raw_type):
+    """Map Plex metadata type strings/ints to a numeric id when possible."""
+    if raw_type is None:
+        return None
+    text = str(raw_type).strip().lower()
+    if not text:
+        return None
+    aliases = {
+        'collection': 18,
+        'movie': 1,
+        'show': 2,
+        'season': 3,
+        'episode': 4,
+        'folder': 99,
+    }
+    if text in aliases:
+        return aliases[text]
+    if text.isdigit():
+        return int(text)
+    # Unknown string labels must not be treated as “missing” — Plex Web may crash on them.
+    return text
+
+
+def _issues_for_collection_list_row(item):
+    """Flag rows Plex Web's Collections tab cannot render."""
+    raw = item.get('type')
+    tag = str(item.get('tag') or '').strip().lower()
+    subtype = str(item.get('subtype') or '').strip().lower()
+    issues = []
+    if subtype in {'movie', 'show'} and (raw is None or str(raw).strip() == ''):
+        return issues
+    if raw is None or str(raw).strip() == '':
+        if tag == 'directory':
+            issues.append('untyped Directory in collections list (Plex Web crash)')
+        else:
+            issues.append('missing type (Plex Web expects collection/18)')
+        return issues
+    norm = _normalize_plex_metadata_type(raw)
+    if norm == 18:
+        return issues
+    raw_text = str(raw).strip().lower()
+    if norm == 99 or raw_text in {'99', 'folder'}:
+        issues.append('type 99/folder in collections list (matches Plex “unknown type: 99” crash)')
+    else:
+        issues.append(f'invalid Plex type {raw!r} (expected collection/18)')
+    return issues
+
+
+def _issues_for_metadata_row(item, *, expect_collection=False):
+    """General metadata row checks (library browse + collection members)."""
+    raw = item.get('type')
+    issues = []
+    if raw is None or str(raw).strip() == '':
+        issues.append('missing metadata type')
+        return issues
+    norm = _normalize_plex_metadata_type(raw)
+    if expect_collection:
+        return _issues_for_collection_list_row(item)
+    raw_text = str(raw).strip().lower()
+    if norm == 99 or raw_text in {'99', 'folder'}:
+        issues.append('type 99/folder metadata (matches Plex “unknown type: 99” crash)')
+        return issues
+    if norm not in (1, 2):
+        issues.append(f'unsafe collection member type {raw!r} (expected movie/show)')
+    return issues
+
+
+def _parse_plex_metadata_list(body, content_type=''):
+    """Return (items, total_size) from a Plex list response (JSON or XML)."""
+    import xml.etree.ElementTree as ET
+
+    ctype = str(content_type or '').lower()
+    if 'json' in ctype or (body or b'').lstrip().startswith(b'{'):
+        try:
+            payload = json.loads(body.decode('utf-8', errors='replace'))
+        except Exception:
+            payload = {}
+        container = payload.get('MediaContainer') or {}
+        rows = []
+        for key in ('Metadata', 'Directory'):
+            part = container.get(key)
+            if not part:
+                continue
+            if isinstance(part, dict):
+                part = [part]
+            if isinstance(part, list):
+                rows.extend((key, row) for row in part if isinstance(row, dict))
+        total = container.get('totalSize') or container.get('size')
+        items = []
+        seen = set()
+        for key, row in rows:
+            rk = str(row.get('ratingKey') or row.get('ratingkey') or '').strip()
+            dedupe = rk or f"{row.get('title')}|{row.get('type')}|{len(items)}"
+            if dedupe in seen:
+                continue
+            seen.add(dedupe)
+            items.append({
+                'ratingKey': rk,
+                'title': str(row.get('title') or row.get('tag') or '').strip(),
+                'type': row.get('type'),
+                'tag': key,
+                'smart': row.get('smart'),
+                'subtype': row.get('subtype') or row.get('collectionType'),
+            })
+        try:
+            total_n = int(total)
+        except Exception:
+            total_n = len(items)
+        return items, total_n or len(items)
+
+    try:
+        root = ET.fromstring(body)
+    except Exception:
+        return [], 0
+    total_raw = root.attrib.get('totalSize') or root.attrib.get('size') or '0'
+    try:
+        total = int(total_raw)
+    except Exception:
+        total = 0
+    items = []
+    for node in root:
+        tag = str(node.tag or '').split('}')[-1]
+        if tag not in {'Directory', 'Video', 'Metadata', 'Collection'}:
+            continue
+        items.append({
+            'ratingKey': str(node.attrib.get('ratingKey') or '').strip(),
+            'title': str(node.attrib.get('title') or node.attrib.get('tag') or '').strip(),
+            'type': node.attrib.get('type'),
+            'tag': tag,
+            'smart': node.attrib.get('smart'),
+            'subtype': node.attrib.get('subtype') or node.attrib.get('collectionType'),
+        })
+    if not total:
+        total = len(items)
+    return items, total
+
+
+def _scan_plex_web_collection_pages(plex_base, token, section_key, library_name, *, list_path='collections'):
+    """Mimic Plex Web's paginated Collections tab load (where type-99 crashes happen)."""
+    suspects = []
+    page_size = 50
+    section_id = str(section_key or '').rstrip('/').split('/')[-1]
+    if not section_id:
+        return suspects
+
+    page_label = 'all?type=18' if list_path == 'all' else 'collections'
+    seen = set()
+
+    for accept in ('application/xml', 'application/json'):
+        start = 0
+        while True:
+            try:
+                resp = _fetch_section_collection_page(
+                    plex_base, token, section_id,
+                    list_path=list_path, accept=accept,
+                    start=start, page_size=page_size,
+                )
+            except Exception as exc:
+                logging.error(
+                    "Plex Web %s page fetch failed for %s: %s",
+                    page_label, library_name, exc, exc_info=True,
+                )
+                suspects.append({
+                    'title': f'({page_label} {accept} page {start}-{start + page_size - 1})',
+                    'library': library_name,
+                    'ratingKey': '',
+                    'smart': False,
+                    'issues': [f'{page_label} page fetch failed'],
+                })
+                break
+            if resp.status_code >= 400:
+                suspects.append({
+                    'title': f'({page_label} {accept} page {start}-{start + page_size - 1})',
+                    'library': library_name,
+                    'ratingKey': '',
+                    'smart': False,
+                    'issues': [f'{page_label} page HTTP {resp.status_code}'],
+                })
+                break
+
+            items, total = _parse_plex_metadata_list(resp.content, resp.headers.get('Content-Type'))
+            body_len = len(resp.content or b'')
+            if start >= 50 and len(items) > 0 and body_len < 25000:
+                suspects.append({
+                    'title': f'({page_label} {accept} page {start}+)',
+                    'library': library_name,
+                    'ratingKey': '',
+                    'smart': False,
+                    'issues': [
+                        f'suspiciously small {page_label} page ({body_len} bytes, {len(items)} rows) '
+                        f'— often matches Plex “Asked for unknown type: 99” in server logs',
+                    ],
+                })
+
+            for item in items:
+                issues = _issues_for_collection_list_row(item)
+                if not issues:
+                    continue
+                rk = str(item.get('ratingKey') or '')
+                dedupe = (rk, str(item.get('title') or ''), tuple(issues))
+                if dedupe in seen:
+                    continue
+                seen.add(dedupe)
+                suspects.append({
+                    'title': item.get('title') or f'ratingKey {rk or "?"}',
+                    'library': library_name,
+                    'ratingKey': rk,
+                    'smart': False,
+                    'issues': [f'{page_label}: {msg}' for msg in issues],
+                })
+
+            if not items or start + len(items) >= total:
+                break
+            start += page_size
+
+    return suspects
+
+
+def _probe_collection_children_types(plex_base, token, rating_key, title, library_name):
+    """Bad folder/type-99 members inside a collection can break Plex Web composites."""
+    rk = str(rating_key or '').strip()
+    if not rk:
+        return None
+    items = _iter_collection_children_raw(plex_base, token, rk)
+    issues = []
+    for item in items:
+        row_issues = _issues_for_metadata_row(item, expect_collection=False)
+        if row_issues:
+            label = item.get('title') or item.get('ratingKey') or '?'
+            issues.extend([f'member “{label}”: {msg}' for msg in row_issues])
+            if len(issues) >= 6:
+                issues.append('…more bad members omitted')
+                break
+    if not issues:
+        return None
+    return {
+        'title': title,
+        'library': library_name,
+        'ratingKey': rk,
+        'smart': False,
+        'issues': issues,
+    }
+
+
+def _probe_collection_web_crash(plex_base, token, coll, library_name):
+    """Reproduce Plex Web Collections-tab loads: metadata + poster transcode."""
+    from urllib.parse import quote
+
+    title = str(getattr(coll, 'title', '') or '').strip() or '?'
+    rk = str(getattr(coll, 'ratingKey', '') or '').strip()
+    smart = bool(getattr(coll, 'smart', False))
+    issues = []
+    headers = plex_request_headers(token, {
+        'User-Agent': 'Server Manager Portal',
+        'Accept': 'application/json',
+    })
+    if not rk:
+        issues.append('missing ratingKey')
+        return {
+            'title': title,
+            'library': library_name,
+            'ratingKey': '',
+            'smart': smart,
+            'issues': issues,
+        }
+
+    try:
+        meta = requests.get(
+            f"{plex_base}/library/metadata/{quote(rk, safe='')}",
+            params={'X-Plex-Token': token},
+            headers=headers,
+            timeout=8,
+            verify=PLEX_SSL_VERIFY,
+        )
+        if meta.status_code >= 400:
+            issues.append(f'metadata HTTP {meta.status_code}')
+        else:
+            ctype = str(meta.headers.get('Content-Type') or '')
+            if 'html' in ctype.lower() and 'xml' not in ctype.lower() and 'json' not in ctype.lower():
+                issues.append('metadata returned HTML (Plex Web crash)')
+    except requests.Timeout:
+        issues.append('metadata timed out')
+    except Exception as exc:
+        logging.error("Collection metadata probe failed for %s: %s", rk, exc, exc_info=True)
+        issues.append('metadata request failed')
+
+    thumb = (
+        getattr(coll, 'thumb', None)
+        or getattr(coll, 'composite', None)
+        or getattr(coll, 'art', None)
+        or f'/library/metadata/{rk}/thumb'
+    )
+    thumb_path = str(thumb or '')
+    if thumb_path.startswith('http'):
+        from urllib.parse import urlparse
+        thumb_path = urlparse(thumb_path).path
+    if not thumb_path.startswith('/'):
+        thumb_path = f'/{thumb_path}'
+    if '?' in thumb_path:
+        thumb_path = thumb_path.split('?', 1)[0]
+    if is_safe_plex_media_path(thumb_path):
+        try:
+            transcode = requests.get(
+                f"{plex_base}/photo/:/transcode",
+                params={
+                    'url': thumb_path,
+                    'width': 240,
+                    'height': 360,
+                    'minSize': 1,
+                    'upscale': 1,
+                    'X-Plex-Token': token,
+                },
+                headers=plex_request_headers(token, {
+                    'User-Agent': 'Server Manager Portal',
+                    'Accept': 'image/*,*/*',
+                }),
+                timeout=8,
+                verify=PLEX_SSL_VERIFY,
+            )
+            if transcode.status_code >= 400:
+                issues.append(f'poster transcode HTTP {transcode.status_code}')
+            else:
+                body = transcode.content or b''
+                ctype = str(transcode.headers.get('Content-Type') or '')
+                if 'html' in ctype.lower() or body[:15].lower().startswith(b'<!doctype') or body[:6].lower().startswith(b'<html'):
+                    issues.append('poster transcode returned HTML (classic Plex Web crash)')
+                elif len(body) < 64:
+                    issues.append('poster transcode empty')
+                elif not ctype.startswith('image/') and body[:3] not in (b'\xff\xd8\xff', b'\x89PN'):
+                    issues.append(f'poster not an image ({ctype or "unknown type"})')
+        except requests.Timeout:
+            issues.append('poster transcode timed out (PhotoTranscoder)')
+        except Exception as exc:
+            logging.error("Collection poster probe failed for %s: %s", rk, exc, exc_info=True)
+            issues.append('poster request failed')
+    else:
+        issues.append('unsafe or missing poster path')
+
+    return {
+        'title': title,
+        'library': library_name,
+        'ratingKey': rk,
+        'smart': smart,
+        'issues': issues,
+    }
+
+
+def _repair_state_snapshot():
+    with _REPAIR_LOCK:
+        return dict(_REPAIR_STATE)
+
+
+def _repair_state_update(**kwargs):
+    with _REPAIR_LOCK:
+        _REPAIR_STATE.update(kwargs)
+        return dict(_REPAIR_STATE)
+
+
+def _repair_library_collections_tab(library, config=None):
+    """Purge crash rows, prune folder members, convert smart ColleXions collections."""
+    config = config or load_config()
+    url = str(config.get('plex_url') or '').rstrip('/')
+    token = str(config.get('plex_token') or '')
+    section_key = str(getattr(library, 'key', '') or '').rstrip('/').split('/')[-1]
+    lib_name = str(getattr(library, 'title', '') or '')
+    label = config.get('collexions_label', 'Collexions')
+    plex_server = getattr(library, '_server', None)
+    purged = 0
+    pruned = 0
+    converted = 0
+    posters = 0
+    scanned = 0
+    _repair_state_update(phase=f'{lib_name}: scanning collections list')
+    if url and token and section_key:
+        purged = _purge_phantom_collection_list_rows(
+            url, token, section_key, plex=plex_server
+        )
+    managed = load_managed_collections()
+    jobs_changed = False
+    try:
+        collections = list(library.collections() or [])
+    except Exception as exc:
+        logging.warning(f"Repair could not list collections in '{lib_name}': {exc}")
+        collections = []
+    total_colls = len(collections)
+    for idx, coll in enumerate(collections, start=1):
+        scanned += 1
+        title = _normalize_collection_title(getattr(coll, 'title', ''))
+        _repair_state_update(
+            phase=f'{lib_name}: {idx}/{total_colls} {title or "?"}',
+            scanned=scanned, purged=purged, pruned=pruned, converted=converted, posters=posters,
+        )
+        try:
+            ours = _collection_has_label(coll, label)
+            job = None
+            for candidate in managed.values():
+                if not isinstance(candidate, dict):
+                    continue
+                if candidate.get('library') == lib_name and candidate.get('name') == title:
+                    job = candidate
+                    break
+            if getattr(coll, 'smart', False) and (ours or job):
+                job_sort = _normalize_sort_order((job or {}).get('sort_order'))
+                if job_sort == 'random':
+                    # Kometa-style label smart — keep it when the row renders safely.
+                    # Repoint crashy id-filters at the label, and let the ensure()
+                    # verifier convert to regular if this PMS writes a corrupt row.
+                    if not _smart_collection_is_label_based(coll) or _collection_list_row_unsafe(library, coll, config):
+                        try:
+                            members = _sanitize_collection_members(library, list(coll.items() or []))
+                            if members:
+                                new_coll, _cf, _delta = _ensure_random_smart_collection(
+                                    library, title, members, label=label,
+                                    keep_rating_key=str(getattr(coll, 'ratingKey', '') or '') or None,
+                                )
+                                converted += 1
+                                new_key = str(getattr(new_coll, 'ratingKey', '') or '').strip()
+                                if job is not None:
+                                    if new_key:
+                                        job['rating_key'] = new_key
+                                    jobs_changed = True
+                                coll = new_coll
+                        except Exception as exc:
+                            logging.warning("Repair could not relabel random smart '%s': %s", title, exc)
+                else:
+                    new_coll, did = _convert_smart_collection_to_regular(
+                        library, coll, label=label, sort_order=job_sort,
+                    )
+                    if did:
+                        converted += 1
+                        new_key = str(getattr(new_coll, 'ratingKey', '') or '').strip()
+                        if job is not None:
+                            if new_key:
+                                job['rating_key'] = new_key
+                            jobs_changed = True
+                        coll = new_coll
+            pruned += _remove_invalid_collection_members(coll, config)
+            if ours or job:
+                if _collection_poster_probe_issues(coll, config):
+                    if _clear_collection_custom_poster(coll):
+                        posters += 1
+        except Exception as exc:
+            logging.warning(
+                "Repair failed on '%s': %s",
+                title or getattr(coll, 'title', '?'),
+                exc,
+            )
+    if jobs_changed:
+        save_managed_collections(managed)
+    log_action(
+        f"Repaired Plex Collections tab for '{lib_name}': "
+        f"purged {purged} crash row(s), pruned {pruned} bad member(s), "
+        f"converted {converted} smart collection(s), cleared {posters} poster(s) "
+        f"across {scanned} collection(s)."
+    )
+    return {
+        'library': lib_name,
+        'scanned': scanned,
+        'purged': purged,
+        'pruned': pruned,
+        'converted': converted,
+        'posters': posters,
+    }
+
+
+def _run_repair_job(lib_names, config):
+    """Background Cloudflare-safe repair (POST returns immediately)."""
+    errors = []
+    results = []
+    try:
+        configure_plex_identity()
+        from plexapi.server import PlexServer
+        url = str(config.get('plex_url') or '').rstrip('/')
+        token = str(config.get('plex_token') or '')
+        if not url or not token:
+            raise RuntimeError('Plex URL or token is not configured')
+        plex = PlexServer(url, token)
+        totals = {'scanned': 0, 'purged': 0, 'pruned': 0, 'converted': 0, 'posters': 0}
+        for name in lib_names:
+            _repair_state_update(phase=f'Repairing {name}')
+            try:
+                library = plex.library.section(name)
+                row = _repair_library_collections_tab(library, config)
+                results.append(row)
+                for key in totals:
+                    totals[key] += int(row.get(key) or 0)
+                _repair_state_update(**totals)
+            except Exception as exc:
+                errors.append(_client_error(f"Failed to repair library {name}", exc))
+                _repair_state_update(errors=list(errors))
+        GALLERY_CACHE['data'] = None
+        GALLERY_CACHE['timestamp'] = 0
+        log_action(
+            f"Collections tab repair finished: scanned {totals['scanned']}, "
+            f"purged {totals['purged']} crash row(s), pruned {totals['pruned']} member(s), "
+            f"converted {totals['converted']} smart collection(s), "
+            f"cleared {totals['posters']} poster(s)."
+        )
+        _repair_state_update(running=False, phase='done', errors=errors, results=results, **totals)
+    except Exception as exc:
+        _repair_state_update(
+            running=False,
+            phase='error',
+            error=_client_error('Collections tab repair failed', exc),
+            errors=errors,
+        )
+
+
+@app.route('/api/collections/repair-web', methods=['GET', 'POST'])
+@require_auth
+def repair_collections_web():
+    """Start or poll a background repair so Cloudflare cannot 524 the request."""
+    if request.method == 'GET':
+        state = _repair_state_snapshot()
+        return jsonify({
+            'success': True,
+            **state,
+        })
+
+    payload = request.get_json(silent=True) or {}
+    library_name = str(
+        request.args.get('library') or payload.get('library') or ''
+    ).strip()
+    config = load_config()
+    lib_names = [library_name] if library_name else list(config.get('library_names') or [])
+    if not lib_names:
+        return jsonify({"success": False, "error": "No libraries to repair"}), 400
+
+    with _REPAIR_LOCK:
+        if _REPAIR_STATE.get('running'):
+            return jsonify({
+                'success': True,
+                'started': True,
+                **dict(_REPAIR_STATE),
+            })
+        _REPAIR_STATE.update({
+            'running': True,
+            'started': True,
+            'phase': 'starting',
+            'error': None,
+            'libraries': lib_names,
+            'scanned': 0,
+            'purged': 0,
+            'pruned': 0,
+            'converted': 0,
+            'posters': 0,
+            'errors': [],
+            'results': [],
+        })
+
+    threading.Thread(
+        target=_run_repair_job,
+        args=(lib_names, config),
+        daemon=True,
+        name='collexions-repair-web',
+    ).start()
+    log_action(f"Collections tab repair started for: {', '.join(lib_names)}")
+    return jsonify({
+        'success': True,
+        'started': True,
+        'running': True,
+        'phase': 'starting',
+        'libraries': lib_names,
+        'scanned': 0,
+        'purged': 0,
+        'pruned': 0,
+        'converted': 0,
+        'posters': 0,
+        'errors': [],
+    })
+
+
+@app.route('/api/collections/web-health', methods=['GET', 'POST'])
+@require_auth
+def collections_web_health():
+    """Find collections whose metadata/poster would crash Plex Web's Collections tab."""
+    payload = request.get_json(silent=True) or {}
+    library_name = str(
+        request.args.get('library') or payload.get('library') or ''
+    ).strip()
+    deep = str(
+        request.args.get('deep') or payload.get('deep') or ''
+    ).strip().lower() in {'1', 'true', 'yes', 'on'}
+    plex = get_plex_instance()
+    if not plex:
+        return jsonify({"success": False, "error": "Plex connection failed"}), 500
+    config = load_config()
+    url = str(config.get('plex_url') or '').rstrip('/')
+    token = str(config.get('plex_token') or '')
+    if not url or not token:
+        return jsonify({"success": False, "error": "Plex is not configured"}), 400
+
+    lib_names = [library_name] if library_name else list(config.get('library_names') or [])
+    if not lib_names:
+        try:
+            lib_names = [s.title for s in plex.library.sections() if getattr(s, 'type', '') in {'movie', 'show'}]
+        except Exception:
+            lib_names = []
+    if not lib_names:
+        return jsonify({"success": False, "error": "No libraries to scan"}), 400
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    scanned = 0
+    suspects = []
+    suspect_keys = set()
+    errors = []
+
+    def _add_suspect(row):
+        key = (
+            str(row.get('library') or ''),
+            str(row.get('ratingKey') or ''),
+            str(row.get('title') or ''),
+        )
+        if key in suspect_keys:
+            return
+        suspect_keys.add(key)
+        suspects.append(row)
+
+    for name in lib_names:
+        try:
+            library = plex.library.section(name)
+            collections = list(library.collections() or [])
+        except Exception as exc:
+            errors.append(_client_error(f"Failed to load library {name}", exc))
+            continue
+        scanned += len(collections)
+        try:
+            for list_path in ('collections', 'all'):
+                for row in _scan_plex_web_collection_pages(
+                    url, token, getattr(library, 'key', ''), name, list_path=list_path
+                ):
+                    _add_suspect(row)
+        except Exception as exc:
+            errors.append(_client_error(f"Failed to scan library {name}", exc))
+        workers = min(8, max(1, len(collections)))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [
+                pool.submit(_probe_collection_web_crash, url, token, coll, name)
+                for coll in collections
+            ]
+            if deep:
+                for coll in collections:
+                    futures.append(
+                        pool.submit(
+                            _probe_collection_children_types,
+                            url,
+                            token,
+                            getattr(coll, 'ratingKey', ''),
+                            getattr(coll, 'title', '') or '?',
+                            name,
+                        )
+                    )
+            for fut in as_completed(futures):
+                try:
+                    row = fut.result()
+                except Exception as exc:
+                    errors.append(_client_error("Collection probe failed", exc))
+                    continue
+                if row and row.get('issues'):
+                    _add_suspect(row)
+
+    suspects.sort(key=lambda row: (row.get('library') or '', row.get('title') or ''))
+    log_action(
+        f"Collections web-health: scanned {scanned}, "
+        f"{len(suspects)} suspect(s) that can crash Plex Web."
+    )
+    return jsonify({
+        "success": True,
+        "scanned": scanned,
+        "deep": deep,
+        "libraries": lib_names,
+        "suspects": suspects,
+        "errors": errors,
+    })
 
 
 @app.route('/api/collections/delete', methods=['POST'])
@@ -3064,10 +6118,15 @@ def delete_collection():
     data = request.json or {}
     title = str(data.get('title') or '').strip()
     library_name = str(data.get('library') or '').strip()
-    if not title or not library_name:
+    rating_key = str(data.get('ratingKey') or data.get('rating_key') or '').strip()
+    if not library_name or (not title and not rating_key):
         return jsonify({"success": False, "error": "Missing title/library"}), 400
 
-    ok, err, removed_jobs = _delete_plex_collection(library_name, title)
+    ok, err, removed_jobs = _delete_plex_collection(
+        library_name,
+        title=title or None,
+        rating_key=rating_key or None,
+    )
     if not ok:
         status = 500 if err == "Plex connection failed" else 400
         return jsonify({"success": False, "error": err or "Delete failed"}), status
@@ -3132,9 +6191,15 @@ def fix_collection_art():
                 config=config,
                 force=force or bool(title),
             )
+            web_fixes = _finalize_collection_for_plex_web(coll, library, config)
             if changed:
                 ok_count += 1
-            results.append({"title": coll.title, "library": library_name, "ok": bool(changed)})
+            results.append({
+                "title": coll.title,
+                "library": library_name,
+                "ok": bool(changed),
+                "web_fixes": web_fixes,
+            })
 
         GALLERY_CACHE['data'] = None
         GALLERY_CACHE['timestamp'] = 0
@@ -3144,25 +6209,22 @@ def fix_collection_art():
             pass
         return jsonify({"success": True, "ok_count": ok_count, "results": results})
     except Exception as e:
-        logging.error(f"fix_collection_art error: {e}", exc_info=True)
-        return jsonify({"success": False, "error": "Failed to fix collection artwork"}), 500
+        return jsonify({"success": False, "error": _client_error("Failed to fix collection art", e)}), 500
 
 
 @app.route('/api/stop', methods=['POST'])
 @require_auth
 def stop_script():
-    global process
-    if process and process.poll() is None:
-        process.terminate()
-        return jsonify({"success": True})
-    return jsonify({"error": "Script is not running"}), 400
+    stopped = _stop_background_process()
+    log_action("Pinning service stopped." if stopped else "Pinning service already stopped.")
+    return jsonify({"success": True, "stopped": stopped})
 
 @app.route('/api/collections/create', methods=['POST'])
 @require_auth
 def create_custom_collection():
     data = request.json
-    library_name = data.get('library')
-    title = data.get('title')
+    library_name = str(data.get('library') or '').strip()
+    title = _normalize_collection_title(data.get('title'))
     item_keys = data.get('items', []) # List of ratingKeys
     sort_order = data.get('sort_order', 'custom') # 'custom', 'random', 'release'
     
@@ -3177,59 +6239,49 @@ def create_custom_collection():
         return jsonify({"success": False, "error": "Plex connection failed"}), 500
         
     try:
-        library = plex.library.section(library_name)
-        # Fetch actual items by ratingKey
-        items = []
-        for key in item_keys:
-            try:
-                item = library.fetchItem(int(key))
-                items.append(item)
-            except:
-                logging.warning(f"Could not find item with key {key} in library {library_name}")
-                
-        if not items:
-            return jsonify({"success": False, "error": "No matching items found in library"}), 404
-            
-        # Create collection
-        if sort_order == 'random':
-            # Create a SMART collection for true persistent randomness
-            collection = library.createCollection(
-                title=title,
-                smart=True,
-                sort='random',
-                filters={'id': item_keys}
-            )
-        else:
-            # Regular collection for custom/release order
-            collection = library.createCollection(title, items=items)
-            if sort_order == 'release':
+        with _collection_create_lock(library_name, title):
+            library = plex.library.section(library_name)
+            # Fetch actual items by ratingKey
+            items = []
+            for key in item_keys:
                 try:
-                    collection.sortUpdate('release')
-                except Exception as e:
-                    logging.warning(f"Failed to set release sort: {e}")
-        
-        # Add label with soft failure handling
-        try:
-            collection.addLabel(label)
-        except Exception as e:
-            logging.warning(f"Failed to set label: {e}")
+                    item = library.fetchItem(int(key))
+                    items.append(item)
+                except:
+                    logging.warning(f"Could not find item with key {key} in library {library_name}")
+                    
+            if not items:
+                return jsonify({"success": False, "error": "No matching items found in library"}), 404
 
-        art_set = _ensure_collection_art(
-            collection,
-            matched_items=items,
-            config=config,
-            force=True,
-        )
-        
-        log_action(f"Created collection '{title}' with {len(items)} items in {library_name} (Sort: {sort_order}).")
-        
-        # Clear cache since library changed
-        GALLERY_CACHE['data'] = None
-        
-        return jsonify({"success": True, "art_set": bool(art_set)})
+            vis = _capture_collection_visibility(_resolve_collection(library, title=title))
+            collection, created_fresh, membership_delta = _upsert_plex_collection(
+                library,
+                title,
+                items,
+                sort_order=sort_order,
+                label=label,
+            )
+            _notify_portal_collection_updated(collection, library_name, title, membership_delta)
+
+            art_set = _ensure_collection_art(
+                collection,
+                matched_items=items,
+                config=config,
+                force=created_fresh,
+            )
+            web_fixes = _finalize_collection_for_plex_web(collection, library, config)
+            _restore_collection_visibility(collection, vis)
+            
+            log_action(f"Created/updated collection '{title}' with {len(items)} items in {library_name} (Sort: {sort_order}).")
+            
+            # Clear cache since library changed
+            GALLERY_CACHE['data'] = None
+            
+            return jsonify({"success": True, "art_set": bool(art_set), "web_fixes": web_fixes})
+    except RuntimeError as e:
+        return jsonify({"success": False, "error": _client_error("Collection create conflict", e)}), 409
     except Exception as e:
-        logging.error(f"Error creating collection: {e}")
-        return jsonify({"success": False, "error": "Failed to create collection"}), 500
+        return jsonify({"success": False, "error": _client_error("Failed to create collection", e)}), 500
 
 @app.route('/api/search/local')
 @require_auth
@@ -3632,8 +6684,7 @@ def franchise_search():
             })
         return jsonify(results)
     except Exception as e:
-        logging.error(f"Franchise search error: {e}")
-        return jsonify({'error': 'Franchise search failed'}), 500
+        return jsonify({'error': _client_error('Franchise search failed', e)}), 500
 
 
 @app.route('/api/templates/create', methods=['POST'])
@@ -3705,6 +6756,27 @@ def _trakt_headers(trakt_id):
     }
 
 
+def _trakt_api_error_message(status_code, username=None, slug=None):
+    """Human-readable Trakt API failure (see trakt.tv API status codes)."""
+    if status_code == 403:
+        return (
+            'Trakt rejected the request (403). Check ColleXions → Config → Trakt Client ID: '
+            'paste the Client ID from trakt.tv/oauth/applications (not the secret) and ensure '
+            'the app is approved.'
+        )
+    if status_code == 401:
+        return (
+            'Trakt requires sign-in for this list or profile (401). Only public lists work '
+            'without OAuth; try Search Trakt lists or import via MDBList instead.'
+        )
+    if status_code == 404:
+        target = f'{username}/{slug}' if username and slug else 'that list'
+        return f'Trakt list not found ({target}). Try Search Trakt lists to pick the correct slug.'
+    if status_code == 429:
+        return 'Trakt rate limit exceeded (429). Wait a minute and try again.'
+    return f'Trakt API error: {status_code}'
+
+
 def _parse_trakt_list_url(url):
     """Parse https://trakt.tv/users/{user}/lists/{slug} → (username, slug)."""
     parts = [p for p in str(url or '').strip().split('/') if p]
@@ -3733,7 +6805,7 @@ def _fetch_trakt_list_items(trakt_id, username, slug, max_pages=20):
         )
         if resp.status_code != 200:
             if page == 1:
-                raise RuntimeError(f"Trakt API error: {resp.status_code}")
+                raise RuntimeError(_trakt_api_error_message(resp.status_code, username, slug))
             break
         data = resp.json() or []
         if not data:
@@ -3775,7 +6847,7 @@ def search_trakt_lists():
             timeout=15,
         )
         if resp.status_code != 200:
-            return jsonify({'error': f'Trakt API error: {resp.status_code}'}), 400
+            return jsonify({'error': _trakt_api_error_message(resp.status_code)}), 400
         results = []
         for row in resp.json() or []:
             lst = row.get('list') or {}
@@ -3804,8 +6876,7 @@ def search_trakt_lists():
             })
         return jsonify(results)
     except Exception as e:
-        logging.error(f"Trakt list search error: {e}", exc_info=True)
-        return jsonify({'error': 'Trakt list search failed'}), 500
+        return jsonify({'error': _client_error('Trakt list search failed', e)}), 500
 
 
 @app.route('/api/trakt/list')
@@ -3830,8 +6901,7 @@ def get_trakt_list():
         items = _fetch_trakt_list_items(trakt_id, username, slug)
         return jsonify(items)
     except Exception as e:
-        logging.error(f"Trakt list error: {e}")
-        return jsonify({"error": "Trakt list fetch failed"}), 500
+        return jsonify({"error": _client_error("Failed to fetch Trakt list", e)}), 500
 
 @app.route('/api/mdblist/list')
 @require_auth
@@ -3849,7 +6919,7 @@ def get_mdblist():
         # Example URL: https://mdblist.com/lists/mojoard_pk/super-cool-movies
         parts = [p for p in url.strip().split('/') if p]
         
-        # Make sure it's a valid mdblist.com URL
+        # Make sure it's a valid mdblist.com URL (host check, not substring)
         if not _is_mdblist_url(url):
             return jsonify({"error": "Not a valid MDBList URL. Must be from mdblist.com"}), 400
             
@@ -3875,8 +6945,7 @@ def get_mdblist():
             return jsonify({"error": f"MDBList API error: {resp.status_code} - {resp.text}"}), 400
             
     except Exception as e:
-        logging.error(f"MDBList fetch error: {e}")
-        return jsonify({"error": "MDBList fetch failed"}), 500
+        return jsonify({"error": _client_error("Failed to fetch MDBList", e)}), 500
 
 
 
@@ -3908,6 +6977,8 @@ def auth_status():
 @app.route('/api/auth/setup', methods=['POST'])
 def auth_setup():
     """Sets the initial admin password."""
+    if PORTAL_MODE:
+        return jsonify({'error': 'Password setup is disabled in portal mode'}), 403
     config = load_config()
     if config.get('admin_password_hash'):
         return jsonify({'error': 'System already setup'}), 400
@@ -3924,6 +6995,8 @@ def auth_setup():
 @app.route('/api/auth/login', methods=['POST'])
 def auth_login():
     """Verifies password and issues JWT."""
+    if PORTAL_MODE:
+        return jsonify({'error': 'Password login is disabled in portal mode'}), 403
     config = load_config()
     password = request.json.get('password')
     
@@ -3995,7 +7068,6 @@ if os.path.isdir(DIST_DIR):
     @app.route('/', defaults={'path': ''})
     @app.route('/<path:path>')
     def serve_spa(path):
-        # Let Flask serve actual static assets (JS, CSS, images)
         # Resolve and confine to DIST_DIR so "../" segments can't escape it.
         dist_root = os.path.realpath(DIST_DIR)
         full_path = os.path.realpath(os.path.join(dist_root, path))

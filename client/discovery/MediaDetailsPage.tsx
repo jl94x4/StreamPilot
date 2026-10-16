@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { PlusCircle, CheckCircle, Clock, ArrowLeft, Star, Calendar, Globe, Film, Tv, Loader2, Users, Ticket, Cloud, Disc, AlertTriangle } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { PlusCircle, CheckCircle, Clock, ArrowLeft, Star, Calendar, Globe, Film, Tv, Loader2, Users, Ticket, Cloud, Disc, AlertTriangle, Bell } from 'lucide-react';
 import { apiFetch } from '../shared/api';
 import { portalUrl } from '../shared/basePath';
 import { DiscoverPosterCard } from '../screens';
@@ -14,9 +14,8 @@ import { ReportIssueModal } from './ReportIssueModal';
 import { SeasonEpisodesModal } from './SeasonEpisodesModal';
 import { resolveMediaAvailabilityState } from './discoverAvailability';
 import { enrichDiscoverItemsWithAvailability } from './discoverAvailabilityEnrich';
-import { MediaStatusPanel } from './DiscoverStatusOverlay';
-import { DiscoveryLogo } from './DiscoveryLogo';
-import { readDiscoverDetailSeed, scrollPortalToTop } from './discoverNavigationUtils';
+import { MediaStatusPanel, mediaStatusChipClass } from './DiscoverStatusOverlay';
+import { currentDiscoverPathWithSearch, readDiscoverDetailSeed, scrollPortalToTop, stashDiscoverPersonReturn, stashDiscoverScrollPosition } from './discoverNavigationUtils';
 import { MediaOverviewExtras } from './MediaOverviewExtras';
 import { OpenInArrButton } from '../shared/OpenInArrButton';
 import { OpenInLibraryButton } from '../shared/OpenInLibraryButton';
@@ -24,8 +23,10 @@ import type { CombinedRatings } from './mediaDetailUtils';
 import { fetchCombinedRatings } from './mediaDetailUtils';
 import {
     buildSeasonStatusFromDetails,
+    canMarkTvAsAvailable,
     getRequestButtonState,
     seasonStatusBadgeClass,
+    formatRequestedByCopy,
 } from './requestSeasonUtils';
 import { useDiscoverI18n, translateDiscoverStatus } from './i18n';
 
@@ -52,10 +53,13 @@ const formatOrdinalDay = (day: number) => {
     return `${day}th`;
 };
 
-const formatRadarrReleaseDate = (value?: string | null) => {
+const formatRadarrReleaseDate = (value?: string | null, locale = 'en') => {
     if (!value) return null;
     const parsed = new Date(value);
     if (Number.isNaN(parsed.getTime())) return null;
+    if (locale !== 'en') {
+        return parsed.toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' });
+    }
     const day = parsed.getDate();
     const monthYear = parsed.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
     return `${formatOrdinalDay(day)} ${monthYear}`;
@@ -82,6 +86,15 @@ export const MediaDetailsPage: React.FC<{
     const [radarrReleases, setRadarrReleases] = useState<RadarrReleaseDates | null>(null);
     const [ratings, setRatings] = useState<CombinedRatings | null>(null);
     const [requestModalOpen, setRequestModalOpen] = useState(false);
+    const [requestNotify, setRequestNotify] = useState<{
+        canNotify?: boolean;
+        isWatching?: boolean;
+        canRequest?: boolean;
+        mediaStatus?: number | null;
+        blockReason?: string | null;
+        requestedByName?: string | null;
+        requestedByCount?: number;
+    } | null>(null);
     const [issueModalOpen, setIssueModalOpen] = useState(false);
     const [episodesSeason, setEpisodesSeason] = useState<{
         seasonNumber: number;
@@ -90,6 +103,20 @@ export const MediaDetailsPage: React.FC<{
         statusLabel: string;
         posterPath?: string | null;
     } | null>(null);
+    const autoRequestHandledRef = useRef('');
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const routeKey = `${mediaType}:${mediaId}`;
+        if (autoRequestHandledRef.current === routeKey) return;
+        autoRequestHandledRef.current = routeKey;
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('request') !== '1') return;
+        setRequestModalOpen(true);
+        params.delete('request');
+        const nextSearch = params.toString();
+        window.history.replaceState({}, '', `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}`);
+    }, [mediaType, mediaId]);
 
     useEffect(() => {
         let cancelled = false;
@@ -103,6 +130,7 @@ export const MediaDetailsPage: React.FC<{
         setRecommendations([]);
         setRadarrReleases(null);
         setRatings(null);
+        setRequestNotify(null);
 
         const fetchDetails = async () => {
             try {
@@ -123,7 +151,7 @@ export const MediaDetailsPage: React.FC<{
                         setDetails(res);
                         setLoadError(null);
                     } else if (!seed) {
-                        setLoadError(res.error || 'Failed to load details');
+                        setLoadError(res.error || t('media.loadFailed'));
                     }
                 } finally {
                     if (timer) window.clearTimeout(timer);
@@ -133,8 +161,8 @@ export const MediaDetailsPage: React.FC<{
                 if (!cancelled && !seed) {
                     setLoadError(
                         err?.name === 'AbortError'
-                            ? 'Timed out loading this title. Try again.'
-                            : (err?.message || 'Failed to load details'),
+                            ? t('media.loadTimedOut')
+                            : (err?.message || t('media.loadFailed')),
                     );
                 }
             } finally {
@@ -146,9 +174,10 @@ export const MediaDetailsPage: React.FC<{
                 ? `/api/discovery/proxy/movie/${mediaId}/recommendations`
                 : `/api/discovery/proxy/tv/${mediaId}/recommendations`;
             apiFetch(recEndpoint)
-                .then((recRes) => {
+                .then(async (recRes) => {
                     if (cancelled || !recRes || recRes.error || !recRes.results) return;
-                    setRecommendations(recRes.results);
+                    const enriched = await enrichDiscoverItemsWithAvailability(recRes.results);
+                    if (!cancelled) setRecommendations(enriched);
                 })
                 .catch(() => undefined);
         };
@@ -161,16 +190,73 @@ export const MediaDetailsPage: React.FC<{
 
     useEffect(() => {
         if (loading || !details) return undefined;
+        let cancelled = false;
+        apiFetch(`/api/discovery/request-options?mediaType=${mediaType}&mediaId=${mediaId}`)
+            .then((data) => {
+                if (cancelled || data?.error) return;
+                setRequestNotify({
+                    canNotify: !!data?.canNotify,
+                    isWatching: !!data?.isWatching,
+                    canRequest: data?.canRequest !== false,
+                    mediaStatus: Number.isFinite(Number(data?.mediaStatus)) ? Number(data.mediaStatus) : null,
+                    blockReason: data?.blockReason || null,
+                    requestedByName: data?.requestedByName || null,
+                    requestedByCount: Number(data?.requestedByCount) || 0,
+                });
+            })
+            .catch(() => undefined);
+        return () => {
+            cancelled = true;
+        };
+    }, [loading, details, mediaId, mediaType]);
+
+    useEffect(() => {
+        if (loading || !details) return undefined;
 
         let cancelled = false;
 
         // Live library badge when disk cache missed (movies + TV).
-        const needsLive = !Number.isFinite(Number(details?.mediaInfo?.status));
+        // Movies reconcile with Radarr, but keep Seerr/portal PENDING/PROCESSING so the
+        // Request CTA matches the modal ("already requested") instead of flipping back
+        // to "Request Movie".
+        const existingStatus = Number(details?.mediaInfo?.status);
+        const hasRequestStamp = Array.isArray(details?.mediaInfo?.requests)
+            && details.mediaInfo.requests.length > 0;
+        const preserveRequestState = existingStatus === 2
+            || existingStatus === 3
+            || hasRequestStamp;
+        const needsLive = mediaType === 'movie'
+            || !Number.isFinite(existingStatus);
         if (needsLive) {
-            enrichDiscoverItemsWithAvailability([details])
+            const enrichTarget = mediaType === 'movie' && !preserveRequestState
+                ? { ...details, mediaInfo: null }
+                : details;
+            enrichDiscoverItemsWithAvailability([enrichTarget])
                 .then((enriched) => {
                     if (cancelled || !enriched?.[0]) return;
-                    setDetails((prev) => (prev ? { ...prev, ...enriched[0] } : enriched[0]));
+                    setDetails((prev) => {
+                        if (!prev) return enriched[0];
+                        const next = { ...prev, ...enriched[0] };
+                        const prevStatus = Number(prev?.mediaInfo?.status);
+                        const nextStatus = Number(next?.mediaInfo?.status);
+                        const keepPrevRequest = (
+                            (prevStatus === 2 || prevStatus === 3
+                                || (Array.isArray(prev?.mediaInfo?.requests) && prev.mediaInfo.requests.length > 0))
+                            && !(nextStatus === 4 || nextStatus === 5 || nextStatus === 6)
+                        );
+                        if (keepPrevRequest) {
+                            next.mediaInfo = {
+                                ...(next.mediaInfo || {}),
+                                status: Number.isFinite(prevStatus) && prevStatus > 1
+                                    ? prevStatus
+                                    : (next.mediaInfo?.status ?? 3),
+                                ...(Array.isArray(prev?.mediaInfo?.requests) && prev.mediaInfo.requests.length
+                                    ? { requests: prev.mediaInfo.requests }
+                                    : {}),
+                            };
+                        }
+                        return next;
+                    });
                 })
                 .catch(() => undefined);
         }
@@ -183,11 +269,18 @@ export const MediaDetailsPage: React.FC<{
                     setDetails((prev) => {
                         if (!prev) return prev;
                         const seasons = Array.isArray(sonarr.seasons) ? sonarr.seasons : [];
-                        const mainComplete = seasons
-                            .filter((s: any) => Number(s?.seasonNumber) > 0 && Number(s?.airedTotal) > 0)
-                            .every((s: any) => !!s.complete);
-                        const effectivelyComplete = !!sonarr.showComplete
-                            || (!sonarr.hasActiveDownloads && !sonarr.nextAiring && mainComplete && seasons.some((s: any) => Number(s?.seasonNumber) > 0));
+                        const airedMainSeasons = seasons.filter(
+                            (s: any) => Number(s?.seasonNumber) > 0
+                                && (Number(s?.airedTotal) > 0 || Number(s?.withFile) > 0),
+                        );
+                        const mainComplete = airedMainSeasons.length > 0
+                            && airedMainSeasons.every((s: any) => !!s.complete
+                                || (Number(s.total) > 0 && Number(s.withFile) >= Number(s.total)));
+                        const effectivelyComplete = canMarkTvAsAvailable(prev)
+                            && (
+                                !!sonarr.showComplete
+                                || (!sonarr.hasActiveDownloads && !sonarr.nextAiring && mainComplete)
+                            );
 
                         let nextStatus = prev.mediaInfo?.status;
                         if (sonarr.hasActiveDownloads) {
@@ -197,7 +290,7 @@ export const MediaDetailsPage: React.FC<{
                         } else if (Number(sonarr.fileCount) > 0) {
                             nextStatus = 4; // PARTIAL
                         } else if (Number(sonarr.episodeCount) > 0) {
-                            nextStatus = 3; // tracked in Sonarr, nothing on disk yet
+                            nextStatus = null; // tracked in Sonarr, nothing aired/on disk yet
                         }
 
                         const librarySeasons = seasons
@@ -289,12 +382,12 @@ export const MediaDetailsPage: React.FC<{
                                 let nextStatus = prev.mediaInfo?.status;
                                 if (sonarr.hasActiveDownloads) {
                                     nextStatus = 3;
-                                } else if (sonarr.showComplete) {
+                                } else if (sonarr.showComplete && canMarkTvAsAvailable(prev)) {
                                     nextStatus = 5;
                                 } else if (Number(sonarr.fileCount) > 0) {
                                     nextStatus = 4;
                                 } else if (Number(sonarr.episodeCount) > 0) {
-                                    nextStatus = 3;
+                                    nextStatus = null;
                                 }
                                 return {
                                     ...prev,
@@ -314,7 +407,11 @@ export const MediaDetailsPage: React.FC<{
         }
     };
 
-    const handleRequestSuccess = (message: string) => {
+    const handleRequestSuccess = (message: string, meta?: { notify?: boolean }) => {
+        if (meta?.notify) {
+            pushToast?.(message, 'success');
+            return;
+        }
         pushToast?.(message, 'success');
         // Optimistic stamp so the button flips immediately (auto-approve used to leave it as Request).
         setDetails((prev) => {
@@ -342,6 +439,9 @@ export const MediaDetailsPage: React.FC<{
     };
 
     const discoveryNavigate = (path: string) => {
+        const current = currentDiscoverPathWithSearch();
+        stashDiscoverScrollPosition(current);
+        stashDiscoverPersonReturn(current, path);
         window.history.pushState({}, '', portalUrl(path));
         scrollPortalToTop();
         window.dispatchEvent(new Event('popstate'));
@@ -386,6 +486,47 @@ export const MediaDetailsPage: React.FC<{
         [details, mediaType],
     );
 
+    useEffect(() => {
+        if (mediaType !== 'tv' || !seasonRows.length) return;
+        const readSeasonQuery = () => {
+            try {
+                const params = new URLSearchParams(window.location.search);
+                const rawSeason = params.get('season');
+                // Number(null) === 0, which would auto-open Specials on every TV details visit.
+                if (rawSeason == null || String(rawSeason).trim() === '') {
+                    setEpisodesSeason(null);
+                    return;
+                }
+                const season = Number(rawSeason);
+                if (!Number.isFinite(season) || season < 0) {
+                    setEpisodesSeason(null);
+                    return;
+                }
+                const row = seasonRows.find((s) => s.seasonNumber === season);
+                if (!row) {
+                    setEpisodesSeason(null);
+                    return;
+                }
+                setEpisodesSeason({
+                    seasonNumber: row.seasonNumber,
+                    name: row.name,
+                    episodeCount: row.episodeCount,
+                    statusLabel: row.statusLabel,
+                    posterPath: row.posterPath,
+                });
+            } catch {
+                // ignore bad query
+            }
+        };
+        readSeasonQuery();
+        window.addEventListener('portal-discovery-navigate', readSeasonQuery);
+        window.addEventListener('popstate', readSeasonQuery);
+        return () => {
+            window.removeEventListener('portal-discovery-navigate', readSeasonQuery);
+            window.removeEventListener('popstate', readSeasonQuery);
+        };
+    }, [mediaType, mediaId, seasonRows]);
+
     const availability = useMemo(
         () => (details ? resolveMediaAvailabilityState(details) : null),
         [details],
@@ -398,10 +539,10 @@ export const MediaDetailsPage: React.FC<{
                 method: 'POST',
             });
             if (res?.error) throw new Error(res.error);
-            pushToast?.(res?.message || 'Request retry submitted.', 'success');
+            pushToast?.(res?.message || t('media.retrySubmitted'), 'success');
             await refreshDetails();
         } catch (err: any) {
-            pushToast?.(err?.message || 'Failed to retry request', 'error');
+            pushToast?.(err?.message || t('media.retryFailed'), 'error');
         }
     };
 
@@ -421,13 +562,13 @@ export const MediaDetailsPage: React.FC<{
     if (!details) {
         return (
             <div className="w-full h-[80vh] flex flex-col items-center justify-center gap-3 px-6 text-center">
-                <p className="text-lg font-bold text-text">{loadError || 'Could not load this title.'}</p>
+                <p className="text-lg font-bold text-text">{loadError || t('media.couldNotLoad')}</p>
                 <button
                     type="button"
                     onClick={onBack}
                     className="px-4 py-2 rounded-lg border border-border bg-card text-sm font-bold text-text hover:border-plex/40"
                 >
-                    Go back
+                    {t('media.goBack')}
                 </button>
             </div>
         );
@@ -437,6 +578,43 @@ export const MediaDetailsPage: React.FC<{
     const year = (details.releaseDate || details.firstAirDate || '').substring(0, 4);
     const mediaStatus = details.mediaInfo?.status ?? null;
     const requestButton = getRequestButtonState(mediaType, mediaStatus, seasonRows, details.mediaInfo, details);
+    const requestBlockReason = String(requestNotify?.blockReason || '').toLowerCase();
+    const requestOptionsStatus = Number.isFinite(Number(requestNotify?.mediaStatus))
+        ? Number(requestNotify?.mediaStatus)
+        : null;
+    const requestOptionsBlocksAction = requestNotify?.canRequest === false;
+    const requestOptionsSaysAvailable = requestOptionsStatus === 5
+        || requestBlockReason.includes('already available');
+    const requestOptionsSaysRequested = requestOptionsStatus === 2
+        || requestOptionsStatus === 3
+        || requestBlockReason.includes('pending request');
+    const availabilitySaysAvailable = availability?.kind === 'available';
+    const notifyCta = requestNotify?.canNotify || requestNotify?.isWatching
+        ? {
+            label: requestNotify.isWatching ? t('request.watching') : t('request.notifyMe'),
+            disabled: false,
+            variant: requestNotify.isWatching ? 'pending' as const : 'action' as const,
+            hide: false,
+        }
+        : null;
+    const preferRequestCta = !notifyCta && !requestButton.disabled && requestButton.variant === 'action';
+    const visibleRequestButtonBase = preferRequestCta ? requestButton : (notifyCta || requestButton);
+    const visibleRequestButton = (
+        visibleRequestButtonBase.variant === 'action'
+        && !notifyCta
+        && (
+            (requestOptionsBlocksAction && (requestOptionsSaysAvailable || requestOptionsSaysRequested))
+            || availabilitySaysAvailable
+        )
+    )
+        ? {
+            label: requestOptionsSaysRequested ? 'Requested' : 'Available',
+            disabled: true,
+            variant: (requestOptionsSaysRequested ? 'pending' : 'available') as const,
+        }
+        : visibleRequestButtonBase;
+    const requestButtonLabel = translateDiscoverStatus(t, visibleRequestButton.label);
+    const mediaTypeLabel = mediaType === 'movie' ? t('mediaType.movie') : t('mediaType.tv');
     const seerrMediaId = Number(details.mediaInfo?.id);
     const tmdbId = Number(details.tmdbId ?? details.id);
     const canReportIssue = discoveryMe.permissions?.createIssues !== false
@@ -457,7 +635,9 @@ export const MediaDetailsPage: React.FC<{
     const heroImageUrl = heroBackdropUrl || posterHeroUrl;
     const heroUsesPosterFallback = !heroBackdropUrl && !!posterHeroUrl;
     const voteCountLabel = details.voteCount > 0
-        ? `${details.voteCount >= 1000 ? `${(details.voteCount / 1000).toFixed(1)}k` : details.voteCount} votes`
+        ? t('filters.votes', {
+            count: details.voteCount >= 1000 ? `${(details.voteCount / 1000).toFixed(1)}k` : details.voteCount,
+        })
         : null;
 
     const metaChips: { icon: React.ReactNode; label: string }[] = [];
@@ -495,26 +675,26 @@ export const MediaDetailsPage: React.FC<{
     const visibleRecommendations = filterHiddenAvailableItems(recommendations, preferences.hideAvailableMedia);
     const releaseDateRows = mediaType === 'movie' && radarrReleases
         ? [
-            { key: 'cinema', icon: Ticket, label: 'Cinema', date: formatRadarrReleaseDate(radarrReleases.inCinemas) },
-            { key: 'streaming', icon: Cloud, label: 'Streaming', date: formatRadarrReleaseDate(radarrReleases.digitalRelease) },
-            { key: 'bluray', icon: Disc, label: 'Blu-ray', date: formatRadarrReleaseDate(radarrReleases.physicalRelease) },
+            { key: 'cinema', icon: Ticket, label: t('media.cinema'), date: formatRadarrReleaseDate(radarrReleases.inCinemas, locale) },
+            { key: 'streaming', icon: Cloud, label: t('media.streaming'), date: formatRadarrReleaseDate(radarrReleases.digitalRelease, locale) },
+            { key: 'bluray', icon: Disc, label: t('media.bluRay'), date: formatRadarrReleaseDate(radarrReleases.physicalRelease, locale) },
         ].filter((row) => row.date)
         : mediaType === 'tv'
             ? [
-                { key: 'premiere', icon: Calendar, label: 'First aired', date: formatRadarrReleaseDate(details.firstAirDate) },
-                { key: 'last-aired', icon: Calendar, label: 'Last aired', date: formatRadarrReleaseDate(details.lastAirDate) },
+                { key: 'premiere', icon: Calendar, label: t('media.firstAired'), date: formatRadarrReleaseDate(details.firstAirDate, locale) },
+                { key: 'last-aired', icon: Calendar, label: t('media.lastAired'), date: formatRadarrReleaseDate(details.lastAirDate, locale) },
                 {
                     key: 'next-aired',
                     icon: Cloud,
-                    label: 'Next episode',
-                    date: formatRadarrReleaseDate(details.nextEpisodeToAir?.airDate || details.nextEpisodeToAir?.air_date),
+                    label: t('media.nextEpisode'),
+                    date: formatRadarrReleaseDate(details.nextEpisodeToAir?.airDate || details.nextEpisodeToAir?.air_date, locale),
                 },
             ].filter((row) => row.date)
             : [];
 
     return (
         <>
-        <div className="w-[calc(100%+2rem)] -mx-4 md:mx-0 md:w-full flex flex-col min-h-screen bg-card animate-fade-in pb-24 md:pb-16 rounded-none md:rounded-2xl lg:rounded-3xl overflow-x-hidden border-0 md:border border-white/5 shadow-2xl">
+        <div className="discover-media-details page-bleed-x md:w-full flex flex-col min-h-screen bg-card animate-fade-in pb-24 md:pb-16 rounded-none md:rounded-2xl lg:rounded-3xl overflow-x-hidden border-0 md:border border-white/5 shadow-2xl">
             <div className="relative isolate">
                 <div
                     className="media-details-hero-backdrop absolute inset-x-0 top-0 h-[34rem] max-h-[72vh] sm:h-[36rem] md:h-[min(72vh,52rem)] md:max-h-none overflow-hidden pointer-events-none"
@@ -545,7 +725,7 @@ export const MediaDetailsPage: React.FC<{
                     <div className="media-details-hero-scrim-left absolute inset-0 hidden md:block bg-gradient-to-r from-card from-0% via-card/70 via-[32%] to-transparent to-[78%]" />
                 </div>
 
-                <div className="relative z-10 w-full max-w-[1600px] mx-auto px-4 sm:px-8 xl:px-12 pt-4 sm:pt-5 pb-8">
+                <div className="relative z-10 w-full max-w-[1600px] mx-auto page-x sm:px-8 xl:px-12 pt-4 sm:pt-5 pb-8">
                     <button
                         type="button"
                         onClick={onBack}
@@ -575,11 +755,16 @@ export const MediaDetailsPage: React.FC<{
                         <div className="light-on-media flex-1 min-w-0 flex flex-col justify-end gap-2 md:hidden">
                             <div className="flex items-center gap-2 flex-wrap">
                                 {mediaType === 'movie' ? <Film className="w-3.5 h-3.5 text-plex" /> : <Tv className="w-3.5 h-3.5 text-plex" />}
-                                <span className="text-[10px] font-bold uppercase tracking-widest text-plex">{mediaType}</span>
+                                <span className="text-[10px] font-bold uppercase tracking-widest text-plex">{mediaTypeLabel}</span>
                                 {details.status && (
                                     <>
                                         <span className="text-white/30">•</span>
-                                        <span className="text-[10px] font-bold text-white/60 uppercase tracking-wide">{details.status}</span>
+                                        <span
+                                            className="text-[10px] font-bold text-white/60 uppercase tracking-wide"
+                                            title={t('media.tmdbProductionStatus')}
+                                        >
+                                            {details.status}
+                                        </span>
                                     </>
                                 )}
                             </div>
@@ -605,30 +790,42 @@ export const MediaDetailsPage: React.FC<{
                         </div>
                     </div>
 
-                    <div className={`grid gap-2.5 w-full ${canReportIssue && !requestButton.hide ? 'grid-cols-2 md:grid-cols-1' : 'grid-cols-1'}`}>
-                    {!requestButton.hide && (
+                    <div className={`grid gap-2.5 w-full ${canReportIssue && !visibleRequestButton.hide ? 'grid-cols-2 md:grid-cols-1' : 'grid-cols-1'}`}>
+                    {!visibleRequestButton.hide && (
+                    <div className="flex flex-col gap-1.5 min-w-0">
                     <button
                         type="button"
                         onClick={() => setRequestModalOpen(true)}
-                        disabled={requestButton.disabled}
+                        disabled={visibleRequestButton.disabled}
                         className={`w-full py-3 px-2 sm:px-3 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-1.5 sm:gap-2 transition-colors shadow-lg ${
-                            requestButton.variant === 'available'
+                            visibleRequestButton.variant === 'available'
                                 ? 'bg-green-500/20 text-green-500 border border-green-500/30 cursor-default'
-                                : requestButton.variant === 'pending'
+                                : visibleRequestButton.variant === 'pending' && !notifyCta
                                     ? 'bg-amber-500/20 text-amber-500 border border-amber-500/30 cursor-default'
-                                    : requestButton.variant === 'blocked'
+                                    : visibleRequestButton.variant === 'blocked'
                                         ? 'bg-red-500/15 text-red-400 border border-red-500/25 cursor-default'
                                         : 'bg-plex hover:bg-plex-hover text-white disabled:opacity-50 disabled:cursor-not-allowed'
                         }`}
                     >
-                        {requestButton.variant === 'available' ? (
-                            <><CheckCircle className="w-4 h-4" /> {requestButton.label}</>
-                        ) : requestButton.variant === 'pending' ? (
-                            <><Clock className="w-4 h-4" /> {requestButton.label}</>
+                        {visibleRequestButton.variant === 'available' ? (
+                            <><CheckCircle className="w-4 h-4" /> {requestButtonLabel}</>
+                        ) : notifyCta && !preferRequestCta ? (
+                            <><Bell className="w-4 h-4" /> {requestButtonLabel}</>
+                        ) : visibleRequestButton.variant === 'pending' ? (
+                            <><Clock className="w-4 h-4" /> {requestButtonLabel}</>
                         ) : (
-                            <><PlusCircle className="w-4 h-4" /> {requestButton.label}</>
+                            <><PlusCircle className="w-4 h-4" /> {requestButtonLabel}</>
                         )}
                     </button>
+                    {notifyCta ? (
+                        <p className="text-[11px] sm:text-xs text-white/55 text-center leading-snug px-1">
+                            {formatRequestedByCopy(t, requestNotify?.requestedByName, requestNotify?.requestedByCount)}
+                        </p>
+                    ) : null}
+                    {requestNotify?.isWatching ? (
+                        <p className="text-[11px] text-white/40 text-center">{t('request.watchingHint')}</p>
+                    ) : null}
+                    </div>
                     )}
 
                     {canReportIssue && (
@@ -690,7 +887,7 @@ export const MediaDetailsPage: React.FC<{
                             rel="noopener noreferrer"
                             className="col-span-2 md:col-span-1 w-full py-2.5 px-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 border border-border text-text transition-colors"
                         >
-                            <Globe className="w-4 h-4" /> Visit Website
+                            <Globe className="w-4 h-4" /> {t('media.visitWebsite')}
                         </a>
                     )}
                     </div>
@@ -700,11 +897,16 @@ export const MediaDetailsPage: React.FC<{
                     <div className="light-on-media hidden md:flex flex-col gap-2.5">
                         <div className="flex items-center gap-2 flex-wrap">
                             {mediaType === 'movie' ? <Film className="w-3.5 h-3.5 text-plex" /> : <Tv className="w-3.5 h-3.5 text-plex" />}
-                            <span className="text-[10px] font-bold uppercase tracking-widest text-plex">{mediaType}</span>
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-plex">{mediaTypeLabel}</span>
                             {details.status && (
                                 <>
                                     <span className="text-white/30">•</span>
-                                    <span className="text-[10px] font-bold text-white/60 uppercase tracking-wide">{details.status}</span>
+                                    <span
+                                        className="text-[10px] font-bold text-white/60 uppercase tracking-wide"
+                                        title={t('media.tmdbProductionStatus')}
+                                    >
+                                        {details.status}
+                                    </span>
                                 </>
                             )}
                         </div>
@@ -810,6 +1012,7 @@ export const MediaDetailsPage: React.FC<{
                         onOpenPerson={openPerson}
                         onOpenKeyword={openKeyword}
                         onOpenStudio={openStudio}
+                        onOpenNetwork={openNetwork}
                         onOpenCollection={(collectionId) => {
                             window.open(`https://www.themoviedb.org/collection/${collectionId}`, '_blank', 'noopener,noreferrer');
                         }}
@@ -826,33 +1029,6 @@ export const MediaDetailsPage: React.FC<{
                         </div>
                     )}
 
-                    {details.networks?.length > 0 && (
-                        <div className="flex flex-col gap-2">
-                            <SectionHeading>Networks</SectionHeading>
-                            <div className="flex flex-wrap gap-5 items-center">
-                                {details.networks.map((n: any) => (
-                                    <button
-                                        key={n.id}
-                                        type="button"
-                                        onClick={() => openNetwork(n.id)}
-                                        className="flex items-center rounded-lg border border-transparent px-2 py-1.5 transition-all hover:border-border hover:bg-white/5 cursor-pointer"
-                                        title={`Browse ${n.name}`}
-                                    >
-                                        {n.logoPath ? (
-                                            <DiscoveryLogo
-                                                logoPath={n.logoPath}
-                                                alt={n.name}
-                                                width={154}
-                                                className="h-6 max-w-[120px] object-contain opacity-90 hover:opacity-100 transition-opacity"
-                                            />
-                                        ) : (
-                                            <span className="text-xs font-semibold text-muted hover:text-text transition-colors">{n.name}</span>
-                                        )}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-                    )}
                     </div>
                 </div>
                     </div>
@@ -860,7 +1036,7 @@ export const MediaDetailsPage: React.FC<{
             </div>
 
             {/* Cast / seasons / recommendations stay on the same page card */}
-            <div className="relative z-10 w-full max-w-[1600px] mx-auto px-4 sm:px-8 xl:px-12 mt-2 md:mt-4 flex flex-col gap-8 md:gap-10 bg-card">
+            <div className="relative z-10 w-full max-w-[1600px] mx-auto page-x sm:px-8 xl:px-12 mt-2 md:mt-4 flex flex-col gap-8 md:gap-10 bg-card">
                 {details.credits?.cast?.length > 0 && (
                     <section className="border-t border-border pt-8">
                         <SectionHeading>{t('media.topCast')}</SectionHeading>
@@ -922,7 +1098,7 @@ export const MediaDetailsPage: React.FC<{
                                     <div className="flex flex-col min-w-0 gap-1">
                                         <span className="font-bold text-text text-sm truncate">{season.name}</span>
                                         <span className="text-xs text-muted">{t('common.episodeCount', { count: season.episodeCount })}</span>
-                                        <span className={`self-start text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full border ${seasonStatusBadgeClass(season.statusLabel, season.requestable)}`}>
+                                        <span className={`self-start ${mediaStatusChipClass} ${seasonStatusBadgeClass(season.statusLabel, season.requestable)}`}>
                                             {translateDiscoverStatus(t, season.statusLabel)}
                                         </span>
                                     </div>
@@ -963,6 +1139,11 @@ export const MediaDetailsPage: React.FC<{
             overview={details.overview}
             onClose={() => setRequestModalOpen(false)}
             onSuccess={handleRequestSuccess}
+            onNotifyChange={(watching) => setRequestNotify((prev) => ({
+                ...prev,
+                canNotify: true,
+                isWatching: watching,
+            }))}
             onError={(msg) => pushToast?.(msg, 'error')}
         />
         {mediaType === 'tv' && episodesSeason ? (

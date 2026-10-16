@@ -1,6 +1,6 @@
 import { apiFetch } from '../shared/api';
 
-/** Normalize Seerr media, request, or watchlist shapes into a TMDB-friendly item. */
+/** Normalize Seerr media, request, watchlist, or TMDB cast/credit shapes into a TMDB-friendly item. */
 export const normalizeRawDiscoveryItem = (item: any) => {
     if (!item || typeof item !== 'object') return item;
 
@@ -30,6 +30,20 @@ export const normalizeRawDiscoveryItem = (item: any) => {
         };
     }
 
+    const mediaTypeRaw = item.mediaType ?? item.media_type;
+    if (mediaTypeRaw === 'movie' || mediaTypeRaw === 'tv') {
+        return {
+            ...item,
+            mediaType: mediaTypeRaw,
+            tmdbId: item.tmdbId ?? item.id,
+            posterPath: item.posterPath ?? item.poster_path ?? null,
+            profilePath: item.profilePath ?? item.profile_path ?? null,
+            releaseDate: item.releaseDate ?? item.release_date ?? null,
+            firstAirDate: item.firstAirDate ?? item.first_air_date ?? null,
+            originalName: item.originalName ?? item.original_name ?? null,
+        };
+    }
+
     return item;
 };
 
@@ -40,7 +54,14 @@ export const getDiscoverItemKey = (item: any): string | null => {
         ? 'movie'
         : rawType === 2 || rawType === '2'
             ? 'tv'
-            : rawType;
+            : rawType === 'music'
+                ? 'music'
+                : rawType;
+    if (mediaType === 'music') {
+        const mbid = String(normalized.mbid ?? normalized.id ?? '').trim();
+        if (!mbid) return null;
+        return `music:${mbid}`;
+    }
     const tmdbId = Number(normalized.tmdbId ?? normalized.id);
     if (!mediaType || !Number.isFinite(tmdbId) || tmdbId <= 0) return null;
     return `${mediaType}:${tmdbId}`;
@@ -68,12 +89,14 @@ export const mergeDiscoverResults = <T,>(existing: T[], incoming: T[]): T[] => (
     dedupeDiscoverResults([...existing, ...incoming])
 );
 
-const resolveEnrichMediaType = (item: any): 'movie' | 'tv' | null => {
+const resolveEnrichMediaType = (item: any): 'movie' | 'tv' | 'music' | null => {
     const raw = item?.mediaType ?? item?.type;
+    if (raw === 'music') return 'music';
     if (raw === 2 || raw === '2' || raw === 'tv' || raw === 'show') return 'tv';
     if (raw === 1 || raw === '1' || raw === 'movie') return 'movie';
     if (item?.firstAirDate) return 'tv';
     if (item?.releaseDate) return 'movie';
+    if (item?.mbid) return 'music';
     return null;
 };
 
@@ -125,18 +148,29 @@ export const enrichDiscoveryItems = async (items: any[]): Promise<any[]> => {
             const details = await apiFetch(`/api/discovery/proxy/${mediaType}/${tmdbId}`);
             const priorInfo = item.mediaInfo && typeof item.mediaInfo === 'object' ? item.mediaInfo : null;
             const nextInfo = details?.mediaInfo && typeof details.mediaInfo === 'object' ? details.mediaInfo : null;
+            const priorStatus = Number(priorInfo?.status);
+            const nextStatus = Number(nextInfo?.status);
+            // Keep a stronger list/cache stamp when detail enrich returns empty/unknown status.
+            const mergedStatus = (Number.isFinite(nextStatus) && nextStatus > 1)
+                ? nextStatus
+                : (Number.isFinite(priorStatus) && priorStatus > 1 ? priorStatus : (nextInfo?.status ?? priorInfo?.status ?? null));
+            const priorSonarr = item.sonarrLibraryStatus;
+            const nextSonarr = details?.sonarrLibraryStatus;
+            const priorRadarr = item.radarrLibraryStatus;
+            const nextRadarr = details?.radarrLibraryStatus;
             return {
                 ...item,
                 ...details,
                 mediaInfo: {
                     ...(priorInfo || {}),
                     ...(nextInfo || {}),
-                    // Prefer library stamp from enrich when present; keep the member's request rows.
-                    status: nextInfo?.status ?? priorInfo?.status ?? null,
+                    status: mergedStatus,
                     requests: Array.isArray(priorInfo?.requests) && priorInfo.requests.length
                         ? priorInfo.requests
                         : (Array.isArray(nextInfo?.requests) ? nextInfo.requests : []),
                 },
+                sonarrLibraryStatus: nextSonarr?.matched ? nextSonarr : (priorSonarr || nextSonarr || null),
+                radarrLibraryStatus: nextRadarr?.matched ? nextRadarr : (priorRadarr || nextRadarr || null),
                 mediaType,
                 tmdbId,
             };

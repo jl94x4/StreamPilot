@@ -3,8 +3,10 @@ import {
     Check,
     ExternalLink,
     Film,
+    LifeBuoy,
     Loader2,
     MessageSquare,
+    Music,
     RefreshCw,
     RotateCcw,
     Trash2,
@@ -14,23 +16,28 @@ import { apiFetch } from '../shared/api';
 import { portalUrl } from '../shared/basePath';
 import { formatDateTime } from '../shared/format';
 import { Loader, ToastContainer, pushToast, type ToastMessage } from '../shared/toast';
+import { dashboardPanelClass } from '../shared/dashboard/DashboardChrome';
 import { RequestCardActions, RequestCardShell, requestCardActionBtnClass } from './RequestCardShell';
+import { portalRequestTypeLabelKey } from './requestFilterUtils';
 import type { PortalIssueItem } from './types';
 import {
     formatIssueLocation,
     formatIssueRelativeTime,
     issueStatusBadgeClass,
 } from '../discovery/issueUtils';
+import { useDiscoverI18n } from '../discovery/i18n';
+import { goToProfile } from '../profile/helpers';
 
 type IssueFilter = 'open' | 'resolved';
 
-const IssueTypeBadge: React.FC<{ type: string }> = ({ type }) => (
+const IssueTypeBadge: React.FC<{ type: string; t: ReturnType<typeof useDiscoverI18n>['t'] }> = ({ type, t }) => (
     <span className="text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full bg-white/5 border border-border text-muted">
-        {type === 'tv' ? 'TV' : 'Movie'}
+        {t(portalRequestTypeLabelKey(type))}
     </span>
 );
 
 export const IssuesAdminPanel: React.FC<{ onCountsChange?: () => void }> = ({ onCountsChange }) => {
+    const { t } = useDiscoverI18n();
     const [toasts, setToasts] = useState<ToastMessage[]>([]);
     const [filter, setFilter] = useState<IssueFilter>('open');
     const [issues, setIssues] = useState<PortalIssueItem[]>([]);
@@ -76,34 +83,34 @@ export const IssuesAdminPanel: React.FC<{ onCountsChange?: () => void }> = ({ on
             }
             if (!nextCounts.supported || !nextCounts.connected) {
                 setIssues([]);
-                setError(countData?.error || 'Cannot connect to your request app');
+                setError(countData?.error || t('issuesAdmin.errors.cannotConnect'));
                 return;
             }
 
             const listData = await apiFetch(`/api/issues?filter=${encodeURIComponent(filter)}&take=30`);
             if (listData?.connected === false) {
                 setIssues([]);
-                setError(listData?.error || 'Cannot connect to your request app');
+                setError(listData?.error || t('issuesAdmin.errors.cannotConnect'));
                 return;
             }
             setIssues(Array.isArray(listData?.results) ? listData.results : []);
         } catch (e: any) {
-            setError(e?.message || 'Failed to load issues');
+            setError(e?.message || t('issuesAdmin.errors.loadIssues'));
             setIssues([]);
         } finally {
             setLoading(false);
             setRefreshing(false);
         }
-    }, [filter]);
+    }, [filter, t]);
 
     useEffect(() => {
         loadData();
     }, [loadData]);
 
     const filterTabs = useMemo(() => ([
-        { id: 'open' as const, label: 'Open', count: counts.open },
-        { id: 'resolved' as const, label: 'Resolved', count: counts.closed },
-    ]), [counts]);
+        { id: 'open' as const, label: t('issuesAdmin.filters.open'), count: counts.open },
+        { id: 'resolved' as const, label: t('issuesAdmin.filters.resolved'), count: counts.closed },
+    ]), [counts, t]);
 
     const handleStatus = async (item: PortalIssueItem, status: 'open' | 'resolved') => {
         setActionId(item.id);
@@ -112,11 +119,13 @@ export const IssuesAdminPanel: React.FC<{ onCountsChange?: () => void }> = ({ on
                 method: 'POST',
                 body: JSON.stringify({ title: item.title }),
             });
-            addToast(status === 'resolved' ? `Resolved "${item.title}"` : `Reopened "${item.title}"`);
+            addToast(status === 'resolved'
+                ? t('issuesAdmin.toasts.resolvedTitle', { title: item.title })
+                : t('issuesAdmin.toasts.reopenedTitle', { title: item.title }));
             await loadData({ silent: true });
             onCountsChange?.();
         } catch (e: any) {
-            addToast(e?.message || 'Failed to update issue', 'error');
+            addToast(e?.message || t('issuesAdmin.errors.update'), 'error');
         } finally {
             setActionId(null);
         }
@@ -130,12 +139,12 @@ export const IssuesAdminPanel: React.FC<{ onCountsChange?: () => void }> = ({ on
                 method: 'POST',
                 body: JSON.stringify({ message: commentText.trim() }),
             });
-            addToast(`Comment added to "${commentTarget.title}"`);
+            addToast(t('issuesAdmin.toasts.commentAddedTitle', { title: commentTarget.title }));
             setCommentTarget(null);
             setCommentText('');
             await loadData({ silent: true });
         } catch (e: any) {
-            addToast(e?.message || 'Failed to add comment', 'error');
+            addToast(e?.message || t('issuesAdmin.errors.addComment'), 'error');
         } finally {
             setActionId(null);
         }
@@ -146,12 +155,12 @@ export const IssuesAdminPanel: React.FC<{ onCountsChange?: () => void }> = ({ on
         setActionId(deleteTarget.id);
         try {
             await apiFetch(`/api/issues/${deleteTarget.id}`, { method: 'DELETE' });
-            addToast(`Deleted issue for "${deleteTarget.title}"`);
+            addToast(t('issuesAdmin.toasts.deletedTitle', { title: deleteTarget.title }));
             setDeleteTarget(null);
             await loadData({ silent: true });
             onCountsChange?.();
         } catch (e: any) {
-            addToast(e?.message || 'Failed to delete issue', 'error');
+            addToast(e?.message || t('issuesAdmin.errors.delete'), 'error');
         } finally {
             setActionId(null);
         }
@@ -166,13 +175,13 @@ export const IssuesAdminPanel: React.FC<{ onCountsChange?: () => void }> = ({ on
 
             <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
                 <div>
-                    <h2 className="text-2xl md:text-3xl font-bold text-plex">Issues</h2>
+                    <h2 className="text-2xl md:text-3xl font-bold text-plex">{t('issuesAdmin.page.title')}</h2>
                     <p className="text-sm text-muted mt-1">
                         {counts.configured && counts.connected
-                            ? `${counts.open} open playback issues reported by users`
+                            ? t('issuesAdmin.page.openSummary', { count: counts.open })
                             : counts.configured
                                 ? 'Request app is configured — connection failed (see below)'
-                                : 'Connect Seerr in Settings → Integrations to manage issues here.'}
+                                : t('issuesAdmin.page.connectHint')}
                     </p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
@@ -183,7 +192,7 @@ export const IssuesAdminPanel: React.FC<{ onCountsChange?: () => void }> = ({ on
                             rel="noreferrer"
                             className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-border text-sm font-medium text-muted hover:text-text hover:bg-white/5 transition-colors"
                         >
-                            Open Seerr <ExternalLink className="w-4 h-4" />
+                            {t('issuesAdmin.actions.openSeerr')} <ExternalLink className="w-4 h-4" />
                         </a>
                     )}
                     <button
@@ -193,12 +202,12 @@ export const IssuesAdminPanel: React.FC<{ onCountsChange?: () => void }> = ({ on
                         className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-border text-text text-sm font-semibold hover:bg-opacity-80 transition-colors disabled:opacity-50"
                     >
                         <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-                        Refresh
+                        {t('issuesAdmin.actions.refresh')}
                     </button>
                 </div>
             </div>
 
-            <div className="glass-card p-4 md:p-6 shadow-2xl">
+            <div className={`${dashboardPanelClass} p-4 md:p-6`}>
                 <div className="flex flex-wrap gap-2 mb-5">
                     {filterTabs.map((tab) => (
                         <button
@@ -225,15 +234,15 @@ export const IssuesAdminPanel: React.FC<{ onCountsChange?: () => void }> = ({ on
 
                 {!error && issues.length === 0 && !loading && (
                     <div className="py-12 text-center text-muted">
-                        <p className="font-semibold text-text">No {filter} issues</p>
-                        <p className="text-sm mt-2">Users can report playback problems from available titles in Discover.</p>
+                        <p className="font-semibold text-text">{t('issuesAdmin.empty.noIssues', { filter: t(`issuesAdmin.filters.${filter}` as any) })}</p>
+                        <p className="text-sm mt-2">{t('issuesAdmin.empty.reportHint')}</p>
                     </div>
                 )}
 
                 <div className="flex flex-col gap-3">
                     {issues.map((item) => {
                         const busy = actionId === item.id;
-                        const location = formatIssueLocation(item);
+                        const location = formatIssueLocation(item, t);
                         const firstComment = item.comments?.[0]?.message;
                         const isOpen = item.statusLabel === 'open';
 
@@ -254,7 +263,7 @@ export const IssuesAdminPanel: React.FC<{ onCountsChange?: () => void }> = ({ on
                                         </div>
                                         <div className="min-w-0 flex-1">
                                             <div className="flex flex-wrap items-center gap-2 mb-1.5">
-                                                <IssueTypeBadge type={item.type} />
+                                                <IssueTypeBadge type={item.type} t={t} />
                                                 <span className="text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full border bg-white/5 border-border text-muted">
                                                     {item.issueTypeLabel}
                                                 </span>
@@ -267,9 +276,16 @@ export const IssuesAdminPanel: React.FC<{ onCountsChange?: () => void }> = ({ on
                                                 {item.year ? <span className="text-muted font-semibold ml-2">{item.year}</span> : null}
                                             </h3>
                                             <p className="text-xs text-muted mt-1">
-                                                Reported by {item.createdBy.displayName}
+                                                {t('issuesAdmin.labels.reportedBy')}{' '}
+                                                <button
+                                                    type="button"
+                                                    className="hover:text-plex hover:underline"
+                                                    onClick={() => goToProfile(undefined, item.createdBy.displayName)}
+                                                >
+                                                    {item.createdBy.displayName}
+                                                </button>
                                                 {' · '}
-                                                {formatIssueRelativeTime(item.createdAt || item.updatedAt)}
+                                                {formatIssueRelativeTime(item.createdAt || item.updatedAt, t)}
                                                 {location ? ` · ${location}` : ''}
                                             </p>
                                             {firstComment && (
@@ -277,13 +293,22 @@ export const IssuesAdminPanel: React.FC<{ onCountsChange?: () => void }> = ({ on
                                             )}
                                             {item.updatedAt && item.updatedAt !== item.createdAt && (
                                                 <p className="text-[11px] text-muted/70 mt-2">
-                                                    Updated {formatDateTime(item.updatedAt)}
+                                                    {t('issuesAdmin.labels.updated')} {formatDateTime(item.updatedAt)}
                                                 </p>
                                             )}
                                         </div>
                                     </div>
 
                                     <RequestCardActions>
+                                        {item.ticketId ? (
+                                            <a
+                                                href={portalUrl(`/support?ticket=${item.ticketId}`)}
+                                                className={`${requestCardActionBtnClass} border border-plex/40 text-plex hover:bg-plex/10 no-underline`}
+                                            >
+                                                <LifeBuoy className="w-3.5 h-3.5" />
+                                                {t('issuesAdmin.actions.openTicket')}
+                                            </a>
+                                        ) : null}
                                         <button
                                             type="button"
                                             disabled={busy}
@@ -294,7 +319,7 @@ export const IssuesAdminPanel: React.FC<{ onCountsChange?: () => void }> = ({ on
                                             className={`${requestCardActionBtnClass} border border-border text-muted hover:bg-white/5 hover:text-text`}
                                         >
                                             <MessageSquare className="w-3.5 h-3.5" />
-                                            Comment
+                                            {t('issues.comment')}
                                         </button>
                                         {isOpen ? (
                                             <button
@@ -304,7 +329,7 @@ export const IssuesAdminPanel: React.FC<{ onCountsChange?: () => void }> = ({ on
                                                 className={`${requestCardActionBtnClass} border border-green-500/30 text-green-300 hover:bg-green-500/10`}
                                             >
                                                 {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                                                Resolve
+                                                {t('issues.resolve')}
                                             </button>
                                         ) : (
                                             <button
@@ -314,7 +339,7 @@ export const IssuesAdminPanel: React.FC<{ onCountsChange?: () => void }> = ({ on
                                                 className={`${requestCardActionBtnClass} border border-plex/30 text-plex hover:bg-plex/10`}
                                             >
                                                 {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
-                                                Reopen
+                                                {t('issues.reopen')}
                                             </button>
                                         )}
                                         <button
@@ -324,15 +349,15 @@ export const IssuesAdminPanel: React.FC<{ onCountsChange?: () => void }> = ({ on
                                             className={`${requestCardActionBtnClass} border border-red-500/30 text-red-300 hover:bg-red-500/10`}
                                         >
                                             <Trash2 className="w-3.5 h-3.5" />
-                                            Delete
+                                            {t('common.delete')}
                                         </button>
                                         {item.tmdbId && (
                                             <a
                                                 href={portalUrl(`/discovery/${item.type}/${item.tmdbId}`)}
                                                 className={`${requestCardActionBtnClass} border border-border text-muted hover:bg-white/5 hover:text-text no-underline`}
                                             >
-                                                {item.type === 'tv' ? <Tv className="w-3.5 h-3.5" /> : <Film className="w-3.5 h-3.5" />}
-                                                View
+                                                {item.type === 'tv' ? <Tv className="w-3.5 h-3.5" /> : item.type === 'music' ? <Music className="w-3.5 h-3.5" /> : <Film className="w-3.5 h-3.5" />}
+                                                {t('common.view')}
                                             </a>
                                         )}
                                     </RequestCardActions>
@@ -347,12 +372,12 @@ export const IssuesAdminPanel: React.FC<{ onCountsChange?: () => void }> = ({ on
                 <div className="fixed inset-0 z-[210] flex items-center justify-center p-4">
                     <button
                         type="button"
-                        aria-label="Close"
+                        aria-label={t('common.close')}
                         className="absolute inset-0 bg-black/80 backdrop-blur-sm"
                         onClick={() => { if (actionId == null) setCommentTarget(null); }}
                     />
                     <div className="relative w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl">
-                        <h3 className="text-lg font-bold text-text mb-2">Reply to issue</h3>
+                        <h3 className="text-lg font-bold text-text mb-2">{t('issuesAdmin.dialogs.replyTitle')}</h3>
                         <p className="text-sm text-muted mb-4">
                             {commentTarget.title} · {commentTarget.createdBy.displayName}
                         </p>
@@ -361,7 +386,7 @@ export const IssuesAdminPanel: React.FC<{ onCountsChange?: () => void }> = ({ on
                             onChange={(e) => setCommentText(e.target.value)}
                             rows={4}
                             className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex resize-y min-h-[6rem] mb-4"
-                            placeholder="Reply to the user…"
+                            placeholder={t('issuesAdmin.dialogs.replyPlaceholder')}
                         />
                         <div className="flex gap-3">
                             <button
@@ -370,7 +395,7 @@ export const IssuesAdminPanel: React.FC<{ onCountsChange?: () => void }> = ({ on
                                 onClick={() => setCommentTarget(null)}
                                 className="flex-1 py-2.5 rounded-xl border border-border text-muted font-semibold hover:bg-white/5 transition-colors disabled:opacity-50"
                             >
-                                Cancel
+                                {t('common.cancel')}
                             </button>
                             <button
                                 type="button"
@@ -378,7 +403,7 @@ export const IssuesAdminPanel: React.FC<{ onCountsChange?: () => void }> = ({ on
                                 onClick={handleComment}
                                 className="flex-1 py-2.5 rounded-xl bg-plex text-black font-bold hover:bg-plex-hover transition-colors disabled:opacity-50"
                             >
-                                {actionId != null ? 'Sending…' : 'Send Reply'}
+                                {actionId != null ? t('issues.sending') : t('issuesAdmin.actions.sendReply')}
                             </button>
                         </div>
                     </div>
@@ -389,14 +414,14 @@ export const IssuesAdminPanel: React.FC<{ onCountsChange?: () => void }> = ({ on
                 <div className="fixed inset-0 z-[210] flex items-center justify-center p-4">
                     <button
                         type="button"
-                        aria-label="Close"
+                        aria-label={t('common.close')}
                         className="absolute inset-0 bg-black/80 backdrop-blur-sm"
                         onClick={() => { if (actionId == null) setDeleteTarget(null); }}
                     />
                     <div className="relative w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl">
-                        <h3 className="text-lg font-bold text-text mb-2">Delete issue?</h3>
+                        <h3 className="text-lg font-bold text-text mb-2">{t('issues.deleteTitle')}</h3>
                         <p className="text-sm text-muted mb-5">
-                            Permanently delete the issue for <span className="text-text font-semibold">{deleteTarget.title}</span>?
+                            {t('issuesAdmin.dialogs.deleteBody', { title: deleteTarget.title })}
                         </p>
                         <div className="flex gap-3">
                             <button
@@ -405,7 +430,7 @@ export const IssuesAdminPanel: React.FC<{ onCountsChange?: () => void }> = ({ on
                                 onClick={() => setDeleteTarget(null)}
                                 className="flex-1 py-2.5 rounded-xl border border-border text-muted font-semibold hover:bg-white/5 transition-colors disabled:opacity-50"
                             >
-                                Cancel
+                                {t('common.cancel')}
                             </button>
                             <button
                                 type="button"
@@ -413,7 +438,7 @@ export const IssuesAdminPanel: React.FC<{ onCountsChange?: () => void }> = ({ on
                                 onClick={handleDelete}
                                 className="flex-1 py-2.5 rounded-xl bg-red-500 text-white font-bold hover:bg-red-600 transition-colors disabled:opacity-50"
                             >
-                                {actionId != null ? 'Deleting…' : 'Delete Issue'}
+                                {actionId != null ? t('issuesAdmin.actions.deleting') : t('issuesAdmin.actions.deleteIssue')}
                             </button>
                         </div>
                     </div>

@@ -1,17 +1,29 @@
-export type DashboardSectionId = 'wrapUp' | 'mainGrid' | 'pendingRequests' | 'watchRow' | 'scanner' | 'recentlyAdded' | 'bazarrTools';
+import type { HomeCustomModule } from './types';
+import {
+    canAccessHomeCustomModule,
+    isHomeCustomModuleSectionId,
+    normalizeDashboardSectionIds,
+    parseHomeCustomModuleSectionId,
+} from './homeCustomModules';
+
+export type BuiltInDashboardSectionId = 'wrapUp' | 'mainGrid' | 'pendingRequests' | 'watchRow' | 'scanner' | 'spotifySync' | 'mediaAutomation' | 'recentlyAdded' | 'bazarrTools';
+
+export type DashboardSectionId = BuiltInDashboardSectionId | `customModule:${string}`;
 
 export type MainGridWidgetId =
     | 'adminBadge'
     | 'accessStatus'
     | 'tempAccessSetup'
     | 'quickActions'
+    | 'expiringMembers'
     | 'announcement'
     | 'referral'
-    | 'newsletterPrefs'
     | 'support'
     | 'libraryStats'
     | 'collexions'
-    | 'analytics';
+    | 'analytics'
+    | 'achievements'
+    | 'homeNotifications';
 
 export type RecentlyAddedWidgetId = 'recentMovies' | 'recentShows' | 'recentMusic';
 
@@ -37,6 +49,8 @@ export const DASHBOARD_SECTION_LABELS: Record<DashboardSectionId, string> = {
     pendingRequests: 'Pending Requests',
     watchRow: 'Recently / Most Watched',
     scanner: 'Scanner',
+    spotifySync: 'Spotify Sync',
+    mediaAutomation: 'Media Automation',
     recentlyAdded: 'Recently Added rows',
     bazarrTools: 'Bazarr Subtitle Tools',
 };
@@ -44,15 +58,17 @@ export const DASHBOARD_SECTION_LABELS: Record<DashboardSectionId, string> = {
 export const MAIN_GRID_WIDGET_META: Record<MainGridWidgetId, { label: string; column: 'left' | 'right'; adminOnly?: boolean; userOnly?: boolean }> = {
     adminBadge: { label: 'Server Admin badge', column: 'left', adminOnly: true },
     quickActions: { label: 'Quick Actions', column: 'left', adminOnly: true },
+    expiringMembers: { label: 'Expiring members this week', column: 'left', adminOnly: true },
     accessStatus: { label: 'Access status & expiry', column: 'left', userOnly: true },
     tempAccessSetup: { label: 'Temp access setup spinner', column: 'left', userOnly: true },
     announcement: { label: 'Announcement banner', column: 'left' },
     referral: { label: 'Invite Friends / referral', column: 'left', userOnly: true },
-    newsletterPrefs: { label: 'Newsletter preferences', column: 'left', userOnly: true },
     support: { label: 'Need Help / contact', column: 'left', userOnly: true },
     libraryStats: { label: 'Server Library Size', column: 'right' },
     collexions: { label: 'ColleXions', column: 'right', adminOnly: true },
     analytics: { label: 'Your Analytics', column: 'right' },
+    achievements: { label: 'Achievements XP', column: 'left' },
+    homeNotifications: { label: 'Notifications', column: 'left' },
 };
 
 export const RECENTLY_ADDED_WIDGET_META: Record<RecentlyAddedWidgetId, string> = {
@@ -63,14 +79,16 @@ export const RECENTLY_ADDED_WIDGET_META: Record<RecentlyAddedWidgetId, string> =
 
 export const DEFAULT_DASHBOARD_LAYOUT: DashboardLayoutConfig = {
     version: 1,
-    sections: ['wrapUp', 'mainGrid', 'pendingRequests', 'watchRow', 'scanner', 'recentlyAdded', 'bazarrTools'],
+    sections: ['wrapUp', 'mainGrid', 'pendingRequests', 'watchRow', 'scanner', 'spotifySync', 'mediaAutomation', 'recentlyAdded', 'bazarrTools'],
     mainGridOrder: [
         'adminBadge',
         'quickActions',
+        'expiringMembers',
+        'achievements',
+        'homeNotifications',
         'accessStatus',
         'announcement',
         'referral',
-        'newsletterPrefs',
         'support',
         'libraryStats',
         'collexions',
@@ -85,7 +103,7 @@ export const DEFAULT_DASHBOARD_LAYOUT: DashboardLayoutConfig = {
     topWatchedRows: 2,
 };
 
-const ALL_SECTIONS: DashboardSectionId[] = ['wrapUp', 'mainGrid', 'pendingRequests', 'watchRow', 'scanner', 'recentlyAdded', 'bazarrTools'];
+const ALL_SECTIONS: BuiltInDashboardSectionId[] = ['wrapUp', 'mainGrid', 'pendingRequests', 'watchRow', 'scanner', 'spotifySync', 'mediaAutomation', 'recentlyAdded', 'bazarrTools'];
 const ALL_MAIN_GRID: MainGridWidgetId[] = Object.keys(MAIN_GRID_WIDGET_META) as MainGridWidgetId[];
 const ALL_RECENTLY_ADDED: RecentlyAddedWidgetId[] = ['recentMovies', 'recentShows', 'recentMusic'];
 const ALL_WIDGETS: DashboardWidgetId[] = [...ALL_MAIN_GRID, ...ALL_RECENTLY_ADDED];
@@ -100,11 +118,30 @@ const uniqueValid = <T extends string>(values: unknown, allowed: T[], fallback: 
         const id = value as T;
         if (!allowed.includes(id) || seen.has(id)) return;
         seen.add(id);
-            result.push(id);
+        result.push(id);
     });
     if (fillMissing) {
-        allowed.forEach((id) => {
-            if (!seen.has(id)) result.push(id);
+        allowed.forEach((id, defaultIndex) => {
+            if (seen.has(id)) return;
+            let insertAt = result.length;
+            for (let i = defaultIndex - 1; i >= 0; i -= 1) {
+                const prevIdx = result.indexOf(allowed[i]);
+                if (prevIdx >= 0) {
+                    insertAt = prevIdx + 1;
+                    break;
+                }
+            }
+            if (insertAt === result.length) {
+                for (let i = defaultIndex + 1; i < allowed.length; i += 1) {
+                    const nextIdx = result.indexOf(allowed[i]);
+                    if (nextIdx >= 0) {
+                        insertAt = nextIdx;
+                        break;
+                    }
+                }
+            }
+            result.splice(insertAt, 0, id);
+            seen.add(id);
         });
     }
     return result;
@@ -133,38 +170,74 @@ const normalizeWidgetColumns = (values: unknown): Partial<Record<DashboardWidget
 };
 
 const migrateDashboardSections = (sections: DashboardSectionId[]): DashboardSectionId[] => {
-    const next = sections.filter((id, index) => id !== 'pendingRequests' || sections.indexOf('pendingRequests') === index);
+    const next = sections.filter((id, index) => !ALL_SECTIONS.includes(id as BuiltInDashboardSectionId) || id !== 'pendingRequests' || sections.indexOf('pendingRequests') === index);
     const mainGridIndex = next.indexOf('mainGrid');
     if (!next.includes('pendingRequests') && mainGridIndex >= 0) {
         next.splice(mainGridIndex + 1, 0, 'pendingRequests');
     } else if (!next.includes('pendingRequests')) {
         next.push('pendingRequests');
     }
-    const placeScannerBeforeRecentlyAdded = () => {
-        const existing = next.indexOf('scanner');
-        if (existing >= 0) next.splice(existing, 1);
+    // Only seed missing sections — never force-reorder saved Home Layout order.
+    if (!next.includes('scanner')) {
         const ra = next.indexOf('recentlyAdded');
         if (ra >= 0) next.splice(ra, 0, 'scanner');
         else next.push('scanner');
-    };
-    if (!next.includes('scanner')) placeScannerBeforeRecentlyAdded();
-    else {
-        const si = next.indexOf('scanner');
-        const ra = next.indexOf('recentlyAdded');
-        if (si >= 0 && ra >= 0 && si > ra) placeScannerBeforeRecentlyAdded();
+    }
+    if (!next.includes('mediaAutomation')) {
+        const scannerIndex = next.indexOf('scanner');
+        const recentlyAddedIndex = next.indexOf('recentlyAdded');
+        const insertAt = scannerIndex >= 0 ? scannerIndex + 1 : recentlyAddedIndex;
+        if (insertAt >= 0) next.splice(insertAt, 0, 'mediaAutomation');
+        else next.push('mediaAutomation');
+    }
+    if (!next.includes('spotifySync')) {
+        const scannerIndex = next.indexOf('scanner');
+        const mediaAutomationIndex = next.indexOf('mediaAutomation');
+        const insertAt = scannerIndex >= 0 ? scannerIndex + 1 : mediaAutomationIndex;
+        if (insertAt >= 0) next.splice(insertAt, 0, 'spotifySync');
+        else next.push('spotifySync');
     }
     if (!next.includes('bazarrTools')) next.push('bazarrTools');
     return next;
 };
 
-export const normalizeDashboardLayout = (raw: unknown): DashboardLayoutConfig => {
+/** Move Achievements under Quick Actions when it still sits in the old right-column default. */
+const migrateMainGridOrder = (order: MainGridWidgetId[]): MainGridWidgetId[] => {
+    const achIdx = order.indexOf('achievements');
+    const qaIdx = order.indexOf('quickActions');
+    if (achIdx < 0 || qaIdx < 0) return order;
+    if (achIdx === qaIdx + 1) return order;
+    const analyticsIdx = order.indexOf('analytics');
+    const looksLikeOldDefault =
+        achIdx === order.length - 1
+        || (analyticsIdx >= 0 && achIdx === analyticsIdx + 1);
+    if (!looksLikeOldDefault) return order;
+    const next = order.filter((id) => id !== 'achievements');
+    next.splice(next.indexOf('quickActions') + 1, 0, 'achievements');
+    return next;
+};
+
+export type NormalizeDashboardLayoutOptions = {
+    homeCustomModules?: HomeCustomModule[];
+};
+
+export const normalizeDashboardLayout = (raw: unknown, options: NormalizeDashboardLayoutOptions = {}): DashboardLayoutConfig => {
+    const moduleIds = new Set(
+        (options.homeCustomModules || [])
+            .filter((module) => module.enabled)
+            .map((module) => String(module.id)),
+    );
     const input = raw && typeof raw === 'object' ? (raw as Partial<DashboardLayoutConfig>) : {};
     return {
         version: 1,
-        sections: migrateDashboardSections(uniqueValid(input.sections, ALL_SECTIONS, DEFAULT_DASHBOARD_LAYOUT.sections)),
-        mainGridOrder: uniqueValid(input.mainGridOrder, ALL_MAIN_GRID, DEFAULT_DASHBOARD_LAYOUT.mainGridOrder),
+        sections: migrateDashboardSections(
+            normalizeDashboardSectionIds(input.sections, ALL_SECTIONS, DEFAULT_DASHBOARD_LAYOUT.sections, moduleIds) as DashboardSectionId[],
+        ),
+        mainGridOrder: migrateMainGridOrder(
+            uniqueValid(input.mainGridOrder, ALL_MAIN_GRID, DEFAULT_DASHBOARD_LAYOUT.mainGridOrder),
+        ),
         recentlyAddedOrder: uniqueValid(input.recentlyAddedOrder, ALL_RECENTLY_ADDED, DEFAULT_DASHBOARD_LAYOUT.recentlyAddedOrder),
-        hiddenSections: uniqueValid(input.hiddenSections, ALL_SECTIONS, [], false),
+        hiddenSections: normalizeDashboardSectionIds(input.hiddenSections, ALL_SECTIONS, [], moduleIds, { fillMissingBuiltIn: false }) as DashboardSectionId[],
         hiddenWidgets: uniqueValid(input.hiddenWidgets, ALL_WIDGETS, [], false),
         widgetSizes: normalizeWidgetSizes(input.widgetSizes),
         widgetColumns: normalizeWidgetColumns(input.widgetColumns),
@@ -180,7 +253,12 @@ export type DashboardLayoutContext = {
     requestsQueueEnabled?: boolean;
     collexionsEnabled?: boolean;
     scannerHomeWidgetEnabled?: boolean;
+    spotifySyncHomeWidgetEnabled?: boolean;
+    mediaAutomationHomeWidgetEnabled?: boolean;
+    achievementsEnabled?: boolean;
+    achievementsHomeWidgetEnabled?: boolean;
     mediaServerType?: string;
+    homeCustomModules?: HomeCustomModule[];
 };
 
 export const isMainGridWidgetAvailable = (id: MainGridWidgetId, ctx: DashboardLayoutContext): boolean => {
@@ -203,6 +281,10 @@ export const isMainGridWidgetAvailable = (id: MainGridWidgetId, ctx: DashboardLa
     if (id === 'analytics') {
         if (!['jellyfin', 'emby'].includes(String(ctx.mediaServerType || '').toLowerCase())) return false;
     }
+    if (id === 'achievements') {
+        if (!ctx.achievementsEnabled) return false;
+        if (ctx.achievementsHomeWidgetEnabled === false) return false;
+    }
     return true;
 };
 
@@ -220,9 +302,16 @@ export const resolveRecentlyAddedWidgets = (layout: DashboardLayoutConfig): Rece
     layout.recentlyAddedOrder.filter((id) => !layout.hiddenWidgets.includes(id));
 
 export const isDashboardSectionAvailable = (id: DashboardSectionId, ctx: DashboardLayoutContext): boolean => {
+    if (isHomeCustomModuleSectionId(id)) {
+        const moduleId = parseHomeCustomModuleSectionId(id);
+        const module = ctx.homeCustomModules?.find((entry) => String(entry.id) === moduleId);
+        return canAccessHomeCustomModule(module, !!ctx.isAdmin);
+    }
     if (id === 'pendingRequests') return !!ctx.isAdmin;
     if (id === 'bazarrTools') return !!ctx.isAdmin;
     if (id === 'scanner') return !!ctx.isAdmin && !!ctx.scannerHomeWidgetEnabled;
+    if (id === 'spotifySync') return !!ctx.isAdmin && !!ctx.spotifySyncHomeWidgetEnabled;
+    if (id === 'mediaAutomation') return !!ctx.isAdmin && !!ctx.mediaAutomationHomeWidgetEnabled;
     return true;
 };
 
@@ -231,13 +320,13 @@ export const resolveDashboardSections = (layout: DashboardLayoutConfig, ctx?: Da
         (id) => !layout.hiddenSections.includes(id) && (!ctx || isDashboardSectionAvailable(id, ctx))
     );
 
-export const normalizeSectionLayout = (raw: unknown): DashboardLayoutConfig => {
-    const normalized = normalizeDashboardLayout(raw);
+export const normalizeSectionLayout = (raw: unknown, options: NormalizeDashboardLayoutOptions = {}): DashboardLayoutConfig => {
+    const normalized = normalizeDashboardLayout(raw, options);
     const input = raw && typeof raw === 'object' ? (raw as Partial<DashboardLayoutConfig>) : null;
     if (!input || !Array.isArray(input.hiddenSections)) {
         return { ...normalized, hiddenSections: [] };
     }
-    if (normalized.hiddenSections.length >= ALL_SECTIONS.length) {
+    if (normalized.hiddenSections.length >= normalized.sections.length) {
         return { ...normalized, hiddenSections: [] };
     }
     if (normalized.hiddenWidgets.length >= ALL_WIDGETS.length) {
@@ -273,6 +362,16 @@ export const SECTION_PREVIEW_META: Record<
     scanner: {
         shortLabel: 'Scanner',
         description: 'Full-width library refresh status',
+        previewClass: 'h-14',
+    },
+    spotifySync: {
+        shortLabel: 'Spotify Sync',
+        description: 'Playlist sync sidecar status',
+        previewClass: 'h-14',
+    },
+    mediaAutomation: {
+        shortLabel: 'Media Automation',
+        description: 'Native processing queue and worker status',
         previewClass: 'h-14',
     },
     recentlyAdded: {

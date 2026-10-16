@@ -26,7 +26,7 @@ type Props = {
 };
 
 export const DiscoverCategoryPage: React.FC<Props> = ({ kind, id, onBack, onSelect, formatItem }) => {
-    const { locale } = useDiscoverI18n();
+    const { t, locale } = useDiscoverI18n();
     const { preferences } = useDiscoveryPreferences();
     const [gridSize, setGridSize] = useDiscoverGridSize();
     const containerRef = useRef<HTMLDivElement>(null);
@@ -87,7 +87,7 @@ export const DiscoverCategoryPage: React.FC<Props> = ({ kind, id, onBack, onSele
         filterOptions: { hideAvailable: preferences.hideAvailableMedia, hideRequested: false },
     });
 
-    const title = entityName || meta?.name || (kind === 'studio' ? 'Studio' : 'Network');
+    const title = entityName || meta?.name || (kind === 'studio' ? t('filters.studio') : t('filters.network'));
     const skeletonCount = discoverSkeletonCountForGrid(
         gridSize,
         containerRef.current?.clientWidth || (typeof window !== 'undefined' ? window.innerWidth : 1200),
@@ -101,7 +101,7 @@ export const DiscoverCategoryPage: React.FC<Props> = ({ kind, id, onBack, onSele
                 className="inline-flex items-center gap-2 text-sm font-semibold text-muted hover:text-text transition-colors w-fit"
             >
                 <ArrowLeft className="w-4 h-4" />
-                Back to Discover
+                {t('media.backToDiscover')}
             </button>
 
             <div className="px-2">
@@ -126,18 +126,18 @@ export const DiscoverCategoryPage: React.FC<Props> = ({ kind, id, onBack, onSele
                             <div className="min-w-0">
                                 <div className="flex items-center gap-2 text-plex text-sm font-bold uppercase tracking-wider mb-2">
                                     {kind === 'studio' ? <Film className="w-4 h-4" /> : <Tv className="w-4 h-4" />}
-                                    {kind === 'studio' ? 'Movie Studio' : 'TV Network'}
+                                    {kind === 'studio' ? t('category.movieStudio') : t('category.tvNetwork')}
                                 </div>
                                 <h1 className="text-3xl sm:text-4xl font-black text-text tracking-tight">{title}</h1>
                                 <p className="text-sm text-muted mt-2">
-                                    Browse {kind === 'studio' ? 'movies' : 'series'} from this {kind === 'studio' ? 'studio' : 'network'}.
+                                    {kind === 'studio' ? t('category.browseStudio') : t('category.browseNetwork')}
                                 </p>
                             </div>
                         </div>
                         <DiscoverGridSizeSelect
                             value={gridSize}
                             onChange={setGridSize}
-                            className="w-44 self-start sm:self-center flex-shrink-0"
+                            className="self-start sm:self-center flex-shrink-0"
                         />
                     </div>
                 </div>
@@ -151,7 +151,9 @@ export const DiscoverCategoryPage: React.FC<Props> = ({ kind, id, onBack, onSele
                     onSelect={onSelect}
                     loading={loading}
                     skeletonCount={skeletonCount}
-                    emptyMessage={`No ${kind === 'studio' ? 'movies' : 'series'} found for ${title}.`}
+                    emptyMessage={kind === 'studio'
+                        ? t('category.emptyMovies', { name: title })
+                        : t('category.emptySeries', { name: title })}
                 />
 
                 <DiscoverInfiniteScrollFooter

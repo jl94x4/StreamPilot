@@ -2,6 +2,7 @@ import React, { useCallback, useState } from 'react';
 import { Gauge, Loader2, Play } from 'lucide-react';
 import { PORTAL_CSRF_HEADER, PORTAL_CSRF_VALUE } from './api';
 import { portalUrl } from './basePath';
+import { useDiscoverI18n } from '../discovery/i18n';
 
 type SpeedPhase = 'idle' | 'ping' | 'download' | 'upload' | 'done' | 'error';
 
@@ -196,18 +197,19 @@ async function measureUpload(): Promise<number> {
     return (counters.measureBytes * 8) / (seconds * 1_000_000);
 }
 
-const phaseLabel = (phase: SpeedPhase) => {
+const phaseLabel = (phase: SpeedPhase, t: (key: string) => string) => {
     switch (phase) {
-        case 'ping': return 'Measuring latency…';
-        case 'download': return 'Testing download…';
-        case 'upload': return 'Testing upload…';
-        case 'done': return 'Complete';
-        case 'error': return 'Test failed';
-        default: return 'Ready';
+        case 'ping': return t('statusPage.speedTest.measuringLatency');
+        case 'download': return t('statusPage.speedTest.testingDownload');
+        case 'upload': return t('statusPage.speedTest.testingUpload');
+        case 'done': return t('statusPage.speedTest.complete');
+        case 'error': return t('statusPage.speedTest.failed');
+        default: return t('statusPage.speedTest.ready');
     }
 };
 
 export const StatusSpeedTest: React.FC = () => {
+    const { t } = useDiscoverI18n();
     const [phase, setPhase] = useState<SpeedPhase>('idle');
     const [results, setResults] = useState<SpeedResults | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -253,15 +255,15 @@ export const StatusSpeedTest: React.FC = () => {
             setResults({ latencyMs, downloadMbps, uploadMbps });
             setPhase('done');
         } catch (e: any) {
-            setError(e?.message || 'Speed test failed');
+            setError(e?.message || t('statusPage.speedTest.error'));
             setPhase('error');
         }
-    }, [running]);
+    }, [running, t]);
 
     const pathHint = results && results.latencyMs >= 15
-        ? 'Latency is high for a pure LAN hop — you may be reaching this portal via reverse proxy, hairpin NAT, Cloudflare, or a remote hostname. That path (not your 2.5 G switch) usually sets the ceiling.'
+        ? t('statusPage.speedTest.highLatencyHint')
         : results
-            ? 'Steady-state rate to this portal host. Docker bridge, proxy, or a 1 G NIC on the server can still cap you below LAN wire speed.'
+            ? t('statusPage.speedTest.steadyStateHint')
             : null;
 
     return (
@@ -270,10 +272,10 @@ export const StatusSpeedTest: React.FC = () => {
                 <div className="min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                         <Gauge className="w-5 h-5 text-plex shrink-0" />
-                        <h3 className="text-lg font-bold text-text">Connection to this server</h3>
+                        <h3 className="text-lg font-bold text-text">{t('statusPage.speedTest.title')}</h3>
                     </div>
                     <p className="text-sm text-muted max-w-xl">
-                        ~10 s steady-state test (8 download / 4 upload streams). Measures your device → this portal only — not your ISP plan, and not Plex/Jellyfin if they live elsewhere.
+                        {t('statusPage.speedTest.description')}
                     </p>
                 </div>
                 <button
@@ -283,7 +285,7 @@ export const StatusSpeedTest: React.FC = () => {
                     className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-plex text-background font-bold text-sm hover:bg-plex-hover disabled:opacity-50 disabled:pointer-events-none transition-colors shrink-0"
                 >
                     {running ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-                    {running ? phaseLabel(phase) : (results ? 'Run again' : 'Run speed test')}
+                    {running ? phaseLabel(phase, t) : (results ? t('statusPage.speedTest.runAgain') : t('statusPage.speedTest.run'))}
                 </button>
             </div>
 
@@ -291,19 +293,19 @@ export const StatusSpeedTest: React.FC = () => {
                 <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
                     {[
                         {
-                            label: 'Latency',
+                            label: t('statusPage.speedTest.latency'),
                             value: results ? `${Math.round(results.latencyMs)} ms` : (phase === 'ping' ? '…' : '—'),
-                            hint: 'Round-trip to portal',
+                            hint: t('statusPage.speedTest.roundTrip'),
                         },
                         {
-                            label: 'Download',
+                            label: t('statusPage.speedTest.download'),
                             value: results ? formatMbps(results.downloadMbps) : (phase === 'download' ? '…' : '—'),
-                            hint: 'Steady-state (8 streams)',
+                            hint: t('statusPage.speedTest.downloadHint'),
                         },
                         {
-                            label: 'Upload',
+                            label: t('statusPage.speedTest.upload'),
                             value: results ? formatMbps(results.uploadMbps) : (phase === 'upload' ? '…' : '—'),
-                            hint: 'Steady-state (4 streams)',
+                            hint: t('statusPage.speedTest.uploadHint'),
                         },
                     ].map((card) => (
                         <div key={card.label} className="rounded-xl border border-white/5 bg-black/20 px-4 py-3">
@@ -322,7 +324,7 @@ export const StatusSpeedTest: React.FC = () => {
                 <p className="mt-3 text-sm text-status-expired">{error}</p>
             )}
             {running && (
-                <p className="mt-3 text-xs text-muted">{phaseLabel(phase)} Warm-up + 8 s measure — about 20–25 s total.</p>
+                <p className="mt-3 text-xs text-muted">{phaseLabel(phase, t)} {t('statusPage.speedTest.progress')}</p>
             )}
         </div>
     );

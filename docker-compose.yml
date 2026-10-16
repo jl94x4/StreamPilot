@@ -4,8 +4,8 @@ services:
       context: .
       args:
         GIT_SHA: ${GIT_SHA:-local}
-    image: server-manager-portal:latest
-    container_name: server-manager-portal
+    image: streampilot:latest
+    container_name: streampilot
     restart: unless-stopped
     ports:
       - "${PORT:-2121}:2121"
@@ -15,15 +15,60 @@ services:
       PORT: 2121
       BIND_HOST: 0.0.0.0
       CONFIG_DIR: /app/config
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      # Cap V8 heap so analytics/history spikes fail soft instead of eating the host.
+      NODE_OPTIONS: ${NODE_OPTIONS:---max-old-space-size=2048}
+      MEDIA_AUTOMATION_CONFIG_DIR: ${MEDIA_AUTOMATION_CONFIG_DIR:-/app/config/media-automation}
+      MEDIA_AUTOMATION_WORK_DIR: ${MEDIA_AUTOMATION_WORK_DIR:-/app/config/media-automation/work}
       PLEX_PREFER_REMOTE_CONNECTION: "true"
       # Collexions worker is bundled in the portal image (enable in Settings → Collexions).
       COLLEXIONS_EMBEDDED_PORT: ${COLLEXIONS_EMBEDDED_PORT:-15755}
+      # NVIDIA NVENC with NVIDIA Container Toolkit (also uncomment runtime below):
+      # NVIDIA_VISIBLE_DEVICES: all
+      # NVIDIA_DRIVER_CAPABILITIES: video,compute,utility
+    # Optional hard ceiling for the whole container (Node + Collexions + overlay/poster workers):
+    # mem_limit: 3g
+    privileged: false
     volumes:
       - ./config:/app/config
       - ./backup:/app/backup
+      # Optional: expose only the library roots Media Automation may process.
+      # The container path must match (or be mapped to) paths reported by ARR.
+      # - /path/to/media:/media
+    # Intel QSV/VAAPI and AMD VAAPI (uncomment; use host video/render GIDs):
+    # devices:
+    #   - /dev/dri:/dev/dri
+    # group_add:
+    #   - "${VIDEO_GID:-44}"
+    #   - "${RENDER_GID:-109}"
+    # NVIDIA NVENC with NVIDIA Container Toolkit (uncomment):
+    # runtime: nvidia
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:2121/api/config/public').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 20s
+
+  # Optional external spotify-to-plex Compose service — omit when using the portal image
+  # that bundles spotify-to-plex (Settings shows "bundled in portal image").
+  spotify-to-plex:
+    image: jjdenhertog/spotify-to-plex:latest
+    container_name: spotify-to-plex
+    restart: unless-stopped
+    env_file:
+      - ./config/spotify-to-plex.env
+    environment:
+      TZ: ${TZ:-UTC}
+    volumes:
+      - ./config/spotify-to-plex:/app/config
+      # Portal-generated supervisord.conf: disables container sync-scheduler when schedule mode is portal
+      - ./config/spotify-to-plex/supervisord.conf:/etc/supervisor/conf.d/supervisord.conf:ro
+    # Do not publish 9030 publicly — the portal embeds the UI and proxies OAuth via /api/spotify-to-plex/callback
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:9030/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s

@@ -1,14 +1,22 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowUpCircle, RefreshCw, Search, Settings as SettingsIcon, ArrowUpFromLine, Layers, Clock, History, Ban, Filter, Settings2 } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowUpCircle, RefreshCw, Search, Settings as SettingsIcon, ArrowUpFromLine, Layers, Clock, History, Ban, Filter, Settings2, FileBarChart2, FolderPlus } from 'lucide-react';
 import { apiFetch } from '../shared/api';
 import { portalUrl, resolvePortalAssetUrl } from '../shared/basePath';
+import { askConfirm } from '../shared/confirm';
+import { usePoll } from '../shared/usePoll';
 import { CustomSelect, OverlayCheckbox } from '../shared/ui';
 import { Loader, ToastContainer, pushToast } from '../shared/toast';
-import { normalizeUpgraderGridSize, UPGRADER_GRID_SIZE_OPTIONS, UPGRADER_GRID_SIZE_STORAGE_KEY, upgraderPosterGridClass, upgraderPosterGridStyle, type UpgraderGridSize } from '../shared/portalLayout';
+import { parsePosterGridValue, posterGridDensityBand, UPGRADER_GRID_SIZE_STORAGE_KEY, upgraderPosterGridClass, upgraderPosterGridStyle, type PosterGridValue } from '../shared/portalLayout';
+import { PosterGridSizeSlider } from '../shared/PosterGridSizeSlider';
 import { DiscoverPosterCard } from '../screens';
 import type { ToastMessage } from '../shared/types';
+import { mediaAutomationApi } from '../media-automation/api';
+import { ReportModal, type ReportModalSeed } from '../media-automation/ReportModal';
+import { emptyLibrary } from '../media-automation/types';
+import type { MediaAutomationLibrary, MediaAutomationPipeline } from '../media-automation/types';
 import { UpgraderUpgradeModal } from './UpgraderUpgradeModal';
 import { UpgraderShowDrawer } from './UpgraderShowDrawer';
+import { handleArrPortalEmbedAnchorClick } from '../../lib/arr-portal-embed.js';
 import { UpgraderHistoryPanel } from './UpgraderHistoryPanel';
 import { UpgraderExclusionsPanel } from './UpgraderExclusionsPanel';
 import { UpgraderProfilesTab } from './UpgraderProfilesTab';
@@ -31,6 +39,24 @@ import {
 import { formatUpgraderCodecLabel, getDominantCodecShare, mergeUpgraderCodecCounts } from './codecUtils';
 
 import { UPGRADER_CODEC_OPTIONS, UPGRADER_RESOLUTION_OPTIONS, UPGRADER_FEATURE_OPTIONS, UPGRADER_QUALITY_OPTIONS } from './presets';
+
+type UpgraderMaHandoff = {
+    ok?: boolean;
+    mediaAutomationEnabled?: boolean;
+    arrPath?: string | null;
+    resolvedPath?: string | null;
+    matchingLibrary?: {
+        id?: string | number;
+        name?: string;
+        rootPath?: string;
+        pipelineId?: string | number | null;
+    } | null;
+    suggestedLibrary?: {
+        name?: string;
+        rootPath?: string;
+    } | null;
+    error?: string;
+};
 
 const SORT_OPTIONS = [
     { value: 'sizeGB', label: 'Largest first' },
@@ -129,11 +155,46 @@ export const UpgraderDashboard: React.FC = () => {
     const [profilesUrl, setProfilesUrl] = useState<UpgraderProfilesUrlState>(initialUrl.profiles);
     const [showDrawerItem, setShowDrawerItem] = useState<UpgraderItem | null>(null);
     const [drawerPosition, setDrawerPosition] = useState<'sidebar' | 'modal'>('sidebar');
+    const [reportSeed, setReportSeed] = useState<ReportModalSeed | null>(null);
+    const [reportEphemeralLibrary, setReportEphemeralLibrary] = useState<{
+        id: string | number;
+        name: string;
+        rootPath: string;
+    } | null>(null);
+    const [maLibraries, setMaLibraries] = useState<MediaAutomationLibrary[]>([]);
+    const [maPipelines, setMaPipelines] = useState<MediaAutomationPipeline[]>([]);
+    const [maHandoffBusyKey, setMaHandoffBusyKey] = useState<string | null>(null);
+    const listScrollRef = useRef(0);
+    const restoreScrollAfterDrawerRef = useRef(false);
+
+    const getListScrollEl = () => (
+        typeof document !== 'undefined'
+            ? document.getElementById('main-scroll-container')
+            : null
+    );
+
+    const captureListScroll = useCallback(() => {
+        const el = getListScrollEl();
+        listScrollRef.current = el ? el.scrollTop : window.scrollY;
+    }, []);
+
+    const restoreListScroll = useCallback(() => {
+        const top = listScrollRef.current;
+        const apply = () => {
+            const el = getListScrollEl();
+            if (el) el.scrollTop = top;
+            else window.scrollTo(0, top);
+        };
+        apply();
+        requestAnimationFrame(apply);
+    }, []);
 
     const handleOpenDrawer = useCallback((item: UpgraderItem) => {
+        captureListScroll();
+        restoreScrollAfterDrawerRef.current = true;
         window.history.pushState({ drawerOpen: true }, '', window.location.href);
         setShowDrawerItem(item);
-    }, []);
+    }, [captureListScroll]);
 
     const handleCloseDrawer = useCallback(() => {
         if (window.history.state?.drawerOpen) {
@@ -153,13 +214,27 @@ export const UpgraderDashboard: React.FC = () => {
         return () => window.removeEventListener('popstate', onPopState);
     }, []);
 
-    const [gridSize, setGridSize] = useState<UpgraderGridSize>(() => {
-        if (typeof window === 'undefined') return 'medium';
-        return normalizeUpgraderGridSize(window.localStorage.getItem(UPGRADER_GRID_SIZE_STORAGE_KEY));
+    // Closing the drawer uses history.back(), which can reload browse state and jump the list.
+    // Restore the pre-open scroll only after that close transition (not on normal list refreshes).
+    useEffect(() => {
+        if (showDrawerItem) {
+            restoreScrollAfterDrawerRef.current = true;
+            return undefined;
+        }
+        if (!restoreScrollAfterDrawerRef.current || loading) return undefined;
+        restoreScrollAfterDrawerRef.current = false;
+        restoreListScroll();
+        const timer = window.setTimeout(restoreListScroll, 120);
+        return () => window.clearTimeout(timer);
+    }, [showDrawerItem, loading, restoreListScroll]);
+
+    const [gridSize, setGridSize] = useState<PosterGridValue>(() => {
+        if (typeof window === 'undefined') return 9.5;
+        return parsePosterGridValue(window.localStorage.getItem(UPGRADER_GRID_SIZE_STORAGE_KEY), { allowList: true });
     });
 
     useEffect(() => {
-        window.localStorage.setItem(UPGRADER_GRID_SIZE_STORAGE_KEY, gridSize);
+        window.localStorage.setItem(UPGRADER_GRID_SIZE_STORAGE_KEY, String(gridSize));
         window.localStorage.setItem('upgrader_filters_codecs', JSON.stringify(Array.from(codecs)));
         window.localStorage.setItem('upgrader_filters_resolutions', JSON.stringify(Array.from(resolutions)));
         window.localStorage.setItem('upgrader_filters_features', JSON.stringify(Array.from(features)));
@@ -210,20 +285,31 @@ export const UpgraderDashboard: React.FC = () => {
     }, [syncUpgraderUrl]);
 
     useEffect(() => {
+        const sameSet = (current: Set<string>, next: string[]) => (
+            current.size === next.length && next.every((value) => current.has(value))
+        );
         const onPopState = () => {
+            // Drawer open/close also uses history; don't churn identical browse state.
+            if (window.history.state?.drawerOpen) return;
             const next = readUpgraderUrl();
-            setActiveTab(next.tab);
-            setCodecs(new Set(next.browse.codecs as UpgraderCodec[]));
-            setResolutions(new Set(next.browse.resolutions as UpgraderResolution[]));
-            setFeatures(new Set(next.browse.features as UpgraderFeature[]));
-            setQualities(new Set(next.browse.qualities as UpgraderQuality[]));
-            setLibraryId(next.browse.library);
-            setMediaType(next.browse.type);
-            setSort(next.browse.sort);
-            setSearch(next.browse.search);
-            setSearchInput(next.browse.search);
-            setPage(next.browse.page);
-            setProfilesUrl(next.profiles);
+            setActiveTab((prev) => (prev === next.tab ? prev : next.tab));
+            setCodecs((prev) => (sameSet(prev, next.browse.codecs) ? prev : new Set(next.browse.codecs as UpgraderCodec[])));
+            setResolutions((prev) => (sameSet(prev, next.browse.resolutions) ? prev : new Set(next.browse.resolutions as UpgraderResolution[])));
+            setFeatures((prev) => (sameSet(prev, next.browse.features) ? prev : new Set(next.browse.features as UpgraderFeature[])));
+            setQualities((prev) => (sameSet(prev, next.browse.qualities) ? prev : new Set(next.browse.qualities as UpgraderQuality[])));
+            setLibraryId((prev) => (prev === next.browse.library ? prev : next.browse.library));
+            setMediaType((prev) => (prev === next.browse.type ? prev : next.browse.type));
+            setSort((prev) => (prev === next.browse.sort ? prev : next.browse.sort));
+            setSearch((prev) => (prev === next.browse.search ? prev : next.browse.search));
+            setSearchInput((prev) => (prev === next.browse.search ? prev : next.browse.search));
+            setPage((prev) => (prev === next.browse.page ? prev : next.browse.page));
+            setProfilesUrl((prev) => (
+                prev.instance === next.profiles.instance
+                && prev.formatPage === next.profiles.formatPage
+                && prev.profilePage === next.profiles.profilePage
+                    ? prev
+                    : next.profiles
+            ));
         };
         window.addEventListener('popstate', onPopState);
         return () => window.removeEventListener('popstate', onPopState);
@@ -297,13 +383,9 @@ export const UpgraderDashboard: React.FC = () => {
         }
     }, [status?.rebuildInProgress]);
 
-    useEffect(() => {
-        if (!rebuilding && !status?.rebuildInProgress) return undefined;
-        const poll = window.setInterval(() => {
-            loadData(true);
-        }, 2500);
-        return () => window.clearInterval(poll);
-    }, [rebuilding, status?.rebuildInProgress, loadData]);
+    usePoll(() => { loadData(true); }, (rebuilding || status?.rebuildInProgress) ? 2500 : null, { immediate: false });
+
+    const maEnabled = status?.mediaAutomationEnabled !== false;
 
     const handleRebuild = async () => {
         try {
@@ -362,6 +444,180 @@ export const UpgraderDashboard: React.FC = () => {
         () => items.filter((item) => selectedKeys.has(item.ratingKey)),
         [items, selectedKeys],
     );
+
+    const selectedLibraryTitle = useMemo(() => {
+        if (!libraryId || libraryId === 'all') return '';
+        return libraries.find((lib) => String(lib.id) === String(libraryId))?.title || '';
+    }, [libraries, libraryId]);
+
+    const savingsReportHref = useMemo(() => {
+        const params = new URLSearchParams({ report: '1' });
+        if (selectedLibraryTitle) params.set('libraryName', selectedLibraryTitle);
+        return portalUrl(`/media-automation?${params.toString()}#libraries`);
+    }, [selectedLibraryTitle]);
+
+    const openSavingsReport = useCallback((event: React.MouseEvent<HTMLAnchorElement>) => {
+        event.preventDefault();
+        window.history.pushState({}, '', savingsReportHref);
+        window.dispatchEvent(new PopStateEvent('popstate'));
+    }, [savingsReportHref]);
+
+    const ensureMaCatalog = useCallback(async () => {
+        const [libraries, pipelines] = await Promise.all([
+            mediaAutomationApi.libraries(),
+            mediaAutomationApi.pipelines(),
+        ]);
+        setMaLibraries(libraries);
+        setMaPipelines(pipelines);
+        return { libraries, pipelines };
+    }, []);
+
+    const fetchMaHandoff = useCallback(async (item: UpgraderItem) => {
+        const data = await apiFetch(
+            `/api/upgrader/ma-handoff?ratingKey=${encodeURIComponent(item.ratingKey)}`,
+        ) as UpgraderMaHandoff;
+        if (data?.error) throw new Error(data.error);
+        if (!data?.resolvedPath) throw new Error('Could not resolve an on-disk folder for this title.');
+        return data;
+    }, []);
+
+    const openTitleSavingsReport = useCallback(async (item: UpgraderItem) => {
+        if (!maEnabled) {
+            addToast('Enable Media Automation in Settings for savings reports.', 'error');
+            return;
+        }
+        const busyKey = `report:${item.ratingKey}`;
+        setMaHandoffBusyKey(busyKey);
+        try {
+            const [handoff] = await Promise.all([fetchMaHandoff(item), ensureMaCatalog()]);
+            let libraryId = handoff.matchingLibrary?.id ?? null;
+            let pipelineId = handoff.matchingLibrary?.pipelineId ?? null;
+            let ephemeral: { id: string | number; name: string; rootPath: string } | null = null;
+
+            // Report must sit under an MA library root. If nothing covers this folder yet,
+            // create a temporary title library for the scan — on close we ask Keep vs Delete.
+            if (!handoff.matchingLibrary) {
+                const { pipelines } = await ensureMaCatalog();
+                const defaultPipeline = pipelines.find((pipeline) => pipeline.enabled !== false);
+                const created = await mediaAutomationApi.createLibrary({
+                    ...emptyLibrary(),
+                    name: handoff.suggestedLibrary?.name || item.title,
+                    rootPath: String(handoff.suggestedLibrary?.rootPath || handoff.resolvedPath || ''),
+                    pipelineId: defaultPipeline?.id ?? '',
+                    enabled: true,
+                    tags: ['upgrader-report-temp'],
+                }) as { library?: MediaAutomationLibrary };
+                const library = created?.library;
+                if (!library?.id) throw new Error('Could not create a temporary library for the report.');
+                libraryId = library.id;
+                pipelineId = library.pipelineId ?? defaultPipeline?.id ?? null;
+                ephemeral = {
+                    id: library.id,
+                    name: library.name || item.title,
+                    rootPath: library.rootPath || String(handoff.resolvedPath || ''),
+                };
+                await ensureMaCatalog();
+            }
+
+            setReportEphemeralLibrary(ephemeral);
+            setReportSeed({
+                libraryId,
+                libraryRoot: handoff.resolvedPath,
+                pipelineId,
+                forcePipeline: false,
+            });
+        } catch (error) {
+            setReportEphemeralLibrary(null);
+            addToast(error instanceof Error ? error.message : 'Savings report failed', 'error');
+        } finally {
+            setMaHandoffBusyKey(null);
+        }
+    }, [addToast, ensureMaCatalog, fetchMaHandoff, maEnabled]);
+
+    const closeTitleSavingsReport = useCallback(async () => {
+        const ephemeral = reportEphemeralLibrary;
+        setReportSeed(null);
+        setReportEphemeralLibrary(null);
+        if (!ephemeral?.id) return;
+
+        const shouldDelete = await askConfirm(
+            `Remove the temporary Media Automation library created for this report?\n\n`
+            + `“${ephemeral.name}”\n${ephemeral.rootPath}\n\n`
+            + 'Keep it if you want to encode this title later.',
+            {
+                title: 'Done with savings report',
+                confirmLabel: 'Delete library',
+                cancelLabel: 'Keep library',
+            },
+        );
+        if (!shouldDelete) {
+            addToast(`Kept MA library “${ephemeral.name}”.`, 'success');
+            return;
+        }
+        try {
+            await mediaAutomationApi.deleteLibrary(ephemeral.id);
+            await ensureMaCatalog();
+            addToast(`Deleted temporary MA library “${ephemeral.name}”.`, 'success');
+        } catch (error) {
+            addToast(error instanceof Error ? error.message : 'Failed to delete temporary library', 'error');
+        }
+    }, [addToast, ensureMaCatalog, reportEphemeralLibrary]);
+
+    const goToMaLibraryEditor = useCallback((libraryId: string | number) => {
+        const params = new URLSearchParams({ editLibrary: String(libraryId) });
+        const href = portalUrl(`/media-automation?${params.toString()}#libraries`);
+        window.history.pushState({}, '', href);
+        window.dispatchEvent(new PopStateEvent('popstate'));
+    }, []);
+
+    const createMaLibraryForTitle = useCallback(async (item: UpgraderItem) => {
+        if (!maEnabled) {
+            addToast('Enable Media Automation in Settings to create libraries from Upgrader.', 'error');
+            return;
+        }
+        const busyKey = `library:${item.ratingKey}`;
+        setMaHandoffBusyKey(busyKey);
+        try {
+            const handoff = await fetchMaHandoff(item);
+            const normalizeRoot = (value?: string | null) => String(value || '').replace(/\\/g, '/').replace(/\/+$/, '');
+            if (handoff.matchingLibrary
+                && normalizeRoot(handoff.matchingLibrary.rootPath) === normalizeRoot(handoff.resolvedPath)) {
+                const openExisting = await askConfirm(
+                    `A Media Automation library already points at this folder:\n\n`
+                    + `${handoff.matchingLibrary.name}\n${handoff.matchingLibrary.rootPath}\n\n`
+                    + 'Open it in Media Automation to edit?',
+                );
+                if (openExisting && handoff.matchingLibrary.id != null) {
+                    goToMaLibraryEditor(handoff.matchingLibrary.id);
+                }
+                return;
+            }
+            const confirmed = await askConfirm(
+                `Create a Media Automation library for:\n\n`
+                + `${handoff.suggestedLibrary?.name || item.title}\n`
+                + `${handoff.suggestedLibrary?.rootPath || handoff.resolvedPath}\n\n`
+                + 'You’ll land on Media Automation to pick a pipeline and finish setup.',
+            );
+            if (!confirmed) return;
+            const { pipelines } = await ensureMaCatalog();
+            const defaultPipeline = pipelines.find((pipeline) => pipeline.enabled !== false);
+            const created = await mediaAutomationApi.createLibrary({
+                ...emptyLibrary(),
+                name: handoff.suggestedLibrary?.name || item.title,
+                rootPath: String(handoff.suggestedLibrary?.rootPath || handoff.resolvedPath || ''),
+                pipelineId: defaultPipeline?.id ?? '',
+                enabled: true,
+            }) as { library?: MediaAutomationLibrary };
+            const library = created?.library;
+            if (!library?.id) throw new Error('Library create did not return an id.');
+            addToast(`Created MA library “${library.name}”. Opening Media Automation…`, 'success');
+            goToMaLibraryEditor(library.id);
+        } catch (error) {
+            addToast(error instanceof Error ? error.message : 'Create library failed', 'error');
+        } finally {
+            setMaHandoffBusyKey(null);
+        }
+    }, [addToast, ensureMaCatalog, fetchMaHandoff, goToMaLibraryEditor, maEnabled]);
 
     const summaryChips = useMemo(() => {
         if (!summary) return [];
@@ -450,7 +706,7 @@ export const UpgraderDashboard: React.FC = () => {
                 {featureEnabled && (
                     <>
                         {summaryChips.length > 0 && activeTab === 'browse' && (
-                            <div className="flex flex-wrap gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
                                 {summaryChips.map((chip) => (
                                     <span key={chip} className="text-xs font-semibold px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-text">
                                         {chip}
@@ -471,6 +727,26 @@ export const UpgraderDashboard: React.FC = () => {
                                         Manual Upgrades only
                                     </span>
                                 )}
+                                {!maEnabled && (
+                                    <span className="text-xs font-semibold px-3 py-1.5 rounded-full bg-violet-500/10 border border-violet-500/30 text-violet-200">
+                                        Media Automation off — savings reports disabled
+                                    </span>
+                                )}
+                                <a
+                                    href={savingsReportHref}
+                                    onClick={openSavingsReport}
+                                    className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full border no-underline transition-colors ${
+                                        maEnabled
+                                            ? 'bg-plex/15 border-plex/40 text-plex hover:bg-plex/25'
+                                            : 'bg-white/5 border-white/10 text-muted pointer-events-none opacity-60'
+                                    }`}
+                                    title={selectedLibraryTitle
+                                        ? `Open Media Automation savings report for ${selectedLibraryTitle}`
+                                        : 'Open Media Automation savings report'}
+                                >
+                                    <FileBarChart2 className="w-3.5 h-3.5" />
+                                    Savings report
+                                </a>
                             </div>
                         )}
 
@@ -622,10 +898,10 @@ export const UpgraderDashboard: React.FC = () => {
                                 </div>
                             </div>
                             <div className={`flex flex-col sm:flex-row flex-wrap items-center gap-3 w-full pt-4 border-t border-white/5 ${filtersExpanded ? 'flex' : 'hidden lg:flex'}`}>
-                                <CustomSelect
+                                <PosterGridSizeSlider
                                     value={gridSize}
-                                    onChange={(value) => setGridSize(normalizeUpgraderGridSize(value))}
-                                    options={UPGRADER_GRID_SIZE_OPTIONS}
+                                    onChange={setGridSize}
+                                    allowList
                                     className="flex-1 w-full sm:w-auto min-w-[140px]"
                                 />
                                 <CustomSelect
@@ -653,11 +929,12 @@ export const UpgraderDashboard: React.FC = () => {
                                 <div className="relative flex-1 w-full sm:w-auto min-w-[140px]">
                                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
                                     <input
-                                        type="search"
+                                        type="text"
+                                        inputMode="search"
                                         value={searchInput}
                                         onChange={(e) => setSearchInput(e.target.value)}
                                         placeholder="Search titles…"
-                                        className="w-full pl-9 pr-3 py-2 h-[38px] rounded-lg border border-border bg-background text-text text-sm outline-none focus:border-plex"
+                                        className="w-full pl-9 pr-3 py-2 h-[38px] rounded-lg border border-border bg-background text-text appearance-none text-[16px] leading-5 outline-none focus:border-plex"
                                     />
                                 </div>
                             </div>
@@ -919,17 +1196,44 @@ export const UpgraderDashboard: React.FC = () => {
                                                                     target="_blank"
                                                                     rel="noreferrer"
                                                                     className="text-xs font-bold text-plex hover:text-orange-400 transition-colors"
+                                                                    onClick={(event) => {
+                                                                        handleArrPortalEmbedAnchorClick(event, {
+                                                                            url: item.arrDeepUrl,
+                                                                            arrType: item.arrType === 'radarr' ? 'radarr' : 'sonarr',
+                                                                            label: item.arrType === 'radarr' ? 'Open in Radarr' : 'Open in Sonarr',
+                                                                        });
+                                                                    }}
                                                                 >
                                                                     Open in {item.arrType === 'radarr' ? 'Radarr' : 'Sonarr'}
                                                                 </a>
                                                             )}
+                                                            <button
+                                                                type="button"
+                                                                className="inline-flex items-center gap-1 text-xs font-bold text-gray-300 hover:text-white transition-colors disabled:opacity-40"
+                                                                disabled={!maEnabled || maHandoffBusyKey === `report:${item.ratingKey}`}
+                                                                onClick={() => void openTitleSavingsReport(item)}
+                                                                title="Estimate encode savings for this title folder"
+                                                            >
+                                                                <FileBarChart2 className="h-3.5 w-3.5" />
+                                                                {maHandoffBusyKey === `report:${item.ratingKey}` ? 'Opening…' : 'Savings report'}
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                className="inline-flex items-center gap-1 text-xs font-bold text-gray-300 hover:text-white transition-colors disabled:opacity-40"
+                                                                disabled={!maEnabled || maHandoffBusyKey === `library:${item.ratingKey}`}
+                                                                onClick={() => void createMaLibraryForTitle(item)}
+                                                                title="Create a Media Automation library for this title folder"
+                                                            >
+                                                                <FolderPlus className="h-3.5 w-3.5" />
+                                                                {maHandoffBusyKey === `library:${item.ratingKey}` ? 'Creating…' : 'Create MA library'}
+                                                            </button>
                                                         </div>
                                                     </div>
                                                 </div>
                                             );
                                         }
 
-                                        const checkboxSize = gridSize === 'small' || gridSize === 'medium' ? 'sm' : 'md';
+                                        const checkboxSize = posterGridDensityBand(gridSize) === 'small' || posterGridDensityBand(gridSize) === 'medium' ? 'sm' : 'md';
                                         return (
                                             <div key={item.ratingKey} className="relative min-w-0">
                                                 {automationReady && (
@@ -1014,10 +1318,43 @@ export const UpgraderDashboard: React.FC = () => {
                                                                         target="_blank"
                                                                         rel="noreferrer"
                                                                         className="inline-block text-[10px] font-bold text-plex hover:underline"
+                                                                        onClick={(event) => {
+                                                                            handleArrPortalEmbedAnchorClick(event, {
+                                                                                url: item.arrDeepUrl,
+                                                                                arrType: item.arrType === 'radarr' ? 'radarr' : 'sonarr',
+                                                                                label: item.arrType === 'radarr' ? 'Open in Radarr' : 'Open in Sonarr',
+                                                                            });
+                                                                        }}
                                                                     >
                                                                         Open in {item.arrType === 'radarr' ? 'Radarr' : 'Sonarr'}
                                                                     </a>
                                                                 )}
+                                                                <button
+                                                                    type="button"
+                                                                    className="inline-flex items-center gap-1 text-[10px] font-bold text-muted hover:text-text disabled:opacity-40"
+                                                                    disabled={!maEnabled || maHandoffBusyKey === `report:${item.ratingKey}`}
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        void openTitleSavingsReport(item);
+                                                                    }}
+                                                                    title="Estimate encode savings for this title folder"
+                                                                >
+                                                                    <FileBarChart2 className="h-3 w-3" />
+                                                                    Report
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    className="inline-flex items-center gap-1 text-[10px] font-bold text-muted hover:text-text disabled:opacity-40"
+                                                                    disabled={!maEnabled || maHandoffBusyKey === `library:${item.ratingKey}`}
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        void createMaLibraryForTitle(item);
+                                                                    }}
+                                                                    title="Create a Media Automation library for this title folder"
+                                                                >
+                                                                    <FolderPlus className="h-3 w-3" />
+                                                                    MA library
+                                                                </button>
                                                                 {canUpgrade && (
                                                                     <button
                                                                         type="button"
@@ -1077,6 +1414,15 @@ export const UpgraderDashboard: React.FC = () => {
                     </>
                 )}
             </div>
+
+            <ReportModal
+                open={!!reportSeed}
+                seed={reportSeed}
+                libraries={maLibraries}
+                pipelines={maPipelines}
+                onClose={() => { void closeTitleSavingsReport(); }}
+                toast={(message, tone) => addToast(message, tone === 'error' ? 'error' : 'success')}
+            />
         </div>
     );
 };

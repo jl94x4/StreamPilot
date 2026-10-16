@@ -1,53 +1,78 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { AlertTriangle, Ban, ClipboardList } from 'lucide-react';
+import {
+    DashboardHero,
+    DashboardPageShell,
+    DashboardSubnav,
+    dashboardSubnavLinkClass,
+} from '../shared/dashboard/DashboardChrome';
 import { RequestsAdminPanel } from './RequestsAdminPanel';
 import { IssuesAdminPanel } from './IssuesAdminPanel';
 import { BlocklistAdminPanel } from './BlocklistAdminPanel';
+import { useDiscoverI18n } from '../discovery/i18n';
 
 type QueueTab = 'requests' | 'issues' | 'blocklist';
 
 type Props = {
     onCountsChange?: () => void;
     openIssueCount?: number;
+    /** When true, skip page shell/hero (used as a Discover tab). */
+    embedded?: boolean;
+    navigate?: (path: string) => void;
 };
 
-export const RequestQueueDashboard: React.FC<Props> = ({ onCountsChange, openIssueCount = 0 }) => {
-    const [tab, setTab] = useState<QueueTab>('requests');
-    const [reviewRequestId, setReviewRequestId] = useState<number | null>(() => {
-        if (typeof window === 'undefined') return null;
-        const raw = new URLSearchParams(window.location.search).get('review');
-        const parsed = Number(raw);
-        return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-    });
+const readReviewIdFromUrl = (): number | null => {
+    if (typeof window === 'undefined') return null;
+    const raw = new URLSearchParams(window.location.search).get('review');
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+};
 
-    return (
-        <div className="w-full max-w-[100%] animate-fade-in">
-            <div className="flex flex-wrap gap-2 mb-6">
+export const RequestQueueDashboard: React.FC<Props> = ({ onCountsChange, openIssueCount = 0, embedded = false, navigate }) => {
+    const { t } = useDiscoverI18n();
+    const [tab, setTab] = useState<QueueTab>('requests');
+    const [reviewRequestId, setReviewRequestId] = useState<number | null>(() => readReviewIdFromUrl());
+
+    useEffect(() => {
+        const syncFromUrl = (event?: Event) => {
+            const detailId = Number((event as CustomEvent)?.detail?.reviewId);
+            if (Number.isFinite(detailId) && detailId > 0) {
+                setReviewRequestId(detailId);
+                setTab('requests');
+                return;
+            }
+            const fromUrl = readReviewIdFromUrl();
+            setReviewRequestId(fromUrl);
+            if (fromUrl) setTab('requests');
+        };
+        window.addEventListener('popstate', syncFromUrl);
+        window.addEventListener('portal-requests-navigate', syncFromUrl as EventListener);
+        return () => {
+            window.removeEventListener('popstate', syncFromUrl);
+            window.removeEventListener('portal-requests-navigate', syncFromUrl as EventListener);
+        };
+    }, []);
+
+    const body = (
+        <>
+            <DashboardSubnav className="!flex">
                 <button
                     type="button"
                     onClick={() => setTab('requests')}
-                    className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border transition-colors ${
-                        tab === 'requests'
-                            ? 'bg-plex/15 border-plex/40 text-text'
-                            : 'bg-white/[0.03] border-border text-muted hover:text-text hover:border-white/20'
-                    }`}
+                    className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold whitespace-nowrap transition-colors ${dashboardSubnavLinkClass(tab === 'requests')}`}
                 >
-                    <ClipboardList className="w-4 h-4" />
-                    Requests
+                    <ClipboardList className="h-4 w-4" />
+                    {t('navigation.requests')}
                 </button>
                 <button
                     type="button"
                     onClick={() => setTab('issues')}
-                    className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border transition-colors ${
-                        tab === 'issues'
-                            ? 'bg-plex/15 border-plex/40 text-text'
-                            : 'bg-white/[0.03] border-border text-muted hover:text-text hover:border-white/20'
-                    }`}
+                    className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold whitespace-nowrap transition-colors ${dashboardSubnavLinkClass(tab === 'issues')}`}
                 >
-                    <AlertTriangle className="w-4 h-4" />
-                    Issues
+                    <AlertTriangle className="h-4 w-4" />
+                    {t('requestsAdmin.page.issues')}
                     {openIssueCount > 0 && (
-                        <span className="min-w-[1.25rem] h-5 px-1.5 rounded-full bg-amber-500 text-black text-[10px] font-black inline-flex items-center justify-center">
+                        <span className="rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-black text-black">
                             {openIssueCount > 99 ? '99+' : openIssueCount}
                         </span>
                     )}
@@ -55,28 +80,43 @@ export const RequestQueueDashboard: React.FC<Props> = ({ onCountsChange, openIss
                 <button
                     type="button"
                     onClick={() => setTab('blocklist')}
-                    className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border transition-colors ${
-                        tab === 'blocklist'
-                            ? 'bg-plex/15 border-plex/40 text-text'
-                            : 'bg-white/[0.03] border-border text-muted hover:text-text hover:border-white/20'
-                    }`}
+                    className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold whitespace-nowrap transition-colors ${dashboardSubnavLinkClass(tab === 'blocklist')}`}
                 >
-                    <Ban className="w-4 h-4" />
-                    Blocklist
+                    <Ban className="h-4 w-4" />
+                    {t('requestsAdmin.page.blocklist')}
                 </button>
-            </div>
+            </DashboardSubnav>
 
             {tab === 'requests' ? (
                 <RequestsAdminPanel
                     onCountsChange={onCountsChange}
                     embedded
                     initialReviewId={reviewRequestId}
+                    navigate={navigate}
                 />
             ) : tab === 'issues' ? (
                 <IssuesAdminPanel onCountsChange={onCountsChange} />
             ) : (
                 <BlocklistAdminPanel />
             )}
-        </div>
+        </>
+    );
+
+    if (embedded) {
+        return <div className="w-full flex flex-col gap-4">{body}</div>;
+    }
+
+    return (
+        <DashboardPageShell>
+            <DashboardHero
+                accent="amber"
+                eyebrow={t('navigation.requests')}
+                title={t('requestsAdmin.page.reviewQueue')}
+                description={t('requestsAdmin.page.description')}
+                icon={<ClipboardList className="h-3.5 w-3.5" />}
+                secondaryBlob
+            />
+            {body}
+        </DashboardPageShell>
     );
 };

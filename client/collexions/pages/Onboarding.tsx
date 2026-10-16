@@ -18,7 +18,7 @@ import { AppConfig } from '../types';
 import { DEFAULT_CONFIG } from '../constants';
 
 const inputClass =
-    'w-full px-4 py-3 rounded-xl border border-border bg-background text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all';
+    'w-full appearance-none px-4 py-3 rounded-xl border border-border bg-background text-[16px] leading-5 text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all';
 
 const Onboarding: React.FC = () => {
     const navigate = useNavigate();
@@ -200,38 +200,46 @@ const Onboarding: React.FC = () => {
                         </div>
                     </div>
                 );
-            case 'plex':
+            case 'plex': {
+                const usingPortalPlex = importedFromPortal.some((label) => label.startsWith('Plex'));
                 return (
                     <div className="space-y-5 animate-fade-in">
-                        {importedFromPortal.some((label) => label.startsWith('Plex')) && (
+                        {usingPortalPlex ? (
                             <div className="flex items-start gap-3 p-3 rounded-xl border border-green-500/30 bg-green-500/10 text-green-300 text-xs">
                                 <CheckCircle2 className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                                <p>Plex URL/token were copied from portal Settings. Confirm they are reachable from this server, then test connection.</p>
+                                <p>
+                                    Using Plex URL/token from Settings → Media Player
+                                    {config.plex_url ? <> (<span className="font-mono text-text/80">{config.plex_url}</span>)</> : null}.
+                                    Test the connection, then continue to pick libraries.
+                                </p>
                             </div>
+                        ) : (
+                            <>
+                                <div className="space-y-2">
+                                    <label className="text-sm font-semibold text-text">Plex Server URL</label>
+                                    <input
+                                        type="text"
+                                        value={config.plex_url}
+                                        onChange={(e) => updateConfig({ plex_url: e.target.value })}
+                                        className={inputClass}
+                                        placeholder="e.g. http://192.168.1.10:32400"
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-sm font-semibold text-text">Plex Token</label>
+                                    <input
+                                        type="password"
+                                        value={config.plex_token}
+                                        onChange={(e) => updateConfig({ plex_token: e.target.value })}
+                                        className={inputClass}
+                                        placeholder="Your X-Plex-Token"
+                                    />
+                                    <p className="text-[11px] text-muted flex items-center gap-1">
+                                        <Info className="w-3 h-3" /> Prefer Settings → Media Player so ColleXions stays in sync automatically.
+                                    </p>
+                                </div>
+                            </>
                         )}
-                        <div className="space-y-2">
-                            <label className="text-sm font-semibold text-text">Plex Server URL</label>
-                            <input
-                                type="text"
-                                value={config.plex_url}
-                                onChange={(e) => updateConfig({ plex_url: e.target.value })}
-                                className={inputClass}
-                                placeholder="e.g. http://192.168.1.10:32400"
-                            />
-                        </div>
-                        <div className="space-y-2">
-                            <label className="text-sm font-semibold text-text">Plex Token</label>
-                            <input
-                                type="password"
-                                value={config.plex_token}
-                                onChange={(e) => updateConfig({ plex_token: e.target.value })}
-                                className={inputClass}
-                                placeholder="Your X-Plex-Token"
-                            />
-                            <p className="text-[11px] text-muted flex items-center gap-1">
-                                <Info className="w-3 h-3" /> Find this in your Plex browser URL or settings.
-                            </p>
-                        </div>
                         <button
                             type="button"
                             onClick={testPlexConnection}
@@ -242,6 +250,7 @@ const Onboarding: React.FC = () => {
                         </button>
                     </div>
                 );
+            }
             case 'libraries':
                 return (
                     <div className="space-y-4 animate-fade-in">

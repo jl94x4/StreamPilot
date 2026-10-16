@@ -3,6 +3,7 @@ import { AlertTriangle, Loader2, X } from 'lucide-react';
 import { apiFetch } from '../shared/api';
 import { ModalPortal } from '../shared/ModalPortal';
 import { ISSUE_TYPE_OPTIONS } from './issueUtils';
+import { useDiscoverI18n } from './i18n';
 
 type Props = {
     open: boolean;
@@ -25,6 +26,7 @@ export const ReportIssueModal: React.FC<Props> = ({
     onSuccess,
     onError,
 }) => {
+    const { t } = useDiscoverI18n();
     const [issueType, setIssueType] = useState<number>(ISSUE_TYPE_OPTIONS[0].value);
     const [message, setMessage] = useState('');
     const [problemSeason, setProblemSeason] = useState('');
@@ -79,10 +81,10 @@ export const ReportIssueModal: React.FC<Props> = ({
                 body: JSON.stringify(body),
             });
             if (res?.error) throw new Error(res.error);
-            onSuccess('Issue reported. An admin will review it soon.');
+            onSuccess(res?.ticketId ? t('issues.reportedSuccessTicket') : t('issues.reportedSuccess'));
             onClose();
         } catch (e: any) {
-            onError(e?.message || 'Failed to report issue');
+            onError(e?.message || t('issues.reportFailed'));
         } finally {
             setSubmitting(false);
         }
@@ -95,7 +97,7 @@ export const ReportIssueModal: React.FC<Props> = ({
         <div className="fixed inset-x-0 top-0 z-[340] flex items-end sm:items-center justify-center p-0 sm:p-4 bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] sm:inset-0 sm:bottom-0">
             <button
                 type="button"
-                aria-label="Close"
+                aria-label={t('common.close')}
                 className="absolute inset-0 bg-black/80 backdrop-blur-sm"
                 onClick={() => { if (!submitting) onClose(); }}
             />
@@ -103,7 +105,7 @@ export const ReportIssueModal: React.FC<Props> = ({
                 <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-white/10">
                     <div className="flex items-center gap-2 min-w-0">
                         <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0" />
-                        <h2 className="text-lg font-black text-white truncate">Report Issue</h2>
+                        <h2 className="text-lg font-black text-white truncate">{t('issues.modalTitle')}</h2>
                     </div>
                     <button
                         type="button"
@@ -117,13 +119,13 @@ export const ReportIssueModal: React.FC<Props> = ({
 
                 <form onSubmit={handleSubmit} className="p-5 flex flex-col gap-4 overflow-y-auto custom-scrollbar flex-1 pb-4">
                     <div>
-                        <p className="text-xs uppercase tracking-wider text-white/45 font-bold mb-1">Title</p>
+                        <p className="text-xs uppercase tracking-wider text-white/45 font-bold mb-1">{t('issues.titleLabel')}</p>
                         <p className="text-sm font-semibold text-white">{title}</p>
                     </div>
 
                     <div>
                         <label htmlFor="issue-type" className="block text-xs uppercase tracking-wider text-white/45 font-bold mb-2">
-                            Issue type
+                            {t('issues.typeLabel')}
                         </label>
                         <select
                             id="issue-type"
@@ -132,7 +134,9 @@ export const ReportIssueModal: React.FC<Props> = ({
                             className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2.5 text-sm text-white outline-none focus:border-plex focus:ring-1 focus:ring-plex"
                         >
                             {ISSUE_TYPE_OPTIONS.map((option) => (
-                                <option key={option.value} value={option.value}>{option.label}</option>
+                                <option key={option.value} value={option.value}>
+                                    {t(`issues.issueType${option.label}`)}
+                                </option>
                             ))}
                         </select>
                     </div>
@@ -141,7 +145,7 @@ export const ReportIssueModal: React.FC<Props> = ({
                         <div className="grid grid-cols-2 gap-3">
                             <div>
                                 <label htmlFor="issue-season" className="block text-xs uppercase tracking-wider text-white/45 font-bold mb-2">
-                                    Season (optional)
+                                    {t('issues.seasonOptional')}
                                 </label>
                                 <input
                                     id="issue-season"
@@ -150,12 +154,12 @@ export const ReportIssueModal: React.FC<Props> = ({
                                     value={problemSeason}
                                     onChange={(e) => setProblemSeason(e.target.value)}
                                     className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2.5 text-sm text-white outline-none focus:border-plex focus:ring-1 focus:ring-plex"
-                                    placeholder="e.g. 1"
+                                    placeholder={t('issues.seasonPlaceholder')}
                                 />
                             </div>
                             <div>
                                 <label htmlFor="issue-episode" className="block text-xs uppercase tracking-wider text-white/45 font-bold mb-2">
-                                    Episode (optional)
+                                    {t('issues.episodeOptional')}
                                 </label>
                                 <input
                                     id="issue-episode"
@@ -164,7 +168,7 @@ export const ReportIssueModal: React.FC<Props> = ({
                                     value={problemEpisode}
                                     onChange={(e) => setProblemEpisode(e.target.value)}
                                     className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2.5 text-sm text-white outline-none focus:border-plex focus:ring-1 focus:ring-plex"
-                                    placeholder="e.g. 5"
+                                    placeholder={t('issues.episodePlaceholder')}
                                 />
                             </div>
                         </div>
@@ -172,7 +176,7 @@ export const ReportIssueModal: React.FC<Props> = ({
 
                     <div>
                         <label htmlFor="issue-message" className="block text-xs uppercase tracking-wider text-white/45 font-bold mb-2">
-                            Describe the problem
+                            {t('issues.describeProblem')}
                         </label>
                         <textarea
                             id="issue-message"
@@ -180,7 +184,7 @@ export const ReportIssueModal: React.FC<Props> = ({
                             onChange={(e) => setMessage(e.target.value)}
                             rows={4}
                             className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2.5 text-sm text-white outline-none focus:border-plex focus:ring-1 focus:ring-plex resize-y min-h-[6rem]"
-                            placeholder="What went wrong during playback?"
+                            placeholder={t('issues.messagePlaceholder')}
                         />
                     </div>
 
@@ -191,7 +195,7 @@ export const ReportIssueModal: React.FC<Props> = ({
                             onClick={onClose}
                             className="flex-1 py-2.5 rounded-xl border border-white/10 text-white/70 font-bold hover:bg-white/5 transition-colors disabled:opacity-50"
                         >
-                            Cancel
+                            {t('common.cancel')}
                         </button>
                         <button
                             type="submit"
@@ -199,7 +203,7 @@ export const ReportIssueModal: React.FC<Props> = ({
                             className="flex-1 py-2.5 rounded-xl bg-plex text-black font-black hover:bg-plex-hover transition-colors disabled:opacity-50 inline-flex items-center justify-center gap-2"
                         >
                             {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                            Submit Issue
+                            {t('issues.submitIssue')}
                         </button>
                     </div>
                 </form>

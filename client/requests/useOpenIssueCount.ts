@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { apiFetch } from '../shared/api';
+import { usePoll } from '../shared/usePoll';
 import type { PortalIssueCounts } from '../requests/types';
 
 const POLL_MS = 90_000;
@@ -34,11 +35,10 @@ export const useOpenIssueCount = (enabled: boolean) => {
     }, [enabled]);
 
     useEffect(() => {
-        refresh();
-        if (!enabled) return undefined;
-        const timer = window.setInterval(refresh, POLL_MS);
-        return () => window.clearInterval(timer);
-    }, [enabled, refresh]);
+        void refresh();
+    }, [refresh]);
+
+    usePoll(refresh, enabled ? POLL_MS : null);
 
     return { openCount: counts.open, counts, refresh };
 };

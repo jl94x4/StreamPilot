@@ -4,11 +4,19 @@ export type AdminRequestFilter = 'pending' | 'processing' | 'available' | 'faile
 
 export type RequestListFilters = {
     requesterId: string;
-    mediaType: 'all' | 'movie' | 'tv';
+    mediaType: 'all' | 'movie' | 'tv' | 'music';
     quality: 'all' | 'hd' | '4k';
     dateRange: 'all' | '7d' | '30d';
     search: string;
 };
+
+export const portalRequestArrSegment = (type?: string | null) => (
+    type === 'tv' ? 'sonarr' : type === 'music' ? 'lidarr' : 'radarr'
+);
+
+export const portalRequestTypeLabelKey = (type?: string | null) => (
+    type === 'tv' ? 'mediaType.tv' : type === 'music' ? 'mediaType.music' : 'mediaType.movie'
+);
 
 export const defaultRequestListFilters = (): RequestListFilters => ({
     requesterId: '',
@@ -55,17 +63,19 @@ export const filterPortalRequests = (
 };
 
 export const buildRequesterOptions = (users: PortalRequestUser[], requests: PortalRequestItem[]) => {
-    const seen = new Map<number, string>();
+    const seen = new Map<string, string>();
     for (const user of users) {
-        if (user.id) seen.set(user.id, user.displayName);
+        if (user.id != null && String(user.id) !== '') {
+            seen.set(String(user.id), user.displayName);
+        }
     }
     for (const item of requests) {
         const id = item.requestedBy?.id;
-        if (id && item.requestedBy.displayName) {
-            seen.set(id, item.requestedBy.displayName);
+        if (id != null && item.requestedBy.displayName) {
+            seen.set(String(id), item.requestedBy.displayName);
         }
     }
     return Array.from(seen.entries())
-        .map(([id, label]) => ({ value: String(id), label }))
+        .map(([id, label]) => ({ value: id, label }))
         .sort((a, b) => a.label.localeCompare(b.label));
 };

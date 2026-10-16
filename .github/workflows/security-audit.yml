@@ -1,0 +1,121 @@
+name: Security audit
+
+on:
+  push:
+    branches: [main, beta, nightly]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-audit-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  npm-audit:
+    name: npm audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install root dependencies
+        run: npm ci --no-fund --no-audit
+
+      - name: Production audit (root)
+        run: |
+          set -e
+          for attempt in 1 2 3; do
+            if npm audit --omit=dev --audit-level=high; then
+              exit 0
+            fi
+            echo "npm production audit failed (attempt ${attempt}); retrying..."
+            sleep $((attempt * 5))
+          done
+          echo "npm production audit failed after retries"
+          exit 1
+
+      - name: Full audit (root, high+)
+        run: |
+          set -e
+          for attempt in 1 2 3; do
+            if node scripts/npm-audit-high.mjs; then
+              exit 0
+            fi
+            echo "npm full audit failed (attempt ${attempt}); retrying..."
+            sleep $((attempt * 5))
+          done
+          echo "npm full audit failed after retries"
+          exit 1
+
+      - name: Install Collexions dependencies
+        working-directory: collexions
+        run: npm ci --no-fund --no-audit
+
+      - name: Full audit (collexions, high+)
+        working-directory: collexions
+        run: |
+          set -e
+          for attempt in 1 2 3; do
+            if npm audit --audit-level=high; then
+              exit 0
+            fi
+            echo "collexions npm audit failed (attempt ${attempt}); retrying..."
+            sleep $((attempt * 5))
+          done
+          echo "collexions npm audit failed after retries"
+          exit 1
+
+  pip-audit:
+    name: pip audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install pip-audit
+        run: python -m pip install --upgrade pip pip-audit
+
+      # pip-audit has no severity gate; pinned worker deps should stay clean of known vulns.
+      - name: Audit Collexions requirements
+        run: pip-audit -r collexions/requirements.txt --progress-spinner off
+
+      - name: Audit Poster Sets requirements
+        run: pip-audit -r poster-sets/requirements.txt --progress-spinner off
+
+  trivy-fs:
+    name: Trivy filesystem
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Pin by commit SHA (avoid mutable version tags after the 2026 trivy-action compromise).
+      - name: Setup Trivy
+        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
+        with:
+          cache: true
+          version: latest
+
+      - name: Scan repository filesystem (CRITICAL/HIGH)
+        run: >
+          trivy fs
+          --scanners vuln
+          --severity CRITICAL,HIGH
+          --ignore-unfixed
+          --exit-code 1
+          --format table
+          .

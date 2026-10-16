@@ -10,22 +10,36 @@ export type ConfigValidationIssue = {
 
 const norm = (s: unknown) => String(s ?? '').trim();
 
+type ValidateConfigOptions = {
+    /** When true, Plex URL/token come from Settings → Media Player. */
+    plexFromPortal?: boolean;
+};
+
 /** Fast client-side checks before hitting the worker validate endpoint. */
-export function validateConfigLocal(config: AppConfig): ConfigValidationIssue[] {
+export function validateConfigLocal(
+    config: AppConfig,
+    opts: ValidateConfigOptions = {},
+): ConfigValidationIssue[] {
     const issues: ConfigValidationIssue[] = [];
+    const plexFromPortal = Boolean(
+        opts.plexFromPortal
+        || (config as AppConfig & { _plex_from_portal?: boolean })._plex_from_portal,
+    );
 
-    if (!norm(config.plex_url)) {
-        issues.push({ id: 'plex-url', severity: 'error', message: 'Plex URL is required.' });
-    } else if (!/^https?:\/\//i.test(norm(config.plex_url))) {
-        issues.push({
-            id: 'plex-url-scheme',
-            severity: 'warning',
-            message: 'Plex URL should start with http:// or https://',
-        });
-    }
+    if (!plexFromPortal) {
+        if (!norm(config.plex_url)) {
+            issues.push({ id: 'plex-url', severity: 'error', message: 'Plex URL is required.' });
+        } else if (!/^https?:\/\//i.test(norm(config.plex_url))) {
+            issues.push({
+                id: 'plex-url-scheme',
+                severity: 'warning',
+                message: 'Plex URL should start with http:// or https://',
+            });
+        }
 
-    if (!norm(config.plex_token)) {
-        issues.push({ id: 'plex-token', severity: 'error', message: 'Plex token is required.' });
+        if (!norm(config.plex_token)) {
+            issues.push({ id: 'plex-token', severity: 'error', message: 'Plex token is required.' });
+        }
     }
 
     const libs = (config.library_names || []).map(norm).filter(Boolean);

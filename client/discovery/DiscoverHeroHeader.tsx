@@ -156,9 +156,13 @@ export const DiscoverHeroHeader: React.FC<SearchResultProps> = (props) => {
 
         window.addEventListener('resize', updateRect);
         window.addEventListener('scroll', updateRect, true);
+        window.visualViewport?.addEventListener('resize', updateRect);
+        window.visualViewport?.addEventListener('scroll', updateRect);
         return () => {
             window.removeEventListener('resize', updateRect);
             window.removeEventListener('scroll', updateRect, true);
+            window.visualViewport?.removeEventListener('resize', updateRect);
+            window.visualViewport?.removeEventListener('scroll', updateRect);
         };
     }, [props.searchOpen, query]);
 
@@ -208,6 +212,7 @@ export const DiscoverHeroHeader: React.FC<SearchResultProps> = (props) => {
                             backgrounds={backgrounds}
                             intervalSeconds={intervalSeconds}
                             opacity={0.55}
+                            smartFocus
                         />
                     ) : null}
                     <div className="absolute inset-0 bg-gradient-to-t from-background/85 via-background/40 to-transparent pointer-events-none" />
@@ -230,6 +235,12 @@ export const DiscoverHeroHeader: React.FC<SearchResultProps> = (props) => {
                         <input
                             ref={setInputRef}
                             type="text"
+                            inputMode="search"
+                            enterKeyHint="search"
+                            autoComplete="off"
+                            autoCorrect="off"
+                            autoCapitalize="none"
+                            spellCheck={false}
                             placeholder={t('hero.searchPlaceholder')}
                             value={query}
                             onChange={(e) => onQueryChange(e.target.value)}

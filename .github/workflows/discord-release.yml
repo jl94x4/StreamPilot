@@ -60,7 +60,7 @@ jobs:
             : (releaseBody || 'Release notes are available on GitHub.');
 
           const payload = {
-            username: 'Server Manager Portal Releases',
+            username: 'StreamPilot Releases',
             embeds: [
               {
                 title: `New release: ${releaseName}`,

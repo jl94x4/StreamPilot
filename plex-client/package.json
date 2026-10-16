@@ -1,0 +1,19 @@
+{
+  "name": "smp-media-player",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Play Store Media Player for any StreamPilot install",
+  "scripts": {
+    "build": "node ../scripts/build-plex-client.mjs",
+    "sync": "npx cap sync android",
+    "open": "npx cap open android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.2.0",
+    "@capacitor/core": "^6.2.0",
+    "@capacitor/preferences": "^6.0.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.2.0"
+  }
+}

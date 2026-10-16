@@ -25,8 +25,14 @@ export const DiscoverSeries: React.FC<{
     onSelect: (item: any) => void;
     formatItem: (item: any) => any;
     navigate: (path: string) => void;
-}> = ({ onSelect, formatItem, navigate }) => {
-    const { locale } = useDiscoverI18n();
+    getQuickActions?: (item: any) => Array<{
+        id: string;
+        label: string;
+        tone?: 'default' | 'danger';
+        onClick: () => void | Promise<void>;
+    }>;
+}> = ({ onSelect, formatItem, navigate, getQuickActions }) => {
+    const { t, locale } = useDiscoverI18n();
     const { preferences } = useDiscoveryPreferences();
     const { hideRequested, setHideRequested } = useHideRequestedToggle();
     const [gridSize, setGridSize] = useDiscoverGridSize();
@@ -100,13 +106,13 @@ export const DiscoverSeries: React.FC<{
     const keywordLabel = filters.keywordName || null;
     const activeFilterCount = countActiveFilters(filters, 'tv');
     const filterSummary = [
-        networkLabel ? `Network: ${networkLabel}` : null,
-        genreLabel ? `Genre: ${genreLabel}` : null,
-        keywordLabel ? `Keyword: ${keywordLabel}` : null,
-        filters.excludeKeywordName ? `Excluding: ${filters.excludeKeywordName}` : null,
-        filters.status ? 'Status filtered' : null,
-        filters.language ? `Language: ${filters.language.toUpperCase()}` : null,
-        filters.watchProviders ? 'Streaming filtered' : null,
+        networkLabel ? t('browse.summaryNetwork', { name: networkLabel }) : null,
+        genreLabel ? t('browse.summaryGenre', { name: genreLabel }) : null,
+        keywordLabel ? t('browse.summaryKeyword', { name: keywordLabel }) : null,
+        filters.excludeKeywordName ? t('browse.summaryExcluding', { name: filters.excludeKeywordName }) : null,
+        filters.status ? t('browse.summaryStatus') : null,
+        filters.language ? t('browse.summaryLanguage', { code: filters.language.toUpperCase() }) : null,
+        filters.watchProviders ? t('browse.summaryStreaming') : null,
     ].filter(Boolean).join(' · ');
     const skeletonCount = discoverSkeletonCountForGrid(
         gridSize,
@@ -114,12 +120,12 @@ export const DiscoverSeries: React.FC<{
     );
 
     return (
-        <div className="w-full flex flex-col md:flex-row gap-8 px-4 sm:px-8 mt-4 relative">
+        <div className="w-full flex flex-col md:flex-row gap-8 mt-4 relative">
             <div className="flex-1 flex flex-col gap-6" ref={containerRef}>
                 <div className="flex items-center justify-between gap-4 flex-wrap">
                     <div>
                         <h2 className={`${discoveryTheme.heading} flex items-center gap-2`}>
-                            <Tv className="w-6 h-6 text-plex" /> Series
+                            <Tv className="w-6 h-6 text-plex" /> {t('browse.seriesHeading')}
                         </h2>
                         {filterSummary && (
                             <p className="text-sm text-muted mt-1 line-clamp-2">{filterSummary}</p>
@@ -133,7 +139,7 @@ export const DiscoverSeries: React.FC<{
                             onClick={() => setShowFilters(true)}
                             className={`relative ${discoveryTheme.toolbarBtn}`}
                         >
-                            <Filter className="w-4 h-4" /> Filters
+                            <Filter className="w-4 h-4" /> {t('browse.filters')}
                             {activeFilterCount > 0 && (
                                 <span className="absolute -top-2 -right-2 min-w-[20px] h-5 px-1 rounded-full bg-plex text-black text-xs font-black flex items-center justify-center">
                                     {activeFilterCount}
@@ -148,12 +154,13 @@ export const DiscoverSeries: React.FC<{
                     gridSize={gridSize}
                     formatItem={formatItem}
                     onSelect={onSelect}
+                    getQuickActions={getQuickActions}
                     loading={loading}
                     skeletonCount={skeletonCount}
                     emptyMessage={
                         activeFilterCount > 0 || hideRequested
-                            ? 'No series match your filters.'
-                            : 'No series found.'
+                            ? t('browse.emptySeriesFiltered')
+                            : t('browse.emptySeries')
                     }
                 />
 

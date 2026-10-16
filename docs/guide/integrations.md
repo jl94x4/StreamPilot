@@ -1,6 +1,6 @@
 # Integrations
 
-Server Portal can run with Plex, Jellyfin, or Emby-style media stacks and can connect to the companion apps that normally sit around a home media server.
+StreamPilot can run with Plex, Jellyfin, or Emby-style media stacks and can connect to the companion apps that normally sit around a home media server.
 
 Most integrations are configured in **Settings → Media Stack**. Branding, alerts, status checks, and home layout options live in their matching Settings sections.
 
@@ -61,7 +61,7 @@ Most integrations are configured in **Settings → Media Stack**. Branding, aler
   </div>
   <div class="integration-card">
     <img src="https://cdn.jsdelivr.net/gh/selfhst/icons/svg/qbittorrent.svg" alt="" />
-    <div><strong>Download Clients</strong><span>qBittorrent, Transmission, BitTorrent, Deluge, SABnzbd, and NZBGet merged into one Download Status page.</span></div>
+    <div><strong>Download Clients</strong><span>qBittorrent, Real-Debrid Client, Transmission, BitTorrent, Deluge, SABnzbd, and NZBGet merged into one Download Status page.</span></div>
   </div>
 </div>
 
@@ -135,6 +135,11 @@ Most integrations are configured in **Settings → Media Stack**. Branding, aler
       <td><img src="https://cdn.jsdelivr.net/gh/selfhst/icons/svg/qbittorrent.svg" alt="" /> qBittorrent</td>
       <td>Download client</td>
       <td>Download Status page, status checks, source matching, speed/progress display</td>
+    </tr>
+    <tr>
+      <td><img src="https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/rdt-client.svg" alt="" /> Real-Debrid Client</td>
+      <td>Download client</td>
+      <td>RDT-Client (qBittorrent API on port 6500) with its own icon on Download Status and Integrations</td>
     </tr>
     <tr>
       <td><img src="https://cdn.jsdelivr.net/gh/selfhst/icons/svg/transmission.svg" alt="" /> Transmission</td>

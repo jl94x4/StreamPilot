@@ -1,5 +1,6 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { api } from '../api';
+import { usePoll } from '../../shared/usePoll';
 import { Card } from '../components/ui/Card';
 import { RefreshCw, Download, ScrollText, Terminal, ToggleLeft, ToggleRight, ArrowDownCircle, AlertTriangle, Ban } from 'lucide-react';
 
@@ -26,26 +27,25 @@ const LogsPage: React.FC = () => {
 
     const logEndRef = useRef<HTMLDivElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
+    const logsFetchGenRef = useRef(0);
 
-    const fetchLogs = async () => {
+    const fetchLogs = useCallback(async () => {
+        const gen = ++logsFetchGenRef.current;
         try {
             const l = await api.getLogs();
+            if (gen !== logsFetchGenRef.current) return;
             setLogs(l);
         } catch (e) {
-            setLogs("Error fetching logs or backend offline.");
+            if (gen !== logsFetchGenRef.current) return;
+            setLogs('Error fetching logs or backend offline.');
         }
-    };
-
-    useEffect(() => {
-        fetchLogs(); // Always fetch once on mount
     }, []);
 
     useEffect(() => {
-        if (isLive) {
-            const interval = setInterval(fetchLogs, 10000); // 10s interval
-            return () => clearInterval(interval);
-        }
-    }, [isLive]);
+        fetchLogs(); // Always fetch once on mount
+    }, [fetchLogs]);
+
+    usePoll(fetchLogs, isLive ? 10_000 : null, { immediate: false });
 
     useEffect(() => {
         if (autoScroll && logEndRef.current) {

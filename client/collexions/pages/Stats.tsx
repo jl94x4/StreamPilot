@@ -1,5 +1,6 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { api } from '../api';
+import { usePoll } from '../../shared/usePoll';
 import { PinEvent } from '../types';
 import {
   Trophy,
@@ -60,18 +61,10 @@ const StatsPage: React.FC = () => {
 
   // Initial Load
   useEffect(() => {
-    syncData(false);
+    void syncData(false);
   }, []);
 
-  // Live Poll
-  useEffect(() => {
-    if (isLive) {
-      const interval = setInterval(() => {
-        syncData(true);
-      }, 30000); // Poll every 30s (Read only)
-      return () => clearInterval(interval);
-    }
-  }, [isLive, syncData]);
+  usePoll(() => { void syncData(true); }, isLive ? 30_000 : null, { immediate: false });
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   async function syncData(isBackground = false) {

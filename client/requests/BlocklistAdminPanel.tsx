@@ -12,6 +12,7 @@ import {
 import { apiFetch } from '../shared/api';
 import { formatDateTime } from '../shared/format';
 import { Loader, ToastContainer, pushToast, type ToastMessage } from '../shared/toast';
+import { dashboardPanelClass } from '../shared/dashboard/DashboardChrome';
 import { RequestCardActions, RequestCardShell, requestCardActionBtnClass } from './RequestCardShell';
 import type { PortalBlocklistItem, PortalBlocklistSearchResult } from './types';
 
@@ -217,20 +218,21 @@ export const BlocklistAdminPanel: React.FC = () => {
                 </div>
             </div>
 
-            <div className="glass-card border border-border p-4 md:p-5 mb-6">
+            <div className={`${dashboardPanelClass} p-4 md:p-5 mb-6`}>
                 <h3 className="text-sm font-bold uppercase tracking-wider text-muted mb-3">Add to blocklist</h3>
                 <div className="flex flex-col sm:flex-row gap-2">
                     <div className="relative flex-1">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
                         <input
-                            type="search"
+                            type="text"
+                            inputMode="search"
                             value={addQuery}
                             onChange={(e) => setAddQuery(e.target.value)}
                             onKeyDown={(e) => {
                                 if (e.key === 'Enter') handleSearchAdd();
                             }}
                             placeholder="Search movies or TV shows by title..."
-                            className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-border bg-background text-text outline-none focus:border-plex transition-colors"
+                            className="w-full appearance-none pl-10 pr-4 py-2.5 rounded-lg border border-border bg-background text-[16px] leading-5 text-text outline-none focus:border-plex transition-colors"
                         />
                     </div>
                     <button
@@ -317,7 +319,8 @@ export const BlocklistAdminPanel: React.FC = () => {
                 <div className="relative flex-1">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
                     <input
-                        type="search"
+                        type="text"
+                        inputMode="search"
                         value={listSearch}
                         onChange={(e) => setListSearch(e.target.value)}
                         onKeyDown={(e) => {
@@ -343,7 +346,7 @@ export const BlocklistAdminPanel: React.FC = () => {
             )}
 
             {!loading && !error && items.length === 0 && (
-                <div className="glass-card border border-border p-8 text-center text-muted">
+                <div className={`${dashboardPanelClass} p-8 text-center text-muted`}>
                     <Ban className="w-10 h-10 mx-auto mb-3 opacity-40" />
                     <p className="font-medium text-text">No blocklisted titles in this view</p>
                     <p className="text-sm mt-1">Search above to block movies or TV shows from being requested.</p>

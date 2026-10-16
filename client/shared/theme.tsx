@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { usePoll } from './usePoll';
 import {
     formatBackgroundPosition,
     prefetchImageFocalPoints,
@@ -32,13 +33,9 @@ export const SlideshowBackground: React.FC<{
         return [...backgrounds].sort(() => 0.5 - Math.random());
     }, [backgrounds]);
 
-    useEffect(() => {
-        if (shuffledBackgrounds.length <= 1) return;
-        const timer = setInterval(() => {
-            setCurrentIndex((prev) => (prev + 1) % shuffledBackgrounds.length);
-        }, Math.max(10, intervalSeconds) * 1000);
-        return () => clearInterval(timer);
-    }, [shuffledBackgrounds, intervalSeconds]);
+    usePoll(() => {
+        setCurrentIndex((prev) => (prev + 1) % shuffledBackgrounds.length);
+    }, shuffledBackgrounds.length > 1 ? Math.max(10, intervalSeconds) * 1000 : null, { immediate: false });
 
     useEffect(() => {
         if (!onActiveImage || shuffledBackgrounds.length === 0) return;
@@ -123,25 +120,28 @@ export const AuthPageBackground: React.FC<{ backgroundImageUrl?: string, trendin
 };
 
 /** Subtle ambient background for authenticated app shell */
-export const AppAmbientBackground: React.FC<{ backgroundImageUrl?: string }> = ({ backgroundImageUrl }) => (
-    <div className="pointer-events-none fixed inset-0 bg-background z-0">
-        <div className="absolute -top-40 -left-20 w-[420px] h-[420px] rounded-full bg-plex/[0.06] blur-[100px]" />
-        <div className="absolute top-1/2 -right-32 w-[360px] h-[360px] rounded-full bg-plex/[0.04] blur-[90px]" />
-        <div className="absolute bottom-0 left-1/3 w-[320px] h-[320px] rounded-full bg-plex/[0.03] blur-[80px]" />
+export const AppAmbientBackground: React.FC<{ backgroundImageUrl?: string; className?: string }> = ({
+    backgroundImageUrl,
+    className = 'fixed inset-0 z-0',
+}) => (
+    <div className={`pointer-events-none bg-background ${className}`}>
+        <div className="hidden md:block absolute -top-40 -left-20 w-[420px] h-[420px] rounded-full bg-plex/[0.06] blur-[100px]" />
+        <div className="hidden md:block absolute top-1/2 -right-32 w-[360px] h-[360px] rounded-full bg-plex/[0.04] blur-[90px]" />
+        <div className="hidden md:block absolute bottom-0 left-1/3 w-[320px] h-[320px] rounded-full bg-plex/[0.03] blur-[80px]" />
         <div
-            className="absolute inset-0"
+            className="hidden md:block absolute inset-0"
             style={{ backgroundImage: 'radial-gradient(ellipse 70% 40% at 50% 0%, rgb(var(--color-plex) / 0.06), transparent)' }}
         />
         {backgroundImageUrl && (
             <div
-                className="absolute inset-0 bg-center bg-no-repeat opacity-100"
+                className="hidden md:block absolute inset-0 bg-center bg-no-repeat opacity-100"
                 style={{
                     ...backgroundImageStyle(backgroundImageUrl),
                     backgroundSize: 'cover',
                 }}
             />
         )}
-        <div className="absolute inset-0 opacity-[0.018]" style={{ backgroundImage: GRID_TEXTURE }} />
+        <div className="hidden md:block absolute inset-0 opacity-[0.018]" style={{ backgroundImage: GRID_TEXTURE }} />
     </div>
 );
 

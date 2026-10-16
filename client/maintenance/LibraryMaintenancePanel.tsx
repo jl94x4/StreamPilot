@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { apiFetch } from '../shared/api';
 import { appConfirm } from '../shared/confirm';
 import { CustomSelect, StyledCheckbox } from '../shared/ui';
+import { useDiscoverI18n } from '../discovery/i18n';
 
 const mkMaintenanceCondition = () => ({ field: 'daysSinceLastWatch', operator: 'greater_than', value: 30 });
 const mkMaintenanceRule = () => ({
@@ -20,13 +21,13 @@ const snapshotMaintenanceRules = (items: any[]) => JSON.stringify(
     (Array.isArray(items) ? items : []).map(({ overlay, _resetGrace, ...rule }) => rule)
 );
 
-const formatMaintenanceRunSummary = (run: any) => {
+const formatMaintenanceRunSummary = (run: any, t: (key: any, vars?: any) => string) => {
     const totals = run?.totals || {};
     const parts = [
-        `${totals.matched ?? 0} matched`,
-        `${totals.deleted ?? 0} deleted`,
-        `${totals.skipped ?? 0} skipped`,
-        `${totals.failed ?? 0} failed`
+        t('maintenance.summaries.matched', { count: totals.matched ?? 0 }),
+        t('maintenance.summaries.deleted', { count: totals.deleted ?? 0 }),
+        t('maintenance.summaries.skipped', { count: totals.skipped ?? 0 }),
+        t('maintenance.summaries.failed', { count: totals.failed ?? 0 })
     ];
     return parts.join(', ');
 };
@@ -37,6 +38,7 @@ const MaintenanceConditionRow: React.FC<{
     onChange: (next: any) => void;
     onDelete: () => void;
 }> = ({ condition, fields, onChange, onDelete }) => {
+    const { t } = useDiscoverI18n();
     const fieldDef = fields.find((f: any) => f.field === condition.field) || fields[0];
     const operatorOptions = (fieldDef?.operators || ['equals']).map((op: string) => ({ label: op.replace(/_/g, ' '), value: op }));
     const selectedOperator = operatorOptions.find((o: any) => o.value === condition.operator)?.value || operatorOptions[0]?.value || 'equals';
@@ -64,7 +66,7 @@ const MaintenanceConditionRow: React.FC<{
                 <CustomSelect
                     value={String(condition.value)}
                     onChange={(value) => onChange({ ...condition, value: value === 'true' })}
-                    options={[{ label: 'True', value: 'true' }, { label: 'False', value: 'false' }]}
+                     options={[{ label: t('maintenance.labels.true'), value: 'true' }, { label: t('maintenance.labels.false'), value: 'false' }]}
                     compact
                 />
             ) : fieldDef?.type === 'select' ? (
@@ -88,15 +90,16 @@ const MaintenanceConditionRow: React.FC<{
                         }
                     }}
                     className="w-full px-3 py-2 text-xs rounded-lg border border-border bg-background text-text outline-none focus:border-plex"
-                    placeholder={selectedOperator === 'between' ? 'min,max' : (selectedOperator === 'in' || selectedOperator === 'not_in') ? 'v1,v2' : 'value'}
+                     placeholder={selectedOperator === 'between' ? t('maintenance.labels.minMax') : (selectedOperator === 'in' || selectedOperator === 'not_in') ? t('maintenance.labels.values') : t('maintenance.labels.value')}
                 />
             )}
-            <button type="button" onClick={onDelete} className="px-2 py-1 text-[11px] rounded-lg border border-red-500/40 text-red-300 hover:bg-red-500/10">Remove</button>
+             <button type="button" onClick={onDelete} className="px-2 py-1 text-[11px] rounded-lg border border-red-500/40 text-red-300 hover:bg-red-500/10">{t('common.remove')}</button>
         </div>
     );
 };
 
 export const LibraryMaintenancePanel: React.FC<{ addToast: (m: string, t?: 'success' | 'error') => void; onRulesUpdated?: () => void }> = ({ addToast, onRulesUpdated }) => {
+    const { t } = useDiscoverI18n();
     const [fields, setFields] = useState<any[]>([]);
     const [rules, setRules] = useState<any[]>([]);
     const [savedRulesSnapshot, setSavedRulesSnapshot] = useState('');
@@ -111,6 +114,7 @@ export const LibraryMaintenancePanel: React.FC<{ addToast: (m: string, t?: 'succ
     const [resettingRuleId, setResettingRuleId] = useState<string | null>(null);
     const [togglingRuleId, setTogglingRuleId] = useState<string | null>(null);
     const [pinCollectionOnDestructiveRun, setPinCollectionOnDestructiveRun] = useState(false);
+    const [excludingKey, setExcludingKey] = useState<string | null>(null);
 
     const selectedRule = useMemo(() => rules.find((rule: any) => rule.id === selectedRuleId) || null, [rules, selectedRuleId]);
     const selectedPreview = useMemo(() => previewData.find((preview: any) => preview.ruleId === selectedRuleId) || null, [previewData, selectedRuleId]);
@@ -166,11 +170,11 @@ export const LibraryMaintenancePanel: React.FC<{ addToast: (m: string, t?: 'succ
             setIndexInfo(index);
             await Promise.all([refreshRules(), refreshRuns()]);
         } catch (e: any) {
-            addToast(e.message || 'Failed to load maintenance module', 'error');
+            addToast(e.message || t('maintenance.errors.load'), 'error');
         } finally {
             setLoading(false);
         }
-    }, [addToast, refreshRules, refreshRuns]);
+    }, [addToast, refreshRules, refreshRuns, t]);
 
     useEffect(() => { loadAll(); }, [loadAll]);
 
@@ -197,19 +201,19 @@ export const LibraryMaintenancePanel: React.FC<{ addToast: (m: string, t?: 'succ
         event?.stopPropagation();
         const target = rules.find((rule: any) => rule.id === ruleId);
         if (!target) return;
-        appConfirm(`Delete filter "${target.name || 'Unnamed Rule'}"?`, async () => {
+        appConfirm(`${t('maintenance.confirmations.deleteFilter')} "${target.name || 'Unnamed Rule'}"?`, async () => {
             const previousRules = rules;
             const nextRules = rules.filter((rule: any) => rule.id !== ruleId);
             removeRule(ruleId);
             setSaving(true);
             try {
                 await apiFetch('/api/maintenance/rules', { method: 'POST', body: JSON.stringify(nextRules) });
-                addToast(`Deleted filter: ${target.name || 'Unnamed Rule'}.`);
+                addToast(`${t('maintenance.toasts.filterDeleted')}: ${target.name || 'Unnamed Rule'}.`);
                 await Promise.all([refreshRules(), refreshRuns()]);
                 onRulesUpdated?.();
             } catch (e: any) {
                 setRules(previousRules);
-                addToast(e.message || 'Failed to delete filter', 'error');
+                addToast(e.message || t('maintenance.errors.deleteFilter'), 'error');
             } finally {
                 setSaving(false);
             }
@@ -244,11 +248,11 @@ export const LibraryMaintenancePanel: React.FC<{ addToast: (m: string, t?: 'succ
         setSaving(true);
         try {
             await apiFetch('/api/maintenance/rules', { method: 'POST', body: JSON.stringify(rules) });
-            addToast('Maintenance rules saved.');
+            addToast(t('maintenance.toasts.rulesSaved'));
             await refreshRules();
             onRulesUpdated?.();
         } catch (e: any) {
-            addToast(e.message || 'Failed to save maintenance rules', 'error');
+            addToast(e.message || t('maintenance.errors.saveRules'), 'error');
         } finally {
             setSaving(false);
         }
@@ -259,10 +263,10 @@ export const LibraryMaintenancePanel: React.FC<{ addToast: (m: string, t?: 'succ
         event?.stopPropagation();
         try {
             await apiFetch('/api/maintenance/index/rebuild', { method: 'POST' });
-            addToast('Maintenance index rebuilt.');
+            addToast(t('maintenance.toasts.indexRebuilt'));
             await Promise.all([refreshIndexInfo(), loadAll()]);
         } catch (e: any) {
-            addToast(e.message || 'Failed to rebuild maintenance index', 'error');
+            addToast(e.message || t('maintenance.errors.rebuildIndex'), 'error');
         }
     };
 
@@ -292,26 +296,39 @@ export const LibraryMaintenancePanel: React.FC<{ addToast: (m: string, t?: 'succ
             const actionable = current?.actionableCount ?? '—';
             const inGrace = current?.inGraceCount ?? 0;
             const graceDays = current?.graceRemainingDays ?? 0;
+            const remaining = current?.remainingCount ?? ((current?.totalMatches ?? 0) - (current?.excludedCount ?? 0));
+            const excluded = current?.excludedCount ?? 0;
             addToast(
                 graceDays > 0
-                    ? `Preview: ${current?.totalMatches ?? 0} match(es), all in grace (${graceDays} day(s) remaining).`
-                    : `Preview: ${current?.totalMatches ?? 0} match(es), ${eligible} eligible, ${actionable} mapped in Sonarr/Radarr${inGrace ? `, ${inGrace} in grace` : ''}.`
+                    ? t('maintenance.summaries.previewAllInGrace', { matches: current?.totalMatches ?? 0, days: graceDays })
+                    : t('maintenance.summaries.previewSummary', {
+                        matches: current?.totalMatches ?? 0,
+                        eligible,
+                        mapped: actionable,
+                        inGrace: inGrace ? t('maintenance.summaries.inGraceSuffix', { count: inGrace }) : '',
+                    })
             );
+            if (excluded > 0) {
+                addToast(t('maintenance.summaries.previewRemaining', { remaining, excluded }));
+            }
         } catch (e: any) {
-            addToast(e.message || 'Failed to generate preview', 'error');
+            addToast(e.message || t('maintenance.errors.preview'), 'error');
         } finally {
             setPreviewRuleId(null);
         }
     };
 
-    const runRule = async (ruleId: string, dryRun: boolean, event?: React.MouseEvent) => {
+    const runRule = async (ruleId: string, dryRun: boolean, event?: React.MouseEvent, extraOptions: Record<string, unknown> = {}) => {
         event?.preventDefault();
         event?.stopPropagation();
         if (isRuleDirty(ruleId)) {
-            addToast('Save your filter changes before running.', 'error');
+            addToast(t('maintenance.errors.unsavedBeforeRun'), 'error');
             return;
         }
-        const useCollectionPin = !dryRun && pinCollectionOnDestructiveRun;
+        const useCollectionPin = !dryRun && (pinCollectionOnDestructiveRun || extraOptions.createAndPinCollection === true);
+        const bypassGrace = !dryRun && extraOptions.bypassGrace === true;
+        const queueDelayedDelete = !dryRun && extraOptions.queueDelayedDelete === true;
+        const delayDays = Number(extraOptions.delayDays || 7);
 
         const executeRun = async () => {
             setRunningRuleId(ruleId);
@@ -322,20 +339,27 @@ export const LibraryMaintenancePanel: React.FC<{ addToast: (m: string, t?: 'succ
                         ruleId,
                         dryRun,
                         confirmToken: dryRun ? null : 'CONFIRM_MAINTENANCE_DELETE',
-                        runOptions: dryRun ? {} : { createAndPinCollection: useCollectionPin }
+                        runOptions: dryRun ? {} : {
+                            createAndPinCollection: useCollectionPin,
+                            bypassGrace,
+                            queueDelayedDelete,
+                            delayDays,
+                        }
                     })
                 });
                 const latestRun = Array.isArray(response?.runs) ? response.runs[0] : null;
-                const summary = latestRun ? formatMaintenanceRunSummary(latestRun) : '';
+                const summary = latestRun ? formatMaintenanceRunSummary(latestRun, t) : '';
                 addToast(dryRun
-                    ? (summary ? `Dry-run completed (${summary}).` : 'Dry-run completed.')
-                    : (summary
-                        ? (useCollectionPin ? `Destructive run completed with collection pinning (${summary}).` : `Destructive run completed (${summary}).`)
-                        : (useCollectionPin ? 'Rule execution completed with collection pinning.' : 'Rule execution completed.')));
+                    ? (summary ? `${t('maintenance.status.dryRunCompleted')} (${summary}).` : `${t('maintenance.status.dryRunCompleted')}.`)
+                    : queueDelayedDelete
+                        ? (summary ? `${t('maintenance.status.queuedDelayed', { days: delayDays })} (${summary}).` : `${t('maintenance.status.queuedDelayed', { days: delayDays })}.`)
+                        : (summary
+                            ? (useCollectionPin ? `${t('maintenance.status.destructiveWithCollection')} (${summary}).` : `${t('maintenance.status.destructiveCompleted')} (${summary}).`)
+                            : (useCollectionPin ? `${t('maintenance.status.executionWithCollection')}.` : `${t('maintenance.status.executionCompleted')}.`)));
                 await Promise.all([refreshRuns(), runPreview(ruleId)]);
                 onRulesUpdated?.();
             } catch (e: any) {
-                addToast(e.message || 'Rule execution failed', 'error');
+                addToast(e.message || t('maintenance.errors.run'), 'error');
             } finally {
                 setRunningRuleId(null);
             }
@@ -348,25 +372,33 @@ export const LibraryMaintenancePanel: React.FC<{ addToast: (m: string, t?: 'succ
                     body: JSON.stringify({ ruleId })
                 });
                 if (!preflight.ok) {
-                    addToast((preflight.errors || ['Preflight check failed.']).join(' '), 'error');
+                    addToast((preflight.errors || [t('maintenance.errors.preflight')]).join(' '), 'error');
                     return;
                 }
-                let confirmMessage = useCollectionPin
-                    ? 'Run destructive maintenance action now? This will delete via Sonarr/Radarr and also create/pin a Plex collection to home for all users.'
-                    : 'Run destructive maintenance action now? This will delete matching items via Sonarr/Radarr using the saved filter.';
+                let confirmMessage = queueDelayedDelete
+                    ? t('maintenance.confirmations.queueDelayed', { days: delayDays })
+                    : bypassGrace
+                        ? t('maintenance.confirmations.purgeRemaining')
+                        : (useCollectionPin
+                            ? t('maintenance.confirmations.destructiveWithCollection')
+                            : t('maintenance.confirmations.destructive'));
                 if (Array.isArray(preflight.warnings) && preflight.warnings.length) {
-                    confirmMessage += `\n\nWarnings:\n- ${preflight.warnings.join('\n- ')}`;
+                    confirmMessage += `\n\n${t('maintenance.summaries.warnings')}\n- ${preflight.warnings.join('\n- ')}`;
                 }
                 const preview = preflight.preview;
                 if (preview) {
-                    confirmMessage += `\n\nWould process up to ${preview.wouldProcessCount} item(s): ${preview.actionableCount} mapped in Sonarr/Radarr, ${preview.unactionableCount} unmapped.`;
-                    if (preview.graceRemainingDays > 0) {
-                        confirmMessage += ` ${preview.inGraceCount} still in grace (${preview.graceRemainingDays} day(s) remaining).`;
+                    const remaining = Number(preview.remainingCount ?? preview.wouldProcessCount ?? 0);
+                    const processCount = (queueDelayedDelete || bypassGrace)
+                        ? Math.min(Number(preview.maxActionsPerRun || remaining), remaining)
+                        : preview.wouldProcessCount;
+                    confirmMessage += `\n\n${t('maintenance.summaries.wouldProcess', { count: processCount, mapped: preview.actionableCount, unmapped: preview.unactionableCount })}`;
+                    if (!queueDelayedDelete && !bypassGrace && preview.graceRemainingDays > 0) {
+                        confirmMessage += ` ${t('maintenance.summaries.stillInGrace', { count: preview.inGraceCount, days: preview.graceRemainingDays })}`;
                     }
                 }
                 appConfirm(confirmMessage, executeRun);
             } catch (e: any) {
-                addToast(e.message || 'Preflight check failed', 'error');
+                addToast(e.message || t('maintenance.errors.preflight'), 'error');
             }
             return;
         }
@@ -382,11 +414,11 @@ export const LibraryMaintenancePanel: React.FC<{ addToast: (m: string, t?: 'succ
         setResettingRuleId(ruleId);
         try {
             await apiFetch('/api/maintenance/rules/reset-grace', { method: 'POST', body: JSON.stringify({ ruleId }) });
-            addToast(`Grace timer reset for "${target.name || 'Unnamed Rule'}".`);
+            addToast(`${t('maintenance.summaries.graceTimerReset')} for "${target.name || 'Unnamed Rule'}".`);
             await Promise.all([refreshRules(), runPreview(ruleId)]);
             onRulesUpdated?.();
         } catch (e: any) {
-            addToast(e.message || 'Failed to reset grace timer', 'error');
+            addToast(e.message || t('maintenance.errors.resetGrace'), 'error');
         } finally {
             setResettingRuleId(null);
         }
@@ -404,14 +436,43 @@ export const LibraryMaintenancePanel: React.FC<{ addToast: (m: string, t?: 'succ
         setTogglingRuleId(ruleId);
         try {
             await apiFetch('/api/maintenance/rules', { method: 'POST', body: JSON.stringify(nextRules) });
-            addToast(`Filter ${nextEnabled ? 'enabled' : 'disabled'}: "${target.name || 'Unnamed Rule'}".`);
+            addToast(`${t(nextEnabled ? 'maintenance.toasts.filterEnabled' : 'maintenance.toasts.filterDisabled')}: "${target.name || 'Unnamed Rule'}".`);
             await Promise.all([refreshRules(), runPreview(ruleId)]);
             onRulesUpdated?.();
         } catch (e: any) {
             setRules(previousRules);
-            addToast(e.message || 'Failed to update filter status', 'error');
+            addToast(e.message || t('maintenance.errors.toggleFilter'), 'error');
         } finally {
             setTogglingRuleId(null);
+        }
+    };
+
+    const togglePreviewExclusion = async (item: any) => {
+        const key = String(item?.ratingKey || '').trim();
+        if (!key || excludingKey) return;
+        const nextExcluded = !item.excluded;
+        setExcludingKey(key);
+        try {
+            await apiFetch('/api/maintenance/exclusions/rating-key', {
+                method: 'POST',
+                body: JSON.stringify({ ratingKey: key, exclude: nextExcluded }),
+            });
+            setPreviewData((prev) => prev.map((preview: any) => {
+                if (preview.ruleId !== selectedRuleId) return preview;
+                const sample = (preview.sample || []).map((row: any) => (
+                    String(row.ratingKey) === key ? { ...row, excluded: nextExcluded, eligible: nextExcluded ? false : row.eligible } : row
+                ));
+                const excludedCount = Math.max(0, Number(preview.excludedCount || 0) + (nextExcluded ? 1 : -1));
+                const remainingCount = Math.max(0, Number(preview.remainingCount ?? ((preview.totalMatches || 0) - (preview.excludedCount || 0))) + (nextExcluded ? -1 : 1));
+                return { ...preview, sample, excludedCount, remainingCount };
+            }));
+            addToast(nextExcluded
+                ? t('maintenance.exclusions.excludedTitle', { title: item.title })
+                : t('maintenance.exclusions.removed', { title: item.title }));
+        } catch (e: any) {
+            addToast(e.message || t('maintenance.errors.toggleExclude'), 'error');
+        } finally {
+            setExcludingKey(null);
         }
     };
 
@@ -421,23 +482,23 @@ export const LibraryMaintenancePanel: React.FC<{ addToast: (m: string, t?: 'succ
         <div className="mb-8 animate-fade-in space-y-6" onSubmitCapture={(e) => e.preventDefault()}>
             <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border pb-3">
                 <div>
-                    <h3 className="text-xl font-bold text-plex">Library Maintenance Rules</h3>
-                    <p className="text-xs text-muted mt-1">Saved filters are listed below. Click one to edit, preview, and run.</p>
+                    <h3 className="text-xl font-bold text-plex">{t('maintenance.rules.title')}</h3>
+                    <p className="text-xs text-muted mt-1">{t('maintenance.rules.description')}</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                    <button type="button" className="px-2.5 py-1.5 text-xs bg-border text-text rounded-md font-semibold hover:bg-opacity-80" onClick={(e) => rebuildIndex(e)}>Rebuild Index</button>
-                    <button type="button" className="px-2.5 py-1.5 text-xs bg-border text-text rounded-md font-semibold hover:bg-opacity-80" onClick={(e) => addRule(e)}>Add Filter</button>
+                    <button type="button" className="px-2.5 py-1.5 text-xs bg-border text-text rounded-md font-semibold hover:bg-opacity-80" onClick={(e) => rebuildIndex(e)}>{t('maintenance.actions.rebuildIndex')}</button>
+                    <button type="button" className="px-2.5 py-1.5 text-xs bg-border text-text rounded-md font-semibold hover:bg-opacity-80" onClick={(e) => addRule(e)}>{t('maintenance.actions.addFilter')}</button>
                 </div>
             </div>
 
             <div className="bg-background/30 border border-white/5 rounded-xl p-3 text-xs text-muted">
-                Index: <span className="text-text font-semibold">{indexInfo?.itemCount || 0}</span> media items
-                {indexInfo?.generatedAt ? <> · Last build: <span className="text-text">{new Date(indexInfo.generatedAt).toLocaleString()}</span></> : null}
-                {' '}· Request records: <span className="text-text font-semibold">{indexInfo?.requestItemCount || 0}</span>
+                {t('maintenance.labels.index')}: <span className="text-text font-semibold">{indexInfo?.itemCount || 0}</span> {t('maintenance.labels.mediaItems')}
+                {indexInfo?.generatedAt ? <> · {t('maintenance.labels.lastBuild')}: <span className="text-text">{new Date(indexInfo.generatedAt).toLocaleString()}</span></> : null}
+                {' '}· {t('maintenance.labels.requestRecords')}: <span className="text-text font-semibold">{indexInfo?.requestItemCount || 0}</span>
             </div>
 
             <div className="glass-card-sm p-4">
-                <p className="text-xs text-muted uppercase tracking-wider font-bold mb-3">Saved Filters</p>
+                <p className="text-xs text-muted uppercase tracking-wider font-bold mb-3">{t('maintenance.rules.savedFilters')}</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                     {rules.map((rule: any) => {
                         const preview = previewData.find((p: any) => p.ruleId === rule.id);
@@ -446,32 +507,32 @@ export const LibraryMaintenancePanel: React.FC<{ addToast: (m: string, t?: 'succ
                                 <div className="flex items-start justify-between gap-2">
                                     <div>
                                         <p className="text-sm font-semibold text-text">{rule.name || 'Unnamed Rule'}</p>
-                                        <p className="text-xs text-muted mt-1">{(rule?.filterTree?.conditions || []).length} condition(s)</p>
+                                <p className="text-xs text-muted mt-1">{t('maintenance.summaries.conditions', { count: (rule?.filterTree?.conditions || []).length })}</p>
                                     </div>
                                     <button
                                         type="button"
                                         onClick={(e) => toggleRuleEnabled(rule.id, e)}
                                         disabled={togglingRuleId === rule.id}
                                         className={`inline-flex items-center gap-2 px-2 py-1 rounded border text-[11px] font-semibold transition-colors disabled:opacity-60 ${rule.enabled !== false ? 'border-green-500/40 bg-green-500/10 text-green-300' : 'border-white/5 bg-background/30 text-muted'}`}
-                                        title="Toggle filter enabled/disabled"
+                                        title={`${t('maintenance.labels.enabled')} / ${t('maintenance.labels.disabled')}`}
                                     >
                                         <span className={`relative inline-flex h-3.5 w-7 rounded-full transition-colors ${rule.enabled !== false ? 'bg-green-500/40' : 'bg-border'}`}>
                                             <span className={`absolute top-0.5 h-2.5 w-2.5 rounded-full bg-white transition-transform ${rule.enabled !== false ? 'translate-x-4' : 'translate-x-0.5'}`} />
                                         </span>
-                                        {togglingRuleId === rule.id ? 'Saving...' : (rule.enabled !== false ? 'Enabled' : 'Disabled')}
+                                        {togglingRuleId === rule.id ? t('maintenance.statuses.saving') : (rule.enabled !== false ? t('maintenance.labels.enabled') : t('maintenance.labels.disabled'))}
                                     </button>
                                 </div>
-                                <p className="text-[11px] text-muted mt-2">Matches: {preview?.totalMatches ?? '—'}</p>
+                                <p className="text-[11px] text-muted mt-2">{t('maintenance.labels.matches')}: {preview?.totalMatches ?? '—'}</p>
                                 {(preview?.graceRemainingDays ?? 0) > 0 ? (
-                                    <p className="text-[11px] text-amber-300 mt-1">In grace: {preview.graceRemainingDays} day(s) left</p>
+                                    <p className="text-[11px] text-amber-300 mt-1">{t('maintenance.labels.grace')}: {t('maintenance.summaries.dayLeft', { count: preview.graceRemainingDays })}</p>
                                 ) : (
                                     <p className="text-[11px] text-muted mt-1">
-                                        Eligible: {preview?.eligibleCount ?? '—'} · Sonarr/Radarr: {preview?.actionableCount ?? '—'} mapped
-                                        {(preview?.unactionableCount ?? 0) > 0 ? `, ${preview.unactionableCount} unmapped` : ''}
+                                        {t('maintenance.labels.eligible')}: {preview?.eligibleCount ?? '—'} · Sonarr/Radarr: {preview?.actionableCount ?? '—'} {t('maintenance.labels.mapped')}
+                                        {(preview?.unactionableCount ?? 0) > 0 ? `, ${preview.unactionableCount} ${t('maintenance.labels.unmapped').toLowerCase()}` : ''}
                                     </p>
                                 )}
                                 <p className="text-[11px] text-muted mt-1" title="Grace countdown starts when the rule is created.">
-                                    Grace: {Math.max(0, Number(rule?.graceDays || 0))} day(s) {rule?.createdAt ? `from ${new Date(rule.createdAt).toLocaleDateString()}` : 'from creation'}
+                                        {t('maintenance.labels.grace')}: {Math.max(0, Number(rule?.graceDays || 0))} {rule?.createdAt ? `${t('maintenance.summaries.from')} ${new Date(rule.createdAt).toLocaleDateString()}` : t('maintenance.summaries.fromCreation')}
                                 </p>
                                 <div className="flex gap-2 mt-3">
                                     <button
@@ -479,23 +540,23 @@ export const LibraryMaintenancePanel: React.FC<{ addToast: (m: string, t?: 'succ
                                         className="px-2.5 py-1.5 text-xs rounded border border-border text-text hover:border-plex/50"
                                         onClick={() => setSelectedRuleId(rule.id)}
                                     >
-                                        Edit
+                                        {t('maintenance.actions.edit')}
                                     </button>
                                     <button
                                         type="button"
                                         className="px-2.5 py-1.5 text-xs rounded border border-border text-text hover:border-plex/50"
                                         onClick={(e) => runPreview(rule.id, e)}
                                     >
-                                        Refresh
+                                        {t('maintenance.actions.refresh')}
                                     </button>
                                     <button
                                         type="button"
                                         className="px-2.5 py-1.5 text-xs rounded border border-amber-500/40 text-amber-300 hover:bg-amber-500/10 disabled:opacity-50"
-                                        title="Reset this rule's grace countdown to now."
+                                        title={t('maintenance.labels.resetGraceHint')}
                                         onClick={(e) => resetRuleGraceTimer(rule.id, e)}
                                         disabled={saving || resettingRuleId === rule.id}
                                     >
-                                        {resettingRuleId === rule.id ? 'Resetting...' : 'Reset'}
+                                        {resettingRuleId === rule.id ? t('maintenance.statuses.resetting') : t('maintenance.actions.reset')}
                                     </button>
                                     <button
                                         type="button"
@@ -503,13 +564,13 @@ export const LibraryMaintenancePanel: React.FC<{ addToast: (m: string, t?: 'succ
                                         onClick={(e) => deleteRule(rule.id, e)}
                                         disabled={saving}
                                     >
-                                        Delete
+                                        {t('maintenance.actions.delete')}
                                     </button>
                                 </div>
                             </div>
                         );
                     })}
-                    {rules.length === 0 && <span className="text-sm text-muted">No filters yet. Click Add Filter.</span>}
+                    {rules.length === 0 && <span className="text-sm text-muted">{t('maintenance.rules.noFilters')}</span>}
                 </div>
             </div>
 
@@ -517,35 +578,35 @@ export const LibraryMaintenancePanel: React.FC<{ addToast: (m: string, t?: 'succ
                 <div className="glass-card-sm p-4 space-y-4 w-full">
                     {isRuleDirty(selectedRule.id) && (
                         <div className="bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs rounded-lg px-3 py-2">
-                            You have unsaved changes. Save the filter before previewing or running against production rules.
+                            {t('maintenance.rules.unsaved')}
                         </div>
                     )}
                     <div className="flex items-end justify-between gap-3">
                         <div className="flex-1">
-                            <label className="text-xs text-muted font-bold uppercase mb-1 block">Filter Name</label>
+                            <label className="text-xs text-muted font-bold uppercase mb-1 block">{t('maintenance.labels.filterName')}</label>
                             <input
                                 value={selectedRule.name || ''}
                                 onChange={(e) => updateRule(selectedRule.id, { name: e.target.value })}
                                 className="w-full px-2.5 py-1.5 text-xs rounded border border-border bg-card text-text outline-none focus:border-plex"
-                                placeholder="Filter name"
+                                placeholder={t('maintenance.labels.filterName')}
                             />
                         </div>
                         <div className="flex gap-2">
-                            <button type="button" className="px-2.5 py-1.5 text-xs border border-border text-text rounded hover:bg-white/5" onClick={() => setSelectedRuleId(null)}>Close Editor</button>
+                            <button type="button" className="px-2.5 py-1.5 text-xs border border-border text-text rounded hover:bg-white/5" onClick={() => setSelectedRuleId(null)}>{t('maintenance.actions.closeEditor')}</button>
                             <button
                                 type="button"
                                 className="px-2.5 py-1.5 text-xs border border-red-500/40 text-red-300 rounded hover:bg-red-500/10 disabled:opacity-50"
                                 onClick={(e) => deleteRule(selectedRule.id, e)}
                                 disabled={saving}
                             >
-                                Delete Filter
+                                {t('maintenance.actions.deleteFilter')}
                             </button>
                         </div>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                         <div>
-                            <label className="text-xs text-muted font-bold uppercase" title="How rule conditions are combined.">Match Logic</label>
+                            <label className="text-xs text-muted font-bold uppercase" title={t('maintenance.labels.matchLogicHint')}>{t('maintenance.labels.matchLogic')}</label>
                             <CustomSelect
                                 value={selectedRule?.filterTree?.logic || 'AND'}
                                 onChange={(value) => updateRule(selectedRule.id, { filterTree: { ...(selectedRule.filterTree || {}), logic: value } })}
@@ -554,68 +615,99 @@ export const LibraryMaintenancePanel: React.FC<{ addToast: (m: string, t?: 'succ
                             />
                         </div>
                         <div>
-                            <label className="text-xs text-muted font-bold uppercase" title="Global grace period for this ruleset. Matching items become eligible this many days after the rule was created.">Grace Days</label>
-                            <input type="number" min={0} className="w-full px-3 py-2 text-xs rounded-lg border border-border bg-card text-text" value={selectedRule?.graceDays || 0} onChange={(e) => updateRule(selectedRule.id, { graceDays: Number(e.target.value) })} />
+                            <label className="text-xs text-muted font-bold uppercase" title={t('maintenance.labels.graceHint')}>{t('maintenance.labels.graceDays')}</label>
+                            <input type="number" min={0} className="appearance-none text-[16px] leading-5 w-full px-3 py-2 text-[16px] rounded-lg border border-border bg-card text-text" value={selectedRule?.graceDays || 0} onChange={(e) => updateRule(selectedRule.id, { graceDays: Number(e.target.value) })} />
                         </div>
                         <div>
-                            <label className="text-xs text-muted font-bold uppercase">Max Actions</label>
-                            <input type="number" min={1} className="w-full px-3 py-2 text-xs rounded-lg border border-border bg-card text-text" value={selectedRule?.settings?.maxActionsPerRun || 25} onChange={(e) => updateRule(selectedRule.id, { settings: { ...(selectedRule.settings || {}), maxActionsPerRun: Number(e.target.value) } })} />
+                            <label className="text-xs text-muted font-bold uppercase">{t('maintenance.labels.maxActions')}</label>
+                            <input type="number" min={1} className="appearance-none text-[16px] leading-5 w-full px-3 py-2 text-[16px] rounded-lg border border-border bg-card text-text" value={selectedRule?.settings?.maxActionsPerRun || 25} onChange={(e) => updateRule(selectedRule.id, { settings: { ...(selectedRule.settings || {}), maxActionsPerRun: Number(e.target.value) } })} />
                         </div>
                         <div>
-                            <label className="text-xs text-muted font-bold uppercase">Collection Name</label>
-                            <input type="text" className="w-full px-3 py-2 text-xs rounded-lg border border-border bg-card text-text" value={selectedRule?.collection?.nameTemplate || 'Leaving Soon - {{ruleName}}'} onChange={(e) => updateRule(selectedRule.id, { collection: { ...(selectedRule.collection || {}), nameTemplate: e.target.value } })} />
+                            <label className="text-xs text-muted font-bold uppercase">{t('maintenance.labels.collectionName')}</label>
+                            <input type="text" className="appearance-none text-[16px] leading-5 w-full px-3 py-2 text-[16px] rounded-lg border border-border bg-card text-text" value={selectedRule?.collection?.nameTemplate || 'Leaving Soon - {{ruleName}}'} onChange={(e) => updateRule(selectedRule.id, { collection: { ...(selectedRule.collection || {}), nameTemplate: e.target.value } })} />
                         </div>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                        <StyledCheckbox checked={selectedRule?.collection?.enabled !== false} onChange={(checked) => updateRule(selectedRule.id, { collection: { ...(selectedRule.collection || {}), enabled: checked } })} label="Create / Sync Plex Collection" />
-                        <StyledCheckbox checked={selectedRule?.actions?.deleteFromArr !== false} onChange={(checked) => updateRule(selectedRule.id, { actions: { ...(selectedRule.actions || {}), deleteFromArr: checked } })} label="Delete via Sonarr/Radarr" />
-                        <StyledCheckbox checked={!!selectedRule?.actions?.deleteFiles} onChange={(checked) => updateRule(selectedRule.id, { actions: { ...(selectedRule.actions || {}), deleteFiles: checked } })} label="Delete files on disk" />
+                        <StyledCheckbox checked={selectedRule?.collection?.enabled !== false} onChange={(checked) => updateRule(selectedRule.id, { collection: { ...(selectedRule.collection || {}), enabled: checked } })} label={t('maintenance.options.createCollection')} />
+                        <StyledCheckbox checked={selectedRule?.actions?.deleteFromArr !== false} onChange={(checked) => updateRule(selectedRule.id, { actions: { ...(selectedRule.actions || {}), deleteFromArr: checked } })} label={t('maintenance.options.deleteViaArr')} />
+                        <StyledCheckbox checked={!!selectedRule?.actions?.deleteFiles} onChange={(checked) => updateRule(selectedRule.id, { actions: { ...(selectedRule.actions || {}), deleteFiles: checked } })} label={t('maintenance.options.deleteFiles')} />
                     </div>
 
                     <div className="space-y-2">
                         {(selectedRule?.filterTree?.conditions || []).map((cond: any, idx: number) => (
                             <MaintenanceConditionRow key={`${selectedRule.id}-${idx}`} condition={cond} fields={fields} onChange={(next) => updateCondition(selectedRule.id, idx, next)} onDelete={() => removeCondition(selectedRule.id, idx)} />
                         ))}
-                        <button type="button" onClick={() => addCondition(selectedRule.id)} className="px-2 py-1 text-[11px] border border-border rounded-lg text-plex font-semibold">Add Filter Condition</button>
+                        <button type="button" onClick={() => addCondition(selectedRule.id)} className="px-2 py-1 text-[11px] border border-border rounded-lg text-plex font-semibold">{t('maintenance.actions.addCondition')}</button>
                     </div>
 
                     <div className="bg-background/30 border border-white/5 rounded-lg p-3">
-                        <StyledCheckbox checked={pinCollectionOnDestructiveRun} onChange={setPinCollectionOnDestructiveRun} label="On destructive run, create collection and pin to home for all users" />
+                        <StyledCheckbox checked={pinCollectionOnDestructiveRun} onChange={setPinCollectionOnDestructiveRun} label={t('maintenance.options.pinCollection')} />
                     </div>
 
                     <div className="flex flex-wrap gap-2 pt-1">
                         <button type="button" className="px-2 py-1 text-[11px] bg-plex text-background rounded-md font-semibold hover:opacity-90 disabled:opacity-50" onClick={(e) => saveRules(e)} disabled={saving}>
-                            {saving ? 'Saving...' : 'Save Filter'}
+                            {saving ? t('maintenance.statuses.saving') : t('maintenance.actions.saveFilter')}
                         </button>
-                        <button type="button" className="px-2 py-1 text-[11px] bg-border text-text rounded-md font-semibold hover:bg-opacity-80 disabled:opacity-50" onClick={(e) => runPreview(selectedRule.id, e)} disabled={previewRuleId === selectedRule.id}>{previewRuleId === selectedRule.id ? 'Refreshing Preview...' : 'Preview Matches'}</button>
-                        <button type="button" className="px-2 py-1 text-[11px] bg-blue-500/20 text-blue-300 rounded-md font-semibold border border-blue-500/30 disabled:opacity-50" onClick={(e) => runRule(selectedRule.id, true, e)} disabled={runningRuleId === selectedRule.id}>{runningRuleId === selectedRule.id ? 'Running...' : 'Run Dry-Run'}</button>
-                        <button type="button" className="px-2 py-1 text-[11px] bg-red-500/20 text-red-300 rounded-md font-semibold border border-red-500/30 disabled:opacity-50" onClick={(e) => runRule(selectedRule.id, false, e)} disabled={runningRuleId === selectedRule.id}>{runningRuleId === selectedRule.id ? 'Executing...' : 'Run Destructive'}</button>
+                        <button type="button" className="px-2 py-1 text-[11px] bg-border text-text rounded-md font-semibold hover:bg-opacity-80 disabled:opacity-50" onClick={(e) => runPreview(selectedRule.id, e)} disabled={previewRuleId === selectedRule.id}>{previewRuleId === selectedRule.id ? t('maintenance.statuses.refreshingPreview') : t('maintenance.actions.previewMatches')}</button>
+                        <button type="button" className="px-2 py-1 text-[11px] bg-blue-500/20 text-blue-300 rounded-md font-semibold border border-blue-500/30 disabled:opacity-50" onClick={(e) => runRule(selectedRule.id, true, e)} disabled={runningRuleId === selectedRule.id}>{runningRuleId === selectedRule.id ? t('maintenance.statuses.running') : t('maintenance.actions.runDry')}</button>
+                        <button type="button" className="px-2 py-1 text-[11px] bg-red-500/20 text-red-300 rounded-md font-semibold border border-red-500/30 disabled:opacity-50" onClick={(e) => runRule(selectedRule.id, false, e)} disabled={runningRuleId === selectedRule.id}>{runningRuleId === selectedRule.id ? t('maintenance.statuses.executing') : t('maintenance.actions.runDestructive')}</button>
                     </div>
                 </div>
             )}
 
             <div className="glass-card-sm p-4">
-                <div className="flex items-center justify-between mb-3">
-                    <h4 className="font-bold text-text">Matched Titles</h4>
+                <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
+                    <div>
+                    <h4 className="font-bold text-text">{t('maintenance.labels.matchedTitles')}</h4>
+                        <p className="text-[11px] text-muted mt-1 max-w-2xl">{t('maintenance.rules.previewHint')}</p>
+                    </div>
                     <div className="text-right">
-                        <span className="text-xs px-2 py-1 rounded bg-plex/20 text-plex font-semibold">{selectedPreview?.totalMatches || 0} matches</span>
-                                        {selectedPreview && (
+                        <span className="text-xs px-2 py-1 rounded bg-plex/20 text-plex font-semibold">{t('maintenance.summaries.matched', { count: selectedPreview?.totalMatches || 0 })}</span>
+                        {selectedPreview && (
                             <p className="text-[11px] text-muted mt-1">
+                                {t('maintenance.summaries.remainingExcluded', {
+                                    remaining: selectedPreview.remainingCount ?? Math.max(0, (selectedPreview.totalMatches || 0) - (selectedPreview.excludedCount || 0)),
+                                    excluded: selectedPreview.excludedCount || 0,
+                                })}
                                 {(selectedPreview.graceRemainingDays ?? 0) > 0
-                                    ? `All in grace (${selectedPreview.graceRemainingDays} day(s) remaining)`
-                                    : `${selectedPreview.eligibleCount ?? 0} eligible · ${selectedPreview.actionableCount ?? 0} in Sonarr/Radarr · up to ${selectedPreview.wouldProcessCount ?? 0} per run${(selectedPreview.ambiguousCount ?? 0) > 0 ? ` · ${selectedPreview.ambiguousCount} ambiguous` : ''}`}
+                                    ? ` · ${t('maintenance.summaries.allInGrace', { count: selectedPreview.graceRemainingDays })}`
+                                    : ` · ${selectedPreview.eligibleCount ?? 0} ${t('maintenance.labels.eligible').toLowerCase()} · ${selectedPreview.actionableCount ?? 0} ${t('maintenance.labels.mapped').toLowerCase()}`}
                             </p>
                         )}
                     </div>
                 </div>
+                {selectedRule && selectedPreview ? (
+                    <div className="flex flex-wrap gap-2 mb-3">
+                        <button
+                            type="button"
+                            className="px-2 py-1 text-[11px] bg-red-500/20 text-red-300 rounded-md font-semibold border border-red-500/30 disabled:opacity-50"
+                            disabled={runningRuleId === selectedRule.id || !(selectedPreview.remainingCount ?? selectedPreview.totalMatches)}
+                            onClick={(e) => runRule(selectedRule.id, false, e, { bypassGrace: true })}
+                        >
+                            {t('maintenance.actions.purgeRemaining')}
+                        </button>
+                        <button
+                            type="button"
+                            className="px-2 py-1 text-[11px] bg-plex/20 text-plex rounded-md font-semibold border border-plex/30 disabled:opacity-50"
+                            disabled={runningRuleId === selectedRule.id || !(selectedPreview.remainingCount ?? selectedPreview.totalMatches)}
+                            onClick={(e) => runRule(selectedRule.id, false, e, {
+                                queueDelayedDelete: true,
+                                createAndPinCollection: true,
+                                delayDays: Math.max(1, Number(selectedRule.graceDays || 7)),
+                            })}
+                        >
+                            {t('maintenance.actions.queueDelayed', { days: Math.max(1, Number(selectedRule.graceDays || 7)) })}
+                        </button>
+                    </div>
+                ) : null}
                 {!selectedRuleId ? (
-                    <p className="text-sm text-muted">Select a saved filter to preview matches.</p>
+                    <p className="text-sm text-muted">{t('maintenance.rules.selectFilter')}</p>
                 ) : (
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-8 gap-3 max-h-[640px] overflow-y-auto custom-scrollbar pr-1">
                         {(selectedPreview?.sample || []).map((item: any) => (
-                            <div key={`${selectedRuleId}-${item.ratingKey}`} className="bg-background/30 border border-white/5 rounded-lg overflow-hidden">
-                                <div className="aspect-[2/3] bg-black/40">
+                            <div key={`${selectedRuleId}-${item.ratingKey}`} className={`bg-background/30 border rounded-lg overflow-hidden ${item.excluded ? 'border-red-500/50 opacity-70' : 'border-white/5'}`}>
+                                <div className="aspect-[2/3] bg-black/40 relative">
                                     {item.thumb ? (
                                         <img
                                             src={`/api/plex/image?path=${encodeURIComponent(item.thumb)}&width=240&height=360`}
@@ -624,32 +716,53 @@ export const LibraryMaintenancePanel: React.FC<{ addToast: (m: string, t?: 'succ
                                             className="w-full h-full object-cover"
                                         />
                                     ) : (
-                                        <div className="w-full h-full flex items-center justify-center text-xs text-muted">No Poster</div>
+                                        <div className="w-full h-full flex items-center justify-center text-xs text-muted">{t('maintenance.labels.noPoster')}</div>
                                     )}
+                                    {item.excluded ? (
+                                        <span className="absolute top-2 right-2 text-[10px] px-1.5 py-0.5 rounded bg-red-600/95 text-white font-bold">
+                                            {t('maintenance.exclusions.excluded')}
+                                        </span>
+                                    ) : null}
                                 </div>
                                 <div className="p-2">
                                     <p className="text-xs text-text line-clamp-2">{item.title}</p>
                                     <p className="text-[11px] text-muted mt-1">{item.libraryTitle || item.mediaType}</p>
+                                    {item.mediaType === 'show' && Number.isFinite(Number(item.daysSinceLastEpisodeAired)) ? (
+                                        <p className="text-[10px] text-muted mt-1">
+                                            {t('maintenance.calendar.lastEpisodeAired')} {Number(item.daysSinceLastEpisodeAired)}{t('maintenance.calendar.ago')}
+                                        </p>
+                                    ) : null}
                                     <div className="flex flex-wrap gap-1 mt-1">
-                                        {item.eligible === false && (
-                                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300">Grace</span>
-                                        )}
+                                        {item.excluded ? null : item.eligible === false ? (
+                                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300">{t('maintenance.labels.grace')}</span>
+                                        ) : null}
                                         {item.arrResolvable ? (
                                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-500/15 text-green-300">
                                                 {item.arrInstanceName || item.arrType || 'ARR'}
                                             </span>
-                                        ) : item.eligible !== false ? (
-                                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/15 text-red-300">Unmapped</span>
-                                        ) : null}
+                                        ) : item.excluded || item.eligible === false ? null : (
+                                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/15 text-red-300">{t('maintenance.labels.unmapped')}</span>
+                                        )}
                                         {item.arrAmbiguous && (
-                                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300" title={item.arrWarning || 'Ambiguous instance mapping'}>
-                                                Ambiguous
+                                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300" title={item.arrWarning || t('maintenance.labels.instanceMappingHint')}>
+                                                {t('maintenance.labels.ambiguous')}
                                             </span>
                                         )}
                                     </div>
+                                    <button
+                                        type="button"
+                                        className={`mt-2 text-[10px] font-semibold ${item.excluded ? 'text-muted hover:text-text' : 'text-plex hover:text-plex-hover'} disabled:opacity-50`}
+                                        disabled={excludingKey === String(item.ratingKey)}
+                                        onClick={() => togglePreviewExclusion(item)}
+                                    >
+                                        {item.excluded ? t('maintenance.exclusions.unexclude') : t('maintenance.exclusions.exclude')}
+                                    </button>
                                 </div>
                             </div>
                         ))}
+                        {!(selectedPreview?.sample || []).length && (
+                            <p className="text-sm text-muted col-span-full">{t('maintenance.candidates.noResults')}</p>
+                        )}
                     </div>
                 )}
             </div>

@@ -7,20 +7,27 @@
   "scripts": {
     "clean:static": "node scripts/clean-static-build.cjs",
     "build:css": "npx tailwindcss -i ./input.css -o ./static/tailwind.css",
-    "build:js": "npm run clean:static && esbuild index.tsx --bundle --outdir=static --splitting --jsx=automatic --format=esm",
+    "build:js": "npm run clean:static && esbuild index.tsx --bundle --outdir=static --splitting --jsx=automatic --format=esm --minify --external:@capacitor/core --external:@capacitor/preferences",
     "build:version": "node build-version.js && node build-release-notes.js",
     "build": "npm run build:css && npm run build:js && npm run build:version",
+    "build:plex-client": "node scripts/build-plex-client.mjs",
+    "bump:plex-client-version": "node scripts/bump-plex-client-version.mjs",
+    "build:apk": "node scripts/build-plex-client-apk.mjs",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs",
+    "test": "node --test",
+    "test:media-automation": "node --test lib/media-automation/media-automation.test.js",
     "start": "npm run build && node --env-file=.env index.js",
     "start:prod": "node index.js"
   },
   "dependencies": {
+    "chokidar": "^4.0.3",
     "compression": "^1.8.2",
     "cookie-parser": "^1.4.7",
     "esbuild": "^0.28.2",
     "express": "^5.2.1",
+    "hls.js": "^1.7.3",
     "html2canvas": "^1.4.1",
     "jpeg-js": "^0.4.4",
     "jsonwebtoken": "^9.0.3",
@@ -31,7 +38,8 @@
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-router-dom": "^7.18.1",
-    "recharts": "^3.10.1"
+    "recharts": "^3.10.1",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@types/node": "^26.6.3",
@@ -48,6 +56,12 @@
       "react-dom": "$react-dom",
       "@types/react": "$@types/react"
     },
-    "proxy-addr": "2.0.8"
+    "body-parser": "1.20.6",
+    "qs": "6.16.0",
+    "vite": "6.4.3",
+    "proxy-addr": "2.0.8",
+    "source-map-js": "1.2.2",
+    "vue": "3.5.43",
+    "@vue/server-renderer": "3.5.43"
   }
 }

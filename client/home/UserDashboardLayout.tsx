@@ -9,6 +9,8 @@ import {
     type MainGridWidgetId,
     type RecentlyAddedWidgetId,
 } from '../shared/dashboardLayout';
+import { parseHomeCustomModuleSectionId } from '../shared/homeCustomModules';
+import type { HomeCustomModule } from '../shared/types';
 
 const findWatchRowIndexAfterMainGrid = (sections: ReturnType<typeof resolveDashboardSections>, mainGridIndex: number) => {
     for (let j = mainGridIndex + 1; j < sections.length; j += 1) {
@@ -38,13 +40,18 @@ type Props = {
     renderMainGridWidget: (id: MainGridWidgetId) => React.ReactNode;
     renderPendingRequests: () => React.ReactNode;
     renderScanner?: () => React.ReactNode;
+    renderSpotifySync?: () => React.ReactNode;
+    renderMediaAutomation?: () => React.ReactNode;
     renderBazarrTools?: () => React.ReactNode;
     renderWatchRowLeft?: () => React.ReactNode;
     renderWatchRowRight?: () => React.ReactNode;
+    renderBecauseYouWatched?: () => React.ReactNode;
     renderRecentlyAddedWidget: (id: RecentlyAddedWidgetId) => React.ReactNode;
     renderRecentlyAddedSkeleton: () => React.ReactNode;
     recentlyAddedLoading: boolean;
     hasDashboardData: boolean;
+    homeCustomModules?: HomeCustomModule[];
+    renderCustomModule?: (module: HomeCustomModule) => React.ReactNode;
 };
 
 export const UserDashboardLayout: React.FC<Props> = ({
@@ -54,17 +61,23 @@ export const UserDashboardLayout: React.FC<Props> = ({
     renderMainGridWidget,
     renderPendingRequests,
     renderScanner,
+    renderSpotifySync,
+    renderMediaAutomation,
     renderBazarrTools,
     renderWatchRowLeft,
     renderWatchRowRight,
+    renderBecauseYouWatched,
     renderRecentlyAddedWidget,
     renderRecentlyAddedSkeleton,
     recentlyAddedLoading,
     hasDashboardData,
+    homeCustomModules = [],
+    renderCustomModule,
 }) => {
-    const layout = normalizeSectionLayout(layoutConfig);
-    const sections = resolveDashboardSections(layout, layoutCtx);
-    const mainGridWidgets = resolveMainGridWidgets(layout, layoutCtx);
+    const layout = normalizeSectionLayout(layoutConfig, { homeCustomModules });
+    const layoutCtxWithModules = { ...layoutCtx, homeCustomModules };
+    const sections = resolveDashboardSections(layout, layoutCtxWithModules);
+    const mainGridWidgets = resolveMainGridWidgets(layout, layoutCtxWithModules);
     const { left, right } = splitMainGridForDesktop(mainGridWidgets);
     const recentlyAdded = resolveRecentlyAddedWidgets(layout);
 
@@ -111,10 +124,13 @@ export const UserDashboardLayout: React.FC<Props> = ({
         </>
     );
 
+    const renderBecauseYouWatchedRow = () => renderBecauseYouWatched?.() || null;
+
     const renderMergedMainAndWatchGrid = (opts?: { includeRecentlyAdded?: boolean }) => {
         const recentlyWatched = renderWatchRowLeft?.();
         const mostWatched = renderWatchRowRight?.();
         const showRecentlyAdded = !!opts?.includeRecentlyAdded && hasDashboardData && recentlyAdded.length > 0;
+        const becauseYouWatched = renderBecauseYouWatchedRow();
         return (
             <>
                 <div className="hidden lg:grid lg:grid-cols-3 gap-3 md:gap-4 items-start w-full">
@@ -131,16 +147,21 @@ export const UserDashboardLayout: React.FC<Props> = ({
                         {mostWatched}
                     </div>
                 </div>
-                {showRecentlyAdded ? (
-                    <div className="hidden lg:flex flex-col gap-3 md:gap-4 w-full">
-                        {renderRecentlyAddedRows()}
-                    </div>
-                ) : null}
                 <div className="lg:hidden flex flex-col gap-3 md:gap-4 w-full">
                     {renderMainGridColumns()}
                     {renderWatchRowColumns()}
-                    {showRecentlyAdded ? renderRecentlyAddedRows() : null}
                 </div>
+                {becauseYouWatched}
+                {showRecentlyAdded ? (
+                    <>
+                        <div className="hidden lg:flex flex-col gap-3 md:gap-4 w-full">
+                            {renderRecentlyAddedRows()}
+                        </div>
+                        <div className="lg:hidden flex flex-col gap-3 md:gap-4 w-full">
+                            {renderRecentlyAddedRows()}
+                        </div>
+                    </>
+                ) : null}
             </>
         );
     };
@@ -148,6 +169,19 @@ export const UserDashboardLayout: React.FC<Props> = ({
     const sectionNodes: React.ReactNode[] = [];
     const mergedWatchRowIndices = new Set<number>();
     const mergedRecentlyAddedIndices = new Set<number>();
+    let becauseYouWatchedPlaced = false;
+    const pushBecauseYouWatched = () => {
+        if (becauseYouWatchedPlaced) return;
+        const content = renderBecauseYouWatchedRow();
+        if (!content) return;
+        becauseYouWatchedPlaced = true;
+        sectionNodes.push(
+            <div key="becauseYouWatched" className="relative w-full min-w-0">
+                {content}
+            </div>
+        );
+    };
+
     for (let index = 0; index < sections.length; index += 1) {
         const sectionId = sections[index];
         switch (sectionId) {
@@ -170,6 +204,7 @@ export const UserDashboardLayout: React.FC<Props> = ({
                 if (canMergeWatchRow || canMergeRecentlyAdded) {
                     if (watchRowIndex >= 0) mergedWatchRowIndices.add(watchRowIndex);
                     if (recentlyAddedIndex >= 0) mergedRecentlyAddedIndices.add(recentlyAddedIndex);
+                    becauseYouWatchedPlaced = true;
                     sectionNodes.push(
                         <div key="mainGrid-dashboard" className="relative w-full min-w-0 flex flex-col gap-3 md:gap-4">
                             {renderMergedMainAndWatchGrid({ includeRecentlyAdded: canMergeRecentlyAdded && !(recentlyAddedLoading && !hasDashboardData) })}
@@ -183,6 +218,7 @@ export const UserDashboardLayout: React.FC<Props> = ({
                         {renderMainGridColumns()}
                     </div>
                 );
+                if (watchRowIndex < 0) pushBecauseYouWatched();
                 break;
             }
             case 'pendingRequests': {
@@ -198,12 +234,16 @@ export const UserDashboardLayout: React.FC<Props> = ({
             case 'watchRow': {
                 if (mergedWatchRowIndices.has(index)) break;
                 const content = renderWatchRowColumns();
-                if (!content) break;
+                if (!content) {
+                    pushBecauseYouWatched();
+                    break;
+                }
                 sectionNodes.push(
                     <div key="watchRow" className="relative z-[1] w-full min-w-0">
                         {content}
                     </div>
                 );
+                pushBecauseYouWatched();
                 break;
             }
             case 'scanner': {
@@ -211,6 +251,26 @@ export const UserDashboardLayout: React.FC<Props> = ({
                 if (!content) break;
                 sectionNodes.push(
                     <div key="scanner" className="relative z-[1] w-full min-w-0">
+                        {content}
+                    </div>
+                );
+                break;
+            }
+            case 'spotifySync': {
+                const content = renderSpotifySync?.();
+                if (!content) break;
+                sectionNodes.push(
+                    <div key="spotifySync" className="relative z-[1] w-full min-w-0">
+                        {content}
+                    </div>
+                );
+                break;
+            }
+            case 'mediaAutomation': {
+                const content = renderMediaAutomation?.();
+                if (!content) break;
+                sectionNodes.push(
+                    <div key="mediaAutomation" className="relative z-[1] w-full min-w-0">
                         {content}
                     </div>
                 );
@@ -245,10 +305,23 @@ export const UserDashboardLayout: React.FC<Props> = ({
                 );
                 break;
             }
-            default:
+            default: {
+                const moduleId = parseHomeCustomModuleSectionId(sectionId);
+                if (!moduleId || !renderCustomModule) break;
+                const module = homeCustomModules.find((entry) => String(entry.id) === moduleId);
+                if (!module) break;
+                const content = renderCustomModule(module);
+                if (!content) break;
+                sectionNodes.push(
+                    <div key={sectionId} className="relative w-full min-w-0">
+                        {content}
+                    </div>
+                );
                 break;
+            }
         }
     }
+    pushBecauseYouWatched();
 
     return (
         <div className="grid grid-cols-1 gap-3 md:gap-4 w-full">

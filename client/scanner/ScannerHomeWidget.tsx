@@ -1,6 +1,8 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { CheckCircle2, Clock3, ListTodo, Radar, RefreshCw, Target } from 'lucide-react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { CheckCircle2, Clock3, FolderInput, ListTodo, Radar, RefreshCw, Target } from 'lucide-react';
 import { apiFetch } from '../shared/api';
+import { useDiscoverI18n } from '../discovery/i18n';
+import { usePoll } from '../shared/usePoll';
 import { formatScannerWhen, scannerActionStyles, shortenScannerPath } from './eventMeta';
 import { ScannerSourceBadge } from './ScannerSourceBadge';
 
@@ -10,6 +12,7 @@ type ScannerStatus = {
     processed?: number;
     targetCount?: number;
     minimumAge?: string;
+    held?: number;
     lastActivity?: {
         at?: string;
         ok?: boolean;
@@ -28,31 +31,37 @@ type Props = {
 };
 
 export const ScannerHomeWidget: React.FC<Props> = ({ onOpen }) => {
+    const { t } = useDiscoverI18n();
     const [status, setStatus] = useState<ScannerStatus | null>(null);
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(true);
+    const loadGenRef = useRef(0);
 
     const load = useCallback(async () => {
+        const gen = ++loadGenRef.current;
         setLoading(true);
         setError('');
         try {
             const data = await apiFetch('/api/scanner/status');
+            if (gen !== loadGenRef.current) return;
             setStatus(data || null);
         } catch (e: any) {
-            setError(e?.message || 'Unavailable');
+            if (gen !== loadGenRef.current) return;
+            setError(e?.message || t('homeDashboard.widgets.scanner.unavailable'));
             setStatus(null);
         } finally {
-            setLoading(false);
+            if (gen === loadGenRef.current) setLoading(false);
         }
-    }, []);
+    }, [t]);
 
     useEffect(() => {
         void load();
-        const id = window.setInterval(() => { void load(); }, 15000);
-        return () => window.clearInterval(id);
     }, [load]);
 
+    usePoll(() => { void load(); }, 15_000);
+
     const remaining = status?.remaining ?? 0;
+    const held = status?.held ?? 0;
     const processed = status?.processed ?? 0;
     const targets = status?.targetCount ?? 0;
     const last = status?.lastActivity;
@@ -70,7 +79,7 @@ export const ScannerHomeWidget: React.FC<Props> = ({ onOpen }) => {
                             </div>
                             <div className="min-w-0">
                                 <p className="text-muted text-[10px] uppercase tracking-widest font-bold">Scanner</p>
-                                <p className="text-text font-bold text-base truncate">Library refresh</p>
+                                <p className="text-text font-bold text-base truncate">{t('homeDashboard.widgets.scanner.subtitle')}</p>
                             </div>
                         </div>
                         <div className="flex items-center gap-2 lg:hidden">
@@ -78,7 +87,7 @@ export const ScannerHomeWidget: React.FC<Props> = ({ onOpen }) => {
                                 type="button"
                                 onClick={() => { void load(); }}
                                 className="p-1.5 rounded-lg text-muted hover:text-text hover:bg-white/5 transition-colors"
-                                title="Refresh"
+                                title={t('homeDashboard.admin.refresh')}
                             >
                                 <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
                             </button>
@@ -93,28 +102,28 @@ export const ScannerHomeWidget: React.FC<Props> = ({ onOpen }) => {
                                 <ListTodo className="w-4 h-4 text-amber-300 shrink-0" />
                                 <div>
                                     <p className="text-lg font-black text-amber-50 leading-none">{remaining}</p>
-                                    <p className="text-[9px] uppercase tracking-wider font-bold text-amber-200/80 mt-1">Queued</p>
+                                    <p className="text-[9px] uppercase tracking-wider font-bold text-amber-200/80 mt-1">{t('homeDashboard.widgets.scanner.queued')}</p>
                                 </div>
                             </div>
                             <div className="rounded-xl bg-emerald-500/10 border border-emerald-400/25 px-3 py-2.5 flex items-center gap-2.5">
                                 <CheckCircle2 className="w-4 h-4 text-emerald-300 shrink-0" />
                                 <div>
                                     <p className="text-lg font-black text-emerald-50 leading-none">{processed}</p>
-                                    <p className="text-[9px] uppercase tracking-wider font-bold text-emerald-200/80 mt-1">Processed</p>
+                                    <p className="text-[9px] uppercase tracking-wider font-bold text-emerald-200/80 mt-1">{t('homeDashboard.widgets.scanner.processed')}</p>
                                 </div>
                             </div>
                             <div className="rounded-xl bg-violet-500/10 border border-violet-400/25 px-3 py-2.5 flex items-center gap-2.5">
                                 <Target className="w-4 h-4 text-violet-300 shrink-0" />
                                 <div>
                                     <p className="text-lg font-black text-violet-50 leading-none">{targets}</p>
-                                    <p className="text-[9px] uppercase tracking-wider font-bold text-violet-200/80 mt-1">Targets</p>
+                                    <p className="text-[9px] uppercase tracking-wider font-bold text-violet-200/80 mt-1">{t('homeDashboard.widgets.scanner.targets')}</p>
                                 </div>
                             </div>
                             <div className="rounded-xl bg-sky-500/10 border border-sky-400/25 px-3 py-2.5 flex items-center gap-2.5">
                                 <Clock3 className="w-4 h-4 text-sky-300 shrink-0" />
                                 <div>
                                     <p className="text-lg font-black text-sky-50 leading-none">{status?.minimumAge ?? '—'}</p>
-                                    <p className="text-[9px] uppercase tracking-wider font-bold text-sky-200/80 mt-1">Min age</p>
+                                    <p className="text-[9px] uppercase tracking-wider font-bold text-sky-200/80 mt-1">{t('homeDashboard.widgets.scanner.minAge')}</p>
                                 </div>
                             </div>
                         </div>
@@ -127,13 +136,13 @@ export const ScannerHomeWidget: React.FC<Props> = ({ onOpen }) => {
                                 : 'bg-white/5 border-white/10 text-muted'
                         }`}>
                             <span className={`w-1.5 h-1.5 rounded-full ${active ? 'bg-emerald-400 animate-pulse' : 'bg-muted'}`} />
-                            {active ? 'Armed' : 'Idle'}
+                            {active ? t('homeDashboard.widgets.scanner.armed') : t('homeDashboard.widgets.scanner.idle')}
                         </span>
                         <button
                             type="button"
                             onClick={() => { void load(); }}
                             className="p-2 rounded-lg text-muted hover:text-text hover:bg-white/5 transition-colors"
-                            title="Refresh"
+                            title={t('homeDashboard.admin.refresh')}
                         >
                             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
                         </button>
@@ -143,39 +152,90 @@ export const ScannerHomeWidget: React.FC<Props> = ({ onOpen }) => {
                                 onClick={onOpen}
                                 className="text-xs font-bold text-sky-300 hover:underline px-1"
                             >
-                                Open
+                                {t('homeDashboard.widgets.scanner.open')}
                             </button>
                         ) : null}
                     </div>
                 </div>
 
-                <div className="rounded-xl bg-black/25 border border-white/5 px-3.5 py-3">
-                    <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
-                        <p className="text-[9px] uppercase tracking-wider font-bold text-muted shrink-0">Latest activity</p>
-                        {last ? (
-                            <div className="min-w-0 flex-1">
-                                <div className="flex flex-wrap items-center gap-1.5 mb-1">
-                                    <span className={`text-[10px] font-bold uppercase ${last.ok ? 'text-emerald-300' : 'text-red-300'}`}>
-                                        {last.ok ? 'ok' : 'error'}
+                {held > 0 ? (
+                    <p className="text-xs font-medium text-sky-200/90">{t('homeDashboard.widgets.scanner.waitingForPlex', { count: held })}</p>
+                ) : null}
+
+                <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-3 px-0.5">
+                        <p className="text-[10px] uppercase tracking-[0.14em] font-bold text-muted">{t('homeDashboard.widgets.scanner.latestActivity')}</p>
+                        {last?.at ? (
+                            <p className="text-[11px] text-muted/80 tabular-nums shrink-0">{formatScannerWhen(last.at)}</p>
+                        ) : null}
+                    </div>
+                    {last ? (
+                        <div
+                            className={`relative overflow-hidden rounded-xl border px-3.5 py-3.5 sm:px-4 sm:py-4 ${
+                                last.ok
+                                    ? 'border-emerald-400/20 bg-gradient-to-br from-emerald-500/[0.08] via-white/[0.03] to-transparent'
+                                    : 'border-red-400/25 bg-gradient-to-br from-red-500/[0.10] via-white/[0.03] to-transparent'
+                            }`}
+                        >
+                            <div
+                                className={`absolute inset-y-0 left-0 w-1 ${
+                                    last.ok ? 'bg-emerald-400/70' : 'bg-red-400/70'
+                                }`}
+                                aria-hidden
+                            />
+                            <div className="pl-2.5 sm:pl-3 flex flex-col gap-2.5 min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <span
+                                        className={`inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border ${
+                                            last.ok
+                                                ? 'bg-emerald-500/15 border-emerald-400/35 text-emerald-200'
+                                                : 'bg-red-500/15 border-red-400/35 text-red-200'
+                                        }`}
+                                    >
+                                        {last.ok ? (
+                                            <CheckCircle2 className="w-3 h-3 shrink-0" />
+                                        ) : (
+                                            <span className="w-1.5 h-1.5 rounded-full bg-red-300 shrink-0" />
+                                        )}
+                                        {last.ok ? t('homeDashboard.widgets.scanner.success') : t('homeDashboard.widgets.scanner.failed')}
                                     </span>
                                     {(last.reason || last.action) ? (
-                                        <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full border ${lastStyle.className}`}>
-                                            {last.reason || lastStyle.label}
+                                        <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border ${lastStyle.className}`}>
+                                            {last.reason || (lastStyle.labelKey ? t(lastStyle.labelKey) : lastStyle.label)}
                                         </span>
                                     ) : null}
-                                    <span className="text-[10px] text-muted">{formatScannerWhen(last.at)}</span>
-                                    <ScannerSourceBadge source={last.source} />
+                                    <ScannerSourceBadge source={last.source} className="ml-0.5" />
                                 </div>
-                                {last.title ? <p className="text-sm text-text font-semibold mb-0.5 truncate">{last.title}</p> : null}
-                                <p className="text-xs text-text/90 font-medium break-all leading-snug" title={last.folder}>
-                                    {shortenScannerPath(last.folder, 4)}
-                                </p>
-                                {last.error ? <p className="text-[10px] text-red-200/90 mt-1">{last.error}</p> : null}
+
+                                <div className="min-w-0">
+                                    {last.title ? (
+                                        <p className="text-[15px] leading-snug text-text font-semibold tracking-tight truncate" title={last.title}>
+                                            {last.title}
+                                        </p>
+                                    ) : (
+                                        <p className="text-sm text-muted">{t('homeDashboard.widgets.scanner.noTitleReported')}</p>
+                                    )}
+                                    {last.error ? (
+                                        <p className="text-xs text-red-200/90 mt-1.5 truncate" title={last.error}>{last.error}</p>
+                                    ) : null}
+                                </div>
+
+                                {last.folder ? (
+                                    <p
+                                        className="inline-flex items-center gap-1.5 max-w-full text-xs text-muted/90 font-medium"
+                                        title={last.folder}
+                                    >
+                                        <FolderInput className="w-3.5 h-3.5 shrink-0 text-sky-300/70" />
+                                        <span className="truncate">{shortenScannerPath(last.folder, 5)}</span>
+                                    </p>
+                                ) : null}
                             </div>
-                        ) : (
-                            <p className="text-xs text-muted flex-1">Waiting for the next webhook or manual scan.</p>
-                        )}
-                    </div>
+                        </div>
+                    ) : (
+                        <div className="rounded-xl border border-dashed border-white/10 bg-white/[0.02] px-4 py-5 text-center">
+                            <p className="text-sm text-muted">{t('homeDashboard.widgets.scanner.waitingForScan')}</p>
+                        </div>
+                    )}
                 </div>
 
                 <div className="flex items-center justify-between gap-2 lg:hidden">
@@ -185,7 +245,7 @@ export const ScannerHomeWidget: React.FC<Props> = ({ onOpen }) => {
                             : 'bg-white/5 border-white/10 text-muted'
                     }`}>
                         <span className={`w-1.5 h-1.5 rounded-full ${active ? 'bg-emerald-400 animate-pulse' : 'bg-muted'}`} />
-                        {active ? 'Armed' : 'Idle'}
+                        {active ? t('homeDashboard.widgets.scanner.armed') : t('homeDashboard.widgets.scanner.idle')}
                         {status?.minimumAge ? ` · ${status.minimumAge}` : ''}
                     </span>
                     {onOpen ? (
@@ -194,7 +254,7 @@ export const ScannerHomeWidget: React.FC<Props> = ({ onOpen }) => {
                             onClick={onOpen}
                             className="text-xs font-bold text-sky-300 hover:underline"
                         >
-                            Open
+                            {t('homeDashboard.widgets.scanner.open')}
                         </button>
                     ) : null}
                 </div>

@@ -1,5 +1,10 @@
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
-import { Card } from '../components/ui/Card';
+import { usePoll } from '../../shared/usePoll';
+import {
+    DashboardPanel,
+    DashboardStatCard,
+    dashboardGlowClass,
+} from '../../shared/dashboard/DashboardChrome';
 import {
     Play,
     Square,
@@ -108,6 +113,9 @@ const libraryReason = (lib: LibraryRunStats | LogLibraryStats): React.ReactNode 
     return <span className="text-muted">Skipped (Random chance)</span>;
 };
 
+const isTransientWorkerBlip = (text: string) =>
+    /econnreset|econnrefused|econnaborted|socket hang up|network socket disconnected|epipe|worker timed out|did not respond in time/i.test(text);
+
 const Dashboard: React.FC = () => {
     const [status, setStatus] = useState<AppStatus | null>(null);
     const [config, setConfig] = useState<AppConfig | null>(null);
@@ -138,6 +146,10 @@ const Dashboard: React.FC = () => {
     }, [liveLogs]);
 
     const logContainerRef = useRef<HTMLDivElement>(null);
+    const statusFetchGenRef = useRef(0);
+    const healthFetchGenRef = useRef(0);
+    const logsFetchGenRef = useRef(0);
+    const healthFailRef = useRef(0);
 
     // --- Helpers ---
     const safeParseDate = (dateStr: string): Date | null => {
@@ -168,7 +180,7 @@ const Dashboard: React.FC = () => {
     };
 
     const calculateNextRun = (s: AppStatus) => {
-        if (s.next_run_timestamp && s.next_run_timestamp > 0) {
+        if (s.process_alive && s.next_run_timestamp && s.next_run_timestamp > 0) {
             const targetDate = new Date(s.next_run_timestamp * 1000);
             const timeStr = targetDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
             const diff = targetDate.getTime() - Date.now();
@@ -324,26 +336,47 @@ const Dashboard: React.FC = () => {
     }, []);
 
     const fetchStatusOnly = useCallback(async () => {
+        const gen = ++statusFetchGenRef.current;
         try {
             const s = await api.getStatus();
+            if (gen !== statusFetchGenRef.current) return;
             setStatus(s);
             calculateNextRun(s);
         } catch (e) { /* ignore */ }
     }, []);
 
     const fetchHealth = useCallback(async () => {
+        const gen = ++healthFetchGenRef.current;
         try {
             const h = await api.getHealth();
+            if (gen !== healthFetchGenRef.current) return;
+            const blipText = [h.worker?.error, ...(h.issues || [])].filter(Boolean).join(' ');
+            const transientDown = !h.worker?.reachable && isTransientWorkerBlip(blipText);
+            if (transientDown) {
+                healthFailRef.current += 1;
+                // Stop can briefly reset the worker socket; don't flash a warning for a 10s blip.
+                if (healthFailRef.current < 3) return;
+            } else {
+                healthFailRef.current = 0;
+            }
             setHealth(h);
             setHealthError('');
         } catch (e: any) {
-            setHealthError(e?.message || 'Health check failed');
+            if (gen !== healthFetchGenRef.current) return;
+            const msg = e?.message || 'Health check failed';
+            if (isTransientWorkerBlip(msg)) {
+                healthFailRef.current += 1;
+                if (healthFailRef.current < 3) return;
+            }
+            setHealthError(msg);
         }
     }, []);
 
     const fetchLogsOnly = useCallback(async () => {
+        const gen = ++logsFetchGenRef.current;
         try {
             const l = await api.getLogs();
+            if (gen !== logsFetchGenRef.current) return;
             setLogs(l);
         } catch (e) { /* ignore */ }
     }, []);
@@ -355,21 +388,17 @@ const Dashboard: React.FC = () => {
     }, []);
 
     useEffect(() => {
-        if (autoRefresh) {
-            const interval = setInterval(() => {
-                fetchStatusOnly();
-                fetchHealth();
-            }, 5000);
-            return () => clearInterval(interval);
-        }
+        if (!autoRefresh) return undefined;
+        fetchStatusOnly();
+        fetchHealth();
     }, [autoRefresh, fetchStatusOnly, fetchHealth]);
 
-    useEffect(() => {
-        if (liveLogs) {
-            const interval = setInterval(fetchLogsOnly, 5000);
-            return () => clearInterval(interval);
-        }
-    }, [liveLogs, fetchLogsOnly]);
+    usePoll(() => {
+        fetchStatusOnly();
+        fetchHealth();
+    }, autoRefresh ? 5000 : null, { immediate: false });
+
+    usePoll(fetchLogsOnly, liveLogs ? 5000 : null, { immediate: false });
 
     useEffect(() => {
         if (logContainerRef.current && liveLogs) {
@@ -380,9 +409,11 @@ const Dashboard: React.FC = () => {
     // --- Actions ---
     const currentStatus = status?.status || 'Connecting...';
     const statusLower = currentStatus.toLowerCase();
-    const isLoopActive = !!status?.process_alive
-        || /running|sleeping|processing|waiting|run complete/.test(statusLower);
-    const isWorking = statusLower.includes('processing') || statusLower.includes('pinning');
+    // process_alive is the source of truth. Stale status.json text ("Sleeping",
+    // "Run complete") used to keep the dashboard looking Active after Stop,
+    // which also hid the Start button.
+    const isLoopActive = !!status?.process_alive;
+    const isWorking = isLoopActive && (statusLower.includes('processing') || statusLower.includes('pinning'));
     const isOffline = statusLower === 'offline' || status === null;
     const lastUpdateDate = safeParseDate(status?.last_run_at || status?.last_update || '');
     const isDryRun = config?.dry_run === true;
@@ -391,7 +422,12 @@ const Dashboard: React.FC = () => {
         if (loading) return;
         if (isLoopActive) return alert("Service is already active.");
         setLoading(true);
-        try { await api.runNow(); setTimeout(fetchStatusOnly, 1000); } catch (error) { alert("Failed to start."); }
+        try {
+            await api.runNow();
+            await Promise.all([fetchStatusOnly(), fetchHealth()]);
+        } catch (error: any) {
+            alert(error?.message || "Failed to start.");
+        }
         setLoading(false);
     };
 
@@ -399,7 +435,12 @@ const Dashboard: React.FC = () => {
         if (loading) return;
         if (!confirm("Stop the Automation Service?")) return;
         setLoading(true);
-        try { await api.stopScript(); setTimeout(fetchStatusOnly, 1000); } catch (error) { console.error(error); }
+        try {
+            await api.stopScript();
+            await fetchStatusOnly();
+        } catch (error: any) {
+            alert(error?.message || "Failed to stop.");
+        }
         setLoading(false);
     };
 
@@ -409,7 +450,8 @@ const Dashboard: React.FC = () => {
         setTimeout(() => setIsRefreshing(false), 500);
     };
 
-    const healthIssues = health?.issues?.length ? health.issues : (healthError ? [healthError] : []);
+    const healthIssues = (health?.issues?.length ? health.issues : (healthError ? [healthError] : []))
+        .filter((issue) => !/pinning service is stopped/i.test(issue));
     const showHealthWarn = !!(health && (!health.ok || healthIssues.length > 0)) || !!healthError;
 
     return (
@@ -459,22 +501,23 @@ const Dashboard: React.FC = () => {
                 </div>
             )}
 
-            {/* Header */}
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <div>
-                    <h2 className="text-3xl font-bold text-text tracking-tight flex items-center gap-3">
-                        Dashboard
-                        {isOffline && <span className="text-xs bg-red-900/50 text-red-400 px-2 py-1 rounded border border-red-800">OFFLINE</span>}
-                    </h2>
-                    <p className="text-muted mt-1 flex items-center gap-2 text-sm">
-                        <Activity className="w-4 h-4 text-plex" /> Real-time automation overview
-                    </p>
+            {/* Controls */}
+            <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-sm text-muted">
+                    <Activity className="h-4 w-4 text-plex" />
+                    Real-time automation overview
+                    {isOffline ? (
+                        <span className="rounded-full border border-red-500/40 bg-red-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-300">
+                            Offline
+                        </span>
+                    ) : null}
                 </div>
                 <div className="flex items-center gap-3">
                     <button
                         onClick={manualRefresh}
-                        className={`p-2.5 rounded-xl bg-card border border-border text-muted hover:text-text hover:border-border transition-all ${isRefreshing ? 'animate-spin' : ''}`}
+                        className={`inline-flex items-center justify-center rounded-xl border border-white/10 bg-black/20 p-2.5 text-muted transition-colors hover:bg-white/5 hover:text-text ${isRefreshing ? 'animate-spin' : ''}`}
                         title="Manual Refresh"
+                        type="button"
                     >
                         <RefreshCw className="w-5 h-5" />
                     </button>
@@ -483,120 +526,88 @@ const Dashboard: React.FC = () => {
                         <button
                             onClick={handleStopService}
                             disabled={loading || isOffline}
-                            className="flex items-center gap-2 px-5 py-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/50 rounded-xl font-bold transition-all active:scale-95 disabled:opacity-50"
+                            type="button"
+                            className="flex items-center gap-2 rounded-xl border border-red-500/50 bg-red-500/10 px-5 py-2.5 font-bold text-red-400 transition-all hover:bg-red-500/20 active:scale-95 disabled:opacity-50"
                         >
                             <Square className="w-4 h-4 fill-current" />
-                            STOP SERVICE
+                            Stop service
                         </button>
                     ) : (
                         <button
                             onClick={handleStartService}
                             disabled={loading || isOffline}
-                            className="flex items-center gap-2 px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-text border border-emerald-400/50 rounded-xl font-bold transition-all shadow-lg shadow-emerald-900/20 active:scale-95 disabled:opacity-50"
+                            type="button"
+                            className="flex items-center gap-2 rounded-xl border border-emerald-400/50 bg-emerald-500 px-5 py-2.5 font-bold text-background shadow-lg shadow-emerald-900/20 transition-all hover:bg-emerald-400 active:scale-95 disabled:opacity-50"
                         >
                             <Play className="w-4 h-4 fill-current" />
-                            START SERVICE
+                            Start service
                         </button>
                     )}
                 </div>
             </div>
 
-            {/* Premium Stats Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                {/* Status Card */}
-                <Card compact className="p-3.5 border-border/80 bg-card/50 relative overflow-hidden group hover:border-border/80 transition-all duration-300">
-                    <div className="flex flex-col relative z-10">
-                        <div className="flex justify-between items-center mb-2.5">
-                            <div className={`p-1.5 rounded-lg ${isOffline ? 'bg-card text-muted' : isWorking ? 'bg-emerald-500/20 text-emerald-400' : isLoopActive ? 'bg-plex/20 text-plex' : 'bg-amber-500/20 text-amber-400 shadow-lg shadow-amber-900/20'}`}>
-                                {isOffline ? <WifiOff className="w-4 h-4" /> : isWorking ? <Cpu className="w-4 h-4 animate-spin" /> : isLoopActive ? <Hourglass className="w-4 h-4" /> : <Power className="w-4 h-4" />}
-                            </div>
-                            <span className="text-[9px] font-black uppercase tracking-[0.25em] text-muted opacity-60">System</span>
-                        </div>
-                        <div className="space-y-0.5">
-                            <h3 className={`text-base font-bold tracking-tight ${isWorking ? 'text-emerald-400' : 'text-white'}`}>
-                                {isOffline ? 'Offline' : isWorking ? 'Processing' : isLoopActive ? 'Service Active' : 'Service Stopped'}
-                            </h3>
-                            <p className="text-[10px] text-muted font-bold uppercase tracking-wider">
-                                {isOffline ? 'Check connection' : isWorking ? 'Performing sync' : isLoopActive ? 'Idle & Monitoring' : 'Requires start'}
-                            </p>
-                        </div>
-                    </div>
-                    <div className={`absolute -right-8 -bottom-8 w-24 h-24 blur-[60px] opacity-10 rounded-full transition-all duration-700 group-hover:opacity-30 ${isOffline ? 'bg-muted' : isWorking ? 'bg-emerald-500' : isLoopActive ? 'bg-plex' : 'bg-amber-500'}`}></div>
-                </Card>
-
-                {/* Last Activity Card */}
-                <Card compact className="p-3.5 border-border/80 bg-card/50 relative overflow-hidden group hover:border-border/80 transition-all duration-300">
-                    <div className="flex flex-col relative z-10">
-                        <div className="flex justify-between items-center mb-2.5">
-                            <div className="p-1.5 bg-white/5 text-muted rounded-lg">
-                                <Clock className="w-4 h-4" />
-                            </div>
-                            <span className="text-[9px] font-black uppercase tracking-[0.25em] text-muted opacity-60">Activity</span>
-                        </div>
-                        <div className="space-y-0.5">
-                            <h3 className="text-base font-bold font-mono tracking-tighter text-text tabular-nums">
-                                {lastUpdateDate ? lastUpdateDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '--:--:--'}
-                            </h3>
-                            <p className="text-[10px] text-muted font-bold uppercase tracking-wider">Last Run</p>
-                        </div>
-                    </div>
-                </Card>
-
-                {/* Next Run Card */}
-                <Card compact className="p-3.5 border-border/80 bg-card/50 relative overflow-hidden group hover:border-border/80 transition-all duration-300">
-                    <div className="flex flex-col relative z-10">
-                        <div className="flex justify-between items-center mb-2.5">
-                            <div className={`p-1.5 rounded-lg ${isLoopActive ? 'bg-plex/20 text-plex shadow-lg shadow-plex/10' : 'bg-white/5 text-muted'}`}>
-                                <CalendarClock className="w-4 h-4" />
-                            </div>
-                            <span className="text-[9px] font-black uppercase tracking-[0.25em] text-muted opacity-60">Scheduling</span>
-                        </div>
-                        <div className="space-y-0.5">
-                            <h3 className={`text-base font-bold font-mono tracking-tighter tabular-nums ${isLoopActive ? 'text-plex' : 'text-muted'}`}>
-                                {isLoopActive ? (nextRun.includes('(') ? nextRun.split(' (')[0] : nextRun) : 'Inactive'}
-                            </h3>
-                            <p className="text-[10px] text-muted font-bold uppercase tracking-wider">
-                                {isLoopActive && nextRun.includes('in ') ? `Next Run in ${(nextRun.split('in ')[1] ?? '').replace(')', '')}` : 'Auto-Sync Paused'}
-                            </p>
-                        </div>
-                    </div>
-                </Card>
-
-                {/* Frequency Card */}
-                <Card compact className="p-3.5 border-border/80 bg-card/50 relative overflow-hidden group hover:border-border/80 transition-all duration-300">
-                    <div className="flex flex-col relative z-10">
-                        <div className="flex justify-between items-center mb-2.5">
-                            <div className="p-1.5 bg-white/5 text-muted rounded-lg">
-                                <Settings className="w-4 h-4" />
-                            </div>
-                            <span className="text-[9px] font-black uppercase tracking-[0.25em] text-muted opacity-60">Frequency</span>
-                        </div>
-                        <div className="space-y-0.5">
-                            <div className="flex items-baseline gap-1.5">
-                                <h3 className="text-base font-bold font-mono tracking-tighter text-text">
-                                    {config?.pinning_interval || 0}
-                                </h3>
-                                <span className="text-[9px] font-black text-muted uppercase tracking-widest">min interval</span>
-                            </div>
-                            {analyzeLastRun?.intervalConfig ? (
-                                <p className="text-[10px] text-plex font-black uppercase tracking-wider">Active: {analyzeLastRun?.intervalConfig}</p>
-                            ) : (
-                                <p className="text-[10px] text-muted font-bold uppercase tracking-wider">Standard Cycle</p>
-                            )}
-                        </div>
-                    </div>
-                </Card>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <DashboardStatCard
+                    label="System"
+                    value={isOffline ? 'Offline' : isWorking ? 'Processing' : isLoopActive ? 'Active' : 'Stopped'}
+                    hint={isOffline ? 'Check connection' : isWorking ? 'Performing sync' : isLoopActive ? 'Idle & monitoring' : 'Requires start'}
+                    glow={dashboardGlowClass(isOffline ? 'muted' : isWorking ? 'emerald' : isLoopActive ? 'plex' : 'amber')}
+                    valueClassName="!text-xl md:!text-2xl"
+                    icon={
+                        isOffline ? <WifiOff className="h-4 w-4 text-muted" />
+                            : isWorking ? <Cpu className="h-4 w-4 animate-spin text-emerald-400" />
+                                : isLoopActive ? <Hourglass className="h-4 w-4 text-plex" />
+                                    : <Power className="h-4 w-4 text-amber-400" />
+                    }
+                />
+                <DashboardStatCard
+                    label="Activity"
+                    value={lastUpdateDate
+                        ? lastUpdateDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+                        : '--:--:--'}
+                    hint="Last run"
+                    glow={dashboardGlowClass('sky')}
+                    valueClassName="!text-xl md:!text-2xl font-mono"
+                    icon={<Clock className="h-4 w-4 text-sky-300" />}
+                />
+                <DashboardStatCard
+                    label="Scheduling"
+                    value={isLoopActive ? (nextRun.includes('(') ? nextRun.split(' (')[0] : nextRun) : 'Inactive'}
+                    hint={isLoopActive && nextRun.includes('in ')
+                        ? `Next run in ${(nextRun.split('in ')[1] ?? '').replace(')', '')}`
+                        : 'Auto-sync paused'}
+                    glow={dashboardGlowClass(isLoopActive ? 'plex' : 'muted')}
+                    valueClassName="!text-xl md:!text-2xl font-mono"
+                    icon={<CalendarClock className={`h-4 w-4 ${isLoopActive ? 'text-plex' : 'text-muted'}`} />}
+                />
+                <DashboardStatCard
+                    label="Frequency"
+                    value={`${config?.pinning_interval || 0}m`}
+                    hint={analyzeLastRun?.intervalConfig ? `Active: ${analyzeLastRun.intervalConfig}` : 'Standard cycle'}
+                    glow={dashboardGlowClass('amber')}
+                    valueClassName="!text-xl md:!text-2xl font-mono"
+                    icon={<Settings className="h-4 w-4 text-amber-300" />}
+                />
             </div>
 
             {/* --- RUN INSPECTOR --- */}
             {analyzeLastRun && (
-                <div className="animate-in slide-in-from-bottom-4 duration-500 space-y-4">
-                    <h3 className="text-lg sm:text-xl font-bold text-text flex items-center gap-2 flex-wrap">
-                        <Activity className="w-5 h-5 text-plex shrink-0" /> Run Inspector
-                        <span className="text-xs font-normal text-muted w-full sm:w-auto">
-                            ({analyzeLastRun.source === 'status.json' ? 'from status.json' : 'analyzed from logs'})
+                <DashboardPanel
+                    title="Run Inspector"
+                    subtitle={analyzeLastRun.source === 'status.json' ? 'From status.json' : 'Analyzed from logs'}
+                    badge={(
+                        <span className={`rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${
+                            analyzeLastRun.status === 'COMPLETED'
+                                ? 'border-emerald-400/25 bg-emerald-500/10 text-emerald-300'
+                                : analyzeLastRun.status === 'RUNNING'
+                                    ? 'border-plex/30 bg-plex/15 text-plex'
+                                    : 'border-red-400/25 bg-red-500/10 text-red-300'
+                        }`}>
+                            {analyzeLastRun.status}
                         </span>
-                    </h3>
+                    )}
+                >
+                <div className="animate-in slide-in-from-bottom-4 duration-500 space-y-4">
 
                     {analyzeLastRun.fairness && (
                         <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 text-[11px]">
@@ -622,7 +633,7 @@ const Dashboard: React.FC = () => {
                         </div>
                     )}
 
-                    <div className={`border rounded-xl overflow-hidden ${analyzeLastRun.status === 'FAILED' ? 'border-red-900/50 bg-red-950/10' : 'border-border/80 bg-card/50'}`}>
+                    <div className={`overflow-hidden rounded-xl border ${analyzeLastRun.status === 'FAILED' ? 'border-red-900/50 bg-red-950/10' : 'border-white/10 bg-black/20'}`}>
                         <div className="p-3 sm:p-4 border-b border-white/5 flex flex-col sm:flex-row sm:flex-wrap gap-3 sm:gap-4 sm:items-center sm:justify-between bg-background/30">
                             <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 min-w-0">
                                 <div className={`self-start px-3 py-1 rounded text-xs font-bold uppercase ${analyzeLastRun.status === 'COMPLETED' ? 'bg-emerald-500/20 text-emerald-400' :
@@ -770,25 +781,36 @@ const Dashboard: React.FC = () => {
                         </div>
                     </div>
                 </div>
+                </DashboardPanel>
             )}
 
-            {/* Log Console */}
-            <Card
+            <DashboardPanel
                 title="Live Logs"
-                className="flex flex-col min-h-[400px] border-border/80 bg-card/50"
-                actions={
-                    <div className="flex gap-3">
-                        <button onClick={() => setLiveLogs(!liveLogs)} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${liveLogs ? 'bg-green-500/20 text-green-400 border-green-500/30' : 'bg-card text-muted border-border'}`}>
-                            {liveLogs ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}
-                            {liveLogs ? 'Live Stream ON' : 'Live Stream OFF'}
-                        </button>
-                    </div>
-                }
+                subtitle="Worker output stream"
+                controls={(
+                    <button
+                        type="button"
+                        onClick={() => setLiveLogs(!liveLogs)}
+                        className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-bold transition-all ${
+                            liveLogs
+                                ? 'border-emerald-500/30 bg-emerald-500/15 text-emerald-300'
+                                : 'border-white/10 bg-black/20 text-muted'
+                        }`}
+                    >
+                        {liveLogs ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}
+                        {liveLogs ? 'Live stream on' : 'Live stream off'}
+                    </button>
+                )}
             >
-                <div ref={logContainerRef} className="bg-black/80 rounded-xl p-4 font-mono text-xs text-text overflow-y-auto h-80 border border-border shadow-inner leading-relaxed scrollbar-thin">
-                    {logs ? <pre className="whitespace-pre-wrap break-all">{logs}</pre> : <div className="h-full flex items-center justify-center text-muted flex-col gap-3"><Terminal className="w-10 h-10 opacity-30" /><p>Waiting for logs...</p></div>}
+                <div ref={logContainerRef} className="h-80 overflow-y-auto rounded-xl border border-white/10 bg-black/80 p-4 font-mono text-xs leading-relaxed text-text shadow-inner scrollbar-thin">
+                    {logs ? <pre className="whitespace-pre-wrap break-all">{logs}</pre> : (
+                        <div className="flex h-full flex-col items-center justify-center gap-3 text-muted">
+                            <Terminal className="h-10 w-10 opacity-30" />
+                            <p>Waiting for logs…</p>
+                        </div>
+                    )}
                 </div>
-            </Card>
+            </DashboardPanel>
         </div>
     );
 };

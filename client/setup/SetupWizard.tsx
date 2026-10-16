@@ -1,15 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import {
     Settings, Sparkles, ChevronRight, ChevronLeft, Check, Palette, Mail, Layers, Server, PartyPopper, BookOpen, Upload,
+    Bell, Eye,
 } from 'lucide-react';
 import { apiFetch, PORTAL_CSRF_HEADER, PORTAL_CSRF_VALUE } from '../shared/api';
-import { getPublicOrigin, logoUrl, portalUrl, stripBasePath } from '../shared/basePath';
+import { getPublicOrigin, logoUrl, portalUrl, stripBasePath, PLEX_ICON_URL } from '../shared/basePath';
 import { IntegrationTestButton } from '../shared/IntegrationTestButton';
 import { CustomSelect } from '../shared/ui';
 import { AuthPageBackground, themeClasses } from '../shared/theme';
 import { accentHoverRgb, hexToRgb } from '../shared/format';
 import type { PlexServer, ArrInstance } from '../shared/types';
 import { ArrInstancesPanel, createEmptyArrInstance } from '../settings/ArrInstancesPanel';
+import { ALWAYS_VISIBLE_MEMBER_NAV_KEYS, NAV_ITEM_LABELS } from '../shared/nav';
 
 const normalizeSetupArrInstances = (stored: Record<string, any> = {}): ArrInstance[] => {
     if (Array.isArray(stored.arrInstances) && stored.arrInstances.length > 0) {
@@ -37,19 +39,52 @@ const STEPS = [
     { id: 'welcome', label: 'Welcome', icon: Sparkles, hint: 'Overview & what to expect' },
     { id: 'plex', label: 'Media Server', icon: Server, hint: 'Choose Plex or Jellyfin' },
     { id: 'branding', label: 'Branding', icon: Palette, hint: 'Colors, logo & domain' },
-    { id: 'email', label: 'Email', icon: Mail, hint: 'SMTP alerts & newsletters' },
-    { id: 'integrations', label: 'Integrations', icon: Layers, hint: 'Arr apps, library map & requests' },
+    { id: 'notifications', label: 'Notifications', icon: Bell, hint: 'Optional email & Gotify' },
+    { id: 'integrations', label: 'Integrations', icon: Layers, hint: 'Optional Arr apps & requests' },
+    { id: 'members', label: 'Member pages', icon: Eye, hint: 'Optional — what members see' },
     { id: 'finish', label: 'Finish', icon: PartyPopper, hint: 'Review & launch' },
 ] as const;
 
 type StepId = (typeof STEPS)[number]['id'];
 
+const OPTIONAL_STEPS = new Set<StepId>(['notifications', 'integrations', 'members']);
+
 const WELCOME_FEATURES = [
-    { icon: Server, title: 'Plex or Jellyfin', desc: 'Choose and test your media server' },
+    { icon: Server, title: 'Plex, Jellyfin or Emby', desc: 'Connect and test your media server' },
     { icon: Palette, title: 'Your Brand', desc: 'Custom colors, logo & domain' },
-    { icon: Mail, title: 'Email Alerts', desc: 'Expiry reminders & newsletters' },
-    { icon: Layers, title: 'Media Stack', desc: 'Sonarr, Radarr, Tautulli & requests' },
+    { icon: Bell, title: 'Notifications', desc: 'Optional email and Gotify alerts' },
+    { icon: Layers, title: 'Media Stack', desc: 'Optional Sonarr, Radarr, Lidarr & requests' },
+    { icon: Eye, title: 'Member pages', desc: 'Optional — choose what members see' },
 ] as const;
+
+const SETUP_MEMBER_NAV_TOGGLES = [
+    'request',
+    'discover',
+    'analytics',
+    'mediastack',
+    'downloads',
+    'status',
+    'achievements',
+    'support',
+    'chat',
+    'profile',
+    'preferences',
+    'about',
+] as const;
+
+const normalizeSetupMemberNavHiddenKeys = (raw: unknown): string[] => {
+    if (!Array.isArray(raw)) return [];
+    const seen = new Set<string>();
+    const result: string[] = [];
+    for (const entry of raw) {
+        const key = String(entry || '').trim();
+        if (!key || ALWAYS_VISIBLE_MEMBER_NAV_KEYS.has(key) || seen.has(key)) continue;
+        if (!(SETUP_MEMBER_NAV_TOGGLES as readonly string[]).includes(key)) continue;
+        seen.add(key);
+        result.push(key);
+    }
+    return result;
+};
 
 const SETUP_PLEX_STORAGE_KEY = 'setupWizardPlex';
 const SETUP_TOKEN_STORAGE_KEY = 'setupWizardSetupToken';
@@ -94,6 +129,7 @@ const APP_ICONS: Record<string, string> = {
     tmdb: `${SELFHST_ICON_BASE}/themoviedb.svg`,
     jellystat: 'https://cdn.jsdelivr.net/gh/selfhst/icons@main/png/jellystat.png',
     jellyglance: '/static/logos/jellyglance.png',
+    gotify: `${SELFHST_ICON_BASE}/gotify.svg`,
 };
 
 const JELLYFIN_ANALYTICS_OPTIONS = [
@@ -131,7 +167,7 @@ const MEDIA_SERVER_OPTIONS = [
     { label: 'Emby', value: 'emby' },
 ];
 const MEDIA_SERVER_LOGOS: Record<string, string> = {
-    plex: 'https://cdn.jsdelivr.net/gh/selfhst/icons/svg/plex.svg',
+    plex: PLEX_ICON_URL,
     jellyfin: 'https://cdn.jsdelivr.net/gh/selfhst/icons/svg/jellyfin.svg',
     emby: 'https://cdn.jsdelivr.net/gh/selfhst/icons/svg/emby.svg',
 };
@@ -185,6 +221,13 @@ const readStoredSetupPlex = () => {
             smtpPass?: string;
             smtpFrom?: string;
             smtpSecure?: boolean;
+            gotifyUrl?: string;
+            gotifyToken?: string;
+            autoApproveMovies?: boolean;
+            autoApproveTv?: boolean;
+            requestQuotaLimit?: number;
+            requestQuotaDays?: number;
+            memberNavHiddenKeys?: string[];
             sonarrUrl?: string;
             sonarrApiKey?: string;
             radarrUrl?: string;
@@ -216,7 +259,8 @@ export const SetupWizard: React.FC<{ onComplete: () => void }> = ({ onComplete }
 
     const [step, setStep] = useState<StepId>(() => {
         if (isOAuthReturn) return 'plex';
-        if (storedPlex?.step) return storedPlex.step;
+        const storedStep = storedPlex?.step === 'email' ? 'notifications' : storedPlex?.step;
+        if (storedStep && STEPS.some((entry) => entry.id === storedStep)) return storedStep;
         if (storedPlex?.token) return 'plex';
         return 'welcome';
     });
@@ -246,6 +290,15 @@ export const SetupWizard: React.FC<{ onComplete: () => void }> = ({ onComplete }
     const [smtpFrom, setSmtpFrom] = useState(storedPlex?.smtpFrom ?? '');
     const [smtpSecure, setSmtpSecure] = useState(storedPlex?.smtpSecure ?? false);
     const [testRecipient, setTestRecipient] = useState('');
+    const [gotifyUrl, setGotifyUrl] = useState(storedPlex?.gotifyUrl ?? '');
+    const [gotifyToken, setGotifyToken] = useState(storedPlex?.gotifyToken ?? '');
+    const [autoApproveMovies, setAutoApproveMovies] = useState(!!storedPlex?.autoApproveMovies);
+    const [autoApproveTv, setAutoApproveTv] = useState(!!storedPlex?.autoApproveTv);
+    const [requestQuotaLimit, setRequestQuotaLimit] = useState(Number(storedPlex?.requestQuotaLimit) || 0);
+    const [requestQuotaDays, setRequestQuotaDays] = useState(Number(storedPlex?.requestQuotaDays) || 7);
+    const [memberNavHiddenKeys, setMemberNavHiddenKeys] = useState<string[]>(
+        () => normalizeSetupMemberNavHiddenKeys(storedPlex?.memberNavHiddenKeys),
+    );
 
     const [arrInstances, setArrInstances] = useState<ArrInstance[]>(() => normalizeSetupArrInstances(storedPlex || {}));
     const [plexLibraries, setPlexLibraries] = useState<Array<{ id: string; title: string; type: string }>>([]);
@@ -365,6 +418,13 @@ export const SetupWizard: React.FC<{ onComplete: () => void }> = ({ onComplete }
             smtpUser,
             smtpFrom,
             smtpSecure,
+            gotifyUrl,
+            gotifyToken,
+            autoApproveMovies,
+            autoApproveTv,
+            requestQuotaLimit,
+            requestQuotaDays,
+            memberNavHiddenKeys,
             arrInstances: arrInstances.map((instance) => ({ ...instance, apiKey: '' })),
             tautulliUrl,
             jellyfinAnalyticsProvider,
@@ -430,7 +490,7 @@ export const SetupWizard: React.FC<{ onComplete: () => void }> = ({ onComplete }
             const data = await apiFetch('/api/auth/plex/login', { method: 'POST' });
             const clientId = data.clientIdentifier || data.clientId || '';
             const forwardUrl = `${window.location.origin}${portalUrl(`/auth/setup/${data.id}`)}`;
-            const authUrl = `https://app.plex.tv/auth#?clientID=${encodeURIComponent(clientId)}&code=${data.code}&context[device][product]=Server%20Manager%20Portal&forwardUrl=${encodeURIComponent(forwardUrl)}`;
+            const authUrl = `https://app.plex.tv/auth#?clientID=${encodeURIComponent(clientId)}&code=${data.code}&context[device][product]=StreamPilot&forwardUrl=${encodeURIComponent(forwardUrl)}`;
             window.location.href = authUrl;
         } catch (e) {
             setError(e instanceof Error ? e.message : 'Failed to start Plex sign-in');
@@ -481,10 +541,31 @@ export const SetupWizard: React.FC<{ onComplete: () => void }> = ({ onComplete }
         try {
             await apiFetch('/api/config/test-email', {
                 method: 'POST',
+                headers: setupAuthHeaders(setupToken),
                 body: JSON.stringify({ smtpHost, smtpPort, smtpUser, smtpPass, smtpFrom, smtpSecure, testRecipient }),
             });
         } catch (e) {
             setError(e instanceof Error ? e.message : 'Test email failed.');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleTestGotify = async () => {
+        if (!gotifyUrl.trim() || !gotifyToken.trim()) {
+            setError('Fill in Gotify URL and application token to send a test.');
+            return;
+        }
+        setIsLoading(true);
+        setError('');
+        try {
+            await apiFetch('/api/config/test-gotify', {
+                method: 'POST',
+                headers: setupAuthHeaders(setupToken),
+                body: JSON.stringify({ gotifyUrl: gotifyUrl.trim(), gotifyToken: gotifyToken.trim() }),
+            });
+        } catch (e) {
+            setError(e instanceof Error ? e.message : 'Gotify test failed.');
         } finally {
             setIsLoading(false);
         }
@@ -532,6 +613,9 @@ export const SetupWizard: React.FC<{ onComplete: () => void }> = ({ onComplete }
                     smtpPass,
                     smtpFrom,
                     smtpSecure,
+                    gotifyEnabled: Boolean(gotifyUrl.trim() && gotifyToken.trim()),
+                    gotifyUrl: gotifyUrl.trim(),
+                    gotifyToken: gotifyToken.trim(),
                     arrInstances,
                     tautulliUrl,
                     tautulliApiKey,
@@ -554,6 +638,14 @@ export const SetupWizard: React.FC<{ onComplete: () => void }> = ({ onComplete }
                     requestAppApiKey: (
                         requestSetupMode === 'seerr' || migrateFromSeerr
                     ) ? requestAppApiKey : '',
+                    ...(requestSetupMode === 'portal' ? {
+                        autoApproveMovies,
+                        autoApproveTv,
+                        requestQuotaLimit: Math.max(0, Number(requestQuotaLimit) || 0),
+                        requestQuotaDays: Math.max(1, Number(requestQuotaDays) || 7),
+                    } : {}),
+                    memberNavHiddenKeys,
+                    downloadsVisibleToMembers: !memberNavHiddenKeys.includes('downloads'),
                     ...(setupToken ? { setupToken } : {}),
                 }),
             });
@@ -613,7 +705,7 @@ export const SetupWizard: React.FC<{ onComplete: () => void }> = ({ onComplete }
         if (stepIndex < STEPS.length - 1) {
             const nextStep = STEPS[stepIndex + 1].id;
             setStep(nextStep);
-            if (token) persistSetupPlex({ step: nextStep });
+            persistSetupPlex({ step: nextStep });
         }
     };
     const goBack = () => {
@@ -665,7 +757,7 @@ export const SetupWizard: React.FC<{ onComplete: () => void }> = ({ onComplete }
                             <div className="w-12 h-12 rounded-2xl bg-plex/15 border border-plex/30 flex items-center justify-center mb-4 shadow-[0_0_30px_rgba(229,160,13,0.2)]">
                                 <Settings className="w-6 h-6 text-plex" />
                             </div>
-                            <h1 className="text-xl font-black text-text tracking-tight leading-tight">Server Manager Portal</h1>
+                            <h1 className="text-xl font-black text-text tracking-tight leading-tight">StreamPilot</h1>
                             <p className="text-[11px] font-bold text-muted uppercase tracking-[0.2em] mt-2">Initial Setup</p>
                         </div>
 
@@ -713,7 +805,7 @@ export const SetupWizard: React.FC<{ onComplete: () => void }> = ({ onComplete }
                                         Welcome to your<br className="hidden sm:block" /> media portal
                                     </h2>
                                     <p className="text-muted text-base sm:text-lg leading-relaxed mb-8 max-w-xl">
-                                        A guided setup to connect Plex or Jellyfin, brand your portal, and optionally wire up email and your media stack. Takes about five minutes.
+                                        A guided setup to connect Plex, Jellyfin, or Emby and brand your portal. Notifications, the media stack, request quotas, and member pages are all optional — skip anything you don&apos;t have yet.
                                     </p>
                                     <div className="grid sm:grid-cols-2 gap-3 mb-2">
                                         {WELCOME_FEATURES.map(({ icon: Icon, title, desc }) => (
@@ -796,7 +888,7 @@ export const SetupWizard: React.FC<{ onComplete: () => void }> = ({ onComplete }
                                         disabled={isLoading}
                                         className={`${primaryBtnClass} w-full sm:w-auto text-base py-4`}
                                     >
-                                        <img src={logoUrl()} alt="" className="w-5 h-5 object-contain" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                                        <img src={PLEX_ICON_URL} alt="" className="w-5 h-5 object-contain" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
                                         {isLoading ? 'Redirecting to Plex…' : 'Sign in with Plex'}
                                     </button>
                                     <p className="text-xs text-muted leading-relaxed">Uses secure Plex OAuth — we&apos;ll fetch your owned servers automatically. No password stored.</p>
@@ -961,14 +1053,21 @@ export const SetupWizard: React.FC<{ onComplete: () => void }> = ({ onComplete }
                         </div>
                     )}
 
-                    {step === 'email' && (
+                    {step === 'notifications' && (
                         <div className="flex flex-col gap-6 max-w-2xl">
                             <div>
                                 <p className={labelClass + ' mb-2'}>Step {stepIndex + 1}</p>
-                                <h2 className="text-2xl sm:text-3xl font-black text-text tracking-tight mb-2">Email Notifications</h2>
-                                <p className="text-muted text-sm sm:text-base">Optional — send expiry reminders and newsletters. Skip if you&apos;ll configure later.</p>
+                                <h2 className="text-2xl sm:text-3xl font-black text-text tracking-tight mb-2">Notifications</h2>
+                                <p className="text-muted text-sm sm:text-base">Optional — skip this whole step if you&apos;ll configure alerts later in Settings.</p>
                             </div>
                             <div className={`${sectionCardClass} grid grid-cols-1 md:grid-cols-2 gap-5`}>
+                                <div className="md:col-span-2 flex items-center gap-3">
+                                    <Mail className="w-5 h-5 text-plex flex-shrink-0" />
+                                    <div>
+                                        <h3 className="font-bold text-text text-base leading-tight">Email (SMTP)</h3>
+                                        <p className="text-xs text-muted mt-0.5">Expiry reminders and newsletters. Leave blank to skip.</p>
+                                    </div>
+                                </div>
                                 <div className="flex flex-col gap-2.5 md:col-span-2">
                                     <label className={labelClass}>SMTP Host</label>
                                     <input type="text" className={inputClass} value={smtpHost} onChange={(e) => setSmtpHost(e.target.value)} placeholder="smtp.mailgun.org" />
@@ -1008,6 +1107,30 @@ export const SetupWizard: React.FC<{ onComplete: () => void }> = ({ onComplete }
                                     </div>
                                 </div>
                             )}
+                            <div className={`${sectionCardClass} grid grid-cols-1 md:grid-cols-2 gap-5`}>
+                                <div className="md:col-span-2 flex items-center gap-3">
+                                    <ProgramIcon app="gotify" label="Gotify" />
+                                    <div>
+                                        <h3 className="font-bold text-text text-base leading-tight">Gotify</h3>
+                                        <p className="text-xs text-muted mt-0.5">Admin push alerts. Leave blank to skip — Gotify stays off until both fields are filled.</p>
+                                    </div>
+                                </div>
+                                <div className="flex flex-col gap-2.5 md:col-span-2">
+                                    <label className={labelClass}>Gotify URL</label>
+                                    <input type="text" className={inputClass} value={gotifyUrl} onChange={(e) => setGotifyUrl(e.target.value)} placeholder="https://gotify.example.com" />
+                                </div>
+                                <div className="flex flex-col gap-2.5 md:col-span-2">
+                                    <label className={labelClass}>Application Token</label>
+                                    <input type="password" className={inputClass} value={gotifyToken} onChange={(e) => setGotifyToken(e.target.value)} placeholder="App token" autoComplete="off" />
+                                </div>
+                                {gotifyUrl.trim() && gotifyToken.trim() && (
+                                    <div className="md:col-span-2">
+                                        <button type="button" onClick={handleTestGotify} disabled={isLoading} className="px-5 py-3.5 bg-white/5 border border-white/10 text-text rounded-xl font-bold hover:bg-white/10 whitespace-nowrap transition-colors disabled:opacity-50">
+                                            Send Test Alert
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     )}
 
@@ -1016,7 +1139,7 @@ export const SetupWizard: React.FC<{ onComplete: () => void }> = ({ onComplete }
                             <div>
                                 <p className={labelClass + ' mb-2'}>Step {stepIndex + 1}</p>
                                 <h2 className="text-2xl sm:text-3xl font-black text-text tracking-tight mb-2">Media Stack</h2>
-                                <p className="text-muted text-sm sm:text-base">All optional. Connect the apps that manage requests, downloads, activity, and maintenance.</p>
+                                <p className="text-muted text-sm sm:text-base">All optional. Skip this step if you don&apos;t have Arr apps, TMDB, or analytics yet — you can add them later in Settings.</p>
                             </div>
                             <div className="grid grid-cols-3 gap-2 rounded-xl border border-white/10 bg-background/50 p-1.5">
                                 {[
@@ -1206,6 +1329,62 @@ export const SetupWizard: React.FC<{ onComplete: () => void }> = ({ onComplete }
                                                 </div>
                                             </div>
 
+                                            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 space-y-4">
+                                                <div>
+                                                    <h4 className="text-sm font-bold text-text">Auto-approve &amp; quotas</h4>
+                                                    <p className="text-xs text-muted mt-0.5">Optional. Leave these off / at 0 for manual review and unlimited requests. You can change them later in Settings → Request.</p>
+                                                </div>
+                                                <label className="flex items-start gap-3 cursor-pointer">
+                                                    <input
+                                                        type="checkbox"
+                                                        className="mt-1 accent-plex"
+                                                        checked={autoApproveMovies}
+                                                        onChange={(e) => setAutoApproveMovies(e.target.checked)}
+                                                    />
+                                                    <span>
+                                                        <span className="block text-sm font-bold text-text">Auto-approve movies</span>
+                                                        <span className="block text-xs text-muted mt-0.5">Send movie requests straight to Radarr without Review Queue.</span>
+                                                    </span>
+                                                </label>
+                                                <label className="flex items-start gap-3 cursor-pointer">
+                                                    <input
+                                                        type="checkbox"
+                                                        className="mt-1 accent-plex"
+                                                        checked={autoApproveTv}
+                                                        onChange={(e) => setAutoApproveTv(e.target.checked)}
+                                                    />
+                                                    <span>
+                                                        <span className="block text-sm font-bold text-text">Auto-approve series</span>
+                                                        <span className="block text-xs text-muted mt-0.5">Send TV requests straight to Sonarr without Review Queue.</span>
+                                                    </span>
+                                                </label>
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                    <div className="flex flex-col gap-2">
+                                                        <label className={labelClass}>Request quota</label>
+                                                        <input
+                                                            type="number"
+                                                            min={0}
+                                                            className={inputClass}
+                                                            value={requestQuotaLimit}
+                                                            onChange={(e) => setRequestQuotaLimit(Math.max(0, Number(e.target.value) || 0))}
+                                                            placeholder="0"
+                                                        />
+                                                        <p className="text-[11px] text-muted">0 = unlimited</p>
+                                                    </div>
+                                                    <div className="flex flex-col gap-2">
+                                                        <label className={labelClass}>Quota window (days)</label>
+                                                        <input
+                                                            type="number"
+                                                            min={1}
+                                                            className={inputClass}
+                                                            value={requestQuotaDays}
+                                                            onChange={(e) => setRequestQuotaDays(Math.max(1, Number(e.target.value) || 7))}
+                                                        />
+                                                        <p className="text-[11px] text-muted">Rolling window for member requests</p>
+                                                    </div>
+                                                </div>
+                                            </div>
+
                                             <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 space-y-3">
                                                 <label className="flex items-start gap-3 cursor-pointer">
                                                     <input
@@ -1385,6 +1564,48 @@ export const SetupWizard: React.FC<{ onComplete: () => void }> = ({ onComplete }
                         </div>
                     )}
 
+                    {step === 'members' && (
+                        <div className="flex flex-col gap-6 max-w-2xl">
+                            <div>
+                                <p className={labelClass + ' mb-2'}>Step {stepIndex + 1}</p>
+                                <h2 className="text-2xl sm:text-3xl font-black text-text tracking-tight mb-2">Member pages</h2>
+                                <p className="text-muted text-sm sm:text-base">
+                                    Optional — leave everything on for the usual member sidebar, or uncheck pages you don&apos;t want members to see yet. Home stays visible. You can change this anytime in Settings → Layout.
+                                </p>
+                            </div>
+                            <div className={`${sectionCardClass} grid grid-cols-1 sm:grid-cols-2 gap-2`}>
+                                {SETUP_MEMBER_NAV_TOGGLES.map((key) => {
+                                    const visible = !memberNavHiddenKeys.includes(key);
+                                    return (
+                                        <label
+                                            key={key}
+                                            className="flex items-start gap-3 cursor-pointer p-3 rounded-xl bg-white/[0.03] border border-white/5 hover:border-white/15 transition-colors"
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                className="mt-1 accent-plex"
+                                                checked={visible}
+                                                onChange={(e) => {
+                                                    const nextVisible = e.target.checked;
+                                                    setMemberNavHiddenKeys((prev) => {
+                                                        const next = new Set(prev);
+                                                        if (nextVisible) next.delete(key);
+                                                        else next.add(key);
+                                                        return Array.from(next);
+                                                    });
+                                                }}
+                                            />
+                                            <span>
+                                                <span className="block text-sm font-bold text-text">{NAV_ITEM_LABELS[key] || key}</span>
+                                                <span className="block text-[11px] text-muted mt-0.5">{visible ? 'Shown to members' : 'Hidden from members'}</span>
+                                            </span>
+                                        </label>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
+
                     {step === 'finish' && (
                         <div className="max-w-lg mx-auto text-center py-4">
                             <div className="w-20 h-20 bg-emerald-500/10 rounded-2xl flex items-center justify-center mx-auto mb-6 border border-emerald-500/30 shadow-[0_0_40px_rgba(52,211,153,0.15)]">
@@ -1393,8 +1614,12 @@ export const SetupWizard: React.FC<{ onComplete: () => void }> = ({ onComplete }
                             <p className={labelClass + ' mb-3'}>Step {stepIndex + 1}</p>
                             <h2 className="text-3xl sm:text-4xl font-black text-text tracking-tight mb-4">Ready to launch</h2>
                             <p className="text-muted text-base leading-relaxed mb-8">
-                                Your {mediaServerType !== 'plex' ? 'Jellyfin' : 'Plex'} server{arrInstances.some((entry) => entry.type === 'sonarr' && entry.url) ? ', Sonarr' : ''}{arrInstances.some((entry) => entry.type === 'radarr' && entry.url) ? ', Radarr' : ''}{arrInstances.some((entry) => entry.type === 'lidarr' && entry.url) ? ', Lidarr' : ''}{arrInstances.some((entry) => entry.type === 'bazarr' && entry.url) ? ', Bazarr' : ''}{tautulliUrl ? ', Tautulli' : ''}{jellystatUrl ? ', Jellystat' : ''}{jellyglanceUrl ? ', JellyGlance' : ''} will be saved.
-                                {smtpHost ? ' Email notifications enabled.' : ' You can add email later in Settings.'}
+                                Your {mediaServerType !== 'plex' ? (mediaServerType === 'emby' ? 'Emby' : 'Jellyfin') : 'Plex'} server{arrInstances.some((entry) => entry.type === 'sonarr' && entry.url) ? ', Sonarr' : ''}{arrInstances.some((entry) => entry.type === 'radarr' && entry.url) ? ', Radarr' : ''}{arrInstances.some((entry) => entry.type === 'lidarr' && entry.url) ? ', Lidarr' : ''}{arrInstances.some((entry) => entry.type === 'bazarr' && entry.url) ? ', Bazarr' : ''}{tautulliUrl ? ', Tautulli' : ''}{jellystatUrl ? ', Jellystat' : ''}{jellyglanceUrl ? ', JellyGlance' : ''} will be saved.
+                                {smtpHost ? ' Email notifications enabled.' : ' Email can be added later in Settings.'}
+                                {gotifyUrl.trim() && gotifyToken.trim() ? ' Gotify alerts enabled.' : ' Gotify can be added later in Settings.'}
+                                {memberNavHiddenKeys.length > 0
+                                    ? ` ${memberNavHiddenKeys.length} member page${memberNavHiddenKeys.length === 1 ? '' : 's'} hidden.`
+                                    : ' Members see the default pages.'}
                             </p>
                             <div className={`${sectionCardClass} text-left text-sm space-y-3`}>
                                 <p className="flex justify-between gap-4 border-b border-white/5 pb-3"><span className="text-muted">Server</span> <strong className="text-text truncate">{mediaServerType !== 'plex' ? (jellyfinUrl || '—') : (serverIdentifier || '—')}</strong></p>
@@ -1412,7 +1637,7 @@ export const SetupWizard: React.FC<{ onComplete: () => void }> = ({ onComplete }
                                     className="flex items-center gap-2 px-5 py-3 rounded-xl font-bold text-sm text-muted hover:text-text hover:bg-white/5 border border-transparent hover:border-white/10 transition-all disabled:opacity-30 disabled:pointer-events-none">
                                     <ChevronLeft className="w-4 h-4" /> Back
                                 </button>
-                                <a href="https://jl94x4.github.io/Server-Manager-Portal/" target="_blank" rel="noreferrer" className="hidden sm:flex items-center gap-2 px-4 py-3 rounded-xl font-bold text-sm text-muted hover:text-text hover:bg-white/5 border border-transparent transition-all">
+                                <a href="https://jl94x4.github.io/StreamPilot/" target="_blank" rel="noreferrer" className="hidden sm:flex items-center gap-2 px-4 py-3 rounded-xl font-bold text-sm text-muted hover:text-text hover:bg-white/5 border border-transparent transition-all">
                                     <BookOpen className="w-4 h-4" /> Docs
                                 </a>
                             </div>
@@ -1425,10 +1650,22 @@ export const SetupWizard: React.FC<{ onComplete: () => void }> = ({ onComplete }
                                     {isLoading ? 'Saving…' : 'Complete Setup'} <Check className="w-4 h-4" />
                                 </button>
                             ) : (
-                                <button type="button" onClick={goNext} disabled={!canGoNext || isLoading}
-                                    className={primaryBtnClass}>
-                                    Continue <ChevronRight className="w-4 h-4" />
-                                </button>
+                                <div className="flex items-center gap-2">
+                                    {OPTIONAL_STEPS.has(step) && (
+                                        <button
+                                            type="button"
+                                            onClick={goNext}
+                                            disabled={!canGoNext || isLoading}
+                                            className="px-4 py-3 rounded-xl font-bold text-sm text-muted hover:text-text hover:bg-white/5 border border-transparent hover:border-white/10 transition-all disabled:opacity-30"
+                                        >
+                                            Skip for now
+                                        </button>
+                                    )}
+                                    <button type="button" onClick={goNext} disabled={!canGoNext || isLoading}
+                                        className={primaryBtnClass}>
+                                        Continue <ChevronRight className="w-4 h-4" />
+                                    </button>
+                                </div>
                             )}
                         </div>
                     </div>

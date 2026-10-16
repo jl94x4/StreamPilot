@@ -1,18 +1,23 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Film, Loader2, RotateCcw, Trash2, Tv } from 'lucide-react';
 import { apiFetch } from '../shared/api';
 import { NoPosterPlaceholder } from '../shared/NoPosterPlaceholder';
 import { RequestCardActions, RequestCardShell, requestCardActionBtnClass } from '../requests/RequestCardShell';
 import type { PortalRequestItem } from '../requests/types';
+import { mediaStatusChipClass } from './DiscoverStatusOverlay';
 import {
     formatRequestRelativeTime,
     memberRequestDisplayStatus,
     memberRequestStatusClass,
+    mergeHd4kMemberRequests,
+    requestQualityLabel,
 } from './myRequestUtils';
 import { discoveryTheme } from './discoveryThemeClasses';
 import { useDiscoverI18n, translateDiscoverStatus } from './i18n';
 
 type RequestFilter = 'pending' | 'approved' | 'available' | 'declined' | 'failed';
+
+const PAGE_SIZE = 40;
 
 type Props = {
     navigate: (path: string) => void;
@@ -20,18 +25,47 @@ type Props = {
     onCountsChange?: () => void;
 };
 
-const RequestTypeBadge: React.FC<{ type: string; is4k: boolean }> = ({ type, is4k }) => (
-    <span className="inline-flex items-center gap-1.5">
-        <span className="text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full bg-white/5 border border-border text-muted">
-            {type === 'tv' ? 'TV' : 'Movie'}
+const RequestTypeBadge: React.FC<{
+    type: string;
+    showHd: boolean;
+    show4k: boolean;
+    t: (key: string) => string;
+}> = ({
+    type,
+    showHd,
+    show4k,
+    t,
+}) => (
+    <span className="inline-flex items-center gap-1">
+        <span className={`${mediaStatusChipClass} bg-white/5 border-border text-muted`}>
+            {type === 'tv' ? t('mediaType.tv') : (type === 'music' ? t('mediaType.music') : t('mediaType.movie'))}
         </span>
-        {is4k && (
-            <span className="text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-200">
+        {showHd && (
+            <span className={`${mediaStatusChipClass} bg-white/5 border-border text-muted`}>
+                HD
+            </span>
+        )}
+        {show4k && (
+            <span className={`${mediaStatusChipClass} bg-amber-500/15 border-amber-500/30 text-amber-200`}>
                 4K
             </span>
         )}
     </span>
 );
+
+const uniqueSeasonNumbers = (variants: PortalRequestItem[]) => {
+    const seen = new Set<number>();
+    const seasons: number[] = [];
+    for (const item of variants) {
+        for (const season of item.seasons || []) {
+            const n = Number(season.seasonNumber);
+            if (!Number.isFinite(n) || seen.has(n)) continue;
+            seen.add(n);
+            seasons.push(n);
+        }
+    }
+    return seasons.sort((a, b) => a - b);
+};
 
 export const MyRequestsPage: React.FC<Props> = ({ navigate, pushToast, onCountsChange }) => {
     const { t } = useDiscoverI18n();
@@ -47,19 +81,34 @@ export const MyRequestsPage: React.FC<Props> = ({ navigate, pushToast, onCountsC
         userMapped: true,
     });
     const [loading, setLoading] = useState(true);
+    const [loadingMore, setLoadingMore] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [actionId, setActionId] = useState<number | null>(null);
     const [cancelTarget, setCancelTarget] = useState<PortalRequestItem | null>(null);
+    const [filterTotal, setFilterTotal] = useState(0);
+    const [gotFullPage, setGotFullPage] = useState(false);
+    const requestsRef = useRef<PortalRequestItem[]>([]);
+    const loadingMoreRef = useRef(false);
+    const sentinelRef = useRef<HTMLDivElement>(null);
+    requestsRef.current = requests;
 
-    const loadData = useCallback(async (opts?: { silent?: boolean }) => {
-        if (!opts?.silent) setLoading(true);
-        else setRefreshing(true);
+    const loadData = useCallback(async (opts?: { silent?: boolean; append?: boolean }) => {
+        const append = !!opts?.append;
+        if (append) {
+            if (loadingMoreRef.current) return;
+            loadingMoreRef.current = true;
+            setLoadingMore(true);
+        } else if (!opts?.silent) {
+            setLoading(true);
+        } else {
+            setRefreshing(true);
+        }
         setError(null);
         try {
-            // One round-trip — list payload includes counts (avoids double store scan).
+            const skip = append ? requestsRef.current.length : 0;
             const listData = await apiFetch(
-                `/api/discovery/my-requests?filter=${encodeURIComponent(filter)}&take=40`,
+                `/api/discovery/my-requests?filter=${encodeURIComponent(filter)}&take=${PAGE_SIZE}&skip=${skip}`,
             );
 
             setCounts({
@@ -74,19 +123,35 @@ export const MyRequestsPage: React.FC<Props> = ({ navigate, pushToast, onCountsC
 
             if (listData?.userMapped === false) {
                 setRequests([]);
-                setError(listData?.error || 'Your portal account is not linked to a Seerr user. Contact your admin.');
+                setFilterTotal(0);
+                setGotFullPage(false);
+                setError(listData?.error || t('requestsPage.accountNotLinked'));
                 return;
             }
 
-            setRequests(Array.isArray(listData?.results) ? listData.results : []);
+            const incoming = Array.isArray(listData?.results) ? listData.results : [];
+            const pageTotal = Number(listData?.pageInfo?.total);
+            if (Number.isFinite(pageTotal) && pageTotal >= 0) setFilterTotal(pageTotal);
+            setGotFullPage(incoming.length >= PAGE_SIZE);
+
+            if (append) {
+                setRequests((prev) => {
+                    const seen = new Set(prev.map((row) => row.id));
+                    return [...prev, ...incoming.filter((row) => !seen.has(row.id))];
+                });
+            } else {
+                setRequests(incoming);
+            }
         } catch (e: any) {
-            setError(e?.message || 'Failed to load your requests');
-            setRequests([]);
+            setError(e?.message || t('requestsPage.loadFailed'));
+            if (!append) setRequests([]);
         } finally {
             setLoading(false);
             setRefreshing(false);
+            setLoadingMore(false);
+            loadingMoreRef.current = false;
         }
-    }, [filter]);
+    }, [filter, t]);
 
     useEffect(() => {
         loadData();
@@ -109,6 +174,25 @@ export const MyRequestsPage: React.FC<Props> = ({ navigate, pushToast, onCountsC
         { id: 'failed' as const, label: t('status.failed'), count: counts.failed },
     ]), [counts, t]);
 
+    const mergedRequests = useMemo(() => mergeHd4kMemberRequests(requests), [requests]);
+    const knownTotal = Math.max(filterTotal, Number(counts[filter]) || 0);
+    const hasMore = knownTotal > 0
+        ? requests.length < knownTotal
+        : gotFullPage;
+
+    useEffect(() => {
+        if (loading || loadingMore || !hasMore || mergedRequests.length === 0) return;
+        const node = sentinelRef.current;
+        if (!node) return;
+        const observer = new IntersectionObserver((entries) => {
+            if (entries.some((entry) => entry.isIntersecting)) {
+                void loadData({ append: true, silent: true });
+            }
+        }, { rootMargin: '240px' });
+        observer.observe(node);
+        return () => observer.disconnect();
+    }, [hasMore, loadData, loading, loadingMore, mergedRequests.length]);
+
     const handleCancel = async (item: PortalRequestItem) => {
         setActionId(item.id);
         try {
@@ -130,17 +214,22 @@ export const MyRequestsPage: React.FC<Props> = ({ navigate, pushToast, onCountsC
         try {
             const res = await apiFetch(`/api/discovery/my-requests/${item.id}/retry`, { method: 'POST' });
             if (res?.error) throw new Error(res.error);
-            pushToast?.(res?.message || 'Request retry submitted.', 'success');
+            pushToast?.(res?.message || t('requestsPage.retrySubmitted'), 'success');
             await loadData({ silent: true });
             onCountsChange?.();
         } catch (e: any) {
-            pushToast?.(e?.message || 'Failed to retry request', 'error');
+            pushToast?.(e?.message || t('requestsPage.retryFailed'), 'error');
         } finally {
             setActionId(null);
         }
     };
 
     const openMedia = (item: PortalRequestItem) => {
+        if (item.type === 'music') {
+            const mbid = String(item.mbid || '').trim();
+            if (mbid) navigate(`/discovery/music/artist/${encodeURIComponent(mbid)}`);
+            return;
+        }
         if (!item.tmdbId) return;
         navigate(`/discovery/${item.type}/${item.tmdbId}`);
     };
@@ -183,6 +272,15 @@ export const MyRequestsPage: React.FC<Props> = ({ navigate, pushToast, onCountsC
                 ))}
             </div>
 
+            {knownTotal > 0 && requests.length > 0 && (
+                <p className="px-2 text-xs text-muted">
+                    {t('requestsPage.showing', {
+                        shown: requests.length,
+                        total: knownTotal,
+                    })}
+                </p>
+            )}
+
             {loading && requests.length === 0 ? (
                 <div className="flex items-center justify-center py-20">
                     <Loader2 className="w-8 h-8 text-plex animate-spin" />
@@ -191,108 +289,167 @@ export const MyRequestsPage: React.FC<Props> = ({ navigate, pushToast, onCountsC
                 <div className="mx-2 rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-4 text-sm text-amber-200">
                     {error}
                 </div>
-            ) : requests.length === 0 ? (
+            ) : mergedRequests.length === 0 ? (
                 <div className={`mx-2 ${discoveryTheme.emptyState}`}>
-                    <p className={discoveryTheme.emptyTitle}>No {filter} requests</p>
+                    <p className={discoveryTheme.emptyTitle}>
+                        {t('requestsPage.emptyTitle', { filter: translateDiscoverStatus(t, filter) })}
+                    </p>
                     <p className={discoveryTheme.emptyBody}>
-                        Browse discover and submit a request when you find something to watch.
+                        {t('requestsPage.emptyBody')}
                     </p>
                     <button
                         type="button"
                         onClick={() => navigate('/discovery')}
                         className="mt-4 inline-flex px-4 py-2.5 rounded-xl bg-plex text-black font-bold hover:bg-plex-hover transition-colors"
                     >
-                        Browse Discover
+                        {t('common.browseDiscover')}
                     </button>
                 </div>
             ) : (
                 <div className="flex flex-col gap-3 px-2">
-                    {requests.map((item) => {
-                        const statusLabel = memberRequestDisplayStatus(item);
-                        const statusDisplay = translateDiscoverStatus(t, statusLabel);
-                        const busy = actionId === item.id;
-                        const canCancel = Number(item.status) === 1;
-                        const canRetry = item.canRetry || Number(item.status) === 4;
+                    {mergedRequests.map((group) => {
+                        const { primary, variants } = group;
+                        const multi = variants.length > 1;
+                        const showHd = variants.some((v) => !v.is4k);
+                        const show4k = variants.some((v) => !!v.is4k);
+                        const seasons = uniqueSeasonNumbers(variants);
+                        const sharedStatus = multi
+                            ? null
+                            : memberRequestDisplayStatus(primary);
+                        const declinedReason = variants.find((v) => (
+                            memberRequestDisplayStatus(v) === 'Declined' && v.declineReason
+                        ))?.declineReason;
+                        const cancelable = variants.filter((v) => Number(v.status) === 1);
+                        const retryable = variants.filter((v) => v.canRetry || Number(v.status) === 4);
+                        const groupBusy = variants.some((v) => actionId === v.id);
+                        const requestedAt = variants
+                            .map((v) => v.createdAt || v.updatedAt)
+                            .filter(Boolean)
+                            .sort()[0] || primary.createdAt || primary.updatedAt;
 
                         return (
                             <RequestCardShell
-                                key={item.id}
-                                backdropUrl={item.backdropUrl}
-                                posterUrl={item.posterUrl}
+                                key={group.key}
+                                backdropUrl={primary.backdropUrl}
+                                posterUrl={primary.posterUrl}
                             >
                                 <div className="flex flex-col sm:flex-row gap-4 p-4 sm:p-5">
                                     <button
                                         type="button"
-                                        onClick={() => openMedia(item)}
+                                        onClick={() => openMedia(primary)}
                                         className="flex gap-4 min-w-0 flex-1 text-left border-0 bg-transparent p-0 cursor-pointer group"
                                     >
                                         <div className="w-16 h-24 rounded-lg overflow-hidden flex-shrink-0 bg-background/40 border border-border group-hover:border-plex/30 transition-colors">
-                                            {item.posterUrl ? (
-                                                <img src={item.posterUrl} alt="" className="w-full h-full object-cover" />
+                                            {primary.posterUrl ? (
+                                                <img src={primary.posterUrl} alt="" className="w-full h-full object-cover" />
                                             ) : (
                                                 <NoPosterPlaceholder compact />
                                             )}
                                         </div>
                                         <div className="min-w-0 flex-1">
                                             <div className="flex flex-wrap items-center gap-2 mb-1.5">
-                                                <RequestTypeBadge type={item.type} is4k={item.is4k} />
-                                                <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full border ${memberRequestStatusClass(statusLabel)}`}>
-                                                    {statusDisplay}
-                                                </span>
+                                                <RequestTypeBadge
+                                                    type={primary.type}
+                                                    showHd={multi && showHd}
+                                                    show4k={show4k}
+                                                    t={t}
+                                                />
+                                                {!multi && sharedStatus ? (
+                                                    <span className={`${mediaStatusChipClass} ${memberRequestStatusClass(sharedStatus)}`}>
+                                                        {translateDiscoverStatus(t, sharedStatus)}
+                                                    </span>
+                                                ) : null}
                                             </div>
                                             <h3 className="text-lg font-black text-text leading-tight group-hover:text-plex transition-colors">
-                                                {item.title}
-                                                {item.year ? <span className="text-muted font-bold ml-2">{item.year}</span> : null}
+                                                {primary.title}
+                                                {primary.year ? <span className="text-muted font-bold ml-2">{primary.year}</span> : null}
                                             </h3>
                                             <p className="text-xs text-muted mt-1">
-                                                Requested {formatRequestRelativeTime(item.createdAt || item.updatedAt)}
+                                                {t('requestsPage.requestedAt', { date: formatRequestRelativeTime(requestedAt, t) })}
                                             </p>
-                                            {statusLabel === 'Declined' && item.declineReason && (
+                                            {multi ? (
+                                                <div className="mt-2 flex flex-col gap-1.5">
+                                                    {variants.map((variant) => {
+                                                        const statusLabel = memberRequestDisplayStatus(variant);
+                                                        return (
+                                                            <div
+                                                                key={variant.id}
+                                                                className="flex flex-wrap items-center gap-2 text-[11px]"
+                                                            >
+                                                                <span className={`font-bold uppercase tracking-wide ${
+                                                                    variant.is4k ? 'text-amber-200' : 'text-muted'
+                                                                }`}
+                                                                >
+                                                                    {requestQualityLabel(variant)}
+                                                                </span>
+                                                                <span className={`${mediaStatusChipClass} ${memberRequestStatusClass(statusLabel)}`}>
+                                                                    {translateDiscoverStatus(t, statusLabel)}
+                                                                </span>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            ) : null}
+                                            {declinedReason ? (
                                                 <p className="text-xs text-red-200/90 mt-2 bg-red-500/10 border border-red-500/20 rounded-lg px-2.5 py-2">
-                                                    {item.declineReason}
+                                                    {declinedReason}
                                                 </p>
-                                            )}
-                                            {item.type === 'tv' && item.seasons && item.seasons.length > 0 && (
+                                            ) : null}
+                                            {primary.type === 'tv' && seasons.length > 0 && (
                                                 <p className="text-xs text-muted mt-2">
-                                                    Seasons: {item.seasons.map((s) => s.seasonNumber).join(', ')}
+                                                    {t('requestsPage.seasonsList', { seasons: seasons.join(', ') })}
                                                 </p>
                                             )}
-                                            {item.overview && (
-                                                <p className="text-sm text-muted mt-2 line-clamp-2">{item.overview}</p>
+                                            {primary.overview && (
+                                                <p className="text-sm text-muted mt-2 line-clamp-2">{primary.overview}</p>
                                             )}
                                         </div>
                                     </button>
 
                                     <RequestCardActions>
-                                        {canCancel && (
-                                            <button
-                                                type="button"
-                                                disabled={busy}
-                                                onClick={() => setCancelTarget(item)}
-                                                className={`${requestCardActionBtnClass} border border-red-500/30 text-red-300 hover:bg-red-500/10`}
-                                            >
-                                                <Trash2 className="w-3.5 h-3.5" />
-                                                Cancel
-                                            </button>
-                                        )}
-                                        {canRetry && (
-                                            <button
-                                                type="button"
-                                                disabled={busy}
-                                                onClick={() => handleRetry(item)}
-                                                className={`${requestCardActionBtnClass} border border-plex/30 text-plex hover:bg-plex/10`}
-                                            >
-                                                {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
-                                                Retry
-                                            </button>
-                                        )}
+                                        {cancelable.map((variant) => {
+                                            const busy = actionId === variant.id;
+                                            const label = multi
+                                                ? `${t('requestsPage.cancel')} ${requestQualityLabel(variant)}`
+                                                : t('requestsPage.cancel');
+                                            return (
+                                                <button
+                                                    key={`cancel-${variant.id}`}
+                                                    type="button"
+                                                    disabled={groupBusy}
+                                                    onClick={() => setCancelTarget(variant)}
+                                                    className={`${requestCardActionBtnClass} border border-red-500/30 text-red-300 hover:bg-red-500/10`}
+                                                >
+                                                    {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                                                    {label}
+                                                </button>
+                                            );
+                                        })}
+                                        {retryable.map((variant) => {
+                                            const busy = actionId === variant.id;
+                                            const label = multi
+                                                ? `${t('requestsPage.retry')} ${requestQualityLabel(variant)}`
+                                                : t('requestsPage.retry');
+                                            return (
+                                                <button
+                                                    key={`retry-${variant.id}`}
+                                                    type="button"
+                                                    disabled={groupBusy}
+                                                    onClick={() => handleRetry(variant)}
+                                                    className={`${requestCardActionBtnClass} border border-plex/30 text-plex hover:bg-plex/10`}
+                                                >
+                                                    {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+                                                    {label}
+                                                </button>
+                                            );
+                                        })}
                                         <button
                                             type="button"
-                                            onClick={() => openMedia(item)}
+                                            onClick={() => openMedia(primary)}
                                             className={`${requestCardActionBtnClass} border border-border text-text/70 hover:bg-white/5`}
                                         >
-                                            {item.type === 'tv' ? <Tv className="w-3.5 h-3.5" /> : <Film className="w-3.5 h-3.5" />}
-                                            View
+                                            {primary.type === 'tv' ? <Tv className="w-3.5 h-3.5" /> : <Film className="w-3.5 h-3.5" />}
+                                            {t('common.view')}
                                         </button>
                                     </RequestCardActions>
                                 </div>
@@ -302,18 +459,47 @@ export const MyRequestsPage: React.FC<Props> = ({ navigate, pushToast, onCountsC
                 </div>
             )}
 
+            {mergedRequests.length > 0 && (
+                <div className="flex flex-col items-center justify-center min-h-[72px] mt-2 mb-8 gap-3 px-2">
+                    <div ref={sentinelRef} className="h-4 w-full" aria-hidden />
+                    {loadingMore && (
+                        <div className="inline-flex items-center gap-2 text-xs text-muted">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            {t('common.loadingMore')}
+                        </div>
+                    )}
+                    {hasMore && !loadingMore && (
+                        <button
+                            type="button"
+                            onClick={() => void loadData({ append: true, silent: true })}
+                            className="text-xs font-semibold text-plex hover:underline"
+                        >
+                            {t('requestsPage.loadMore')}
+                        </button>
+                    )}
+                    {!hasMore && !loadingMore && knownTotal > PAGE_SIZE && (
+                        <p className="text-xs font-semibold uppercase tracking-wider text-muted/70">
+                            {t('common.endOfResults')}
+                        </p>
+                    )}
+                </div>
+            )}
+
             {cancelTarget && (
                 <div className="fixed inset-0 z-[210] flex items-center justify-center p-4">
                     <button
                         type="button"
-                        aria-label="Close"
+                        aria-label={t('common.close')}
                         className="absolute inset-0 bg-background/80 backdrop-blur-sm"
                         onClick={() => { if (actionId == null) setCancelTarget(null); }}
                     />
                     <div className="relative w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl">
-                        <h3 className="text-lg font-black text-text mb-2">Cancel request?</h3>
+                        <h3 className="text-lg font-black text-text mb-2">{t('requestsPage.cancelTitle')}</h3>
                         <p className="text-sm text-muted mb-5">
-                            Cancel your pending request for <span className="text-text font-semibold">{cancelTarget.title}</span>?
+                            {t('requestsPage.cancelBody', {
+                                quality: requestQualityLabel(cancelTarget),
+                                title: cancelTarget.title,
+                            })}
                         </p>
                         <div className="flex gap-3">
                             <button
@@ -322,7 +508,7 @@ export const MyRequestsPage: React.FC<Props> = ({ navigate, pushToast, onCountsC
                                 onClick={() => setCancelTarget(null)}
                                 className="flex-1 py-2.5 rounded-xl border border-border text-text/70 font-bold hover:bg-white/5 transition-colors disabled:opacity-50"
                             >
-                                Keep Request
+                                {t('requestsPage.keepRequest')}
                             </button>
                             <button
                                 type="button"
@@ -331,7 +517,7 @@ export const MyRequestsPage: React.FC<Props> = ({ navigate, pushToast, onCountsC
                                 className="flex-1 py-2.5 rounded-xl bg-red-500/90 text-white font-black hover:bg-red-500 transition-colors disabled:opacity-50 inline-flex items-center justify-center gap-2"
                             >
                                 {actionId === cancelTarget.id ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                                Cancel Request
+                                {t('requestsPage.cancelRequest')}
                             </button>
                         </div>
                     </div>

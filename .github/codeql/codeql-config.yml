@@ -1,0 +1,8 @@
+name: StreamPilot CodeQL
+paths-ignore:
+  - '**/*.test.js'
+  - '**/*.test.ts'
+  - '**/*.test.tsx'
+  - '**/__tests__/**'
+  - '**/test_*.py'
+  - '**/tests/**'

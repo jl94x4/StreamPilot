@@ -5,6 +5,7 @@ import { enrichDiscoveryItems } from './discoverItemUtils';
 import { enrichDiscoverItemsWithAvailability } from './discoverAvailabilityEnrich';
 import { useDiscoveryPreferences } from './useDiscoveryPreferences';
 import { WatchlistPanel } from './WatchlistPanel';
+import { useDiscoverI18n } from './i18n';
 
 type Props = {
     formatItem: (item: any) => any;
@@ -15,6 +16,7 @@ type Props = {
 };
 
 export const WatchlistPage: React.FC<Props> = ({ formatItem, onSelect, navigate, pushToast, providerLabel = 'Plex' }) => {
+    const { t } = useDiscoverI18n();
     const { loaded } = useDiscoveryPreferences();
     const [items, setItems] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
@@ -30,12 +32,12 @@ export const WatchlistPage: React.FC<Props> = ({ formatItem, onSelect, navigate,
             const withAvailability = await enrichDiscoverItemsWithAvailability(enriched);
             setItems(withAvailability);
         } catch (e: any) {
-            setError(e?.message || 'Failed to load watchlist');
+            setError(e?.message || t('watchlist.loadFailed'));
             setItems([]);
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [t]);
 
     useEffect(() => {
         if (!loaded) return undefined;
@@ -62,16 +64,16 @@ export const WatchlistPage: React.FC<Props> = ({ formatItem, onSelect, navigate,
     if (!items.length) {
         return (
             <div className="mx-2 rounded-xl border border-white/10 bg-white/[0.03] px-6 py-12 text-center">
-                <p className="text-white/70 font-semibold">Your {providerLabel} watchlist is empty</p>
+                <p className="text-white/70 font-semibold">{t('watchlist.emptyTitle', { provider: providerLabel })}</p>
                 <p className="text-sm text-white/45 mt-2">
-                    Add movies and shows to your {providerLabel} watchlist — they will appear here once Seerr syncs.
+                    {t('watchlist.emptyBody', { provider: providerLabel })}
                 </p>
                 <button
                     type="button"
                     onClick={() => navigate('/discovery')}
                     className="mt-4 inline-flex px-4 py-2.5 rounded-xl bg-plex text-black font-bold hover:bg-plex-hover transition-colors"
                 >
-                    Browse Discover
+                    {t('common.browseDiscover')}
                 </button>
             </div>
         );

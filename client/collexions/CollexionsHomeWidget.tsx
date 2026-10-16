@@ -1,6 +1,9 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Layers, Pin, RefreshCw, Clock, CalendarClock } from 'lucide-react';
+import { useDiscoverI18n } from '../discovery/i18n';
+import type { DiscoverTranslate } from '../discovery/i18n/types';
 import { api } from './api';
+import { usePoll } from '../shared/usePoll';
 
 export type CollexionsSummary = {
     status?: string;
@@ -16,16 +19,16 @@ type Props = {
     onOpen?: () => void;
 };
 
-const formatRelative = (tsSeconds: number): string => {
+const formatRelative = (t: DiscoverTranslate, tsSeconds: number): string => {
     const diffMs = tsSeconds * 1000 - Date.now();
     const abs = Math.abs(diffMs);
     const mins = Math.round(abs / 60000);
-    if (mins < 1) return diffMs >= 0 ? 'now' : 'just now';
-    if (mins < 60) return diffMs >= 0 ? `in ${mins}m` : `${mins}m ago`;
+    if (mins < 1) return diffMs >= 0 ? t('homeDashboard.widgets.collexions.now') : t('common.justNow');
+    if (mins < 60) return diffMs >= 0 ? t('homeDashboard.widgets.collexions.inMinutes', { count: mins }) : t('common.minutesAgo', { count: mins });
     const hours = Math.round(mins / 60);
-    if (hours < 48) return diffMs >= 0 ? `in ${hours}h` : `${hours}h ago`;
+    if (hours < 48) return diffMs >= 0 ? t('homeDashboard.widgets.collexions.inHours', { count: hours }) : t('common.hoursAgo', { count: hours });
     const days = Math.round(hours / 24);
-    return diffMs >= 0 ? `in ${days}d` : `${days}d ago`;
+    return diffMs >= 0 ? t('homeDashboard.widgets.collexions.inDays', { count: days }) : t('common.daysAgo', { count: days });
 };
 
 const formatLastRun = (raw?: string): string => {
@@ -41,31 +44,36 @@ const formatLastRun = (raw?: string): string => {
 };
 
 export const CollexionsHomeWidget: React.FC<Props> = ({ onOpen }) => {
+    const { t } = useDiscoverI18n();
     const [summary, setSummary] = useState<CollexionsSummary | null>(null);
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(true);
+    const loadGenRef = useRef(0);
 
     const load = useCallback(async () => {
+        const gen = ++loadGenRef.current;
         setLoading(true);
         setError('');
         try {
             const data = await api.getSummary();
+            if (gen !== loadGenRef.current) return;
             setSummary(data || null);
         } catch (e: any) {
-            setError(e?.message || 'Unavailable');
+            if (gen !== loadGenRef.current) return;
+            setError(e?.message || t('homeDashboard.widgets.collexions.unavailable'));
             setSummary(null);
         } finally {
-            setLoading(false);
+            if (gen === loadGenRef.current) setLoading(false);
         }
-    }, []);
+    }, [t]);
 
     useEffect(() => {
         void load();
-        const id = window.setInterval(() => { void load(); }, 60000);
-        return () => window.clearInterval(id);
     }, [load]);
 
-    const status = summary?.status || 'Unknown';
+    usePoll(() => { void load(); }, 60_000);
+
+    const status = summary?.status || t('homeDashboard.widgets.collexions.unknown');
     const statusLower = status.toLowerCase();
     const active = /running|sleeping|processing|waiting/.test(statusLower);
     const nextTs = Number(summary?.next_run_timestamp) || 0;
@@ -81,14 +89,14 @@ export const CollexionsHomeWidget: React.FC<Props> = ({ onOpen }) => {
                     </div>
                     <div className="min-w-0">
                         <p className="text-muted text-[10px] uppercase tracking-widest font-bold">ColleXions</p>
-                        <p className="text-text font-bold text-sm truncate">Collection pinning</p>
+                        <p className="text-text font-bold text-sm truncate">{t('homeDashboard.widgets.collexions.subtitle')}</p>
                     </div>
                 </div>
                 <button
                     type="button"
                     onClick={() => { void load(); }}
                     className="p-1.5 rounded-lg text-muted hover:text-text hover:bg-white/5 transition-colors"
-                    title="Refresh"
+                    title={t('homeDashboard.admin.refresh')}
                 >
                     <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
                 </button>
@@ -104,7 +112,7 @@ export const CollexionsHomeWidget: React.FC<Props> = ({ onOpen }) => {
                             {pinned == null ? '—' : pinned}
                         </p>
                         <p className="text-[9px] uppercase tracking-wider font-bold text-muted mt-1">
-                            Pinned{typeof slots === 'number' && slots > 0 ? ` / ${slots}` : ''}
+                            {t('homeDashboard.widgets.collexions.pinned')}{typeof slots === 'number' && slots > 0 ? ` / ${slots}` : ''}
                         </p>
                     </div>
                     <div className="rounded-xl bg-background/50 border border-white/5 p-2.5 text-center">
@@ -112,14 +120,14 @@ export const CollexionsHomeWidget: React.FC<Props> = ({ onOpen }) => {
                         <p className="text-[11px] font-bold text-text leading-snug mt-0.5">
                             {formatLastRun(summary?.last_run_at || summary?.last_update)}
                         </p>
-                        <p className="text-[9px] uppercase tracking-wider font-bold text-muted mt-1">Last run</p>
+                        <p className="text-[9px] uppercase tracking-wider font-bold text-muted mt-1">{t('homeDashboard.widgets.collexions.lastRun')}</p>
                     </div>
                     <div className="rounded-xl bg-background/50 border border-white/5 p-2.5 text-center">
                         <CalendarClock className="w-3.5 h-3.5 text-plex mx-auto mb-1 opacity-80" />
                         <p className="text-[11px] font-bold text-text leading-snug mt-0.5">
-                            {nextTs > 0 ? formatRelative(nextTs) : '—'}
+                            {nextTs > 0 ? formatRelative(t, nextTs) : '—'}
                         </p>
-                        <p className="text-[9px] uppercase tracking-wider font-bold text-muted mt-1">Next run</p>
+                        <p className="text-[9px] uppercase tracking-wider font-bold text-muted mt-1">{t('homeDashboard.widgets.collexions.nextRun')}</p>
                     </div>
                 </div>
             )}
@@ -139,7 +147,7 @@ export const CollexionsHomeWidget: React.FC<Props> = ({ onOpen }) => {
                         onClick={onOpen}
                         className="text-xs font-bold text-plex hover:underline"
                     >
-                        Open
+                        {t('homeDashboard.widgets.collexions.open')}
                     </button>
                 )}
             </div>

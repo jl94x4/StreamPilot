@@ -32,15 +32,23 @@ const FALLBACK_DARK_LOGO_PATHS = new Set([
 /** Geometric / multi-tone marks that must keep original colors (invert ruins them). */
 const NEVER_INVERT_LOGO_PATHS = new Set([
     '/6mSHSquNpfLgDdv6VnOOvC5Uz2h.png', // Cinemax
+    '/gIAcGTjKKr0KOHL5s4O36roJ8p7.png', // Peacock
 ]);
 
-const NEVER_INVERT_LABELS = new Set(['cinemax']);
+const NEVER_INVERT_LABELS = new Set(['cinemax', 'peacock']);
 
 export const shouldNeverInvertLogo = (logoPath: string, label = '') => {
     if (NEVER_INVERT_LOGO_PATHS.has(normalizeLogoPath(logoPath))) return true;
     const normalized = String(label || '').trim().toLowerCase();
-    return NEVER_INVERT_LABELS.has(normalized);
+    if (NEVER_INVERT_LABELS.has(normalized)) return true;
+    // Peacock Premium / Peacock TV — keep the multicolour mark.
+    return normalized.includes('peacock');
 };
+
+/** Brand-color logos — no duotone, no invert (Peacock feathers, etc.). */
+export const shouldPreserveColorLogo = (logoPath: string, label = '') => (
+    shouldNeverInvertLogo(logoPath, label)
+);
 
 export const isKnownDarkLogoPath = (logoPath: string) => (
     FALLBACK_DARK_LOGO_PATHS.has(normalizeLogoPath(logoPath))
@@ -56,6 +64,26 @@ export const shouldInvertByLabel = (label: string) => {
         || normalized === 'showtime'
         || normalized === 'amc'
         || normalized === 'starz'
+        // Common black wordmarks on dark UI (Walt Disney Pictures, etc.)
+        || normalized === 'disney'
+        || normalized.includes('walt disney')
+        || normalized.includes('disney pictures')
+        || normalized === 'pixar'
+        || normalized.includes('dreamworks')
+        || normalized === 'a24'
+        || normalized === 'neon'
+        || normalized.includes('searchlight')
+        || normalized.includes('focus features')
+        || normalized.includes('miramax')
+        || normalized.includes('new line')
+        || normalized === 'mgm'
+        || normalized.includes('legendary')
+        || normalized.includes('blumhouse')
+        || normalized.includes('illumination')
+        || normalized.includes('bbc')
+        || normalized === 'itv'
+        || normalized === 'sky'
+        || normalized.includes('sky atlantic')
     );
 };
 
@@ -93,7 +121,9 @@ export const isPredominantlyDarkLogo = (img: HTMLImageElement): boolean => {
     const averageLuminance = totalLuminance / opaquePixels;
     const darkRatio = darkPixels / opaquePixels;
 
-    return averageLuminance < 55 && darkRatio > 0.5;
+    // Include near-black / charcoal wordmarks (e.g. Walt Disney Pictures).
+    return (averageLuminance < 55 && darkRatio > 0.5)
+        || (averageLuminance < 72 && darkRatio > 0.62);
 };
 
 export const shouldInvertDiscoveryLogo = (logoPath: string, label = '', img?: HTMLImageElement | null) => {

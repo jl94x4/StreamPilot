@@ -259,8 +259,34 @@ class ApiService {
     return this.get('/jobs');
   }
 
-  async runJobNow(id: string): Promise<any> {
-    return this.post('/jobs/run', { id });
+  async runJobNow(idOrPayload: string | { id?: string; ids?: string[]; all?: boolean }): Promise<any> {
+    const payload = typeof idOrPayload === 'string' ? { id: idOrPayload } : idOrPayload;
+    return this.post('/jobs/run', payload);
+  }
+
+  async getJobRunProgress(): Promise<{
+    running: boolean;
+    total: number;
+    done: number;
+    failed: number;
+    current: string;
+    currentId: string;
+    percent: number;
+  }> {
+    const raw = await this.get('/jobs/progress');
+    return {
+      running: Boolean(raw?.running),
+      total: Number(raw?.total || 0),
+      done: Number(raw?.done || 0),
+      failed: Number(raw?.failed || 0),
+      current: String(raw?.current || ''),
+      currentId: String(raw?.current_id || ''),
+      percent: Number(raw?.percent || 0),
+    };
+  }
+
+  async updateJob(payload: { id?: string; ids?: string[]; all?: boolean; sort_order?: string; auto_sync?: boolean }): Promise<any> {
+    return this.post('/jobs/update', payload);
   }
 
   async deleteJob(id: string): Promise<any> {

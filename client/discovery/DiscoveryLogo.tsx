@@ -6,6 +6,7 @@ import {
     isPredominantlyDarkLogo,
     shouldInvertByLabel,
     shouldNeverInvertLogo,
+    shouldPreserveColorLogo,
 } from './discoveryLogoUtils';
 
 type Props = {
@@ -15,6 +16,8 @@ type Props = {
     width?: 154 | 300 | 780;
     /** Overseerr-style duotone — light marks on dark cards, dark marks in light theme. */
     duotone?: boolean;
+    /** Flat white mark. One pass, so a dark Disney wordmark and a green Hulu wordmark match. */
+    tone?: 'auto' | 'light';
     onError?: () => void;
 };
 
@@ -37,10 +40,14 @@ export const DiscoveryLogo: React.FC<Props> = ({
     className = '',
     width = 154,
     duotone = false,
+    tone = 'auto',
     onError,
 }) => {
     const [isLightTheme, setIsLightTheme] = useState(readLightTheme);
-    const useDuotone = duotone && !isBundledOrAbsoluteLogo(logoPath);
+    const forceLight = tone === 'light';
+    const useDuotone = duotone && !forceLight
+        && !isBundledOrAbsoluteLogo(logoPath)
+        && !shouldPreserveColorLogo(logoPath, alt);
     const src = useDuotone
         ? tmdbDuotoneLogo(logoPath, width === 154 ? 300 : width, isLightTheme ? 'onLight' : 'onDark')
         : discoveryLogoUrl(logoPath, width);
@@ -54,7 +61,8 @@ export const DiscoveryLogo: React.FC<Props> = ({
     }, []);
 
     const [invert, setInvert] = useState(
-        () => !useDuotone
+        () => !forceLight
+            && !useDuotone
             && !shouldNeverInvertLogo(logoPath, alt)
             && (isKnownDarkLogoPath(logoPath)
                 || shouldInvertByLabel(alt)
@@ -62,7 +70,7 @@ export const DiscoveryLogo: React.FC<Props> = ({
     );
 
     useEffect(() => {
-        if (useDuotone) {
+        if (forceLight || useDuotone) {
             setInvert(false);
             return undefined;
         }
@@ -101,7 +109,7 @@ export const DiscoveryLogo: React.FC<Props> = ({
             probe.onload = null;
             probe.onerror = null;
         };
-    }, [logoPath, alt, width, useDuotone, isLightTheme]);
+    }, [logoPath, alt, width, useDuotone, isLightTheme, forceLight]);
 
     return (
         <img
@@ -109,7 +117,7 @@ export const DiscoveryLogo: React.FC<Props> = ({
             alt={alt}
             loading="lazy"
             onError={onError}
-            className={`${className}${invert ? ' brightness-0 invert' : ''}`}
+            className={`${className}${forceLight || invert ? ' brightness-0 invert' : ''}`}
         />
     );
 };

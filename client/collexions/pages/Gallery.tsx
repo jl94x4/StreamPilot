@@ -1,3 +1,4 @@
+import { askConfirm, appAlert } from '../../shared/confirm';
 import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { api, collexionsImageUrl } from '../api';
 import { PlexCollection } from '../types';
@@ -17,28 +18,38 @@ import {
     CheckSquare,
     X,
     Trash2,
+    AlertTriangle,
+    Wrench,
 } from 'lucide-react';
 import { CustomSelect } from '../../shared/ui';
 import { NoPosterPlaceholder } from '../../shared/NoPosterPlaceholder';
+import { PosterGridSizeSlider } from '../../shared/PosterGridSizeSlider';
 import {
-    normalizeUpgraderGridSize,
-    UPGRADER_GRID_SIZE_OPTIONS,
+    parsePosterGridValue,
+    posterGridDensityBand,
+    posterGridImageSize,
     upgraderPosterGridClass,
     upgraderPosterGridStyle,
-    type UpgraderGridSize,
+    type PosterGridValue,
 } from '../../shared/portalLayout';
 
-const LEGACY_GRID_MAP: Record<string, UpgraderGridSize> = {
+const LEGACY_GRID_MAP: Record<string, string> = {
     sm: 'small',
     md: 'medium',
     lg: 'large',
 };
 
+const GALLERY_GRID_DEFAULT_VERSION = 2;
+
 type StatusFilter = 'all' | 'pinned' | 'tracked' | 'missing_art';
 type SortMode = 'title' | 'library';
 
-const collKey = (c: { library: string; title: string }) => `${c.library}\0${c.title}`;
-const collId = (c: { library: string; title: string }) => `${c.library}-${c.title}`;
+const collKey = (c: { library: string; title: string; ratingKey?: string }) => (
+    c.ratingKey ? `${c.library}\0${c.ratingKey}` : `${c.library}\0${c.title}`
+);
+const collId = (c: { library: string; title: string; ratingKey?: string }) => (
+    c.ratingKey ? `${c.library}-${c.ratingKey}` : `${c.library}-${c.title}`
+);
 
 /** Collection art with Discover-style placeholder when missing or load fails. */
 const GalleryCollectionArt: React.FC<{
@@ -98,7 +109,7 @@ const Gallery: React.FC = () => {
     const [selectedLibrary, setSelectedLibrary] = useState<string>('All');
     const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
     const [sortMode, setSortMode] = useState<SortMode>('title');
-    const [gridSize, setGridSize] = useState<UpgraderGridSize>('medium');
+    const [gridSize, setGridSize] = useState<PosterGridValue>(9.5);
     const [pinningId, setPinningId] = useState<string | null>(null);
     const [deletingId, setDeletingId] = useState<string | null>(null);
     const [fixingArtId, setFixingArtId] = useState<string | null>(null);
@@ -106,6 +117,15 @@ const Gallery: React.FC = () => {
     const [selectMode, setSelectMode] = useState(false);
     const [selectedKeys, setSelectedKeys] = useState<Set<string>>(() => new Set());
     const [bulkBusy, setBulkBusy] = useState(false);
+    const [bulkProgress, setBulkProgress] = useState<{ total: number; label: string } | null>(null);
+    const [healthBusy, setHealthBusy] = useState(false);
+    const [repairBusy, setRepairBusy] = useState(false);
+    const [healthResult, setHealthResult] = useState<{
+        scanned: number;
+        deep?: boolean;
+        suspects: Array<{ title: string; library: string; ratingKey?: string; smart?: boolean; issues: string[] }>;
+        errors?: string[];
+    } | null>(null);
     const resolveGenRef = useRef(0);
 
     useEffect(() => {
@@ -118,9 +138,9 @@ const Gallery: React.FC = () => {
                 if (state.statusFilter !== undefined) setStatusFilter(state.statusFilter);
                 else if (state.showPinnedOnly) setStatusFilter('pinned');
                 if (state.sortMode !== undefined) setSortMode(state.sortMode);
-                if (state.gridSize !== undefined) {
+                if (Number(state.gridDefaultVersion) === GALLERY_GRID_DEFAULT_VERSION && state.gridSize !== undefined) {
                     const raw = String(state.gridSize);
-                    setGridSize(normalizeUpgraderGridSize(LEGACY_GRID_MAP[raw] || raw));
+                    setGridSize(parsePosterGridValue(LEGACY_GRID_MAP[raw] || raw, { allowList: true }));
                 }
             } catch (e) {
                 console.error('Failed to parse saved gallery state', e);
@@ -135,6 +155,7 @@ const Gallery: React.FC = () => {
             statusFilter,
             sortMode,
             gridSize,
+            gridDefaultVersion: GALLERY_GRID_DEFAULT_VERSION,
         }));
     }, [searchQuery, selectedLibrary, statusFilter, sortMode, gridSize]);
 
@@ -195,7 +216,13 @@ const Gallery: React.FC = () => {
             void enrichPins(finalList);
         } catch (e: any) {
             console.error('Failed to fetch collections', e);
-            setLoadError(e?.message || 'Failed to load collections from Plex.');
+            const raw = String(e?.message || '');
+            const is524 = /\b524\b/.test(raw) || /origin took too long/i.test(raw);
+            setLoadError(
+                is524
+                    ? 'Request timed out (HTTP 524) — the origin took too long. Retry; a cached list may appear after the first successful scan.'
+                    : (raw || 'Failed to load collections from Plex.'),
+            );
             setCollections([]);
             setLoading(false);
         }
@@ -225,21 +252,22 @@ const Gallery: React.FC = () => {
                 ));
             }
         } catch (e) {
-            alert('Action failed. Check Plex connection.');
+            void appAlert('Action failed. Check Plex connection.');
         } finally {
             setPinningId(null);
         }
     };
 
     const handleDelete = async (coll: PlexCollection) => {
-        const ok = window.confirm(
+        const ok = await askConfirm(
             `Delete "${coll.title}" from Plex?\n\nThis permanently removes the collection from "${coll.library}" (titles stay in your library). Any Collexions auto-sync job for it will also be removed.`,
+            { title: 'Delete collection?', confirmLabel: 'Delete', cancelLabel: 'Keep' },
         );
         if (!ok) return;
         const id = collId(coll);
         setDeletingId(id);
         try {
-            await api.deleteCollection(coll.title, coll.library);
+            await api.deleteCollection(coll.title, coll.library, coll.ratingKey);
             setCollections(prev => prev.filter(c => collKey(c) !== collKey(coll)));
             setSelectedKeys(prev => {
                 const next = new Set(prev);
@@ -247,7 +275,7 @@ const Gallery: React.FC = () => {
                 return next;
             });
         } catch (e: any) {
-            alert(e?.message || 'Delete failed. Check Plex connection.');
+            void appAlert(e?.message || 'Delete failed. Check Plex connection.');
         } finally {
             setDeletingId(null);
         }
@@ -259,19 +287,114 @@ const Gallery: React.FC = () => {
         try {
             const res = await api.fixCollectionArt(coll.library, coll.title, true);
             if (!res.ok_count) {
-                alert('Could not find a poster source for this collection (need TMDB key or items with artwork).');
+                void appAlert('Could not find a poster source for this collection (need TMDB key or items with artwork).');
             }
             await fetchCollections(true);
         } catch (e: any) {
             const msg = String(e?.message || '');
             if (/504|timed out|timeout/i.test(msg)) {
-                alert('Poster refresh timed out. Try again — large collections can take a moment.');
+                void appAlert('Poster refresh timed out. Try again — large collections can take a moment.');
             } else {
-                alert(msg || 'Failed to set collection art.');
+                void appAlert(msg || 'Failed to set collection art.');
             }
         } finally {
             setFixingArtId(null);
         }
+    };
+
+    const handleWebHealthScan = async () => {
+        setHealthBusy(true);
+        try {
+            const lib = selectedLibrary !== 'All' ? selectedLibrary : undefined;
+            const res = await api.scanCollectionWebHealth(lib);
+            if (!res.success) {
+                void appAlert(res.error || 'Scan failed.');
+                return;
+            }
+            setHealthResult({
+                scanned: Number(res.scanned || 0),
+                deep: res.deep === true,
+                suspects: Array.isArray(res.suspects) ? res.suspects : [],
+                errors: res.errors,
+            });
+            if (!(res.suspects || []).length) {
+                void appAlert(
+                    `Scanned ${res.scanned || 0} collection(s) across Plex Web list endpoints — no bad types or posters found. `
+                    + 'If Plex desktop still crashes on Movies → Collections, click Repair Plex tab here, '
+                    + 'then check Plex Media Server.log for “unknown type: 99” if it still fails.',
+                );
+            }
+        } catch (e: any) {
+            void appAlert(e?.message || 'Scan failed.');
+        } finally {
+            setHealthBusy(false);
+        }
+    };
+
+    const handleRepairCollectionsTab = async () => {
+        const scope = selectedLibrary !== 'All' ? selectedLibrary : 'every managed library';
+        const ok = await askConfirm(
+            `Repair the Plex Collections tab for ${scope}?\n\nThis deletes folder (type 99) rows that make Plex show “Something went wrong” and fixes crash-prone smart filters. Random collections stay random — they use Kometa-style label smart collections that reshuffle on every view. Real library titles are not deleted.`,
+            { title: 'Repair Plex Collections tab?', confirmLabel: 'Repair', cancelLabel: 'Cancel' },
+        );
+        if (!ok) return;
+        setRepairBusy(true);
+        try {
+            const lib = selectedLibrary !== 'All' ? selectedLibrary : undefined;
+            let res = await api.repairCollectionsWeb(lib);
+            if (!res.success) {
+                void appAlert(res.error || 'Repair failed.');
+                return;
+            }
+            const deadline = Date.now() + 20 * 60 * 1000;
+            while (res.running && Date.now() < deadline) {
+                await new Promise((resolve) => window.setTimeout(resolve, 2000));
+                res = await api.repairCollectionsWebStatus();
+            }
+            if (res.running) {
+                void appAlert(
+                    `Repair is still running (${res.phase || 'working'}). Reload Plex Web’s Collections tab in a minute — you do not need to click Repair again.`,
+                );
+                return;
+            }
+            if (res.error && !res.purged && !res.converted && !res.pruned) {
+                void appAlert(res.error);
+                return;
+            }
+            const extra = (res.errors || []).length ? `\n\nWarnings: ${res.errors?.join(' · ')}` : '';
+            void appAlert(
+                `Removed ${res.purged || 0} crashy folder row(s), `
+                + `pruned ${res.pruned || 0} bad member(s), `
+                + `and converted ${res.converted || 0} smart collection(s) `
+                + `across ${res.scanned || 0} collection(s). `
+                + 'Hard-reload Plex Web’s Collections tab (Ctrl+F5).'
+                + extra,
+            );
+            await fetchCollections(true);
+        } catch (e: any) {
+            const msg = String(e?.message || '');
+            if (/\b524\b/.test(msg) || /origin took too long/i.test(msg) || /timed out/i.test(msg)) {
+                void appAlert(
+                    'The repair is still running on the server (Cloudflare timed out waiting). '
+                    + 'Wait a minute, reload Plex Web’s Collections tab, then refresh this gallery — do not click Repair again yet.',
+                );
+                return;
+            }
+            void appAlert(msg || 'Repair failed.');
+        } finally {
+            setRepairBusy(false);
+        }
+    };
+
+    const handleHealthDelete = async (row: { title: string; library: string; ratingKey?: string }) => {
+        await handleDelete({
+            title: row.title,
+            library: row.library,
+            ratingKey: row.ratingKey,
+        } as PlexCollection);
+        setHealthResult((prev) => prev
+            ? { ...prev, suspects: prev.suspects.filter((s) => !(s.library === row.library && s.title === row.title && (s.ratingKey || '') === (row.ratingKey || ''))) }
+            : prev);
     };
 
     const toggleSelect = (coll: PlexCollection) => {
@@ -331,10 +454,10 @@ const Gallery: React.FC = () => {
             exitSelectMode();
             await fetchCollections(true);
             if (okCount < items.length) {
-                alert(`Set posters on ${okCount} of ${items.length}. Some need a TMDB key or items with artwork.`);
+                void appAlert(`Set posters on ${okCount} of ${items.length}. Some need a TMDB key or items with artwork.`);
             }
         } catch (e: any) {
-            alert(e?.message || 'Bulk fix art failed.');
+            void appAlert(e?.message || 'Bulk fix art failed.');
         } finally {
             setBulkBusy(false);
         }
@@ -343,15 +466,17 @@ const Gallery: React.FC = () => {
     const handleBulk = async (action: 'pin' | 'unpin' | 'delete') => {
         const items = collections
             .filter(c => selectedKeys.has(collKey(c)))
-            .map(c => ({ title: c.title, library: c.library }));
+            .map(c => ({ title: c.title, library: c.library, ratingKey: c.ratingKey }));
         if (!items.length) return;
         if (action === 'delete') {
-            const ok = window.confirm(
+            const ok = await askConfirm(
                 `Permanently delete ${items.length} collection${items.length === 1 ? '' : 's'} from Plex?\n\nTitles stay in your libraries. Matching Collexions auto-sync jobs will also be removed.`,
+                { title: 'Delete collections?', confirmLabel: 'Delete', cancelLabel: 'Keep' },
             );
             if (!ok) return;
         }
         setBulkBusy(true);
+        setBulkProgress({ total: items.length, label: action });
         try {
             const result = await api.bulkPinCollections(action, items);
             const okKeys = new Set(
@@ -374,27 +499,19 @@ const Gallery: React.FC = () => {
             }
             exitSelectMode();
             if (result.ok_count < items.length) {
-                alert(`${action === 'delete' ? 'Deleted' : 'Updated'} ${result.ok_count} of ${items.length}. Some actions failed.`);
+                void appAlert(`${action === 'delete' ? 'Deleted' : 'Updated'} ${result.ok_count} of ${items.length}. Some actions failed.`);
             }
         } catch (e) {
-            alert('Bulk action failed. Check Plex connection.');
+            void appAlert('Bulk action failed. Check Plex connection.');
         } finally {
             setBulkBusy(false);
+            setBulkProgress(null);
         }
     };
 
-    const isCompact = gridSize === 'small';
+    const isCompact = posterGridDensityBand(gridSize) === 'small';
     const isList = gridSize === 'list';
-    const imageSize = useMemo(() => {
-        switch (gridSize) {
-            case 'small': return { width: 160, height: 240 };
-            case 'medium': return { width: 240, height: 360 };
-            case 'large': return { width: 320, height: 480 };
-            case 'xlarge': return { width: 400, height: 600 };
-            case 'list': return { width: 96, height: 144 };
-            default: return { width: 320, height: 480 };
-        }
-    }, [gridSize]);
+    const imageSize = useMemo(() => posterGridImageSize(gridSize), [gridSize]);
 
     if (loading && collections.length === 0) {
         return (
@@ -440,6 +557,26 @@ const Gallery: React.FC = () => {
                 <div className="flex items-center gap-2">
                     <button
                         type="button"
+                        onClick={() => void handleWebHealthScan()}
+                        disabled={healthBusy || repairBusy}
+                        className="px-3 py-2 rounded-lg border border-amber-500/40 bg-amber-500/10 text-amber-100 text-sm font-bold hover:bg-amber-500/20 disabled:opacity-50 inline-flex items-center gap-1.5"
+                        title="Probe each collection poster the same way Plex Web does when you scroll Collections"
+                    >
+                        {healthBusy ? <RefreshCw className="w-4 h-4 animate-spin" /> : <AlertTriangle className="w-4 h-4" />}
+                        Find Plex crash
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => void handleRepairCollectionsTab()}
+                        disabled={healthBusy || repairBusy}
+                        className="px-3 py-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 text-emerald-100 text-sm font-bold hover:bg-emerald-500/20 disabled:opacity-50 inline-flex items-center gap-1.5"
+                        title="Delete type-99 folder rows that crash Plex Web’s Collections tab"
+                    >
+                        {repairBusy ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Wrench className="w-4 h-4" />}
+                        Repair Plex tab
+                    </button>
+                    <button
+                        type="button"
                         onClick={() => (selectMode ? exitSelectMode() : setSelectMode(true))}
                         className={`px-3 py-2 rounded-lg border text-sm font-bold transition-colors ${selectMode
                             ? 'bg-plex text-background border-plex'
@@ -458,11 +595,95 @@ const Gallery: React.FC = () => {
                 </div>
             </div>
 
+            {healthResult ? (
+                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 space-y-3">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                            <p className="text-sm font-bold text-amber-100">
+                                Plex Web crash scan — {healthResult.scanned} collection(s)
+                            </p>
+                            <p className="text-[12px] text-muted mt-1">
+                                Suspects are collections Plex Web cannot render (bad type, broken poster, or a corrupt page-2 list entry). The A–Z jumper in Plex still loads that broken page, so use this scan and delete/fix suspects here instead of Plex Web. Filter to your Movies library first for a faster scan.
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            className="text-xs font-bold text-muted hover:text-text"
+                            onClick={() => setHealthResult(null)}
+                        >
+                            Dismiss
+                        </button>
+                    </div>
+                    {healthResult.suspects.length === 0 ? (
+                        <p className="text-sm text-emerald-200">
+                            No broken collection rows or posters found (including paginated Plex Web list scans
+                            {healthResult.deep ? ' and member checks' : ''}).
+                            If Plex Web still crashes, the fault may be outside collections — check{' '}
+                            <code className="text-emerald-100">Plex Media Server.log</code> for “unknown type: 99”,
+                            run Clean Bundles + Optimize Database on the server, or browse collections here instead of Plex Web.
+                        </p>
+                    ) : (
+                        <ul className="space-y-2 max-h-80 overflow-y-auto">
+                            {healthResult.suspects.map((row) => (
+                                <li
+                                    key={`${row.library}-${row.ratingKey || row.title}`}
+                                    className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-white/10 bg-black/30 p-3"
+                                >
+                                    <div className="min-w-0">
+                                        <p className="text-sm font-semibold text-text">
+                                            {row.title}
+                                            {row.smart ? <span className="ml-2 text-[10px] uppercase tracking-wide text-amber-200">smart</span> : null}
+                                        </p>
+                                        <p className="text-[11px] text-muted">{row.library}{row.ratingKey ? ` · ${row.ratingKey}` : ''}</p>
+                                        <ul className="mt-1 text-[12px] text-red-200 list-disc pl-4">
+                                            {row.issues.map((issue) => <li key={issue}>{issue}</li>)}
+                                        </ul>
+                                    </div>
+                                    <div className="flex gap-2 shrink-0">
+                                        <button
+                                            type="button"
+                                            className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-plex/15 text-plex border border-plex/30"
+                                            onClick={() => void handleFixArt({
+                                                title: row.title,
+                                                library: row.library,
+                                                ratingKey: row.ratingKey,
+                                            } as PlexCollection)}
+                                        >
+                                            Fix poster
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-red-600/20 text-red-300 border border-red-600/40"
+                                            onClick={() => void handleHealthDelete(row)}
+                                        >
+                                            Delete
+                                        </button>
+                                    </div>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                    {(healthResult.errors || []).length ? (
+                        <p className="text-[11px] text-muted">{healthResult.errors?.join(' · ')}</p>
+                    ) : null}
+                </div>
+            ) : null}
+
             {selectMode && (
                 <div className="flex flex-wrap items-center gap-2 p-3 rounded-xl bg-card/60 border border-border">
                     <span className="text-sm text-muted mr-1">
                         {selectedKeys.size} selected
                     </span>
+                    {bulkProgress ? (
+                        <div className="w-full sm:w-auto sm:min-w-[220px] flex flex-col gap-1">
+                            <span className="text-[11px] text-muted capitalize">
+                                {bulkProgress.label}ing {bulkProgress.total} collection{bulkProgress.total === 1 ? '' : 's'}…
+                            </span>
+                            <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
+                                <div className="h-full w-full bg-plex animate-pulse rounded-full" />
+                            </div>
+                        </div>
+                    ) : null}
                     <button
                         type="button"
                         onClick={selectAllVisible}
@@ -587,12 +808,11 @@ const Gallery: React.FC = () => {
                     compact
                 />
 
-                <CustomSelect
+                <PosterGridSizeSlider
                     value={gridSize}
-                    onChange={(value) => setGridSize(normalizeUpgraderGridSize(value))}
-                    options={UPGRADER_GRID_SIZE_OPTIONS}
-                    className="w-full md:w-44"
-                    compact
+                    onChange={setGridSize}
+                    allowList
+                    className="w-full md:w-auto"
                 />
             </div>
 

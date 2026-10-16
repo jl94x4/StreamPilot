@@ -311,6 +311,39 @@ def is_regex_excluded(title, patterns):
             return False
     return False
 
+def _portal_plex_defaults():
+    """Fill empty plex_url / plex_token from portal Media Player settings."""
+    portal_url = ''
+    portal_token = ''
+    portal_path = str(os.environ.get('COLLEXIONS_PORTAL_CONFIG') or '').strip()
+    if portal_path and os.path.exists(portal_path):
+        try:
+            with open(portal_path, 'r', encoding='utf-8') as f:
+                portal = json.load(f)
+            if isinstance(portal, dict):
+                media_type = str(portal.get('mediaServerType') or 'plex').strip().lower()
+                if media_type == 'plex':
+                    portal_url = str(portal.get('plexServerUrl') or '').strip().rstrip('/')
+                    portal_token = str(portal.get('plexToken') or '').strip()
+        except Exception as e:
+            logging.debug(f"Could not read portal plex defaults: {e}")
+    if not portal_url:
+        portal_url = str(os.environ.get('PLEX_SERVER_URL') or '').strip().rstrip('/')
+    if not portal_token:
+        portal_token = str(os.environ.get('PLEX_TOKEN') or '').strip()
+    return portal_url, portal_token
+
+def apply_portal_plex_defaults(config_data):
+    data = dict(config_data or {})
+    portal_url, portal_token = _portal_plex_defaults()
+    if not str(data.get('plex_url') or '').strip() and portal_url:
+        data['plex_url'] = portal_url
+        logging.info("Using Plex URL from portal Media Player settings.")
+    if not str(data.get('plex_token') or '').strip() and portal_token:
+        data['plex_token'] = portal_token
+        logging.info("Using Plex token from portal Media Player settings.")
+    return data
+
 def load_config():
     global _DRY_RUN_MODE_ACTIVE
     if not os.path.exists(CONFIG_DIR):
@@ -330,6 +363,7 @@ def load_config():
         with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
             config_data = json.load(f)
 
+        config_data = apply_portal_plex_defaults(config_data)
         validate(instance=config_data, schema=CONFIG_SCHEMA)
         logging.info("Configuration successfully validated against schema.")
 
@@ -1218,8 +1252,49 @@ def main():
 
 
 # --- Continuous Loop ---
-def run_continuously():
+_IN_PROGRESS_STATUS_RE = re.compile(r'^(?:\[dry-run\]\s*)?(running|processing|pinning)\b', re.I)
+
+
+def _seconds_until_scheduled_run(status_data):
+    try:
+        due = float(status_data.get('next_run_timestamp') or 0)
+    except (TypeError, ValueError):
+        return 0
+    if due <= 0:
+        return 0
+    remaining = due - datetime.now().timestamp()
+    return remaining if remaining > 1 else 0
+
+
+def _sleep_until_scheduled_run():
+    """After a portal restart, wait out the leftover interval instead of pinning immediately."""
+    prev = _load_status_file()
+    remaining = _seconds_until_scheduled_run(prev)
+    status_text = str(prev.get('status') or '')
+    if remaining <= 0 or _IN_PROGRESS_STATUS_RE.match(status_text):
+        return
+    due_ts = float(prev.get('next_run_timestamp') or 0)
+    mins = max(1, int(round(remaining / 60.0)))
+    logging.info(
+        "Resuming after restart — sleeping approximately %.0f seconds until the next scheduled pin.",
+        remaining,
+    )
+    update_status(f"Sleeping ({mins} min)", due_ts)
+    time.sleep(remaining)
+
+
+def run_continuously(wait_until_due=False):
     global _DRY_RUN_MODE_ACTIVE
+    if wait_until_due:
+        try:
+            _sleep_until_scheduled_run()
+        except KeyboardInterrupt:
+            logging.info(
+                f"Keyboard interrupt received before first cycle. Exiting Collexions script."
+                f"{' (DRY RUN was active)' if _DRY_RUN_MODE_ACTIVE else ''}"
+            )
+            update_status("Stopped (Interrupt)")
+            return
     while True:
         run_cycle_start_time = datetime.now()
         next_run_ts_planned_for_status = None
@@ -1290,6 +1365,11 @@ if __name__ == "__main__":
         action='store_true',
         help="Run the script in dry-run mode: no changes will be made."
     )
+    parser.add_argument(
+        '--wait-until-due',
+        action='store_true',
+        help="On start, sleep until status.json next_run_timestamp if it is still in the future."
+    )
     args = parser.parse_args()
 
     _DRY_RUN_MODE_ACTIVE = args.dry_run
@@ -1306,7 +1386,7 @@ if __name__ == "__main__":
         logging.info("Collexions script starting up in LIVE mode...")
 
     try:
-        run_continuously()
+        run_continuously(wait_until_due=args.wait_until_due)
     except SystemExit:
          logging.info(f"Exiting due to SystemExit during script execution.{' (DRY RUN was active)' if _DRY_RUN_MODE_ACTIVE else ''}")
     except KeyboardInterrupt:

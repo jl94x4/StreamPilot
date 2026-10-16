@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { apiFetch } from '../shared/api';
+import { usePoll } from '../shared/usePoll';
 
 export type MemberRequestCounts = {
     configured?: boolean;
@@ -56,11 +57,10 @@ export const useMyRequestCount = (enabled: boolean) => {
     }, [enabled]);
 
     useEffect(() => {
-        refresh();
-        if (!enabled) return undefined;
-        const timer = window.setInterval(refresh, POLL_MS);
-        return () => window.clearInterval(timer);
-    }, [enabled, refresh]);
+        void refresh();
+    }, [refresh]);
+
+    usePoll(refresh, enabled ? POLL_MS : null);
 
     return { pendingCount: counts.pending, counts, refresh };
 };

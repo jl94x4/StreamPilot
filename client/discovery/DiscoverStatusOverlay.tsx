@@ -9,88 +9,92 @@ import {
     XCircle,
 } from 'lucide-react';
 import type { MediaAvailabilityState } from './discoverAvailability';
-import { useDiscoverI18n, translateDiscoverStatus } from './i18n';
+import { useDiscoverI18n, translateDiscoverAvailabilityDetail, translateDiscoverStatus } from './i18n';
 
-const badgeClass = 'absolute top-2 right-2 rounded-full p-1 shadow-lg backdrop-blur-sm z-10 border flex items-center justify-center';
+const overlayAnchor = 'absolute top-1 right-1 sm:top-1.5 sm:right-1.5 z-10';
+const iconBadgeClass = `${overlayAnchor} rounded-full p-0.5 sm:p-1 shadow-lg backdrop-blur-sm border flex items-center justify-center`;
+const labeledBadgeClass = `${overlayAnchor} flex items-center justify-center sm:justify-start gap-0 sm:gap-1 p-0.5 sm:px-1.5 sm:py-0.5 rounded-full text-[7px] leading-none sm:text-[10px] font-black uppercase tracking-tight sm:tracking-wide shadow-lg backdrop-blur-sm border`;
+const iconOnlySize = 'w-3 h-3 sm:w-3.5 sm:h-3.5';
+const labeledIconSize = 'w-2.5 h-2.5 sm:w-3 sm:h-3';
+
+/** Status chips on Request lists / season rows — compact on mobile posters and sheets. */
+export const mediaStatusChipClass = 'text-[8px] sm:text-[10px] font-bold uppercase tracking-tight sm:tracking-wide px-1.5 py-px sm:px-2 sm:py-0.5 rounded-full border leading-none';
+
+const OverlayLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+    <span className="hidden sm:inline truncate">{children}</span>
+);
 
 export const DiscoverStatusOverlay: React.FC<{ state: MediaAvailabilityState }> = ({ state }) => {
     const { t } = useDiscoverI18n();
     if (state.kind === 'none') return null;
 
-    const title = translateDiscoverStatus(t, state.detail || state.label) || state.label;
+    const title = state.detail
+        ? translateDiscoverAvailabilityDetail(t, state.detail)
+        : (translateDiscoverStatus(t, state.label) || state.label);
 
     if (state.kind === 'available') {
         return (
-            <div className={`${badgeClass} bg-green-500/90 text-white border-green-400/30`} title={title}>
-                <CheckCircle className="w-4 h-4" />
+            <div className={`${iconBadgeClass} bg-green-500/90 text-white border-green-400/30`} title={title}>
+                <CheckCircle className={iconOnlySize} />
             </div>
         );
     }
 
     if (state.kind === 'partial') {
         return (
-            <div
-                className="absolute top-2 right-2 z-10 flex items-center gap-1 px-2 py-1 rounded-full bg-emerald-500/90 text-white text-[10px] font-black uppercase tracking-wide shadow-lg backdrop-blur-sm border border-emerald-400/30"
-                title={title}
-            >
-                <Layers className="w-3 h-3" />
-                {t('status.partial')}
+            <div className={`${labeledBadgeClass} bg-emerald-500/90 text-white border-emerald-400/30`} title={title}>
+                <Layers className={`${labeledIconSize} shrink-0`} />
+                <OverlayLabel>{t('status.partial')}</OverlayLabel>
             </div>
         );
     }
 
     if (state.kind === 'processing') {
         return (
-            <div className={`${badgeClass} bg-blue-500/90 text-white border-blue-400/30`} title={title}>
-                <Download className="w-4 h-4" />
+            <div className={`${iconBadgeClass} bg-blue-500/90 text-white border-blue-400/30`} title={title}>
+                <Download className={iconOnlySize} />
             </div>
         );
     }
 
     if (state.kind === 'requested') {
         return (
-            <div
-                className="absolute top-2 right-2 z-10 flex items-center gap-1 px-2 py-1 rounded-full bg-indigo-500/90 text-white text-[10px] font-black uppercase tracking-wide shadow-lg backdrop-blur-sm border border-indigo-400/30"
-                title={title}
-            >
-                <Clock className="w-3 h-3" />
-                {t('status.requested')}
+            <div className={`${labeledBadgeClass} bg-indigo-500/90 text-white border-indigo-400/30`} title={title}>
+                <Clock className={`${labeledIconSize} shrink-0`} />
+                <OverlayLabel>{t('status.requested')}</OverlayLabel>
             </div>
         );
     }
 
     if (state.kind === 'pending') {
         return (
-            <div className={`${badgeClass} bg-amber-500/90 text-white border-amber-400/30`} title={title}>
-                <Clock className="w-4 h-4" />
+            <div className={`${iconBadgeClass} bg-amber-500/90 text-white border-amber-400/30`} title={title}>
+                <Clock className={iconOnlySize} />
             </div>
         );
     }
 
     if (state.kind === 'failed') {
         return (
-            <div
-                className="absolute top-2 right-2 z-10 flex items-center gap-1 px-2 py-1 rounded-full bg-red-500/90 text-white text-[10px] font-black uppercase tracking-wide shadow-lg backdrop-blur-sm border border-red-400/30"
-                title={title}
-            >
-                <AlertCircle className="w-3 h-3" />
-                {t('status.failed')}
+            <div className={`${labeledBadgeClass} bg-red-500/90 text-white border-red-400/30`} title={title}>
+                <AlertCircle className={`${labeledIconSize} shrink-0`} />
+                <OverlayLabel>{t('status.failed')}</OverlayLabel>
             </div>
         );
     }
 
     if (state.kind === 'declined') {
         return (
-            <div className={`${badgeClass} bg-red-500/80 text-white border-red-400/30`} title={title}>
-                <XCircle className="w-4 h-4" />
+            <div className={`${iconBadgeClass} bg-red-500/80 text-white border-red-400/30`} title={title}>
+                <XCircle className={iconOnlySize} />
             </div>
         );
     }
 
     if (state.kind === 'blacklisted') {
         return (
-            <div className={`${badgeClass} bg-zinc-700/95 text-white border-white/20`} title={title}>
-                <Ban className="w-4 h-4" />
+            <div className={`${iconBadgeClass} bg-zinc-700/95 text-white border-white/20`} title={title}>
+                <Ban className={iconOnlySize} />
             </div>
         );
     }
@@ -124,7 +128,7 @@ export const MediaStatusPanel: React.FC<{
             <div className="min-w-0">
                 <p className="text-sm font-bold">{translateDiscoverStatus(t, state.label)}</p>
                 {state.detail && (
-                    <p className="text-xs opacity-80 mt-0.5 leading-relaxed">{state.detail}</p>
+                    <p className="text-xs opacity-80 mt-0.5 leading-relaxed">{translateDiscoverAvailabilityDetail(t, state.detail)}</p>
                 )}
             </div>
             {(onRetry || onViewRequests || libraryAction || arrAction) && (

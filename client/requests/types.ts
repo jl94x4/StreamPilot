@@ -14,7 +14,7 @@ export type PortalRequestItem = {
     id: number;
     status: number | null;
     statusLabel: string;
-    type: 'movie' | 'tv';
+    type: 'movie' | 'tv' | 'music';
     is4k: boolean;
     title: string;
     year: string | null;
@@ -42,6 +42,9 @@ export type PortalRequestItem = {
     isDownloading?: boolean;
     seerrUrl: string;
     tmdbId?: number | null;
+    mbid?: string | null;
+    albumMbid?: string | null;
+    albumTitle?: string | null;
     mediaId?: number | null;
     serverId?: number | null;
     profileId?: number | null;
@@ -80,7 +83,7 @@ export type PortalIssueItem = {
     issueTypeLabel: string;
     problemSeason: number | null;
     problemEpisode: number | null;
-    type: 'movie' | 'tv';
+    type: 'movie' | 'tv' | 'music';
     title: string;
     year: string | null;
     overview: string;
@@ -104,6 +107,7 @@ export type PortalIssueItem = {
     comments: PortalIssueComment[];
     commentCount: number;
     seerrUrl: string;
+    ticketId?: number | null;
 };
 
 export type PortalIssueCounts = {

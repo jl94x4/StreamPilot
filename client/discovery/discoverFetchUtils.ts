@@ -3,7 +3,12 @@ import type { FilterState } from './FilterDrawer';
 import { appendDiscoverQuery, hasAdvancedDiscoverFilters } from './discoverUrlUtils';
 import { filterDiscoverBrowseItems } from './discoverAvailability';
 import { dedupeDiscoverResults } from './discoverItemUtils';
-import type { DiscoverPagePayload } from './useDiscoverInfiniteScroll';
+
+export type DiscoverPagePayload = {
+    results: any[];
+    totalPages: number;
+    lastFetchedPage?: number;
+};
 
 type DiscoverBrowseFilterOptions = {
     hideAvailable?: boolean;
@@ -68,6 +73,10 @@ export async function fetchDiscoverPage(
     };
 }
 
+/** TMDB pages a home rail may scan when hide-available is on. View All keeps paging; home used to stop at 4. */
+export const HOME_RAIL_HIDE_AVAILABLE_MAX_PAGES = 16;
+export const HOME_RAIL_HIDE_AVAILABLE_MIN_ITEMS = 20;
+
 type HomeRowFetchOptions = {
     minItems?: number;
     maxPages?: number;
@@ -81,6 +90,16 @@ type HomeRowFetchOptions = {
     requirePoster?: boolean;
     /** Cancel in-flight page fetches (home remount / refresh). */
     signal?: AbortSignal;
+    /**
+     * Live-enrich each page batch before counting toward minItems.
+     * Needed when hide-available is on: disk cache can look full, then enrich
+     * marks library titles available and the rail would otherwise shrink with no refill.
+     */
+    enrich?: (items: any[]) => Promise<any[]>;
+    /** TMDB pages to fetch before each enrich round (hide-available only). */
+    enrichChunkPages?: number;
+    /** Called after each filled round so home can paint a partial rail, then grow it. */
+    onPartial?: (items: any[]) => void;
 };
 
 const itemHasPoster = (item: any) => !!(
@@ -97,7 +116,8 @@ const applyHomeRowQualityFilters = (items: any[], options: HomeRowFetchOptions) 
 
 /**
  * Seerr-style home rail: one endpoint, sequential same-URL pages.
- * When hide-available is on, advance page 1→2… until minItems or maxPages — never alternate sorts.
+ * When hide-available is on, keep paging until minItems remain *after* optional live enrich —
+ * never stop on a pre-enrich count, and never alternate sorts.
  */
 export async function fetchDiscoverHomeRowResults(
     buildUrl: (page: number) => string,
@@ -105,10 +125,17 @@ export async function fetchDiscoverHomeRowResults(
     options: HomeRowFetchOptions = {},
 ): Promise<any[]> {
     const maxItems = options.maxItems ?? 30;
-    const maxPages = options.maxPages ?? (hideAvailable ? 4 : 2);
-    const minItems = Math.min(options.minItems ?? Math.min(30, maxItems), maxItems);
+    const maxPages = options.maxPages ?? (hideAvailable ? HOME_RAIL_HIDE_AVAILABLE_MAX_PAGES : 2);
+    const minItems = Math.min(
+        options.minItems ?? (hideAvailable ? HOME_RAIL_HIDE_AVAILABLE_MIN_ITEMS : Math.min(30, maxItems)),
+        maxItems,
+    );
     const hideRequested = options.hideRequested === true;
     const signal = options.signal;
+    const enrich = typeof options.enrich === 'function' ? options.enrich : null;
+    const pagesPerRound = enrich && hideAvailable
+        ? Math.max(1, options.enrichChunkPages ?? 2)
+        : 1;
     const filterOptions: DiscoverBrowseFilterOptions = {
         hideAvailable,
         hideRequested,
@@ -122,25 +149,53 @@ export async function fetchDiscoverHomeRowResults(
         })
     );
 
-    let merged: any[] = [];
+    let visible: any[] = [];
     let totalPages = Number.POSITIVE_INFINITY;
+    let page = 1;
 
-    for (let page = 1; page <= maxPages; page += 1) {
+    while (page <= maxPages && visible.length < minItems) {
         if (signal?.aborted) break;
-        const res = await fetchPage(page);
-        if (!res) break;
-        totalPages = Math.max(1, Number(res?.totalPages) || 1);
-        const rawBatch = Array.isArray(res?.results) ? res.results : [];
-        const batch = filterDiscoverBrowseItems(rawBatch, filterOptions);
-        merged = dedupeDiscoverResults([
-            ...merged,
-            ...applyHomeRowQualityFilters(batch, options),
-        ]);
-        if (merged.length >= minItems || merged.length >= maxItems) break;
-        if (page >= totalPages) break;
+
+        const rawChunk: any[] = [];
+        let reachedEnd = false;
+        const pagesThisRound = Math.min(pagesPerRound, maxPages - page + 1);
+
+        for (let i = 0; i < pagesThisRound; i += 1) {
+            if (signal?.aborted) break;
+            const res = await fetchPage(page);
+            page += 1;
+            if (!res) {
+                reachedEnd = true;
+                break;
+            }
+            totalPages = Math.max(1, Number(res?.totalPages) || 1);
+            rawChunk.push(...applyHomeRowQualityFilters(
+                Array.isArray(res?.results) ? res.results : [],
+                options,
+            ));
+            if ((page - 1) >= totalPages) {
+                reachedEnd = true;
+                break;
+            }
+        }
+
+        if (!rawChunk.length) {
+            if (reachedEnd) break;
+            continue;
+        }
+
+        let batch = filterDiscoverBrowseItems(rawChunk, filterOptions);
+        if (enrich && batch.length) {
+            batch = filterDiscoverBrowseItems(await enrich(batch), filterOptions);
+        }
+
+        visible = dedupeDiscoverResults([...visible, ...batch]);
+        if (visible.length) options.onPartial?.(visible.slice(0, maxItems));
+        if (visible.length >= maxItems) break;
+        if (reachedEnd) break;
     }
 
-    return merged.slice(0, maxItems);
+    return visible.slice(0, maxItems);
 }
 
 /**

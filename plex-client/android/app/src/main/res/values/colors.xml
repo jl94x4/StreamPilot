@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="splash_background">#07080C</color>
+    <color name="colorPrimary">#F59E0B</color>
+    <color name="colorPrimaryDark">#D97706</color>
+    <color name="colorAccent">#F59E0B</color>
+    <color name="player_accent">#F59E0B</color>
+    <color name="player_accent_dim">#B45309</color>
+    <color name="player_text_primary">#F4F4F5</color>
+    <color name="player_text_secondary">#A1A1AA</color>
+    <color name="player_scrim_top">#E6000000</color>
+    <color name="player_scrim_bottom">#F2000000</color>
+    <color name="player_control_bg">#33FFFFFF</color>
+    <color name="player_control_bg_focus">#4DF59E0B</color>
+</resources>

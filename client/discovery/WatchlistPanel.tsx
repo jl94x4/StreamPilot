@@ -12,6 +12,8 @@ import {
 } from './watchlistUtils';
 import { useDiscoveryMe } from './useDiscoveryMe';
 import { formatQuotaHint } from './requestSeasonUtils';
+import { translateDiscoverStatus, useDiscoverI18n } from './i18n';
+import { DEFAULT_POSTER_GRID_SCALE, discoverRowCardWidthClass, posterGridCardWidthStyle, type PosterGridValue } from '../shared/portalLayout';
 
 type Props = {
     items: any[];
@@ -24,6 +26,7 @@ type Props = {
     showHeader?: boolean;
     providerLabel?: string;
     rowCardClassName?: string;
+    density?: PosterGridValue;
 };
 
 export const WatchlistPanel: React.FC<Props> = ({
@@ -37,7 +40,9 @@ export const WatchlistPanel: React.FC<Props> = ({
     showHeader = true,
     providerLabel = 'Plex',
     rowCardClassName,
+    density,
 }) => {
+    const { t } = useDiscoverI18n();
     const [requestTarget, setRequestTarget] = useState<{
         mediaType: 'movie' | 'tv';
         mediaId: number;
@@ -51,14 +56,14 @@ export const WatchlistPanel: React.FC<Props> = ({
     const requestableCount = useMemo(() => countRequestableWatchlistItems(items), [items]);
     const canBulkRequest = discoveryMe.permissions?.request !== false && discoveryMe.userMapped !== false;
 
-    const movieQuotaHint = formatQuotaHint(discoveryMe.quota?.movie?.standard, 'movie');
-    const tvQuotaHint = formatQuotaHint(discoveryMe.quota?.tv?.standard, 'TV');
+    const movieQuotaHint = formatQuotaHint(discoveryMe.quota?.movie?.standard, t('mediaType.movie').toLowerCase(), t);
+    const tvQuotaHint = formatQuotaHint(discoveryMe.quota?.tv?.standard, t('mediaType.tv'), t);
     const quotaSummary = [movieQuotaHint, tvQuotaHint].filter(Boolean).join(' · ');
 
     const openRequest = useCallback((rawItem: any) => {
         const ref = resolveWatchlistMediaRef(rawItem);
         if (!ref) {
-            pushToast?.('Unable to request this item.', 'error');
+            pushToast?.(t('watchlist.unableToRequest'), 'error');
             return;
         }
         const formatted = formatItem(rawItem);
@@ -67,7 +72,7 @@ export const WatchlistPanel: React.FC<Props> = ({
             posterPath: formatted?.posterPath ?? rawItem?.posterPath ?? rawItem?.poster_path ?? null,
             overview: formatted?.overview ?? rawItem?.overview ?? null,
         });
-    }, [pushToast, formatItem]);
+    }, [pushToast, formatItem, t]);
 
     const handleRequestSuccess = useCallback((message: string) => {
         pushToast?.(message, 'success');
@@ -89,15 +94,19 @@ export const WatchlistPanel: React.FC<Props> = ({
             const failed = Number(res?.failed) || 0;
             if (submitted > 0) {
                 pushToast?.(
-                    `Submitted ${submitted} request${submitted === 1 ? '' : 's'}${skipped ? ` · ${skipped} skipped` : ''}${failed ? ` · ${failed} failed` : ''}.`,
+                    [
+                        t('watchlist.bulkSubmitted', { count: submitted }),
+                        skipped ? t('watchlist.bulkSkipped', { count: skipped }) : '',
+                        failed ? t('watchlist.bulkFailed', { count: failed }) : '',
+                    ].filter(Boolean).join(' · '),
                     failed > 0 && submitted === 0 ? 'error' : 'success',
                 );
             } else {
-                pushToast?.(skipped ? 'No watchlist items were requestable.' : 'No requests submitted.', 'error');
+                pushToast?.(skipped ? t('watchlist.noneRequestable') : t('watchlist.noneSubmitted'), 'error');
             }
             onRefresh?.();
         } catch (e: any) {
-            pushToast?.(e?.message || 'Failed to request watchlist items', 'error');
+            pushToast?.(e?.message || t('watchlist.requestFailed'), 'error');
         } finally {
             setBulkLoading(false);
         }
@@ -112,7 +121,10 @@ export const WatchlistPanel: React.FC<Props> = ({
 
         const cardWidth = variant === 'page'
             ? 'w-full'
-            : `${rowCardClassName || 'w-[140px] sm:w-[160px]'} flex-shrink-0`;
+            : `${rowCardClassName || discoverRowCardWidthClass(density || DEFAULT_POSTER_GRID_SCALE)} flex-shrink-0 snap-start`;
+        const cardStyle = variant === 'page' || rowCardClassName
+            ? undefined
+            : posterGridCardWidthStyle(density || DEFAULT_POSTER_GRID_SCALE);
         const footer = (
             <div className="flex flex-col gap-1.5 mt-1.5 px-0.5">
                 <div className={`text-xs font-medium line-clamp-2 leading-tight text-text ${variant === 'page' ? 'text-left' : 'text-center'}`}>
@@ -120,7 +132,7 @@ export const WatchlistPanel: React.FC<Props> = ({
                 </div>
                 {statusLabel && !requestable && (
                     <span className={`text-[10px] font-bold uppercase tracking-wide text-center ${variant === 'page' ? 'text-left' : ''} text-muted`}>
-                        {statusLabel}
+                        {translateDiscoverStatus(t, statusLabel)}
                     </span>
                 )}
                 {requestable && ref && canBulkRequest && (
@@ -133,14 +145,14 @@ export const WatchlistPanel: React.FC<Props> = ({
                         className="w-full py-1.5 px-2 rounded-lg bg-plex/90 hover:bg-plex text-black text-[11px] font-black transition-colors inline-flex items-center justify-center gap-1"
                     >
                         <PlusCircle className="w-3.5 h-3.5" />
-                        Request
+                        {t('watchlist.request')}
                     </button>
                 )}
             </div>
         );
 
         return (
-            <div key={`watchlist-${ref?.mediaId || formatted.id || idx}`} className={`${cardWidth} relative group`}>
+            <div key={`watchlist-${ref?.mediaId || formatted.id || idx}`} className={`${cardWidth} relative group`} style={cardStyle}>
                 <DiscoverPosterCard
                     item={formatted}
                     overlay={formatted.overlay}
@@ -157,9 +169,19 @@ export const WatchlistPanel: React.FC<Props> = ({
     const header = showHeader ? (
         <div className={`flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-2 ${variant === 'row' ? 'pr-16' : ''}`}>
             <div>
-                <h2 className="text-xl font-bold text-text">Your {providerLabel} Watchlist</h2>
+                {variant === 'row' && navigate ? (
+                    <button
+                        type="button"
+                        onClick={() => navigate('/discovery/watchlist')}
+                        className="text-xl font-bold text-text text-left hover:text-plex transition-colors"
+                    >
+                        {t('watchlist.title', { provider: providerLabel })}
+                    </button>
+                ) : (
+                    <h2 className="text-xl font-bold text-text">{t('watchlist.title', { provider: providerLabel })}</h2>
+                )}
                 <p className="text-xs text-muted mt-1">
-                    Synced live from your {providerLabel} watchlist when you sign in.
+                    {t('watchlist.syncedBody', { provider: providerLabel })}
                     {quotaSummary ? ` ${quotaSummary}.` : ''}
                 </p>
             </div>
@@ -170,7 +192,7 @@ export const WatchlistPanel: React.FC<Props> = ({
                         onClick={() => navigate('/discovery/watchlist')}
                         className="text-xs font-bold text-plex hover:underline px-2 py-1"
                     >
-                        View All
+                        {t('common.viewAll')}
                     </button>
                 )}
                 {requestableCount > 0 && canBulkRequest && (
@@ -185,12 +207,12 @@ export const WatchlistPanel: React.FC<Props> = ({
                         ) : (
                             <Sparkles className="w-3.5 h-3.5 text-plex" />
                         )}
-                        Request All ({requestableCount})
+                        {t('watchlist.requestAll', { count: requestableCount })}
                     </button>
                 )}
                 {requestableCount > 0 && !canBulkRequest && (
                     <span className="text-[11px] font-semibold text-muted px-2 py-1">
-                        {!discoveryMe.userMapped ? 'Seerr account not linked' : 'No request permission'}
+                        {!discoveryMe.userMapped ? t('watchlist.accountNotLinked') : t('watchlist.noPermission')}
                     </span>
                 )}
             </div>

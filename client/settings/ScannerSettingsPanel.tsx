@@ -3,6 +3,8 @@ import { ChevronLeft, ChevronRight, Copy, Download, Eye, EyeOff, FileUp, Loader2
 import { SettingsToggleRow } from '../shared/ui';
 import { SettingHint } from './SettingHint';
 import { apiFetch } from '../shared/api';
+import { usePoll } from '../shared/usePoll';
+import { useDiscoverI18n } from '../discovery/i18n';
 import { scannerActionStyles, sourceAppLabel } from '../scanner/eventMeta';
 import { ScannerSourceBadge } from '../scanner/ScannerSourceBadge';
 
@@ -26,6 +28,7 @@ export type ScannerSettings = {
         sonarr: ScannerTrigger[];
         radarr: ScannerTrigger[];
         lidarr: ScannerTrigger[];
+        mediaAutomation: ScannerTrigger[];
     };
     targets: {
         plex: ScannerTarget[];
@@ -43,6 +46,7 @@ export const defaultScannerSettings = (): ScannerSettings => ({
         sonarr: [{ name: 'sonarr', priority: 1, rewrite: [] }],
         radarr: [{ name: 'radarr', priority: 1, rewrite: [] }],
         lidarr: [{ name: 'lidarr', priority: 1, rewrite: [] }],
+        mediaAutomation: [{ name: 'media-automation', priority: 20, rewrite: [] }],
     },
     targets: {
         plex: [{ enabled: true, usePortalCredentials: true, url: '', token: '', rewrite: [] }],
@@ -78,12 +82,17 @@ const RewriteEditor: React.FC<{
     rules,
     onChange,
     disabled,
-    fromLabel = 'Source path',
-    toLabel = 'Destination path',
-}) => (
+    fromLabel,
+    toLabel,
+}) => {
+    const { t } = useDiscoverI18n();
+    const sourceLabel = fromLabel || t('scanner.settings.pathRewrites.sourcePath');
+    const destinationLabel = toLabel || t('scanner.settings.pathRewrites.destinationPath');
+
+    return (
     <div className="space-y-2">
         <div className="flex items-center justify-between gap-2">
-            <label className="text-xs font-semibold text-muted uppercase tracking-wider">Path Rewrites</label>
+            <label className="text-xs font-semibold text-muted uppercase tracking-wider">{t('scanner.settings.pathRewrites.title')}</label>
             <button
                 type="button"
                 className="btn-secondary inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs disabled:opacity-50"
@@ -91,22 +100,22 @@ const RewriteEditor: React.FC<{
                 onClick={() => onChange([...(rules || []), { from: '', to: '' }])}
             >
                 <Plus className="w-3.5 h-3.5" />
-                Add rewrite
+                {t('scanner.settings.pathRewrites.add')}
             </button>
         </div>
         {(rules || []).length === 0 ? (
-            <p className="text-xs text-muted py-2">No rewrite rules. Paths are used as received from the trigger.</p>
+            <p className="text-xs text-muted py-2">{t('scanner.settings.pathRewrites.empty')}</p>
         ) : (
             <div className="space-y-2">
                 {(rules || []).map((rule, i) => (
                     <div key={i} className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-2 items-end">
                         <div>
                             <label className="text-[10px] font-bold uppercase tracking-wider text-muted block mb-1.5">
-                                {fromLabel}
+                                {sourceLabel}
                             </label>
                             <input
                                 className={FIELD}
-                                placeholder={fromLabel}
+                                placeholder={sourceLabel}
                                 value={rule.from}
                                 disabled={disabled}
                                 onChange={(e) => {
@@ -118,11 +127,11 @@ const RewriteEditor: React.FC<{
                         </div>
                         <div>
                             <label className="text-[10px] font-bold uppercase tracking-wider text-muted block mb-1.5">
-                                {toLabel}
+                                {destinationLabel}
                             </label>
                             <input
                                 className={FIELD}
-                                placeholder={toLabel}
+                                placeholder={destinationLabel}
                                 value={rule.to}
                                 disabled={disabled}
                                 onChange={(e) => {
@@ -136,7 +145,7 @@ const RewriteEditor: React.FC<{
                             type="button"
                             className="inline-flex items-center justify-center h-10 w-10 rounded-lg border border-border/60 text-red-300 hover:bg-red-500/10 disabled:opacity-50"
                             disabled={disabled}
-                            title="Remove rewrite"
+                            title={t('common.remove')}
                             onClick={() => onChange(rules.filter((_, idx) => idx !== i))}
                         >
                             <Trash2 className="w-4 h-4" />
@@ -146,18 +155,19 @@ const RewriteEditor: React.FC<{
             </div>
         )}
     </div>
-);
+    );
+};
 
 const TRIGGER_META = {
-    sonarr: { title: 'Sonarr', description: 'Webhook path /triggers/sonarr (or custom name below).' },
-    radarr: { title: 'Radarr', description: 'Webhook path /triggers/radarr (or custom name below).' },
-    lidarr: { title: 'Lidarr', description: 'Webhook path /triggers/lidarr (or custom name below).' },
+    sonarr: { title: 'Sonarr', path: '/triggers/sonarr' },
+    radarr: { title: 'Radarr', path: '/triggers/radarr' },
+    lidarr: { title: 'Lidarr', path: '/triggers/lidarr' },
 } as const;
 
 const TARGET_META = {
-    plex: { title: 'Plex', enableTitle: 'Enable Plex' },
-    jellyfin: { title: 'Jellyfin', enableTitle: 'Enable Jellyfin' },
-    emby: { title: 'Emby', enableTitle: 'Enable Emby' },
+    plex: { title: 'Plex' },
+    jellyfin: { title: 'Jellyfin' },
+    emby: { title: 'Emby' },
 } as const;
 
 type Props = {
@@ -189,9 +199,12 @@ export const ScannerSettingsPanel: React.FC<Props> = ({
     sectionId,
     addToast,
 }) => {
+    const { t } = useDiscoverI18n();
     const [yamlText, setYamlText] = useState('');
     const [importing, setImporting] = useState(false);
     const [importSummary, setImportSummary] = useState<string | null>(null);
+    const [yamlPreview, setYamlPreview] = useState<ScannerSettings | null>(null);
+    const [yamlPreviewSummary, setYamlPreviewSummary] = useState<string | null>(null);
     const [showAuthPassword, setShowAuthPassword] = useState(false);
     const [testingTrigger, setTestingTrigger] = useState<string | null>(null);
     const [triggerTestResults, setTriggerTestResults] = useState<Record<string, { ok: boolean; message: string }>>({});
@@ -199,7 +212,7 @@ export const ScannerSettingsPanel: React.FC<Props> = ({
 
     const update = (patch: Partial<ScannerSettings>) => onChange({ ...scanner, ...patch });
 
-    const updateTrigger = (kind: 'sonarr' | 'radarr' | 'lidarr', index: number, patch: Partial<ScannerTrigger>) => {
+    const updateTrigger = (kind: 'sonarr' | 'radarr' | 'lidarr' | 'mediaAutomation', index: number, patch: Partial<ScannerTrigger>) => {
         const list = [...(scanner.triggers[kind] || [])];
         list[index] = { ...list[index], ...patch };
         update({ triggers: { ...scanner.triggers, [kind]: list } });
@@ -237,19 +250,22 @@ export const ScannerSettingsPanel: React.FC<Props> = ({
                 ? `${parsedPath} → ${rewrittenPath}`
                 : rewrittenPath;
             const targetSummary = targets.length
-                ? targets.map((target: any) => `${String(target.type || 'target').toUpperCase()} ${target.ok ? 'reachable' : 'failed'}`).join(' · ')
-                : 'No enabled targets';
+                ? targets.map((target: any) => t('scanner.settings.triggers.targetCheck', {
+                    target: String(target.type || t('scanner.settings.triggers.targetFallback')).toUpperCase(),
+                    status: target.ok ? t('scanner.settings.triggers.reachable') : t('scanner.settings.triggers.failed'),
+                })).join(' · ')
+                : t('scanner.settings.triggers.noEnabledTargets');
             const ok = !!result?.ok && failed.length === 0;
-            const message = `${ok ? 'Passed' : 'Parser passed, target check failed'} · ${targetSummary}${pathSummary ? ` · ${pathSummary}` : ''}`;
+            const message = `${ok ? t('scanner.settings.triggers.passed') : t('scanner.settings.triggers.parserPassedTargetFailed')} · ${targetSummary}${pathSummary ? ` · ${pathSummary}` : ''}`;
             setTriggerTestResults((current) => ({ ...current, [key]: { ok, message } }));
             addToast?.(
                 ok
-                    ? `${TRIGGER_META[kind].title} trigger test passed`
-                    : `${TRIGGER_META[kind].title} parser passed but a target failed`,
+                    ? t('scanner.settings.triggers.testPassedToast', { name: TRIGGER_META[kind].title })
+                    : t('scanner.settings.triggers.testTargetFailedToast', { name: TRIGGER_META[kind].title }),
                 ok ? 'success' : 'error',
             );
         } catch (e: any) {
-            const message = e?.message || 'Trigger test failed';
+            const message = e?.message || t('scanner.settings.triggers.testFailed');
             setTriggerTestResults((current) => ({ ...current, [key]: { ok: false, message } }));
             addToast?.(message, 'error');
         } finally {
@@ -259,12 +275,13 @@ export const ScannerSettingsPanel: React.FC<Props> = ({
 
     const summarizeImport = (imported: ScannerSettings) => {
         const parts = [
-            `Min age ${imported.minimumAge || '1m'}`,
-            imported.authUsername ? `Auth @${imported.authUsername}` : null,
-            `Sonarr ${(imported.triggers?.sonarr?.[0]?.rewrite || []).length} rewrites`,
-            `Radarr ${(imported.triggers?.radarr?.[0]?.rewrite || []).length} rewrites`,
-            `Lidarr ${(imported.triggers?.lidarr?.[0]?.rewrite || []).length} rewrites`,
-            `Plex ${(imported.targets?.plex?.[0]?.rewrite || []).length} rewrites`,
+            t('scanner.settings.autoscan.summaryMinimumAge', { value: imported.minimumAge || '1m' }),
+            imported.authUsername ? t('scanner.settings.autoscan.summaryAuth', { username: imported.authUsername }) : null,
+            t('scanner.settings.autoscan.summaryRewrites', { name: 'Sonarr', count: (imported.triggers?.sonarr?.[0]?.rewrite || []).length }),
+            t('scanner.settings.autoscan.summaryRewrites', { name: 'Radarr', count: (imported.triggers?.radarr?.[0]?.rewrite || []).length }),
+            t('scanner.settings.autoscan.summaryRewrites', { name: 'Lidarr', count: (imported.triggers?.lidarr?.[0]?.rewrite || []).length }),
+            t('scanner.settings.autoscan.summaryRewrites', { name: 'Media Automation', count: (imported.triggers?.mediaAutomation?.[0]?.rewrite || []).length }),
+            t('scanner.settings.autoscan.summaryRewrites', { name: 'Plex', count: (imported.targets?.plex?.[0]?.rewrite || []).length }),
         ].filter(Boolean);
         return parts.join(' · ');
     };
@@ -284,13 +301,15 @@ export const ScannerSettingsPanel: React.FC<Props> = ({
         };
         onChange(next);
         setImportSummary(summarizeImport(next));
-        addToast?.('Autoscan config imported — review below, then Save Settings', 'success');
+        setYamlPreview(null);
+        setYamlPreviewSummary(null);
+        addToast?.(t('scanner.settings.autoscan.importedToast'), 'success');
     };
 
-    const importYaml = async (raw?: string) => {
+    const previewYaml = async (raw?: string) => {
         const yaml = String(raw ?? yamlText ?? '').trim();
         if (!yaml) {
-            addToast?.('Paste or upload an Autoscan config.yml first', 'error');
+            addToast?.(t('scanner.settings.autoscan.pasteOrUploadFirst'), 'error');
             return;
         }
         setImporting(true);
@@ -301,14 +320,24 @@ export const ScannerSettingsPanel: React.FC<Props> = ({
                 body: JSON.stringify({ yaml }),
             });
             if (res?.imported) {
-                applyImported(res.imported);
+                setYamlPreview(res.imported);
+                setYamlPreviewSummary(summarizeImport(res.imported));
                 if (raw && raw !== yamlText) setYamlText(raw);
+                addToast?.(t('scanner.settings.autoscan.yamlParsedToast'), 'success');
             }
         } catch (e: any) {
-            addToast?.(e?.message || 'Import failed', 'error');
+            addToast?.(e?.message || t('scanner.settings.autoscan.previewFailed'), 'error');
         } finally {
             setImporting(false);
         }
+    };
+
+    const applyYamlPreview = () => {
+        if (!yamlPreview) {
+            addToast?.(t('scanner.settings.autoscan.previewFirst'), 'error');
+            return;
+        }
+        applyImported(yamlPreview);
     };
 
     const onPickFile = async (file: File | null) => {
@@ -316,24 +345,25 @@ export const ScannerSettingsPanel: React.FC<Props> = ({
         try {
             const text = await file.text();
             setYamlText(text);
-            await importYaml(text);
+            setYamlPreview(null);
+            setYamlPreviewSummary(null);
+            await previewYaml(text);
         } catch {
-            addToast?.('Could not read that file', 'error');
+            addToast?.(t('scanner.settings.autoscan.readFileFailed'), 'error');
         }
     };
 
     return (
         <div className="mb-8 animate-fade-in space-y-6">
-            <h3 className="text-xl font-bold text-plex mb-4 border-b border-border pb-2">Scanner</h3>
+            <h3 className="text-xl font-bold text-plex mb-4 border-b border-border pb-2">{t('navigation.scanner')}</h3>
             <section id={sectionId} className="space-y-5 scroll-mt-24">
                 <p className="text-sm text-muted -mt-1 leading-relaxed">
-                    Autoscan-style library refresh for Sonarr, Radarr, and Lidarr. When enabled, an admin-only Scanner page
-                    appears in the nav for manual paths and queue status.
+                    {t('scanner.settings.general.description')}
                 </p>
 
                 <SectionCard
-                    title="Import from Autoscan"
-                    description="Upload or paste your Autoscan config.yml to fill minimum age, webhook auth, triggers, and rewrites. Plex URL and token still come from Settings → Plex."
+                    title={t('scanner.settings.autoscan.title')}
+                    description={t('scanner.settings.autoscan.description')}
                 >
                     <input
                         ref={fileInputRef}
@@ -354,46 +384,64 @@ export const ScannerSettingsPanel: React.FC<Props> = ({
                             className="btn-primary inline-flex items-center gap-2 px-4 py-2.5 text-sm disabled:opacity-50"
                         >
                             {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                            Upload config.yml
+                            {t('scanner.settings.autoscan.uploadConfig')}
                         </button>
                         <button
                             type="button"
                             disabled={!yamlText.trim() || importing}
-                            onClick={() => void importYaml()}
+                            onClick={() => void previewYaml()}
                             className="btn-secondary inline-flex items-center gap-2 px-4 py-2.5 text-sm disabled:opacity-50"
                         >
                             <FileUp className="w-4 h-4" />
-                            Import pasted YAML
+                            {t('scanner.settings.autoscan.previewPastedYaml')}
+                        </button>
+                        <button
+                            type="button"
+                            disabled={!yamlPreview || importing}
+                            onClick={() => applyYamlPreview()}
+                            className="btn-primary inline-flex items-center gap-2 px-4 py-2.5 text-sm disabled:opacity-50"
+                        >
+                            {t('scanner.settings.autoscan.applyImport')}
                         </button>
                     </div>
                     <textarea
-                        className={`${FIELD} min-h-[130px] font-mono text-xs`}
+                        className={`appearance-none text-[16px] leading-5 ${FIELD} min-h-[130px] font-mono text-[16px]`}
                         value={yamlText}
-                        onChange={(e) => setYamlText(e.target.value)}
-                        placeholder={'# Paste Autoscan config.yml here\nminimum-age: 1m\nauthentication:\n  username: admin\n  ...'}
+                        onChange={(e) => {
+                            setYamlText(e.target.value);
+                            setYamlPreview(null);
+                            setYamlPreviewSummary(null);
+                        }}
+                        placeholder={t('scanner.settings.autoscan.placeholder')}
                     />
+                    {yamlPreviewSummary ? (
+                        <div className="rounded-lg border border-sky-400/20 bg-sky-500/10 px-3 py-2 text-xs text-sky-100">
+                            <p className="font-semibold text-sky-200">{t('scanner.settings.autoscan.previewNotApplied')}</p>
+                            <p className="mt-1">{yamlPreviewSummary}</p>
+                        </div>
+                    ) : null}
                     {importSummary ? (
                         <div className="rounded-lg border border-emerald-400/20 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-200 font-semibold">
-                            Imported: {importSummary}
+                            {t('scanner.settings.autoscan.applied')}: {importSummary}
                         </div>
                     ) : null}
                 </SectionCard>
 
-                <SectionCard title="General">
+                <SectionCard title={t('scanner.settings.general.title')}>
                     <SettingsToggleRow
-                        title="Enable Scanner"
-                        hint={<SettingHint>Turns on /triggers/* webhooks and the admin Scanner page.</SettingHint>}
+                        title={t('scanner.settings.general.enableTitle')}
+                        hint={<SettingHint>{t('scanner.settings.general.enableHint')}</SettingHint>}
                         checked={enabled}
                         onChange={onEnabledChange}
                         border={false}
                         className="!py-0"
                     />
                     <p className={`text-xs font-semibold ${enabled ? 'text-green-300' : 'text-yellow-300'}`}>
-                        Current status: {enabled ? 'ON' : 'OFF'}
+                        {t('scanner.settings.general.currentStatus')}: {enabled ? t('scanner.settings.general.on') : t('scanner.settings.general.off')}
                     </p>
                     <SettingsToggleRow
-                        title="Show Home Widget"
-                        hint={<SettingHint>Adds a full-width Scanner strip on Home above Recently Added (admins). Reorder it under Home → Edit layout.</SettingHint>}
+                        title={t('scanner.settings.general.homeWidgetTitle')}
+                        hint={<SettingHint>{t('scanner.settings.general.homeWidgetHint')}</SettingHint>}
                         checked={!!homeWidgetEnabled && enabled}
                         onChange={onHomeWidgetEnabledChange}
                         disabled={!enabled}
@@ -401,8 +449,8 @@ export const ScannerSettingsPanel: React.FC<Props> = ({
                         className="!py-0"
                     />
                     <SettingsToggleRow
-                        title="Show ARR Webhooks on Scanner Page"
-                        hint={<SettingHint>When off, the ARR webhooks URL block is hidden on the Scanner page. Triggers still work — this only hides the helper section.</SettingHint>}
+                        title={t('scanner.settings.general.webhooksVisibleTitle')}
+                        hint={<SettingHint>{t('scanner.settings.general.webhooksVisibleHint')}</SettingHint>}
                         checked={!!webhooksVisible && enabled}
                         onChange={onWebhooksVisibleChange}
                         disabled={!enabled}
@@ -410,8 +458,8 @@ export const ScannerSettingsPanel: React.FC<Props> = ({
                         className="!py-0"
                     />
                     <SettingsToggleRow
-                        title="Show Manual Path on Scanner Page"
-                        hint={<SettingHint>When off, the manual path box is hidden on the Scanner page. When on, users can still collapse it there and that preference is remembered.</SettingHint>}
+                        title={t('scanner.settings.general.manualPathVisibleTitle')}
+                        hint={<SettingHint>{t('scanner.settings.general.manualPathVisibleHint')}</SettingHint>}
                         checked={!!manualPathVisible && enabled}
                         onChange={onManualPathVisibleChange}
                         disabled={!enabled}
@@ -419,7 +467,7 @@ export const ScannerSettingsPanel: React.FC<Props> = ({
                         className="!py-0"
                     />
                     <div className="pt-2 max-w-md">
-                        <label className="font-semibold text-sm block mb-2 text-text">Minimum Age</label>
+                        <label className="font-semibold text-sm block mb-2 text-text">{t('scanner.settings.general.minimumAge')}</label>
                         <input
                             className={FIELD}
                             value={scanner.minimumAge}
@@ -427,17 +475,17 @@ export const ScannerSettingsPanel: React.FC<Props> = ({
                             onChange={(e) => update({ minimumAge: e.target.value })}
                             placeholder="1m"
                         />
-                        <p className="text-[11px] text-muted mt-1.5">Examples: 30s, 1m, 5m. Scans wait this long before targets are called.</p>
+                        <p className="text-[11px] text-muted mt-1.5">{t('scanner.settings.general.minimumAgeHint')}</p>
                     </div>
                 </SectionCard>
 
                 <SectionCard
-                    title="Webhook Authentication"
-                    description="Sonarr, Radarr, and Lidarr Connect webhooks must use this username and password (HTTP Basic Auth)."
+                    title={t('scanner.settings.webhook.title')}
+                    description={t('scanner.settings.webhook.description')}
                 >
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            <label className="font-semibold text-sm block mb-2 text-text">Username</label>
+                            <label className="font-semibold text-sm block mb-2 text-text">{t('scanner.settings.credentials.username')}</label>
                             <input
                                 className={FIELD}
                                 value={scanner.authUsername}
@@ -447,7 +495,7 @@ export const ScannerSettingsPanel: React.FC<Props> = ({
                             />
                         </div>
                         <div>
-                            <label className="font-semibold text-sm block mb-2 text-text">Password</label>
+                            <label className="font-semibold text-sm block mb-2 text-text">{t('scanner.settings.credentials.password')}</label>
                             <div className="relative">
                                 <input
                                     key={showAuthPassword ? 'scanner-auth-visible' : 'scanner-auth-hidden'}
@@ -465,8 +513,8 @@ export const ScannerSettingsPanel: React.FC<Props> = ({
                                     disabled={!enabled}
                                     onMouseDown={(e) => e.preventDefault()}
                                     onClick={() => setShowAuthPassword((v) => !v)}
-                                    aria-label={showAuthPassword ? 'Hide password' : 'Show password'}
-                                    title={showAuthPassword ? 'Hide password' : 'Show password'}
+                                    aria-label={showAuthPassword ? t('scanner.settings.credentials.hidePassword') : t('scanner.settings.credentials.showPassword')}
+                                    title={showAuthPassword ? t('scanner.settings.credentials.hidePassword') : t('scanner.settings.credentials.showPassword')}
                                 >
                                     {showAuthPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                                 </button>
@@ -478,24 +526,24 @@ export const ScannerSettingsPanel: React.FC<Props> = ({
                 {(['sonarr', 'radarr', 'lidarr'] as const).map((kind) => (
                     <SectionCard
                         key={kind}
-                        title={`${TRIGGER_META[kind].title} Triggers`}
-                        description={TRIGGER_META[kind].description}
+                        title={t('scanner.settings.triggers.title', { name: TRIGGER_META[kind].title })}
+                        description={t('scanner.settings.triggers.webhookPath', { path: TRIGGER_META[kind].path })}
                     >
                         {(scanner.triggers[kind] || []).map((trig, i) => (
                             <div key={i} className="space-y-4">
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div>
-                                        <label className="font-semibold text-sm block mb-2 text-text">Trigger Name</label>
+                                        <label className="font-semibold text-sm block mb-2 text-text">{t('scanner.settings.triggers.name')}</label>
                                         <input
                                             className={FIELD}
                                             value={trig.name}
                                             disabled={!enabled}
                                             onChange={(e) => updateTrigger(kind, i, { name: e.target.value })}
                                         />
-                                        <p className="text-[11px] text-muted mt-1.5">URL becomes /triggers/{trig.name || kind}</p>
+                                        <p className="text-[11px] text-muted mt-1.5">{t('scanner.settings.triggers.urlBecomes', { path: `/triggers/${trig.name || kind}` })}</p>
                                     </div>
                                     <div>
-                                        <label className="font-semibold text-sm block mb-2 text-text">Priority</label>
+                                        <label className="font-semibold text-sm block mb-2 text-text">{t('scanner.settings.triggers.priority')}</label>
                                         <input
                                             type="number"
                                             className={FIELD}
@@ -508,13 +556,13 @@ export const ScannerSettingsPanel: React.FC<Props> = ({
                                 <RewriteEditor
                                     rules={trig.rewrite || []}
                                     disabled={!enabled}
-                                    fromLabel={`${TRIGGER_META[kind].title} path`}
-                                    toLabel="Scanner path"
+                                    fromLabel={t('scanner.settings.pathRewrites.sourcePathFor', { name: TRIGGER_META[kind].title })}
+                                    toLabel={t('scanner.settings.pathRewrites.scannerPath')}
                                     onChange={(rewrite) => updateTrigger(kind, i, { rewrite })}
                                 />
                                 <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
                                     <p className="text-[11px] text-muted">
-                                        Safe synthetic test — validates parsing, saved rewrites, and target reachability without queueing a scan.
+                                        {t('scanner.settings.triggers.testHint')}
                                     </p>
                                     <button
                                         type="button"
@@ -527,7 +575,7 @@ export const ScannerSettingsPanel: React.FC<Props> = ({
                                         ) : (
                                             <RefreshCw className="w-3.5 h-3.5" />
                                         )}
-                                        Test trigger
+                                        {t('scanner.settings.triggers.testAction')}
                                     </button>
                                 </div>
                                 {triggerTestResults[`${kind}-${i}`] ? (
@@ -546,6 +594,51 @@ export const ScannerSettingsPanel: React.FC<Props> = ({
                     </SectionCard>
                 ))}
 
+                <SectionCard
+                    title={t('scanner.settings.pathRewrites.mediaAutomationTitle')}
+                    description={t('scanner.settings.pathRewrites.mediaAutomationDescription')}
+                >
+                    {(scanner.triggers.mediaAutomation || []).map((trig, i) => (
+                        <div key={i} className="space-y-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="font-semibold text-sm block mb-2 text-text">{t('scanner.settings.pathRewrites.label')}</label>
+                                    <input
+                                        className={FIELD}
+                                        value={trig.name}
+                                        disabled={!enabled}
+                                        onChange={(e) => updateTrigger('mediaAutomation', i, { name: e.target.value })}
+                                    />
+                                    <p className="text-[11px] text-muted mt-1.5">
+                                        {t('scanner.settings.pathRewrites.mediaAutomationLabelHint')}
+                                    </p>
+                                </div>
+                                <div>
+                                    <label className="font-semibold text-sm block mb-2 text-text">{t('scanner.settings.triggers.priority')}</label>
+                                    <input
+                                        type="number"
+                                        className={FIELD}
+                                        value={trig.priority}
+                                        disabled={!enabled}
+                                        onChange={(e) => updateTrigger('mediaAutomation', i, { priority: Number(e.target.value) || 0 })}
+                                    />
+                                </div>
+                            </div>
+                            <RewriteEditor
+                                rules={trig.rewrite || []}
+                                disabled={!enabled}
+                                fromLabel={t('scanner.settings.pathRewrites.automationPath')}
+                                toLabel={t('scanner.settings.pathRewrites.scannerOrPlexPath')}
+                                onChange={(rewrite) => updateTrigger('mediaAutomation', i, { rewrite })}
+                            />
+                            <p className="text-[11px] text-muted">
+                                {t('scanner.settings.pathRewrites.mediaAutomationExamplePrefix')} <code className="text-plex">/media/TV SHOWS</code> → <code className="text-plex">/mnt/user/TV SHOWS</code>.
+                                {t('scanner.settings.pathRewrites.mediaAutomationExampleSuffix')}
+                            </p>
+                        </div>
+                    ))}
+                </SectionCard>
+
                 {([
                     { kind: 'plex' as const, secret: 'token' as const, portalOnly: true },
                     { kind: 'jellyfin' as const, secret: 'apiKey' as const, portalOnly: false },
@@ -553,17 +646,17 @@ export const ScannerSettingsPanel: React.FC<Props> = ({
                 ]).map(({ kind, secret, portalOnly }) => (
                     <SectionCard
                         key={kind}
-                        title={`${TARGET_META[kind].title} Target`}
+                        title={t('scanner.settings.targets.title', { name: TARGET_META[kind].title })}
                         description={
                             portalOnly
-                                ? 'Uses the Plex token and server URL from Settings → Plex. Add rewrites only if mount paths differ.'
-                                : `Optional ${TARGET_META[kind].title} library refresh target.`
+                                ? t('scanner.settings.targets.plexDescription')
+                                : t('scanner.settings.targets.optionalDescription', { name: TARGET_META[kind].title })
                         }
                     >
                         {(scanner.targets[kind] || []).map((tgt, i) => (
                             <div key={i} className="space-y-4">
                                 <SettingsToggleRow
-                                    title={TARGET_META[kind].enableTitle}
+                                    title={t('scanner.settings.targets.enable', { name: TARGET_META[kind].title })}
                                     checked={!!tgt.enabled}
                                     onChange={(v) => updateTarget(kind, i, {
                                         enabled: v,
@@ -576,8 +669,8 @@ export const ScannerSettingsPanel: React.FC<Props> = ({
                                 {!portalOnly ? (
                                     <>
                                         <SettingsToggleRow
-                                            title="Use Portal Credentials"
-                                            hint={<SettingHint>When on, uses the media server URL and API key from Settings. Override below when off.</SettingHint>}
+                                            title={t('scanner.settings.targets.usePortalCredentials')}
+                                            hint={<SettingHint>{t('scanner.settings.targets.usePortalCredentialsHint')}</SettingHint>}
                                             checked={tgt.usePortalCredentials !== false}
                                             onChange={(v) => updateTarget(kind, i, { usePortalCredentials: v })}
                                             disabled={!enabled || !tgt.enabled}
@@ -587,7 +680,7 @@ export const ScannerSettingsPanel: React.FC<Props> = ({
                                         {!tgt.usePortalCredentials ? (
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                                 <div>
-                                                    <label className="font-semibold text-sm block mb-2 text-text">URL</label>
+                                                    <label className="font-semibold text-sm block mb-2 text-text">{t('scanner.settings.targets.url')}</label>
                                                     <input
                                                         className={FIELD}
                                                         placeholder="https://…"
@@ -597,7 +690,7 @@ export const ScannerSettingsPanel: React.FC<Props> = ({
                                                     />
                                                 </div>
                                                 <div>
-                                                    <label className="font-semibold text-sm block mb-2 text-text">API Key</label>
+                                                    <label className="font-semibold text-sm block mb-2 text-text">{t('scanner.settings.targets.apiKey')}</label>
                                                     <input
                                                         type="password"
                                                         className={FIELD}
@@ -614,8 +707,8 @@ export const ScannerSettingsPanel: React.FC<Props> = ({
                                 <RewriteEditor
                                     rules={tgt.rewrite || []}
                                     disabled={!enabled || !tgt.enabled}
-                                    fromLabel="Scanner path"
-                                    toLabel={`${TARGET_META[kind].title} path`}
+                                    fromLabel={t('scanner.settings.pathRewrites.scannerPath')}
+                                    toLabel={t('scanner.settings.pathRewrites.targetPath', { name: TARGET_META[kind].title })}
                                     onChange={(rewrite) => updateTarget(kind, i, { rewrite })}
                                 />
                             </div>
@@ -624,7 +717,7 @@ export const ScannerSettingsPanel: React.FC<Props> = ({
                 ))}
 
                 <p className="text-[11px] text-muted">
-                    After changing these options, click <strong className="text-text">Save Settings</strong> at the bottom of the page.
+                    {t('scanner.settings.targets.saveHint')}
                 </p>
 
                 <ScannerLiveLogs enabled={enabled} addToast={addToast} />
@@ -690,11 +783,13 @@ const formatLiveLogText = (entries: LogEntry[], meta?: { queueCount?: number; pr
 };
 
 const PAGE_SIZE = 10;
+const LIVE_LOAD_ERROR = '__scanner_live_load_error__';
 
 const ScannerLiveLogs: React.FC<{
     enabled: boolean;
     addToast?: (msg: string, type?: 'success' | 'error') => void;
 }> = ({ enabled, addToast }) => {
+    const { t } = useDiscoverI18n();
     const [entries, setEntries] = useState<LogEntry[]>([]);
     const [queueCount, setQueueCount] = useState(0);
     const [processed, setProcessed] = useState(0);
@@ -714,11 +809,13 @@ const ScannerLiveLogs: React.FC<{
             ]);
             setEntries(Array.isArray(logRes?.entries) ? logRes.entries : []);
             setProcessed(Number(logRes?.processed) || 0);
-            setQueueCount(Number(queueRes?.remaining ?? queueRes?.scans?.length) || 0);
+            const active = Number(queueRes?.remaining ?? queueRes?.scans?.length) || 0;
+            const waiting = Number(queueRes?.held ?? queueRes?.heldScans?.length) || 0;
+            setQueueCount(active + waiting);
             setError(null);
             setLastUpdated(new Date());
         } catch (e: any) {
-            setError(e?.message || 'Failed to load scanner logs');
+            setError(e?.message || LIVE_LOAD_ERROR);
         } finally {
             setLoading(false);
         }
@@ -728,11 +825,7 @@ const ScannerLiveLogs: React.FC<{
         void refresh();
     }, [refresh]);
 
-    useEffect(() => {
-        if (paused) return undefined;
-        const id = window.setInterval(() => { void refresh(); }, 3000);
-        return () => window.clearInterval(id);
-    }, [paused, refresh]);
+    usePoll(() => { void refresh(); }, paused ? null : 3000, { immediate: false });
 
     const totalPages = Math.max(1, Math.ceil(entries.length / PAGE_SIZE) || 1);
     const safePage = Math.min(page, totalPages - 1);
@@ -751,9 +844,9 @@ const ScannerLiveLogs: React.FC<{
         const text = formatLiveLogText(entries, { queueCount, processed });
         try {
             await navigator.clipboard.writeText(text);
-            addToast?.('Live activity copied to clipboard', 'success');
+            addToast?.(t('scanner.settings.live.toasts.copied'), 'success');
         } catch {
-            addToast?.('Could not copy to clipboard', 'error');
+            addToast?.(t('scanner.settings.live.errors.copyFailed'), 'error');
         }
     };
 
@@ -769,26 +862,26 @@ const ScannerLiveLogs: React.FC<{
         a.click();
         a.remove();
         URL.revokeObjectURL(url);
-        addToast?.('Live activity exported', 'success');
+        addToast?.(t('scanner.settings.live.toasts.exported'), 'success');
     };
 
     return (
         <SectionCard
-            title="Live Activity"
-            description="Webhook queue and recent scan results. Updates every few seconds while this page is open."
+            title={t('scanner.settings.live.title')}
+            description={t('scanner.settings.live.description')}
         >
             <div className="flex flex-wrap items-center gap-2 justify-between">
                 <div className="flex flex-wrap items-center gap-2">
                     <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold border shadow-[0_0_10px_rgba(59,130,246,0.15)] ${paused ? 'bg-yellow-500/10 text-yellow-300 border-yellow-500/20' : 'bg-blue-500/10 text-blue-400 border-blue-500/20 animate-pulse'}`}>
                         <span className={`w-1.5 h-1.5 rounded-full ${paused ? 'bg-yellow-300' : 'bg-blue-400'}`} />
-                        {paused ? 'PAUSED' : 'LIVE'}
+                        {paused ? t('scanner.settings.live.status.paused') : t('scanner.settings.live.status.live')}
                     </span>
                     {!enabled ? (
-                        <span className="text-xs text-yellow-300 font-semibold">Scanner is OFF — enable and save to process new webhooks</span>
+                        <span className="text-xs text-yellow-300 font-semibold">{t('scanner.settings.live.disabledHint')}</span>
                     ) : null}
                     <span className="text-xs text-muted">
-                        Queue {queueCount} · Processed {processed}
-                        {lastUpdated ? ` · Updated ${lastUpdated.toLocaleTimeString()}` : ''}
+                        {t('scanner.settings.live.summary', { queue: queueCount, processed })}
+                        {lastUpdated ? ` · ${t('scanner.settings.live.updated', { time: lastUpdated.toLocaleTimeString() })}` : ''}
                     </span>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -797,27 +890,27 @@ const ScannerLiveLogs: React.FC<{
                         className="btn-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs disabled:opacity-50"
                         onClick={() => void copyLogs()}
                         disabled={!entries.length}
-                        title="Copy live logs to clipboard"
+                        title={t('scanner.settings.live.copyTitle')}
                     >
                         <Copy className="w-3.5 h-3.5" />
-                        Copy
+                        {t('scanner.actions.copy')}
                     </button>
                     <button
                         type="button"
                         className="btn-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs disabled:opacity-50"
                         onClick={exportLogs}
                         disabled={!entries.length}
-                        title="Export live logs as .txt"
+                        title={t('scanner.settings.live.exportTitle')}
                     >
                         <Download className="w-3.5 h-3.5" />
-                        Export
+                        {t('scanner.settings.live.export')}
                     </button>
                     <button
                         type="button"
                         className="btn-secondary px-3 py-1.5 text-xs"
                         onClick={() => setPaused((p) => !p)}
                     >
-                        {paused ? 'Resume' : 'Pause'}
+                        {paused ? t('scanner.settings.live.resume') : t('scanner.settings.live.pause')}
                     </button>
                     <button
                         type="button"
@@ -825,14 +918,14 @@ const ScannerLiveLogs: React.FC<{
                         onClick={() => void refresh()}
                     >
                         <RefreshCw className="w-3.5 h-3.5" />
-                        Refresh
+                        {t('scanner.actions.refresh')}
                     </button>
                 </div>
             </div>
 
             {error ? (
                 <div className="rounded-lg border border-red-400/20 bg-red-500/10 px-3 py-2 text-xs text-red-200">
-                    {error}
+                    {error === LIVE_LOAD_ERROR ? t('scanner.settings.live.errors.load') : error}
                 </div>
             ) : null}
 
@@ -846,11 +939,11 @@ const ScannerLiveLogs: React.FC<{
                 {loading ? (
                     <div className="flex items-center gap-2 px-4 py-8 text-muted justify-center">
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        Loading activity…
+                        {t('scanner.settings.live.loading')}
                     </div>
                 ) : entries.length === 0 ? (
                     <div className="px-4 py-8 text-center text-muted">
-                        No scanner activity yet. Trigger a Sonarr/Radarr/Lidarr webhook or submit a path on the Scanner page.
+                        {t('scanner.settings.live.empty')}
                     </div>
                 ) : (
                     <ul className="divide-y divide-white/5">
@@ -861,11 +954,11 @@ const ScannerLiveLogs: React.FC<{
                             <li key={`${entry.at}-${globalIndex}`} className="px-3 py-2.5 hover:bg-white/[0.03]">
                                 <div className="flex flex-wrap items-center gap-2 mb-1">
                                     <span className={`font-bold uppercase tracking-wide ${entry.ok ? 'text-emerald-300' : 'text-red-300'}`}>
-                                        {entry.ok ? 'ok' : 'error'}
+                                        {entry.ok ? t('scanner.activity.ok') : t('scanner.activity.error')}
                                     </span>
                                     {(entry.reason || entry.action) ? (
                                         <span className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full border ${style.className}`}>
-                                            {entry.reason || style.label}
+                                            {entry.reason || (style.labelKey ? t(style.labelKey) : style.label)}
                                         </span>
                                     ) : null}
                                     <span className="text-muted">{formatLogTime(entry.at)}</span>
@@ -883,8 +976,14 @@ const ScannerLiveLogs: React.FC<{
                                     <div className="text-muted mt-1">
                                         {entry.results.map((r: any, idx: number) => (
                                             <span key={idx} className="mr-3">
-                                                {r.type || 'target'}
-                                                {r.skipped ? ` skipped (${r.reason || 'no library'})` : ' scanned'}
+                                                {r.skipped
+                                                    ? t('scanner.settings.live.targetSkipped', {
+                                                        target: r.type || t('scanner.settings.live.targetFallback'),
+                                                        reason: r.reason || t('scanner.settings.live.noLibrary'),
+                                                    })
+                                                    : t('scanner.settings.live.targetScanned', {
+                                                        target: r.type || t('scanner.settings.live.targetFallback'),
+                                                    })}
                                             </span>
                                         ))}
                                     </div>
@@ -899,7 +998,11 @@ const ScannerLiveLogs: React.FC<{
             {entries.length > 0 ? (
                 <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
                     <p className="text-xs text-muted">
-                        Showing {safePage * PAGE_SIZE + 1}–{Math.min(entries.length, (safePage + 1) * PAGE_SIZE)} of {entries.length}
+                        {t('scanner.activity.showing', {
+                            from: safePage * PAGE_SIZE + 1,
+                            to: Math.min(entries.length, (safePage + 1) * PAGE_SIZE),
+                            total: entries.length,
+                        })}
                     </p>
                     <div className="flex items-center gap-2">
                         <button
@@ -909,7 +1012,7 @@ const ScannerLiveLogs: React.FC<{
                             onClick={() => setPage((p) => Math.max(0, p - 1))}
                         >
                             <ChevronLeft className="w-3.5 h-3.5" />
-                            Prev
+                            {t('scanner.pagination.previous')}
                         </button>
                         <span className="text-xs font-semibold text-muted tabular-nums">
                             {safePage + 1} / {totalPages}
@@ -920,7 +1023,7 @@ const ScannerLiveLogs: React.FC<{
                             disabled={safePage >= totalPages - 1}
                             onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
                         >
-                            Next
+                            {t('scanner.pagination.next')}
                             <ChevronRight className="w-3.5 h-3.5" />
                         </button>
                     </div>

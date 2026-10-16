@@ -18,6 +18,7 @@ Optional extras under Discover & Request:
 - **My Requests** — member request history and status
 - **My Issues** — report problems with library titles
 - **Watchlist** — Plex watchlist-backed lists when configured
+- **People** — actor/crew pages show full TMDB filmography (acting and crew), not only “known for”
 
 ## Admin Requests queue
 
@@ -31,7 +32,7 @@ The **Requests** nav item (admin) is the approval inbox:
 | Quick actions | Approve, edit, decline, retry failed, delete |
 | Issues / Blocklist | Admin tools for reported issues and blocked titles |
 
-The Home dashboard can show a **Pending Requests** widget. Reorder or hide it under **Settings → Home Layout**.
+The Home dashboard can show a **Pending Requests** widget. Reorder or hide it under **Settings → Layout → Home Layout**.
 
 ## Settings
 

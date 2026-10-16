@@ -11,6 +11,7 @@ import {
     Rows3,
 } from 'lucide-react';
 import { CustomSelect } from '../shared/ui';
+import { DashboardSubnav, dashboardSubnavLinkClass } from '../shared/dashboard/DashboardChrome';
 
 const navItems = [
     { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
@@ -59,7 +60,7 @@ export const CollexionsSubnav: React.FC = () => {
                 />
             </div>
 
-            <nav className="hidden md:flex gap-1 overflow-x-auto no-scrollbar border-b border-border pb-2 mb-4 -mx-1 px-1">
+            <DashboardSubnav className="mb-5">
                 {navItems.map((item) => {
                     const Icon = item.icon;
                     return (
@@ -68,11 +69,7 @@ export const CollexionsSubnav: React.FC = () => {
                             to={item.to}
                             end={item.end}
                             className={({ isActive }) =>
-                                `flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
-                                    isActive
-                                        ? 'bg-plex text-background'
-                                        : 'text-muted hover:text-text hover:bg-white/5'
-                                }`
+                                `flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold whitespace-nowrap transition-colors ${dashboardSubnavLinkClass(isActive)}`
                             }
                         >
                             <Icon className="w-4 h-4 flex-shrink-0" />
@@ -80,7 +77,7 @@ export const CollexionsSubnav: React.FC = () => {
                         </NavLink>
                     );
                 })}
-            </nav>
+            </DashboardSubnav>
         </>
     );
 };

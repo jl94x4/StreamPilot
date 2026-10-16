@@ -5,6 +5,7 @@ import {
 import { apiFetch } from '../shared/api';
 import { portalUrl, resolvePortalAssetUrl } from '../shared/basePath';
 import { CustomSelect } from '../shared/ui';
+import { handleArrPortalEmbedAnchorClick } from '../../lib/arr-portal-embed.js';
 import type { UpgraderItem, UpgraderProfileInstance, UpgraderShowDetail } from './types';
 import { formatUpgraderCodecLabel } from './codecUtils';
 
@@ -310,6 +311,13 @@ export const UpgraderShowDrawer: React.FC<UpgraderShowDrawerProps> = ({
                                 target="_blank"
                                 rel="noreferrer"
                                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-bold text-plex no-underline hover:border-plex/40"
+                                onClick={(event) => {
+                                    handleArrPortalEmbedAnchorClick(event, {
+                                        url: arr.deepUrl,
+                                        arrType: 'sonarr',
+                                        label: 'Open in Sonarr',
+                                    });
+                                }}
                             >
                                 <ExternalLink className="w-3.5 h-3.5" />
                                 Open in Sonarr

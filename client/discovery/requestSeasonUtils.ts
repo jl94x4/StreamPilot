@@ -114,6 +114,8 @@ export const resolveInProgressDisplay = (
 
     const status = Number(mediaStatus ?? mediaInfo?.status);
     if (status !== MEDIA_STATUS.PROCESSING) return null;
+    // Files on disk (including still-airing / Partial) are not "waiting to download".
+    if (sonarrHasOnDiskFiles(details?.sonarrLibraryStatus)) return null;
 
     if (hasActiveSeerrDownloads(mediaInfo)) {
         return {
@@ -133,8 +135,25 @@ export const resolveInProgressDisplay = (
 /** Whether a season still has unaired episodes scheduled (currently airing). */
 export const isReturningSeries = (details: any): boolean => {
     const status = String(details?.status || '').toLowerCase();
+    if (status === 'ended' || status === 'canceled' || status === 'cancelled') return false;
     if (status === 'in production') return false;
-    return details?.inProduction === true || status === 'returning series';
+    if (details?.inProduction === true || status === 'returning series') return true;
+    // Browse cards omit TMDB status — Sonarr nextAiring / continuing is the list-path signal.
+    const sonarrStatus = String(details?.sonarrLibraryStatus?.seriesStatus || '').toLowerCase();
+    if (sonarrStatus === 'ended' || sonarrStatus === 'canceled' || sonarrStatus === 'cancelled') return false;
+    if (sonarrStatus === 'continuing' || sonarrStatus === 'upcoming') return true;
+    return Boolean(details?.sonarrLibraryStatus?.nextAiring);
+};
+
+/** True when Sonarr reports episode files on disk (continuing shows are not showComplete). */
+export const sonarrHasOnDiskFiles = (sonarr: any): boolean => {
+    if (!sonarr?.matched || sonarr.hasActiveDownloads) return false;
+    if (sonarr.showComplete) return true;
+    const fileCount = Number(sonarr.fileCount ?? sonarr.episodeFileCount) || 0;
+    if (fileCount > 0) return true;
+    return (sonarr.seasons || []).some((season: any) => (
+        Number(season?.withFile) > 0 || Number(season?.airedWithFile) > 0
+    ));
 };
 
 export const isEndedShow = (details: any): boolean => {
@@ -145,21 +164,111 @@ export const isEndedShow = (details: any): boolean => {
 
 export const isMainSeasonNumber = (seasonNumber: number) => Number(seasonNumber) > 0;
 
+/** Sonarr episode rows confirm at least one episode has aired (or files on disk). */
+export const sonarrHasAiredEpisodes = (sonarr: any): boolean => {
+    if (!sonarr?.matched) return false;
+    if ((sonarr.seasons || []).some((season: any) => Number(season?.airedTotal) > 0)) return true;
+    const fileCount = Number(sonarr.fileCount ?? sonarr.episodeFileCount) || 0;
+    return fileCount > 0;
+};
+
 /** True when at least one episode has aired on this show. */
 export const hasAnyEpisodeAired = (details: any): boolean => {
     const last = details?.lastEpisodeToAir;
     const season = Number(last?.seasonNumber);
     const episode = Number(last?.episodeNumber);
-    return Number.isFinite(season) && season > 0 && Number.isFinite(episode) && episode > 0;
+    if (Number.isFinite(season) && season > 0 && Number.isFinite(episode) && episode > 0) {
+        const airDate = last?.airDate || last?.air_date;
+        if (airDate) {
+            const parsed = Date.parse(String(airDate));
+            if (!Number.isNaN(parsed) && parsed > Date.now()) return false;
+        }
+        return true;
+    }
+
+    const sonarr = details?.sonarrLibraryStatus;
+    if (sonarr?.matched) {
+        if (sonarrHasAiredEpisodes(sonarr)) return true;
+        if (sonarr.showComplete) return true;
+    }
+
+    // Discover browse rows often omit lastEpisodeToAir — infer from premiere date.
+    const firstAir = String(details?.firstAirDate || details?.first_air_date || '').slice(0, 10);
+    if (firstAir) {
+        const parsed = Date.parse(firstAir);
+        if (!Number.isNaN(parsed) && parsed <= Date.now()) return true;
+    }
+
+    return false;
+};
+
+/** True when Sonarr confirms every aired main season is complete on disk. */
+export const sonarrMainSeasonsFullyOnDisk = (details: any): boolean => {
+    const sonarr = details?.sonarrLibraryStatus;
+    if (!sonarr?.matched || sonarr.hasActiveDownloads || sonarr.nextAiring) return false;
+    if (sonarr.showComplete) return true;
+
+    const main = (sonarr.seasons || []).filter((s: any) => isMainSeasonNumber(Number(s?.seasonNumber)));
+    if (!main.length) return false;
+
+    const airedMain = main.filter((s: any) => Number(s?.airedTotal) > 0);
+    if (airedMain.length > 0) {
+        return airedMain.every((s: any) => !!s.complete);
+    }
+
+    // Unmonitored libraries: trust per-season file totals when every season is full.
+    return main.every(
+        (s: any) => !!s.complete
+            || (Number(s.total) > 0 && Number(s.withFile) >= Number(s.total)),
+    );
+};
+
+/** Never badge unreleased / pre-premiere shows as library-available. */
+export const canMarkTvAsAvailable = (details: any): boolean => {
+    const sonarr = details?.sonarrLibraryStatus;
+    const status = Number(details?.mediaInfo?.status);
+    const hasLibraryStamp = status >= MEDIA_STATUS.PARTIAL && status <= MEDIA_STATUS.AVAILABLE;
+    const fileCount = Number(sonarr?.fileCount ?? sonarr?.episodeFileCount) || 0;
+
+    // Discover browse / watchlist rows often omit lastEpisodeToAir + seasons[].
+    if (sonarr?.matched) {
+        if (sonarrHasAiredEpisodes(sonarr) || sonarr.showComplete) return true;
+        // Catalog PARTIAL/AVAILABLE is file-backed; prefer fileCount when present.
+        if (fileCount > 0 && hasLibraryStamp) return true;
+        // Older cache rows omit fileCount — allow only after premiere (blocks Seerr pre-premiere AVAILABLE).
+        if (hasLibraryStamp && hasAnyEpisodeAired({ ...details, sonarrLibraryStatus: null })) return true;
+        return false;
+    }
+
+    if (!hasAnyEpisodeAired(details)) return false;
+    return true;
 };
 
 /** True when this season has at least one aired episode. */
 export const hasSeasonAired = (details: any, seasonNumber: number): boolean => {
     if (!hasAnyEpisodeAired(details)) return false;
-    const lastSeason = Number(details.lastEpisodeToAir.seasonNumber);
-    if (seasonNumber < lastSeason) return true;
-    if (seasonNumber > lastSeason) return false;
-    return Number(details.lastEpisodeToAir.episodeNumber) > 0;
+
+    const last = details?.lastEpisodeToAir;
+    const lastSeason = Number(last?.seasonNumber);
+    const lastEpisode = Number(last?.episodeNumber);
+
+    if (Number.isFinite(lastSeason) && lastSeason > 0 && Number.isFinite(lastEpisode) && lastEpisode > 0) {
+        if (seasonNumber < lastSeason) return true;
+        if (seasonNumber > lastSeason) return false;
+        return lastEpisode > 0;
+    }
+
+    // Watchlist / browse rows often omit lastEpisodeToAir — infer from Sonarr aired counts.
+    const sonarr = details?.sonarrLibraryStatus;
+    if (sonarr?.matched) {
+        const row = (sonarr.seasons || []).find(
+            (s: any) => Number(s?.seasonNumber) === seasonNumber,
+        );
+        if (row && Number(row.airedTotal) > 0) return true;
+        if (sonarr.showComplete && isMainSeasonNumber(seasonNumber)) return true;
+    }
+
+    return false;
 };
 
 export const isSeasonStillAiring = (details: any, seasonNumber: number): boolean => {
@@ -204,12 +313,31 @@ const fulfilledSeasonLabel = (label: string) => (
     label === 'Available' || label === 'Up to date'
 );
 
+/** All aired main-season episodes are on disk (continuing shows may still have nextAiring). */
+export const sonarrCaughtUpWithAiredEpisodes = (details: any): boolean => {
+    const sonarr = details?.sonarrLibraryStatus;
+    if (!sonarr?.matched || sonarr.hasActiveDownloads) return false;
+    if (sonarr.showComplete) return true;
+
+    const main = (sonarr.seasons || []).filter((season: any) => isMainSeasonNumber(Number(season?.seasonNumber)));
+    const airedMain = main.filter((season: any) => Number(season.airedTotal) > 0);
+    if (!airedMain.length) return false;
+
+    return airedMain.every((season: any) => {
+        if (season.complete) return true;
+        const aired = Number(season.airedTotal) || 0;
+        const withFile = Number(season.airedWithFile ?? season.withFile) || 0;
+        return aired > 0 && withFile >= aired;
+    });
+};
+
 /** True when every aired season is actually on disk — never from approve alone. */
 export const isTvShowLibraryComplete = (
     details: any,
     seasonRows: SeasonStatusInfo[],
     mediaInfo?: any,
 ): boolean => {
+    if (!canMarkTvAsAvailable(details)) return false;
     const info = mediaInfo || details?.mediaInfo;
     if (hasActiveShowDownloads(details, info)) return false;
 
@@ -220,6 +348,8 @@ export const isTvShowLibraryComplete = (
     if (sonarr?.matched) {
         if (sonarr.hasActiveDownloads) return false;
         if (sonarr.showComplete) return true;
+        if (sonarrMainSeasonsFullyOnDisk(details)) return true;
+        if (sonarrCaughtUpWithAiredEpisodes(details)) return true;
         // Fall through: showComplete can be conservative (specials / undated eps).
         // Prefer per-season evidence below when Sonarr matched but didn't flip complete.
     }
@@ -349,6 +479,7 @@ export const applySonarrLibrarySeasonOverrides = (
     if (sonarr.showComplete) {
         return seasonRows.map((row) => {
             if (!isMainSeasonNumber(Number(row.seasonNumber))) return row;
+            if (!canMarkTvAsAvailable(details)) return row;
             return {
                 ...row,
                 requestable: false,
@@ -371,11 +502,13 @@ export const applySonarrLibrarySeasonOverrides = (
         const probe = bySeason.get(seasonNumber);
         if (!probe) return row;
 
-        if (probe.complete) {
+        const seasonComplete = !!probe.complete
+            || (Number(probe.total) > 0 && Number(probe.withFile) >= Number(probe.total));
+        if (seasonComplete && (Number(probe.airedTotal) > 0 || Number(probe.withFile) > 0)) {
             return {
                 ...row,
                 requestable: false,
-                statusLabel: 'Available',
+                statusLabel: isEndedShow(details) ? 'Available' : resolvePartialSeasonLabel(details, seasonNumber),
                 libraryStatus: MEDIA_STATUS.AVAILABLE,
             };
         }
@@ -443,8 +576,15 @@ export type RequestOptionsPayload = {
     canRequest: boolean;
     canRequest4k: boolean;
     canRequestAdvanced?: boolean;
+    canRequestTags?: boolean;
     has4kServer: boolean;
     hasHdServer: boolean;
+    /** Movie only — which qualities already have a file in Radarr / Seerr. */
+    libraryQualities?: { hd?: boolean; '4k'?: boolean } | null;
+    /** Movie only — which qualities already have an open Seerr request. */
+    requestedQualities?: { hd?: boolean; '4k'?: boolean } | null;
+    /** Soft notice when one quality is in library but another can still be requested. */
+    availabilityNote?: string | null;
     standardQuotaBlocked?: boolean;
     fourKQuotaBlocked?: boolean;
     seerrUserId?: number | null;
@@ -462,6 +602,7 @@ export type RequestOptionsPayload = {
         request4kMovie?: boolean;
         request4kTv?: boolean;
         requestAdvanced?: boolean;
+        requestTags?: boolean;
         createIssues?: boolean;
         viewIssues?: boolean;
     };
@@ -475,11 +616,49 @@ export type RequestOptionsPayload = {
     blockReason?: string | null;
     posterPath?: string | null;
     engine?: string;
+    canNotify?: boolean;
+    isWatching?: boolean;
+    requestedByName?: string | null;
+    requestedByCount?: number;
 };
 
-export const formatQuotaHint = (slot: QuotaSlot | undefined, label: string): string | null => {
+export const formatRequestedByCopy = (
+    t: (key: string, vars?: Record<string, string | number>) => string,
+    name?: string | null,
+    count?: number,
+): string => {
+    const n = Number(count) || 0;
+    if (name && n > 1) return t('request.requestedByAndMore', { name, count: n - 1 });
+    if (name) return t('request.requestedBy', { name });
+    return t('request.requestedBySomeone');
+};
+
+export const formatNotifyMeHint = (
+    t: (key: string, vars?: Record<string, string | number>) => string,
+    name?: string | null,
+    count?: number,
+): string => {
+    const n = Number(count) || 0;
+    if (name && n > 1) return t('request.notifyMeHintNamedMore', { name, count: n - 1 });
+    if (name) return t('request.notifyMeHintNamed', { name });
+    return t('request.notifyMeHint');
+};
+
+export const formatQuotaHint = (
+    slot: QuotaSlot | undefined,
+    label: string,
+    t?: (key: string, vars?: Record<string, string | number>) => string,
+): string | null => {
     if (!slot || slot.limit === 0) return null;
     const remaining = slot.remaining ?? Math.max(0, slot.limit - slot.used);
+    if (t) {
+        return t('request.quotaLeft', {
+            remaining,
+            limit: slot.limit,
+            label,
+            days: slot.days,
+        });
+    }
     return `${remaining} of ${slot.limit} ${label} requests left (${slot.days}-day window)`;
 };
 
@@ -490,6 +669,49 @@ export const isMovieFullyAvailable = (mediaStatus: number | null | undefined) =>
 export const isMovieRequestPending = (mediaStatus: number | null | undefined) => {
     const value = Number(mediaStatus);
     return value === MEDIA_STATUS.PENDING || value === MEDIA_STATUS.PROCESSING;
+};
+
+/** Build per-season rows from catalog cache when TMDB seasons[] are absent (browse grids). */
+export const buildSeasonStatusFromCatalogCache = (details: any): SeasonStatusInfo[] => {
+    const mediaInfo = details?.mediaInfo || {};
+    const librarySeasons = Array.isArray(mediaInfo?.seasons) ? mediaInfo.seasons : [];
+    if (!librarySeasons.length) return [];
+
+    const rows = librarySeasons
+        .filter((season: any) => isMainSeasonNumber(Number(season?.seasonNumber)))
+        .sort((a: any, b: any) => Number(a.seasonNumber) - Number(b.seasonNumber))
+        .map((season: any) => {
+            const seasonNumber = Number(season.seasonNumber);
+            const libraryStatus = Number(season?.status) || null;
+            let statusLabel = mediaLibraryStatusLabel(libraryStatus) || 'Not requested';
+            if (libraryStatus === MEDIA_STATUS.PARTIAL) {
+                const sonarr = details?.sonarrLibraryStatus;
+                statusLabel = sonarr?.nextAiring
+                    ? 'Up to date'
+                    : resolvePartialSeasonLabel(details, seasonNumber);
+            } else if (libraryStatus === MEDIA_STATUS.AVAILABLE) {
+                statusLabel = 'Available';
+            }
+
+            return {
+                seasonNumber,
+                name: `Season ${seasonNumber}`,
+                episodeCount: 0,
+                posterPath: null,
+                libraryStatus,
+                requestStatus: null,
+                statusLabel,
+                requestable: false,
+            };
+        });
+
+    return applySonarrLibrarySeasonOverrides(details, rows);
+};
+
+export const buildTvSeasonStatusRows = (details: any): SeasonStatusInfo[] => {
+    const fromDetails = buildSeasonStatusFromDetails(details);
+    if (fromDetails.length) return fromDetails;
+    return buildSeasonStatusFromCatalogCache(details);
 };
 
 /** Build per-season status from Seerr media detail payload (client-side, no extra API call). */
@@ -582,8 +804,29 @@ export const getRequestButtonState = (
     });
 
     if (mediaType === 'movie') {
-        if (status === MEDIA_STATUS.AVAILABLE) {
+        const radarr = details?.radarrLibraryStatus;
+        const hdHasFile = !!radarr?.hdHasFile;
+        const fourKHasFile = !!radarr?.fourKHasFile;
+        const libQ = mediaInfo?.libraryQualities;
+        const reqQ = mediaInfo?.requestedQualities;
+        const seerrCanRequest = mediaInfo?.canRequest === true;
+        // Only keep Request open when the *other* quality is monitored and still missing a file.
+        const qualityStillNeeded = (!!radarr && (
+            (hdHasFile && !fourKHasFile && !!radarr.fourKMatched)
+            || (fourKHasFile && !hdHasFile && !!radarr.hdMatched)
+        )) || !!(libQ && (
+            (libQ.hd && !libQ['4k'] && !reqQ?.['4k'])
+            || (libQ['4k'] && !libQ.hd && !reqQ?.hd)
+        ));
+
+        if (status === MEDIA_STATUS.AVAILABLE && !qualityStillNeeded && !seerrCanRequest) {
             return { label: 'Available', disabled: true, variant: 'available' as const };
+        }
+        if (status === MEDIA_STATUS.AVAILABLE && (qualityStillNeeded || seerrCanRequest)) {
+            return { label: 'Request Movie', disabled: false, variant: 'action' as const };
+        }
+        if (seerrCanRequest && (status === MEDIA_STATUS.PROCESSING || status === MEDIA_STATUS.PENDING)) {
+            return { label: 'Request Movie', disabled: false, variant: 'action' as const };
         }
         if (status === MEDIA_STATUS.PROCESSING) {
             const label = isMediaActivelyProcessing(mediaInfo, status) ? 'Processing' : 'Requested';
@@ -596,7 +839,10 @@ export const getRequestButtonState = (
             if (Number(activeRequest.status) === REQUEST_STATUS.PENDING) {
                 return { label: 'Request Pending', disabled: true, variant: 'pending' as const };
             }
-            return { label: 'Requested', disabled: true, variant: 'pending' as const };
+            // Active request for one quality should not block requesting the other.
+            if (!qualityStillNeeded) {
+                return { label: 'Requested', disabled: true, variant: 'pending' as const };
+            }
         }
         if (status === MEDIA_STATUS.BLACKLISTED) {
             return { label: 'Blacklisted', disabled: true, variant: 'blocked' as const };
@@ -629,7 +875,8 @@ export const getRequestButtonState = (
         };
     }
 
-    const libraryComplete = isTvShowLibraryComplete(details, seasonRows, mediaInfo);
+    const libraryComplete = isTvShowLibraryComplete(details, seasonRows, mediaInfo)
+        || sonarrMainSeasonsFullyOnDisk(details);
     if (libraryComplete) {
         return {
             label: details && isReturningSeries(details) && hasAnyEpisodeAired(details) ? 'Up to date' : 'Available',
@@ -646,6 +893,12 @@ export const getRequestButtonState = (
         ));
         if (waiting) {
             return { label: 'Requested', disabled: true, variant: 'pending' as const };
+        }
+        const mainRows = seasonRows.filter((s) => isMainSeasonNumber(s.seasonNumber));
+        const allMainAvailable = mainRows.length > 0
+            && mainRows.every((s) => s.statusLabel === 'Available' || s.statusLabel === 'Up to date');
+        if (allMainAvailable || (details && isEndedShow(details) && sonarrMainSeasonsFullyOnDisk(details))) {
+            return { label: 'Available', disabled: true, variant: 'available' as const };
         }
         if (details && isReturningSeries(details) && hasAnyEpisodeAired(details)) {
             return { label: 'Up to date', disabled: true, variant: 'available' as const };

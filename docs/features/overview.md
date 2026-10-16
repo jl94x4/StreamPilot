@@ -1,6 +1,6 @@
 # Feature Overview
 
-Server Portal combines user onboarding, access management, analytics, requests, collections, and server operations in one self-hosted app.
+StreamPilot combines user onboarding, access management, analytics, requests, collections, and server operations in one self-hosted app.
 
 ## Product map
 
@@ -15,7 +15,10 @@ Server Portal combines user onboarding, access management, analytics, requests, 
 | Analytics | Deeper personal / server analytics views |
 | ColleXions | Admin Plex collection automation (bundled worker) |
 | Scanner | Admin library refresh from ARR webhooks / manual paths |
+| Spotify Sync | Admin Plex playlist sync from Spotify (bundled worker, BETA) |
+| Watch Sync | Admin two-way Plex and Trakt watched, ratings, collection, and watchlist sync, plus live scrobble while the server account is playing |
 | Upgrader | Library quality upgrades via Sonarr / Radarr |
+| Media Automation | Native FFmpeg jobs from manual or Sonarr/Radarr/Lidarr webhooks |
 | Cleaner | Library maintenance rules and candidates |
 | Status | Public / admin service status |
 | Users / Settings | Access management and configuration |
@@ -54,11 +57,19 @@ Public-facing routes include the landing/login page, invite claim page, and stat
 
 ## Integrations
 
-Server Portal connects to the surrounding media stack: Plex, Jellyfin, Emby, Tautulli, Jellystat, Sonarr, Radarr, Lidarr, Bazarr, qBittorrent, Transmission, BitTorrent, Deluge, SABnzbd, NZBGet, Gotify, TMDB, and SMTP.
+StreamPilot connects to the surrounding media stack: Plex, Jellyfin, Emby, Tautulli, Jellystat, Sonarr, Radarr, Lidarr, Bazarr, qBittorrent, Transmission, BitTorrent, Deluge, SABnzbd, NZBGet, Gotify, TMDB, and SMTP.
 
 **Discover & Request is built in by default.** Seerr / Jellyseerr is optional as a request engine or history import — see [Discover & Request](/features/discover-request).
 
 See [Integrations](/guide/integrations) for the full matrix.
+
+## Native Media Automation
+
+Admins can inspect and process selected media with the FFmpeg/FFprobe tools bundled in the Docker image. Version 1 supports manual and Sonarr/Radarr sources, with CPU, NVIDIA NVENC, Intel QSV/VAAPI, and AMD VAAPI encoder reporting.
+
+The feature is opt-in and safety-first: begin with dry-run or copy mode, provide an explicit writable media mount for output actions, and configure quarantine before atomic replacement. Version 1 uses only the built-in native executor and does not expose a plugin API.
+
+See [Native Media Automation](/features/media-automation) for deployment, hardware, and replacement safety requirements.
 
 ## Themes
 
@@ -71,6 +82,8 @@ Users can choose among built-in dark themes, while admins can set the default th
 - [Calendar](/features/calendar)
 - [ColleXions](/features/collexions)
 - [Scanner](/features/scanner)
+- [Spotify Sync](/features/spotify-sync)
 - [Upgrader](/features/upgrader)
+- [Media Automation](/features/media-automation)
 - [Cleaner](/features/cleaner)
 - [Admin Dashboard](/features/admin)

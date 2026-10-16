@@ -11,8 +11,8 @@
 Clone the repository and install dependencies:
 
 ```bash
-git clone https://github.com/jl94x4/Server-Manager-Portal.git
-cd Server-Manager-Portal
+git clone https://github.com/jl94x4/StreamPilot.git
+cd StreamPilot
 npm install
 ```
 
@@ -42,7 +42,9 @@ The setup wizard asks you to choose a media server mode:
 | Jellyfin | Jellyfin username/password or Quick Connect | Jellystat | Jellyfin server assets or custom theme |
 | Emby | Emby-compatible server connection | Optional external analytics/status tools | Emby or custom theme |
 
-After setup, use the Settings area to configure the media server, SMTP, temporary access, branding, status services, integrations, home layout, and scheduled tasks.
+Notifications (SMTP and Gotify), Arr apps, Discover & Request quotas, and member page visibility are optional during setup. Skip any of those steps and configure them later in Settings.
+
+After setup, use the Settings area to configure the media server, SMTP, Gotify, temporary access, branding, status services, integrations, home layout, and scheduled tasks.
 
 ## Runtime Data
 

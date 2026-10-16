@@ -5,16 +5,16 @@ import {
     ChevronDown,
     Check,
     BookOpen,
+    Save,
     RefreshCw,
     Server,
-    Mail,
     Bell,
     Newspaper,
     Trash2,
     Layers,
     Palette,
-    Navigation as NavigationIcon,
-    Home,
+    LayoutDashboard,
+    AppWindow,
     Activity,
     UserPlus,
     ListTodo,
@@ -25,31 +25,54 @@ import {
     Shield,
     ScrollText,
     Plus,
+    Cpu,
+    Image as ImageIcon,
+    Trophy,
+    Film,
+    Clapperboard,
+    Bookmark,
+    ExternalLink,
+    BarChart3,
+    Music,
 } from 'lucide-react';
 import { apiFetch, PORTAL_CSRF_HEADER, PORTAL_CSRF_VALUE } from '../shared/api';
 import { portalUrl, resolvePortalAssetUrl } from '../shared/basePath';
 import { safeHttpUrl, safeImageSrc } from '../shared/safeUrl';
 import { appConfirm } from '../shared/confirm';
+import { usePoll } from '../shared/usePoll';
 import { CustomSelect, SettingsSwitch, SettingsToggleRow } from '../shared/ui';
+import { StickySaveBar } from '../shared/StickySaveBar';
 import { Loader, ToastContainer, pushToast, type ToastMessage } from '../shared/toast';
 import { SettingHint, SettingFieldLabel } from './SettingHint';
-import type { User, AuditEntry, DeletedUser, PlexServer, ArrInstance, DownloadClientConfig } from '../shared/types';
-import { formatDateTime, formatEventName, hexToRgb, accentHoverRgb, getDaysUntilExpiry, addMonths, addYears, formatDate } from '../shared/format';
+import type { User, AuditEntry, DeletedUser, PlexServer, ArrInstance, DownloadClientConfig, CustomNavTab, HomeCustomModule } from '../shared/types';
+import type { NavItemIconsMap } from '../shared/navItemIcons';
+import { formatDateTime, formatEventName, hexToRgb, accentHoverRgb, getDaysUntilExpiry, addMonths, addYears, formatDate, formatPortalDateTime } from '../shared/format';
 
 import { StreamKillRulesPanel } from './StreamKillRulesPanel';
 import { InvitesSettings } from './InvitesSettings';
 import { StatusMonitorSettings } from './StatusMonitorSettings';
 import { ScannerSettingsPanel, defaultScannerSettings, type ScannerSettings } from './ScannerSettingsPanel';
 import { BroadcastSettingsTab } from './BroadcastSettingsTab';
+import { EmailAutomatedTemplatesPanel } from './EmailAutomatedTemplatesPanel';
+import { CleanupInactivePreview } from './CleanupInactivePreview';
+import { NotificationsSettingsTab } from './NotificationsSettingsTab';
 import { IntegrationTestButton } from '../shared/IntegrationTestButton';
 import { HomeLayoutSettings } from './HomeLayoutSettings';
+import { AchievementsSettings } from './AchievementsSettings';
+import { AnalyticsSettings } from './AnalyticsSettings';
+import { MemoryDiagnosticsSection } from './MemoryDiagnosticsSection';
+import { LoginBrandMark } from '../shared/LoginBrandMark';
 import { NavigationOrderSettings } from './NavigationOrderSettings';
-import { ArrInstancesPanel } from './ArrInstancesPanel';
+import { CustomNavTabsSettings } from './CustomNavTabsSettings';
+import { HomeCustomModulesSettings } from './HomeCustomModulesSettings';
+import { ArrInstancesPanel, type ArrInstancesPanelCopy } from './ArrInstancesPanel';
 import { DISCOVER_LANGUAGE_OPTIONS, DISCOVER_REGION_OPTIONS } from './discoverySettingsOptions';
 import { DEFAULT_DASHBOARD_LAYOUT, normalizeSectionLayout, type DashboardLayoutConfig } from '../shared/dashboardLayout';
-import { DEFAULT_NAV_ORDER, ensureCompleteNavOrder, normalizeNavHiddenKeys } from '../shared/nav';
+import { pruneDashboardLayoutCustomModules } from '../shared/homeCustomModules';
+import { DEFAULT_NAV_ORDER, deriveMemberNavOrderFromAdmin, ensureCompleteMemberNavOrder, ensureCompleteNavOrder, normalizeMemberNavHiddenKeys, normalizeNavHiddenKeys, resolveMemberNavOrder } from '../shared/nav';
 import {
     SETTINGS_TAB_GROUPS,
+    SETTINGS_TAB_SECTIONS,
     buildSettingsHash,
     getSettingsSectionElementId,
     parseSettingsHash,
@@ -58,8 +81,18 @@ import {
     type SettingsIndexEntry,
     type SettingsTabId,
 } from './settingsIndex';
-import { SettingsSearchPanel } from './SettingsSearchPanel';
 import { UPGRADER_PRESET_SELECT_OPTIONS } from '../upgrader/presets';
+import { MediaAutomationSettings } from '../media-automation/MediaAutomationSettings';
+import {
+    DEFAULT_MEDIA_AUTOMATION_SETTINGS,
+    type MediaAutomationSettingsConfig,
+} from '../media-automation/types';
+import { useDiscoverI18n } from '../discovery/i18n';
+import { BetaBadge, PosterSetsBetaBanner } from '../shared/BetaBadge';
+
+const SETTINGS_TAB_BETA_NOTICE: Record<string, string> = {
+    'poster-sets': 'posterSetsPage.betaNotice',
+};
 
 const normalizeArrInstancesFromSettings = (settings: Record<string, any> = {}): ArrInstance[] => {
     if (Array.isArray(settings.arrInstances) && settings.arrInstances.length > 0) {
@@ -91,10 +124,77 @@ const normalizeArrInstancesFromSettings = (settings: Record<string, any> = {}): 
     return instances;
 };
 
+const DOWNLOAD_CLIENT_TYPE_LABELS: Record<DownloadClientConfig['type'], string> = {
+    qbittorrent: 'qBittorrent',
+    rdtclient: 'Real-Debrid Client',
+    transmission: 'Transmission',
+    bittorrent: 'BitTorrent',
+    deluge: 'Deluge',
+    sabnzbd: 'SABnzbd',
+    nzbget: 'NZBGet',
+};
+
+const taskStatusPillClass = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold border whitespace-nowrap';
+
+type TaskStatusSource = {
+    running?: boolean;
+    lastRun?: string | null;
+    lastError?: string | null;
+    lastWarning?: string | null;
+};
+
+const TaskStatusPill: React.FC<{ task: TaskStatusSource }> = ({ task }) => {
+    if (task.running) {
+        return (
+            <span className={`${taskStatusPillClass} bg-blue-500/10 text-blue-400 border-blue-500/20 shadow-[0_0_10px_rgba(59,130,246,0.15)] animate-pulse`}>
+                <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-ping" />
+                Running
+            </span>
+        );
+    }
+    if (task.lastError) {
+        return (
+            <span className={`${taskStatusPillClass} bg-red-500/10 text-red-400 border-red-500/20`}>
+                <span className="w-1.5 h-1.5 bg-red-400 rounded-full" />
+                Failed
+            </span>
+        );
+    }
+    if (task.lastWarning) {
+        return (
+            <span className={`${taskStatusPillClass} bg-amber-500/10 text-amber-400 border-amber-500/20`}>
+                <span className="w-1.5 h-1.5 bg-amber-400 rounded-full" />
+                Warning
+            </span>
+        );
+    }
+    if (task.lastRun) {
+        return (
+            <span className={`${taskStatusPillClass} bg-emerald-500/10 text-emerald-300 border-emerald-500/20`}>
+                <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full" />
+                Success
+            </span>
+        );
+    }
+    return (
+        <span className={`${taskStatusPillClass} bg-slate-500/10 text-muted border-border`}>
+            Idle
+        </span>
+    );
+};
+
+const downloadClientUrlPlaceholder = (type: DownloadClientConfig['type']) => (
+    type === 'transmission' ? 'http://localhost:9091'
+        : type === 'deluge' ? 'http://localhost:8112'
+            : type === 'nzbget' ? 'http://localhost:6789'
+                : type === 'rdtclient' ? 'http://localhost:6500'
+                    : 'http://localhost:8080'
+);
+
 const createEmptyDownloadClient = (type: DownloadClientConfig['type'] = 'qbittorrent'): DownloadClientConfig => ({
     id: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `${type}-${Date.now()}`,
     type,
-    name: type === 'transmission' ? 'Transmission' : type === 'bittorrent' ? 'BitTorrent' : type === 'deluge' ? 'Deluge' : type === 'sabnzbd' ? 'SABnzbd' : type === 'nzbget' ? 'NZBGet' : 'qBittorrent',
+    name: DOWNLOAD_CLIENT_TYPE_LABELS[type] || 'qBittorrent',
     url: '',
     username: '',
     password: '',
@@ -105,6 +205,10 @@ const DEFAULT_ALERT_RULES = {
     expiryWarning: true,
     accessRevoked: true,
     newUserSynced: true,
+    requestPending: true,
+    supportTicket: true,
+    supportReply: true,
+    supportMediaIssue: true,
     syncSuccess: false,
     syncFailure: true,
 };
@@ -137,6 +241,7 @@ const APP_ICONS: Record<string, string> = {
     ombi: `${SELFHST_ICON_BASE}/ombi.svg`,
     download: `${SELFHST_ICON_BASE}/qbittorrent.svg`,
     qbittorrent: `${SELFHST_ICON_BASE}/qbittorrent.svg`,
+    rdtclient: 'https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/rdt-client.svg',
     transmission: `${SELFHST_ICON_BASE}/transmission.svg`,
     bittorrent: `${SIMPLE_ICON_BASE}/bittorrent`,
     deluge: `${SELFHST_ICON_BASE}/deluge.svg`,
@@ -149,21 +254,30 @@ const APP_ICONS: Record<string, string> = {
 
 const SETTINGS_TAB_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
     plex: Server,
-    smtp: Mail,
-    gotify: Bell,
+    notifications: Bell,
     newsletter: Newspaper,
     cleanup: Trash2,
+    cleaner: Shield,
     mediastack: Layers,
     request: BookOpen,
     branding: Palette,
-    navigation: NavigationIcon,
-    'home-layout': Home,
+    layout: LayoutDashboard,
+    applets: AppWindow,
     status: Activity,
     invites: UserPlus,
     tasks: ListTodo,
     upgrader: Wand2,
     collexions: Layers,
+    'spotify-sync': Music,
+    'metadata-fill': Wand2,
     scanner: Activity,
+    'media-automation': Cpu,
+    'poster-sets': ImageIcon,
+    overlays: Layers,
+    editions: Film,
+    'watch-sync': Clapperboard,
+    achievements: Trophy,
+    analytics: BarChart3,
     system: Settings,
     contact: Phone,
     broadcast: Radio,
@@ -192,13 +306,16 @@ const ProgramIcon: React.FC<{ app: string; label: string }> = ({ app, label }) =
     </span>
 );
 
-const IntegrationHeading: React.FC<{ app: string; title: string; subtitle?: string; className?: string }> = ({ app, title, subtitle, className = '' }) => (
+const IntegrationHeading: React.FC<{ app: string; title: string; subtitle?: string; className?: string; badge?: React.ReactNode }> = ({ app, title, subtitle, className = '', badge }) => (
     <div className={`integration-heading border-b border-border pb-3 mb-4 ${className}`}>
         <div className="grid grid-cols-[2rem_1fr] gap-x-3 gap-y-0.5">
             <div className="row-start-1 self-center">
                 <ProgramIcon app={app} label={title} />
             </div>
-            <h3 className="integration-heading-title text-xl font-bold text-text leading-tight min-w-0 col-start-2 row-start-1">{title}</h3>
+            <h3 className="integration-heading-title text-xl font-bold text-text leading-tight min-w-0 col-start-2 row-start-1 flex items-center gap-2 flex-wrap">
+                <span>{title}</span>
+                {badge}
+            </h3>
             {subtitle && <p className="text-xs text-muted col-start-2 row-start-2">{subtitle}</p>}
         </div>
     </div>
@@ -210,7 +327,7 @@ const isJellyfinBrandingAsset = (value: string | null | undefined) => (
     [JELLYFIN_BRAND_LOGO_URL, JELLYFIN_BRAND_BACKGROUND_URL].includes(String(value || '').trim())
 );
 
-const getUploadedBrandingImagePath = (file: File, assetName: 'logo' | 'background') => {
+const getUploadedBrandingImagePath = (file: File, assetName: 'logo' | 'background' | 'favicon' | 'login') => {
     const name = file.name.toLowerCase();
     const type = file.type.toLowerCase();
     const extension = type.includes('webp') || name.endsWith('.webp')
@@ -219,7 +336,118 @@ const getUploadedBrandingImagePath = (file: File, assetName: 'logo' | 'backgroun
     return `/static/${assetName}.${extension}`;
 };
 
+const SETTINGS_GROUP_TRANSLATION_KEYS: Record<string, string> = {
+    Portal: 'settings.navigation.groups.portal',
+    'Media Stack': 'settings.navigation.groups.mediaStack',
+    Comms: 'settings.navigation.groups.comms',
+    Automation: 'settings.navigation.groups.automation',
+};
+
+const SETTINGS_TAB_TRANSLATION_KEYS: Record<string, string> = {
+    branding: 'settings.navigation.tabs.branding',
+    contact: 'settings.navigation.tabs.contact',
+    layout: 'settings.navigation.tabs.layout',
+    applets: 'settings.navigation.tabs.applets',
+    achievements: 'settings.navigation.tabs.achievements',
+    analytics: 'settings.navigation.tabs.analytics',
+    plex: 'settings.navigation.tabs.plex',
+    mediastack: 'settings.navigation.tabs.mediastack',
+    request: 'settings.navigation.tabs.request',
+    status: 'settings.navigation.tabs.status',
+    notifications: 'settings.navigation.tabs.notifications',
+    newsletter: 'settings.navigation.tabs.newsletter',
+    broadcast: 'settings.navigation.tabs.broadcast',
+    invites: 'settings.navigation.tabs.invites',
+    cleanup: 'settings.navigation.tabs.cleanup',
+    cleaner: 'settings.navigation.tabs.cleaner',
+    'stream-rules': 'settings.navigation.tabs.streamRules',
+    tasks: 'settings.navigation.tabs.tasks',
+    upgrader: 'settings.navigation.tabs.upgrader',
+    collexions: 'settings.navigation.tabs.collexions',
+    'spotify-sync': 'settings.navigation.tabs.spotifySync',
+    'metadata-fill': 'settings.navigation.tabs.metadataFill',
+    scanner: 'settings.navigation.tabs.scanner',
+    'media-automation': 'settings.navigation.tabs.mediaAutomation',
+    'poster-sets': 'settings.navigation.tabs.posterSets',
+    overlays: 'settings.navigation.tabs.overlays',
+    editions: 'settings.navigation.tabs.editions',
+    'watch-sync': 'settings.navigation.tabs.watchSync',
+    system: 'settings.navigation.tabs.system',
+    logs: 'settings.navigation.tabs.logs',
+};
+
+const AUDIT_FILTER_PRESETS_KEY = 'portal.auditLog.filterPresets.v1';
+
+type AuditFilterPreset = {
+    id: string;
+    name: string;
+    event: string;
+    user: string;
+    from: string;
+    to: string;
+};
+
+const readAuditFilterPresets = (): AuditFilterPreset[] => {
+    try {
+        const raw = localStorage.getItem(AUDIT_FILTER_PRESETS_KEY);
+        if (!raw) return [];
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) return [];
+        return parsed
+            .filter((entry) => entry && typeof entry === 'object' && typeof entry.name === 'string')
+            .map((entry) => ({
+                id: String(entry.id || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
+                name: String(entry.name).trim() || 'Preset',
+                event: String(entry.event || ''),
+                user: String(entry.user || ''),
+                from: String(entry.from || ''),
+                to: String(entry.to || ''),
+            }))
+            .slice(0, 20);
+    } catch {
+        return [];
+    }
+};
+
+const writeAuditFilterPresets = (presets: AuditFilterPreset[]) => {
+    try {
+        localStorage.setItem(AUDIT_FILTER_PRESETS_KEY, JSON.stringify(presets.slice(0, 20)));
+    } catch {
+        /* ignore quota / private mode */
+    }
+};
+
 export const SettingsDashboard: React.FC = () => {
+    const { t } = useDiscoverI18n();
+    const arrIntegrationsCopy = useMemo<ArrInstancesPanelCopy>(() => ({
+        addInstance: t('settings.arrIntegrations.actions.addInstance'),
+        noInstances: (appName) => t('settings.arrIntegrations.empty.noInstances', { appName }),
+        instanceLabel: (index) => t('settings.arrIntegrations.labels.instance', { index }),
+        defaultLabel: t('settings.arrIntegrations.status.default'),
+        defaultInstanceTitle: t('settings.arrIntegrations.actions.defaultInstance'),
+        setAsDefaultTitle: t('settings.arrIntegrations.actions.setAsDefault'),
+        removeInstanceTitle: t('settings.arrIntegrations.actions.removeInstance'),
+        displayName: t('settings.arrIntegrations.labels.displayName'),
+        ultraHdInstance: t('settings.arrIntegrations.labels.ultraHdInstance'),
+        ultraHdRoutingHint: t('settings.arrIntegrations.hints.ultraHdRouting'),
+        url: t('settings.arrIntegrations.labels.url'),
+        externalUrl: t('settings.arrIntegrations.labels.externalUrl'),
+        externalUrlOptional: t('settings.arrIntegrations.hints.externalUrlOptional'),
+        apiKey: t('settings.arrIntegrations.labels.apiKey'),
+        apiKeyPlaceholder: t('settings.arrIntegrations.placeholders.apiKey'),
+        plexLibraries: t('settings.arrIntegrations.labels.plexLibraries'),
+        libraryMappingHint: t('settings.arrIntegrations.hints.libraryMapping'),
+        assignedElsewhere: t('settings.arrIntegrations.library.assignedToAnotherInstance'),
+        defaultQualityProfile: t('settings.arrIntegrations.labels.defaultQualityProfile'),
+        defaultRootFolder: t('settings.arrIntegrations.labels.defaultRootFolder'),
+        routingDefaultsHint: t('settings.arrIntegrations.hints.routingDefaults'),
+        useArrDefault: t('settings.arrIntegrations.placeholders.useArrDefault'),
+        optionsNeedCredentials: t('settings.arrIntegrations.hints.optionsNeedCredentials'),
+        optionsLoadFailed: t('settings.arrIntegrations.test.optionsLoadFailed'),
+        testConnection: t('settings.arrIntegrations.actions.testConnection'),
+        connectionSuccessful: t('settings.arrIntegrations.test.connectionSuccessful'),
+        connectionFailed: t('settings.arrIntegrations.test.connectionFailed'),
+    }), [t]);
     const [statusDraft, setStatusDraft] = useState<any>(null);
     const [isLoading, setLoading] = useState(true);
     const [configLoadError, setConfigLoadError] = useState<string | null>(null);
@@ -240,8 +468,10 @@ export const SettingsDashboard: React.FC = () => {
         try {
             const sConf = await apiFetch('/api/status/config');
             setStatusConfig(sConf);
-        } catch (e) { }
-    }, []);
+        } catch (e) {
+            addToast(e instanceof Error ? e.message : t('settings.statusMonitor.loadConfigFailed'), 'error');
+        }
+    }, [addToast, t]);
 
     useEffect(() => {
         const fetchConfig = async () => {
@@ -280,6 +510,8 @@ export const SettingsDashboard: React.FC = () => {
             window.dispatchEvent(new CustomEvent('portal-public-config-updated'));
             if (result?.seerrDiscoverySync && !result.seerrDiscoverySync.ok && !result.seerrDiscoverySync.skipped) {
                 addToast(`Settings saved, but request app sync failed: ${result.seerrDiscoverySync.error}`, 'error');
+            } else if (result?.discoveryAvailabilityRebuild?.triggered) {
+                addToast('Settings saved — rebuilding Discover availability cache in the background.', 'success');
             } else {
                 addToast('Settings Saved!');
             }
@@ -302,18 +534,27 @@ export const SettingsDashboard: React.FC = () => {
     const [useTrendingSlideshowOnLogin, setUseTrendingSlideshowOnLogin] = useState(false);
     const [defaultLibraryIds, setDefaultLibraryIds] = useState<string[]>([]);
     const [libraries, setLibraries] = useState<any[]>([]);
+    useEffect(() => {
+        if (!libraries.length) return;
+        setDefaultLibraryIds((prev) => {
+            if (prev.length > 0) return prev;
+            return libraries.map((l: any) => String(l.id));
+        });
+    }, [libraries]);
     const mediaServerLabel = mediaServerType === 'emby' ? 'Emby' : mediaServerType === 'jellyfin' ? 'Jellyfin' : 'Plex';
     const [activeTab, setActiveTab] = useState<SettingsTabId>(() => {
+        try {
+            const url = new URL(window.location.href);
+            if (url.searchParams.get('focus') === 'maintenance-toggle') return 'cleaner';
+        } catch {
+            /* ignore invalid URL */
+        }
         const { tabId } = parseSettingsHash(window.location.hash);
         return tabId || 'branding';
     });
     const initialHash = parseSettingsHash(window.location.hash);
     const [activeSectionId, setActiveSectionId] = useState<string | null>(initialHash.sectionId);
     const [scrollToSection, setScrollToSection] = useState<string | null>(initialHash.sectionId);
-    const [activeSettingId, setActiveSettingId] = useState<string | null>(() => {
-        if (initialHash.tabId && initialHash.sectionId) return `${initialHash.tabId}/${initialHash.sectionId}`;
-        return initialHash.tabId || 'branding';
-    });
     const [highlightMaintenanceToggle, setHighlightMaintenanceToggle] = useState(false);
 
     const settingsTabGroups = useMemo(() => {
@@ -321,7 +562,7 @@ export const SettingsDashboard: React.FC = () => {
         if (mediaServerType === 'plex') return SETTINGS_TAB_GROUPS;
         return SETTINGS_TAB_GROUPS.map((group) => ({
             ...group,
-            tabs: group.tabs.filter((tab) => tab.id !== 'collexions'),
+            tabs: group.tabs.filter((tab) => tab.id !== 'collexions' && tab.id !== 'spotify-sync' && tab.id !== 'metadata-fill' && tab.id !== 'overlays' && tab.id !== 'editions'),
         })).filter((group) => group.tabs.length > 0);
     }, [mediaServerType]);
     const settingsTabsFlat = settingsTabGroups.flatMap((group) => group.tabs);
@@ -331,7 +572,6 @@ export const SettingsDashboard: React.FC = () => {
         setActiveTab(entry.tabId);
         setActiveSectionId(entry.sectionId || null);
         setScrollToSection(entry.sectionId || null);
-        setActiveSettingId(entry.id);
         recordRecentSetting(entry.id);
     }, []);
 
@@ -349,12 +589,10 @@ export const SettingsDashboard: React.FC = () => {
                 setActiveTab(tabId);
                 setActiveSectionId(sectionId);
                 setScrollToSection(sectionId);
-                setActiveSettingId(sectionId ? `${tabId}/${sectionId}` : tabId);
             } else if (!window.location.hash) {
                 setActiveTab('branding');
                 setActiveSectionId(null);
                 setScrollToSection(null);
-                setActiveSettingId('branding');
             }
         };
         window.addEventListener('hashchange', syncTabFromHash);
@@ -376,19 +614,16 @@ export const SettingsDashboard: React.FC = () => {
     }, [activeTab, scrollToSection]);
 
     useEffect(() => {
-        if (activeTab !== 'system') return;
         const url = new URL(window.location.href);
         if (url.searchParams.get('focus') !== 'maintenance-toggle') return;
+        setActiveTab('cleaner');
         setHighlightMaintenanceToggle(true);
-        setActiveSectionId('maintenance');
-        setScrollToSection('maintenance');
-        setActiveSettingId('system/maintenance');
         const timer = window.setTimeout(() => setHighlightMaintenanceToggle(false), 4200);
         url.searchParams.delete('focus');
-        const nextUrl = `${url.pathname}${url.search}${url.hash || ''}`;
-        window.history.replaceState({}, '', nextUrl);
+        url.hash = 'cleaner';
+        window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
         return () => window.clearTimeout(timer);
-    }, [activeTab]);
+    }, []);
 
     // SMTP States
     const [smtpHost, setSmtpHost] = useState('');
@@ -428,6 +663,7 @@ export const SettingsDashboard: React.FC = () => {
     const [savedArrInstances, setSavedArrInstances] = useState<ArrInstance[]>([]);
     const [downloadClients, setDownloadClients] = useState<DownloadClientConfig[]>([]);
     const [tautulliUrl, setTautulliUrl] = useState('');
+    const [notifyTautulliApiFailed, setNotifyTautulliApiFailed] = useState(true);
     const [tautulliApiKey, setTautulliApiKey] = useState('');
     const [jellyfinAnalyticsProvider, setJellyfinAnalyticsProvider] = useState('jellyglance');
     const [jellystatUrl, setJellystatUrl] = useState('');
@@ -456,8 +692,11 @@ export const SettingsDashboard: React.FC = () => {
     const [portalAllowRequest4kMovies, setPortalAllowRequest4kMovies] = useState(true);
     const [portalAllowRequest4kTv, setPortalAllowRequest4kTv] = useState(true);
     const [portalAllowAdvancedRequests, setPortalAllowAdvancedRequests] = useState(true);
+    const [portalAllowRequestTags, setPortalAllowRequestTags] = useState(true);
     const [portalShowRecentlyAdded, setPortalShowRecentlyAdded] = useState(true);
     const [portalShowWatchlist, setPortalShowWatchlist] = useState(true);
+    const [discoverNowPlayingEnabled, setDiscoverNowPlayingEnabled] = useState(true);
+    const [homeNowPlayingCompanionEnabled, setHomeNowPlayingCompanionEnabled] = useState(true);
     const [portalAutoRequestMovies, setPortalAutoRequestMovies] = useState(false);
     const [portalAutoRequestTv, setPortalAutoRequestTv] = useState(false);
     const [seriesMetadataProvider, setSeriesMetadataProvider] = useState('tmdb');
@@ -467,14 +706,126 @@ export const SettingsDashboard: React.FC = () => {
     const [maintenanceExperimentalEnabled, setMaintenanceExperimentalEnabled] = useState(false);
     const [upgraderEnabled, setUpgraderEnabled] = useState(false);
     const [collexionsEnabled, setCollexionsEnabled] = useState(false);
+    const [spotifyToPlexEnabled, setSpotifyToPlexEnabled] = useState(false);
+    const [metadataFillEnabled, setMetadataFillEnabled] = useState(false);
+    const [metadataFillAutoImport, setMetadataFillAutoImport] = useState(true);
     const [scannerEnabled, setScannerEnabled] = useState(false);
     const [scannerHomeWidgetEnabled, setScannerHomeWidgetEnabled] = useState(false);
+    const [mediaAutomationEnabled, setMediaAutomationEnabled] = useState(false);
+    const [mediaAutomationHomeWidgetEnabled, setMediaAutomationHomeWidgetEnabled] = useState(false);
+    const [posterSetsEnabled, setPosterSetsEnabled] = useState(false);
+    const [overlaysEnabled, setOverlaysEnabled] = useState(false);
+    const [editionsEnabled, setEditionsEnabled] = useState(false);
+    const [watchSyncEnabled, setWatchSyncEnabled] = useState(false);
+    const [achievementsEnabled, setAchievementsEnabled] = useState(false);
+    const [supportTicketsEnabled, setSupportTicketsEnabled] = useState(true);
+    const [chatEnabled, setChatEnabled] = useState(false);
+    const [chatMentionNotifyInApp, setChatMentionNotifyInApp] = useState(true);
+    const [achievementsLeaderboardEnabled, setAchievementsLeaderboardEnabled] = useState(true);
+    const [achievementsHomeWidgetEnabled, setAchievementsHomeWidgetEnabled] = useState(true);
+    const [achievementsShowOnProfile, setAchievementsShowOnProfile] = useState(true);
+    const [achievementsXpWeights, setAchievementsXpWeights] = useState<Record<string, number>>({});
+    const [achievementsDisabledBadgeIds, setAchievementsDisabledBadgeIds] = useState<string[]>([]);
+    const [achievementsMinPercentComplete, setAchievementsMinPercentComplete] = useState(0);
+    const [achievementsSeasons, setAchievementsSeasons] = useState<import('./AchievementsSettings').AchievementsSeason[]>([]);
+    const [requestAvailableNotifyEnabled, setRequestAvailableNotifyEnabled] = useState(true);
+    const [requestAvailableNotifyEmail, setRequestAvailableNotifyEmail] = useState(true);
+    const [requestAvailableNotifyInApp, setRequestAvailableNotifyInApp] = useState(true);
+    const [requestAvailableNotifyWebPush, setRequestAvailableNotifyWebPush] = useState(true);
+    const [requestAvailableNotifyDiscord, setRequestAvailableNotifyDiscord] = useState(false);
+    const [requestAvailableDiscordWebhookUrl, setRequestAvailableDiscordWebhookUrl] = useState('');
+    const [requestNotReleasedNotifyEnabled, setRequestNotReleasedNotifyEnabled] = useState(true);
+    const [requestNotReleasedNotifyEmail, setRequestNotReleasedNotifyEmail] = useState(true);
+    const [requestNotReleasedNotifyInApp, setRequestNotReleasedNotifyInApp] = useState(true);
+    const [requestNotReleasedNotifyWebPush, setRequestNotReleasedNotifyWebPush] = useState(true);
+    const [notifyReleaseDatePreference, setNotifyReleaseDatePreference] = useState('digital');
+    const [scannerNotifyDeleted, setScannerNotifyDeleted] = useState(false);
+    const [scannerNotifyUpgrade, setScannerNotifyUpgrade] = useState(false);
+    const [scannerNotifyImport, setScannerNotifyImport] = useState(false);
+    const [scannerNotifyGrab, setScannerNotifyGrab] = useState(false);
+    const [scannerNotifyUpdate, setScannerNotifyUpdate] = useState(false);
+    const [scannerNotifyInteraction, setScannerNotifyInteraction] = useState(false);
+    const [webPushEnabled, setWebPushEnabled] = useState(true);
+    const [summaryNotifyEnabled, setSummaryNotifyEnabled] = useState(false);
+    const [summaryNotifyFrequency, setSummaryNotifyFrequency] = useState('disabled');
+    const [summaryNotifyDay, setSummaryNotifyDay] = useState(0);
+    const [summaryNotifyTime, setSummaryNotifyTime] = useState('23:00');
+    const [summaryNotifyInApp, setSummaryNotifyInApp] = useState(true);
+    const [summaryNotifyWebPush, setSummaryNotifyWebPush] = useState(true);
+    const [summaryNotifyEmail, setSummaryNotifyEmail] = useState(false);
+    const [summaryMetrics, setSummaryMetrics] = useState<Record<string, boolean>>({
+        uptime: true,
+        requests: true,
+        scannerImports: true,
+        collexionsRotations: true,
+        mediaAutomationJobs: true,
+        highlights: true,
+    });
+    const [notificationTemplates, setNotificationTemplates] = useState<Record<string, Record<string, string>>>({});
+    const [notificationTemplateDefaults, setNotificationTemplateDefaults] = useState<Record<string, Record<string, string>>>({});
+    const [notificationTemplateEvents, setNotificationTemplateEvents] = useState<string[]>([]);
+    const [notificationTemplateFields, setNotificationTemplateFields] = useState<Record<string, string[]>>({});
+    const [emailTemplates, setEmailTemplates] = useState<Record<string, Record<string, string>>>({});
+    const [emailTemplateDefaults, setEmailTemplateDefaults] = useState<Record<string, Record<string, string>>>({});
+    const [emailTemplateEvents, setEmailTemplateEvents] = useState<string[]>([]);
+    const [emailTemplateFields, setEmailTemplateFields] = useState<Record<string, string[]>>({});
+    const [ntfyEnabled, setNtfyEnabled] = useState(false);
+    const [ntfyServerUrl, setNtfyServerUrl] = useState('');
+    const [ntfyTopic, setNtfyTopic] = useState('');
+    const [ntfyToken, setNtfyToken] = useState('');
+    const [ntfyPriority, setNtfyPriority] = useState(3);
+    const [ntfyEvents, setNtfyEvents] = useState<Record<string, boolean>>({
+        available: true, approved: true, declined: true, season: true, episode: false, admin_pending: true,
+        collexions_failed: true, scanner_failed: true, scanner_deleted: true, scanner_upgrade: true, scanner_import: true, scanner_grab: true, scanner_update: true, scanner_interaction: true, spotify_sync_failed: true, status_down: true, status_up: true,
+        media_job_failed: true, media_job_completed: false, tautulli_api_failed: true,
+        support_ticket: true, support_reply: true, support_media_issue: true,
+    });
+    const [webhookEnabled, setWebhookEnabled] = useState(false);
+    const [webhookUrl, setWebhookUrl] = useState('');
+    const [webhookHeadersJson, setWebhookHeadersJson] = useState('');
+    const [webhookEvents, setWebhookEvents] = useState<Record<string, boolean>>({
+        available: true, approved: false, declined: false, season: false, episode: false, admin_pending: false,
+        collexions_failed: false, scanner_failed: false, scanner_deleted: false, scanner_upgrade: false, scanner_import: false, scanner_grab: false, scanner_update: false, scanner_interaction: false, spotify_sync_failed: false, status_down: false, status_up: false,
+        media_job_failed: false, media_job_completed: false, tautulli_api_failed: false,
+        support_ticket: false, support_reply: false, support_media_issue: false,
+    });
+    const [watchHistorySource, setWatchHistorySource] = useState<'plex' | 'tautulli'>('plex');
+    const [tautulliConfigured, setTautulliConfigured] = useState(false);
+    const [mediaAutomation, setMediaAutomation] = useState<MediaAutomationSettingsConfig>(DEFAULT_MEDIA_AUTOMATION_SETTINGS);
     const [scannerWebhooksVisible, setScannerWebhooksVisible] = useState(true);
     const [scannerManualPathVisible, setScannerManualPathVisible] = useState(true);
     const [scanner, setScanner] = useState<ScannerSettings>(defaultScannerSettings);
     const [collexionsAutostart, setCollexionsAutostart] = useState(false);
     const [collexionsInternalUrl, setCollexionsInternalUrl] = useState('');
     const [collexionsServiceKey, setCollexionsServiceKey] = useState('');
+    const [spotifyToPlexInternalUrl, setSpotifyToPlexInternalUrl] = useState('');
+    const [spotifyToPlexClientId, setSpotifyToPlexClientId] = useState('');
+    const [spotifyToPlexClientSecret, setSpotifyToPlexClientSecret] = useState('');
+    const [spotifyToPlexEncryptionKey, setSpotifyToPlexEncryptionKey] = useState('');
+    const [spotifyToPlexHomeWidgetEnabled, setSpotifyToPlexHomeWidgetEnabled] = useState(false);
+    const [spotifyToPlexScheduleMode, setSpotifyToPlexScheduleMode] = useState<'sidecar' | 'portal'>('sidecar');
+    const [spotifyToPlexScheduledSyncIntervalHours, setSpotifyToPlexScheduledSyncIntervalHours] = useState(24);
+    const [spotifySyncHealth, setSpotifySyncHealth] = useState<{ ok?: boolean; issues?: string[] } | null>(null);
+    const [spotifyPortalImportMessage, setSpotifyPortalImportMessage] = useState('');
+    const [spotifyPortalImporting, setSpotifyPortalImporting] = useState(false);
+    const [spotifySyncStarting, setSpotifySyncStarting] = useState(false);
+
+    useEffect(() => {
+        if (activeTab !== 'spotify-sync' || !spotifyToPlexEnabled) {
+            setSpotifySyncHealth(null);
+            return;
+        }
+        let cancelled = false;
+        void apiFetch('/api/spotify-to-plex/health')
+            .then((data) => {
+                if (!cancelled) setSpotifySyncHealth(data || null);
+            })
+            .catch(() => {
+                if (!cancelled) setSpotifySyncHealth({ ok: false, issues: ['Health check failed'] });
+            });
+        return () => { cancelled = true; };
+    }, [activeTab, spotifyToPlexEnabled, spotifyToPlexInternalUrl]);
+
     const [upgraderDefaultPreset, setUpgraderDefaultPreset] = useState('non_hevc');
     const [upgraderMinSizeGB, setUpgraderMinSizeGB] = useState(5);
     const [upgraderAutomationEnabled, setUpgraderAutomationEnabled] = useState(false);
@@ -494,6 +845,10 @@ export const SettingsDashboard: React.FC = () => {
 
     // Branding & UI States
     const [customLogoUrl, setCustomLogoUrl] = useState('');
+    const [customLoginLogoUrl, setCustomLoginLogoUrl] = useState('');
+    const [loginLogoCircleFrame, setLoginLogoCircleFrame] = useState(true);
+    const [customFaviconUrl, setCustomFaviconUrl] = useState('');
+    const [customBadgeUrl, setCustomBadgeUrl] = useState('');
     const [backgroundImageUrl, setBackgroundImageUrl] = useState('');
     const [useScrollRevealAnimations, setUseScrollRevealAnimations] = useState(false);
     const [useCinematicLoading, setUseCinematicLoading] = useState(false);
@@ -508,6 +863,8 @@ export const SettingsDashboard: React.FC = () => {
     const [referralTrialDays, setReferralTrialDays] = useState(3);
     const [referralRewardDays, setReferralRewardDays] = useState(7);
     const [announcement, setAnnouncement] = useState('');
+    const [expiredPortalTitle, setExpiredPortalTitle] = useState('');
+    const [expiredPortalMessage, setExpiredPortalMessage] = useState('');
     const [isPushingAnnouncement, setIsPushingAnnouncement] = useState(false);
     const [use24HourClock, setUse24HourClock] = useState(initialSettings?.use24HourClock || false);
     const [showPosterQualityBadges, setShowPosterQualityBadges] = useState(initialSettings?.showPosterQualityBadges !== false);
@@ -520,12 +877,24 @@ export const SettingsDashboard: React.FC = () => {
     const [allowTemporaryAccess, setAllowTemporaryAccess] = useState(initialSettings?.allowTemporaryAccess || false);
     const [navOrder, setNavOrder] = useState<string[]>(() => ensureCompleteNavOrder([...DEFAULT_NAV_ORDER]));
     const [navHiddenKeys, setNavHiddenKeys] = useState<string[]>([]);
+    const [memberNavOrder, setMemberNavOrder] = useState<string[]>(() => deriveMemberNavOrderFromAdmin([...DEFAULT_NAV_ORDER]));
+    const [memberNavHiddenKeys, setMemberNavHiddenKeys] = useState<string[]>([]);
+    const [customNavTabs, setCustomNavTabs] = useState<CustomNavTab[]>([]);
+    const [navItemIcons, setNavItemIcons] = useState<NavItemIconsMap>({});
+    const [customNavDisplay, setCustomNavDisplay] = useState<'links' | 'applets'>('links');
+    const [arrOpenInPortalEmbed, setArrOpenInPortalEmbed] = useState(false);
+    const [homeCustomModules, setHomeCustomModules] = useState<HomeCustomModule[]>([]);
     const [downloadsVisibleToMembers, setDownloadsVisibleToMembers] = useState(true);
     const [logoFile, setLogoFile] = useState<File | null>(null);
+    const [loginLogoFile, setLoginLogoFile] = useState<File | null>(null);
+    const [faviconFile, setFaviconFile] = useState<File | null>(null);
+    const [badgeFile, setBadgeFile] = useState<File | null>(null);
     const [backgroundFile, setBackgroundFile] = useState<File | null>(null);
     const [logoPreviewUrl, setLogoPreviewUrl] = useState('');
+    const [loginLogoPreviewUrl, setLoginLogoPreviewUrl] = useState('');
     const [backgroundPreviewUrl, setBackgroundPreviewUrl] = useState('');
     const logoPreviewObjectUrlRef = useRef('');
+    const loginLogoPreviewObjectUrlRef = useRef('');
     const backgroundPreviewObjectUrlRef = useRef('');
     const [tasks, setTasks] = useState<any[]>([]);
     const [diagnostics, setDiagnostics] = useState<any>(null);
@@ -537,7 +906,19 @@ export const SettingsDashboard: React.FC = () => {
     const [autoBackupRetentionCount, setAutoBackupRetentionCount] = useState(10);
     const [backupFiles, setBackupFiles] = useState<any[]>([]);
     const [auditLogEntries, setAuditLogEntries] = useState<any[]>([]);
+    const [auditLogEvents, setAuditLogEvents] = useState<string[]>([]);
+    const [auditLogTotal, setAuditLogTotal] = useState(0);
+    const [auditLogTotalAll, setAuditLogTotalAll] = useState(0);
+    const [auditFilterEvent, setAuditFilterEvent] = useState('');
+    const [auditFilterUser, setAuditFilterUser] = useState('');
+    const [auditFilterFrom, setAuditFilterFrom] = useState('');
+    const [auditFilterTo, setAuditFilterTo] = useState('');
+    const [auditFilterPresets, setAuditFilterPresets] = useState<AuditFilterPreset[]>(() => readAuditFilterPresets());
+    const [selectedAuditPresetId, setSelectedAuditPresetId] = useState('');
     const [isLoadingAuditLog, setIsLoadingAuditLog] = useState(false);
+    const [isExportingAuditLog, setIsExportingAuditLog] = useState(false);
+    const [isExportingAuditCsv, setIsExportingAuditCsv] = useState(false);
+    const [refreshingDiscoveryCache, setRefreshingDiscoveryCache] = useState(false);
     const [auditLogPage, setAuditLogPage] = useState(1);
     const [deletedUsersLog, setDeletedUsersLog] = useState<any[]>([]);
     const [emailLogPage, setEmailLogPage] = useState(1);
@@ -558,6 +939,14 @@ export const SettingsDashboard: React.FC = () => {
         setBackgroundPreviewUrl('');
     }, []);
 
+    const clearLoginLogoPreview = useCallback(() => {
+        if (loginLogoPreviewObjectUrlRef.current) {
+            URL.revokeObjectURL(loginLogoPreviewObjectUrlRef.current);
+            loginLogoPreviewObjectUrlRef.current = '';
+        }
+        setLoginLogoPreviewUrl('');
+    }, []);
+
     const handleLogoFileChange = useCallback((file: File | null) => {
         clearLogoPreview();
         setLogoFile(file);
@@ -567,6 +956,26 @@ export const SettingsDashboard: React.FC = () => {
         setLogoPreviewUrl(objectUrl);
         setCustomLogoUrl(getUploadedBrandingImagePath(file, 'logo'));
     }, [clearLogoPreview]);
+
+    const handleLoginLogoFileChange = useCallback((file: File | null) => {
+        clearLoginLogoPreview();
+        setLoginLogoFile(file);
+        if (!file) return;
+        const objectUrl = URL.createObjectURL(file);
+        loginLogoPreviewObjectUrlRef.current = objectUrl;
+        setLoginLogoPreviewUrl(objectUrl);
+        setCustomLoginLogoUrl(getUploadedBrandingImagePath(file, 'login'));
+    }, [clearLoginLogoPreview]);
+
+    const handleFaviconFileChange = useCallback((file: File | null) => {
+        setFaviconFile(file);
+        if (!file) return;
+        setCustomFaviconUrl(getUploadedBrandingImagePath(file, 'favicon'));
+    }, []);
+
+    const handleBadgeFileChange = useCallback((file: File | null) => {
+        setBadgeFile(file);
+    }, []);
 
     const handleBackgroundFileChange = useCallback((file: File | null) => {
         clearBackgroundPreview();
@@ -580,6 +989,7 @@ export const SettingsDashboard: React.FC = () => {
 
     useEffect(() => () => {
         if (logoPreviewObjectUrlRef.current) URL.revokeObjectURL(logoPreviewObjectUrlRef.current);
+        if (loginLogoPreviewObjectUrlRef.current) URL.revokeObjectURL(loginLogoPreviewObjectUrlRef.current);
         if (backgroundPreviewObjectUrlRef.current) URL.revokeObjectURL(backgroundPreviewObjectUrlRef.current);
     }, []);
 
@@ -630,17 +1040,152 @@ export const SettingsDashboard: React.FC = () => {
         }
     };
 
+    const buildAuditLogQuery = useCallback((limit = 500) => {
+        const params = new URLSearchParams();
+        if (auditFilterEvent) params.set('event', auditFilterEvent);
+        if (auditFilterUser.trim()) params.set('user', auditFilterUser.trim());
+        if (auditFilterFrom) params.set('from', auditFilterFrom);
+        if (auditFilterTo) params.set('to', auditFilterTo);
+        params.set('limit', String(limit));
+        return params.toString();
+    }, [auditFilterEvent, auditFilterFrom, auditFilterTo, auditFilterUser]);
+
+    const applyAuditFilterPreset = useCallback((presetId: string) => {
+        setSelectedAuditPresetId(presetId);
+        const preset = auditFilterPresets.find((entry) => entry.id === presetId);
+        if (!preset) return;
+        setAuditFilterEvent(preset.event || '');
+        setAuditFilterUser(preset.user || '');
+        setAuditFilterFrom(preset.from || '');
+        setAuditFilterTo(preset.to || '');
+    }, [auditFilterPresets]);
+
+    const saveAuditFilterPreset = useCallback(() => {
+        const name = window.prompt(t('settings.logs.filters.savePresetPrompt'))?.trim();
+        if (!name) {
+            if (name === '') addToast(t('settings.logs.filters.presetNameRequired'), 'error');
+            return;
+        }
+        const next: AuditFilterPreset = {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            name,
+            event: auditFilterEvent,
+            user: auditFilterUser,
+            from: auditFilterFrom,
+            to: auditFilterTo,
+        };
+        const presets = [next, ...auditFilterPresets.filter((entry) => entry.name.toLowerCase() !== name.toLowerCase())].slice(0, 20);
+        setAuditFilterPresets(presets);
+        writeAuditFilterPresets(presets);
+        setSelectedAuditPresetId(next.id);
+        addToast(t('settings.logs.filters.presetSaved'), 'success');
+    }, [addToast, auditFilterEvent, auditFilterFrom, auditFilterPresets, auditFilterTo, auditFilterUser, t]);
+
+    const deleteSelectedAuditFilterPreset = useCallback(() => {
+        if (!selectedAuditPresetId) return;
+        const presets = auditFilterPresets.filter((entry) => entry.id !== selectedAuditPresetId);
+        setAuditFilterPresets(presets);
+        writeAuditFilterPresets(presets);
+        setSelectedAuditPresetId('');
+        addToast(t('settings.logs.filters.presetDeleted'), 'success');
+    }, [addToast, auditFilterPresets, selectedAuditPresetId, t]);
+
+    const auditSubjectLabel = (party?: { username?: string | null; email?: string | null } | null) =>
+        String(party?.username || party?.email || '').trim();
+
+    const openAuditSubjectUsers = (party?: { username?: string | null; email?: string | null } | null) => {
+        const label = auditSubjectLabel(party);
+        if (!label) return;
+        window.location.assign(portalUrl(`/users?q=${encodeURIComponent(label)}`));
+    };
+
+    const openAuditSubjectAnalytics = (party?: { username?: string | null; email?: string | null } | null) => {
+        const label = String(party?.username || '').trim();
+        if (!label) return;
+        window.location.assign(portalUrl(`/analytics#user=${encodeURIComponent(label)}`));
+    };
+
     const fetchAuditLog = async () => {
         setIsLoadingAuditLog(true);
         try {
-            const data = await apiFetch('/api/audit-log');
-            setAuditLogEntries(Array.isArray(data) ? data : []);
+            const data = await apiFetch(`/api/audit-log?${buildAuditLogQuery(500)}`);
+            const entries = Array.isArray(data?.entries) ? data.entries : (Array.isArray(data) ? data : []);
+            setAuditLogEntries(entries);
+            setAuditLogEvents(Array.isArray(data?.events) ? data.events : []);
+            setAuditLogTotal(Number(data?.total) || entries.length);
+            setAuditLogTotalAll(Number(data?.totalAll) || entries.length);
             setAuditLogPage(1);
             setEmailLogPage(1);
         } catch (e) {
-            addToast('Failed to load audit log', 'error');
+            addToast(t('settings.logs.errors.loadAuditLog'), 'error');
         } finally {
             setIsLoadingAuditLog(false);
+        }
+    };
+
+    const exportAuditLog = async () => {
+        setIsExportingAuditLog(true);
+        try {
+            const data = await apiFetch('/api/audit-log/export');
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const anchor = document.createElement('a');
+            anchor.href = url;
+            anchor.download = `portal-audit-export-${new Date().toISOString().slice(0, 10)}.json`;
+            document.body.appendChild(anchor);
+            anchor.click();
+            anchor.remove();
+            URL.revokeObjectURL(url);
+            addToast(t('settings.logs.toasts.auditExported'), 'success');
+        } catch (e) {
+            addToast(e instanceof Error ? e.message : t('settings.logs.errors.exportAuditLog'), 'error');
+        } finally {
+            setIsExportingAuditLog(false);
+        }
+    };
+
+    const exportAuditLogCsv = async () => {
+        setIsExportingAuditCsv(true);
+        try {
+            const response = await fetch(portalUrl(`/api/audit-log/export.csv?${buildAuditLogQuery(2000)}`), {
+                credentials: 'same-origin',
+                headers: { [PORTAL_CSRF_HEADER]: PORTAL_CSRF_VALUE },
+            });
+            if (!response.ok) {
+                let message = t('settings.logs.errors.exportAuditCsv');
+                try {
+                    const body = await response.json();
+                    if (body?.error) message = String(body.error);
+                } catch { /* ignore */ }
+                throw new Error(message);
+            }
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            const anchor = document.createElement('a');
+            anchor.href = url;
+            anchor.download = `portal-audit-${new Date().toISOString().slice(0, 10)}.csv`;
+            document.body.appendChild(anchor);
+            anchor.click();
+            anchor.remove();
+            URL.revokeObjectURL(url);
+            addToast(t('settings.logs.toasts.auditCsvExported'), 'success');
+        } catch (e) {
+            addToast(e instanceof Error ? e.message : t('settings.logs.errors.exportAuditCsv'), 'error');
+        } finally {
+            setIsExportingAuditCsv(false);
+        }
+    };
+
+    const refreshDiscoveryAvailabilityCache = async () => {
+        setRefreshingDiscoveryCache(true);
+        try {
+            const res = await apiFetch('/api/tasks/run/discoveryAvailabilityCache', { method: 'POST' });
+            addToast(res.message || 'Discovery availability rebuild started.', 'success');
+            await fetchTasks();
+        } catch (e) {
+            addToast(e instanceof Error ? e.message : 'Failed to refresh availability cache', 'error');
+        } finally {
+            setRefreshingDiscoveryCache(false);
         }
     };
 
@@ -649,7 +1194,7 @@ export const SettingsDashboard: React.FC = () => {
             const data = await apiFetch('/api/deleted-users');
             setDeletedUsersLog(Array.isArray(data) ? data : []);
         } catch (e) {
-            addToast('Failed to load deleted users log', 'error');
+            addToast(t('settings.logs.errors.loadDeletedUsers'), 'error');
         }
     };
 
@@ -780,7 +1325,7 @@ export const SettingsDashboard: React.FC = () => {
     };
 
     useEffect(() => {
-        if (activeTab === 'tasks' || activeTab === 'system') {
+        if (activeTab === 'tasks' || activeTab === 'system' || activeTab === 'request') {
             fetchTasks();
         }
         if (activeTab === 'system') {
@@ -794,28 +1339,28 @@ export const SettingsDashboard: React.FC = () => {
         }
     }, [activeTab]);
 
-    // Keep Tasks UI live while any background job is running (refreshing Settings does not
-    // stop server jobs — the list was just not polling).
-    useEffect(() => {
-        if (activeTab !== 'tasks' && activeTab !== 'system') return undefined;
-        const anyRunning = Array.isArray(tasks) && tasks.some((task) => !!task?.running);
-        if (!anyRunning) return undefined;
-        const timer = window.setInterval(() => {
-            fetchTasks();
-        }, 2000);
-        return () => window.clearInterval(timer);
+    const discoveryAvailabilityTask = useMemo(
+        () => (Array.isArray(tasks) ? tasks.find((task) => task.id === 'discoveryAvailabilityCache') : null),
+        [tasks],
+    );
+
+    const tasksNeedLivePoll = useMemo(() => {
+        if (!['tasks', 'system', 'request'].includes(activeTab)) return false;
+        return Array.isArray(tasks) && tasks.some((task) => !!task?.running);
     }, [activeTab, tasks]);
 
+    usePoll(() => { void fetchTasks(); }, tasksNeedLivePoll ? 2000 : null, { immediate: false });
+
     const handleUnblockDeletedUser = async (deletedUser: any) => {
-        const label = deletedUser.username || deletedUser.email || 'this user';
-        appConfirm(`Allow ${label} to use the portal again? This does not invite them automatically.`, async () => {
+        const label = deletedUser.username || deletedUser.email || t('settings.logs.fallbacks.thisUser');
+        appConfirm(t('settings.logs.dialogs.unblockUser', { name: label }), async () => {
             setLoading(true);
             try {
                 await apiFetch(`/api/deleted-users/${encodeURIComponent(deletedUser.blockId)}`, { method: 'DELETE' });
-                addToast('Deleted user unblocked.');
+                addToast(t('settings.logs.toasts.userUnblocked'));
                 await Promise.all([fetchDeletedUsersLog(), fetchAuditLog()]);
             } catch (error: any) {
-                addToast(error instanceof Error ? error.message : 'Failed to unblock user.', 'error');
+                addToast(error instanceof Error ? error.message : t('settings.logs.errors.unblockUser'), 'error');
             } finally {
                 setLoading(false);
             }
@@ -828,10 +1373,9 @@ export const SettingsDashboard: React.FC = () => {
         .join(' ');
 
     const formatDateTime = (value?: string | null) => {
-        if (!value) return 'N/A';
-        const date = new Date(value);
-        if (Number.isNaN(date.getTime())) return 'N/A';
-        return date.toLocaleString();
+        if (!value) return t('settings.logs.fallbacks.notAvailable');
+        const formatted = formatPortalDateTime(value);
+        return formatted === 'Unknown' ? t('settings.logs.fallbacks.notAvailable') : formatted;
     };
 
     const stringifyAuditValue = (value: any) => {
@@ -867,12 +1411,12 @@ export const SettingsDashboard: React.FC = () => {
         };
 
         if ('before' in details && 'after' in details) {
-            rows.push({ field: 'Value', before: stringifyAuditValue(details.before), after: stringifyAuditValue(details.after) });
+            rows.push({ field: t('settings.logs.audit.value'), before: stringifyAuditValue(details.before), after: stringifyAuditValue(details.after) });
             used.add('before');
             used.add('after');
         }
         if ('oldValue' in details && 'newValue' in details) {
-            rows.push({ field: 'Value', before: stringifyAuditValue(details.oldValue), after: stringifyAuditValue(details.newValue) });
+            rows.push({ field: t('settings.logs.audit.value'), before: stringifyAuditValue(details.oldValue), after: stringifyAuditValue(details.newValue) });
             used.add('oldValue');
             used.add('newValue');
         }
@@ -922,15 +1466,19 @@ export const SettingsDashboard: React.FC = () => {
         const cacheTotal = cacheValues.length;
         const runningJobs = jobs.filter((job: any) => !!job.running).length;
         const failingJobs = jobs.filter((job: any) => !!job.lastError).length;
+        const warningJobs = jobs.filter((job: any) => !job.lastError && !!job.lastWarning).length;
         const alerts: string[] = [];
 
         // Not-configured integrations are informational only — they must not drag the
         // health score (issue #74). Score reflects caches + job health of the setup in use.
         if (cacheHealthy < cacheTotal) {
-            alerts.push(`${cacheTotal - cacheHealthy} cache file(s) are missing.`);
+            alerts.push(`${cacheTotal - cacheHealthy} cache file(s) have not been built yet.`);
         }
         if (failingJobs > 0) {
             alerts.push(`${failingJobs} background job(s) reported recent errors.`);
+        }
+        if (warningJobs > 0) {
+            alerts.push(`${warningJobs} background job(s) finished with a warning — last-good totals were kept.`);
         }
         if (diagnostics?.backup?.enabled && !diagnostics?.backup?.lastRunAt) {
             alerts.push('Auto backup is enabled but has not completed a run yet.');
@@ -1017,6 +1565,7 @@ export const SettingsDashboard: React.FC = () => {
             setSavedArrInstances(loadedArrInstances.map((entry) => ({ ...entry })));
             setDownloadClients(Array.isArray(initialSettings.downloadClients) ? initialSettings.downloadClients : []);
             setTautulliUrl(initialSettings.tautulliUrl || '');
+            setNotifyTautulliApiFailed(initialSettings.notifyTautulliApiFailed !== false);
             setTautulliApiKey(initialSettings.tautulliApiKey || '');
             setJellyfinAnalyticsProvider(initialSettings.jellyfinAnalyticsProvider === 'jellystat' ? 'jellystat' : 'jellyglance');
             setJellystatUrl(initialSettings.jellystatUrl || '');
@@ -1050,8 +1599,11 @@ export const SettingsDashboard: React.FC = () => {
             setPortalAllowRequest4kMovies(initialSettings.portalAllowRequest4kMovies !== false);
             setPortalAllowRequest4kTv(initialSettings.portalAllowRequest4kTv !== false);
             setPortalAllowAdvancedRequests(initialSettings.portalAllowAdvancedRequests !== false);
+            setPortalAllowRequestTags(initialSettings.portalAllowRequestTags !== false);
             setPortalShowRecentlyAdded(initialSettings.portalShowRecentlyAdded !== false);
             setPortalShowWatchlist(initialSettings.portalShowWatchlist !== false);
+            setDiscoverNowPlayingEnabled(initialSettings.discoverNowPlayingEnabled !== false);
+            setHomeNowPlayingCompanionEnabled(initialSettings.homeNowPlayingCompanionEnabled !== false);
             setPortalAutoRequestMovies(!!initialSettings.portalAutoRequestMovies);
             setPortalAutoRequestTv(!!initialSettings.portalAutoRequestTv);
             setSeriesMetadataProvider(initialSettings.seriesMetadataProvider === 'tvdb' ? 'tvdb' : 'tmdb');
@@ -1060,6 +1612,10 @@ export const SettingsDashboard: React.FC = () => {
             const savedBrandingTheme = localStorage.getItem('portal-theme') || initialSettings.brandingTheme || 'plex';
             setBrandingTheme(savedBrandingTheme === 'light' ? 'plex' : savedBrandingTheme);
             setCustomLogoUrl(initialSettings.mediaServerType === 'emby' && isJellyfinBrandingAsset(initialSettings.customLogoUrl) ? '' : (initialSettings.customLogoUrl || ''));
+            setCustomLoginLogoUrl(initialSettings.customLoginLogoUrl || '');
+            setLoginLogoCircleFrame(initialSettings.loginLogoCircleFrame !== false);
+            setCustomFaviconUrl(initialSettings.customFaviconUrl || '');
+            setCustomBadgeUrl(initialSettings.customBadgeUrl || '');
             setSidebarIdentityPosition(initialSettings.sidebarIdentityPosition === 'top' ? 'top' : 'bottom');
             setPwaIconSource(initialSettings.pwaIconSource === 'application' ? 'application' : 'server');
             setBackgroundImageUrl(initialSettings.mediaServerType === 'emby' && isJellyfinBrandingAsset(initialSettings.backgroundImageUrl) ? '' : (initialSettings.backgroundImageUrl || ''));
@@ -1073,15 +1629,30 @@ export const SettingsDashboard: React.FC = () => {
             setReferralTrialDays(initialSettings.referralTrialDays || 3);
             setReferralRewardDays(initialSettings.referralRewardDays || 7);
             setAnnouncement(initialSettings.announcement || '');
+            setExpiredPortalTitle(initialSettings.expiredPortalTitle || '');
+            setExpiredPortalMessage(initialSettings.expiredPortalMessage || '');
             if (initialSettings.navOrder) setNavOrder(ensureCompleteNavOrder(initialSettings.navOrder));
-            setNavHiddenKeys(normalizeNavHiddenKeys(initialSettings.navHiddenKeys));
+            setNavHiddenKeys(normalizeNavHiddenKeys(initialSettings.navHiddenKeys, initialSettings.customNavTabs));
+            setMemberNavOrder(resolveMemberNavOrder(initialSettings.memberNavOrder, initialSettings.navOrder, initialSettings.customNavTabs));
+            setMemberNavHiddenKeys(normalizeMemberNavHiddenKeys(initialSettings.memberNavHiddenKeys, initialSettings.customNavTabs));
+            if (Array.isArray(initialSettings.customNavTabs)) setCustomNavTabs(initialSettings.customNavTabs);
+            setNavItemIcons(initialSettings.navItemIcons && typeof initialSettings.navItemIcons === 'object' ? initialSettings.navItemIcons : {});
+            setCustomNavDisplay(initialSettings.customNavDisplay === 'applets' ? 'applets' : 'links');
+            setArrOpenInPortalEmbed(!!initialSettings.arrOpenInPortalEmbed);
+            if (Array.isArray(initialSettings.homeCustomModules)) setHomeCustomModules(initialSettings.homeCustomModules);
             if (initialSettings.downloadsVisibleToMembers !== undefined) {
                 setDownloadsVisibleToMembers(!!initialSettings.downloadsVisibleToMembers);
             }
             setHideStreamUsers(initialSettings.hideStreamUsers === true ? 'anonymous' : (initialSettings.hideStreamUsers || 'false'));
             setShowUsernamesInAnalytics(!!initialSettings.showUsernamesInAnalytics);
             setUseTrendingSlideshowOnLogin(initialSettings.useTrendingSlideshowOnLogin !== false);
-            if (initialSettings.defaultLibraryIds) setDefaultLibraryIds(initialSettings.defaultLibraryIds);
+            if (Array.isArray(initialSettings.defaultLibraryIds) && initialSettings.defaultLibraryIds.length > 0) {
+                setDefaultLibraryIds(initialSettings.defaultLibraryIds.map(String));
+            } else if (libraries.length > 0) {
+                setDefaultLibraryIds(libraries.map((l: any) => String(l.id)));
+            } else {
+                setDefaultLibraryIds([]);
+            }
             if (initialSettings.use24HourClock !== undefined) setUse24HourClock(!!initialSettings.use24HourClock);
             if (initialSettings.showPosterQualityBadges !== undefined) setShowPosterQualityBadges(initialSettings.showPosterQualityBadges !== false);
             if (initialSettings.showDashboardWatchingBadge !== undefined) setShowDashboardWatchingBadge(!!initialSettings.showDashboardWatchingBadge);
@@ -1097,9 +1668,302 @@ export const SettingsDashboard: React.FC = () => {
             if (initialSettings.maintenanceExperimentalEnabled !== undefined) setMaintenanceExperimentalEnabled(!!initialSettings.maintenanceExperimentalEnabled);
             if (initialSettings.upgraderEnabled !== undefined) setUpgraderEnabled(!!initialSettings.upgraderEnabled);
             if (initialSettings.collexionsEnabled !== undefined) setCollexionsEnabled(!!initialSettings.collexionsEnabled);
+            if (initialSettings.spotifyToPlexEnabled !== undefined) setSpotifyToPlexEnabled(!!initialSettings.spotifyToPlexEnabled);
+            if (initialSettings.metadataFillEnabled !== undefined) setMetadataFillEnabled(!!initialSettings.metadataFillEnabled);
+            if (initialSettings.metadataFillAutoImport !== undefined) setMetadataFillAutoImport(initialSettings.metadataFillAutoImport !== false);
             if (initialSettings.scannerEnabled !== undefined) setScannerEnabled(!!initialSettings.scannerEnabled);
             if (initialSettings.scannerHomeWidgetEnabled !== undefined) {
                 setScannerHomeWidgetEnabled(!!initialSettings.scannerHomeWidgetEnabled);
+            }
+            if (initialSettings.mediaAutomationEnabled !== undefined) {
+                setMediaAutomationEnabled(!!initialSettings.mediaAutomationEnabled);
+            }
+            if (initialSettings.mediaAutomationHomeWidgetEnabled !== undefined) {
+                setMediaAutomationHomeWidgetEnabled(!!initialSettings.mediaAutomationHomeWidgetEnabled);
+            }
+            if (initialSettings.posterSetsEnabled !== undefined) {
+                setPosterSetsEnabled(!!initialSettings.posterSetsEnabled);
+            }
+            if (initialSettings.overlaysEnabled !== undefined) {
+                setOverlaysEnabled(!!initialSettings.overlaysEnabled);
+            }
+            if (initialSettings.editionsEnabled !== undefined) {
+                setEditionsEnabled(!!initialSettings.editionsEnabled);
+            }
+            if (initialSettings.watchSyncEnabled !== undefined) {
+                setWatchSyncEnabled(!!initialSettings.watchSyncEnabled);
+            }
+            if (initialSettings.achievementsEnabled !== undefined) {
+                setAchievementsEnabled(!!initialSettings.achievementsEnabled);
+            }
+            if (initialSettings.supportTicketsEnabled !== undefined) {
+                setSupportTicketsEnabled(initialSettings.supportTicketsEnabled !== false);
+            }
+            if (initialSettings.chatEnabled !== undefined) {
+                setChatEnabled(!!initialSettings.chatEnabled);
+            }
+            if (initialSettings.chatMentionNotifyInApp !== undefined) {
+                setChatMentionNotifyInApp(initialSettings.chatMentionNotifyInApp !== false);
+            }
+            if (initialSettings.achievementsLeaderboardEnabled !== undefined) {
+                setAchievementsLeaderboardEnabled(initialSettings.achievementsLeaderboardEnabled !== false);
+            }
+            if (initialSettings.achievementsHomeWidgetEnabled !== undefined) {
+                setAchievementsHomeWidgetEnabled(initialSettings.achievementsHomeWidgetEnabled !== false);
+            }
+            if (initialSettings.achievementsShowOnProfile !== undefined) {
+                setAchievementsShowOnProfile(initialSettings.achievementsShowOnProfile !== false);
+            }
+            if (initialSettings.achievementsXpWeights && typeof initialSettings.achievementsXpWeights === 'object') {
+                setAchievementsXpWeights({ ...initialSettings.achievementsXpWeights });
+            } else {
+                setAchievementsXpWeights({});
+            }
+            if (Array.isArray(initialSettings.achievementsDisabledBadgeIds)) {
+                setAchievementsDisabledBadgeIds(initialSettings.achievementsDisabledBadgeIds.map(String).filter(Boolean));
+            } else {
+                setAchievementsDisabledBadgeIds([]);
+            }
+            if (initialSettings.achievementsMinPercentComplete !== undefined) {
+                const n = Number(initialSettings.achievementsMinPercentComplete);
+                setAchievementsMinPercentComplete(Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 0);
+            } else {
+                setAchievementsMinPercentComplete(0);
+            }
+            if (Array.isArray(initialSettings.achievementsSeasons)) {
+                setAchievementsSeasons(initialSettings.achievementsSeasons.map((s: any) => ({
+                    id: String(s.id || `season-${Math.random().toString(36).slice(2, 8)}`),
+                    name: String(s.name || ''),
+                    activeFrom: String(s.activeFrom || ''),
+                    activeUntil: String(s.activeUntil || ''),
+                    badgeIds: Array.isArray(s.badgeIds) ? s.badgeIds.map(String).filter(Boolean) : [],
+                    spotlight: s.spotlight !== false,
+                })).filter((s: any) => s.name));
+            } else {
+                setAchievementsSeasons([]);
+            }
+            setRequestAvailableNotifyEnabled(initialSettings.requestAvailableNotifyEnabled !== false);
+            setRequestAvailableNotifyEmail(initialSettings.requestAvailableNotifyEmail !== false);
+            setRequestAvailableNotifyInApp(initialSettings.requestAvailableNotifyInApp !== false);
+            setRequestAvailableNotifyWebPush(initialSettings.requestAvailableNotifyWebPush !== false);
+            setRequestAvailableNotifyDiscord(!!initialSettings.requestAvailableNotifyDiscord);
+            setRequestAvailableDiscordWebhookUrl(initialSettings.requestAvailableDiscordWebhookUrl || '');
+            setRequestNotReleasedNotifyEnabled(initialSettings.requestNotReleasedNotifyEnabled !== false);
+            setRequestNotReleasedNotifyEmail(initialSettings.requestNotReleasedNotifyEmail !== false);
+            setRequestNotReleasedNotifyInApp(initialSettings.requestNotReleasedNotifyInApp !== false);
+            setRequestNotReleasedNotifyWebPush(initialSettings.requestNotReleasedNotifyWebPush !== false);
+            setNotifyReleaseDatePreference(initialSettings.notifyReleaseDatePreference || 'digital');
+            setScannerNotifyDeleted(initialSettings.scannerNotifyDeleted === true);
+            setScannerNotifyUpgrade(initialSettings.scannerNotifyUpgrade === true);
+            setScannerNotifyImport(initialSettings.scannerNotifyImport === true);
+            setScannerNotifyGrab(initialSettings.scannerNotifyGrab === true);
+            setScannerNotifyUpdate(initialSettings.scannerNotifyUpdate === true);
+            setScannerNotifyInteraction(initialSettings.scannerNotifyInteraction === true);
+            setWebPushEnabled(initialSettings.webPushEnabled !== false);
+            setSummaryNotifyEnabled(!!initialSettings.summaryNotifyEnabled);
+            setSummaryNotifyFrequency(initialSettings.summaryNotifyFrequency || 'disabled');
+            setSummaryNotifyDay(Number(initialSettings.summaryNotifyDay) || 0);
+            setSummaryNotifyTime(initialSettings.summaryNotifyTime || '23:00');
+            setSummaryNotifyInApp(initialSettings.summaryNotifyInApp !== false);
+            setSummaryNotifyWebPush(initialSettings.summaryNotifyWebPush !== false);
+            setSummaryNotifyEmail(!!initialSettings.summaryNotifyEmail);
+            setSummaryMetrics({
+                uptime: initialSettings.summaryMetrics?.uptime !== false,
+                requests: initialSettings.summaryMetrics?.requests !== false,
+                scannerImports: initialSettings.summaryMetrics?.scannerImports !== false,
+                collexionsRotations: initialSettings.summaryMetrics?.collexionsRotations !== false,
+                mediaAutomationJobs: initialSettings.summaryMetrics?.mediaAutomationJobs !== false,
+                highlights: initialSettings.summaryMetrics?.highlights !== false,
+            });
+            setNotificationTemplates(
+                initialSettings.notificationTemplates && typeof initialSettings.notificationTemplates === 'object'
+                    ? initialSettings.notificationTemplates
+                    : {},
+            );
+            setNotificationTemplateDefaults(
+                initialSettings.notificationTemplateDefaults && typeof initialSettings.notificationTemplateDefaults === 'object'
+                    ? initialSettings.notificationTemplateDefaults
+                    : {},
+            );
+            setNotificationTemplateEvents(
+                Array.isArray(initialSettings.notificationTemplateEvents)
+                    ? initialSettings.notificationTemplateEvents.map(String)
+                    : [],
+            );
+            setNotificationTemplateFields(
+                initialSettings.notificationTemplateFields && typeof initialSettings.notificationTemplateFields === 'object'
+                    ? initialSettings.notificationTemplateFields
+                    : {},
+            );
+            setEmailTemplates(
+                initialSettings.emailTemplates && typeof initialSettings.emailTemplates === 'object'
+                    ? initialSettings.emailTemplates
+                    : {},
+            );
+            setEmailTemplateDefaults(
+                initialSettings.emailTemplateDefaults && typeof initialSettings.emailTemplateDefaults === 'object'
+                    ? initialSettings.emailTemplateDefaults
+                    : {},
+            );
+            setEmailTemplateEvents(
+                Array.isArray(initialSettings.emailTemplateEvents)
+                    ? initialSettings.emailTemplateEvents.map(String)
+                    : [],
+            );
+            setEmailTemplateFields(
+                initialSettings.emailTemplateFields && typeof initialSettings.emailTemplateFields === 'object'
+                    ? initialSettings.emailTemplateFields
+                    : {},
+            );
+            setNtfyEnabled(!!initialSettings.ntfyEnabled);
+            setNtfyServerUrl(initialSettings.ntfyServerUrl || '');
+            setNtfyTopic(initialSettings.ntfyTopic || '');
+            setNtfyToken(initialSettings.ntfyToken || '');
+            setNtfyPriority(Math.max(1, Math.min(5, Number(initialSettings.ntfyPriority) || 3)));
+            setNtfyEvents(
+                initialSettings.ntfyEvents && typeof initialSettings.ntfyEvents === 'object'
+                    ? {
+                        available: true, approved: true, declined: true, season: true, episode: false, admin_pending: true,
+                        collexions_failed: true, scanner_failed: true, scanner_deleted: true, scanner_upgrade: true, scanner_import: true, scanner_grab: true, scanner_update: true, scanner_interaction: true, spotify_sync_failed: true, status_down: true, status_up: true,
+                        media_job_failed: true, media_job_completed: false, tautulli_api_failed: true,
+                        support_ticket: true, support_reply: true, support_media_issue: true,
+                        ...initialSettings.ntfyEvents,
+                    }
+                    : {
+                        available: true, approved: true, declined: true, season: true, episode: false, admin_pending: true,
+                        collexions_failed: true, scanner_failed: true, scanner_deleted: true, scanner_upgrade: true, scanner_import: true, scanner_grab: true, scanner_update: true, scanner_interaction: true, spotify_sync_failed: true, status_down: true, status_up: true,
+                        media_job_failed: true, media_job_completed: false, tautulli_api_failed: true,
+                        support_ticket: true, support_reply: true, support_media_issue: true,
+                    },
+            );
+            setWebhookEnabled(!!initialSettings.webhookEnabled);
+            setWebhookUrl(initialSettings.webhookUrl || '');
+            setWebhookHeadersJson(initialSettings.webhookHeadersJson || '');
+            setWebhookEvents(
+                initialSettings.webhookEvents && typeof initialSettings.webhookEvents === 'object'
+                    ? {
+                        available: true, approved: false, declined: false, season: false, episode: false, admin_pending: false,
+                        collexions_failed: false, scanner_failed: false, scanner_deleted: false, scanner_upgrade: false, scanner_import: false, scanner_grab: false, scanner_update: false, scanner_interaction: false, spotify_sync_failed: false, status_down: false, status_up: false,
+                        media_job_failed: false, media_job_completed: false, tautulli_api_failed: false,
+                        support_ticket: false, support_reply: false, support_media_issue: false,
+                        ...initialSettings.webhookEvents,
+                    }
+                    : {
+                        available: true, approved: false, declined: false, season: false, episode: false, admin_pending: false,
+                        collexions_failed: false, scanner_failed: false, scanner_deleted: false, scanner_upgrade: false, scanner_import: false, scanner_grab: false, scanner_update: false, scanner_interaction: false, spotify_sync_failed: false, status_down: false, status_up: false,
+                        media_job_failed: false, media_job_completed: false, tautulli_api_failed: false,
+                        support_ticket: false, support_reply: false, support_media_issue: false,
+                    },
+            );
+            if (initialSettings.watchHistorySource !== undefined) {
+                setWatchHistorySource(initialSettings.watchHistorySource === 'tautulli' ? 'tautulli' : 'plex');
+            }
+            if (initialSettings.tautulliConfigured !== undefined) {
+                setTautulliConfigured(!!initialSettings.tautulliConfigured);
+            } else {
+                setTautulliConfigured(!!(initialSettings.tautulliUrl && initialSettings.tautulliApiKey));
+            }
+            if (initialSettings.mediaAutomation && typeof initialSettings.mediaAutomation === 'object') {
+                const saved = initialSettings.mediaAutomation;
+                const fallback = {
+                    ...DEFAULT_MEDIA_AUTOMATION_SETTINGS.fallback,
+                    ...(saved.fallback || {}),
+                    outputMode: (saved.fallback?.outputMode || saved.outputMode || DEFAULT_MEDIA_AUTOMATION_SETTINGS.fallback.outputMode) as typeof DEFAULT_MEDIA_AUTOMATION_SETTINGS.fallback.outputMode,
+                    hardware: (saved.fallback?.hardware || saved.hardwareAcceleration || DEFAULT_MEDIA_AUTOMATION_SETTINGS.fallback.hardware) as typeof DEFAULT_MEDIA_AUTOMATION_SETTINGS.fallback.hardware,
+                };
+                setMediaAutomation({
+                    ...DEFAULT_MEDIA_AUTOMATION_SETTINGS,
+                    ...saved,
+                    enabled: initialSettings.mediaAutomationEnabled ?? saved.enabled ?? false,
+                    auth: {
+                        ...DEFAULT_MEDIA_AUTOMATION_SETTINGS.auth,
+                        ...(saved.auth || saved.webhookAuth || {}),
+                    },
+                    fallback,
+                    outputMode: fallback.outputMode,
+                    hardwareAcceleration: fallback.hardware,
+                    concurrency: {
+                        cpu: (() => {
+                            const next = Number(saved.concurrency?.cpu ?? saved.cpuConcurrency ?? saved.concurrency);
+                            return Number.isFinite(next) ? Math.min(32, Math.max(0, Math.round(next))) : 1;
+                        })(),
+                        gpu: (() => {
+                            const next = Number(saved.concurrency?.gpu ?? saved.gpuConcurrency);
+                            return Number.isFinite(next) ? Math.min(16, Math.max(0, Math.round(next))) : 1;
+                        })(),
+                    },
+                    // Keep flat mirrors aligned with nested concurrency (save used to prefer stale flat values).
+                    cpuConcurrency: (() => {
+                        const next = Number(saved.concurrency?.cpu ?? saved.cpuConcurrency ?? saved.concurrency);
+                        return Number.isFinite(next) ? Math.min(32, Math.max(0, Math.round(next))) : 1;
+                    })(),
+                    gpuConcurrency: (() => {
+                        const next = Number(saved.concurrency?.gpu ?? saved.gpuConcurrency);
+                        return Number.isFinite(next) ? Math.min(16, Math.max(0, Math.round(next))) : 1;
+                    })(),
+                    libraryScanEnabled: saved.libraryScanEnabled !== false,
+                    libraryScanIntervalMinutes: Math.min(
+                        10080,
+                        Math.max(15, Number(saved.libraryScanIntervalMinutes) || DEFAULT_MEDIA_AUTOMATION_SETTINGS.libraryScanIntervalMinutes),
+                    ),
+                    libraryWatchEnabled: saved.libraryWatchEnabled === true,
+                    libraryWatchDebounceMs: Math.min(
+                        120000,
+                        Math.max(500, Number(saved.libraryWatchDebounceMs) || DEFAULT_MEDIA_AUTOMATION_SETTINGS.libraryWatchDebounceMs),
+                    ),
+                    customCommandAllowlist: Array.isArray(saved.customCommandAllowlist)
+                        ? [...new Set(saved.customCommandAllowlist.map((entry: unknown) => String(entry || '').trim()).filter(Boolean))].slice(0, 32)
+                        : [...DEFAULT_MEDIA_AUTOMATION_SETTINGS.customCommandAllowlist],
+                    notifyOnJobFailed: saved.notifyOnJobFailed === true,
+                    notifyOnScanComplete: saved.notifyOnScanComplete === true,
+                    notifyOnFailBurst: saved.notifyOnFailBurst === true,
+                    minFreeDiskGb: Math.min(10000, Math.max(0, Math.round(Number(saved.minFreeDiskGb ?? DEFAULT_MEDIA_AUTOMATION_SETTINGS.minFreeDiskGb)))),
+                    autoPauseQueueDepth: Math.min(100000, Math.max(0, Math.round(Number(saved.autoPauseQueueDepth) || 0))),
+                    pauseEncodingOnScan: saved.pauseEncodingOnScan !== false,
+                    pathDenyList: Array.isArray(saved.pathDenyList)
+                        ? [...new Set(saved.pathDenyList.map((entry: unknown) => String(entry || '').trim()).filter(Boolean))].slice(0, 200)
+                        : [],
+                    quietHoursEnabled: saved.quietHoursEnabled === true,
+                    quietHoursStart: String(saved.quietHoursStart || DEFAULT_MEDIA_AUTOMATION_SETTINGS.quietHoursStart),
+                    quietHoursEnd: String(saved.quietHoursEnd || DEFAULT_MEDIA_AUTOMATION_SETTINGS.quietHoursEnd),
+                    quietHoursDays: Array.isArray(saved.quietHoursDays)
+                        ? saved.quietHoursDays.map((day: unknown) => Number(day)).filter((day: number) => Number.isInteger(day) && day >= 0 && day <= 6)
+                        : [],
+                    pauseWhenStreamingEnabled: saved.pauseWhenStreamingEnabled === true,
+                    pauseWhenStreamingLanes: saved.pauseWhenStreamingLanes === 'all' ? 'all' : 'gpu',
+                    arrRescanEnabled: saved.arrRescanEnabled === true,
+                    scannerRefreshEnabled: saved.scannerRefreshEnabled === true,
+                    plexRescanEnabled: saved.plexRescanEnabled === true,
+                    minSavingsPercent: Math.min(95, Math.max(0, Math.round(Number(saved.minSavingsPercent) || 0))),
+                    minReclaimGb: Math.min(1000, Math.max(0, Number(saved.minReclaimGb) || 0)),
+                    minSourceGb: Math.min(1000, Math.max(0, Number(saved.minSourceGb) || 0)),
+                    minBitrateKbps: Math.min(200000, Math.max(0, Math.round(Number(saved.minBitrateKbps) || 0))),
+                    minFileAgeDays: Math.min(3650, Math.max(0, Math.round(Number(saved.minFileAgeDays) || 0))),
+                    sampleGateEnabled: saved.sampleGateEnabled === true,
+                    sampleGateMinSizeGb: Math.min(1000, Math.max(0, Number(saved.sampleGateMinSizeGb ?? DEFAULT_MEDIA_AUTOMATION_SETTINGS.sampleGateMinSizeGb))),
+                    replaceQualityGuard: saved.replaceQualityGuard !== false,
+                    freeSpaceRoiMinPercent: Math.min(95, Math.max(0, Math.round(Number(saved.freeSpaceRoiMinPercent) || 0))),
+                    daytimeExtraSavingsPercent: Math.min(50, Math.max(0, Math.round(Number(saved.daytimeExtraSavingsPercent) || 0))),
+                    maxWatchCount: Math.min(100000, Math.max(0, Math.round(Number(saved.maxWatchCount) || 0))),
+                    skipWatchedWithinDays: Math.min(3650, Math.max(0, Math.round(Number(saved.skipWatchedWithinDays) || 0))),
+                    seasonMatchMinPercent: Math.min(100, Math.max(0, Math.round(Number(saved.seasonMatchMinPercent) || 0))),
+                    audioOnlyIfVideoMatches: saved.audioOnlyIfVideoMatches === true,
+                    dolbyVisionHandling: ['skip', 'preserve', 'strip'].includes(String(saved.dolbyVisionHandling || ''))
+                        ? saved.dolbyVisionHandling
+                        : 'skip',
+                    hdr10Handling: ['preserve', 'strip', 'skip'].includes(String(saved.hdr10Handling || ''))
+                        ? saved.hdr10Handling
+                        : 'preserve',
+                    // Preserve Start/Pause across settings saves (UI controls live on Media Automation).
+                    workerPaused: saved.workerPaused !== false,
+                    workerGroups: Array.isArray(saved.workerGroups) ? saved.workerGroups : [],
+                    deliveryTargets: Array.isArray(saved.deliveryTargets) ? saved.deliveryTargets : [],
+                });
+            } else {
+                setMediaAutomation({
+                    ...DEFAULT_MEDIA_AUTOMATION_SETTINGS,
+                    enabled: !!initialSettings.mediaAutomationEnabled,
+                });
             }
             if (initialSettings.scannerWebhooksVisible !== undefined) {
                 setScannerWebhooksVisible(initialSettings.scannerWebhooksVisible !== false);
@@ -1108,11 +1972,39 @@ export const SettingsDashboard: React.FC = () => {
                 setScannerManualPathVisible(initialSettings.scannerManualPathVisible !== false);
             }
             if (initialSettings.scanner && typeof initialSettings.scanner === 'object') {
-                setScanner({ ...defaultScannerSettings(), ...initialSettings.scanner });
+                const defaults = defaultScannerSettings();
+                const incoming = initialSettings.scanner as ScannerSettings;
+                setScanner({
+                    ...defaults,
+                    ...incoming,
+                    triggers: {
+                        ...defaults.triggers,
+                        ...(incoming.triggers || {}),
+                    },
+                    targets: {
+                        ...defaults.targets,
+                        ...(incoming.targets || {}),
+                    },
+                });
             }
             if (initialSettings.collexionsAutostart !== undefined) setCollexionsAutostart(!!initialSettings.collexionsAutostart);
             if (initialSettings.collexionsInternalUrl !== undefined) setCollexionsInternalUrl(String(initialSettings.collexionsInternalUrl || ''));
             if (initialSettings.collexionsServiceKey !== undefined) setCollexionsServiceKey(String(initialSettings.collexionsServiceKey || ''));
+            if (initialSettings.spotifyToPlexInternalUrl !== undefined) setSpotifyToPlexInternalUrl(String(initialSettings.spotifyToPlexInternalUrl || ''));
+            if (initialSettings.spotifyToPlexClientId !== undefined) setSpotifyToPlexClientId(String(initialSettings.spotifyToPlexClientId || ''));
+            if (initialSettings.spotifyToPlexClientSecret !== undefined) setSpotifyToPlexClientSecret(String(initialSettings.spotifyToPlexClientSecret || ''));
+            if (initialSettings.spotifyToPlexEncryptionKey !== undefined) setSpotifyToPlexEncryptionKey(String(initialSettings.spotifyToPlexEncryptionKey || ''));
+            if (initialSettings.spotifyToPlexHomeWidgetEnabled !== undefined) setSpotifyToPlexHomeWidgetEnabled(!!initialSettings.spotifyToPlexHomeWidgetEnabled);
+            if (initialSettings.spotifyToPlexScheduleMode === 'portal' || initialSettings.spotifyToPlexScheduleMode === 'sidecar') {
+                setSpotifyToPlexScheduleMode(initialSettings.spotifyToPlexScheduleMode);
+            } else if (initialSettings.spotifyToPlexScheduledSyncEnabled) {
+                setSpotifyToPlexScheduleMode('portal');
+            }
+            if (initialSettings.spotifyToPlexScheduledSyncIntervalHours !== undefined) {
+                setSpotifyToPlexScheduledSyncIntervalHours(
+                    Math.min(168, Math.max(1, Number(initialSettings.spotifyToPlexScheduledSyncIntervalHours) || 24)),
+                );
+            }
             if (initialSettings.upgraderDefaultPreset) setUpgraderDefaultPreset(initialSettings.upgraderDefaultPreset);
             if (initialSettings.upgraderMinSizeGB !== undefined) setUpgraderMinSizeGB(Math.max(0, Number(initialSettings.upgraderMinSizeGB) || 5));
             if (initialSettings.upgraderAutomationEnabled !== undefined) setUpgraderAutomationEnabled(!!initialSettings.upgraderAutomationEnabled);
@@ -1122,7 +2014,9 @@ export const SettingsDashboard: React.FC = () => {
             if (initialSettings.upgraderProfileMap && typeof initialSettings.upgraderProfileMap === 'object') {
                 setUpgraderProfileMap(initialSettings.upgraderProfileMap);
             }
-            const layout = normalizeSectionLayout(initialSettings.dashboardLayout);
+            const layout = normalizeSectionLayout(initialSettings.dashboardLayout, {
+                homeCustomModules: Array.isArray(initialSettings.homeCustomModules) ? initialSettings.homeCustomModules : [],
+            });
             dashboardLayoutRef.current = layout;
             setDashboardLayout(layout);
             setTestRecipient('');
@@ -1199,6 +2093,9 @@ export const SettingsDashboard: React.FC = () => {
         }
 
         let savedCustomLogoUrl = logoFile ? getUploadedBrandingImagePath(logoFile, 'logo') : customLogoUrl;
+        let savedCustomLoginLogoUrl = loginLogoFile ? getUploadedBrandingImagePath(loginLogoFile, 'login') : customLoginLogoUrl;
+        let savedCustomFaviconUrl = faviconFile ? getUploadedBrandingImagePath(faviconFile, 'favicon') : customFaviconUrl;
+        let savedCustomBadgeUrl = customBadgeUrl;
         let savedBackgroundImageUrl = backgroundImageUrl;
         if (mediaServerType === 'emby') {
             if (isJellyfinBrandingAsset(savedCustomLogoUrl)) savedCustomLogoUrl = '';
@@ -1227,6 +2124,82 @@ export const SettingsDashboard: React.FC = () => {
                 clearLogoPreview();
             } catch (e) {
                 addToast(e instanceof Error ? e.message : 'Failed to upload logo', 'error');
+                return;
+            }
+        }
+
+        if (loginLogoFile) {
+            try {
+                const uploadResponse = await fetch(portalUrl('/api/config/login-logo'), {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: {
+                        'Content-Type': loginLogoFile.type || (loginLogoFile.name.toLowerCase().endsWith('.png') ? 'image/png' : (loginLogoFile.name.toLowerCase().endsWith('.webp') ? 'image/webp' : 'image/jpeg')),
+                        [PORTAL_CSRF_HEADER]: PORTAL_CSRF_VALUE,
+                    },
+                    body: loginLogoFile,
+                });
+                if (!uploadResponse.ok) {
+                    const errorData = await uploadResponse.json().catch(() => ({ error: 'Failed to upload login logo' }));
+                    throw new Error(errorData.error || 'Failed to upload login logo');
+                }
+                const uploadResult = await uploadResponse.json().catch(() => ({}));
+                savedCustomLoginLogoUrl = uploadResult.loginLogoUrl || savedCustomLoginLogoUrl;
+                setCustomLoginLogoUrl(savedCustomLoginLogoUrl);
+                setLoginLogoFile(null);
+                clearLoginLogoPreview();
+            } catch (e) {
+                addToast(e instanceof Error ? e.message : 'Failed to upload login logo', 'error');
+                return;
+            }
+        }
+
+        if (faviconFile) {
+            try {
+                const uploadResponse = await fetch(portalUrl('/api/config/favicon'), {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: {
+                        'Content-Type': faviconFile.type || (faviconFile.name.toLowerCase().endsWith('.png') ? 'image/png' : (faviconFile.name.toLowerCase().endsWith('.webp') ? 'image/webp' : 'image/jpeg')),
+                        [PORTAL_CSRF_HEADER]: PORTAL_CSRF_VALUE,
+                    },
+                    body: faviconFile,
+                });
+                if (!uploadResponse.ok) {
+                    const errorData = await uploadResponse.json().catch(() => ({ error: 'Failed to upload favicon' }));
+                    throw new Error(errorData.error || 'Failed to upload favicon');
+                }
+                const uploadResult = await uploadResponse.json().catch(() => ({}));
+                savedCustomFaviconUrl = uploadResult.faviconUrl || savedCustomFaviconUrl;
+                setCustomFaviconUrl(savedCustomFaviconUrl);
+                setFaviconFile(null);
+            } catch (e) {
+                addToast(e instanceof Error ? e.message : 'Failed to upload favicon', 'error');
+                return;
+            }
+        }
+
+        if (badgeFile) {
+            try {
+                const uploadResponse = await fetch(portalUrl('/api/config/notification-badge'), {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: {
+                        'Content-Type': badgeFile.type || (badgeFile.name.toLowerCase().endsWith('.png') ? 'image/png' : (badgeFile.name.toLowerCase().endsWith('.webp') ? 'image/webp' : 'image/jpeg')),
+                        [PORTAL_CSRF_HEADER]: PORTAL_CSRF_VALUE,
+                    },
+                    body: badgeFile,
+                });
+                if (!uploadResponse.ok) {
+                    const errorData = await uploadResponse.json().catch(() => ({ error: 'Failed to upload notification badge' }));
+                    throw new Error(errorData.error || 'Failed to upload notification badge');
+                }
+                const uploadResult = await uploadResponse.json().catch(() => ({}));
+                savedCustomBadgeUrl = uploadResult.badgeUrl || savedCustomBadgeUrl;
+                setCustomBadgeUrl(savedCustomBadgeUrl);
+                setBadgeFile(null);
+            } catch (e) {
+                addToast(e instanceof Error ? e.message : 'Failed to upload notification badge', 'error');
                 return;
             }
         }
@@ -1262,7 +2235,8 @@ export const SettingsDashboard: React.FC = () => {
                 await apiFetch('/api/status/config', { method: 'POST', body: JSON.stringify(statusDraft) });
                 setStatusConfig(statusDraft);
             } catch (e: any) {
-                addToast('Failed to save status monitor configuration', 'error');
+                addToast(e?.message || 'Failed to save status monitor configuration', 'error');
+                return;
             }
         }
 
@@ -1299,6 +2273,7 @@ export const SettingsDashboard: React.FC = () => {
             downloadClients,
             tautulliUrl,
             tautulliApiKey,
+            notifyTautulliApiFailed,
             jellyfinAnalyticsProvider,
             jellystatUrl,
             jellystatApiKey,
@@ -1325,8 +2300,11 @@ export const SettingsDashboard: React.FC = () => {
             portalAllowRequest4kMovies,
             portalAllowRequest4kTv,
             portalAllowAdvancedRequests,
+            portalAllowRequestTags,
             portalShowRecentlyAdded,
             portalShowWatchlist,
+            discoverNowPlayingEnabled,
+            homeNowPlayingCompanionEnabled,
             portalAutoRequestMovies,
             portalAutoRequestTv,
             seriesMetadataProvider,
@@ -1334,6 +2312,10 @@ export const SettingsDashboard: React.FC = () => {
             tvdbApiKey,
             primaryColor: '',
             customLogoUrl: savedCustomLogoUrl,
+            customLoginLogoUrl: savedCustomLoginLogoUrl,
+            loginLogoCircleFrame,
+            customFaviconUrl: savedCustomFaviconUrl,
+            customBadgeUrl: savedCustomBadgeUrl,
             brandingTheme,
             sidebarIdentityPosition,
             pwaIconSource,
@@ -1348,13 +2330,32 @@ export const SettingsDashboard: React.FC = () => {
             referralTrialDays,
             referralRewardDays,
             announcement,
+            expiredPortalTitle,
+            expiredPortalMessage,
             navOrder: ensureCompleteNavOrder(navOrder),
-            navHiddenKeys: normalizeNavHiddenKeys(navHiddenKeys),
+            navHiddenKeys: normalizeNavHiddenKeys(navHiddenKeys, customNavTabs),
+            memberNavOrder: ensureCompleteMemberNavOrder(memberNavOrder, customNavTabs),
+            memberNavHiddenKeys: normalizeMemberNavHiddenKeys(memberNavHiddenKeys, customNavTabs),
+            customNavTabs,
+            navItemIcons,
+            customNavDisplay,
+            arrOpenInPortalEmbed,
+            homeCustomModules,
             downloadsVisibleToMembers,
             hideStreamUsers,
             showUsernamesInAnalytics,
             useTrendingSlideshowOnLogin,
-            defaultLibraryIds,
+            defaultLibraryIds: (() => {
+                const allIds = libraries.map((l: any) => String(l.id));
+                if (
+                    allIds.length > 0 &&
+                    (defaultLibraryIds.length === 0 ||
+                        (defaultLibraryIds.length >= allIds.length && allIds.every((id) => defaultLibraryIds.map(String).includes(id))))
+                ) {
+                    return [];
+                }
+                return defaultLibraryIds;
+            })(),
             use24HourClock,
             allowTemporaryAccess,
             showPosterQualityBadges,
@@ -1368,14 +2369,97 @@ export const SettingsDashboard: React.FC = () => {
             maintenanceExperimentalEnabled,
             upgraderEnabled,
             collexionsEnabled,
+            spotifyToPlexEnabled,
+            metadataFillEnabled,
+            metadataFillAutoImport,
             scannerEnabled,
             scannerHomeWidgetEnabled,
             scannerWebhooksVisible,
             scannerManualPathVisible,
             scanner,
+            mediaAutomationEnabled,
+            mediaAutomationHomeWidgetEnabled,
+            posterSetsEnabled,
+            overlaysEnabled,
+            editionsEnabled,
+            watchSyncEnabled,
+            achievementsEnabled,
+            supportTicketsEnabled,
+            chatEnabled,
+            chatMentionNotifyInApp,
+            achievementsLeaderboardEnabled,
+            achievementsHomeWidgetEnabled,
+            achievementsShowOnProfile,
+            achievementsXpWeights: Object.keys(achievementsXpWeights).length ? achievementsXpWeights : null,
+            achievementsDisabledBadgeIds,
+            achievementsMinPercentComplete,
+            achievementsSeasons,
+            requestAvailableNotifyEnabled,
+            requestAvailableNotifyEmail,
+            requestAvailableNotifyInApp,
+            requestAvailableNotifyWebPush,
+            requestAvailableNotifyDiscord,
+            requestAvailableDiscordWebhookUrl,
+            requestNotReleasedNotifyEnabled,
+            requestNotReleasedNotifyEmail,
+            requestNotReleasedNotifyInApp,
+            requestNotReleasedNotifyWebPush,
+            notifyReleaseDatePreference,
+            scannerNotifyDeleted,
+            scannerNotifyUpgrade,
+            scannerNotifyImport,
+            scannerNotifyGrab,
+            scannerNotifyUpdate,
+            scannerNotifyInteraction,
+            webPushEnabled,
+            summaryNotifyEnabled,
+            summaryNotifyFrequency,
+            summaryNotifyDay,
+            summaryNotifyTime,
+            summaryNotifyInApp,
+            summaryNotifyWebPush,
+            summaryNotifyEmail,
+            summaryMetrics,
+            notificationTemplates,
+            emailTemplates,
+            ntfyEnabled,
+            ntfyServerUrl,
+            ntfyTopic,
+            ntfyToken,
+            ntfyPriority,
+            ntfyEvents,
+            webhookEnabled,
+            webhookUrl,
+            webhookHeadersJson,
+            webhookEvents,
+            watchHistorySource,
+            mediaAutomation: {
+                ...mediaAutomation,
+                enabled: mediaAutomationEnabled,
+                outputMode: mediaAutomation.fallback?.outputMode || mediaAutomation.outputMode || 'dry-run',
+                hardwareAcceleration: mediaAutomation.fallback?.hardware || mediaAutomation.hardwareAcceleration || 'cpu',
+                // Keep flat + nested concurrency in sync so the scheduler always sees the UI values.
+                cpuConcurrency: Number(mediaAutomation.concurrency?.cpu ?? mediaAutomation.cpuConcurrency ?? 1) || 0,
+                gpuConcurrency: Number(mediaAutomation.concurrency?.gpu ?? mediaAutomation.gpuConcurrency ?? 1) || 0,
+                concurrency: {
+                    cpu: Number(mediaAutomation.concurrency?.cpu ?? mediaAutomation.cpuConcurrency ?? 1) || 0,
+                    gpu: Number(mediaAutomation.concurrency?.gpu ?? mediaAutomation.gpuConcurrency ?? 1) || 0,
+                },
+                fallback: {
+                    hardware: mediaAutomation.fallback?.hardware || 'cpu',
+                    outputMode: mediaAutomation.fallback?.outputMode || 'dry-run',
+                },
+            },
             collexionsAutostart,
             collexionsInternalUrl,
             collexionsServiceKey,
+            spotifyToPlexInternalUrl,
+            spotifyToPlexClientId,
+            spotifyToPlexClientSecret,
+            spotifyToPlexEncryptionKey,
+            spotifyToPlexHomeWidgetEnabled,
+            spotifyToPlexScheduleMode,
+            spotifyToPlexScheduledSyncIntervalHours,
             upgraderDefaultPreset,
             upgraderMinSizeGB,
             upgraderAutomationEnabled,
@@ -1383,7 +2467,10 @@ export const SettingsDashboard: React.FC = () => {
             upgraderDefaultSort,
             upgraderDrawerPosition,
             upgraderProfileMap,
-            dashboardLayout: normalizeSectionLayout(dashboardLayoutRef.current)
+            dashboardLayout: pruneDashboardLayoutCustomModules(
+                normalizeSectionLayout(dashboardLayoutRef.current, { homeCustomModules }),
+                homeCustomModules,
+            ) as DashboardLayoutConfig,
         });
     };
     const applyJellyfinBranding = () => {
@@ -1517,7 +2604,12 @@ export const SettingsDashboard: React.FC = () => {
         }
     };
 
-    const splashPreviewLogoSrc = safeImageSrc(logoPreviewUrl || resolvePortalAssetUrl(customLogoUrl));
+    const splashPreviewLogoSrc = safeImageSrc(
+        loginLogoPreviewUrl
+        || resolvePortalAssetUrl(customLoginLogoUrl)
+        || logoPreviewUrl
+        || resolvePortalAssetUrl(customLogoUrl),
+    );
     const requestAppBaseUrl = safeHttpUrl(requestAppUrl).replace(/\/$/, '');
     const splashPreviewBackgroundSrc = backgroundPreviewUrl || resolvePortalAssetUrl(backgroundImageUrl);
     const splashPreviewKey = `${splashPreviewLogoSrc || 'no-logo'}|${splashPreviewBackgroundSrc || 'no-background'}`;
@@ -1537,24 +2629,34 @@ export const SettingsDashboard: React.FC = () => {
                 <div className="w-full md:grid md:grid-cols-[18rem_minmax(0,1fr)] md:gap-8 xl:gap-10 md:items-start">
                     {/* Mobile Dropdown Category Select */}
                     <div className="block md:hidden mb-6 space-y-4">
-                        <h1 className="text-xl font-bold text-plex">Settings</h1>
-                        <SettingsSearchPanel onSelect={navigateToSetting} activeEntryId={activeSettingId} />
+                        <h1 className="text-xl font-bold text-plex">{t('navigation.settings')}</h1>
                         <div>
-                        <label htmlFor="settings-tab-select" className="text-muted text-xs uppercase tracking-wider font-bold mb-2 block">Settings Category</label>
+                        <label htmlFor="settings-tab-select" className="text-muted text-xs uppercase tracking-wider font-bold mb-2 block">{t('settings.navigation.category')}</label>
                         <CustomSelect
                             id="settings-tab-select"
-                            value={activeTab}
+                            value={activeSectionId && (SETTINGS_TAB_SECTIONS[activeTab] || []).some((section) => section.sectionId === activeSectionId)
+                                ? `${activeTab}/${activeSectionId}`
+                                : activeTab}
                             onChange={(val) => {
                                 const entry = resolveSettingsEntry(val);
                                 if (entry) navigateToSetting(entry);
                             }}
                             options={visibleTabGroups.flatMap((group) => [
-                                { label: group.title, value: `__group_${group.title}`, isGroup: true as const },
-                                ...group.tabs.map((tab) => ({
-                                    label: tab.label,
-                                    value: tab.id,
-                                    icon: <SettingsTabIcon id={tab.id} />,
-                                })),
+                                { label: t(SETTINGS_GROUP_TRANSLATION_KEYS[group.title] || group.title), value: `__group_${group.title}`, isGroup: true as const },
+                                ...group.tabs.flatMap((tab) => {
+                                    const sections = SETTINGS_TAB_SECTIONS[tab.id as SettingsTabId] || [];
+                                    return [
+                                        {
+                                            label: t(SETTINGS_TAB_TRANSLATION_KEYS[tab.id] || tab.label),
+                                            value: tab.id,
+                                            icon: <SettingsTabIcon id={tab.id} />,
+                                        },
+                                        ...sections.map((section) => ({
+                                            label: `  ${t(section.translationKey)}`,
+                                            value: `${tab.id}/${section.sectionId}`,
+                                        })),
+                                    ];
+                                }),
                             ])}
                         />
                         </div>
@@ -1562,30 +2664,66 @@ export const SettingsDashboard: React.FC = () => {
 
                     {/* Desktop Sidebar Navigation — sticky within the main scroll area */}
                     <aside className="hidden md:flex md:flex-col w-72 shrink-0 sticky top-0 self-start glass-card nav-shell p-4 shadow-2xl z-10">
-                        <h1 className="text-2xl font-bold text-plex px-2 mb-3 shrink-0">Settings</h1>
-                        <SettingsSearchPanel onSelect={navigateToSetting} activeEntryId={activeSettingId} />
-                        <div className="mt-2.5">
+                        <div>
                         {visibleTabGroups.length === 0 ? (
-                            <p className="text-xs text-muted px-2 py-2">No settings sections found.</p>
+                            <p className="text-xs text-muted px-2 py-2">{t('settings.navigation.noSections')}</p>
                         ) : (
                             <div className="space-y-2">
                                 {visibleTabGroups.map(group => (
                                     <div key={group.title}>
-                                        <p className="text-[10px] uppercase tracking-wider font-bold text-plex px-2 mb-0.5">{group.title}</p>
+                                        <p className="text-[10px] uppercase tracking-wider font-bold text-plex px-2 mb-0.5">{t(SETTINGS_GROUP_TRANSLATION_KEYS[group.title] || group.title)}</p>
                                         <div className="space-y-0.5">
-                                            {group.tabs.map(tab => (
+                                            {group.tabs.map(tab => {
+                                                const sections = SETTINGS_TAB_SECTIONS[tab.id as SettingsTabId] || [];
+                                                const isChildActive = sections.some((section) => (
+                                                    activeTab === tab.id && activeSectionId === section.sectionId
+                                                ));
+                                                const isTabActive = activeTab === tab.id && !isChildActive;
+                                                return (
+                                                <div key={tab.id}>
                                                 <button
-                                                    key={tab.id}
+                                                    type="button"
                                                     onClick={() => navigateToSetting({ id: tab.id, tabId: tab.id as SettingsTabId, label: tab.label, group: group.title, keywords: tab.keywords || [] })}
-                                                    className={`w-full text-left px-2 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 ${activeTab === tab.id
+                                                    className={`w-full text-left px-2 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 ${isTabActive
                                                         ? 'nav-item-active'
                                                         : 'text-muted hover:text-text hover:bg-white/5'
                                                         }`}
                                                 >
                                                     <SettingsTabIcon id={tab.id} />
-                                                    {tab.label}
+                                                    <span className="flex items-center gap-1.5 min-w-0 flex-1">
+                                                        <span className="truncate">{t(SETTINGS_TAB_TRANSLATION_KEYS[tab.id] || tab.label)}</span>
+                                                        {SETTINGS_TAB_BETA_NOTICE[tab.id] ? (
+                                                            <BetaBadge title={t(SETTINGS_TAB_BETA_NOTICE[tab.id])} className="shrink-0 scale-90" />
+                                                        ) : null}
+                                                    </span>
                                                 </button>
-                                            ))}
+                                                {sections.length > 0 ? (
+                                                    <div className="ml-3 mt-0.5 space-y-0.5 border-l border-border/70 pl-2">
+                                                        {sections.map((section) => {
+                                                            const entryId = `${tab.id}/${section.sectionId}`;
+                                                            const isActive = activeTab === tab.id && activeSectionId === section.sectionId;
+                                                            return (
+                                                                <button
+                                                                    key={entryId}
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        const entry = resolveSettingsEntry(entryId);
+                                                                        if (entry) navigateToSetting(entry);
+                                                                    }}
+                                                                    className={`w-full text-left px-2 py-1 rounded-md text-[13px] font-medium transition-all ${isActive
+                                                                        ? 'nav-item-active'
+                                                                        : 'text-muted hover:text-text hover:bg-white/5'
+                                                                        }`}
+                                                                >
+                                                                    <span className="truncate block">{t(section.translationKey)}</span>
+                                                                </button>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                ) : null}
+                                                </div>
+                                                );
+                                            })}
                                         </div>
                                     </div>
                                 ))}
@@ -1626,7 +2764,8 @@ export const SettingsDashboard: React.FC = () => {
                                             if (next !== 'plex') {
                                                 setCollexionsEnabled(false);
                                                 setCollexionsAutostart(false);
-                                                if (activeTab === 'collexions') setActiveTab('plex');
+                                                setSpotifyToPlexEnabled(false);
+                                                if (activeTab === 'collexions' || activeTab === 'spotify-sync' || activeTab === 'metadata-fill') setActiveTab('plex');
                                             }
                                         }}
                                         options={[
@@ -1640,11 +2779,11 @@ export const SettingsDashboard: React.FC = () => {
                                         <h4 className="font-bold text-text mb-3">{mediaServerLabel} Connection</h4>
                                         <div className="mb-4">
                                             <label htmlFor="jellyfinUrl">{mediaServerLabel} URL</label>
-                                            <input className="w-full p-3 rounded-lg border border-border bg-background text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="jellyfinUrl" type="url" value={jellyfinUrl} onChange={(e) => setJellyfinUrl(e.target.value)} placeholder="http://192.168.1.6:8096" />
+                                            <input className="w-full appearance-none p-3 rounded-lg border border-border bg-background text-[16px] leading-5 text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="jellyfinUrl" type="url" value={jellyfinUrl} onChange={(e) => setJellyfinUrl(e.target.value)} placeholder="http://192.168.1.6:8096" />
                                         </div>
                                         <div className="mb-4">
                                             <label htmlFor="jellyfinApiKey">{mediaServerLabel} API Key</label>
-                                            <input className="w-full p-3 rounded-lg border border-border bg-background text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="jellyfinApiKey" type="password" value={jellyfinApiKey} onChange={(e) => setJellyfinApiKey(e.target.value)} placeholder="API key from media server dashboard" />
+                                            <input className="w-full appearance-none p-3 rounded-lg border border-border bg-background text-[16px] leading-5 text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="jellyfinApiKey" type="password" value={jellyfinApiKey} onChange={(e) => setJellyfinApiKey(e.target.value)} placeholder="API key from media server dashboard" />
                                         </div>
                                         <IntegrationTestButton
                                             type={mediaServerType === 'emby' ? 'emby' : 'jellyfin'}
@@ -1668,7 +2807,7 @@ export const SettingsDashboard: React.FC = () => {
                                     >
                                         Plex Token
                                     </SettingFieldLabel>
-                                    <input className="w-full p-3 rounded-lg border border-border bg-background text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="plexToken" type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder="Enter your X-Plex-Token" />
+                                    <input className="w-full appearance-none p-3 rounded-lg border border-border bg-background text-[16px] leading-5 text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="plexToken" type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder="Enter your X-Plex-Token" />
                                 </div>
                                 <div className="flex flex-wrap items-start gap-3">
                                     <button className="px-4 py-2 bg-border text-text rounded-md font-medium hover:bg-opacity-80 transition-colors flex items-center justify-center gap-2" onClick={handleFetchServers} disabled={!token}>Fetch Servers</button>
@@ -1717,7 +2856,7 @@ export const SettingsDashboard: React.FC = () => {
                                         <span className="text-muted font-normal normal-case">(required in Docker)</span>
                                     </SettingFieldLabel>
                                     <input
-                                        className="w-full p-3 rounded-lg border border-border bg-background text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all"
+                                        className="w-full appearance-none p-3 rounded-lg border border-border bg-background text-[16px] leading-5 text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all"
                                         id="plexServerUrl"
                                         type="url"
                                         value={plexServerUrl}
@@ -1732,7 +2871,7 @@ export const SettingsDashboard: React.FC = () => {
                                     >
                                         Check Interval (minutes)
                                     </SettingFieldLabel>
-                                    <input className="w-full p-3 rounded-lg border border-border bg-background text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="checkInterval" type="number" value={checkInterval} onChange={e => setCheckInterval(Number(e.target.value))} min="1" />
+                                    <input className="w-full appearance-none p-3 rounded-lg border border-border bg-background text-[16px] leading-5 text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="checkInterval" type="number" value={checkInterval} onChange={e => setCheckInterval(Number(e.target.value))} min="1" />
                                 </div>
 
                                 {libraries.length > 0 && (
@@ -1740,7 +2879,7 @@ export const SettingsDashboard: React.FC = () => {
                                         <SettingFieldLabel
                                             hint={(
                                                 <SettingHint>
-                                                    Libraries to share automatically when users request temporary access or link their account. Leave empty to share ALL libraries.
+                                                    All libraries start checked — uncheck any you don&apos;t want shared for temporary access / auto-invite. Leaving all checked shares everything.
                                                 </SettingHint>
                                             )}
                                         >
@@ -1772,10 +2911,26 @@ export const SettingsDashboard: React.FC = () => {
                                 )}
                                 </div>
 
+                                <section id={getSettingsSectionElementId('home-hero')} className="mb-6 mt-2 scroll-mt-24 rounded-xl border border-border/70 p-4">
+                                    <div className="flex flex-col lg:flex-row lg:items-start gap-4">
+                                        <div className="lg:w-52 shrink-0">
+                                            <h4 className="font-bold text-text">Media Player Home</h4>
+                                            <p className="text-xs text-muted mt-1">Hero banner slideshow on the Media Player home screen.</p>
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-sm text-muted">
+                                                Admins can change the home hero mode inside{' '}
+                                                <span className="font-semibold text-text">Media Player → Settings → Home hero mode</span>.
+                                                Non-admins do not see this control.
+                                            </p>
+                                        </div>
+                                    </div>
+                                </section>
+
                                 <div id={getSettingsSectionElementId('privacy')} className="mb-4 mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 py-4 border-b border-border/40 scroll-mt-24">
                                         <div>
                                             <h4 className="font-bold text-text">Stream User Privacy</h4>
-                                            <p className="text-sm text-muted">Control how stream users are displayed to non-admins (e.g. on the public status page).</p>
+                                            <p className="text-sm text-muted">Control how usernames and player/device names are shown to non-admins anywhere on the portal (dashboard streams, achievements leaderboard, analytics, and the public status page). When set to Show Names, each member can still opt out of their own name, player, or achievements in Preferences.</p>
                                         </div>
                                         <div className="w-56 ml-4 flex-shrink-0">
                                             <CustomSelect
@@ -1790,15 +2945,6 @@ export const SettingsDashboard: React.FC = () => {
                                         </div>
                                     </div>
 
-                                <div id={getSettingsSectionElementId('analytics-usernames')} className="scroll-mt-24">
-                                <SettingsToggleRow
-                                    title="Show Usernames in Analytics"
-                                    description="Allow non-admin users to see real usernames on the Analytics dashboard. If disabled, usernames are shown as Viewer 1, Viewer 2, etc."
-                                    checked={showUsernamesInAnalytics}
-                                    onChange={setShowUsernamesInAnalytics}
-                                />
-                                </div>
-
                                 <div className="mb-4" style={{ marginTop: '1rem' }}>
                                     <SettingFieldLabel
                                         htmlFor="requestUrl"
@@ -1806,7 +2952,7 @@ export const SettingsDashboard: React.FC = () => {
                                     >
                                         Request URL
                                     </SettingFieldLabel>
-                                    <input className="w-full p-3 rounded-lg border border-border bg-background text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="requestUrl" type="text" value={requestUrl} onChange={e => setRequestUrl(e.target.value)} placeholder="https://yourdomain.com" />
+                                    <input className="w-full appearance-none p-3 rounded-lg border border-border bg-background text-[16px] leading-5 text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="requestUrl" type="text" value={requestUrl} onChange={e => setRequestUrl(e.target.value)} placeholder="https://yourdomain.com" />
                                 </div>
                                 <div className="mb-4" style={{ marginTop: '1rem' }}>
                                     <SettingFieldLabel
@@ -1815,155 +2961,252 @@ export const SettingsDashboard: React.FC = () => {
                                     >
                                         Contact URL / Email
                                     </SettingFieldLabel>
-                                    <input className="w-full p-3 rounded-lg border border-border bg-background text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="contactUrl" type="text" value={contactUrl} onChange={e => setContactUrl(e.target.value)} placeholder="mailto:youremail@example.com OR https://wa.me/123456" />
+                                    <input className="w-full appearance-none p-3 rounded-lg border border-border bg-background text-[16px] leading-5 text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="contactUrl" type="text" value={contactUrl} onChange={e => setContactUrl(e.target.value)} placeholder="mailto:youremail@example.com OR https://wa.me/123456" />
                                 </div>
                             </div>
                         )}
 
-                    {activeTab === 'smtp' && (
-                        <div className="mb-8">
-                            <h3 className="text-xl font-bold text-plex mb-4 border-b border-border pb-2">SMTP Email Notifications</h3>
-                            <div className="flex flex-col md:flex-row gap-4 mb-4">
-                                <div className="flex-2">
-                                    <label htmlFor="smtpHost">SMTP Host</label>
-                                    <input className="w-full p-3 rounded-lg border border-border bg-background text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="smtpHost" type="text" value={smtpHost} onChange={e => setSmtpHost(e.target.value)} placeholder="smtp.mailgun.org" />
-                                </div>
-                                <div className="flex-1">
-                                    <label htmlFor="smtpPort">Port</label>
-                                    <input className="w-full p-3 rounded-lg border border-border bg-background text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="smtpPort" type="number" value={smtpPort} onChange={e => setSmtpPort(Number(e.target.value))} placeholder="587" />
-                                </div>
-                            </div>
-                            <div className="flex flex-col md:flex-row gap-4 mb-4">
-                                <div className="flex-1">
-                                    <label htmlFor="smtpUser">SMTP Username</label>
-                                    <input className="w-full p-3 rounded-lg border border-border bg-background text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="smtpUser" type="text" value={smtpUser} onChange={e => setSmtpUser(e.target.value)} placeholder="postmaster@yourdomain.com" />
-                                </div>
-                                <div className="flex-1">
-                                    <label htmlFor="smtpPass">SMTP Password</label>
-                                    <input className="w-full p-3 rounded-lg border border-border bg-background text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="smtpPass" type="password" value={smtpPass} onChange={e => setSmtpPass(e.target.value)} placeholder="••••••••••••" />
-                                </div>
-                            </div>
-                            <div className="flex flex-col md:flex-row gap-4 mb-4 md:items-center">
-                                <div className="flex-[2]">
-                                    <label htmlFor="smtpFrom">Sender Address (From)</label>
-                                    <input className="w-full p-3 rounded-lg border border-border bg-background text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="smtpFrom" type="text" value={smtpFrom} onChange={e => setSmtpFrom(e.target.value)} placeholder="Server Manager Portal <noreply@yourdomain.com>" />
-                                </div>
-                                <div className="flex-1">
-                                    <SettingsToggleRow
-                                        title="SSL / Secure"
-                                        checked={smtpSecure}
-                                        onChange={setSmtpSecure}
-                                        border={false}
-                                        className="!py-0"
-                                    />
-                                </div>
-                            </div>
-                            <div className="mb-4">
-                                <SettingFieldLabel
-                                    htmlFor="emailDaysBefore"
-                                    hint={<SettingHint>Automated notification email will be sent when user has this many days left.</SettingHint>}
-                                >
-                                    Warning Alert Threshold (Days Before Expiry)
-                                </SettingFieldLabel>
-                                <input className="w-full p-3 rounded-lg border border-border bg-background text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="emailDaysBefore" type="number" value={emailDaysBefore} onChange={e => setEmailDaysBefore(Number(e.target.value))} min="0" />
-                            </div>
-
-                            <div className="mt-6 space-y-3">
-                                <h4 className="font-bold text-text">Test SMTP Settings</h4>
+                    {activeTab === 'notifications' && (
+                        <div className="mb-8 space-y-10">
+                            <section id={getSettingsSectionElementId('smtp')} className="scroll-mt-24">
+                                <h3 className="text-xl font-bold text-plex mb-4 border-b border-border pb-2">SMTP Email Notifications</h3>
                                 <div className="flex flex-col md:flex-row gap-4 mb-4">
+                                    <div className="flex-2">
+                                        <label htmlFor="smtpHost">SMTP Host</label>
+                                        <input className="w-full appearance-none p-3 rounded-lg border border-border bg-background text-[16px] leading-5 text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="smtpHost" type="text" value={smtpHost} onChange={e => setSmtpHost(e.target.value)} placeholder="smtp.mailgun.org" />
+                                    </div>
+                                    <div className="flex-1">
+                                        <label htmlFor="smtpPort">Port</label>
+                                        <input className="w-full appearance-none p-3 rounded-lg border border-border bg-background text-[16px] leading-5 text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="smtpPort" type="number" value={smtpPort} onChange={e => setSmtpPort(Number(e.target.value))} placeholder="587" />
+                                    </div>
+                                </div>
+                                <div className="flex flex-col md:flex-row gap-4 mb-4">
+                                    <div className="flex-1">
+                                        <label htmlFor="smtpUser">SMTP Username</label>
+                                        <input className="w-full appearance-none p-3 rounded-lg border border-border bg-background text-[16px] leading-5 text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="smtpUser" type="text" value={smtpUser} onChange={e => setSmtpUser(e.target.value)} placeholder="postmaster@yourdomain.com" />
+                                    </div>
+                                    <div className="flex-1">
+                                        <label htmlFor="smtpPass">SMTP Password</label>
+                                        <input className="w-full appearance-none p-3 rounded-lg border border-border bg-background text-[16px] leading-5 text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="smtpPass" type="password" value={smtpPass} onChange={e => setSmtpPass(e.target.value)} placeholder="••••••••••••" />
+                                    </div>
+                                </div>
+                                <div className="flex flex-col md:flex-row gap-4 mb-4 md:items-center">
+                                    <div className="flex-[2]">
+                                        <label htmlFor="smtpFrom">Sender Address (From)</label>
+                                        <input className="w-full appearance-none p-3 rounded-lg border border-border bg-background text-[16px] leading-5 text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="smtpFrom" type="text" value={smtpFrom} onChange={e => setSmtpFrom(e.target.value)} placeholder="StreamPilot <noreply@yourdomain.com>" />
+                                    </div>
+                                    <div className="flex-1">
+                                        <SettingsToggleRow
+                                            title="SSL / Secure"
+                                            checked={smtpSecure}
+                                            onChange={setSmtpSecure}
+                                            border={false}
+                                            className="!py-0"
+                                        />
+                                    </div>
+                                </div>
+                                <div className="mb-4">
+                                    <SettingFieldLabel
+                                        htmlFor="emailDaysBefore"
+                                        hint={<SettingHint>Automated notification email will be sent when user has this many days left.</SettingHint>}
+                                    >
+                                        Warning Alert Threshold (Days Before Expiry)
+                                    </SettingFieldLabel>
+                                    <input className="w-full appearance-none p-3 rounded-lg border border-border bg-background text-[16px] leading-5 text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="emailDaysBefore" type="number" value={emailDaysBefore} onChange={e => setEmailDaysBefore(Number(e.target.value))} min="0" />
+                                </div>
+
+                                <div className="mt-6 space-y-3">
+                                    <h4 className="font-bold text-text">Test SMTP Settings</h4>
+                                    <div className="flex flex-col md:flex-row gap-4 mb-4">
+                                        <input
+                                            type="email"
+                                            value={testRecipient}
+                                            onChange={e => setTestRecipient(e.target.value)}
+                                            placeholder="test-recipient@gmail.com"
+                                            className="flex-grow p-3 rounded-lg border border-border bg-background text-text text-sm outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all"
+                                        />
+                                        <button className="px-4 py-2 bg-border text-text rounded-md font-medium hover:bg-opacity-80 transition-colors flex items-center justify-center gap-2" onClick={handleTestEmail} disabled={isTestingSmtp || !testRecipient}>
+                                            {isTestingSmtp ? 'Sending...' : 'Send Test'}
+                                        </button>
+                                    </div>
+                                </div>
+                            </section>
+
+                            <NotificationsSettingsTab
+                                requestAvailableNotifyEnabled={requestAvailableNotifyEnabled}
+                                setRequestAvailableNotifyEnabled={setRequestAvailableNotifyEnabled}
+                                requestAvailableNotifyEmail={requestAvailableNotifyEmail}
+                                setRequestAvailableNotifyEmail={setRequestAvailableNotifyEmail}
+                                requestAvailableNotifyInApp={requestAvailableNotifyInApp}
+                                setRequestAvailableNotifyInApp={setRequestAvailableNotifyInApp}
+                                requestAvailableNotifyWebPush={requestAvailableNotifyWebPush}
+                                setRequestAvailableNotifyWebPush={setRequestAvailableNotifyWebPush}
+                                requestAvailableNotifyDiscord={requestAvailableNotifyDiscord}
+                                setRequestAvailableNotifyDiscord={setRequestAvailableNotifyDiscord}
+                                requestAvailableDiscordWebhookUrl={requestAvailableDiscordWebhookUrl}
+                                setRequestAvailableDiscordWebhookUrl={setRequestAvailableDiscordWebhookUrl}
+                                requestNotReleasedNotifyEnabled={requestNotReleasedNotifyEnabled}
+                                setRequestNotReleasedNotifyEnabled={setRequestNotReleasedNotifyEnabled}
+                                requestNotReleasedNotifyEmail={requestNotReleasedNotifyEmail}
+                                setRequestNotReleasedNotifyEmail={setRequestNotReleasedNotifyEmail}
+                                requestNotReleasedNotifyInApp={requestNotReleasedNotifyInApp}
+                                setRequestNotReleasedNotifyInApp={setRequestNotReleasedNotifyInApp}
+                                requestNotReleasedNotifyWebPush={requestNotReleasedNotifyWebPush}
+                                setRequestNotReleasedNotifyWebPush={setRequestNotReleasedNotifyWebPush}
+                                notifyReleaseDatePreference={notifyReleaseDatePreference}
+                                setNotifyReleaseDatePreference={setNotifyReleaseDatePreference}
+                                scannerNotifyDeleted={scannerNotifyDeleted}
+                                setScannerNotifyDeleted={setScannerNotifyDeleted}
+                                scannerNotifyUpgrade={scannerNotifyUpgrade}
+                                setScannerNotifyUpgrade={setScannerNotifyUpgrade}
+                                scannerNotifyImport={scannerNotifyImport}
+                                setScannerNotifyImport={setScannerNotifyImport}
+                                scannerNotifyGrab={scannerNotifyGrab}
+                                setScannerNotifyGrab={setScannerNotifyGrab}
+                                scannerNotifyUpdate={scannerNotifyUpdate}
+                                setScannerNotifyUpdate={setScannerNotifyUpdate}
+                                scannerNotifyInteraction={scannerNotifyInteraction}
+                                setScannerNotifyInteraction={setScannerNotifyInteraction}
+                                webPushEnabled={webPushEnabled}
+                                setWebPushEnabled={setWebPushEnabled}
+                                summaryNotifyEnabled={summaryNotifyEnabled}
+                                setSummaryNotifyEnabled={setSummaryNotifyEnabled}
+                                summaryNotifyFrequency={summaryNotifyFrequency}
+                                setSummaryNotifyFrequency={setSummaryNotifyFrequency}
+                                summaryNotifyDay={summaryNotifyDay}
+                                setSummaryNotifyDay={setSummaryNotifyDay}
+                                summaryNotifyTime={summaryNotifyTime}
+                                setSummaryNotifyTime={setSummaryNotifyTime}
+                                summaryNotifyInApp={summaryNotifyInApp}
+                                setSummaryNotifyInApp={setSummaryNotifyInApp}
+                                summaryNotifyWebPush={summaryNotifyWebPush}
+                                setSummaryNotifyWebPush={setSummaryNotifyWebPush}
+                                summaryNotifyEmail={summaryNotifyEmail}
+                                setSummaryNotifyEmail={setSummaryNotifyEmail}
+                                summaryMetrics={summaryMetrics}
+                                setSummaryMetrics={setSummaryMetrics}
+                                notificationTemplates={notificationTemplates}
+                                setNotificationTemplates={setNotificationTemplates}
+                                notificationTemplateDefaults={notificationTemplateDefaults}
+                                notificationTemplateEvents={notificationTemplateEvents}
+                                notificationTemplateFields={notificationTemplateFields}
+                                ntfyEnabled={ntfyEnabled}
+                                setNtfyEnabled={setNtfyEnabled}
+                                ntfyServerUrl={ntfyServerUrl}
+                                setNtfyServerUrl={setNtfyServerUrl}
+                                ntfyTopic={ntfyTopic}
+                                setNtfyTopic={setNtfyTopic}
+                                ntfyToken={ntfyToken}
+                                setNtfyToken={setNtfyToken}
+                                ntfyPriority={ntfyPriority}
+                                setNtfyPriority={setNtfyPriority}
+                                ntfyEvents={ntfyEvents}
+                                setNtfyEvents={setNtfyEvents}
+                                webhookEnabled={webhookEnabled}
+                                setWebhookEnabled={setWebhookEnabled}
+                                webhookUrl={webhookUrl}
+                                setWebhookUrl={setWebhookUrl}
+                                webhookHeadersJson={webhookHeadersJson}
+                                setWebhookHeadersJson={setWebhookHeadersJson}
+                                webhookEvents={webhookEvents}
+                                setWebhookEvents={setWebhookEvents}
+                                onOpenGotify={() => {
+                                    setActiveSectionId('gotify');
+                                    setScrollToSection('gotify');
+                                }}
+                                onOpenSmtp={() => {
+                                    setActiveSectionId('smtp');
+                                    setScrollToSection('smtp');
+                                }}
+                                addToast={addToast}
+                                getSettingsSectionElementId={getSettingsSectionElementId}
+                            />
+
+                            <section id={getSettingsSectionElementId('gotify')} className="scroll-mt-24">
+                                <h3 className="text-xl font-bold text-plex mb-4 border-b border-border pb-2">Gotify Push Alerts</h3>
+                                <p className="text-sm text-muted mb-4 max-w-2xl">
+                                    Admin automation alerts (expiry, sync, revoke). Member request-available / in-app / web push channels are configured in the sections above.
+                                </p>
+                                <SettingsToggleRow
+                                    title="Enable Gotify Alerts"
+                                    description="Send admin push alerts for important portal automation events."
+                                    checked={gotifyEnabled}
+                                    onChange={setGotifyEnabled}
+                                    className="mb-4"
+                                />
+                                <div className="flex flex-col md:flex-row gap-4 mb-4">
+                                    <div className="flex-[2]">
+                                        <label htmlFor="gotifyUrl">Gotify Server URL</label>
+                                        <input
+                                            className="w-full appearance-none p-3 rounded-lg border border-border bg-background text-[16px] leading-5 text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all"
+                                            id="gotifyUrl"
+                                            type="url"
+                                            value={gotifyUrl}
+                                            onChange={e => setGotifyUrl(e.target.value)}
+                                            placeholder="https://gotify.example.com"
+                                        />
+                                    </div>
+                                    <div className="flex-1">
+                                        <label htmlFor="gotifyPriority">Priority</label>
+                                        <input
+                                            className="w-full appearance-none p-3 rounded-lg border border-border bg-background text-[16px] leading-5 text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all"
+                                            id="gotifyPriority"
+                                            type="number"
+                                            min={0}
+                                            max={10}
+                                            value={gotifyPriority}
+                                            onChange={e => setGotifyPriority(Number(e.target.value))}
+                                        />
+                                    </div>
+                                </div>
+                                <div className="mb-4">
+                                    <label htmlFor="gotifyToken">Application Token</label>
                                     <input
-                                        type="email"
-                                        value={testRecipient}
-                                        onChange={e => setTestRecipient(e.target.value)}
-                                        placeholder="test-recipient@gmail.com"
-                                        className="flex-grow p-3 rounded-lg border border-border bg-background text-text text-sm outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all"
+                                        className="w-full appearance-none p-3 rounded-lg border border-border bg-background text-[16px] leading-5 text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all"
+                                        id="gotifyToken"
+                                        type="password"
+                                        value={gotifyToken}
+                                        onChange={e => setGotifyToken(e.target.value)}
+                                        placeholder="Gotify app token"
                                     />
-                                    <button className="px-4 py-2 bg-border text-text rounded-md font-medium hover:bg-opacity-80 transition-colors flex items-center justify-center gap-2" onClick={handleTestEmail} disabled={isTestingSmtp || !testRecipient}>
-                                        {isTestingSmtp ? 'Sending...' : 'Send Test'}
+                                </div>
+                                <div className="mt-6 rounded-lg border border-border bg-background/40 p-4">
+                                    <h4 className="font-bold text-text mb-3">Alert Rules</h4>
+                                    <div className="space-y-1">
+                                        {[
+                                            ['expiryWarning', 'Access Expiry Warnings', 'Alert when a user reaches the configured expiry-warning threshold.'],
+                                            ['accessRevoked', 'Access Revoked', 'Alert when expired access is revoked automatically.'],
+                                            ['newUserSynced', 'New Users During Sync', 'Alert when a Plex/Jellyfin sync discovers new users.'],
+                                            ['requestPending', 'New Media Requests', 'Alert when a member submits a request that needs approval.'],
+                                            ['supportTicket', 'New Support Tickets', 'Alert when a member opens a support ticket.'],
+                                            ['supportReply', 'Support Ticket Replies', 'Alert when a member replies to a support ticket.'],
+                                            ['supportMediaIssue', 'Media Issue Reports', 'Alert when a member reports a media issue (creates a ticket).'],
+                                            ['syncFailure', 'Sync Failures', 'Alert when a manual user sync fails.'],
+                                            ['syncSuccess', 'Sync Success', 'Alert after every successful manual user sync.'],
+                                        ].map(([key, title, description]) => (
+                                            <SettingsToggleRow
+                                                key={key}
+                                                title={title}
+                                                description={description}
+                                                checked={alertRules[key] !== false}
+                                                onChange={(checked) => setAlertRules(prev => ({ ...prev, [key]: checked }))}
+                                                border={false}
+                                                className="!py-3"
+                                            />
+                                        ))}
+                                    </div>
+                                </div>
+                                <div className="mt-6 space-y-3">
+                                    <h4 className="font-bold text-text">Test Gotify Settings</h4>
+                                    <button
+                                        className="px-4 py-2 bg-border text-text rounded-md font-medium hover:bg-opacity-80 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                                        onClick={handleTestGotify}
+                                        disabled={isTestingGotify || !gotifyUrl || !gotifyToken}
+                                    >
+                                        {isTestingGotify ? 'Sending...' : 'Send Test'}
                                     </button>
                                 </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {activeTab === 'gotify' && (
-                        <div className="mb-8">
-                            <h3 className="text-xl font-bold text-plex mb-4 border-b border-border pb-2">Gotify Push Alerts</h3>
-                            <SettingsToggleRow
-                                title="Enable Gotify Alerts"
-                                description="Send admin push alerts for important portal automation events."
-                                checked={gotifyEnabled}
-                                onChange={setGotifyEnabled}
-                                className="mb-4"
-                            />
-                            <div className="flex flex-col md:flex-row gap-4 mb-4">
-                                <div className="flex-[2]">
-                                    <label htmlFor="gotifyUrl">Gotify Server URL</label>
-                                    <input
-                                        className="w-full p-3 rounded-lg border border-border bg-background text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all"
-                                        id="gotifyUrl"
-                                        type="url"
-                                        value={gotifyUrl}
-                                        onChange={e => setGotifyUrl(e.target.value)}
-                                        placeholder="https://gotify.example.com"
-                                    />
-                                </div>
-                                <div className="flex-1">
-                                    <label htmlFor="gotifyPriority">Priority</label>
-                                    <input
-                                        className="w-full p-3 rounded-lg border border-border bg-background text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all"
-                                        id="gotifyPriority"
-                                        type="number"
-                                        min={0}
-                                        max={10}
-                                        value={gotifyPriority}
-                                        onChange={e => setGotifyPriority(Number(e.target.value))}
-                                    />
-                                </div>
-                            </div>
-                            <div className="mb-4">
-                                <label htmlFor="gotifyToken">Application Token</label>
-                                <input
-                                    className="w-full p-3 rounded-lg border border-border bg-background text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all"
-                                    id="gotifyToken"
-                                    type="password"
-                                    value={gotifyToken}
-                                    onChange={e => setGotifyToken(e.target.value)}
-                                    placeholder="Gotify app token"
-                                />
-                            </div>
-                            <div className="mt-6 rounded-lg border border-border bg-background/40 p-4">
-                                <h4 className="font-bold text-text mb-3">Alert Rules</h4>
-                                <div className="space-y-1">
-                                    {[
-                                        ['expiryWarning', 'Access Expiry Warnings', 'Alert when a user reaches the configured expiry-warning threshold.'],
-                                        ['accessRevoked', 'Access Revoked', 'Alert when expired access is revoked automatically.'],
-                                        ['newUserSynced', 'New Users During Sync', 'Alert when a Plex/Jellyfin sync discovers new users.'],
-                                        ['syncFailure', 'Sync Failures', 'Alert when a manual user sync fails.'],
-                                        ['syncSuccess', 'Sync Success', 'Alert after every successful manual user sync.'],
-                                    ].map(([key, title, description]) => (
-                                        <SettingsToggleRow
-                                            key={key}
-                                            title={title}
-                                            description={description}
-                                            checked={alertRules[key] !== false}
-                                            onChange={(checked) => setAlertRules(prev => ({ ...prev, [key]: checked }))}
-                                            border={false}
-                                            className="!py-3"
-                                        />
-                                    ))}
-                                </div>
-                            </div>
-                            <div className="mt-6 space-y-3">
-                                <h4 className="font-bold text-text">Test Gotify Settings</h4>
-                                <button
-                                    className="px-4 py-2 bg-border text-text rounded-md font-medium hover:bg-opacity-80 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
-                                    onClick={handleTestGotify}
-                                    disabled={isTestingGotify || !gotifyUrl || !gotifyToken}
-                                >
-                                    {isTestingGotify ? 'Sending...' : 'Send Test'}
-                                </button>
-                            </div>
+                            </section>
                         </div>
                     )}
 
@@ -2008,7 +3251,7 @@ export const SettingsDashboard: React.FC = () => {
                                                 ]}
                                             />
                                         ) : (
-                                            <input className="w-full p-3 rounded-lg border border-border bg-background text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="newsletterDay" type="number" min="1" max="28" value={newsletterDay} onChange={e => setNewsletterDay(Number(e.target.value))} placeholder="Day of the month (1-28)" />
+                                            <input className="w-full appearance-none p-3 rounded-lg border border-border bg-background text-[16px] leading-5 text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="newsletterDay" type="number" min="1" max="28" value={newsletterDay} onChange={e => setNewsletterDay(Number(e.target.value))} placeholder="Day of the month (1-28)" />
                                         )}
                                     </div>
                                 </>
@@ -2056,31 +3299,31 @@ export const SettingsDashboard: React.FC = () => {
                     )}
                     {activeTab === 'cleanup' && (
                         <div className="mb-8 animate-fade-in">
-                            <h3 className="text-xl font-bold text-plex mb-4 border-b border-border pb-2">Automated User Cleanup</h3>
+                            <h3 className="text-xl font-bold text-plex mb-4 border-b border-border pb-2">{t('settings.cleanup.title')}</h3>
                             <div className="mb-6 bg-yellow-500/10 border border-yellow-500/20 p-4 rounded-lg">
-                                <p className="text-sm text-yellow-500 font-bold mb-1">Warning</p>
-                                <p className="text-xs text-muted">When enabled, the server will automatically revoke portal access for users who have not watched anything for the specified number of days. You can exempt specific users from this rule by editing them in the Users table.</p>
+                                <p className="text-sm text-yellow-500 font-bold mb-1">{t('settings.cleanup.warningTitle')}</p>
+                                <p className="text-xs text-muted">{t('settings.cleanup.warningBody')}</p>
                             </div>
 
                             <SettingsToggleRow
-                                title="Enable Automated Cleanup"
-                                description="Run cleanup job automatically in the background"
+                                title={t('settings.cleanup.enableTitle')}
+                                description={t('settings.cleanup.enableDescription')}
                                 checked={inactiveCleanupEnabled}
                                 onChange={setInactiveCleanupEnabled}
                                 border={false}
                                 className="mb-6"
                             />
 
-                            <div className={`transition-all ${!inactiveCleanupEnabled ? 'opacity-50 pointer-events-none' : ''}`}>
+                            <div>
                                 <div className="mb-4">
                                     <SettingFieldLabel
                                         htmlFor="inactiveCleanupDays"
-                                        hint={<SettingHint>Revoke access if a user has not watched anything in this many days.</SettingHint>}
+                                        hint={<SettingHint>{t('settings.cleanup.thresholdHint')}</SettingHint>}
                                     >
-                                        Inactivity Threshold (Days)
+                                        {t('settings.cleanup.thresholdLabel')}
                                     </SettingFieldLabel>
                                     <input
-                                        className="w-full p-3 rounded-lg border border-border bg-background text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all"
+                                        className="w-full appearance-none p-3 rounded-lg border border-border bg-background text-[16px] leading-5 text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all"
                                         id="inactiveCleanupDays"
                                         type="number"
                                         min="1"
@@ -2089,6 +3332,31 @@ export const SettingsDashboard: React.FC = () => {
                                     />
                                 </div>
                             </div>
+                            <CleanupInactivePreview days={inactiveCleanupDays} addToast={addToast} />
+                        </div>
+                    )}
+                    {activeTab === 'cleaner' && (
+                        <div className="mb-8 animate-fade-in">
+                            <h3 className="text-xl font-bold text-plex mb-4 border-b border-border pb-2">{t('settings.navigation.tabs.cleaner')}</h3>
+                            <section
+                                id={getSettingsSectionElementId('maintenance')}
+                                className={`space-y-3 mb-8 transition-all duration-300 scroll-mt-24 ${highlightMaintenanceToggle ? 'ring-2 ring-plex/50 rounded-lg p-3 -m-3' : ''}`}
+                            >
+                                <p className="text-sm text-muted mb-4">
+                                    Maintainerr-style library rules for unwatched titles (Sonarr &amp; Radarr). This is not Settings → Cleanup, which only revokes inactive users.
+                                </p>
+                                <SettingsToggleRow
+                                    title="Enable Library Cleaner"
+                                    description="Shows Cleaner in the main sidebar. OFF by default."
+                                    checked={maintenanceExperimentalEnabled}
+                                    onChange={setMaintenanceExperimentalEnabled}
+                                    border={false}
+                                />
+                                <p className={`text-xs mt-2 font-semibold ${maintenanceExperimentalEnabled ? 'text-green-300' : 'text-yellow-300'}`}>
+                                    Current status: {maintenanceExperimentalEnabled ? 'ON' : 'OFF'}
+                                </p>
+                                <p className="text-[11px] text-muted mt-1">After changing this toggle, click the main Save Settings button. Then open Cleaner from the main nav.</p>
+                            </section>
                         </div>
                     )}
                     {activeTab === 'mediastack' && (
@@ -2096,12 +3364,13 @@ export const SettingsDashboard: React.FC = () => {
                             <div id={getSettingsSectionElementId('arr')} className="scroll-mt-24">
                             <ArrInstancesPanel
                                 type="sonarr"
-                                title="Sonarr Instances"
-                                subtitle="TV series automation"
+                                title={t('settings.arrIntegrations.titles.sonarrInstances')}
+                                subtitle={t('settings.arrIntegrations.subtitles.sonarr')}
                                 instances={arrInstances.filter((entry) => entry.type === 'sonarr')}
                                 savedInstances={savedArrInstances.filter((entry) => entry.type === 'sonarr')}
                                 libraries={libraries}
                                 allInstances={arrInstances}
+                                copy={arrIntegrationsCopy}
                                 onChange={(nextSonarr) => {
                                     const other = arrInstances.filter((entry) => entry.type !== 'sonarr');
                                     setArrInstances([...other, ...nextSonarr]);
@@ -2111,13 +3380,14 @@ export const SettingsDashboard: React.FC = () => {
 
                             <ArrInstancesPanel
                                 type="radarr"
-                                title="Radarr Instances"
-                                subtitle="Movie automation"
+                                title={t('settings.arrIntegrations.titles.radarrInstances')}
+                                subtitle={t('settings.arrIntegrations.subtitles.radarr')}
                                 className="mt-10"
                                 instances={arrInstances.filter((entry) => entry.type === 'radarr')}
                                 savedInstances={savedArrInstances.filter((entry) => entry.type === 'radarr')}
                                 libraries={libraries}
                                 allInstances={arrInstances}
+                                copy={arrIntegrationsCopy}
                                 onChange={(nextRadarr) => {
                                     const other = arrInstances.filter((entry) => entry.type !== 'radarr');
                                     setArrInstances([...other, ...nextRadarr]);
@@ -2129,13 +3399,14 @@ export const SettingsDashboard: React.FC = () => {
                             <div id={getSettingsSectionElementId('lidarr')} className="scroll-mt-24">
                             <ArrInstancesPanel
                                 type="lidarr"
-                                title="Lidarr Instances"
-                                subtitle="Music automation"
+                                title={t('settings.arrIntegrations.titles.lidarrInstances')}
+                                subtitle={t('settings.arrIntegrations.subtitles.lidarr')}
                                 className="mt-10"
                                 instances={arrInstances.filter((entry) => entry.type === 'lidarr')}
                                 savedInstances={savedArrInstances.filter((entry) => entry.type === 'lidarr')}
                                 libraries={libraries}
                                 allInstances={arrInstances}
+                                copy={arrIntegrationsCopy}
                                 onChange={(nextLidarr) => {
                                     const other = arrInstances.filter((entry) => entry.type !== 'lidarr');
                                     setArrInstances([...other, ...nextLidarr]);
@@ -2147,13 +3418,14 @@ export const SettingsDashboard: React.FC = () => {
                             <div id={getSettingsSectionElementId('bazarr')} className="scroll-mt-24">
                             <ArrInstancesPanel
                                 type="bazarr"
-                                title="Bazarr Instances"
-                                subtitle="Subtitle automation"
+                                title={t('settings.arrIntegrations.titles.bazarrInstances')}
+                                subtitle={t('settings.arrIntegrations.subtitles.bazarr')}
                                 className="mt-10"
                                 instances={arrInstances.filter((entry) => entry.type === 'bazarr')}
                                 savedInstances={savedArrInstances.filter((entry) => entry.type === 'bazarr')}
                                 libraries={libraries}
                                 allInstances={arrInstances}
+                                copy={arrIntegrationsCopy}
                                 onChange={(nextBazarr) => {
                                     const other = arrInstances.filter((entry) => entry.type !== 'bazarr');
                                     setArrInstances([...other, ...nextBazarr]);
@@ -2163,7 +3435,7 @@ export const SettingsDashboard: React.FC = () => {
                             </div>
 
                             <div id={getSettingsSectionElementId('download-clients')} className="scroll-mt-24">
-                            <IntegrationHeading app="download" title="Download Clients" subtitle="qBittorrent, Transmission, BitTorrent, Deluge, SABnzbd, and NZBGet status sources" className="mt-10" />
+                            <IntegrationHeading app="download" title="Download Clients" subtitle="qBittorrent, Real-Debrid Client, Transmission, BitTorrent, Deluge, SABnzbd, and NZBGet status sources" className="mt-10" />
                             <div className="flex items-center justify-between gap-3 mb-4">
                                 <p className="text-sm text-muted">These clients feed the Download Status page.</p>
                                 <button
@@ -2180,7 +3452,7 @@ export const SettingsDashboard: React.FC = () => {
                             ) : (
                                 <div className="space-y-4">
                                     {downloadClients.map((client) => {
-                                        const clientLabel = client.type === 'transmission' ? 'Transmission' : client.type === 'bittorrent' ? 'BitTorrent' : client.type === 'deluge' ? 'Deluge' : client.type === 'sabnzbd' ? 'SABnzbd' : client.type === 'nzbget' ? 'NZBGet' : 'qBittorrent';
+                                        const clientLabel = DOWNLOAD_CLIENT_TYPE_LABELS[client.type] || 'qBittorrent';
                                         return (
                                         <div key={client.id} className="rounded-xl border border-border bg-background/40 p-4">
                                             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4 pb-3 border-b border-border/50">
@@ -2209,9 +3481,17 @@ export const SettingsDashboard: React.FC = () => {
                                                 <label className="text-xs text-muted uppercase tracking-wider font-bold mb-1 block">Type</label>
                                                 <CustomSelect
                                                     value={client.type}
-                                                    onChange={(type) => setDownloadClients(downloadClients.map((entry) => entry.id === client.id ? { ...entry, type: type as DownloadClientConfig['type'], name: entry.name || createEmptyDownloadClient(type as DownloadClientConfig['type']).name } : entry))}
+                                                    onChange={(type) => setDownloadClients(downloadClients.map((entry) => {
+                                                        if (entry.id !== client.id) return entry;
+                                                        const nextType = type as DownloadClientConfig['type'];
+                                                        const previousLabel = DOWNLOAD_CLIENT_TYPE_LABELS[entry.type] || 'qBittorrent';
+                                                        const nextLabel = DOWNLOAD_CLIENT_TYPE_LABELS[nextType] || 'qBittorrent';
+                                                        const name = !entry.name || entry.name === previousLabel ? nextLabel : entry.name;
+                                                        return { ...entry, type: nextType, name };
+                                                    }))}
                                                     options={[
                                                         { label: 'qBittorrent', value: 'qbittorrent' },
+                                                        { label: 'Real-Debrid Client', value: 'rdtclient' },
                                                         { label: 'Transmission', value: 'transmission' },
                                                         { label: 'BitTorrent', value: 'bittorrent' },
                                                         { label: 'Deluge', value: 'deluge' },
@@ -2222,19 +3502,22 @@ export const SettingsDashboard: React.FC = () => {
                                             </div>
                                             <div>
                                                 <label className="text-xs text-muted uppercase tracking-wider font-bold mb-1 block">Display Name</label>
-                                                <input className="w-full p-2.5 rounded-lg border border-border bg-background text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all text-sm" value={client.name} onChange={(e) => setDownloadClients(downloadClients.map((entry) => entry.id === client.id ? { ...entry, name: e.target.value } : entry))} />
+                                                <input className="appearance-none text-[16px] leading-5 w-full p-2.5 rounded-lg border border-border bg-background text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all text-[16px]" value={client.name} onChange={(e) => setDownloadClients(downloadClients.map((entry) => entry.id === client.id ? { ...entry, name: e.target.value } : entry))} />
                                             </div>
                                             <div className="md:col-span-2">
                                                 <label className="text-xs text-muted uppercase tracking-wider font-bold mb-1 block">URL</label>
-                                                <input className="w-full p-2.5 rounded-lg border border-border bg-background text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all text-sm" value={client.url} onChange={(e) => setDownloadClients(downloadClients.map((entry) => entry.id === client.id ? { ...entry, url: e.target.value } : entry))} placeholder={client.type === 'transmission' ? 'http://localhost:9091' : client.type === 'deluge' ? 'http://localhost:8112' : client.type === 'nzbget' ? 'http://localhost:6789' : 'http://localhost:8080'} />
+                                                <input className="appearance-none text-[16px] leading-5 w-full p-2.5 rounded-lg border border-border bg-background text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all text-[16px]" value={client.url} onChange={(e) => setDownloadClients(downloadClients.map((entry) => entry.id === client.id ? { ...entry, url: e.target.value } : entry))} placeholder={downloadClientUrlPlaceholder(client.type)} />
+                                                {client.type === 'rdtclient' && (
+                                                    <p className="text-[11px] text-muted mt-1">RDT-Client emulates the qBittorrent API. Default port is 6500.</p>
+                                                )}
                                             </div>
                                             <div>
                                                 <label className="text-xs text-muted uppercase tracking-wider font-bold mb-1 block">{client.type === 'sabnzbd' ? 'Username (Optional)' : 'Username'}</label>
-                                                <input className="w-full p-2.5 rounded-lg border border-border bg-background text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all text-sm" value={client.username || ''} onChange={(e) => setDownloadClients(downloadClients.map((entry) => entry.id === client.id ? { ...entry, username: e.target.value } : entry))} />
+                                                <input className="appearance-none text-[16px] leading-5 w-full p-2.5 rounded-lg border border-border bg-background text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all text-[16px]" value={client.username || ''} onChange={(e) => setDownloadClients(downloadClients.map((entry) => entry.id === client.id ? { ...entry, username: e.target.value } : entry))} />
                                             </div>
                                             <div>
                                                 <label className="text-xs text-muted uppercase tracking-wider font-bold mb-1 block">{client.type === 'sabnzbd' ? 'API Key' : 'Password'}</label>
-                                                <input className="w-full p-2.5 rounded-lg border border-border bg-background text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all text-sm" type="password" value={client.password || ''} onChange={(e) => setDownloadClients(downloadClients.map((entry) => entry.id === client.id ? { ...entry, password: e.target.value } : entry))} />
+                                                <input className="appearance-none text-[16px] leading-5 w-full p-2.5 rounded-lg border border-border bg-background text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all text-[16px]" type="password" value={client.password || ''} onChange={(e) => setDownloadClients(downloadClients.map((entry) => entry.id === client.id ? { ...entry, password: e.target.value } : entry))} />
                                             </div>
                                             <div className="md:col-span-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                                                 <label className="text-sm text-muted flex items-center gap-2">
@@ -2275,7 +3558,7 @@ export const SettingsDashboard: React.FC = () => {
                                 >
                                     TMDB API Key
                                 </SettingFieldLabel>
-                                <input className="w-full p-3 rounded-lg border border-border bg-background text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="tmdbApiKey" type="password" value={tmdbApiKey} onChange={(e) => setTmdbApiKey(e.target.value)} placeholder="Enter TMDB API Key" />
+                                <input className="w-full appearance-none p-3 rounded-lg border border-border bg-background text-[16px] leading-5 text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="tmdbApiKey" type="password" value={tmdbApiKey} onChange={(e) => setTmdbApiKey(e.target.value)} placeholder="Enter TMDB API Key" />
                             </div>
                             <IntegrationTestButton
                                 type="tmdb"
@@ -2290,18 +3573,25 @@ export const SettingsDashboard: React.FC = () => {
                                 <IntegrationHeading app="tautulli" title="Tautulli Integration" subtitle="Plex activity and analytics" className="mt-8" />
                                 <div className="mb-4">
                                     <label htmlFor="tautulliUrl">Tautulli URL</label>
-                                    <input className="w-full p-3 rounded-lg border border-border bg-background text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="tautulliUrl" type="text" value={tautulliUrl} onChange={(e) => setTautulliUrl(e.target.value)} placeholder="http://localhost:8181" />
+                                    <input className="w-full appearance-none p-3 rounded-lg border border-border bg-background text-[16px] leading-5 text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="tautulliUrl" type="text" value={tautulliUrl} onChange={(e) => setTautulliUrl(e.target.value)} placeholder="http://localhost:8181" />
                                 </div>
                                 <div className="mb-8">
                                     <label htmlFor="tautulliApiKey">Tautulli API Key</label>
-                                    <input className="w-full p-3 rounded-lg border border-border bg-background text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="tautulliApiKey" type="password" value={tautulliApiKey} onChange={(e) => setTautulliApiKey(e.target.value)} placeholder="Enter Tautulli API Key" />
+                                    <input className="w-full appearance-none p-3 rounded-lg border border-border bg-background text-[16px] leading-5 text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="tautulliApiKey" type="password" value={tautulliApiKey} onChange={(e) => setTautulliApiKey(e.target.value)} placeholder="Enter Tautulli API Key" />
                                 </div>
                                 <IntegrationTestButton
                                     type="tautulli"
                                     payload={{ tautulliUrl, tautulliApiKey }}
                                     disabled={!hasIntegrationCredentials(tautulliUrl, tautulliApiKey, initialSettings.tautulliUrl, initialSettings.tautulliApiKey)}
-                                    className="mb-6"
+                                    className="mb-4"
                                     onMessage={(msg, ok) => addToast(msg, ok ? 'success' : 'error')}
+                                />
+                                <SettingsToggleRow
+                                    title="Notify when Tautulli API fails"
+                                    description="Alert admins (bell / push / ntfy) when StreamPilot cannot reach Tautulli or the API returns an error. Cooldown 30 minutes. Each admin can mute this under Preferences."
+                                    checked={notifyTautulliApiFailed}
+                                    onChange={setNotifyTautulliApiFailed}
+                                    className="mb-6"
                                 />
                                 </div>
                             )}
@@ -2335,11 +3625,11 @@ export const SettingsDashboard: React.FC = () => {
                                             >
                                                 JellyGlance URL
                                             </SettingFieldLabel>
-                                            <input className="w-full p-3 rounded-lg border border-border bg-background text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="jellyglanceUrl" type="text" value={jellyglanceUrl} onChange={(e) => setJellyglanceUrl(e.target.value)} placeholder="http://localhost:3000" />
+                                            <input className="w-full appearance-none p-3 rounded-lg border border-border bg-background text-[16px] leading-5 text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="jellyglanceUrl" type="text" value={jellyglanceUrl} onChange={(e) => setJellyglanceUrl(e.target.value)} placeholder="http://localhost:3000" />
                                         </div>
                                         <div className="mb-8">
                                             <label htmlFor="jellyglanceApiKey">JellyGlance API Key</label>
-                                            <input className="w-full p-3 rounded-lg border border-border bg-background text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="jellyglanceApiKey" type="password" value={jellyglanceApiKey} onChange={(e) => setJellyglanceApiKey(e.target.value)} placeholder="API key from JellyGlance Settings" />
+                                            <input className="w-full appearance-none p-3 rounded-lg border border-border bg-background text-[16px] leading-5 text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="jellyglanceApiKey" type="password" value={jellyglanceApiKey} onChange={(e) => setJellyglanceApiKey(e.target.value)} placeholder="API key from JellyGlance Settings" />
                                         </div>
                                         <IntegrationTestButton
                                             type="jellyglance"
@@ -2358,11 +3648,11 @@ export const SettingsDashboard: React.FC = () => {
                                     >
                                         Jellystat URL
                                     </SettingFieldLabel>
-                                    <input className="w-full p-3 rounded-lg border border-border bg-background text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="jellystatUrl" type="text" value={jellystatUrl} onChange={(e) => setJellystatUrl(e.target.value)} placeholder="http://localhost:3000" />
+                                    <input className="w-full appearance-none p-3 rounded-lg border border-border bg-background text-[16px] leading-5 text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="jellystatUrl" type="text" value={jellystatUrl} onChange={(e) => setJellystatUrl(e.target.value)} placeholder="http://localhost:3000" />
                                 </div>
                                 <div className="mb-8">
                                     <label htmlFor="jellystatApiKey">Jellystat API Key</label>
-                                    <input className="w-full p-3 rounded-lg border border-border bg-background text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="jellystatApiKey" type="password" value={jellystatApiKey} onChange={(e) => setJellystatApiKey(e.target.value)} placeholder="API key from Jellystat Settings" />
+                                    <input className="w-full appearance-none p-3 rounded-lg border border-border bg-background text-[16px] leading-5 text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="jellystatApiKey" type="password" value={jellystatApiKey} onChange={(e) => setJellystatApiKey(e.target.value)} placeholder="API key from Jellystat Settings" />
                                 </div>
                                 <IntegrationTestButton
                                     type="jellystat"
@@ -2412,7 +3702,7 @@ export const SettingsDashboard: React.FC = () => {
                                 >
                                     Seerr URL
                                 </SettingFieldLabel>
-                                <input className="w-full p-3 rounded-lg border border-border bg-background text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="requestAppUrl" type="text" value={requestAppUrl} onChange={(e) => setRequestAppUrl(e.target.value)} placeholder="https://requests.yourdomain.com" />
+                                <input className="w-full appearance-none p-3 rounded-lg border border-border bg-background text-[16px] leading-5 text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="requestAppUrl" type="text" value={requestAppUrl} onChange={(e) => setRequestAppUrl(e.target.value)} placeholder="https://requests.yourdomain.com" />
                             </div>
                             <div className="mb-4">
                                 <SettingFieldLabel
@@ -2425,11 +3715,11 @@ export const SettingsDashboard: React.FC = () => {
                                 >
                                     Internal fetch URL (optional)
                                 </SettingFieldLabel>
-                                <input className="w-full p-3 rounded-lg border border-border bg-background text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="requestAppFetchUrl" type="text" value={requestAppFetchUrl} onChange={(e) => setRequestAppFetchUrl(e.target.value)} placeholder="http://jellyseerr:5055" />
+                                <input className="w-full appearance-none p-3 rounded-lg border border-border bg-background text-[16px] leading-5 text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="requestAppFetchUrl" type="text" value={requestAppFetchUrl} onChange={(e) => setRequestAppFetchUrl(e.target.value)} placeholder="http://jellyseerr:5055" />
                             </div>
                             <div className="mb-8">
                                 <label htmlFor="requestAppApiKey">Seerr API Key</label>
-                                <input className="w-full p-3 rounded-lg border border-border bg-background text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="requestAppApiKey" type="password" value={requestAppApiKey} onChange={(e) => setRequestAppApiKey(e.target.value)} placeholder="API key from Seerr / Jellyseerr settings" />
+                                <input className="w-full appearance-none p-3 rounded-lg border border-border bg-background text-[16px] leading-5 text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="requestAppApiKey" type="password" value={requestAppApiKey} onChange={(e) => setRequestAppApiKey(e.target.value)} placeholder="API key from Seerr / Jellyseerr settings" />
                             </div>
                             <IntegrationTestButton
                                 type="requestApp"
@@ -2546,6 +3836,29 @@ export const SettingsDashboard: React.FC = () => {
                                 )}
                             </div>
 
+                            <div id={getSettingsSectionElementId('request-form')} className="scroll-mt-24 space-y-3">
+                                <h4 className="text-sm font-bold text-text uppercase tracking-wider">Request form</h4>
+                                <p className="text-xs text-muted max-w-2xl">
+                                    These apply to Discover &amp; Request in StreamPilot for both Portal and Seerr engines.
+                                    Turn them off to skip destination, quality profile, root folder/library, and tags on every confirmation.
+                                </p>
+                                <SettingsToggleRow
+                                    title="Allow advanced request options"
+                                    description="When off, members only submit Request Movie/Show (plus seasons or HD/4K if needed). Destination server, quality profile, root folder/library, and tags stay hidden; Seerr/*arr defaults are used."
+                                    checked={portalAllowAdvancedRequests}
+                                    onChange={setPortalAllowAdvancedRequests}
+                                    border={false}
+                                />
+                                <SettingsToggleRow
+                                    title="Allow request tags"
+                                    description="When off, the tags field is hidden on the member request form. *arr still uses its default tags. Requires advanced request options."
+                                    checked={portalAllowRequestTags}
+                                    onChange={setPortalAllowRequestTags}
+                                    disabled={!portalAllowAdvancedRequests}
+                                    border={false}
+                                />
+                            </div>
+
                             {requestEngine === 'portal' && (
                             <div className="space-y-8">
                                     <div id={getSettingsSectionElementId('metadata-providers')} className="scroll-mt-24 space-y-4">
@@ -2591,7 +3904,7 @@ export const SettingsDashboard: React.FC = () => {
                                                     id="tvdbApiKey"
                                                     type="password"
                                                     autoComplete="off"
-                                                    className="flex-1 min-w-[12rem] rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm"
+                                                    className="appearance-none text-[16px] leading-5 flex-1 min-w-[12rem] rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-[16px]"
                                                     value={tvdbApiKey}
                                                     onChange={(e) => setTvdbApiKey(e.target.value)}
                                                     placeholder={initialSettings.tvdbApiKey ? '•••••••• (unchanged if blank)' : 'Optional'}
@@ -2627,9 +3940,9 @@ export const SettingsDashboard: React.FC = () => {
                                         <SettingsToggleRow title="Request series" checked={portalAllowRequestTv} onChange={setPortalAllowRequestTv} border={false} />
                                         <SettingsToggleRow title="Request 4K movies" checked={portalAllowRequest4kMovies} onChange={setPortalAllowRequest4kMovies} border={false} />
                                         <SettingsToggleRow title="Request 4K series" checked={portalAllowRequest4kTv} onChange={setPortalAllowRequest4kTv} border={false} />
-                                        <SettingsToggleRow title="Advanced requests (root folder / profile)" checked={portalAllowAdvancedRequests} onChange={setPortalAllowAdvancedRequests} border={false} />
                                         <SettingsToggleRow title="Show recently added on Discover home" checked={portalShowRecentlyAdded} onChange={setPortalShowRecentlyAdded} border={false} />
                                         <SettingsToggleRow title="Show Plex watchlist on Discover home" checked={portalShowWatchlist} onChange={setPortalShowWatchlist} border={false} />
+                                        <SettingsToggleRow title="Show Now Playing strip on Home & Discover heroes" checked={discoverNowPlayingEnabled} onChange={setDiscoverNowPlayingEnabled} border={false} />
                                     </div>
 
                                     <div id={getSettingsSectionElementId('auto-approve')} className="scroll-mt-24 space-y-3">
@@ -2662,7 +3975,7 @@ export const SettingsDashboard: React.FC = () => {
                                                     id="requestQuotaLimit"
                                                     type="number"
                                                     min={0}
-                                                    className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm"
+                                                    className="appearance-none text-[16px] leading-5 w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-[16px]"
                                                     value={requestQuotaLimit}
                                                     onChange={(e) => setRequestQuotaLimit(Math.max(0, Number(e.target.value) || 0))}
                                                 />
@@ -2672,7 +3985,7 @@ export const SettingsDashboard: React.FC = () => {
                                                 <input
                                                     type="number"
                                                     min={1}
-                                                    className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm"
+                                                    className="appearance-none text-[16px] leading-5 w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-[16px]"
                                                     value={requestQuotaDays}
                                                     onChange={(e) => setRequestQuotaDays(Math.max(1, Number(e.target.value) || 7))}
                                                     aria-label="Quota days"
@@ -2683,7 +3996,7 @@ export const SettingsDashboard: React.FC = () => {
                                                 <input
                                                     type="number"
                                                     min={0}
-                                                    className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm"
+                                                    className="appearance-none text-[16px] leading-5 w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-[16px]"
                                                     value={requestQuotaLimit4k}
                                                     onChange={(e) => setRequestQuotaLimit4k(Math.max(0, Number(e.target.value) || 0))}
                                                     aria-label="4K quota limit"
@@ -2703,8 +4016,8 @@ export const SettingsDashboard: React.FC = () => {
                                 <div className="rounded-xl border border-border bg-card/60 p-4 space-y-3">
                                     <h4 className="font-bold text-text">Seerr / Overseerr rules</h4>
                                     <p className="text-sm text-muted">
-                                        Quotas, permissions, auto-approve, override rules, and watchlist sync are managed in your request app.
-                                        The portal reads those rules and hides request / 4K / issue actions when users are not allowed.
+                                        Quotas, auto-approve, override rules, and watchlist sync are managed in your request app.
+                                        The Request form toggles above still control whether StreamPilot shows destination, quality profile, library/root folder, and tags.
                                     </p>
                                     <div className="flex flex-wrap gap-2">
                                         <a
@@ -2734,6 +4047,81 @@ export const SettingsDashboard: React.FC = () => {
                                     </div>
                                 </div>
                             )}
+
+                            <div id={getSettingsSectionElementId('request-available-notify')} className="scroll-mt-24 space-y-3">
+                                <h4 className="text-sm font-bold text-text uppercase tracking-wider">Request available notifications</h4>
+                                <p className="text-xs text-muted max-w-2xl">
+                                    When a request finishes downloading and becomes available, notify the requester.
+                                    Full health, test send, and history live under{' '}
+                                    <button type="button" className="font-bold text-plex hover:underline" onClick={() => setActiveTab('notifications')}>
+                                        Settings → Notifications
+                                    </button>
+                                    .
+                                </p>
+                                <SettingsToggleRow
+                                    title="Enable notifications"
+                                    description="Master switch for request-available alerts (portal or Seerr engine)."
+                                    checked={requestAvailableNotifyEnabled}
+                                    onChange={setRequestAvailableNotifyEnabled}
+                                    border={false}
+                                />
+                                <div className={requestAvailableNotifyEnabled ? 'space-y-0' : 'space-y-0 opacity-50 pointer-events-none'}>
+                                    <SettingsToggleRow
+                                        title="Email"
+                                        description="Send SMTP email when a request becomes available. Requires SMTP under Integrations."
+                                        checked={requestAvailableNotifyEmail}
+                                        onChange={setRequestAvailableNotifyEmail}
+                                        border={false}
+                                    />
+                                    <SettingsToggleRow
+                                        title="In-app bell"
+                                        description="Show an unread notification in the portal nav for the requester."
+                                        checked={requestAvailableNotifyInApp}
+                                        onChange={setRequestAvailableNotifyInApp}
+                                        border={false}
+                                    />
+                                    <SettingsToggleRow
+                                        title="Browser push"
+                                        description="Send a Web Push notification to subscribed browsers/devices."
+                                        checked={requestAvailableNotifyWebPush}
+                                        onChange={setRequestAvailableNotifyWebPush}
+                                        border={false}
+                                    />
+                                    <SettingsToggleRow
+                                        title="Discord webhook"
+                                        description="Post to a Discord channel via incoming webhook when any request becomes available."
+                                        checked={requestAvailableNotifyDiscord}
+                                        onChange={setRequestAvailableNotifyDiscord}
+                                        border={false}
+                                    />
+                                    {requestAvailableNotifyDiscord && (
+                                        <div className="pt-1 pb-3">
+                                            <SettingFieldLabel htmlFor="requestAvailableDiscordWebhookUrl">
+                                                Discord webhook URL
+                                            </SettingFieldLabel>
+                                            <input
+                                                id="requestAvailableDiscordWebhookUrl"
+                                                type="password"
+                                                autoComplete="off"
+                                                className="appearance-none text-[16px] leading-5 w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-[16px]"
+                                                placeholder="https://discord.com/api/webhooks/..."
+                                                value={requestAvailableDiscordWebhookUrl}
+                                                onChange={(e) => setRequestAvailableDiscordWebhookUrl(e.target.value)}
+                                            />
+                                            <p className="text-[11px] text-muted mt-1.5">
+                                                Leave as dots when editing other settings to keep the saved webhook.
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
+                                <SettingsToggleRow
+                                    title="Enable Web Push (global)"
+                                    description="Allows members to subscribe their browser for push. Also used for future in-app bell fan-out."
+                                    checked={webPushEnabled}
+                                    onChange={setWebPushEnabled}
+                                    border={false}
+                                />
+                            </div>
 
                             <div id={getSettingsSectionElementId('region')} className="scroll-mt-24">
                                 <SettingFieldLabel
@@ -2781,40 +4169,192 @@ export const SettingsDashboard: React.FC = () => {
                                     Experimental
                                 </span>
                             </div>
+
+                            <div className="rounded-xl border border-border/60 bg-background/40 p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                <div>
+                                    <p className="font-semibold text-text text-sm">Discover availability cache</p>
+                                    <p className="text-xs text-muted mt-1">
+                                        Sonarr/Radarr library badges on Discover are served from a background snapshot. Rebuild after *arr or library changes.
+                                    </p>
+                                    {discoveryAvailabilityTask ? (
+                                        <p className="text-xs mt-2">
+                                            {discoveryAvailabilityTask.running ? (
+                                                <span className="text-blue-300 font-semibold">Rebuild running…</span>
+                                            ) : discoveryAvailabilityTask.lastError ? (
+                                                <span className="text-red-300">Last error: {discoveryAvailabilityTask.lastError}</span>
+                                            ) : (
+                                                <span className="text-muted">
+                                                    Last rebuild:{' '}
+                                                    {discoveryAvailabilityTask.lastRun
+                                                        ? new Date(discoveryAvailabilityTask.lastRun).toLocaleString()
+                                                        : 'Never'}
+                                                    {discoveryAvailabilityTask.nextRun ? (
+                                                        <>
+                                                            {' '}
+                                                            · Next: {new Date(discoveryAvailabilityTask.nextRun).toLocaleString()}
+                                                        </>
+                                                    ) : null}
+                                                    {typeof discoveryAvailabilityTask.lastDurationMs === 'number' ? (
+                                                        <>
+                                                            {' '}
+                                                            · Duration: {Math.round(discoveryAvailabilityTask.lastDurationMs / 1000)}s
+                                                        </>
+                                                    ) : null}
+                                                </span>
+                                            )}
+                                        </p>
+                                    ) : null}
+                                </div>
+                                <button
+                                    type="button"
+                                    className="btn-secondary px-4 py-2 text-sm font-bold whitespace-nowrap disabled:opacity-50"
+                                    disabled={refreshingDiscoveryCache || discoveryAvailabilityTask?.running}
+                                    onClick={() => void refreshDiscoveryAvailabilityCache()}
+                                >
+                                    {refreshingDiscoveryCache || discoveryAvailabilityTask?.running
+                                        ? 'Refreshing…'
+                                        : 'Refresh availability'}
+                                </button>
+                            </div>
                         </div>
                     )}
 
-                    {activeTab === 'home-layout' && (
-                        <HomeLayoutSettings layout={dashboardLayout} onChange={updateDashboardLayout} />
+                    {activeTab === 'applets' && (
+                        <div className="mb-8">
+                            <section id={getSettingsSectionElementId('applets')} className="scroll-mt-24">
+                                <CustomNavTabsSettings
+                                    customNavTabs={customNavTabs}
+                                    onChange={setCustomNavTabs}
+                                    customNavDisplay={customNavDisplay}
+                                    onDisplayChange={setCustomNavDisplay}
+                                    arrOpenInPortalEmbed={arrOpenInPortalEmbed}
+                                    onArrOpenInPortalEmbedChange={setArrOpenInPortalEmbed}
+                                    navOrder={navOrder}
+                                    onNavOrderChange={setNavOrder}
+                                    memberNavOrder={memberNavOrder}
+                                    onMemberNavOrderChange={setMemberNavOrder}
+                                />
+                            </section>
+                        </div>
                     )}
 
-                    {activeTab === 'navigation' && (
-                        <NavigationOrderSettings
-                            navOrder={navOrder}
-                            onChange={setNavOrder}
-                            navHiddenKeys={navHiddenKeys}
-                            onHiddenKeysChange={setNavHiddenKeys}
-                            downloadsVisibleToMembers={downloadsVisibleToMembers}
-                            onDownloadsVisibleToMembersChange={setDownloadsVisibleToMembers}
-                            featureStatus={{
-                                upgrader: upgraderEnabled,
-                                collexions: collexionsEnabled,
-                                scanner: scannerEnabled,
-                                maintenance: maintenanceExperimentalEnabled,
-                            }}
-                        />
+                    {activeTab === 'layout' && (
+                        <div className="mb-8 space-y-10">
+                            <section id={getSettingsSectionElementId('navigation')} className="scroll-mt-24">
+                                <NavigationOrderSettings
+                                    navOrder={navOrder}
+                                    onChange={setNavOrder}
+                                    navHiddenKeys={navHiddenKeys}
+                                    onHiddenKeysChange={setNavHiddenKeys}
+                                    memberNavOrder={memberNavOrder}
+                                    onMemberNavOrderChange={setMemberNavOrder}
+                                    memberNavHiddenKeys={memberNavHiddenKeys}
+                                    onMemberNavHiddenKeysChange={setMemberNavHiddenKeys}
+                                    downloadsVisibleToMembers={downloadsVisibleToMembers}
+                                    onDownloadsVisibleToMembersChange={setDownloadsVisibleToMembers}
+                                    customNavTabs={customNavTabs}
+                                    customNavDisplay={customNavDisplay}
+                                    navItemIcons={navItemIcons}
+                                    onNavItemIconsChange={setNavItemIcons}
+                                    featureStatus={{
+                                        upgrader: upgraderEnabled,
+                                        collexions: collexionsEnabled,
+                                        spotifySync: spotifyToPlexEnabled,
+                                        metadataFill: metadataFillEnabled,
+                                        scanner: scannerEnabled,
+                                        mediaAutomation: mediaAutomationEnabled,
+                                        posterSets: posterSetsEnabled,
+                                        overlays: overlaysEnabled,
+                                        editions: editionsEnabled,
+                                        watchSync: watchSyncEnabled,
+                                        achievements: achievementsEnabled,
+                                        support: supportTicketsEnabled,
+                                        chat: chatEnabled,
+                                        maintenance: maintenanceExperimentalEnabled,
+                                    }}
+                                />
+                            </section>
+                            <section id={getSettingsSectionElementId('home-modules')} className="scroll-mt-24">
+                                <HomeCustomModulesSettings
+                                    homeCustomModules={homeCustomModules}
+                                    onChange={setHomeCustomModules}
+                                    dashboardLayout={dashboardLayout}
+                                    onDashboardLayoutChange={updateDashboardLayout}
+                                />
+                            </section>
+                            <section id={getSettingsSectionElementId('home-layout')} className="scroll-mt-24">
+                                <HomeLayoutSettings layout={dashboardLayout} onChange={updateDashboardLayout} homeCustomModules={homeCustomModules} />
+                            </section>
+                        </div>
+                    )}
+
+                    {activeTab === 'achievements' && (
+                        <div className="mb-8 animate-fade-in glass-card-sm p-5">
+                            <AchievementsSettings
+                                achievementsEnabled={achievementsEnabled}
+                                setAchievementsEnabled={setAchievementsEnabled}
+                                achievementsLeaderboardEnabled={achievementsLeaderboardEnabled}
+                                setAchievementsLeaderboardEnabled={setAchievementsLeaderboardEnabled}
+                                achievementsHomeWidgetEnabled={achievementsHomeWidgetEnabled}
+                                setAchievementsHomeWidgetEnabled={setAchievementsHomeWidgetEnabled}
+                                achievementsShowOnProfile={achievementsShowOnProfile}
+                                setAchievementsShowOnProfile={setAchievementsShowOnProfile}
+                                achievementsXpWeights={achievementsXpWeights}
+                                setAchievementsXpWeights={setAchievementsXpWeights}
+                                achievementsDisabledBadgeIds={achievementsDisabledBadgeIds}
+                                setAchievementsDisabledBadgeIds={setAchievementsDisabledBadgeIds}
+                                achievementsMinPercentComplete={achievementsMinPercentComplete}
+                                setAchievementsMinPercentComplete={setAchievementsMinPercentComplete}
+                                achievementsSeasons={achievementsSeasons}
+                                setAchievementsSeasons={setAchievementsSeasons}
+                            />
+                        </div>
+                    )}
+
+                    {activeTab === 'analytics' && (
+                        <div className="mb-8 animate-fade-in glass-card-sm p-5">
+                            <AnalyticsSettings
+                                mediaServerType={mediaServerType}
+                                watchHistorySource={watchHistorySource}
+                                setWatchHistorySource={setWatchHistorySource}
+                                tautulliConfigured={tautulliConfigured || !!(tautulliUrl && tautulliApiKey)}
+                                showUsernamesInAnalytics={showUsernamesInAnalytics}
+                                setShowUsernamesInAnalytics={setShowUsernamesInAnalytics}
+                                onOpenTautulliSettings={() => {
+                                    const entry = resolveSettingsEntry('mediastack/tautulli');
+                                    if (entry) navigateToSetting(entry);
+                                }}
+                            />
+                        </div>
                     )}
 
                     {activeTab === 'broadcast' && (
-                        <div className="mb-8 animate-fade-in">
-                            <h3 className="text-xl font-bold text-plex mb-4 border-b border-border pb-2">Broadcast Email</h3>
-                            <BroadcastSettingsTab users={users} selectedUserIds={[]} />
+                        <div className="mb-8 animate-fade-in space-y-10">
+                            <div>
+                                <h3 className="text-xl font-bold text-plex mb-2 border-b border-border pb-2">{t('settings.navigation.tabs.broadcast')}</h3>
+                                <p className="text-sm text-muted mb-6">{t('settings.broadcast.pageHint')}</p>
+                            </div>
+                            <div className="space-y-3">
+                                <h4 className="text-base font-bold text-text border-b border-border/60 pb-2">{t('settings.broadcast.automatedTitle')}</h4>
+                                <EmailAutomatedTemplatesPanel
+                                    emailTemplates={emailTemplates}
+                                    setEmailTemplates={setEmailTemplates}
+                                    defaults={emailTemplateDefaults}
+                                    events={emailTemplateEvents}
+                                    eventFields={emailTemplateFields}
+                                    addToast={addToast}
+                                />
+                            </div>
+                            <div className="space-y-3">
+                                <h4 className="text-base font-bold text-text border-b border-border/60 pb-2">{t('settings.broadcast.composeTitle')}</h4>
+                                <BroadcastSettingsTab users={users} selectedUserIds={[]} />
+                            </div>
                         </div>
                     )}
 
                     {activeTab === 'status' && (
                         <div className="mb-8 animate-fade-in">
-                            <h3 className="text-xl font-bold text-plex mb-4 border-b border-border pb-2">Status Monitor</h3>
+                            <h3 className="text-xl font-bold text-plex mb-4 border-b border-border pb-2">{t('settings.statusMonitor.title')}</h3>
                             <StatusMonitorSettings
                                 config={statusConfig}
                                 onChange={setStatusDraft}
@@ -2839,7 +4379,7 @@ export const SettingsDashboard: React.FC = () => {
                                 >
                                     WhatsApp Number (Optional)
                                 </SettingFieldLabel>
-                                <input className="w-full p-3 rounded-lg border border-border bg-background text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="contactWhatsApp" type="text" value={contactWhatsApp} onChange={(e) => setContactWhatsApp(e.target.value)} placeholder="e.g. 447303647923" />
+                                <input className="w-full appearance-none p-3 rounded-lg border border-border bg-background text-[16px] leading-5 text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="contactWhatsApp" type="text" value={contactWhatsApp} onChange={(e) => setContactWhatsApp(e.target.value)} placeholder="e.g. 447303647923" />
                             </div>
                             <div id={getSettingsSectionElementId('email')} className="mb-4 scroll-mt-24">
                                 <SettingFieldLabel
@@ -2848,7 +4388,7 @@ export const SettingsDashboard: React.FC = () => {
                                 >
                                     Email Address (Optional)
                                 </SettingFieldLabel>
-                                <input className="w-full p-3 rounded-lg border border-border bg-background text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="contactEmail" type="email" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} placeholder="e.g. admin@example.com" />
+                                <input className="w-full appearance-none p-3 rounded-lg border border-border bg-background text-[16px] leading-5 text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all" id="contactEmail" type="email" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} placeholder="e.g. admin@example.com" />
                             </div>
                         </div>
                     )}
@@ -2879,7 +4419,7 @@ export const SettingsDashboard: React.FC = () => {
                                                     Public Base URL
                                                 </SettingFieldLabel>
                                                 <input
-                                                    className="w-full p-3 rounded-lg border border-border bg-background text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all"
+                                                    className="w-full appearance-none p-3 rounded-lg border border-border bg-background text-[16px] leading-5 text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex transition-all"
                                                     id="publicDomain"
                                                     type="url"
                                                     value={publicDomain}
@@ -2920,8 +4460,8 @@ export const SettingsDashboard: React.FC = () => {
                                                     </div>
                                                 )}
                                                 <div>
-                                                    <SettingFieldLabel hint={<SettingHint>Provide a URL or upload a file. Max 5MB.</SettingHint>}>
-                                                        Custom Logo
+                                                    <SettingFieldLabel hint={<SettingHint>Wide logo shown in the sidebar navigation. Provide a URL or upload a file. Max 5MB.</SettingHint>}>
+                                                        Sidebar Logo
                                                     </SettingFieldLabel>
                                                     <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_14rem] gap-3 mt-1">
                                                         <input
@@ -2949,8 +4489,120 @@ export const SettingsDashboard: React.FC = () => {
                                                 </div>
 
                                                 <div>
+                                                    <SettingFieldLabel hint={<SettingHint>Shown on the login and invite screens. Use a separate asset here if your sidebar logo is wide or should not be cropped into a circle.</SettingHint>}>
+                                                        Login Page Logo
+                                                    </SettingFieldLabel>
+                                                    <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_14rem] gap-3 mt-1">
+                                                        <input
+                                                            type="url"
+                                                            className="w-full p-3 rounded-lg border border-border bg-background text-text outline-none focus:border-plex transition-all"
+                                                            value={customLoginLogoUrl}
+                                                            onChange={e => {
+                                                                clearLoginLogoPreview();
+                                                                setLoginLogoFile(null);
+                                                                setCustomLoginLogoUrl(e.target.value);
+                                                            }}
+                                                            placeholder="https://example.com/login-logo.png"
+                                                        />
+                                                        <input
+                                                            type="file"
+                                                            accept="image/png,image/jpeg,image/webp"
+                                                            className="w-full p-2 rounded-lg border border-border bg-background text-muted text-sm outline-none focus:border-plex transition-all file:mr-3 file:py-2 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-bold file:bg-white/10 file:text-text hover:file:bg-white/20 file:cursor-pointer cursor-pointer"
+                                                            onChange={e => {
+                                                                const file = e.target.files?.[0] || null;
+                                                                handleLoginLogoFileChange(file);
+                                                            }}
+                                                        />
+                                                    </div>
+                                                    {loginLogoFile && <p className="text-xs text-muted mt-2">{loginLogoFile.name}</p>}
+                                                    <div className="mt-3 rounded-xl border border-border/60 bg-black/15 px-3 py-2">
+                                                        <SettingsToggleRow
+                                                            title="Circular login logo frame"
+                                                            description="On by default. Turn off to show wide logos at full width without the round crop."
+                                                            checked={loginLogoCircleFrame}
+                                                            onChange={setLoginLogoCircleFrame}
+                                                            border={false}
+                                                        />
+                                                    </div>
+                                                </div>
+
+                                                <div>
+                                                    <SettingFieldLabel hint={<SettingHint>Square icon for browser tabs (PNG/JPEG/WebP, max 2MB). Use this when your logo is wide — the tab icon otherwise crops your logo into a circle.</SettingHint>}>
+                                                        Browser Tab Favicon
+                                                    </SettingFieldLabel>
+                                                    <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_14rem] gap-3 mt-1">
+                                                        <input
+                                                            type="url"
+                                                            className="w-full p-3 rounded-lg border border-border bg-background text-text outline-none focus:border-plex transition-all"
+                                                            value={customFaviconUrl}
+                                                            onChange={e => {
+                                                                setFaviconFile(null);
+                                                                setCustomFaviconUrl(e.target.value);
+                                                            }}
+                                                            placeholder="https://example.com/favicon.png"
+                                                        />
+                                                        <input
+                                                            type="file"
+                                                            accept="image/png,image/jpeg,image/webp"
+                                                            className="w-full p-2 rounded-lg border border-border bg-background text-muted text-sm outline-none focus:border-plex transition-all file:mr-3 file:py-2 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-bold file:bg-white/10 file:text-text hover:file:bg-white/20 file:cursor-pointer cursor-pointer"
+                                                            onChange={e => {
+                                                                const file = e.target.files?.[0] || null;
+                                                                handleFaviconFileChange(file);
+                                                            }}
+                                                        />
+                                                    </div>
+                                                    {faviconFile && <p className="text-xs text-muted mt-2">{faviconFile.name}</p>}
+                                                </div>
+
+                                                <div>
+                                                    <SettingFieldLabel hint={<SettingHint>Android renders push-notification status-bar icons as a monochrome silhouette (an alpha mask) — full colour is not possible for any app. Upload a simple white-on-transparent PNG (a bold monogram or mark works best) for a pixel-perfect badge. Leave empty to auto-generate the silhouette from your logo. The expanded notification always keeps the full-colour icon.</SettingHint>}>
+                                                        Android Notification Badge
+                                                    </SettingFieldLabel>
+                                                    <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_14rem] gap-3 mt-1">
+                                                        <div className="flex items-center gap-3 p-3 rounded-lg border border-border bg-background">
+                                                            {customBadgeUrl && !badgeFile ? (
+                                                                <>
+                                                                    <span className="inline-flex items-center justify-center w-10 h-10 rounded-lg bg-slate-800 shrink-0">
+                                                                        <img
+                                                                            src={portalUrl(`/api/public/pwa-badge?size=96&u=${encodeURIComponent(customBadgeUrl)}`)}
+                                                                            alt="Status bar badge preview"
+                                                                            className="w-6 h-6"
+                                                                        />
+                                                                    </span>
+                                                                    <span className="text-sm text-muted flex-1">Custom badge uploaded</span>
+                                                                    <button
+                                                                        type="button"
+                                                                        className="text-xs font-bold text-red-400 hover:text-red-300 transition-colors"
+                                                                        onClick={() => {
+                                                                            setCustomBadgeUrl('');
+                                                                            setBadgeFile(null);
+                                                                        }}
+                                                                    >
+                                                                        Remove
+                                                                    </button>
+                                                                </>
+                                                            ) : (
+                                                                <span className="text-sm text-muted">
+                                                                    {badgeFile ? 'Uploads when you save settings' : 'Auto-generated from your logo'}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        <input
+                                                            type="file"
+                                                            accept="image/png,image/jpeg,image/webp"
+                                                            className="w-full p-2 rounded-lg border border-border bg-background text-muted text-sm outline-none focus:border-plex transition-all file:mr-3 file:py-2 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-bold file:bg-white/10 file:text-text hover:file:bg-white/20 file:cursor-pointer cursor-pointer"
+                                                            onChange={e => {
+                                                                const file = e.target.files?.[0] || null;
+                                                                handleBadgeFileChange(file);
+                                                            }}
+                                                        />
+                                                    </div>
+                                                    {badgeFile && <p className="text-xs text-muted mt-2">{badgeFile.name}</p>}
+                                                </div>
+
+                                                <div>
                                                     <SettingFieldLabel
-                                                        hint={<SettingHint>Home-screen Install always uses the Application icon so Chrome/Firefox can mint a real app (not just a shortcut). Server logo still applies to the in-app favicon and bookmarks.</SettingHint>}
+                                                        hint={<SettingHint>Controls the installed app icon, browser tab favicon, Android notification status-bar silhouette, and newsletter header. Server logo uses your Plex/Jellyfin branding or uploaded custom logo. Android can only show a monochrome outline of that logo in the status bar; the expanded notification still uses the full-color icon.</SettingHint>}
                                                     >
                                                         PWA Home Screen Icon
                                                     </SettingFieldLabel>
@@ -3056,13 +4708,10 @@ export const SettingsDashboard: React.FC = () => {
                                                     >
                                                         <div className="text-center w-full">
                                                             {splashPreviewLogoSrc ? (
-                                                                <img
-                                                                    key={splashPreviewLogoSrc}
+                                                                <LoginBrandMark
                                                                     src={splashPreviewLogoSrc}
-                                                                    alt="Server icon preview"
-                                                                    className="max-w-32 max-h-28 object-contain mx-auto mb-4 drop-shadow-[0_0_24px_rgba(0,0,0,0.75)]"
-                                                                    onLoad={(e) => { e.currentTarget.style.display = ''; }}
-                                                                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                                                                    circleFrame={loginLogoCircleFrame}
+                                                                    className="mx-auto mb-4"
                                                                 />
                                                             ) : (
                                                                 <div className="w-24 h-24 rounded-full border-2 border-plex/50 bg-background/80 mx-auto mb-4 p-3 shadow-[0_0_36px_rgba(0,164,220,0.28)]">
@@ -3157,7 +4806,13 @@ export const SettingsDashboard: React.FC = () => {
                                                 <p className="text-xs text-muted mt-1">Shared display defaults.</p>
                                             </div>
                                             <div className="flex-1 min-w-0 divide-y divide-border/40">
-                                                <SettingsToggleRow title="Use 24-Hour Clock across the Portal" checked={use24HourClock} onChange={setUse24HourClock} border={false} />
+                                                <SettingsToggleRow
+                                                    title="Use 24-Hour Clock across the Portal"
+                                                    description="Show times as 13:00 instead of 1:00 PM in watch history, now playing, and dashboards."
+                                                    checked={use24HourClock}
+                                                    onChange={setUse24HourClock}
+                                                    border={false}
+                                                />
                                                 <div id={getSettingsSectionElementId('poster-badges')} className="scroll-mt-24">
                                                     <SettingsToggleRow
                                                         title="Poster Quality Badges"
@@ -3197,6 +4852,14 @@ export const SettingsDashboard: React.FC = () => {
                                                         </div>
                                                     </SettingsToggleRow>
                                                 </div>
+                                                <SettingsToggleRow
+                                                    title="Enable Home second-screen companion panel"
+                                                    description="Global admin switch for the Home hero companion. When off, the now-playing strip remains but companion details are hidden for everyone."
+                                                    hint={<SettingHint>Settings {'>'} Portal UI controls this experience for all users.</SettingHint>}
+                                                    checked={homeNowPlayingCompanionEnabled}
+                                                    onChange={setHomeNowPlayingCompanionEnabled}
+                                                    border={false}
+                                                />
                                             </div>
                                         </div>
                                     </section>
@@ -3227,6 +4890,44 @@ export const SettingsDashboard: React.FC = () => {
                                         </div>
                                     </section>
 
+                                    <section id={getSettingsSectionElementId('community-chat')} className="scroll-mt-24 rounded-xl border border-border/70 p-4">
+                                        <div className="flex flex-col lg:flex-row lg:items-start gap-4">
+                                            <div className="lg:w-52 shrink-0">
+                                                <h4 className="font-bold text-text">Community chat</h4>
+                                                <p className="text-xs text-muted mt-1">Discord-style text channels for members.</p>
+                                            </div>
+                                            <div className="flex-1 min-w-0 divide-y divide-border/40">
+                                                <SettingsToggleRow
+                                                    title="Community chat"
+                                                    hint={<SettingHint>Let members talk in Discord-style text channels. Admins can create rooms; everyone logged in can chat. Messages refresh automatically while the page is open.</SettingHint>}
+                                                    checked={chatEnabled}
+                                                    onChange={setChatEnabled}
+                                                    border={false}
+                                                />
+                                                {chatEnabled ? (
+                                                    <>
+                                                        <SettingsToggleRow
+                                                            title="Chat @mention notifications"
+                                                            hint={<SettingHint>Send in-app bell notifications when someone @mentions a member in live chat. Members can turn this off in Preferences.</SettingHint>}
+                                                            checked={chatMentionNotifyInApp}
+                                                            onChange={setChatMentionNotifyInApp}
+                                                            border={false}
+                                                        />
+                                                        <div className="pt-4">
+                                                            <button
+                                                                type="button"
+                                                                className="px-4 py-2 rounded-md font-bold transition-all bg-plex text-background hover:bg-plex-hover"
+                                                                onClick={() => window.location.assign(portalUrl('/chat'))}
+                                                            >
+                                                                Open live chat
+                                                            </button>
+                                                        </div>
+                                                    </>
+                                                ) : null}
+                                            </div>
+                                        </div>
+                                    </section>
+
                                     <section id={getSettingsSectionElementId('announcement')} className="scroll-mt-24 rounded-xl border border-border/70 p-4">
                                         <div className="flex flex-col lg:flex-row lg:items-start gap-4">
                                             <div className="lg:w-52 shrink-0">
@@ -3246,6 +4947,40 @@ export const SettingsDashboard: React.FC = () => {
                                                     >
                                                         {isPushingAnnouncement ? 'Pushing...' : 'Save & Send Email Blast'}
                                                     </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </section>
+
+                                    <section id={getSettingsSectionElementId('expired-portal')} className="scroll-mt-24 rounded-xl border border-border/70 p-4">
+                                        <div className="flex flex-col lg:flex-row lg:items-start gap-4">
+                                            <div className="lg:w-52 shrink-0">
+                                                <h4 className="font-bold text-text">Expired access</h4>
+                                                <p className="text-xs text-muted mt-1">Message shown when a member logs in after their subscription expired (#187).</p>
+                                            </div>
+                                            <div className="flex-1 min-w-0 space-y-4">
+                                                <div>
+                                                    <SettingFieldLabel hint={<SettingHint>Optional heading on the restricted expired-user page. Leave blank for “Access expired”.</SettingHint>}>
+                                                        Expired portal title
+                                                    </SettingFieldLabel>
+                                                    <input
+                                                        className="w-full p-3 rounded-lg border border-border bg-background text-text outline-none focus:border-plex transition-all mt-1"
+                                                        value={expiredPortalTitle}
+                                                        onChange={(e) => setExpiredPortalTitle(e.target.value)}
+                                                        placeholder="Access expired"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <SettingFieldLabel hint={<SettingHint>Optional custom instructions (renewal, Discord, contact). Contact email / WhatsApp from Settings are also shown as buttons.</SettingHint>}>
+                                                        Expired portal message
+                                                    </SettingFieldLabel>
+                                                    <textarea
+                                                        className="w-full p-3 rounded-lg border border-border bg-background text-text outline-none focus:border-plex transition-all mt-1"
+                                                        value={expiredPortalMessage}
+                                                        onChange={(e) => setExpiredPortalMessage(e.target.value)}
+                                                        placeholder="Your access has expired. Open Support to request a renewal…"
+                                                        rows={4}
+                                                    />
                                                 </div>
                                             </div>
                                         </div>
@@ -3277,28 +5012,16 @@ export const SettingsDashboard: React.FC = () => {
                                         <div>
                                             <div className="flex flex-wrap items-center gap-2 mb-1">
                                                 <h4 className="font-bold text-lg">{task.name}</h4>
-                                                {task.running ? (
-                                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20 shadow-[0_0_10px_rgba(59,130,246,0.15)] animate-pulse">
-                                                        <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-ping" />
-                                                        Running
-                                                    </span>
-                                                ) : task.lastError ? (
-                                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-red-500/10 text-red-400 border border-red-500/20">
-                                                        <span className="w-1.5 h-1.5 bg-red-400 rounded-full" />
-                                                        Failed
-                                                    </span>
-                                                ) : (
-                                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-slate-500/10 text-muted border border-border">
-                                                        Idle
-                                                    </span>
-                                                )}
+                                                <TaskStatusPill task={task} />
                                             </div>
                                             <p className="text-sm text-muted mb-2">{task.description}</p>
                                             <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
                                                 <span><strong className="text-text">Last Run:</strong> {task.lastRun ? new Date(task.lastRun).toLocaleString() : 'Never'}</span>
                                                 <span><strong className="text-text">Next Run:</strong> {task.nextRun ? new Date(task.nextRun).toLocaleString() : 'Not Scheduled'}</span>
                                                 {task.lastDurationMs !== null && <span><strong className="text-text">Duration:</strong> {Math.round(task.lastDurationMs / 1000)}s</span>}
+                                                {task.lastDetail && !task.lastError && <span><strong className="text-text">Result:</strong> {task.lastDetail}</span>}
                                                 {task.lastError && <span className="bg-red-500/20 text-red-300 px-2 py-1 rounded"><strong>Error:</strong> {task.lastError}</span>}
+                                                {task.lastWarning && !task.lastError && <span className="bg-amber-500/20 text-amber-200 px-2 py-1 rounded"><strong>Warning:</strong> {task.lastWarning}</span>}
                                             </div>
                                         </div>
                                         <button
@@ -3324,6 +5047,51 @@ export const SettingsDashboard: React.FC = () => {
                                         </button>
                                     </div>
                                 ))}
+                                <div className="py-4 border-b border-border/40 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                                    <div>
+                                        <div className="flex flex-wrap items-center gap-2 mb-1">
+                                            <h4 className="font-bold text-lg">Media Automation</h4>
+                                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold border ${
+                                                mediaAutomationEnabled
+                                                    ? 'bg-green-500/10 text-green-300 border-green-500/20'
+                                                    : 'bg-slate-500/10 text-muted border-border'
+                                            }`}>
+                                                {mediaAutomationEnabled ? 'Enabled' : 'Disabled'}
+                                            </span>
+                                            {mediaAutomation.fallback?.outputMode === 'dry-run' && mediaAutomationEnabled && (
+                                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/10 text-amber-200 border border-amber-500/20">
+                                                    Global dry-run
+                                                </span>
+                                            )}
+                                        </div>
+                                        <p className="text-sm text-muted mb-2">
+                                            Native FFmpeg worker with its own queue, library scan/watch, and ARR webhooks - managed from the Media Automation page (not a classic scheduled task).
+                                        </p>
+                                        <p className="text-xs text-muted">
+                                            Configure scan/watch under Settings → Media Automation. Open the dashboard for Scan now, queue, and job commands.
+                                        </p>
+                                    </div>
+                                    <div className="flex flex-col sm:flex-row gap-2 shrink-0">
+                                        <button
+                                            type="button"
+                                            className="px-4 py-2 rounded-md font-bold transition-all bg-white/5 text-text border border-border hover:border-plex/50"
+                                            onClick={() => setActiveTab('media-automation')}
+                                        >
+                                            Settings
+                                        </button>
+                                        {mediaAutomationEnabled && (
+                                            <button
+                                                type="button"
+                                                className="px-4 py-2 rounded-md font-bold transition-all bg-plex text-background hover:bg-plex-hover"
+                                                onClick={() => {
+                                                    window.location.assign(portalUrl('/media-automation'));
+                                                }}
+                                            >
+                                                Open dashboard
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     )}
@@ -3474,7 +5242,7 @@ export const SettingsDashboard: React.FC = () => {
                                 <SettingsToggleRow
                                     title="Auto-start pinning service"
                                     hint={<SettingHint>
-                                        When ON, the ColleXions pinning loop starts automatically whenever the portal (and Collexions worker) starts — no need to click Start Service on the Dashboard. Requires Collexions enabled and Plex configured in Collexions. OFF by default.
+                                        When ON, pinning starts on every portal boot. A portal update also resumes a loop that was already running, instead of leaving it Stopped. Requires Collexions enabled and Plex configured. OFF by default.
                                     </SettingHint>}
                                     checked={collexionsAutostart}
                                     onChange={setCollexionsAutostart}
@@ -3527,6 +5295,271 @@ export const SettingsDashboard: React.FC = () => {
                             </section>
                         </div>
                     )}
+                    {activeTab === 'spotify-sync' && mediaServerType === 'plex' && (
+                        <div className="mb-8 animate-fade-in space-y-6">
+                            <IntegrationHeading
+                                app="lidarr"
+                                title="Spotify Sync"
+                                subtitle={initialSettings.spotifyToPlexBundled
+                                    ? 'Sync Spotify playlists to Plex — spotify-to-plex is bundled in the portal image (no separate Compose service required).'
+                                    : 'Sync Spotify playlists to Plex via the spotify-to-plex Compose service — credentials are written to config/spotify-to-plex.env, not the host .env'}
+                            />
+                            <section id={getSettingsSectionElementId('spotify-sync')} className="space-y-3 scroll-mt-24">
+                                <SettingsToggleRow
+                                    title="Enable Spotify Sync"
+                                    hint={<SettingHint>
+                                        {initialSettings.spotifyToPlexBundled
+                                            ? 'Starts the bundled worker inside the portal image and shows Spotify Sync in admin nav. OFF by default.'
+                                            : 'Shows the Spotify Sync admin nav and uses the bundled or external worker APIs. OFF by default.'}
+                                    </SettingHint>}
+                                    checked={spotifyToPlexEnabled}
+                                    onChange={(next) => {
+                                        setSpotifyToPlexEnabled(next);
+                                        if (!next) setSpotifyToPlexHomeWidgetEnabled(false);
+                                    }}
+                                    border={false}
+                                />
+                                <p className={`text-xs mt-2 font-semibold ${spotifyToPlexEnabled ? 'text-green-300' : 'text-yellow-300'}`}>
+                                    Current status: {spotifyToPlexEnabled
+                                        ? (spotifyToPlexInternalUrl.trim() ? 'ON' : 'Enabled — set internal URL')
+                                        : 'OFF'}
+                                    {spotifySyncHealth?.ok ? ' · container reachable' : ''}
+                                    {initialSettings.spotifyToPlexBundled ? ' · bundled in portal image' : ''}
+                                    {spotifyToPlexEnabled && initialSettings.spotifyToPlexCredentialsReady ? ' · credentials saved' : ''}
+                                </p>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
+                                    <div>
+                                        <label className="font-semibold text-sm block mb-2">Spotify API Client ID</label>
+                                        <input
+                                            type="text"
+                                            className="w-full p-2 rounded border border-border bg-background text-text"
+                                            placeholder="From Spotify Developer Dashboard"
+                                            value={spotifyToPlexClientId}
+                                            onChange={(e) => setSpotifyToPlexClientId(e.target.value)}
+                                            disabled={!spotifyToPlexEnabled}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="font-semibold text-sm block mb-2">Spotify API Client Secret</label>
+                                        <input
+                                            type="password"
+                                            className="w-full p-2 rounded border border-border bg-background text-text"
+                                            placeholder={spotifyToPlexClientSecret === '********' ? '•••••••• (unchanged)' : 'Client secret'}
+                                            value={spotifyToPlexClientSecret === '********' ? '' : spotifyToPlexClientSecret}
+                                            onChange={(e) => setSpotifyToPlexClientSecret(e.target.value)}
+                                            disabled={!spotifyToPlexEnabled}
+                                            autoComplete="new-password"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="font-semibold text-sm block mb-2">Encryption key</label>
+                                        <input
+                                            type="password"
+                                            className="w-full p-2 rounded border border-border bg-background text-text"
+                                            placeholder={spotifyToPlexEncryptionKey === '********' ? '•••••••• (unchanged)' : '64-char hex (openssl rand -hex 32)'}
+                                            value={spotifyToPlexEncryptionKey === '********' ? '' : spotifyToPlexEncryptionKey}
+                                            onChange={(e) => setSpotifyToPlexEncryptionKey(e.target.value)}
+                                            disabled={!spotifyToPlexEnabled}
+                                            autoComplete="new-password"
+                                        />
+                                    </div>
+                                    {!initialSettings.spotifyToPlexBundled && (
+                                        <div>
+                                            <label className="font-semibold text-sm block mb-2">Internal URL</label>
+                                            <input
+                                                type="text"
+                                                className="w-full p-2 rounded border border-border bg-background text-text"
+                                                placeholder="http://spotify-to-plex:9030"
+                                                value={spotifyToPlexInternalUrl}
+                                                onChange={(e) => setSpotifyToPlexInternalUrl(e.target.value)}
+                                                disabled={!spotifyToPlexEnabled}
+                                            />
+                                            <p className="text-[11px] text-muted mt-1">Docker Compose service name on your private network.</p>
+                                        </div>
+                                    )}
+                                    <div className="md:col-span-2">
+                                        <label className="font-semibold text-sm block mb-2">Spotify redirect URI (register in Spotify Developer)</label>
+                                        <input
+                                            type="text"
+                                            readOnly
+                                            className="appearance-none text-[16px] leading-5 w-full p-2 rounded border border-border bg-background/60 text-text text-[16px]"
+                                            value={String(initialSettings.spotifyToPlexCallbackUrl || '')}
+                                        />
+                                        <p className="text-[11px] text-muted mt-1">Requires Public Base URL in Settings → Portal UI. Saved to <code className="text-xs">config/spotify-to-plex.env</code> when you click Save Settings.</p>
+                                    </div>
+                                </div>
+                                {spotifyToPlexEnabled && spotifySyncHealth?.issues?.length ? (
+                                    <p className="text-xs text-yellow-300 mt-2">{spotifySyncHealth.issues.join(' · ')}</p>
+                                ) : null}
+                                {initialSettings.spotifyToPlexBundled ? (
+                                    <p className="text-[11px] text-muted mt-2">
+                                        Spotify-to-plex runs inside the portal container at <code className="text-xs">127.0.0.1:9030</code>.
+                                        Data lives under <code className="text-xs">config/spotify-to-plex/</code> on the portal config volume.
+                                        Credential and schedule changes apply when you save (bundled processes restart automatically).
+                                    </p>
+                                ) : (
+                                    <p className="text-[11px] text-muted mt-2">
+                                        After credential or schedule changes, restart the <code className="text-xs">spotify-to-plex</code> container so it reloads the generated <code className="text-xs">env_file</code> and supervisor config.
+                                        Choose one schedule mode below — portal mode stops the container&apos;s built-in <code className="text-xs">sync-scheduler</code> process.
+                                    </p>
+                                )}
+                                <div className="mt-2">
+                                    <label className="font-semibold text-sm block mb-2">Sync schedule</label>
+                                    <select
+                                        className="w-full p-2 rounded border border-border bg-background text-text disabled:opacity-50"
+                                        value={spotifyToPlexScheduleMode}
+                                        onChange={(e) => setSpotifyToPlexScheduleMode(
+                                            e.target.value === 'portal' ? 'portal' : 'sidecar',
+                                        )}
+                                        disabled={!spotifyToPlexEnabled}
+                                    >
+                                        <option value="sidecar">{initialSettings.spotifyToPlexBundled ? 'Built-in cron (daily ~02:00 UTC)' : 'Container cron (daily ~02:00 UTC)'}</option>
+                                        <option value="portal">{initialSettings.spotifyToPlexBundled ? 'Portal Background Tasks interval (disables built-in sync-scheduler)' : 'Portal Background Tasks interval (disables container sync-scheduler)'}</option>
+                                    </select>
+                                    <p className="text-[11px] text-muted mt-1">
+                                        Portal interval appears under Background Tasks → Spotify Sync.
+                                    </p>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                                    <div>
+                                        <label className="font-semibold text-sm block mb-2">Portal sync interval (hours)</label>
+                                        <input
+                                            type="number"
+                                            min={1}
+                                            max={168}
+                                            className="w-full p-2 rounded border border-border bg-background text-text disabled:opacity-50"
+                                            value={spotifyToPlexScheduledSyncIntervalHours}
+                                            onChange={(e) => setSpotifyToPlexScheduledSyncIntervalHours(
+                                                Math.min(168, Math.max(1, Number(e.target.value) || 24)),
+                                            )}
+                                            disabled={!spotifyToPlexEnabled || spotifyToPlexScheduleMode !== 'portal'}
+                                        />
+                                        <p className="text-[11px] text-muted mt-1">1–168 hours. Checked every 30 minutes.</p>
+                                    </div>
+                                    {initialSettings.spotifyToPlexScheduledSyncLastRunAt ? (
+                                        <div>
+                                            <label className="font-semibold text-sm block mb-2">Last portal-managed sync</label>
+                                            <p className="text-sm text-muted">{String(initialSettings.spotifyToPlexScheduledSyncLastRunAt)}</p>
+                                        </div>
+                                    ) : null}
+                                </div>
+                                <SettingsToggleRow
+                                    title="Home dashboard widget"
+                                    hint={<SettingHint>Shows last sync status on Home for admins. Reorder under Home → Edit layout.</SettingHint>}
+                                    checked={spotifyToPlexHomeWidgetEnabled}
+                                    onChange={setSpotifyToPlexHomeWidgetEnabled}
+                                    disabled={!spotifyToPlexEnabled}
+                                    border={false}
+                                />
+                                <p className="text-[11px] text-muted mt-2">
+                                    Plex URL and token from Settings → Plex (Media Player) are pushed into the worker automatically on save and when you open Spotify Sync.
+                                </p>
+                                <div className="flex flex-wrap gap-2 mt-3">
+                                    <button
+                                        type="button"
+                                        className="px-3 py-2 rounded-md text-xs font-bold border border-border hover:border-plex hover:text-plex disabled:opacity-50"
+                                        disabled={!spotifyToPlexEnabled || spotifyPortalImporting}
+                                        onClick={async () => {
+                                            setSpotifyPortalImporting(true);
+                                            setSpotifyPortalImportMessage('');
+                                            try {
+                                                const data = await apiFetch('/api/spotify-to-plex/apply-portal-defaults', { method: 'POST' });
+                                                setSpotifyPortalImportMessage(data?.message || 'Portal defaults applied to the spotify-to-plex container.');
+                                                pushToast(data?.message || 'Applied portal defaults', 'success');
+                                            } catch (e: any) {
+                                                setSpotifyPortalImportMessage(e?.message || 'Import failed');
+                                                pushToast(e?.message || 'Import failed', 'error');
+                                            } finally {
+                                                setSpotifyPortalImporting(false);
+                                            }
+                                        }}
+                                    >
+                                        {spotifyPortalImporting ? 'Applying…' : 'Apply Plex/Lidarr from portal'}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="px-3 py-2 rounded-md text-xs font-bold border border-border hover:border-plex hover:text-plex disabled:opacity-50"
+                                        disabled={!spotifyToPlexEnabled || spotifySyncStarting}
+                                        onClick={async () => {
+                                            setSpotifySyncStarting(true);
+                                            try {
+                                                const data = await apiFetch('/api/spotify-to-plex/sync', {
+                                                    method: 'POST',
+                                                    body: JSON.stringify({ type: 'all' }),
+                                                });
+                                                pushToast(data?.message || 'Sync started', 'success');
+                                            } catch (e: any) {
+                                                pushToast(e?.message || 'Sync failed', 'error');
+                                            } finally {
+                                                setSpotifySyncStarting(false);
+                                            }
+                                        }}
+                                    >
+                                        {spotifySyncStarting ? 'Starting…' : 'Sync now'}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="px-3 py-2 rounded-md text-xs font-bold border border-border hover:border-plex hover:text-plex"
+                                        onClick={() => window.location.assign(portalUrl('/spotify-sync'))}
+                                    >
+                                        Open logs
+                                    </button>
+                                </div>
+                                {spotifyPortalImportMessage ? (
+                                    <p className="text-[11px] text-muted mt-2">{spotifyPortalImportMessage}</p>
+                                ) : null}
+                                {spotifyToPlexEnabled && (
+                                    <button
+                                        type="button"
+                                        className="mt-3 px-4 py-2 rounded-md font-bold transition-all bg-plex text-background hover:bg-plex-hover"
+                                        onClick={() => window.location.assign(portalUrl('/spotify-sync'))}
+                                    >
+                                        Open Spotify Sync
+                                    </button>
+                                )}
+                                <p className="text-[11px] text-muted mt-2">Click Save Settings at the top after editing this tab.</p>
+                            </section>
+                        </div>
+                    )}
+                    {activeTab === 'metadata-fill' && mediaServerType === 'plex' && (
+                        <div className="mb-8 animate-fade-in space-y-6">
+                            <IntegrationHeading
+                                app="tmdb"
+                                title="Metadata Fill"
+                                subtitle="Fill TBA / empty episode title, summary, and air date from TMDB, TheTVDB, and TVmaze into Plex (fields are locked so agents do not wipe them)."
+                            />
+                            <section id={getSettingsSectionElementId('metadata-fill')} className="space-y-3 scroll-mt-24">
+                                <SettingsToggleRow
+                                    title="Enable Metadata Fill"
+                                    hint={<SettingHint>Shows Metadata Fill in admin nav. OFF by default. Uses TMDB/TVDB keys when set; TVmaze needs no key (lookup via TVDB/IMDb ids).</SettingHint>}
+                                    checked={metadataFillEnabled}
+                                    onChange={(next) => {
+                                        setMetadataFillEnabled(next);
+                                    }}
+                                />
+                                <SettingsToggleRow
+                                    title="Auto-fill on Sonarr On Import"
+                                    hint={<SettingHint>Uses the Scanner Sonarr webhook when a file is imported (Sonarr’s event is named “Download”, not Grab). Enable On Import / On Upgrade in Sonarr Connect. Waits ~3 minutes, then polls Plex for up to ~2 more minutes (~5 min total) so the episode can finish scanning.</SettingHint>}
+                                    checked={metadataFillAutoImport}
+                                    onChange={setMetadataFillAutoImport}
+                                    disabled={!metadataFillEnabled}
+                                />
+                                <p className={`text-xs mt-2 font-semibold ${metadataFillEnabled ? 'text-green-300' : 'text-yellow-300'}`}>
+                                    Current status: {metadataFillEnabled ? 'Enabled' : 'Disabled'}
+                                </p>
+                                {metadataFillEnabled && (
+                                    <button
+                                        type="button"
+                                        className="mt-3 px-4 py-2 rounded-md font-bold transition-all bg-plex text-background hover:bg-plex-hover"
+                                        onClick={() => window.location.assign(portalUrl('/metadata-fill'))}
+                                    >
+                                        Open Metadata Fill
+                                    </button>
+                                )}
+                                <p className="text-[11px] text-muted mt-2">Click Save Settings at the top after editing this tab.</p>
+                            </section>
+                        </div>
+                    )}
                     {activeTab === 'scanner' && (
                         <ScannerSettingsPanel
                             enabled={scannerEnabled}
@@ -3546,9 +5579,149 @@ export const SettingsDashboard: React.FC = () => {
                             addToast={addToast}
                         />
                     )}
+                    {activeTab === 'media-automation' && (
+                        <MediaAutomationSettings
+                            enabled={mediaAutomationEnabled}
+                            onEnabledChange={setMediaAutomationEnabled}
+                            homeWidgetEnabled={mediaAutomationHomeWidgetEnabled}
+                            onHomeWidgetEnabledChange={setMediaAutomationHomeWidgetEnabled}
+                            config={mediaAutomation}
+                            onConfigChange={setMediaAutomation}
+                        />
+                    )}
+                    {activeTab === 'poster-sets' && (
+                        <div className="mb-8 animate-fade-in space-y-6">
+                            <h3 className="mb-4 flex flex-wrap items-center gap-2 border-b border-border pb-2 text-xl font-bold text-plex">
+                                <span>Poster Sets</span>
+                                <BetaBadge title={t('posterSetsPage.betaNotice')} />
+                            </h3>
+                            <section id={getSettingsSectionElementId('poster-sets')} className="space-y-3 scroll-mt-24">
+                                <PosterSetsBetaBanner />
+                                <SettingsToggleRow
+                                    title="Enable Poster Sets"
+                                    hint={<SettingHint>Admin nav for applying MediUX / ThePosterDB artwork sets to Plex. Connection settings live inside the Poster Sets page — separate from ColleXions and portal Plex settings.</SettingHint>}
+                                    checked={posterSetsEnabled}
+                                    onChange={setPosterSetsEnabled}
+                                />
+                                <p className={`text-xs mt-2 font-semibold ${posterSetsEnabled ? 'text-green-300' : 'text-yellow-300'}`}>
+                                    Current status: {posterSetsEnabled ? 'ON' : 'OFF'}
+                                </p>
+                                {posterSetsEnabled && (
+                                    <button
+                                        type="button"
+                                        className="mt-3 px-4 py-2 rounded-md font-bold transition-all bg-plex text-background hover:bg-plex-hover"
+                                        onClick={() => window.location.assign(portalUrl('/poster-sets'))}
+                                    >
+                                        Open Poster Sets
+                                    </button>
+                                )}
+                            </section>
+                        </div>
+                    )}
+                    {activeTab === 'overlays' && (
+                        <div className="mb-8 animate-fade-in space-y-6">
+                            <h3 className="text-xl font-bold text-plex mb-4 border-b border-border pb-2">Overlays</h3>
+                            <section id={getSettingsSectionElementId('overlays')} className="space-y-3 scroll-mt-24">
+                                <SettingsToggleRow
+                                    title="Enable Overlays"
+                                    hint={<SettingHint>Admin nav for New Season poster banners (and Layer overlays). Uses Plex credentials from Media Player. Import an existing overlaid_log.json from the standalone tool inside the Overlays page.</SettingHint>}
+                                    checked={overlaysEnabled}
+                                    onChange={setOverlaysEnabled}
+                                />
+                                <p className={`text-xs mt-2 font-semibold ${overlaysEnabled ? 'text-green-300' : 'text-yellow-300'}`}>
+                                    Current status: {overlaysEnabled ? 'ON' : 'OFF'}
+                                </p>
+                                {overlaysEnabled && (
+                                    <button
+                                        type="button"
+                                        className="mt-3 px-4 py-2 rounded-md font-bold transition-all bg-plex text-background hover:bg-plex-hover"
+                                        onClick={() => window.location.assign(portalUrl('/overlays'))}
+                                    >
+                                        Open Overlays
+                                    </button>
+                                )}
+                                <p className="text-xs text-muted mt-3">
+                                    Prefer off-hours runs if you also use Layer overlays or Poster Sets bulk poster uploads on the same libraries.
+                                </p>
+                            </section>
+                        </div>
+                    )}
+                    {activeTab === 'editions' && (
+                        <div className="mb-8 animate-fade-in space-y-6">
+                            <h3 className="text-xl font-bold text-plex mb-4 border-b border-border pb-2">Editions</h3>
+                            <section id={getSettingsSectionElementId('editions')} className="space-y-3 scroll-mt-24">
+                                <SettingsToggleRow
+                                    title="Enable Editions"
+                                    hint={<SettingHint>Admin nav for Plex Edition tags (cuts, HDR, codecs, sources, and more). Uses Plex credentials from Media Player. Module order and webhooks are configured on the Editions page.</SettingHint>}
+                                    checked={editionsEnabled}
+                                    onChange={setEditionsEnabled}
+                                />
+                                <p className={`text-xs mt-2 font-semibold ${editionsEnabled ? 'text-green-300' : 'text-yellow-300'}`}>
+                                    Current status: {editionsEnabled ? 'ON' : 'OFF'}
+                                </p>
+                                {editionsEnabled && (
+                                    <button
+                                        type="button"
+                                        className="mt-3 px-4 py-2 rounded-md font-bold transition-all bg-plex text-background hover:bg-plex-hover"
+                                        onClick={() => window.location.assign(portalUrl('/editions'))}
+                                    >
+                                        Open Editions
+                                    </button>
+                                )}
+                                <p className="text-xs text-muted mt-3">
+                                    Requires the Editions Python worker (`editions/cli.py`). Prefer a backup before processing your whole library.
+                                </p>
+                            </section>
+                        </div>
+                    )}
+                    {activeTab === 'watch-sync' && (
+                        <div className="mb-8 animate-fade-in space-y-6">
+                            <h3 className="text-xl font-bold text-plex mb-4 border-b border-border pb-2">Watch Sync</h3>
+                            <section id={getSettingsSectionElementId('watch-sync')} className="space-y-3 scroll-mt-24">
+                                <SettingsToggleRow
+                                    title="Enable Watch Sync"
+                                    hint={<SettingHint>Admin section for syncing watched status, ratings, collections, and watchlists between Plex and Trakt. Trakt API credentials and sync options live on the Watch Sync page. Plex uses the Media Player server URL and token.</SettingHint>}
+                                    checked={watchSyncEnabled}
+                                    onChange={setWatchSyncEnabled}
+                                />
+                                <p className={`text-xs mt-2 font-semibold ${watchSyncEnabled ? 'text-green-300' : 'text-yellow-300'}`}>
+                                    Current status: {watchSyncEnabled ? 'ON' : 'OFF'}
+                                </p>
+                                {watchSyncEnabled && (
+                                    <button
+                                        type="button"
+                                        className="mt-3 px-4 py-2 rounded-md font-bold transition-all bg-plex text-background hover:bg-plex-hover"
+                                        onClick={() => window.location.assign(portalUrl('/watch-sync'))}
+                                    >
+                                        Open Watch Sync
+                                    </button>
+                                )}
+                                <p className="text-xs text-muted mt-3">
+                                    Plex only. Create a Trakt API application, then connect the account inside Watch Sync.
+                                </p>
+                            </section>
+                        </div>
+                    )}
                     {activeTab === 'system' && (
                         <div className="mb-8 animate-fade-in space-y-6">
                             <h3 className="text-xl font-bold text-plex mb-4 border-b border-border pb-2">System</h3>
+                            <section id={getSettingsSectionElementId('support-tickets')} className="space-y-3 scroll-mt-24">
+                                <SettingsToggleRow
+                                    title="Support tickets"
+                                    hint={<SettingHint>Let members message you from the portal (open / resolved / closed tickets, unread badges, and in-app notifications). No Discord or email required.</SettingHint>}
+                                    checked={supportTicketsEnabled}
+                                    onChange={setSupportTicketsEnabled}
+                                />
+                                {supportTicketsEnabled && (
+                                    <button
+                                        type="button"
+                                        className="mt-1 px-4 py-2 rounded-md font-bold transition-all bg-plex text-background hover:bg-plex-hover"
+                                        onClick={() => window.location.assign(portalUrl('/support'))}
+                                    >
+                                        Open Support inbox
+                                    </button>
+                                )}
+                            </section>
                             <section id={getSettingsSectionElementId('health')} className="space-y-4 mb-8 scroll-mt-24">
                                 <div className="flex items-center justify-between">
                                     <h4 className="font-bold text-text">Health Dashboard</h4>
@@ -3590,20 +5763,6 @@ export const SettingsDashboard: React.FC = () => {
                                         </ul>
                                     )}
                                 </div>
-                            </section>
-                            <section id={getSettingsSectionElementId('maintenance')} className={`space-y-3 mb-8 transition-all duration-300 scroll-mt-24 ${highlightMaintenanceToggle ? 'ring-2 ring-plex/50 rounded-lg p-3 -m-3' : ''}`}>
-                                <h4 className="font-bold text-text">Cleaner Experimental Mode</h4>
-                                <SettingsToggleRow
-                                    title="Enable Cleaner Module"
-                                    description="Single global toggle for the main Cleaner navigation section. OFF by default."
-                                    checked={maintenanceExperimentalEnabled}
-                                    onChange={setMaintenanceExperimentalEnabled}
-                                    border={false}
-                                />
-                                <p className={`text-xs mt-2 font-semibold ${maintenanceExperimentalEnabled ? 'text-green-300' : 'text-yellow-300'}`}>
-                                    Current status: {maintenanceExperimentalEnabled ? 'ON' : 'OFF'}
-                                </p>
-                                <p className="text-[11px] text-muted mt-1">After changing this toggle, click the main Save Settings button.</p>
                             </section>
                             <section id={getSettingsSectionElementId('backup')} className="space-y-4 mb-8 scroll-mt-24">
                                 <h4 className="font-bold text-text">Backup & Restore</h4>
@@ -3669,6 +5828,12 @@ export const SettingsDashboard: React.FC = () => {
                                 </div>
                             </section>
 
+                            <MemoryDiagnosticsSection
+                                diagnostics={diagnostics}
+                                isLoading={isLoadingDiagnostics}
+                                onRefresh={fetchDiagnostics}
+                            />
+
                             <section id={getSettingsSectionElementId('diagnostics')} className="space-y-4 mb-8 scroll-mt-24">
                                 <div className="flex items-center justify-between">
                                     <h4 className="font-bold text-text">System Diagnostics</h4>
@@ -3681,7 +5846,6 @@ export const SettingsDashboard: React.FC = () => {
                                         <div><strong>App Version:</strong> {diagnostics?.app?.version || 'unknown'}</div>
                                         <div><strong>Uptime:</strong> {diagnostics?.app?.uptimeSeconds || 0}s</div>
                                         <div><strong>Node:</strong> {diagnostics?.app?.nodeVersion || 'n/a'}</div>
-                                        <div><strong>Memory:</strong> {diagnostics?.app?.memoryRssMB || 0} MB</div>
                                         <div className="flex items-center justify-between gap-2">
                                             <strong>Media Player ({mediaServerLabel})</strong>
                                             {renderConfigPill(mediaServerType !== 'plex' ? !!diagnostics?.integrations?.jellyfinConfigured : !!diagnostics?.integrations?.plexConfigured)}
@@ -3751,37 +5915,147 @@ export const SettingsDashboard: React.FC = () => {
                                                     Last: {task.lastRun ? new Date(task.lastRun).toLocaleString() : 'Never'} · Next: {task.nextRun ? new Date(task.nextRun).toLocaleString() : 'Not Scheduled'}
                                                     {task.lastDurationMs !== null ? ` · Duration: ${Math.round(task.lastDurationMs / 1000)}s` : ''}
                                                 </div>
+                                                {task.lastDetail && !task.lastError && <div className="text-xs text-muted mt-1">{task.lastDetail}</div>}
                                                 {task.lastError && <div className="text-xs text-red-300 mt-1">Last error: {task.lastError}</div>}
+                                                {task.lastWarning && !task.lastError && <div className="text-xs text-amber-300 mt-1">Last warning: {task.lastWarning}</div>}
                                             </div>
-                                            {task.running ? (
-                                                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20 shadow-[0_0_10px_rgba(59,130,246,0.15)] animate-pulse whitespace-nowrap">
-                                                    <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-ping" />
-                                                    Running
-                                                </span>
-                                            ) : task.lastError ? (
-                                                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-red-500/10 text-red-400 border border-red-500/20 whitespace-nowrap">
-                                                    <span className="w-1.5 h-1.5 bg-red-400 rounded-full" />
-                                                    Failed
-                                                </span>
-                                            ) : (
-                                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-slate-500/10 text-muted border border-border whitespace-nowrap">
-                                                    Idle
-                                                </span>
-                                            )}
+                                            <TaskStatusPill task={task} />
                                         </div>
                                     ))}
                                 </div>
                             </section>
 
                             <section className="space-y-4 mb-8">
-                                <div className="flex items-center justify-between">
-                                    <h4 className="font-bold text-text">Audit Log Viewer</h4>
-                                    <button className="px-3 py-1.5 bg-border text-text rounded-md font-semibold hover:bg-opacity-80" onClick={fetchAuditLog}>
-                                        {isLoadingAuditLog ? 'Refreshing...' : 'Refresh'}
-                                    </button>
+                                <div className="flex items-center justify-between gap-3 flex-wrap">
+                                    <h4 className="font-bold text-text">{t('settings.logs.audit.viewerTitle')}</h4>
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <button
+                                            className="px-3 py-1.5 bg-border text-text rounded-md font-semibold hover:bg-opacity-80 disabled:opacity-50"
+                                            disabled={isExportingAuditCsv}
+                                            onClick={() => void exportAuditLogCsv()}
+                                        >
+                                            {isExportingAuditCsv ? t('settings.logs.actions.exportingCsv') : t('settings.logs.actions.exportCsv')}
+                                        </button>
+                                        <button
+                                            className="px-3 py-1.5 bg-border text-text rounded-md font-semibold hover:bg-opacity-80 disabled:opacity-50"
+                                            disabled={isExportingAuditLog}
+                                            onClick={() => void exportAuditLog()}
+                                        >
+                                            {isExportingAuditLog ? t('settings.logs.actions.exporting') : t('settings.logs.actions.exportAll')}
+                                        </button>
+                                        <button className="px-3 py-1.5 bg-border text-text rounded-md font-semibold hover:bg-opacity-80" onClick={() => void fetchAuditLog()}>
+                                            {isLoadingAuditLog ? t('settings.logs.actions.refreshing') : t('settings.logs.actions.refresh')}
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                                    <label className="block text-[11px] font-bold uppercase tracking-wide text-muted">
+                                        {t('settings.logs.filters.event')}
+                                        <select
+                                            value={auditFilterEvent}
+                                            onChange={(e) => setAuditFilterEvent(e.target.value)}
+                                            className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-text"
+                                        >
+                                            <option value="">{t('settings.logs.filters.allEvents')}</option>
+                                            {auditLogEvents.map((eventKey) => (
+                                                <option key={eventKey} value={eventKey}>{formatEventName(eventKey)}</option>
+                                            ))}
+                                        </select>
+                                    </label>
+                                    <label className="block text-[11px] font-bold uppercase tracking-wide text-muted">
+                                        {t('settings.logs.filters.user')}
+                                        <input
+                                            type="text"
+                                            value={auditFilterUser}
+                                            onChange={(e) => setAuditFilterUser(e.target.value)}
+                                            placeholder={t('settings.logs.filters.userPlaceholder')}
+                                            className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-text"
+                                        />
+                                    </label>
+                                    <label className="block text-[11px] font-bold uppercase tracking-wide text-muted">
+                                        {t('settings.logs.filters.from')}
+                                        <input
+                                            type="date"
+                                            value={auditFilterFrom}
+                                            onChange={(e) => setAuditFilterFrom(e.target.value)}
+                                            className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-text"
+                                        />
+                                    </label>
+                                    <label className="block text-[11px] font-bold uppercase tracking-wide text-muted">
+                                        {t('settings.logs.filters.to')}
+                                        <input
+                                            type="date"
+                                            value={auditFilterTo}
+                                            onChange={(e) => setAuditFilterTo(e.target.value)}
+                                            className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-text"
+                                        />
+                                    </label>
+                                </div>
+                                <div className="flex items-center justify-between gap-3 flex-wrap">
+                                    <p className="text-xs text-muted">
+                                        {t('settings.logs.filters.matched', { matched: auditLogTotal, total: auditLogTotalAll })}
+                                    </p>
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <label className="inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-wide text-muted">
+                                            <Bookmark className="w-3.5 h-3.5" />
+                                            <span className="sr-only">{t('settings.logs.filters.presets')}</span>
+                                            <select
+                                                value={selectedAuditPresetId}
+                                                onChange={(e) => {
+                                                    const id = e.target.value;
+                                                    if (!id) {
+                                                        setSelectedAuditPresetId('');
+                                                        return;
+                                                    }
+                                                    applyAuditFilterPreset(id);
+                                                }}
+                                                className="rounded-md border border-border bg-background px-2 py-1.5 text-xs font-semibold normal-case tracking-normal text-text"
+                                            >
+                                                <option value="">{t('settings.logs.filters.presetsPlaceholder')}</option>
+                                                {auditFilterPresets.map((preset) => (
+                                                    <option key={preset.id} value={preset.id}>{preset.name}</option>
+                                                ))}
+                                            </select>
+                                        </label>
+                                        <button
+                                            type="button"
+                                            className="px-3 py-1.5 rounded-md border border-border text-xs font-semibold text-muted hover:text-text"
+                                            onClick={saveAuditFilterPreset}
+                                        >
+                                            {t('settings.logs.filters.savePreset')}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="px-3 py-1.5 rounded-md border border-border text-xs font-semibold text-muted hover:text-text disabled:opacity-40"
+                                            disabled={!selectedAuditPresetId}
+                                            onClick={deleteSelectedAuditFilterPreset}
+                                        >
+                                            {t('settings.logs.filters.deletePreset')}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="px-3 py-1.5 rounded-md border border-border text-xs font-semibold text-muted hover:text-text"
+                                            onClick={() => {
+                                                setSelectedAuditPresetId('');
+                                                setAuditFilterEvent('');
+                                                setAuditFilterUser('');
+                                                setAuditFilterFrom('');
+                                                setAuditFilterTo('');
+                                            }}
+                                        >
+                                            {t('settings.logs.filters.clear')}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="px-3 py-1.5 rounded-md bg-plex text-background text-xs font-bold"
+                                            onClick={() => void fetchAuditLog()}
+                                        >
+                                            {t('settings.logs.filters.apply')}
+                                        </button>
+                                    </div>
                                 </div>
                                 {pagedAuditEntries.length === 0 ? (
-                                    <p className="text-sm text-muted">No audit events found.</p>
+                                    <p className="text-sm text-muted">{t('settings.logs.audit.empty')}</p>
                                 ) : (
                                     <div className="space-y-3">
                                         {pagedAuditEntries.map((entry) => {
@@ -3789,27 +6063,67 @@ export const SettingsDashboard: React.FC = () => {
                                             const detailKeys = entry.details && typeof entry.details === 'object'
                                                 ? Object.entries(entry.details).filter(([key]) => !diffRows.some(row => key.toLowerCase().includes(row.field.toLowerCase())))
                                                 : [];
+                                            const targetLabel = entry.target?.username || entry.target?.email || t('settings.logs.audit.system');
+                                            const actorLabel = entry.actor?.username || entry.actor?.email || '';
+                                            const targetJump = auditSubjectLabel(entry.target);
+                                            const actorJump = auditSubjectLabel(entry.actor);
                                             return (
                                                 <details key={entry.id} className="py-3 border-b border-border/40 last:border-b-0">
                                                     <summary className="cursor-pointer list-none">
                                                         <div className="flex flex-wrap items-center justify-between gap-2">
-                                                            <p className="font-semibold text-text text-sm">{formatEventName(entry.event || 'event')}</p>
+                                                            <p className="font-semibold text-text text-sm">{entry.event ? formatEventName(entry.event) : t('settings.logs.audit.unknownEvent')}</p>
                                                             <span className="text-[11px] text-muted">{formatDateTime(entry.timestamp)}</span>
                                                         </div>
                                                         <p className="text-xs text-muted mt-1">
-                                                            Target: {entry.target?.username || entry.target?.email || 'System'}
-                                                            {entry.actor?.username || entry.actor?.email ? ` · Actor: ${entry.actor.username || entry.actor.email}` : ''}
+                                                            {t('settings.logs.audit.target')}: {targetLabel}
+                                                            {actorLabel ? ` · ${t('settings.logs.audit.actor')}: ${actorLabel}` : ''}
                                                         </p>
                                                     </summary>
                                                     <div className="mt-3 space-y-2">
+                                                        {(targetJump || actorJump) && (
+                                                            <div className="flex flex-wrap gap-2">
+                                                                {targetJump && (
+                                                                    <>
+                                                                        <button
+                                                                            type="button"
+                                                                            className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-[11px] font-semibold text-muted hover:text-text"
+                                                                            onClick={() => openAuditSubjectUsers(entry.target)}
+                                                                        >
+                                                                            <ExternalLink className="w-3 h-3" />
+                                                                            {t('settings.logs.audit.openUser')}: {targetJump}
+                                                                        </button>
+                                                                        {entry.target?.username && (
+                                                                            <button
+                                                                                type="button"
+                                                                                className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-[11px] font-semibold text-muted hover:text-text"
+                                                                                onClick={() => openAuditSubjectAnalytics(entry.target)}
+                                                                            >
+                                                                                <ExternalLink className="w-3 h-3" />
+                                                                                {t('settings.logs.audit.openAnalytics')}
+                                                                            </button>
+                                                                        )}
+                                                                    </>
+                                                                )}
+                                                                {actorJump && actorJump !== targetJump && (
+                                                                    <button
+                                                                        type="button"
+                                                                        className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-[11px] font-semibold text-muted hover:text-text"
+                                                                        onClick={() => openAuditSubjectUsers(entry.actor)}
+                                                                    >
+                                                                        <ExternalLink className="w-3 h-3" />
+                                                                        {t('settings.logs.audit.actor')}: {actorJump}
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        )}
                                                         {diffRows.length > 0 && (
                                                             <div className="overflow-x-auto">
                                                                 <table className="w-full text-xs border border-border/60 rounded-lg overflow-hidden">
                                                                     <thead className="bg-black/30 text-muted">
                                                                         <tr>
-                                                                            <th className="text-left px-2 py-1">Field</th>
-                                                                            <th className="text-left px-2 py-1">Before</th>
-                                                                            <th className="text-left px-2 py-1">After</th>
+                                                                            <th className="text-left px-2 py-1">{t('settings.logs.audit.field')}</th>
+                                                                            <th className="text-left px-2 py-1">{t('settings.logs.audit.before')}</th>
+                                                                            <th className="text-left px-2 py-1">{t('settings.logs.audit.after')}</th>
                                                                         </tr>
                                                                     </thead>
                                                                     <tbody>
@@ -3844,15 +6158,15 @@ export const SettingsDashboard: React.FC = () => {
                                                     disabled={auditLogPage === 1}
                                                     onClick={() => setAuditLogPage(p => Math.max(1, p - 1))}
                                                 >
-                                                    Previous
+                                                    {t('settings.logs.pagination.previous')}
                                                 </button>
-                                                <span className="text-xs text-muted">Page {auditLogPage} of {totalAuditLogPages}</span>
+                                                <span className="text-xs text-muted">{t('settings.logs.pagination.pageOf', { page: auditLogPage, total: totalAuditLogPages })}</span>
                                                 <button
                                                     className="px-3 py-1.5 bg-border text-text rounded-md font-semibold hover:bg-opacity-80 disabled:opacity-50"
                                                     disabled={auditLogPage === totalAuditLogPages}
                                                     onClick={() => setAuditLogPage(p => Math.min(totalAuditLogPages, p + 1))}
                                                 >
-                                                    Next
+                                                    {t('settings.logs.pagination.next')}
                                                 </button>
                                             </div>
                                         )}
@@ -3863,29 +6177,29 @@ export const SettingsDashboard: React.FC = () => {
                     )}
                     {activeTab === 'logs' && (
                         <div className="mb-8 animate-fade-in space-y-8">
-                            <h3 className="text-xl font-bold text-plex mb-4 border-b border-border pb-2">Logs & Audit</h3>
+                            <h3 className="text-xl font-bold text-plex mb-4 border-b border-border pb-2">{t('settings.navigation.tabs.logs')}</h3>
 
                             <section className="space-y-3">
                                 <div className="flex items-center justify-between">
-                                    <h4 className="font-bold text-text">Deleted User Blocklist</h4>
+                                    <h4 className="font-bold text-text">{t('settings.logs.blocklist.title')}</h4>
                                     <span className="px-2 py-1 rounded text-xs font-semibold bg-red-500/20 text-red-300">{deletedUsersLog.length}</span>
                                 </div>
                                 <div className="space-y-2">
                                     {deletedUsersLog.length === 0 ? (
-                                        <p className="text-sm text-muted">No deleted users are currently blocked.</p>
+                                        <p className="text-sm text-muted">{t('settings.logs.blocklist.empty')}</p>
                                     ) : (
                                         deletedUsersLog.map((deletedUser) => (
                                             <div key={deletedUser.blockId} className="py-3 border-b border-border/40 flex items-center justify-between gap-3 last:border-b-0">
                                                 <div className="min-w-0">
-                                                    <p className="text-sm font-semibold text-text truncate">{deletedUser.username || 'Unknown user'}</p>
-                                                    <p className="text-xs text-muted truncate">{deletedUser.email || deletedUser.plexId || deletedUser.id || 'No identifier'}</p>
-                                                    <p className="text-[11px] text-muted/80">Deleted {formatDateTime(deletedUser.deletedAt)} by {deletedUser.deletedBy || 'admin'}</p>
+                                                    <p className="text-sm font-semibold text-text truncate">{deletedUser.username || t('settings.logs.blocklist.unknownUser')}</p>
+                                                    <p className="text-xs text-muted truncate">{deletedUser.email || deletedUser.plexId || deletedUser.id || t('settings.logs.blocklist.noIdentifier')}</p>
+                                                    <p className="text-[11px] text-muted/80">{t('settings.logs.blocklist.deletedBy', { date: formatDateTime(deletedUser.deletedAt), actor: deletedUser.deletedBy || t('settings.logs.blocklist.defaultActor') })}</p>
                                                 </div>
                                                 <button
                                                     className="px-3 py-1.5 bg-border text-text rounded text-xs font-semibold hover:bg-opacity-80"
                                                     onClick={() => handleUnblockDeletedUser(deletedUser)}
                                                 >
-                                                    Unblock
+                                                    {t('settings.logs.actions.unblock')}
                                                 </button>
                                             </div>
                                         ))
@@ -3895,22 +6209,22 @@ export const SettingsDashboard: React.FC = () => {
 
                             <section className="space-y-3">
                                 <div className="flex items-center justify-between">
-                                    <h4 className="font-bold text-text">Email Log</h4>
+                                    <h4 className="font-bold text-text">{t('settings.logs.email.title')}</h4>
                                     <button className="px-3 py-1.5 bg-border text-text rounded-md font-semibold hover:bg-opacity-80" onClick={fetchAuditLog}>
-                                        {isLoadingAuditLog ? 'Refreshing...' : 'Refresh'}
+                                        {isLoadingAuditLog ? t('settings.logs.actions.refreshing') : t('settings.logs.actions.refresh')}
                                     </button>
                                 </div>
                                 {pagedEmailEntries.length === 0 ? (
-                                    <p className="text-sm text-muted">No system emails have been logged yet.</p>
+                                    <p className="text-sm text-muted">{t('settings.logs.email.empty')}</p>
                                 ) : (
                                     <div className="space-y-2">
                                         {pagedEmailEntries.map((entry) => (
                                             <div key={entry.id} className="py-3 border-b border-border/40 last:border-b-0">
                                                 <div className="flex items-start justify-between gap-3">
-                                                    <p className="text-sm font-semibold text-text line-clamp-1">{entry.details?.subject || 'System Email'}</p>
+                                                    <p className="text-sm font-semibold text-text line-clamp-1">{entry.details?.subject || t('settings.logs.email.systemEmail')}</p>
                                                     <span className="text-[11px] text-muted whitespace-nowrap">{formatDateTime(entry.timestamp)}</span>
                                                 </div>
-                                                <p className="text-xs text-muted mt-1">To: {entry.target?.username || entry.target?.email || 'Unknown user'}</p>
+                                                <p className="text-xs text-muted mt-1">{t('settings.logs.email.to')}: {entry.target?.username || entry.target?.email || t('settings.logs.blocklist.unknownUser')}</p>
                                             </div>
                                         ))}
                                         {totalEmailLogPages > 1 && (
@@ -3920,15 +6234,15 @@ export const SettingsDashboard: React.FC = () => {
                                                     disabled={emailLogPage === 1}
                                                     onClick={() => setEmailLogPage(p => Math.max(1, p - 1))}
                                                 >
-                                                    Previous
+                                                    {t('settings.logs.pagination.previous')}
                                                 </button>
-                                                <span className="text-xs text-muted">Page {emailLogPage} of {totalEmailLogPages}</span>
+                                                <span className="text-xs text-muted">{t('settings.logs.pagination.pageOf', { page: emailLogPage, total: totalEmailLogPages })}</span>
                                                 <button
                                                     className="px-3 py-1.5 bg-border text-text rounded-md font-semibold hover:bg-opacity-80 disabled:opacity-50"
                                                     disabled={emailLogPage === totalEmailLogPages}
                                                     onClick={() => setEmailLogPage(p => Math.min(totalEmailLogPages, p + 1))}
                                                 >
-                                                    Next
+                                                    {t('settings.logs.pagination.next')}
                                                 </button>
                                             </div>
                                         )}
@@ -3938,12 +6252,20 @@ export const SettingsDashboard: React.FC = () => {
                         </div>
                     )}
                         </div>
-                        <div className="flex justify-end gap-4 mt-8 pt-6 border-t border-border/50">
-                            <a href="https://jl94x4.github.io/Server-Manager-Portal/" target="_blank" rel="noreferrer" className="w-full sm:w-auto px-6 py-3 bg-border text-text rounded-lg font-bold hover:bg-opacity-80 transition-colors flex items-center justify-center gap-2">
-                                <BookOpen className="w-5 h-5" /> Docs
+                        <StickySaveBar>
+                            <a href="https://jl94x4.github.io/StreamPilot/" target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-2 rounded-xl bg-white/[0.06] px-3.5 py-2.5 text-sm font-bold text-text transition-colors hover:bg-white/10">
+                                <BookOpen className="h-4 w-4" /> Docs
                             </a>
-                            <button className="w-full sm:w-auto px-6 py-3 bg-plex text-background rounded-lg font-bold hover:bg-plex-hover transition-colors flex items-center justify-center gap-2 shadow-lg shadow-plex/10" onClick={handleSave}>{activeTab === 'stream-rules' ? 'Save Stream Rules' : 'Save Settings'}</button>
-                        </div>
+                            <button
+                                type="button"
+                                className="inline-flex items-center justify-center gap-2 rounded-xl bg-plex px-4 py-2.5 text-sm font-bold text-background shadow-lg shadow-plex/15 transition-colors hover:bg-plex-hover disabled:opacity-50"
+                                onClick={handleSave}
+                                disabled={isLoading}
+                            >
+                                <Save className="h-4 w-4" />
+                                {activeTab === 'stream-rules' ? 'Save Stream Rules' : 'Save Settings'}
+                            </button>
+                        </StickySaveBar>
                     </div>
                 </div>
             </div>

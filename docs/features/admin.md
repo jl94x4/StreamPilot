@@ -17,7 +17,7 @@ The **Users** page includes usernames, email addresses, avatars, access expiry, 
 
 ## Settings
 
-Settings covers media-server integration, SMTP, Gotify, newsletter, Media Stack (ARR + download clients), **Request**, branding, navigation order, home layout, status services, invites, tasks, **Upgrader**, **Collexions**, stream rules, system, and diagnostics.
+Settings covers media-server integration, SMTP, Gotify, newsletter, Media Stack (ARR + download clients), **Request**, branding, navigation order, home layout, status services, invites, tasks, **Upgrader**, **Collexions**, **Spotify Sync**, stream rules, system, and diagnostics.
 
 ## Home Layout
 
@@ -29,6 +29,7 @@ Admins can reorder major home sections, hide or show them, and preview the resul
 | --- | --- |
 | Requests | [Discover & Request](/features/discover-request) |
 | ColleXions | [ColleXions](/features/collexions) |
+| Spotify Sync | [Spotify Sync](/features/spotify-sync) |
 | Upgrader | [Upgrader](/features/upgrader) |
 | Cleaner | [Cleaner](/features/cleaner) |
 | Calendar | [Calendar](/features/calendar) |

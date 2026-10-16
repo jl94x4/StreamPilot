@@ -477,7 +477,7 @@ const Creator: React.FC = () => {
                         </div>
                         <div>
                             <h3 className="text-lg font-bold text-white whitespace-nowrap">Sort Order</h3>
-                            <p className="text-sm text-slate-400">Plex collection sorting</p>
+                            <p className="text-sm text-slate-400">Random reshuffles every time the collection is opened (Kometa-style label smart collection).</p>
                         </div>
                     </div>
                     <CustomSelect

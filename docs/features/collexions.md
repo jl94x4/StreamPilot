@@ -46,6 +46,12 @@ See also [Docker → ColleXions](/guide/docker#collexions-bundled).
 - Portal admin access
 - Feature enabled in Settings (nav item appears when the flag is on)
 
+## External sidecar (advanced)
+
+The bundled worker is the default. If you run ColleXions as a **separate Python process** instead, configure the portal with your sidecar URL and service key in Settings → ColleXions.
+
+Long-running sync jobs (collections, hubs, search, config import) can take several minutes. Set the sidecar Gunicorn (or reverse-proxy) timeout to **at least 600 seconds** so Run Now / bulk operations do not fail with gateway timeouts. The portal BFF allows up to 10 minutes for these proxy routes when embedded mode is used.
+
 ## Related
 
 - [Docker Deployment](/guide/docker#collexions-bundled)

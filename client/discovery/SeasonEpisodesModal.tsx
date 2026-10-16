@@ -38,16 +38,28 @@ type Props = {
     onClose: () => void;
 };
 
-const formatAirDate = (value?: string | null) => {
+const formatAirDate = (value?: string | null, locale = 'en') => {
     if (!value) return null;
     const parsed = new Date(value);
     if (Number.isNaN(parsed.getTime())) return null;
-    return parsed.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    return parsed.toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric' });
 };
 
 const episodeCode = (seasonNumber?: number, episodeNumber?: number) => {
     if (seasonNumber == null || episodeNumber == null) return null;
     return `S${String(seasonNumber).padStart(2, '0')}E${String(episodeNumber).padStart(2, '0')}`;
+};
+
+const formatSeasonName = (
+    name: string | undefined,
+    seasonNumber: number,
+    t: ReturnType<typeof useDiscoverI18n>['t'],
+) => {
+    const raw = String(name || '').trim();
+    if (raw === 'Specials') return t('common.specials');
+    const seasonMatch = raw.match(/^Season\s+(\d+)$/i);
+    if (seasonMatch) return t('common.seasonN', { number: seasonMatch[1] });
+    return raw || t('common.seasonN', { number: seasonNumber });
 };
 
 export const SeasonEpisodesModal: React.FC<Props> = ({
@@ -113,12 +125,12 @@ export const SeasonEpisodesModal: React.FC<Props> = ({
     const episodes = Array.isArray(season?.episodes) ? season.episodes : [];
     const headerPoster = season?.posterPath || showPosterPath;
     const headerPosterUrl = resolveTmdbImageUrl(headerPoster, 'w185');
-    const displaySeasonName = season?.name || seasonName;
+    const displaySeasonName = formatSeasonName(season?.name || seasonName, seasonNumber, t);
     const totalEpisodes = episodes.length || episodeCount || 0;
 
     return (
         <ModalPortal open={open}>
-            <div className="fixed inset-0 z-[300] flex items-center justify-center p-0 sm:p-6 md:p-12">
+            <div className="fixed inset-x-0 top-0 z-[340] flex min-h-0 items-stretch justify-center p-0 sm:items-center sm:p-6 md:p-12 bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] sm:inset-0">
                 <button
                     type="button"
                     aria-label={t('episodes.closeAria')}
@@ -129,13 +141,13 @@ export const SeasonEpisodesModal: React.FC<Props> = ({
                     role="dialog"
                     aria-modal="true"
                     aria-labelledby="season-episodes-modal-title"
-                    className="relative w-full max-w-5xl h-full sm:h-[90vh] bg-card border-none sm:border border-border/80 shadow-2xl flex flex-col overflow-hidden rounded-none sm:rounded-2xl mx-auto"
+                    className="relative w-full max-w-5xl h-full min-h-0 sm:h-[90vh] bg-card border-none sm:border border-border/80 shadow-2xl flex flex-col overflow-hidden rounded-none sm:rounded-2xl mx-auto"
                 >
-                    <div className="px-4 sm:px-5 py-4 border-b border-border/60 space-y-4 shrink-0">
+                    <div className="px-4 sm:px-5 pt-[calc(0.75rem+env(safe-area-inset-top,0px))] pb-4 sm:pt-4 border-b border-border/60 space-y-4 shrink-0">
                         <button
                             type="button"
                             onClick={onClose}
-                            className="inline-flex items-center gap-1.5 px-2 py-1 -ml-2 rounded-lg hover:bg-white/10 text-muted hover:text-text text-sm font-bold transition-colors"
+                            className="inline-flex items-center gap-1.5 min-h-11 px-2 py-2 -ml-2 rounded-lg hover:bg-white/10 text-muted hover:text-text text-sm font-bold transition-colors"
                         >
                             <ChevronLeft className="w-4 h-4" />
                             {t('episodes.backToShow')}
@@ -191,7 +203,7 @@ export const SeasonEpisodesModal: React.FC<Props> = ({
                             <div className="divide-y divide-border/40">
                                 {episodes.map((episode) => {
                                     const code = episodeCode(episode.seasonNumber ?? seasonNumber, episode.episodeNumber);
-                                    const airDate = formatAirDate(episode.airDate);
+                                    const airDate = formatAirDate(episode.airDate, locale);
                                     const stillUrl = episode.stillPath
                                         ? `https://image.tmdb.org/t/p/w300${episode.stillPath}`
                                         : '';
@@ -200,7 +212,11 @@ export const SeasonEpisodesModal: React.FC<Props> = ({
                                             key={episode.id}
                                             className="group flex flex-col sm:flex-row items-start gap-4 p-4 sm:p-5 hover:bg-white/[0.02] transition-colors"
                                         >
-                                            <div className="w-full sm:w-48 aspect-video rounded-xl overflow-hidden bg-white/5 shrink-0 flex items-center justify-center relative shadow-lg">
+                                            <div className={`rounded-xl overflow-hidden bg-white/5 shrink-0 flex items-center justify-center relative ${
+                                                stillUrl
+                                                    ? 'w-full sm:w-48 aspect-video shadow-lg'
+                                                    : 'hidden sm:flex sm:w-48 sm:aspect-video'
+                                            }`}>
                                                 {stillUrl ? (
                                                     <img
                                                         src={stillUrl}
