@@ -193,9 +193,13 @@ export const MainApp: React.FC = () => {
             setPublicConfig(data);
             setPublicConfigWarning(null);
 
-            if (data.customFaviconUrl || data.customLogoUrl) {
-                updateFavicon(data.customFaviconUrl || data.customLogoUrl);
+            if (data.appleTouchIconHref) {
+                (window as any).__APPLE_TOUCH_ICON_HREF__ = data.appleTouchIconHref;
             }
+            if (data.homeScreenIconRev) {
+                (window as any).__HOME_SCREEN_ICON_REV__ = data.homeScreenIconRev;
+            }
+            updateFavicon(data.appleTouchIconHref || data.customFaviconUrl || data.customLogoUrl || 'application');
         } catch (e) {
             console.error('[portal] Failed to load public config:', e);
             setPublicConfigWarning('Portal branding settings could not be loaded. Defaults are being used.');

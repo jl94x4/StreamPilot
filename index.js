@@ -28,6 +28,8 @@ import {
     resolvePortalPushIconUrl,
     resolvePortalPushBadgeUrl,
     resolvePortalPwaManifestIconHref,
+    resolveAppleTouchIconHref,
+    homeScreenIconFileRev,
     HOME_SCREEN_ICON_REV,
     SERVER_PWA_ICON_BADGE_SCALE,
     SERVER_PWA_MASKABLE_BADGE_SCALE,
@@ -3362,7 +3364,7 @@ const isJellyfinConfigured = (config = {}) => (
 const isPortalConfigured = (config = {}) => isPlexConfigured(config) || isJellyfinConfigured(config);
 const isPublicStatusVisible = (config = {}) => config.showPublicStatusMonitor !== false;
 const arePublicLibraryStatsVisible = (config = {}) => config.showPublicLibraryStats !== false;
-const normalizePwaIconSource = (value, fallback = 'server') => {
+const normalizePwaIconSource = (value, fallback = 'application') => {
     const normalized = String(value || '').trim().toLowerCase();
     return normalized === 'application' || normalized === 'server' ? normalized : fallback;
 };
@@ -7014,7 +7016,7 @@ app.get('/api/config', requireAdmin, async (req, res) => {
                 customBadgeUrl: '',
                 brandingTheme: 'plex',
                 sidebarIdentityPosition: 'bottom',
-                pwaIconSource: 'server',
+                pwaIconSource: 'application',
                 backgroundImageUrl: '',
                 useScrollRevealAnimations: false,
                 useCinematicLoading: false,
@@ -8197,6 +8199,7 @@ async function fetchTmdbTrendingBackgrounds(apiKey) {
 app.get('/api/config/public', async (req, res) => {
     try {
         const config = (await loadFile(CONFIG_PATH, {})) || {};
+        const publicProfile = { serverName: 'StreamPilot', thumb: null };
         res.json({
             mediaServerType: config.mediaServerType || 'plex',
             jellyfinAnalyticsProvider: normalizeJellyfinAnalyticsProvider(config.jellyfinAnalyticsProvider, config),
@@ -8208,6 +8211,8 @@ app.get('/api/config/public', async (req, res) => {
             brandingTheme: config.brandingTheme || 'plex',
             sidebarIdentityPosition: ['top', 'bottom'].includes(String(config.sidebarIdentityPosition || '').toLowerCase()) ? String(config.sidebarIdentityPosition).toLowerCase() : 'bottom',
             pwaIconSource: normalizePwaIconSource(config.pwaIconSource),
+            appleTouchIconHref: resolveAppleTouchIconHref(config, publicProfile, resolvePublicAssetHref),
+            homeScreenIconRev: HOME_SCREEN_ICON_REV,
             backgroundImageUrl: normalizeBrandingAssetForMediaServer(config.backgroundImageUrl, config.mediaServerType),
             useScrollRevealAnimations: !!config.useScrollRevealAnimations,
             useCinematicLoading: !!config.useCinematicLoading,
@@ -8252,7 +8257,7 @@ app.get('/api/config/public', async (req, res) => {
             customFaviconUrl: '',
             brandingTheme: 'plex',
             sidebarIdentityPosition: 'bottom',
-            pwaIconSource: 'server',
+            pwaIconSource: 'application',
             backgroundImageUrl: '',
             useScrollRevealAnimations: false,
             useCinematicLoading: false,
@@ -16847,7 +16852,9 @@ const sendPortalBrandingIcon = async (req, res) => {
  */
 const sendWellKnownAppleTouchIcon = async (req, res) => {
     const sent = await sendStaticHomeScreenIconFile(res, [
+        `apple-touch-${homeScreenIconFileRev()}.png`,
         'apple-touch-icon.png',
+        'apple-touch-icon-180x180.png',
         'apple-touch-icon-precomposed.png',
         'apple-touch-icon-192.png',
         'pwa-icon-192.png',
@@ -22275,7 +22282,7 @@ const buildPwaManifest = async () => {
         publicBase,
     );
     const touchIcon = absolutizePublicHref(
-        `${resolvePublicAssetHref('/static/apple-touch-icon.png')}?v=${getPortalBrandingIconCacheKey(config, profile)}&hs=${HOME_SCREEN_ICON_REV}`,
+        resolveAppleTouchIconHref(config, profile, resolvePublicAssetHref),
         publicBase,
     );
     return {
@@ -22440,22 +22447,28 @@ const resolvePublicAssetHref = (url = '/static/logo.png') => {
 };
 
 const resolvePortalBrandingIconHref = (config = {}, profile = {}, baseUrl = '') => {
-    // Static file first (no API/rate-limit). Well-known /apple-touch-icon.png mirrors it.
-    const href = `${resolvePublicAssetHref('/static/apple-touch-icon.png')}?v=${getPortalBrandingIconCacheKey(config, profile)}&hs=${HOME_SCREEN_ICON_REV}`;
+    // Path includes HOME_SCREEN_ICON_REV so iOS A2HS cannot reuse a stale bitmap.
+    const href = resolveAppleTouchIconHref(config, profile, resolvePublicAssetHref);
     const root = String(baseUrl || '').replace(/\/+$/, '');
     if (root && href.startsWith('/')) return `${root}${href}`;
     return href;
 };
 
 const injectAppIconLinks = (html, iconHref) => {
-    const safeHref = escapeHtmlAttr(iconHref || resolvePublicAssetHref('/apple-touch-icon.png'));
+    const rawHref = String(iconHref || resolvePublicAssetHref(`/static/apple-touch-${homeScreenIconFileRev()}.png`)).trim();
+    const safeHref = escapeHtmlAttr(rawHref);
+    const wellKnownHref = escapeHtmlAttr(resolvePublicAssetHref('/apple-touch-icon.png'));
     const manifestHref = escapeHtmlAttr(withBasePath('/manifest.webmanifest'));
     const manifestTag = `<link rel="manifest" href="${manifestHref}" />`;
+    const bootScript = `<script>window.__APPLE_TOUCH_ICON_HREF__=${JSON.stringify(rawHref)};window.__HOME_SCREEN_ICON_REV__=${JSON.stringify(HOME_SCREEN_ICON_REV)};</script>`;
     const iconLinks = [
+        bootScript,
         `<link rel="icon" type="image/png" href="${safeHref}" />`,
         `<link rel="apple-touch-icon" href="${safeHref}" />`,
         `<link rel="apple-touch-icon" sizes="180x180" href="${safeHref}" />`,
         `<link rel="apple-touch-icon-precomposed" href="${safeHref}" />`,
+        // Safari also probes /apple-touch-icon.png; keep a second link for that probe path.
+        `<link rel="apple-touch-icon" sizes="180x180" href="${wellKnownHref}?hs=${encodeURIComponent(HOME_SCREEN_ICON_REV)}" />`,
     ].join('\n    ');
     let updated = html
         .replace(/<link\b(?=[^>]*\brel=["'][^"']*manifest[^"']*["'])[^>]*>\s*/gi, '')

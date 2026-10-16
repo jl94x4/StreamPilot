@@ -858,7 +858,7 @@ export const SettingsDashboard: React.FC = () => {
     const [tmdbApiKey, setTmdbApiKey] = useState('');
     const [brandingTheme, setBrandingTheme] = useState('plex');
     const [sidebarIdentityPosition, setSidebarIdentityPosition] = useState<'top' | 'bottom'>('bottom');
-    const [pwaIconSource, setPwaIconSource] = useState<'server' | 'application'>('server');
+    const [pwaIconSource, setPwaIconSource] = useState<'server' | 'application'>('application');
     const [referralEnabled, setReferralEnabled] = useState(false);
     const [referralTrialDays, setReferralTrialDays] = useState(3);
     const [referralRewardDays, setReferralRewardDays] = useState(7);
@@ -4602,7 +4602,7 @@ export const SettingsDashboard: React.FC = () => {
 
                                                 <div>
                                                     <SettingFieldLabel
-                                                        hint={<SettingHint>Controls the installed app icon, browser tab favicon, Android notification status-bar silhouette, and newsletter header. Server logo uses your Plex/Jellyfin branding or uploaded custom logo. Android can only show a monochrome outline of that logo in the status bar; the expanded notification still uses the full-color icon.</SettingHint>}
+                                                        hint={<SettingHint>Controls the installed home-screen icon, browser tab favicon, Android notification silhouette, and newsletter header. Choose Application logo for the stacked StreamPilot mark (recommended on iOS — Server logo often shows your Plex crest or a letter glyph). After changing this, remove the old home-screen icon and Add to Home Screen again so Safari picks up the new bitmap.</SettingHint>}
                                                     >
                                                         PWA Home Screen Icon
                                                     </SettingFieldLabel>
@@ -4610,8 +4610,8 @@ export const SettingsDashboard: React.FC = () => {
                                                         value={pwaIconSource}
                                                         onChange={(value) => setPwaIconSource(value === 'application' ? 'application' : 'server')}
                                                         options={[
-                                                            { label: 'Server logo (favicon)', value: 'server' },
-                                                            { label: 'Application logo', value: 'application' },
+                                                            { label: 'Application logo (StreamPilot stacked)', value: 'application' },
+                                                            { label: 'Server logo (Plex / Jellyfin)', value: 'server' },
                                                         ]}
                                                     />
                                                 </div>

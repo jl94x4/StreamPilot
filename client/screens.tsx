@@ -283,12 +283,16 @@ export const updateFavicon = (thumbUrl: string | null | undefined) => {
         appleLink.setAttribute('sizes', '180x180');
         document.head.appendChild(appleLink);
     }
-    // Prefer static PNG (never rate-limited JSON). Well-known /apple-touch-icon.png
-    // is also served as a real file for Safari's automatic A2HS probe.
-    const version = encodeURIComponent(String(thumbUrl || 'default').slice(-64));
-    const href = portalUrl(`/static/apple-touch-icon.png?v=${version}&hs=8`);
+    // Prefer the server-stamped apple-touch path (rev in the filename). iOS often
+    // ignores ?query cache-busts and will keep a letter-glyph forever otherwise.
+    const fromConfig = typeof window !== 'undefined'
+        ? String((window as any).__APPLE_TOUCH_ICON_HREF__ || '').trim()
+        : '';
+    const href = fromConfig
+        || portalUrl(`/static/apple-touch-hs12-ios-stacked-app.png?v=${encodeURIComponent(String(thumbUrl || 'default').slice(-64))}`);
     link.href = href;
     appleLink.href = href;
+    appleLink.setAttribute('sizes', '180x180');
 };
 
 // --- Components ---
