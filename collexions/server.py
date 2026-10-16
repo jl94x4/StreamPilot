@@ -5592,12 +5592,16 @@ def _scan_plex_web_collection_pages(plex_base, token, section_key, library_name,
                     start=start, page_size=page_size,
                 )
             except Exception as exc:
+                logging.error(
+                    "Plex Web %s page fetch failed for %s: %s",
+                    page_label, library_name, exc, exc_info=True,
+                )
                 suspects.append({
                     'title': f'({page_label} {accept} page {start}-{start + page_size - 1})',
                     'library': library_name,
                     'ratingKey': '',
                     'smart': False,
-                    'issues': [f'{page_label} page fetch error: {exc}'],
+                    'issues': [f'{page_label} page fetch failed'],
                 })
                 break
             if resp.status_code >= 400:
@@ -5713,7 +5717,8 @@ def _probe_collection_web_crash(plex_base, token, coll, library_name):
     except requests.Timeout:
         issues.append('metadata timed out')
     except Exception as exc:
-        issues.append(f'metadata error: {exc}')
+        logging.error("Collection metadata probe failed for %s: %s", rk, exc, exc_info=True)
+        issues.append('metadata request failed')
 
     thumb = (
         getattr(coll, 'thumb', None)
@@ -5762,7 +5767,8 @@ def _probe_collection_web_crash(plex_base, token, coll, library_name):
         except requests.Timeout:
             issues.append('poster transcode timed out (PhotoTranscoder)')
         except Exception as exc:
-            issues.append(f'poster error: {exc}')
+            logging.error("Collection poster probe failed for %s: %s", rk, exc, exc_info=True)
+            issues.append('poster request failed')
     else:
         issues.append('unsafe or missing poster path')
 
@@ -5916,7 +5922,7 @@ def _run_repair_job(lib_names, config):
                     totals[key] += int(row.get(key) or 0)
                 _repair_state_update(**totals)
             except Exception as exc:
-                errors.append(f"{name}: {exc}")
+                errors.append(_client_error(f"Failed to repair library {name}", exc))
                 _repair_state_update(errors=list(errors))
         GALLERY_CACHE['data'] = None
         GALLERY_CACHE['timestamp'] = 0
@@ -5928,8 +5934,12 @@ def _run_repair_job(lib_names, config):
         )
         _repair_state_update(running=False, phase='done', errors=errors, results=results, **totals)
     except Exception as exc:
-        logging.error(f"Collections tab repair failed: {exc}", exc_info=True)
-        _repair_state_update(running=False, phase='error', error=str(exc), errors=errors)
+        _repair_state_update(
+            running=False,
+            phase='error',
+            error=_client_error('Collections tab repair failed', exc),
+            errors=errors,
+        )
 
 
 @app.route('/api/collections/repair-web', methods=['GET', 'POST'])
