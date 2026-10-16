@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.9.3](https://github.com/jl94x4/StreamPilot/compare/v1.9.2...v1.9.3) (2026-10-16)
+
+
+### Bug Fixes
+
+* **docs,deps:** add media-automation page and pin proxy-addr 2.0.8 ([87c49f6](https://github.com/jl94x4/StreamPilot/commit/87c49f67acb39415ca6aa21ebc321b5d4c9907d8))
+
 ## [1.9.2](https://github.com/jl94x4/StreamPilot/compare/v1.9.1...v1.9.2) (2026-10-16)
 
 
