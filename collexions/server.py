@@ -1814,7 +1814,7 @@ def _match_external_to_plex(
             try:
                 results = library.search(title=title, libtype=libtype) if title else []
             except Exception as e:
-                logging.debug(f"Search failed for '{title}': {e}")
+                logging.debug("Plex title search failed for an external list item", exc_info=True)
                 results = []
             pick, reason = _pick_strict_plex_match(results, ext, lib_type)
             if pick is None:
@@ -7063,10 +7063,11 @@ if os.path.isdir(DIST_DIR):
     @app.route('/', defaults={'path': ''})
     @app.route('/<path:path>')
     def serve_spa(path):
-        # Let Flask serve actual static assets (JS, CSS, images)
-        full_path = os.path.join(DIST_DIR, path)
-        if path and os.path.isfile(full_path):
-            return send_from_directory(DIST_DIR, path)
+        # Resolve and confine to DIST_DIR so "../" segments can't escape it.
+        dist_root = os.path.realpath(DIST_DIR)
+        full_path = os.path.realpath(os.path.join(dist_root, path))
+        if path and full_path.startswith(dist_root + os.sep) and os.path.isfile(full_path):
+            return send_from_directory(dist_root, os.path.relpath(full_path, dist_root))
         # For everything else (client-side routes) return index.html
         return send_from_directory(DIST_DIR, 'index.html')
 
@@ -7084,4 +7085,6 @@ if __name__ == "__main__":
             f.write("Log file created.\n")
 
     # IMPORTANT: use_reloader=False prevents the server from restarting when files change
-    app.run(host="0.0.0.0", port=5000, debug=True, use_reloader=False)
+    # Debug mode exposes the Werkzeug debugger (remote code execution); opt-in only.
+    debug_mode = os.environ.get('FLASK_DEBUG', '').strip().lower() in ('1', 'true', 'yes')
+    app.run(host="0.0.0.0", port=5000, debug=debug_mode, use_reloader=False)

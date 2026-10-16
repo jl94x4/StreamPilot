@@ -283,7 +283,7 @@ const Creator: React.FC = () => {
         if (!names.length) return '';
         const expected = mediaFromItems(items)
             || mediaFromSourceType(
-                sourceUrl.includes('mdblist.com') ? 'mdblist' : 'trakt_list',
+                isMdbListUrl(sourceUrl) ? 'mdblist' : 'trakt_list',
             );
         if (expected) {
             const match = plexLibraries.find(
