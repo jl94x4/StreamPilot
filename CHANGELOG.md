@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.9.2](https://github.com/jl94x4/StreamPilot/compare/v1.9.1...v1.9.2) (2026-10-16)
+
+
+### Bug Fixes
+
+* **unraid:** use ASCII dash in ca_profile.xml Profile text ([c61cb41](https://github.com/jl94x4/StreamPilot/commit/c61cb41ab1edd63001b0c302fab7b4b15ba79220))
+
 ## [1.9.1](https://github.com/jl94x4/StreamPilot/compare/v1.9.0...v1.9.1) (2026-10-11)
 
 
