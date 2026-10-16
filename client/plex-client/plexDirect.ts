@@ -4463,20 +4463,22 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
 
 const wikiText = (html: string) => {
     let text = String(html || '');
+    // End tags allow optional attributes/whitespace: </script\t\n foo>
     for (let i = 0; i < 5; i += 1) {
         const next = text
-            .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, ' ')
-            .replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, ' ')
-            .replace(/<\/?[a-z][^>]*>/gi, ' ');
+            .replace(/<script\b[^>]*>[\s\S]*?<\/script\b[^>]*>/gi, ' ')
+            .replace(/<style\b[^>]*>[\s\S]*?<\/style\b[^>]*>/gi, ' ')
+            .replace(/<\/?[a-zA-Z][^>]*>/g, ' ');
         if (next === text) break;
         text = next;
     }
     return text
+        .replace(/[<>]/g, ' ')
         .replace(/&quot;/g, '"')
         .replace(/&#0?39;/g, "'")
         .replace(/&nbsp;/g, ' ')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
+        .replace(/&lt;/g, ' ')
+        .replace(/&gt;/g, ' ')
         .replace(/&amp;/g, '&')
         .replace(/\s+/g, ' ')
         .trim();

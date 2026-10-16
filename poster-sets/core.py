@@ -849,7 +849,8 @@ def _posterdb_cookie_expired(row: dict) -> bool:
 def _posterdb_session_cache_key(user: str, password: str) -> str:
     # Fingerprint for in-memory session cache only — not password verification/storage.
     material = f"{user}\0{password}".encode("utf-8")
-    digest = hashlib.sha256(material).hexdigest()[:20]  # codeql[py/weak-sensitive-data-hashing]
+    # codeql[py/weak-sensitive-data-hashing]: cache-key fingerprint, not password hashing
+    digest = hashlib.sha256(material).hexdigest()[:20]
     return f"{user.lower()}:{digest}"
 
 
