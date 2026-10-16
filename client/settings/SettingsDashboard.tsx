@@ -37,6 +37,7 @@ import {
 } from 'lucide-react';
 import { apiFetch, PORTAL_CSRF_HEADER, PORTAL_CSRF_VALUE } from '../shared/api';
 import { portalUrl, resolvePortalAssetUrl } from '../shared/basePath';
+import { safeHttpUrl, safeImageSrc } from '../shared/safeUrl';
 import { appConfirm } from '../shared/confirm';
 import { usePoll } from '../shared/usePoll';
 import { CustomSelect, SettingsSwitch, SettingsToggleRow } from '../shared/ui';
@@ -2603,10 +2604,13 @@ export const SettingsDashboard: React.FC = () => {
         }
     };
 
-    const splashPreviewLogoSrc = loginLogoPreviewUrl
+    const splashPreviewLogoSrc = safeImageSrc(
+        loginLogoPreviewUrl
         || resolvePortalAssetUrl(customLoginLogoUrl)
         || logoPreviewUrl
-        || resolvePortalAssetUrl(customLogoUrl);
+        || resolvePortalAssetUrl(customLogoUrl),
+    );
+    const requestAppBaseUrl = safeHttpUrl(requestAppUrl).replace(/\/$/, '');
     const splashPreviewBackgroundSrc = backgroundPreviewUrl || resolvePortalAssetUrl(backgroundImageUrl);
     const splashPreviewKey = `${splashPreviewLogoSrc || 'no-logo'}|${splashPreviewBackgroundSrc || 'no-background'}`;
 
@@ -4008,7 +4012,7 @@ export const SettingsDashboard: React.FC = () => {
                             </div>
                             )}
 
-                            {requestEngine === 'seerr' && requestAppType !== 'none' && requestAppUrl && (
+                            {requestEngine === 'seerr' && requestAppType !== 'none' && requestAppBaseUrl && (
                                 <div className="rounded-xl border border-border bg-card/60 p-4 space-y-3">
                                     <h4 className="font-bold text-text">Seerr / Overseerr rules</h4>
                                     <p className="text-sm text-muted">
@@ -4017,7 +4021,7 @@ export const SettingsDashboard: React.FC = () => {
                                     </p>
                                     <div className="flex flex-wrap gap-2">
                                         <a
-                                            href={`${String(requestAppUrl).replace(/\/$/, '')}/settings/users`}
+                                            href={`${requestAppBaseUrl}/settings/users`}
                                             target="_blank"
                                             rel="noreferrer"
                                             className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-background text-sm font-bold text-text hover:border-plex/40 hover:text-plex transition-colors"
@@ -4025,7 +4029,7 @@ export const SettingsDashboard: React.FC = () => {
                                             Users &amp; permissions
                                         </a>
                                         <a
-                                            href={`${String(requestAppUrl).replace(/\/$/, '')}/settings/main`}
+                                            href={`${requestAppBaseUrl}/settings/main`}
                                             target="_blank"
                                             rel="noreferrer"
                                             className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-background text-sm font-bold text-text hover:border-plex/40 hover:text-plex transition-colors"
@@ -4033,7 +4037,7 @@ export const SettingsDashboard: React.FC = () => {
                                             Main settings
                                         </a>
                                         <a
-                                            href={`${String(requestAppUrl).replace(/\/$/, '')}/settings/services`}
+                                            href={`${requestAppBaseUrl}/settings/services`}
                                             target="_blank"
                                             rel="noreferrer"
                                             className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-background text-sm font-bold text-text hover:border-plex/40 hover:text-plex transition-colors"

@@ -2,7 +2,7 @@
 FROM jjdenhertog/spotify-to-plex:latest@sha256:a4a183007ae6e176626e0081d7349caece9cf9faa131ce2f1ae9ce8a584cf342 AS spotify-to-plex-bundle
 
 # --- Build frontend assets and version stamp ---
-FROM node:22-bookworm-slim AS builder
+FROM node:26-bookworm-slim AS builder
 
 WORKDIR /app
 
@@ -30,7 +30,7 @@ RUN npm run build \
     && npm cache clean --force
 
 # --- Production image ---
-FROM node:22-bookworm-slim AS runner
+FROM node:26-bookworm-slim AS runner
 
 WORKDIR /app
 

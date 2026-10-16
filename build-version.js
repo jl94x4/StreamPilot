@@ -5,7 +5,7 @@ import { resolvePackageVersion } from './lib/resolve-package-version.js';
 const normalizeSha = (sha, pkgVersion) => {
     if (!sha) return '';
     const trimmed = String(sha).trim();
-    const prefixRegex = new RegExp(`^v${pkgVersion.replace(/\./g, '\\.')}-`, 'i');
+    const prefixRegex = new RegExp(`^v${String(pkgVersion).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-`, 'i');
     const withoutPrefix = trimmed.replace(prefixRegex, '');
     return withoutPrefix.slice(0, 7);
 };

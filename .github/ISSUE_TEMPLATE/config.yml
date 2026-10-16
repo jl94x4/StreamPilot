@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://jl94x4.github.io/StreamPilot/
+    about: Setup guides and feature docs. Check here before opening an issue.

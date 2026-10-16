@@ -18,36 +18,32 @@ def test_mdblist():
         return
 
     # Basic test to get users lists
-    url = f"https://mdblist.com/api/lists/user/?apikey={api_key}"
-    print(f"Testing MDBList User Lists Endpoint: {url.split('?')[0]}")
+    # Pass the key via params so it never appears in anything we print.
+    lists_endpoint = "https://mdblist.com/api/lists/user/"
+    print(f"Testing MDBList User Lists Endpoint: {lists_endpoint}")
     
     try:
-        resp = requests.get(url, timeout=10)
+        resp = requests.get(lists_endpoint, params={"apikey": api_key}, timeout=10)
         print(f"Status: {resp.status_code}")
         if resp.status_code == 200:
             data = resp.json()
             print(f"Success! Found {len(data)} lists.")
-            if len(data) > 0:
-                print("First list:", data[0].get('name'))
         else:
-            print(f"Error: {resp.text}")
+            print("Error: request failed (response body omitted; it may echo the API key)")
     except Exception as e:
         print(f"Exception: {e}")
 
     # Top Lists test
-    toplists_url = f"https://mdblist.com/api/toplists/?apikey={api_key}"
-    print(f"\nTesting MDBList Top Lists Endpoint: {toplists_url.split('?')[0]}")
+    toplists_endpoint = "https://mdblist.com/api/toplists/"
+    print(f"\nTesting MDBList Top Lists Endpoint: {toplists_endpoint}")
     try:
-        resp = requests.get(toplists_url, timeout=10)
+        resp = requests.get(toplists_endpoint, params={"apikey": api_key}, timeout=10)
         print(f"Status: {resp.status_code}")
         if resp.status_code == 200:
             data = resp.json()
             print(f"Success! Found {len(data)} top lists.")
-            if len(data) > 0:
-                for i in range(min(3, len(data))):
-                    print(f"- {data[i].get('name')} (User: {data[i].get('user')}, ID: {data[i].get('id')})")
         else:
-            print(f"Error: {resp.text}")
+            print("Error: request failed (response body omitted; it may echo the API key)")
     except Exception as e:
         print(f"Exception: {e}")
 

@@ -1,0 +1,37 @@
+# Labels applied to pull requests by .github/workflows/labeler.yml.
+
+# Type, from the conventional branch prefix (fix/..., feat/..., docs/...)
+bug:
+  - head-branch: ['^fix/', '^hotfix/', '^bugfix/']
+
+enhancement:
+  - head-branch: ['^feat/', '^feature/']
+
+# Area, from the files changed
+documentation:
+  - changed-files:
+      - any-glob-to-any-file: ['docs/**', '**/*.md']
+
+collexions:
+  - changed-files:
+      - any-glob-to-any-file: ['collexions/**', 'client/collexions/**']
+
+frontend:
+  - changed-files:
+      - any-glob-to-any-file: ['client/**', 'index.tsx', 'index.html', 'input.css', 'style.css', 'tailwind.config.js']
+
+backend:
+  - changed-files:
+      - any-glob-to-any-file: ['index.js', 'lib/**']
+
+docker:
+  - changed-files:
+      - any-glob-to-any-file: ['Dockerfile', 'docker-compose.yml', 'docker-entrypoint.sh', '.dockerignore', 'unraid/**']
+
+ci:
+  - changed-files:
+      - any-glob-to-any-file: ['.github/**']
+
+dependencies:
+  - changed-files:
+      - any-glob-to-any-file: ['package.json', 'package-lock.json', 'collexions/requirements.txt', 'collexions/package*.json']

@@ -1,84 +1,31 @@
-# Dependabot — security audit #109 supply-chain coverage
 version: 2
 updates:
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
-      day: monday
     open-pull-requests-limit: 10
-    labels:
-      - dependencies
-      - security
     groups:
-      production-npm:
-        dependency-type: production
-      development-npm:
-        dependency-type: development
-
-  - package-ecosystem: npm
-    directory: /collexions
-    schedule:
-      interval: weekly
-      day: monday
-    open-pull-requests-limit: 5
-    labels:
-      - dependencies
-      - security
-      - collexions
+      npm-minor-patch:
+        update-types: [minor, patch]
 
   - package-ecosystem: pip
     directory: /collexions
     schedule:
       interval: weekly
-      day: monday
-    open-pull-requests-limit: 5
-    labels:
-      - dependencies
-      - security
-      - python
-
-  - package-ecosystem: pip
-    directory: /poster-sets
-    schedule:
-      interval: weekly
-      day: monday
-    open-pull-requests-limit: 5
-    labels:
-      - dependencies
-      - security
-      - python
-
-  - package-ecosystem: docker
-    directory: /
-    schedule:
-      interval: weekly
-      day: monday
-    open-pull-requests-limit: 5
-    labels:
-      - dependencies
-      - security
-      - docker
-
-  - package-ecosystem: docker
-    directory: /collexions
-    schedule:
-      interval: weekly
-      day: monday
-    open-pull-requests-limit: 3
-    labels:
-      - dependencies
-      - security
-      - docker
-      - collexions
+    groups:
+      pip-minor-patch:
+        update-types: [minor, patch]
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
-      day: monday
-    open-pull-requests-limit: 10
-    labels:
-      - dependencies
-      - security
-      - github-actions
+    groups:
+      actions:
+        patterns: ['*']
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly

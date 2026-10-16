@@ -1,0 +1,44 @@
+name: Feature request
+description: Suggest an idea or improvement for StreamPilot
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: Please check the [roadmap label](https://github.com/jl94x4/StreamPilot/issues?q=label%3Aroadmap) and existing issues first.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      placeholder: I'm always frustrated when ...
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: What you'd like to happen.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - Setup wizard
+        - Users / access & expiry
+        - Requests / Discover
+        - Collexions
+        - Analytics / dashboards
+        - Notifications / email
+        - Settings
+        - Other
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Mockups, screenshots or links.

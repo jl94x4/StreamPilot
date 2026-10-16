@@ -982,7 +982,7 @@ def fetch_source_items(source_type, source_id, config):
                 api_key = config.get('mdblist_api_key')
                 if api_key:
                     parts = [p for p in source_id.strip().split('/') if p]
-                    if 'mdblist.com' in source_id.lower() and 'lists' in parts:
+                    if _is_mdblist_url(source_id) and 'lists' in parts:
                         lists_idx = parts.index('lists')
                         username = parts[lists_idx + 1]
                         list_slug = parts[lists_idx + 2] if len(parts) > lists_idx + 2 else ""
@@ -2795,7 +2795,8 @@ def _delete_plex_collection(library_name, title=None, rating_key=None):
                 coll.delete()
                 log_action(f"Deleted collection '{deleted_title}' (key {rating_key}) from '{library_name}'.")
             except Exception as e:
-                return False, str(e), []
+                logging.exception(f"Failed to delete collection key {rating_key} from '{library_name}'")
+                return False, "Failed to delete collection", []
             remaining = _find_collections_by_title(library, deleted_title) if deleted_title else []
             removed_jobs = _unregister_jobs_for_collection(library_name, deleted_title) if not remaining else []
             return True, None, removed_jobs
@@ -2810,7 +2811,8 @@ def _delete_plex_collection(library_name, title=None, rating_key=None):
         log_action(f"Deleted {len(matches)} collection(s) named '{deleted_title}' from '{library_name}'.")
         return True, None, removed_jobs
     except Exception as e:
-        return False, str(e), []
+        logging.exception(f"Failed to delete collection '{title}' from '{library_name}'")
+        return False, "Failed to delete collection", []
 
 
 def _as_live_collection(library, coll):
@@ -3176,7 +3178,7 @@ def create_collection_from_source(library_name, title, source_type, source_id=''
         try:
             items = fetch_source_items(source_type, source_id, config) or []
         except Exception as e:
-            fetch_error = str(e)
+            fetch_error = "Failed to fetch source items"
             logging.error(f"Failed to fetch upstream source items: {e}")
     elif source_type and items:
         try:
@@ -3249,10 +3251,10 @@ def create_collection_from_source(library_name, title, source_type, source_id=''
                 "web_fixes": web_fixes,
             }
     except RuntimeError as e:
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": "Failed to create collection"}
     except Exception as e:
         logging.error(f"create_collection_from_source error: {e}", exc_info=True)
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": "Failed to create collection"}
 
 
 def _stamp_job_run(job, status, error=''):
@@ -3584,6 +3586,27 @@ def _stop_background_process():
     _mark_script_stopped()
     return stopped
 
+def _is_mdblist_url(value):
+    """True when value's host is mdblist.com (or a subdomain), not merely containing the string."""
+    from urllib.parse import urlparse
+    raw = str(value or '').strip()
+    if '://' not in raw:
+        raw = 'https://' + raw
+    host = (urlparse(raw).hostname or '').lower()
+    return host == 'mdblist.com' or host.endswith('.mdblist.com')
+
+
+def _describe_request_error(exc):
+    """Map a connection exception to a fixed, client-safe message (no exception text)."""
+    if isinstance(exc, requests.exceptions.SSLError):
+        return 'SSL verification failed'
+    if isinstance(exc, requests.exceptions.Timeout):
+        return 'connection timed out'
+    if isinstance(exc, requests.exceptions.ConnectionError):
+        return 'connection refused or host unreachable'
+    return 'request failed'
+
+
 def _check_plex_quick(config, timeout=3):
     """Lightweight Plex reachability check (identity endpoint)."""
     url = str(config.get('plex_url') or '').rstrip('/')
@@ -3601,7 +3624,8 @@ def _check_plex_quick(config, timeout=3):
             return True, None
         return False, f'Plex returned HTTP {resp.status_code}'
     except Exception as e:
-        return False, str(e)[:200]
+        logging.warning(f"Plex quick check failed: {e}")
+        return False, _describe_request_error(e)
 
 
 @app.route('/api/health')
@@ -3874,7 +3898,8 @@ def get_logs():
                     headers={'Cache-Control': 'no-store, no-cache, must-revalidate'},
                 )
         except Exception as e:
-            return f"Error reading log file: {e}"
+            logging.exception("Error reading log file")
+            return "Error reading log file."
     return "No logs found. Run the script to generate logs."
 
 @app.route('/api/logs/clear', methods=['POST'])
@@ -3887,7 +3912,8 @@ def clear_logs():
             return jsonify({"success": True})
         return jsonify({"error": "Log file not found"}), 404
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        logging.exception("Failed to clear logs")
+        return jsonify({"error": "Failed to clear logs"}), 500
 
 @app.route('/api/config', methods=['GET', 'POST'])
 @require_auth
@@ -4018,7 +4044,8 @@ def validate_config_endpoint():
                     else:
                         errors.append(f'Library "{lib}" was not found on this Plex server.')
         except Exception as e:
-            errors.append(f'Cannot connect to Plex with these credentials: {e}')
+            logging.warning(f"Plex validation connection failed: {e}")
+            errors.append(f'Cannot connect to Plex with these credentials: {_describe_request_error(e)}')
 
     # Dedupe while preserving order
     def _uniq(items):
@@ -6886,8 +6913,8 @@ def get_mdblist():
         # Example URL: https://mdblist.com/lists/mojoard_pk/super-cool-movies
         parts = [p for p in url.strip().split('/') if p]
         
-        # Make sure it's a valid mdblist.com URL
-        if 'mdblist.com' not in url.lower():
+        # Make sure it's a valid mdblist.com URL (host check, not substring)
+        if not _is_mdblist_url(url):
             return jsonify({"error": "Not a valid MDBList URL. Must be from mdblist.com"}), 400
             
         # Expecting at least 4 parts: ['https:', 'mdblist.com', 'lists', 'username']

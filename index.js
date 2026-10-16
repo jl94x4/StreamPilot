@@ -41,6 +41,10 @@ import {
     withWildcard,
 } from './lib/express-wildcard.js';
 import {
+    readWildcardPath,
+    withWildcard,
+} from './lib/express-wildcard.js';
+import {
     getDefaultScannerConfig,
     normalizeScannerConfig,
     maskScannerConfigForApi,

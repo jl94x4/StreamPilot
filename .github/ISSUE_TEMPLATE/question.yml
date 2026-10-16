@@ -1,0 +1,27 @@
+name: Question / support
+description: Ask for help with setup or usage
+labels: [question]
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: StreamPilot version
+  - type: dropdown
+    id: install
+    attributes:
+      label: Install method
+      options:
+        - Docker / Docker Compose
+        - Unraid
+        - Manual (Node.js)
+        - Other
+  - type: textarea
+    id: tried
+    attributes:
+      label: What have you tried?

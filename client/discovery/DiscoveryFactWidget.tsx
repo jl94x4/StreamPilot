@@ -22,8 +22,12 @@ function cleanWikiText(raw: string): string {
     text = text.replace(/<ref[^>]*>[\s\S]*?<\/ref>/gi, '');
     text = text.replace(/<ref[^/]*\/>/gi, '');
 
-    // Remove HTML tags
-    text = text.replace(/<[^>]+>/g, '');
+    // Remove HTML tags (repeat until stable so nested fragments like "<scr<b>ipt>" can't reassemble)
+    let previous: string;
+    do {
+        previous = text;
+        text = text.replace(/<[^>]+>/g, '');
+    } while (text !== previous);
 
     // Strip == Section headings == (any level: ==, ===, ====)
     text = text.replace(/={2,}\s*[^=\n]+?\s*={2,}/g, '');

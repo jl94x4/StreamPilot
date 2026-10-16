@@ -139,6 +139,17 @@ type PlexLibraryInfo = { name: string; type: string };
 
 type MediaKind = 'movie' | 'show';
 
+/** True when the URL's host is mdblist.com (or a subdomain), not just containing the text. */
+const isMdbListUrl = (value: string): boolean => {
+    const raw = String(value || '').trim();
+    try {
+        const host = new URL(raw.includes('://') ? raw : `https://${raw}`).hostname.toLowerCase();
+        return host === 'mdblist.com' || host.endsWith('.mdblist.com');
+    } catch {
+        return false;
+    }
+};
+
 const normalizeMediaKind = (value?: string | null): MediaKind | null => {
     const v = String(value || '').trim().toLowerCase();
     if (v === 'movie' || v === 'movies' || v === 'film' || v === 'films') return 'movie';
@@ -711,7 +722,7 @@ const Creator: React.FC = () => {
 
     const loadImportedList = async (url: string, preferredTitle?: string) => {
         let items: any[] = [];
-        if (url.includes('mdblist.com')) {
+        if (isMdbListUrl(url)) {
             items = await api.getMdbList(url);
         } else {
             items = await api.getTraktList(url);
@@ -959,7 +970,7 @@ const Creator: React.FC = () => {
     const handleCreateFromExternal = async () => {
         if (!targetLibrary || !collectionTitle) return;
         const isDiscover = activeSubTab === 'discover';
-        const isMdbList = importUrl.includes('mdblist.com');
+        const isMdbList = isMdbListUrl(importUrl);
         const sourceType = activeSubTab === 'import' ? (isMdbList ? 'mdblist' : 'trakt_list') :
             (isDiscover ? 'tmdb_discover' : 'trakt_trending_movie');
         const itemsToUse = isDiscover ? discoverResults : importedItems;

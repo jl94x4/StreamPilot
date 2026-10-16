@@ -5,6 +5,17 @@ import { api } from '../services/api';
 import { CustomSelect } from '../components/ui/Inputs';
 import { AppConfig } from '../types';
 
+/** True when the URL's host is mdblist.com (or a subdomain), not just containing the text. */
+const isMdbListUrl = (value: string): boolean => {
+    const raw = String(value || '').trim();
+    try {
+        const host = new URL(raw.includes('://') ? raw : `https://${raw}`).hostname.toLowerCase();
+        return host === 'mdblist.com' || host.endsWith('.mdblist.com');
+    } catch {
+        return false;
+    }
+};
+
 const Creator: React.FC = () => {
     const [activeSubTab, setActiveSubTab] = useState<'trending' | 'discover' | 'search' | 'import' | 'manual'>('trending');
     const [config, setConfig] = useState<AppConfig | null>(null);
@@ -168,7 +179,7 @@ const Creator: React.FC = () => {
             let items = [];
             let sourceType = '';
 
-            if (importUrl.includes('mdblist.com')) {
+            if (isMdbListUrl(importUrl)) {
                 items = await api.getMdbList(importUrl);
                 sourceType = 'mdblist';
             } else {
@@ -286,7 +297,7 @@ const Creator: React.FC = () => {
         setCreating(true);
         try {
             const isDiscover = activeSubTab === 'discover';
-            const isMdbList = importUrl.includes('mdblist.com');
+            const isMdbList = isMdbListUrl(importUrl);
             const sourceType = activeSubTab === 'import' ? (isMdbList ? 'mdblist' : 'trakt_list') :
                 (isDiscover ? 'tmdb_discover' : 'trakt_trending_movie');
             const sourceId = activeSubTab === 'import' ? importUrl :
