@@ -57,10 +57,14 @@ type ClearlogoPreviewRow = {
     candidateCount?: number;
     candidates?: ClearlogoCandidate[];
     bestCandidate?: ClearlogoCandidate | null;
+    selectedCandidate?: ClearlogoCandidate | null;
+    hasLogoApplied?: boolean;
     applied?: boolean;
     dryRun?: boolean;
     error?: string | null;
 };
+
+type ClearlogoTableFilter = 'available' | 'hasLogo' | 'none' | 'all';
 
 type ClearlogoScanState = {
     status?: string;
@@ -237,8 +241,10 @@ export const MetadataFillPage: React.FC = () => {
     const [clearlogoDryRun, setClearlogoDryRun] = useState(true);
     const [clearlogoBusy, setClearlogoBusy] = useState(false);
     const [clearlogoLibraryKeys, setClearlogoLibraryKeys] = useState<string[]>([]);
-    const [clearlogoShowNone, setClearlogoShowNone] = useState(false);
+    const [clearlogoTableFilter, setClearlogoTableFilter] = useState<ClearlogoTableFilter>('available');
     const [clearlogoRowBusy, setClearlogoRowBusy] = useState('');
+    /** Optional per-title clearlogo candidate ratingKey overrides. */
+    const [clearlogoPicks, setClearlogoPicks] = useState<Record<string, string>>({});
     const [retryBusy, setRetryBusy] = useState(false);
     const [logFilter, setLogFilter] = useState<LogFilter>('all');
     const [logQuery, setLogQuery] = useState('');
@@ -546,6 +552,20 @@ export const MetadataFillPage: React.FC = () => {
         }
     };
 
+    const toggleClearlogoPick = (titleKey: string, candidateKey: string) => {
+        const key = String(titleKey || '');
+        const cand = String(candidateKey || '').trim();
+        if (!key || !cand) return;
+        setClearlogoPicks((prev) => {
+            if (prev[key] === cand) {
+                const next = { ...prev };
+                delete next[key];
+                return next;
+            }
+            return { ...prev, [key]: cand };
+        });
+    };
+
     const applyClearlogos = async (ratingKeys?: string[]) => {
         const busyKey = ratingKeys?.length === 1 ? `apply:${ratingKeys[0]}` : 'apply-all';
         if (ratingKeys?.length === 1) setClearlogoRowBusy(busyKey);
@@ -553,13 +573,29 @@ export const MetadataFillPage: React.FC = () => {
         setError('');
         setNotice('');
         try {
+            const keys = ratingKeys?.length ? ratingKeys : undefined;
+            const candidates = Object.fromEntries(
+                Object.entries(clearlogoPicks).filter(([titleKey]) => (
+                    !keys || keys.includes(titleKey)
+                )),
+            );
             const result = await apiFetch('/api/metadata-fill/clearlogos/scan/apply', {
                 method: 'POST',
                 body: JSON.stringify({
-                    ratingKeys: ratingKeys?.length ? ratingKeys : undefined,
+                    ratingKeys: keys,
+                    candidates: Object.keys(candidates).length ? candidates : undefined,
                 }),
             });
             setNotice(`Applied ${result?.applied || 0} clearlogo(s)${result?.failed ? `, ${result.failed} failed` : ''}.`);
+            if (keys?.length) {
+                setClearlogoPicks((prev) => {
+                    const next = { ...prev };
+                    for (const k of keys) delete next[k];
+                    return next;
+                });
+            } else {
+                setClearlogoPicks({});
+            }
             await load(true);
         } catch (e: any) {
             setError(e?.message || 'Failed to apply clearlogos');
@@ -698,19 +734,31 @@ export const MetadataFillPage: React.FC = () => {
     }, [scan?.preview, previewFilter]);
     const stats = scan?.stats;
     const clearlogoStats = clearlogoScan?.stats;
+    const clearlogoCounts = useMemo(() => {
+        const rows = clearlogoScan?.preview || [];
+        let available = 0;
+        let hasLogo = 0;
+        let none = 0;
+        for (const row of rows) {
+            if (row.status === 'available' && !row.applied) available += 1;
+            else if (row.status === 'hasLogo' || row.status === 'applied' || row.hasLogoApplied || row.applied) hasLogo += 1;
+            else if (row.status === 'none') none += 1;
+        }
+        return { available, hasLogo, none, all: rows.length };
+    }, [clearlogoScan?.preview]);
     const clearlogoTableRows = useMemo(() => {
         const rows = clearlogoScan?.preview || [];
         return rows.filter((row) => {
-            if (row.status === 'available' && !row.applied) return true;
-            if (clearlogoShowNone && row.status === 'none') return true;
-            if (row.status === 'applied' || row.status === 'failed') return true;
-            return false;
+            const isAvailable = row.status === 'available' && !row.applied;
+            const isSet = row.status === 'hasLogo' || row.status === 'applied' || !!row.hasLogoApplied || !!row.applied;
+            const isNone = row.status === 'none';
+            if (clearlogoTableFilter === 'available') return isAvailable || row.status === 'failed';
+            if (clearlogoTableFilter === 'hasLogo') return isSet;
+            if (clearlogoTableFilter === 'none') return isNone;
+            return true;
         });
-    }, [clearlogoScan?.preview, clearlogoShowNone]);
-    const clearlogoAvailableCount = useMemo(
-        () => (clearlogoScan?.preview || []).filter((r) => r.status === 'available' && !r.applied).length,
-        [clearlogoScan?.preview],
-    );
+    }, [clearlogoScan?.preview, clearlogoTableFilter]);
+    const clearlogoAvailableCount = clearlogoCounts.available;
 
     return (
         <DashboardPageShell>
@@ -1110,8 +1158,9 @@ export const MetadataFillPage: React.FC = () => {
                     </label>
                 </div>
                 <p className="text-xs text-muted">
-                    Scan movie and TV show libraries for titles with no selected clearlogo.
-                    Uses Plex’s own clearlogo providers only — selects the first agent candidate when applying.
+                    Find titles where Plex has clearlogo candidates but none is applied yet.
+                    Scan classifies each title as already set, available to apply, or none in Plex.
+                    Uses Plex’s own clearlogo providers only.
                 </p>
                 {(status?.clearlogoLibraries?.length || 0) > 0 ? (
                     <div className="flex flex-wrap gap-2">
@@ -1216,15 +1265,53 @@ export const MetadataFillPage: React.FC = () => {
                             {clearlogoScan.dryRun ? ' · dry-run' : ' · write'}
                             {clearlogoScan.cancelRequested && clearlogoRunning ? ' · cancelling' : ''}
                         </span>
-                        <span className="rounded-lg border border-emerald-400/25 bg-emerald-400/10 px-2.5 py-1 font-semibold text-emerald-200">
-                            Has logo {clearlogoStats?.hasLogo || 0}
-                        </span>
-                        <span className="rounded-lg border border-plex/40 bg-plex/15 px-2.5 py-1 font-semibold text-plex">
-                            Available {clearlogoStats?.available || 0}
-                        </span>
-                        <span className="rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1 text-muted">
-                            None {clearlogoStats?.none || 0}
-                        </span>
+                        <button
+                            type="button"
+                            onClick={() => setClearlogoTableFilter('hasLogo')}
+                            className={`rounded-lg border px-2.5 py-1 font-semibold ${
+                                clearlogoTableFilter === 'hasLogo'
+                                    ? 'border-emerald-400/50 bg-emerald-400/20 text-emerald-100'
+                                    : 'border-emerald-400/25 bg-emerald-400/10 text-emerald-200'
+                            }`}
+                            title="Titles that already have a clearlogo applied in Plex"
+                        >
+                            Already set {clearlogoStats?.hasLogo || 0}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setClearlogoTableFilter('available')}
+                            className={`rounded-lg border px-2.5 py-1 font-semibold ${
+                                clearlogoTableFilter === 'available'
+                                    ? 'border-plex/60 bg-plex/25 text-plex'
+                                    : 'border-plex/40 bg-plex/15 text-plex'
+                            }`}
+                            title="Plex has candidates, but no clearlogo is applied yet"
+                        >
+                            Available (not applied) {clearlogoStats?.available || 0}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setClearlogoTableFilter('none')}
+                            className={`rounded-lg border px-2.5 py-1 ${
+                                clearlogoTableFilter === 'none'
+                                    ? 'border-white/30 bg-white/10 text-text font-semibold'
+                                    : 'border-white/10 bg-white/[0.03] text-muted'
+                            }`}
+                            title="No clearlogo candidates in Plex"
+                        >
+                            None in Plex {clearlogoStats?.none || 0}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setClearlogoTableFilter('all')}
+                            className={`rounded-lg border px-2.5 py-1 ${
+                                clearlogoTableFilter === 'all'
+                                    ? 'border-white/30 bg-white/10 text-text font-semibold'
+                                    : 'border-white/10 bg-white/[0.03] text-muted'
+                            }`}
+                        >
+                            All listed {clearlogoCounts.all}
+                        </button>
                         <span className="rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1 text-muted">
                             Scanned {clearlogoStats?.scanned || 0}
                             {(clearlogoStats?.applied || 0) > 0 ? ` · applied ${clearlogoStats?.applied}` : ''}
@@ -1243,96 +1330,165 @@ export const MetadataFillPage: React.FC = () => {
                         ) : null}
                     </div>
                 )}
-                <label className="flex items-center gap-2 text-xs text-muted">
-                    <input
-                        type="checkbox"
-                        checked={clearlogoShowNone}
-                        onChange={(e) => setClearlogoShowNone(e.target.checked)}
-                    />
-                    Show titles with no Plex clearlogo candidates
-                </label>
+                <p className="text-[11px] text-muted">
+                    Default list is <span className="text-plex font-semibold">Available (not applied)</span> — the gaps you care about.
+                    Click a chip to review titles that already have a logo set, or none in Plex.
+                    Click a preview logo to choose it (optional); Apply uses your pick or the first agent candidate.
+                </p>
                 {clearlogoTableRows.length > 0 && (
                     <div className="overflow-auto rounded-xl border border-white/5">
-                        <table className="w-full min-w-[640px] text-left text-xs">
+                        <table className="w-full min-w-[760px] text-left text-xs">
                             <thead className="border-b border-white/10 bg-white/[0.03] text-[11px] uppercase tracking-wider text-muted">
                                 <tr>
-                                    <th className="px-2 py-2 font-bold">Title</th>
-                                    <th className="px-2 py-2 font-bold">Candidates</th>
-                                    <th className="px-2 py-2 font-bold">Preview</th>
-                                    <th className="px-2 py-2 font-bold text-right">Action</th>
+                                    <th className="px-3 py-2.5 font-bold">Title</th>
+                                    <th className="px-3 py-2.5 font-bold">Status</th>
+                                    <th className="px-3 py-2.5 font-bold">Candidates</th>
+                                    <th className="px-3 py-2.5 font-bold">Preview</th>
+                                    <th className="px-3 py-2.5 font-bold text-right">Action</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {clearlogoTableRows.slice(0, 120).map((row) => {
-                                    const poster = plexThumbUrl(row.thumb, 64, 96);
+                                    const poster = plexThumbUrl(row.thumb, 120, 180);
                                     const isAvailable = row.status === 'available' && !row.applied;
+                                    const isSet = row.status === 'hasLogo' || row.status === 'applied'
+                                        || !!row.hasLogoApplied || !!row.applied;
+                                    const isNone = row.status === 'none';
+                                    const picked = clearlogoPicks[row.ratingKey] || '';
+                                    const defaultBest = String(row.bestCandidate?.ratingKey || '').trim();
+                                    const statusBadge = isSet
+                                        ? (
+                                            <span className="inline-flex rounded-md border border-emerald-400/35 bg-emerald-400/15 px-2 py-0.5 text-[11px] font-bold text-emerald-200">
+                                                {row.status === 'applied' || row.applied ? 'Applied this scan' : 'Already set'}
+                                            </span>
+                                        )
+                                        : (isAvailable
+                                            ? (
+                                                <span className="inline-flex rounded-md border border-plex/40 bg-plex/15 px-2 py-0.5 text-[11px] font-bold text-plex">
+                                                    Not applied
+                                                </span>
+                                            )
+                                            : (isNone
+                                                ? (
+                                                    <span className="inline-flex rounded-md border border-white/15 bg-white/5 px-2 py-0.5 text-[11px] font-semibold text-muted">
+                                                        None in Plex
+                                                    </span>
+                                                )
+                                                : (
+                                                    <span className="inline-flex rounded-md border border-red-400/30 bg-red-400/10 px-2 py-0.5 text-[11px] font-semibold text-red-300">
+                                                        Error
+                                                    </span>
+                                                )));
+                                    const setThumb = row.selectedCandidate?.thumb || row.selectedCandidate?.ratingKey || '';
                                     return (
                                         <tr key={row.ratingKey} className="border-b border-white/5 align-middle">
-                                            <td className="px-2 py-2">
-                                                <div className="flex items-center gap-2 min-w-0">
+                                            <td className="px-3 py-3">
+                                                <div className="flex items-center gap-3 min-w-0">
                                                     {poster ? (
                                                         <img
                                                             src={poster}
                                                             alt=""
-                                                            className="h-12 w-8 shrink-0 rounded object-cover bg-black/30"
+                                                            className="h-[4.5rem] w-[3rem] shrink-0 rounded-md object-cover bg-black/30 ring-1 ring-white/10"
                                                         />
                                                     ) : (
-                                                        <div className="h-12 w-8 shrink-0 rounded bg-white/5" />
+                                                        <div className="h-[4.5rem] w-[3rem] shrink-0 rounded-md bg-white/5 ring-1 ring-white/10" />
                                                     )}
                                                     <div className="min-w-0">
-                                                        <p className="truncate font-semibold text-text">
+                                                        <p className="truncate text-sm font-semibold text-text">
                                                             {row.title || 'Untitled'}
                                                             {row.year ? ` (${row.year})` : ''}
                                                         </p>
                                                         <p className="truncate text-[11px] text-muted">
                                                             {row.libraryTitle || ''}
                                                             {row.type ? ` · ${row.type}` : ''}
-                                                            {row.status === 'none' ? ' · none in Plex' : ''}
-                                                            {row.status === 'applied' ? ' · applied' : ''}
                                                             {row.error ? ` · ${row.error}` : ''}
                                                         </p>
                                                     </div>
                                                 </div>
                                             </td>
-                                            <td className="px-2 py-2 text-text">
+                                            <td className="px-3 py-3">
+                                                {statusBadge}
+                                            </td>
+                                            <td className="px-3 py-3 text-sm text-text">
                                                 {row.candidateCount ?? 0}
                                             </td>
-                                            <td className="px-2 py-2">
-                                                <div className="flex items-center gap-1">
-                                                    {(row.candidates || []).slice(0, 4).map((c, ci) => {
-                                                        const src = plexThumbUrl(c.thumb || c.ratingKey, 96, 40);
-                                                        return src ? (
+                                            <td className="px-3 py-3">
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    {isSet && setThumb ? (
+                                                        <div
+                                                            className="rounded-md border border-emerald-400/40 bg-white/90 p-1.5 ring-2 ring-emerald-400/40"
+                                                            title="Currently applied clearlogo"
+                                                        >
                                                             <img
-                                                                key={`${row.ratingKey}-c-${ci}`}
-                                                                src={src}
+                                                                src={plexThumbUrl(setThumb, 240, 90)}
                                                                 alt=""
-                                                                className="h-6 w-14 rounded object-contain bg-black/40"
-                                                                title={c.provider || ''}
+                                                                className="h-10 w-[5.5rem] object-contain"
                                                             />
+                                                        </div>
+                                                    ) : null}
+                                                    {(row.candidates || []).slice(0, 8).map((c, ci) => {
+                                                        const candKey = String(c.ratingKey || '').trim();
+                                                        if (isSet && candKey && candKey === String(row.selectedCandidate?.ratingKey || '')) {
+                                                            return null;
+                                                        }
+                                                        const src = plexThumbUrl(c.thumb || c.ratingKey, 240, 90);
+                                                        const isPicked = !!candKey && picked === candKey;
+                                                        const isDefault = !picked && !!candKey && candKey === defaultBest;
+                                                        const ring = isPicked
+                                                            ? 'ring-2 ring-plex border-plex/50'
+                                                            : (isDefault
+                                                                ? 'ring-1 ring-white/25 border-white/15'
+                                                                : 'ring-1 ring-white/10 border-transparent');
+                                                        return src ? (
+                                                            <button
+                                                                key={`${row.ratingKey}-c-${ci}`}
+                                                                type="button"
+                                                                disabled={!isAvailable || clearlogoBusy || clearlogoRunning}
+                                                                onClick={() => {
+                                                                    if (!isAvailable || !candKey) return;
+                                                                    toggleClearlogoPick(row.ratingKey, candKey);
+                                                                }}
+                                                                className={`rounded-md border bg-white/90 p-1.5 disabled:opacity-50 ${ring}`}
+                                                                title={
+                                                                    isPicked
+                                                                        ? `Selected · ${c.provider || 'logo'}`
+                                                                        : (isDefault
+                                                                            ? `Default pick · ${c.provider || 'logo'} (click to choose)`
+                                                                            : (c.provider || 'Select this logo'))
+                                                                }
+                                                            >
+                                                                <img
+                                                                    src={src}
+                                                                    alt=""
+                                                                    className="h-10 w-[5.5rem] object-contain"
+                                                                />
+                                                            </button>
                                                         ) : (
                                                             <div
                                                                 key={`${row.ratingKey}-c-${ci}`}
-                                                                className="h-6 w-14 rounded bg-white/5"
+                                                                className="h-10 w-[5.5rem] rounded-md bg-white/10"
                                                             />
                                                         );
                                                     })}
-                                                    {!row.candidates?.length && (
+                                                    {!row.candidates?.length && !setThumb && (
                                                         <span className="text-muted">—</span>
                                                     )}
                                                 </div>
                                             </td>
-                                            <td className="px-2 py-2 text-right">
+                                            <td className="px-3 py-3 text-right">
                                                 {isAvailable ? (
                                                     <button
                                                         type="button"
                                                         disabled={!status?.enabled || clearlogoBusy || !!clearlogoRowBusy || clearlogoRunning}
                                                         onClick={() => { void applyClearlogos([row.ratingKey]); }}
-                                                        className="rounded-lg border border-plex/40 bg-plex/15 px-2.5 py-1 text-[11px] font-bold text-plex disabled:opacity-40"
+                                                        className="rounded-lg border border-plex/40 bg-plex/15 px-2.5 py-1.5 text-[11px] font-bold text-plex disabled:opacity-40"
                                                     >
                                                         {clearlogoRowBusy === `apply:${row.ratingKey}` ? (
                                                             <Loader2 className="inline h-3.5 w-3.5 animate-spin" />
-                                                        ) : 'Apply'}
+                                                        ) : (picked ? 'Apply selected' : 'Apply')}
                                                     </button>
+                                                ) : isSet ? (
+                                                    <span className="text-[11px] font-semibold text-emerald-300/90">Logo set</span>
                                                 ) : (
                                                     <span className="text-muted">—</span>
                                                 )}
@@ -1344,10 +1500,15 @@ export const MetadataFillPage: React.FC = () => {
                         </table>
                     </div>
                 )}
-                {clearlogoScan && !clearlogoTableRows.length && clearlogoScan.status === 'done' && (
+                {clearlogoScan && !clearlogoTableRows.length && (clearlogoScan.status === 'done' || clearlogoScan.status === 'cancelled') && (
                     <p className="text-xs text-muted">
-                        No gaps listed. Every scanned title either has a logo or had none in Plex
-                        {clearlogoShowNone ? '' : ' (enable “show none” to list empty titles)'}.
+                        {clearlogoTableFilter === 'available'
+                            ? 'No titles with unapplied clearlogos in this scan. Try “Already set” or “None in Plex”.'
+                            : clearlogoTableFilter === 'hasLogo'
+                                ? 'No already-set clearlogos listed for this scan window.'
+                                : clearlogoTableFilter === 'none'
+                                    ? 'No titles without Plex clearlogo candidates in this scan window.'
+                                    : 'No clearlogo results listed yet.'}
                     </p>
                 )}
             </section>
