@@ -6,6 +6,15 @@ import { readApkWhatsNewSeen, writeApkWhatsNewSeen } from '../media-player/playe
 import { getPlexClientAppVersion } from './config';
 
 const NOTES_BY_VERSION: Record<string, { title: string; items: string[] }[]> = {
+    '1.0.135': [
+        {
+            title: 'Home',
+            items: [
+                'Continue Watching is back — On Deck is no longer dropped when pinned collection rails load',
+                'Pinned Plex collections always load on Home (empty shells are filled every refresh, not only on a lucky full pass)',
+            ],
+        },
+    ],
     '1.0.126': [
         {
             title: 'Playback',

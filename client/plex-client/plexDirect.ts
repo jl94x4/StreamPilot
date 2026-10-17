@@ -2733,19 +2733,25 @@ const uniqueHubShells = (...lists: PlexMeta[][]) => {
 const pinnedHubs = async (data: any, server: PlexServer, many: boolean, extra: PlexMeta[] = []) => {
     const shells = uniqueHubShells(asList<PlexMeta>(containerOf(data).Hub), extra);
     if (!shells.length) return hubsFrom(data, server, many);
-    const inline = hubsFrom({ MediaContainer: { Hub: shells } }, server, many);
-    const ready = new Map<string, (typeof inline)[number]>();
-    inline.forEach((hub) => {
-        const key = String(hub.identifier || hub.title || '').trim().toLowerCase();
-        if (key) ready.set(key, hub);
-    });
+    const ready = new Map<string, NonNullable<Awaited<ReturnType<typeof fillPlexHomeHub>>>>();
+    // Map each shell individually so empty shells stay addressable by hubShellKey.
+    // hubsFrom() drops empties, so a parallel index into its result used to miss pins.
+    for (const shell of shells) {
+        const key = hubShellKey(shell);
+        if (!key) continue;
+        const mapped = hubsFrom({ MediaContainer: { Hub: [shell] } }, server, many)[0];
+        if (mapped?.items?.length) ready.set(key, mapped);
+    }
     const missing = shells.filter((hub) => !ready.has(hubShellKey(hub)));
     if (missing.length) {
-        const filled = await mapPool(missing.slice(0, 24), 4, (hub) => fillPlexHomeHub(hub, server, many));
-        filled.forEach((hub) => {
-            if (!hub?.items?.length) return;
-            const key = String(hub.identifier || hub.title || '').trim().toLowerCase();
-            if (key && !ready.has(key)) ready.set(key, hub);
+        // Fill every pinned shell — a 24-cap left later collections empty on big libraries.
+        const filled = await mapPool(missing, 4, async (shell) => ({
+            key: hubShellKey(shell),
+            hub: await fillPlexHomeHub(shell, server, many),
+        }));
+        filled.forEach(({ key, hub }) => {
+            if (!key || !hub?.items?.length || ready.has(key)) return;
+            ready.set(key, hub);
         });
     }
     return uniquifyHubs(shells
@@ -2849,16 +2855,16 @@ const loadServerHome = async (server: PlexServer, many: boolean, full = false) =
         pms('/library/onDeck?X-Plex-Container-Size=24', server, full ? 8000 : 5000).catch(() => null),
         pms('/library/sections', server, full ? 8000 : 4000).catch(() => null),
     ]);
+    // Always fill pinned shells (collections/playlists). hubsFrom alone dropped any
+    // promoted hub Plex returned without inline Metadata — so pinned collections
+    // vanished until a lucky full refresh, and often never came back.
     let hubs: Awaited<ReturnType<typeof pinnedHubs>> = promotedResult.answered
-        ? (full
-            ? await pinnedHubs(promotedResult.data, server, many)
-            : hubsFrom(promotedResult.data, server, many))
+        ? await pinnedHubs(promotedResult.data, server, many)
         : [];
-    // Fast first paint: Continue Watching is already in onDeck. Filling empty hub
-    // shells waits for full=1. If that still only has Continue Watching, pull
-    // /hubs/home extras instead of leaving the rest of Home empty.
-    if (full && !hubs.some(contentHomeHub)) {
-        const homeData = await pms(`/hubs/home?${hubQuery}`, server, 12000).catch(() => null);
+    // If promoted only had Continue Watching (or failed to fill pins), pull /hubs/home
+    // extras so library pins still land on Home.
+    if (!hubs.some(contentHomeHub)) {
+        const homeData = await pms(`/hubs/home?${hubQuery}`, server, full ? 12000 : 8000).catch(() => null);
         if (homeData) {
             const extra = await pinnedHubs(homeData, server, many);
             hubs = hubs.length ? mergeHomeHubs(hubs, extra) : extra;
@@ -2908,9 +2914,25 @@ const loadServerHome = async (server: PlexServer, many: boolean, full = false) =
     const merged = full
         ? await refreshContinueEpisodeThumbs(watchingList, server)
         : watchingList;
-    if (primary && merged.length) primary.items = merged;
-    if (primary) hubs = hubs.filter((hub) => hub === primary || !continueHub(hub));
-    const continueItems = primary ? primary.items : (hubs.some((hub) => hub.items.length) ? [] : onDeck);
+    // Always keep On Deck. /hubs/promoted often has only collection rails (no continue
+    // hub); the old ternary then discarded onDeck whenever any other hub had items,
+    // which hid Continue Watching entirely on Android TV / direct home.
+    const continueItems = merged.length ? merged : onDeck;
+    hubs = hubs.filter((hub) => !continueHub(hub));
+    if (continueItems.length) {
+        hubs = [
+            {
+                title: primary?.title || 'Continue Watching',
+                identifier: primary?.identifier || 'home.continue',
+                items: continueItems,
+                hubKey: primary?.hubKey || (many ? `${server.id}::/library/onDeck` : '/library/onDeck'),
+                collectionRatingKey: null as string | null,
+                randomOrder: undefined as boolean | undefined,
+                serverId: server.id,
+            },
+            ...hubs,
+        ];
+    }
     const sections = mapSections(sectionsRaw).map((section) => ({
         ...section,
         key: many ? `${server.id}::${section.key}` : section.key,
