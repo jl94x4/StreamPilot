@@ -280,7 +280,7 @@ export class WatchTogetherClient {
                 ratingKey: opts.ratingKey,
                 serverId: opts.serverId || '',
                 title: opts.title || 'Watch Together',
-                type: opts.type || 'movie',
+                mediaType: opts.type || 'movie',
                 thumb: opts.thumb || null,
                 positionMs: opts.positionMs || 0,
             });
