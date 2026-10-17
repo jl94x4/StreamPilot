@@ -6,6 +6,15 @@ import { readApkWhatsNewSeen, writeApkWhatsNewSeen } from '../media-player/playe
 import { getPlexClientAppVersion } from './config';
 
 const NOTES_BY_VERSION: Record<string, { title: string; items: string[] }[]> = {
+    '1.0.141': [
+        {
+            title: 'Watch Together',
+            items: [
+                'Friends join from Settings → Connection → Join Watch Together, then enter your invite code',
+                'Everyone must use the same StreamPilot portal URL; each person plays from their own Plex library',
+            ],
+        },
+    ],
     '1.0.140': [
         {
             title: 'Watch Together',

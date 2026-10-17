@@ -171,7 +171,16 @@ const readPlayerView = (): PlayerView => {
                     serverId: params.get('server') || '',
                 };
             }
+        } else if (parts[2] === 'join') {
+            const fromPath = parts[3] ? decodeURIComponent(parts[3]) : '';
+            const fromQuery = String(params.get('code') || '').trim();
+            return {
+                kind: 'watchTogether',
+                mode: 'join',
+                inviteCode: (fromPath || fromQuery).toUpperCase(),
+            };
         } else if (parts[2]) {
+            // Short link: /media-player/watch-together/ABC123
             return { kind: 'watchTogether', mode: 'join', inviteCode: decodeURIComponent(parts[2]) };
         }
     }

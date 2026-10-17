@@ -283,6 +283,8 @@ export const en = {
         settingsPortalUrlClear: 'Clear',
         settingsPortalUrlSaved: 'Portal URL saved. Watch Together will appear on movie and episode details.',
         settingsPortalUrlInvalid: 'Enter a valid http:// or https:// portal address.',
+        settingsWatchTogetherJoin: 'Join Watch Together',
+        settingsWatchTogetherJoinHint: 'Enter a friend’s invite code. You must use the same StreamPilot portal URL as them, and have the title in your own Plex library.',
         settingsOn: 'On',
         settingsOff: 'Off',
         settingsHome: 'Home and playback',

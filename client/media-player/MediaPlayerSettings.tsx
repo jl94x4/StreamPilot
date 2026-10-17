@@ -22,6 +22,8 @@ import {
     readStoredPortalBaseUrl,
     writeStoredPortalBaseUrl,
 } from '../plex-client/config';
+import { PLAYER_APP_BASE, PLAYER_NAVIGATE_EVENT } from './paths';
+import { isWatchTogetherAvailable } from './watchTogetherClient';
 
 type Props = {
     onBack: () => void;
@@ -341,7 +343,8 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
     const [servers, setServers] = useState<Array<{ id: string; name: string; enabled: boolean }>>([]);
     const [saveState, setSaveState] = useState<'idle' | 'saved' | 'error'>('idle');
     const [settingsTab, setSettingsTab] = useState<SettingsTabId>('home');
-    const showPortalConnection = isPlexClientApp();
+    const showPortalUrlField = isPlexClientApp();
+    const showConnectionTab = showPortalUrlField || isWatchTogetherAvailable();
     const [portalUrlDraft, setPortalUrlDraft] = useState(() => readStoredPortalBaseUrl());
     const [portalUrlBaseline, setPortalUrlBaseline] = useState(() => readStoredPortalBaseUrl());
     const [portalError, setPortalError] = useState('');
@@ -511,21 +514,21 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
             { id: 'titles', label: t('mediaPlayerPage.settingsTabTitles') },
         ];
         if (servers.length > 1) rows.push({ id: 'servers', label: t('mediaPlayerPage.settingsTabServers') });
-        if (showPortalConnection) rows.push({ id: 'connection', label: t('mediaPlayerPage.settingsTabConnection') });
+        if (showConnectionTab) rows.push({ id: 'connection', label: t('mediaPlayerPage.settingsTabConnection') });
         return rows;
-    }, [servers.length, showPortalConnection, t]);
+    }, [servers.length, showConnectionTab, t]);
 
     useEffect(() => {
         if (settingsTab === 'servers' && servers.length < 2) setSettingsTab('home');
-        if (settingsTab === 'connection' && !showPortalConnection) setSettingsTab('home');
-    }, [servers.length, settingsTab, showPortalConnection]);
+        if (settingsTab === 'connection' && !showConnectionTab) setSettingsTab('home');
+    }, [servers.length, settingsTab, showConnectionTab]);
 
     const heroDirty = !!heroBaseline && (
         heroMode !== heroBaseline.mode
         || heroSeasonalOnly !== heroBaseline.seasonalInWindowOnly
         || cwSeasonPoster !== heroBaseline.continueWatchingSeasonPoster
     );
-    const portalDirty = showPortalConnection
+    const portalDirty = showPortalUrlField
         && String(portalUrlDraft || '').trim().replace(/\/+$/, '') !== String(portalUrlBaseline || '').trim().replace(/\/+$/, '');
     const dirty = playerDirty || heroDirty || portalDirty;
     const saving = playerSaving || heroSaving;
@@ -555,14 +558,14 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
             setHeroSeasonalOnly(heroBaseline.seasonalInWindowOnly);
             setCwSeasonPoster(heroBaseline.continueWatchingSeasonPoster);
         }
-        if (showPortalConnection) {
+        if (showPortalUrlField) {
             setPortalUrlDraft(portalUrlBaseline);
             setPortalError('');
         }
     };
 
     const persistPortalUrl = (): boolean => {
-        if (!showPortalConnection || !portalDirty) return true;
+        if (!showPortalUrlField || !portalDirty) return true;
         const raw = String(portalUrlDraft || '').trim();
         if (!raw) {
             writeStoredPortalBaseUrl('');
@@ -616,73 +619,119 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
         }
     };
 
-    const connectionSettings = showPortalConnection ? (
+    const connectionSettings = showConnectionTab ? (
         <section className={tvShell ? 'flex flex-col gap-3' : sectionClass}>
             {!tvShell ? (
                 <div className="border-b border-border px-5 py-4 sm:px-6">
                     <h2 className="text-sm font-black uppercase tracking-widest text-muted">
                         {t('mediaPlayerPage.settingsConnection')}
                     </h2>
-                    <p className="mt-1 text-xs text-muted">{t('mediaPlayerPage.settingsPortalUrlHint')}</p>
+                    <p className="mt-1 text-xs text-muted">
+                        {showPortalUrlField
+                            ? t('mediaPlayerPage.settingsPortalUrlHint')
+                            : t('mediaPlayerPage.settingsWatchTogetherJoinHint')}
+                    </p>
                 </div>
             ) : (
-                <p className="text-sm text-muted">{t('mediaPlayerPage.settingsPortalUrlHint')}</p>
+                <p className="text-sm text-muted">
+                    {showPortalUrlField
+                        ? t('mediaPlayerPage.settingsPortalUrlHint')
+                        : t('mediaPlayerPage.settingsWatchTogetherJoinHint')}
+                </p>
             )}
             <div className={tvShell ? 'flex flex-col gap-3' : 'px-5 py-4 sm:px-6'}>
-                <label className="block space-y-2">
-                    <span className={`block font-bold text-text ${tvShell ? 'text-base' : 'text-sm'}`}>
-                        {t('mediaPlayerPage.settingsPortalUrl')}
-                    </span>
-                    <input
-                        data-tv-item="1"
-                        data-tv-action="1"
-                        data-tv-key="settings-portal-url"
-                        tabIndex={0}
-                        className={
-                            tvShell
-                                ? 'w-full rounded-2xl border border-white/15 bg-black/40 px-5 py-4 text-base text-white outline-none focus:border-plex/70'
-                                : 'w-full max-w-xl rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm text-text outline-none focus:border-plex/60'
-                        }
-                        value={portalUrlDraft}
-                        onChange={(e) => {
-                            setPortalUrlDraft(e.target.value);
-                            setPortalError('');
-                            setSaveState('idle');
-                        }}
-                        placeholder={t('mediaPlayerPage.settingsPortalUrlPlaceholder')}
-                        autoCapitalize="off"
-                        autoCorrect="off"
-                        spellCheck={false}
-                        inputMode="url"
-                        autoComplete="url"
-                    />
-                </label>
-                {portalError ? (
-                    <p className={`font-bold text-red-400 ${tvShell ? 'text-sm' : 'text-xs'}`}>{portalError}</p>
-                ) : portalUrlBaseline ? (
-                    <p className={`text-muted ${tvShell ? 'text-sm' : 'text-xs'}`}>
-                        {t('mediaPlayerPage.settingsPortalUrlSaved')}
-                    </p>
+                {showPortalUrlField ? (
+                    <>
+                        <label className="block space-y-2">
+                            <span className={`block font-bold text-text ${tvShell ? 'text-base' : 'text-sm'}`}>
+                                {t('mediaPlayerPage.settingsPortalUrl')}
+                            </span>
+                            <input
+                                data-tv-item="1"
+                                data-tv-action="1"
+                                data-tv-key="settings-portal-url"
+                                tabIndex={0}
+                                className={
+                                    tvShell
+                                        ? 'w-full rounded-2xl border border-white/15 bg-black/40 px-5 py-4 text-base text-white outline-none focus:border-plex/70'
+                                        : 'w-full max-w-xl rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm text-text outline-none focus:border-plex/60'
+                                }
+                                value={portalUrlDraft}
+                                onChange={(e) => {
+                                    setPortalUrlDraft(e.target.value);
+                                    setPortalError('');
+                                    setSaveState('idle');
+                                }}
+                                placeholder={t('mediaPlayerPage.settingsPortalUrlPlaceholder')}
+                                autoCapitalize="off"
+                                autoCorrect="off"
+                                spellCheck={false}
+                                inputMode="url"
+                                autoComplete="url"
+                            />
+                        </label>
+                        {portalError ? (
+                            <p className={`font-bold text-red-400 ${tvShell ? 'text-sm' : 'text-xs'}`}>{portalError}</p>
+                        ) : portalUrlBaseline ? (
+                            <p className={`text-muted ${tvShell ? 'text-sm' : 'text-xs'}`}>
+                                {t('mediaPlayerPage.settingsPortalUrlSaved')}
+                            </p>
+                        ) : null}
+                        {portalUrlDraft || portalUrlBaseline ? (
+                            <button
+                                type="button"
+                                data-tv-item="1"
+                                data-tv-action="1"
+                                data-tv-key="settings-portal-url-clear"
+                                onClick={() => {
+                                    setPortalUrlDraft('');
+                                    setPortalError('');
+                                    setSaveState('idle');
+                                }}
+                                className={
+                                    tvShell
+                                        ? `${tvRowClass} justify-center text-base font-bold text-muted`
+                                        : 'text-xs font-bold text-muted hover:text-text'
+                                }
+                            >
+                                {t('mediaPlayerPage.settingsPortalUrlClear')}
+                            </button>
+                        ) : null}
+                    </>
                 ) : null}
-                {portalUrlDraft || portalUrlBaseline ? (
-                    <button
-                        type="button"
-                        data-tv-item="1"
-                        data-tv-action="1"
-                        data-tv-key="settings-portal-url-clear"
-                        onClick={() => {
-                            setPortalUrlDraft('');
-                            setPortalError('');
-                            setSaveState('idle');
-                        }}
-                        className={
-                            tvShell
-                                ? `${tvRowClass} justify-center text-base font-bold text-muted`
-                                : 'text-xs font-bold text-muted hover:text-text'
-                        }
-                    >
-                        {t('mediaPlayerPage.settingsPortalUrlClear')}
-                    </button>
+                {isWatchTogetherAvailable() ? (
+                    <div className={
+                        showPortalUrlField
+                            ? (tvShell ? 'mt-2 flex flex-col gap-2' : 'mt-4 border-t border-border/40 pt-4')
+                            : 'flex flex-col gap-2'
+                    }>
+                        {showPortalUrlField ? (
+                            <p className={`text-muted ${tvShell ? 'text-sm' : 'text-xs'}`}>
+                                {t('mediaPlayerPage.settingsWatchTogetherJoinHint')}
+                            </p>
+                        ) : null}
+                        <button
+                            type="button"
+                            data-tv-item="1"
+                            data-tv-action="1"
+                            data-tv-key="settings-watch-together-join"
+                            onClick={() => {
+                                try {
+                                    window.history.pushState({}, '', `${PLAYER_APP_BASE}/watch-together/join`);
+                                    window.dispatchEvent(new Event(PLAYER_NAVIGATE_EVENT));
+                                } catch {
+                                    /* ignore */
+                                }
+                            }}
+                            className={
+                                tvShell
+                                    ? `${tvRowClass} justify-center text-base font-bold text-plex`
+                                    : 'inline-flex items-center justify-center rounded-xl border border-plex/40 bg-plex/15 px-4 py-2.5 text-sm font-bold text-plex hover:bg-plex/25'
+                            }
+                        >
+                            {t('mediaPlayerPage.settingsWatchTogetherJoin')}
+                        </button>
+                    </div>
                 ) : null}
             </div>
         </section>
