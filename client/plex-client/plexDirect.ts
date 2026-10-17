@@ -2049,7 +2049,7 @@ const splitLibraryKey = (raw: string) => {
 };
 
 const continueHub = (hub: { identifier?: string; title?: string }) => (
-    /continue|ondeck/i.test(`${hub.identifier || ''} ${hub.title || ''}`)
+    /continue\s*watch|ondeck|on[.\s_-]?deck|in[.\s_-]?progress/i.test(`${hub.identifier || ''} ${hub.title || ''}`)
 );
 
 const becauseHub = (hub: { identifier?: string; title?: string }) => (
@@ -3799,14 +3799,24 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
         const many = enabledServers().length > 1;
         const active = server || readServer()!;
         const emptyHubs = [] as Array<{ title: string; identifier: string; items: ReturnType<typeof mapItem>[] }>;
+        const seasonPoster = readHeroConfig().continueWatchingSeasonPoster;
         // Prefer includeMeta so pinned shells often arrive with items (matches portal).
-        const requested = await pms(
-            `/hubs/sections/${encodeURIComponent(section)}?includeMeta=1&count=18`,
-            active,
-            12000,
-        )
-            .then((data) => ({ data, answered: true }))
-            .catch(() => ({ data: null, answered: false }));
+        // Always fetch section On Deck in parallel — /hubs/sections often omits Continue
+        // Watching (or returns an empty shell), which hid the rail on Recommended.
+        const [requested, onDeckData] = await Promise.all([
+            pms(
+                `/hubs/sections/${encodeURIComponent(section)}?includeMeta=1&count=18`,
+                active,
+                12000,
+            )
+                .then((data) => ({ data, answered: true }))
+                .catch(() => ({ data: null, answered: false })),
+            pms(
+                `/library/sections/${encodeURIComponent(section)}/onDeck?X-Plex-Container-Size=24`,
+                active,
+                8000,
+            ).catch(() => null),
+        ]);
         let hubs = requested.answered
             ? await withMapServer(active, () => sectionPinnedHubs(requested.data, active, many))
             : [];
@@ -3840,6 +3850,36 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                     ]);
                 }
             }
+        }
+        const onDeckRaw = mapList(onDeckData);
+        const onDeckItems = seasonPoster
+            ? onDeckRaw.map((item) => (item.type === 'episode' ? { ...item, preferSeasonPoster: true } : item))
+            : onDeckRaw;
+        const sectionCw = hubs.filter((hub) => continueHub(hub));
+        const otherHubs = hubs.filter((hub) => !continueHub(hub));
+        // Prefer section On Deck (same as portal assembleLibraryHomeHubs); fall back to
+        // whatever continue hub /hubs/sections returned.
+        const continueItems = onDeckItems.length
+            ? onDeckItems
+            : (sectionCw.find((hub) => hub.items?.length)?.items || []);
+        hubs = otherHubs;
+        if (continueItems.length) {
+            const primaryCw = sectionCw[0];
+            hubs = [
+                {
+                    title: primaryCw?.title || 'Continue Watching',
+                    identifier: primaryCw?.identifier || 'continueWatching',
+                    items: continueItems,
+                    hubKey: primaryCw?.hubKey
+                        || (many
+                            ? `${active.id}::/library/sections/${section}/onDeck`
+                            : `/library/sections/${section}/onDeck`),
+                    collectionRatingKey: null as string | null,
+                    randomOrder: undefined as boolean | undefined,
+                    serverId: active.id,
+                },
+                ...hubs,
+            ];
         }
         if (hubs.length) {
             const stamped = await withMapServer(active, async () => {

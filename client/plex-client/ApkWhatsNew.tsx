@@ -6,6 +6,14 @@ import { readApkWhatsNewSeen, writeApkWhatsNewSeen } from '../media-player/playe
 import { getPlexClientAppVersion } from './config';
 
 const NOTES_BY_VERSION: Record<string, { title: string; items: string[] }[]> = {
+    '1.0.137': [
+        {
+            title: 'Libraries',
+            items: [
+                'Continue Watching is back on Library Recommended — section On Deck is fetched like the portal, not only when /hubs/sections includes it',
+            ],
+        },
+    ],
     '1.0.136': [
         {
             title: 'Home',
