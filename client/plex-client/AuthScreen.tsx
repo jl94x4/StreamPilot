@@ -7,6 +7,7 @@ import {
     getPortalBaseUrl,
     isAndroidTvUi,
     normalizePortalBaseUrl,
+    readStoredPortalBaseUrl,
     writeAuthMode,
     writeStoredPortalBaseUrl,
     writeStoredSessionToken,
@@ -111,7 +112,7 @@ export const PlexClientBootSplash: React.FC = () => (
 );
 
 export const PlexClientAuthScreen: React.FC<Props> = ({ onAuthenticated }) => {
-    const [portalUrl, setPortalUrl] = useState(getPortalBaseUrl());
+    const [portalUrl, setPortalUrl] = useState(() => getPortalBaseUrl() || readStoredPortalBaseUrl());
     const [usePortal, setUsePortal] = useState(false);
     const [error, setError] = useState('');
     const [busy, setBusy] = useState(false);
@@ -192,7 +193,7 @@ export const PlexClientAuthScreen: React.FC<Props> = ({ onAuthenticated }) => {
         setPin(null);
         setHomeUsers(null);
         writeAuthMode('plex');
-        writeStoredPortalBaseUrl('');
+        // Keep any stored portalBaseUrl — Watch Together still needs the portal relay host.
         try {
             const data = await apiFetch('/api/auth/plex/login', {
                 method: 'POST',
@@ -388,6 +389,30 @@ export const PlexClientAuthScreen: React.FC<Props> = ({ onAuthenticated }) => {
                     <div className={`rounded-[1.75rem] border border-white/10 bg-white/[0.035] p-5 shadow-[0_30px_80px_rgba(0,0,0,0.45)] backdrop-blur-2xl sm:p-7 ${isTv ? 'smp-tv-auth-panel-enter' : ''}`}>
                         {stage === 'connect' && !usePortal ? (
                             <div className="space-y-4" data-tv-rail="1">
+                                <label className="block space-y-2.5">
+                                    <span className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.18em] text-zinc-500">
+                                        <Globe className="h-3.5 w-3.5 text-plex" />
+                                        StreamPilot portal (optional)
+                                    </span>
+                                    <input
+                                        data-tv-item="1"
+                                        data-tv-key="auth-plex-portal-url"
+                                        tabIndex={0}
+                                        className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3.5 text-base text-white outline-none transition placeholder:text-zinc-600 focus:border-plex/70 focus:ring-2 focus:ring-plex/25"
+                                        value={portalUrl}
+                                        onChange={(e) => setPortalUrl(e.target.value)}
+                                        placeholder="https://portal.example.com"
+                                        autoCapitalize="off"
+                                        autoCorrect="off"
+                                        spellCheck={false}
+                                        inputMode="url"
+                                        autoComplete="url"
+                                        disabled={busy}
+                                    />
+                                    <span className="block text-xs leading-relaxed text-zinc-500">
+                                        Needed for Watch Together. Leave blank if you only browse and play.
+                                    </span>
+                                </label>
                                 <button
                                     type="button"
                                     data-tv-item="1"
@@ -396,7 +421,16 @@ export const PlexClientAuthScreen: React.FC<Props> = ({ onAuthenticated }) => {
                                     tabIndex={0}
                                     className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-plex to-amber-400 px-5 py-3.5 text-base font-black text-zinc-950 shadow-[0_10px_30px_rgba(229,160,13,0.28)] transition hover:brightness-110 disabled:opacity-60"
                                     disabled={busy}
-                                    onClick={() => { void startDirectLogin(); }}
+                                    onClick={() => {
+                                        const raw = String(portalUrl || '').trim();
+                                        if (raw) {
+                                            const normalized = applyPortalUrl(raw);
+                                            if (!normalized) return;
+                                        } else {
+                                            writeStoredPortalBaseUrl('');
+                                        }
+                                        void startDirectLogin();
+                                    }}
                                 >
                                     {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                                     Sign in with Plex

@@ -111,6 +111,7 @@ import { createWatchSyncRouter } from './lib/watch-sync/index.js';
 import { startWatchSyncScheduler } from './lib/watch-sync/scheduler.js';
 import { startLiveWatch } from './lib/watch-sync/watcher.js';
 import { startWatchSyncJob } from './lib/watch-sync/runtime.js';
+import { attachWatchTogether, getWatchTogetherRoomSummary } from './lib/watch-together/index.js';
 import { startOverlaysScheduler, startOverlaysBundleScheduler, runOverlaysScheduledJob } from './lib/overlays/scheduler.js';
 import { registerAchievementsRoutes } from './lib/achievements/http.js';
 import { registerProfileRoutes } from './lib/profile/http.js';
@@ -31021,6 +31022,13 @@ app.use('/api/watch-sync', createWatchSyncRouter({
     log,
 }));
 
+/** Watch Together room peek (invite code). No membership required — limited fields only. */
+app.get('/api/watch-together/room/:code', (req, res) => {
+    const summary = getWatchTogetherRoomSummary(req.params.code);
+    if (!summary) return res.status(404).json({ error: 'Room not found.' });
+    return res.json(summary);
+});
+
 const findMediaAutomationLibraryForPath = async (candidate) => {
     const absolute = path.resolve(String(candidate || ''));
     const libraries = await mediaAutomationService.libraries.list();
@@ -33918,7 +33926,7 @@ app.use((err, req, res, next) => {
     return res.status(safeStatus).json({ error: message });
 });
 
-app.listen(PORT, BIND_HOST, async () => {
+const httpServer = app.listen(PORT, BIND_HOST, async () => {
     log(`--- StreamPilot Service starting on http://${BIND_HOST}:${PORT} ---`);
     log(`Runtime: CONFIG_DIR=${CONFIG_DIR}, FORCE_SECURE_COOKIES=${FORCE_SECURE_COOKIES}, BASE_PATH=${BASE_PATH || '/'}, appVersion=${appVersion}`);
     if (!arePortalFrontendAssetsReady()) {
@@ -34332,4 +34340,10 @@ app.listen(PORT, BIND_HOST, async () => {
             await runAutoBackupCycle('scheduled');
         }
     }, 60 * 60 * 1000);
+});
+
+attachWatchTogether(httpServer, {
+    jwtSecret: JWT_SECRET,
+    basePath: BASE_PATH,
+    log,
 });

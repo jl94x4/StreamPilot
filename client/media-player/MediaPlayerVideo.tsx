@@ -70,6 +70,8 @@ import {
     closeNativePlayer,
     isNativePlayerAvailable,
     openNativePlayer,
+    seekNativePlayer,
+    setNativePlayerPaused,
     updateNativePlayerSrc,
     updateNativePlayerSession,
     type NativePlayerCloseResult,
@@ -78,6 +80,7 @@ import {
 } from '../plex-client/nativePlayer';
 import { getSessionToken, isAndroidTvUi, isPlexDirectMode } from '../plex-client/config';
 import { restoreTvFocusWhenReady } from '../plex-client/useTvRemote';
+import { getWatchTogetherClient } from './watchTogetherClient';
 
 export type PlayerCloseMeta = {
     /** True when another episode/title is about to start. */
@@ -88,6 +91,8 @@ export type PlayerCloseMeta = {
 
 type Props = {
     session: PlayerPlaySession;
+    /** When true, play/pause/seek/report sync through the portal Watch Together relay. */
+    watchTogether?: boolean;
     onClose: (meta?: PlayerCloseMeta) => void;
     autoplayNext?: boolean;
     autoSkipIntro?: boolean;
@@ -372,6 +377,7 @@ const bufferedRanges = (video: HTMLVideoElement | null) => {
 
 export const MediaPlayerVideo: React.FC<Props> = ({
     session,
+    watchTogether = false,
     onClose,
     autoplayNext = false,
     autoSkipIntro = false,
@@ -421,6 +427,10 @@ export const MediaPlayerVideo: React.FC<Props> = ({
     const volumeRef = useRef(localPrefs.current.volume);
     const mutedRef = useRef(localPrefs.current.muted);
     const speedRef = useRef(localPrefs.current.speed);
+    const applyingRemoteRef = useRef(false);
+    const lastSeekIdRef = useRef<string | null>(null);
+    const watchTogetherRef = useRef(watchTogether);
+    watchTogetherRef.current = watchTogether;
     const sendTimelineRef = useRef<(
         state: 'playing' | 'paused' | 'buffering' | 'stopped',
         timeMs?: number,
@@ -539,6 +549,74 @@ export const MediaPlayerVideo: React.FC<Props> = ({
     useEffect(() => {
         currentMsRef.current = currentMs;
     }, [currentMs]);
+    useEffect(() => {
+        if (!watchTogether) return undefined;
+        const client = getWatchTogetherClient();
+        let reportTimer = 0;
+        const applyPosition = async (positionMs: number) => {
+            const next = Math.max(0, Math.floor(positionMs || 0));
+            currentMsRef.current = next;
+            setCurrentMs(next);
+            if (nativeLiveRef.current) {
+                await seekNativePlayer(next);
+                return;
+            }
+            const video = videoRef.current;
+            if (video) video.currentTime = next / 1000;
+        };
+        const applyPaused = async (shouldPause: boolean) => {
+            setPaused(shouldPause);
+            if (nativeLiveRef.current) {
+                await setNativePlayerPaused(shouldPause);
+                return;
+            }
+            const video = videoRef.current;
+            if (!video) return;
+            if (shouldPause) video.pause();
+            else void video.play().catch(() => undefined);
+        };
+        const off = client.onState((state) => {
+            if (!state) return;
+            if (state.originClientId && state.originClientId === client.localClientId && !state.corrective) {
+                return;
+            }
+            applyingRemoteRef.current = true;
+            void (async () => {
+                try {
+                    if (state.waitingForSeekReady && state.seekId) {
+                        if (lastSeekIdRef.current !== state.seekId) {
+                            lastSeekIdRef.current = state.seekId;
+                            await applyPosition(state.positionMs);
+                        }
+                        client.seekReady(state.seekId);
+                        return;
+                    }
+                    const local = Math.max(0, Math.floor(currentMsRef.current || 0));
+                    if (state.corrective || Math.abs(local - state.positionMs) >= 1500) {
+                        await applyPosition(state.positionMs);
+                    }
+                    await applyPaused(!state.playing);
+                } finally {
+                    window.setTimeout(() => {
+                        applyingRemoteRef.current = false;
+                    }, 250);
+                }
+            })();
+        });
+        reportTimer = window.setInterval(() => {
+            if (!watchTogetherRef.current || applyingRemoteRef.current) return;
+            if (nativeLiveRef.current) return; // native onProgress already reports
+            const video = videoRef.current;
+            const pos = video
+                ? Math.max(0, Math.floor((video.currentTime || 0) * 1000))
+                : Math.max(0, Math.floor(currentMsRef.current || 0));
+            client.report(pos, false);
+        }, 2000);
+        return () => {
+            off();
+            window.clearInterval(reportTimer);
+        };
+    }, [watchTogether]);
     useEffect(() => {
         durationMsRef.current = durationMs;
     }, [durationMs]);
@@ -944,6 +1022,12 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                             : 'playing';
                         nativeTimelineStateRef.current = state;
                         sendTimelineRef.current(state, event.positionMs);
+                        if (watchTogetherRef.current && !applyingRemoteRef.current) {
+                            getWatchTogetherClient().report(
+                                Math.max(0, Math.floor(event.positionMs || 0)),
+                                event.state === 'buffering',
+                            );
+                        }
                         if (nativeMinimizedRef.current) publishMusicNowPlayingRef.current(true);
                     },
                     onStreamChange: async (event) => {
@@ -1673,11 +1757,11 @@ export const MediaPlayerVideo: React.FC<Props> = ({
         try {
             navigator.mediaSession.setActionHandler('play', () => { void videoRef.current?.play(); });
             navigator.mediaSession.setActionHandler('pause', () => { videoRef.current?.pause(); });
-            navigator.mediaSession.setActionHandler('seekbackward', () => seekBy(videoRef.current, -10));
-            navigator.mediaSession.setActionHandler('seekforward', () => seekBy(videoRef.current, 10));
+            navigator.mediaSession.setActionHandler('seekbackward', () => seekBySynced(-10));
+            navigator.mediaSession.setActionHandler('seekforward', () => seekBySynced(10));
             navigator.mediaSession.setActionHandler('previoustrack', () => {
                 if (previousItemRef.current) playCurrent(previousItemRef.current);
-                else seekBy(videoRef.current, -10);
+                else seekBySynced(-10);
             });
             navigator.mediaSession.setActionHandler('nexttrack', () => playCurrent(nextItemRef.current));
         } catch {
@@ -1793,18 +1877,15 @@ export const MediaPlayerVideo: React.FC<Props> = ({
             }
             if (event.key === ' ') {
                 event.preventDefault();
-                const video = videoRef.current;
-                if (!video) return;
-                if (video.paused) void video.play();
-                else video.pause();
+                togglePlayback();
             }
             if (event.key === 'ArrowLeft') {
                 event.preventDefault();
-                seekBy(videoRef.current, -10);
+                seekBySynced(-10);
             }
             if (event.key === 'ArrowRight') {
                 event.preventDefault();
-                seekBy(videoRef.current, 10);
+                seekBySynced(10);
             }
             if (event.key === 'MediaTrackNext' || event.key === 'PageDown') {
                 event.preventDefault();
@@ -1889,13 +1970,30 @@ export const MediaPlayerVideo: React.FC<Props> = ({
 
     const togglePlayback = () => {
         const video = videoRef.current;
+        if (nativeLiveRef.current) {
+            const nextPaused = !paused;
+            void setNativePlayerPaused(nextPaused);
+            setPaused(nextPaused);
+            if (watchTogetherRef.current && !applyingRemoteRef.current) {
+                const pos = Math.max(0, Math.floor(currentMsRef.current || 0));
+                if (nextPaused) getWatchTogetherClient().pause(pos);
+                else getWatchTogetherClient().play(pos);
+            }
+            return;
+        }
         if (!video) return;
         if (video.paused) {
             void video.play();
             setPaused(false);
+            if (watchTogetherRef.current && !applyingRemoteRef.current) {
+                getWatchTogetherClient().play(Math.max(0, Math.floor((video.currentTime || 0) * 1000)));
+            }
         } else {
             video.pause();
             setPaused(true);
+            if (watchTogetherRef.current && !applyingRemoteRef.current) {
+                getWatchTogetherClient().pause(Math.max(0, Math.floor((video.currentTime || 0) * 1000)));
+            }
         }
     };
 
@@ -2042,13 +2140,45 @@ export const MediaPlayerVideo: React.FC<Props> = ({
     const sourceRes = formatPlayerResolution(session.source?.height, session.source?.videoResolution);
     const sourceCodec = String(session.source?.videoCodec || '').toUpperCase();
     const seekTo = (ms: number) => {
+        const next = Math.max(0, Math.min(durationMs || Number.MAX_SAFE_INTEGER, ms));
+        if (nativeLiveRef.current) {
+            void seekNativePlayer(next);
+            setCurrentMs(next);
+            currentMsRef.current = next;
+            if (watchTogetherRef.current && !applyingRemoteRef.current) {
+                getWatchTogetherClient().seek(next, !paused);
+            }
+            bumpControls();
+            return;
+        }
         const video = videoRef.current;
         if (!video || !durationMs) return;
-        const next = Math.max(0, Math.min(durationMs, ms));
         video.currentTime = next / 1000;
         setCurrentMs(next);
         sendTimelineRef.current('playing');
+        if (watchTogetherRef.current && !applyingRemoteRef.current) {
+            getWatchTogetherClient().seek(next, !video.paused);
+        }
         bumpControls();
+    };
+    const seekBySynced = (deltaSeconds: number) => {
+        if (nativeLiveRef.current) {
+            const next = Math.max(0, Math.min(
+                durationMsRef.current || Number.MAX_SAFE_INTEGER,
+                (currentMsRef.current || 0) + (deltaSeconds * 1000),
+            ));
+            seekTo(next);
+            return;
+        }
+        const video = videoRef.current;
+        if (!video) return;
+        seekBy(video, deltaSeconds);
+        if (watchTogetherRef.current && !applyingRemoteRef.current) {
+            getWatchTogetherClient().seek(
+                Math.max(0, Math.floor((video.currentTime || 0) * 1000)),
+                !video.paused,
+            );
+        }
     };
     const retryPlayback = () => {
         setError(null);
@@ -2102,8 +2232,8 @@ export const MediaPlayerVideo: React.FC<Props> = ({
             lastTapRef.current = null;
             window.clearTimeout(clickTimerRef.current);
             const third = rect.width / 3;
-            if (x < third) seekBy(videoRef.current, -10);
-            else if (x > third * 2) seekBy(videoRef.current, 10);
+            if (x < third) seekBySynced(-10);
+            else if (x > third * 2) seekBySynced(10);
             else togglePlayback();
             return;
         }
@@ -2441,7 +2571,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                             <>
                                 <button
                                     type="button"
-                                    onClick={() => seekBy(videoRef.current, -10)}
+                                    onClick={() => seekBySynced(-10)}
                                     className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20"
                                     aria-label={t('mediaPlayerPage.skipBack')}
                                 >
@@ -2449,7 +2579,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                                 </button>
                                 <button
                                     type="button"
-                                    onClick={() => seekBy(videoRef.current, 10)}
+                                    onClick={() => seekBySynced(10)}
                                     className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20"
                                     aria-label={t('mediaPlayerPage.skipForward')}
                                 >

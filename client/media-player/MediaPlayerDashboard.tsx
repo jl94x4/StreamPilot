@@ -6,7 +6,7 @@ import {
     useDiscoverI18n,
     type ToastMessage,
 } from './host';
-import { fetchMediaPlayerItemMore, fetchMediaPlayerLibraries, fetchMediaPlayerMe, fetchMediaPlayerPlayFromQueue, fetchMediaPlayerShuffleQueue, startMediaPlayerPlayback, stopMediaPlayerTranscode } from './api';
+import { fetchMediaPlayerItem, fetchMediaPlayerItemMore, fetchMediaPlayerLibraries, fetchMediaPlayerMe, fetchMediaPlayerPlayFromQueue, fetchMediaPlayerServerStatus, fetchMediaPlayerShuffleQueue, startMediaPlayerPlayback, stopMediaPlayerTranscode } from './api';
 import { MediaPlayerHome } from './MediaPlayerHome';
 import { MediaPlayerWatchlist } from './MediaPlayerWatchlist';
 import { MediaPlayerPlaylists } from './MediaPlayerPlaylists';
@@ -21,7 +21,13 @@ import { MediaPlayerSettings } from './MediaPlayerSettings';
 import { MediaPlayerVideo } from './MediaPlayerVideo';
 import { MediaPlayerNav } from './MediaPlayerNav';
 import { MediaPlayerNowPlayingChip } from './MediaPlayerNowPlayingChip';
-import { captureTvFocusSnapshot, rememberTvFocusKey, restoreTvFocusWhenReady } from '../plex-client/useTvRemote';
+import { WatchTogetherLobby } from './WatchTogetherLobby';
+import {
+    discardWatchTogetherClient,
+    getWatchTogetherClient,
+    type WtRoomState,
+} from './watchTogetherClient';
+import { captureTvFocusSnapshot, hasRememberedTvFocus, rememberTvFocusKey, restoreTvFocusWhenReady } from '../plex-client/useTvRemote';
 import { isAndroidTvUi } from '../plex-client/config';
 import { PLAYER_APP_BASE, PLAYER_NAVIGATE_EVENT, PLAYER_SCROLL_ID, PLAYER_TV_NAV_EVENT } from './paths';
 import { usePlayerSettings } from './usePlayerSettings';
@@ -40,6 +46,7 @@ import {
 import {
     consumePlayerSearchFocus,
     focusPlayerSearchInput,
+    PLAYER_LIBRARIES_EVENT,
     PLAYER_SERVERS_EVENT,
     readAvChoice,
     readMediaIndexChoice,
@@ -107,7 +114,9 @@ type PlayerView =
     | { kind: 'person'; actorId: string; name?: string; thumb?: string | null }
     | { kind: 'studio'; studioKey: string; name?: string; sectionKey?: string; mediaType?: 'movie' | 'show' }
     | { kind: 'watchlist' }
-    | { kind: 'settings' };
+    | { kind: 'settings' }
+    | { kind: 'watchTogether'; mode: 'create'; ratingKey: string; serverId: string }
+    | { kind: 'watchTogether'; mode: 'join'; inviteCode: string };
 
 type PendingResume = {
     item: PlayerItem;
@@ -151,6 +160,21 @@ const readPlayerView = (): PlayerView => {
     }
     if (parts[1] === 'settings') return { kind: 'settings' };
     if (parts[1] === 'watchlist') return { kind: 'watchlist' };
+    if (parts[1] === 'watch-together') {
+        if (parts[2] === 'create') {
+            const ratingKey = String(params.get('ratingKey') || '').trim();
+            if (ratingKey) {
+                return {
+                    kind: 'watchTogether',
+                    mode: 'create',
+                    ratingKey,
+                    serverId: params.get('server') || '',
+                };
+            }
+        } else if (parts[2]) {
+            return { kind: 'watchTogether', mode: 'join', inviteCode: decodeURIComponent(parts[2]) };
+        }
+    }
     if (parts[1] === 'item' && parts[2]) {
         return { kind: 'item', ratingKey: parts[2], serverId: params.get('server') || '' };
     }
@@ -194,6 +218,10 @@ const viewScreenMotionKey = (view: PlayerView): string => {
             return `hub:${view.path}`;
         case 'item':
             return `item:${view.serverId}:${view.ratingKey}`;
+        case 'watchTogether':
+            return view.mode === 'create'
+                ? `watchTogether:create:${view.serverId}:${view.ratingKey}`
+                : `watchTogether:join:${view.inviteCode}`;
         case 'person':
             return `person:${view.actorId}`;
         case 'studio':
@@ -216,6 +244,7 @@ export const MediaPlayerDashboard: React.FC = () => {
     const [settings] = usePlayerSettings();
     const [view, setView] = useState<PlayerView>(() => readPlayerView());
     const [libraries, setLibraries] = useState<PlayerSection[]>(() => readPlayerLibrariesCache());
+    const [offlineServerIds, setOfflineServerIds] = useState<string[]>([]);
     const [toasts, setToasts] = useState<ToastMessage[]>([]);
     const [playSession, setPlaySession] = useState<PlayerPlaySession | null>(null);
     const playSessionRef = useRef<PlayerPlaySession | null>(null);
@@ -348,6 +377,11 @@ export const MediaPlayerDashboard: React.FC = () => {
 
     const viewKey = (
         view.kind === 'item' ? `item:${view.serverId}:${view.ratingKey}`
+        : view.kind === 'watchTogether' ? (
+            view.mode === 'create'
+                ? `watchTogether:create:${view.serverId}:${view.ratingKey}`
+                : `watchTogether:join:${view.inviteCode}`
+        )
         : view.kind === 'person' ? `person:${view.actorId}`
         : view.kind === 'studio' ? `studio:${view.studioKey}`
         : view.kind === 'library' ? `library:${view.sectionKey}:${view.tab}`
@@ -356,6 +390,8 @@ export const MediaPlayerDashboard: React.FC = () => {
         : view.kind === 'hub' ? `hub:${view.path}`
         : view.kind
     );
+
+    const [watchTogetherItem, setWatchTogetherItem] = useState<PlayerItem | null>(null);
 
     useEffect(() => {
         const previous = viewKindRef.current;
@@ -398,15 +434,29 @@ export const MediaPlayerDashboard: React.FC = () => {
         };
     }, [onPopState, syncFromLocation]);
 
+    const applyLibraries = useCallback((rows: PlayerSection[] | null | undefined) => {
+        const next = Array.isArray(rows)
+            ? rows.filter((row) => row && String(row.key || '').trim())
+            : [];
+        setLibraries((prev) => {
+            // Never wipe a good nav list with an empty/failed response.
+            if (!next.length) return prev.length ? prev : readPlayerLibrariesCache();
+            return next;
+        });
+    }, []);
+
     useEffect(() => {
         let cancelled = false;
-        fetchMediaPlayerLibraries()
-            .then((data) => {
-                if (!cancelled && !data.stale) setLibraries(data.libraries || []);
-            })
-            .catch(() => {
-                if (!cancelled) setLibraries([]);
-            });
+        const loadLibraries = () => {
+            void fetchMediaPlayerLibraries()
+                .then((data) => {
+                    if (!cancelled && !data.stale) applyLibraries(data.libraries);
+                })
+                .catch(() => {
+                    if (!cancelled) applyLibraries(readPlayerLibrariesCache());
+                });
+        };
+        loadLibraries();
         fetchMediaPlayerMe()
             .then((me) => {
                 if (!cancelled) setIsAdmin(Boolean(me?.isAdmin));
@@ -415,19 +465,70 @@ export const MediaPlayerDashboard: React.FC = () => {
                 if (!cancelled) setIsAdmin(false);
             });
         return () => { cancelled = true; };
-    }, []);
+    }, [applyLibraries]);
 
     useEffect(() => {
         const refresh = () => {
             void fetchMediaPlayerLibraries()
                 .then((data) => {
-                    if (!data.stale) setLibraries(data.libraries || []);
+                    if (!data.stale) applyLibraries(data.libraries);
                 })
-                .catch(() => undefined);
+                .catch(() => applyLibraries(readPlayerLibrariesCache()));
+        };
+        const syncFromCache = () => {
+            applyLibraries(readPlayerLibrariesCache());
+        };
+        const onTvNav = (event: Event) => {
+            const action = (event as CustomEvent<{ action?: string }>).detail?.action;
+            if (action !== 'open') return;
+            // Opening the rail: paint cache immediately, and refetch if still empty (boot race).
+            const cached = readPlayerLibrariesCache();
+            if (cached.length) applyLibraries(cached);
+            else refresh();
         };
         window.addEventListener(PLAYER_SERVERS_EVENT, refresh);
-        return () => window.removeEventListener(PLAYER_SERVERS_EVENT, refresh);
+        window.addEventListener(PLAYER_LIBRARIES_EVENT, syncFromCache);
+        window.addEventListener(PLAYER_TV_NAV_EVENT, onTvNav);
+        return () => {
+            window.removeEventListener(PLAYER_SERVERS_EVENT, refresh);
+            window.removeEventListener(PLAYER_LIBRARIES_EVENT, syncFromCache);
+            window.removeEventListener(PLAYER_TV_NAV_EVENT, onTvNav);
+        };
+    }, [applyLibraries]);
+
+    const refreshServerStatus = useCallback(() => {
+        void fetchMediaPlayerServerStatus()
+            .then((data) => {
+                const offline = (data?.servers || [])
+                    .filter((row) => row && row.online === false && String(row.id || '').trim())
+                    .map((row) => String(row.id));
+                setOfflineServerIds(offline);
+            })
+            .catch(() => {
+                /* keep last known marks — a status blip should not clear warnings */
+            });
     }, []);
+
+    useEffect(() => {
+        refreshServerStatus();
+        const id = window.setInterval(refreshServerStatus, 30000);
+        const onOnline = () => refreshServerStatus();
+        const onServers = () => refreshServerStatus();
+        const onTvNav = (event: Event) => {
+            if ((event as CustomEvent<{ action?: string }>).detail?.action === 'open') {
+                refreshServerStatus();
+            }
+        };
+        window.addEventListener('online', onOnline);
+        window.addEventListener(PLAYER_SERVERS_EVENT, onServers);
+        window.addEventListener(PLAYER_TV_NAV_EVENT, onTvNav);
+        return () => {
+            window.clearInterval(id);
+            window.removeEventListener('online', onOnline);
+            window.removeEventListener(PLAYER_SERVERS_EVENT, onServers);
+            window.removeEventListener(PLAYER_TV_NAV_EVENT, onTvNav);
+        };
+    }, [refreshServerStatus]);
 
     const notify = useCallback((message: string, type: 'success' | 'error' | 'info' = 'success') => {
         setToasts((prev) => appendToast(prev, message, type));
@@ -456,8 +557,14 @@ export const MediaPlayerDashboard: React.FC = () => {
 
     const openItem = useCallback((item: PlayerItem) => {
         if (!item?.ratingKey) return;
-        if (isAndroidTvUi()) captureTvFocusSnapshot();
-        rememberTvFocusKey(item.ratingKey);
+        if (isAndroidTvUi()) {
+            // Snapshot first. Do not replace a non-ratingKey focus target (e.g. view-more)
+            // with the destination id — Back must return to the control that opened the title.
+            captureTvFocusSnapshot();
+            if (!hasRememberedTvFocus()) rememberTvFocusKey(item.ratingKey);
+        } else {
+            rememberTvFocusKey(item.ratingKey);
+        }
         if (view.kind === 'library') stashPlayerLibraryScroll();
         if (item.type === 'person') {
             const actorId = String(item.personId || item.ratingKey).trim();
@@ -605,6 +712,30 @@ export const MediaPlayerDashboard: React.FC = () => {
         else goHome();
     }, [goHome]);
 
+    const openWatchTogether = useCallback((item: PlayerItem) => {
+        const ratingKey = String(item.ratingKey || '').trim();
+        if (!ratingKey) return;
+        const serverId = String(item.serverId || '').trim();
+        setWatchTogetherItem(item);
+        const qs = new URLSearchParams({ ratingKey });
+        if (serverId) qs.set('server', serverId);
+        navigate(`${PLAYER_APP_BASE}/watch-together/create?${qs.toString()}`);
+    }, [navigate]);
+
+    useEffect(() => {
+        if (view.kind !== 'watchTogether' || view.mode !== 'create') return;
+        if (watchTogetherItem?.ratingKey === view.ratingKey) return;
+        let cancelled = false;
+        void fetchMediaPlayerItem(view.ratingKey, { core: true, serverId: view.serverId || null })
+            .then((page) => {
+                if (!cancelled) setWatchTogetherItem(page.item);
+            })
+            .catch(() => {
+                if (!cancelled) setWatchTogetherItem(null);
+            });
+        return () => { cancelled = true; };
+    }, [view, watchTogetherItem?.ratingKey]);
+
     const startPlayback = useCallback(async (item: PlayerItem, opts: PlayerPlayOptions = {}) => {
         const current = playSessionRef.current;
         // Music can swap tracks in-place (native updateSrc) while a session is live —
@@ -683,6 +814,26 @@ export const MediaPlayerDashboard: React.FC = () => {
             setStartingPlay(false);
         }
     }, [settings.audioLanguage, settings.defaultQualityId, settings.subtitleMode, t]);
+
+    const startWatchTogetherPlayback = useCallback(async (state: WtRoomState) => {
+        try {
+            const page = await fetchMediaPlayerItem(state.ratingKey, {
+                core: true,
+                serverId: state.serverId || null,
+            });
+            const item = page.item;
+            if (!item?.canPlay && item?.type !== 'movie' && item?.type !== 'episode') {
+                notify(t('mediaPlayerPage.watchTogetherMissingTitle'), 'error');
+                return;
+            }
+            await startPlayback(item, {
+                offsetMs: Math.max(0, Number(state.positionMs) || 0),
+                skipResume: true,
+            });
+        } catch {
+            notify(t('mediaPlayerPage.watchTogetherMissingTitle'), 'error');
+        }
+    }, [notify, startPlayback, t]);
 
     const playItem = useCallback(async (item: PlayerItem, opts: PlayerPlayOptions = {}) => {
         if (opts.fromAutoplay) {
@@ -862,6 +1013,7 @@ export const MediaPlayerDashboard: React.FC = () => {
                 onOpenSettings={openSettings}
                 playlistsEnabled={settings.showPlaylists}
                 offline={tvShell && !networkOnline}
+                offlineServerIds={offlineServerIds}
             />
             <div
                 id={PLAYER_SCROLL_ID}
@@ -973,7 +1125,12 @@ export const MediaPlayerDashboard: React.FC = () => {
                 <MediaPlayerPlaylist
                     ratingKey={view.ratingKey}
                     onBack={goPlaylists}
+                    onOpenItem={openItem}
                     onPlay={playItem}
+                    onPlayNext={enqueuePlayNext}
+                    onToast={notify}
+                    isAdmin={isAdmin}
+                    playlistsEnabled={settings.showPlaylists}
                 />
                 </div>
             ) : null}
@@ -1000,12 +1157,28 @@ export const MediaPlayerDashboard: React.FC = () => {
                     onOpenStudio={openStudio}
                     onPlay={playItem}
                     onPlayNext={enqueuePlayNext}
+                    onWatchTogether={openWatchTogether}
                     onToast={notify}
                     isAdmin={isAdmin}
                     playlistsEnabled={settings.showPlaylists}
                     playing={startingPlay}
                     playbackActive={Boolean(playSession)}
                 />
+                </div>
+            ) : null}
+            {view.kind === 'watchTogether' ? (
+                <div key={viewScreenMotionKey(view)} className={screenEnterClass(tvShell, tvScreenEnter)}>
+                    <WatchTogetherLobby
+                        mode={view.mode}
+                        item={view.mode === 'create' ? watchTogetherItem : null}
+                        inviteCode={view.mode === 'join' ? view.inviteCode : undefined}
+                        onBack={() => {
+                            discardWatchTogetherClient();
+                            goBack();
+                        }}
+                        onStart={(state) => { void startWatchTogetherPlayback(state); }}
+                        onToast={notify}
+                    />
                 </div>
             ) : null}
             {view.kind === 'person' ? (
@@ -1074,6 +1247,7 @@ export const MediaPlayerDashboard: React.FC = () => {
             {playSession ? (
                 <MediaPlayerVideo
                     session={playSession}
+                    watchTogether={Boolean(getWatchTogetherClient().state?.inviteCode)}
                     onClose={(meta) => {
                         const chaining = !!meta?.playNext;
                         if (chaining) {
@@ -1083,6 +1257,9 @@ export const MediaPlayerDashboard: React.FC = () => {
                         }
                         setPlayNextBridge(false);
                         setPlaySession(null);
+                        if (getWatchTogetherClient().state?.inviteCode) {
+                            discardWatchTogetherClient();
+                        }
                         // Stay on the screen that started playback (Home, library, details, …).
                         // Forcing openItem() pushed a duplicate /item URL so the next Back
                         // looked like a no-op and fell through to the last library.

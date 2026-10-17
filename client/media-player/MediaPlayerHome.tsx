@@ -1521,7 +1521,11 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             ) : null}
 
             {searchActive ? (
-            <div className="relative" data-tv-rail={isTvShell ? '1' : undefined}>
+            <div
+                className="relative"
+                data-tv-row={isTvShell ? '1' : undefined}
+                data-tv-rail={isTvShell ? '1' : undefined}
+            >
                 <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
                 <input
                     id={PLAYER_SEARCH_INPUT_ID}
@@ -1531,6 +1535,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                     inputMode={searchReadOnly ? 'none' : 'search'}
                     enterKeyHint="search"
                     data-tv-item={isTvShell ? '1' : undefined}
+                    data-tv-key={isTvShell ? 'home-search' : undefined}
                     aria-label={t('mediaPlayerPage.searchPlaceholder')}
                     onChange={(event) => setQuery(event.target.value)}
                     onBlur={() => {
@@ -1560,19 +1565,22 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                         <DiscoverSectionHeader title={t('common.searching')} />
                     ) : null}
                     {searchGroups.map((group) => (
-                        <section key={group.id} className="flex flex-col gap-3">
+                        <section
+                            key={group.id}
+                            className="flex flex-col gap-3"
+                            data-tv-row={isTvShell ? '1' : undefined}
+                            data-tv-rail={isTvShell ? '1' : undefined}
+                        >
                             <DiscoverSectionHeader title={group.title} />
                             <div
-                                data-tv-browse-grid={isTvShell ? '1' : undefined}
-                                data-tv-rail={isTvShell ? '1' : undefined}
+                                data-tv-poster-grid={isTvShell ? '1' : undefined}
                                 className={upgraderPosterGridClass(gridSize)}
                                 style={group.aspect === '16/9' ? upgraderLandscapeGridStyle(gridSize) : upgraderPosterGridStyle(gridSize)}
                             >
-                                {group.items.map((item, index) => (
+                                {group.items.map((item) => (
                                     <PlayerPosterCard
                                         key={item.ratingKey}
                                         item={item}
-                                        browseIndex={isTvShell ? index : undefined}
                                         aspect={group.aspect}
                                         onOpenItem={onOpenItem}
                                         onPlay={onPlay}

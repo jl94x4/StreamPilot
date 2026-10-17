@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowLeft, Bookmark, BookmarkCheck, Calendar, Check, ChevronDown, Clock, Eye, EyeOff, Film, Info, ListPlus, Loader2, Play, RotateCcw, Shuffle, SkipForward, Star, Users } from 'lucide-react';
+import { isWatchTogetherAvailable } from './watchTogetherClient';
 import {
     Carousel,
     DiscoverHomeRowSkeleton,
@@ -197,6 +198,7 @@ type Props = {
     onOpenStudio: (studio: { key: string; name: string; sectionKey?: string; mediaType?: 'movie' | 'show' }) => void;
     onPlay: (item: PlayerItem, opts?: PlayerPlayOptions) => void;
     onPlayNext?: (item: PlayerItem) => void;
+    onWatchTogether?: (item: PlayerItem) => void;
     onToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
     isAdmin?: boolean;
     playlistsEnabled?: boolean;
@@ -369,6 +371,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
     onOpenStudio,
     onPlay,
     onPlayNext,
+    onWatchTogether,
     onToast,
     isAdmin = false,
     playlistsEnabled = true,
@@ -1104,6 +1107,27 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             </span>
         </button>
     ) : null;
+    const watchTogetherChip = item
+        && onWatchTogether
+        && isWatchTogetherAvailable()
+        && (item.type === 'movie' || item.type === 'episode')
+        && !isMusicPlayerItem(item)
+        ? (
+            <button
+                type="button"
+                data-tv-item="1"
+                data-tv-action="1"
+                data-tv-key={`watch-together:${item.ratingKey}`}
+                onClick={() => onWatchTogether(item)}
+                disabled={playing || playbackActive}
+                title={t('mediaPlayerPage.watchTogether')}
+                aria-label={t('mediaPlayerPage.watchTogether')}
+                className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/15 bg-white/5 text-white transition-colors hover:border-plex/40 hover:bg-white/10 disabled:opacity-50"
+            >
+                <Users className="h-4 w-4" />
+                <span className="media-details-action-label">{t('mediaPlayerPage.watchTogether')}</span>
+            </button>
+        ) : null;
     const tvTrailerButton = isTvShell && trailer && item ? (
         <button
             type="button"
@@ -2285,6 +2309,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                                 </button>
                                             ) : null}
                                             {watchlistChip}
+                                            {watchTogetherChip}
                                             {item.type === 'movie' || item.type === 'episode' || item.type === 'show' || item.type === 'season' ? (
                                                 <button
                                                     type="button"
@@ -2491,6 +2516,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                         </button>
                                     ) : null}
                                     {watchlistChip}
+                                    {watchTogetherChip}
                                     <button
                                         type="button"
                                         data-tv-item="1"

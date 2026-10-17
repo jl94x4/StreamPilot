@@ -176,14 +176,33 @@ export const saveMediaPlayerHomeHeroConfig = (payload: {
 
 let librariesSerial = 0;
 
-export const fetchMediaPlayerLibraries = () => {
+const delayMs = (ms: number) => new Promise<void>((resolve) => {
+    window.setTimeout(resolve, ms);
+});
+
+/** Nav library list — retries briefly so a cold PMS does not leave the side rail empty. */
+export const fetchMediaPlayerLibraries = async () => {
     const serial = ++librariesSerial;
-    return (apiFetch(`${PLAYER_API_ROOT}/libraries`) as Promise<{ libraries: PlayerSection[]; stale?: boolean }>)
-        .then((data) => {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+        if (serial !== librariesSerial) {
+            return { libraries: [] as PlayerSection[], stale: true };
+        }
+        try {
+            const data = await (apiFetch(`${PLAYER_API_ROOT}/libraries`) as Promise<{ libraries: PlayerSection[] }>);
             if (serial !== librariesSerial) return { ...data, stale: true };
-            writePlayerLibrariesCache(data?.libraries || []);
-            return data;
-        });
+            const libraries = Array.isArray(data?.libraries) ? data.libraries : [];
+            if (libraries.length) writePlayerLibrariesCache(libraries);
+            return { ...data, libraries };
+        } catch (error) {
+            lastError = error;
+            if (attempt < 2 && serial === librariesSerial) {
+                await delayMs(450 * (attempt + 1));
+                continue;
+            }
+        }
+    }
+    throw lastError || new Error('Failed to load libraries');
 };
 
 export const fetchMediaPlayerLibrary = (
@@ -671,6 +690,13 @@ export const searchMediaPlayer = (query: string) => (
 
 export const fetchMediaPlayerServers = () => (
     apiFetch(`${PLAYER_API_ROOT}/servers`) as Promise<{ servers: Array<{ id: string; name: string; enabled: boolean }> }>
+)
+
+/** Reachability of each enabled PMS — drives orange offline marks on library rows. */
+export const fetchMediaPlayerServerStatus = () => (
+    apiFetch(`${PLAYER_API_ROOT}/servers/status`) as Promise<{
+        servers: Array<{ id: string; name?: string; online: boolean }>;
+    }>
 );
 
 export const saveMediaPlayerServers = (enabledIds: string[]) => (

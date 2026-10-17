@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     ChevronRight,
+    CircleAlert,
     Clapperboard,
     Bookmark,
     Home,
@@ -49,6 +50,8 @@ type Props = {
     onOpenSettings: () => void;
     playlistsEnabled?: boolean;
     offline?: boolean;
+    /** Server ids currently unreachable — orange ! on matching library rows. */
+    offlineServerIds?: string[];
 };
 
 /** Fixed slot so every row’s glyph shares one vertical column (Lucide viewBoxes differ). */
@@ -123,6 +126,7 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
     onOpenSettings,
     playlistsEnabled = true,
     offline = false,
+    offlineServerIds = [],
 }: Props) {
     const { t } = useDiscoverI18n();
     const [mobileOpen, setMobileOpen] = useState(false);
@@ -137,6 +141,18 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
     const [homeSwitchError, setHomeSwitchError] = useState('');
     const isPlexClient = typeof window !== 'undefined' && Boolean(window.__PLEX_CLIENT__);
     const orderedLibraries = applyLibraryNavOrder(libraries, draftLibraryOrder || libraryOrder);
+    const offlineServerSet = useMemo(
+        () => new Set((offlineServerIds || []).map((id) => String(id || '').trim()).filter(Boolean)),
+        [offlineServerIds],
+    );
+    const libraryServerOffline = useCallback((section: PlayerSection) => {
+        if (offline) return true;
+        const fromKey = String(section.key || '').includes('::')
+            ? String(section.key).split('::')[0]
+            : '';
+        const serverId = String(section.serverId || fromKey || '').trim();
+        return serverId ? offlineServerSet.has(serverId) : false;
+    }, [offline, offlineServerSet]);
     const isTvShell = typeof document !== 'undefined' && (
         document.documentElement?.dataset?.tv === '1'
         || window.__PLEX_CLIENT__?.isTv === true
@@ -365,6 +381,10 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                         {orderedLibraries.map((section) => {
                             const Icon = libraryIcon(section.type);
                             const active = page === 'library' && String(activeLibraryKey) === String(section.key);
+                            const serverOffline = libraryServerOffline(section);
+                            const label = serverOffline
+                                ? `${section.title} — ${t('mediaPlayerPage.libraryServerOffline')}`
+                                : section.title;
                             return (
                                 <button
                                     key={section.key}
@@ -372,10 +392,17 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                                     {...tvNavProps(isTvShell, expanded, active)}
                                     className={navButtonClass(active, showLabels, isTvShell)}
                                     onClick={() => go(() => onOpenLibrary(section))}
-                                    title={section.title}
+                                    title={label}
+                                    aria-label={label}
                                 >
                                     <NavIcon><Icon className={NAV_ICON_CLASS} /></NavIcon>
-                                    <span className="player-nav-label min-w-0 truncate">{section.title}</span>
+                                    <span className="player-nav-label min-w-0 flex-1 truncate">{section.title}</span>
+                                    {serverOffline ? (
+                                        <CircleAlert
+                                            className="h-4 w-4 shrink-0 text-amber-400"
+                                            aria-hidden
+                                        />
+                                    ) : null}
                                 </button>
                             );
                         })}

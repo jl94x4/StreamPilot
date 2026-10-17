@@ -887,6 +887,12 @@ export const restoreTvFocus = (): boolean => {
     return true;
 };
 
+const focusTvContentWhenReady = (attempts = 40) => {
+    if (focusTvContent()) return;
+    if (attempts <= 0) return;
+    window.setTimeout(() => focusTvContentWhenReady(attempts - 1), 40);
+};
+
 export const restoreTvFocusWhenReady = () => {
     if (isPlayerItemPath()) {
         // Episode/season hubs must land on the episode card (orange ring). A stale
@@ -918,7 +924,12 @@ export const restoreTvFocusWhenReady = () => {
         focusTvHeroWhenReady();
         return;
     }
-    if (!tvFocusByPath.get(currentPath())?.key) return;
+    // Watchlist / Playlists / Collection / Hub / etc. — always land a ring even
+    // with no remembered key (first open after side-nav).
+    if (!tvFocusByPath.get(currentPath())?.key) {
+        focusTvContentWhenReady();
+        return;
+    }
     if (restoreTvFocus()) return;
     let attempts = 12;
     const tick = () => {
@@ -1163,7 +1174,12 @@ const browseGridStep = (current: HTMLElement, dir: SpatialDir): HTMLElement | nu
     if (alpha) {
         const items = focusableTvItems(alpha);
         const idx = items.findIndex((el) => el === current || el.contains(current));
-        if (dir === 'up') return (idx > 0 ? items[idx - 1] : null) || filterButton();
+        if (dir === 'up') {
+            return (idx > 0 ? items[idx - 1] : null)
+                || filterButton()
+                || libraryTabForFocus()
+                || null;
+        }
         if (dir === 'down') return idx >= 0 && idx < items.length - 1 ? items[idx + 1] : current;
         if (dir === 'right') return current;
         if (lastBrowsePoster && lastBrowsePoster.isConnected && hasLayout(lastBrowsePoster)) return lastBrowsePoster;
@@ -1191,7 +1207,8 @@ const browseGridStep = (current: HTMLElement, dir: SpatialDir): HTMLElement | nu
                     window.dispatchEvent(new Event('smp-browse-need-before'));
                     return current;
                 }
-                return filterButton() || undefined;
+                // Filters first, then library tabs — never dead-end on the top poster row.
+                return filterButton() || libraryTabForFocus() || null;
             }
             return browsePosterAt(grid, absIndex - cols) || current;
         }
@@ -1204,7 +1221,7 @@ const browseGridStep = (current: HTMLElement, dir: SpatialDir): HTMLElement | nu
     if (dir === 'up' || dir === 'down') {
         const next = findSpatialTarget(current, dir, grid);
         if (next) return next;
-        if (dir === 'up') return filterButton() || undefined;
+        if (dir === 'up') return filterButton() || libraryTabForFocus() || null;
         return current;
     }
     const next = findSpatialTarget(current, dir, grid);
@@ -1614,6 +1631,9 @@ const visibleLibraryTab = (): HTMLElement | null => {
     return candidates.find((el) => hasLayout(el) && !el.closest('[hidden]')) || null;
 };
 
+/** Browse: Up from the top poster / letter row should reach Recommended/Browse/Collections. */
+const libraryTabForFocus = (): HTMLElement | null => visibleLibraryTab();
+
 const handleTvBack = (): boolean => {
     const now = Date.now();
     if (now < tvBackLockUntil) return true;
@@ -1734,6 +1754,30 @@ const handleTvBack = (): boolean => {
             }
             restoreTvFocusWhenReady();
         }, 80);
+        return true;
+    }
+    // Home search: results → field → clear → side nav (phone already cleared search).
+    // After IME blur, focus often lands on body — treat that as “clear”, not “refocus field”.
+    const searchInput = document.getElementById(PLAYER_SEARCH_INPUT_ID) as HTMLElement | null;
+    if (searchInput && hasLayout(searchInput)) {
+        const active = document.activeElement as HTMLElement | null;
+        const onField = Boolean(
+            active
+            && (active === searchInput || searchInput.contains(active)),
+        );
+        const onResults = Boolean(
+            active
+            && !onField
+            && active !== document.body
+            && active !== document.documentElement
+            && active.closest?.('[data-tv-poster-btn="1"], [data-tv-poster-card="1"]'),
+        );
+        if (onResults) {
+            focusItem(searchInput, 'start');
+            return true;
+        }
+        requestPlayerHomeReset();
+        window.setTimeout(() => restoreTvFocusWhenReady(), 40);
         return true;
     }
     openSideNav(document.activeElement as HTMLElement | null);
@@ -2191,6 +2235,14 @@ export const useTvRemote = (enabled = true) => {
                 const poster = visibleStageRail()?.querySelector<HTMLElement>('[data-tv-poster-btn="1"]') || null;
                 if (poster && hasLayout(poster)) {
                     focusItem(poster, 'nearest', dir);
+                    return;
+                }
+            }
+            // Browse filters sit between tabs and the grid — Up must reach the tab row.
+            if (!target && !menuRoot && dir === 'up' && current.closest('[data-tv-library-filters="1"]')) {
+                const tab = libraryTabForFocus();
+                if (tab) {
+                    focusItem(tab, 'start');
                     return;
                 }
             }

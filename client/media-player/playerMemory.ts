@@ -800,18 +800,36 @@ export const usePlayerNetworkStatus = () => {
 
 const PLAYER_LIBRARIES_CACHE_KEY = 'portal-media-player-libraries-cache';
 const PLAYER_LIBRARIES_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+/** Fired whenever the libraries cache gets a non-empty write (home or /libraries). */
+export const PLAYER_LIBRARIES_EVENT = 'portal-media-player-libraries';
 let playerLibrariesCache: { at: number; data: PlayerSection[] } | null = null;
+
+const libraryTitleFallback = (type: string) => {
+    const kind = String(type || '').toLowerCase();
+    if (kind === 'show') return 'TV Shows';
+    if (kind === 'artist') return 'Music';
+    if (kind === 'photo') return 'Photos';
+    return 'Movies';
+};
 
 const sanitizeLibraries = (rows: unknown): PlayerSection[] => (
     (Array.isArray(rows) ? rows : [])
         .filter((row): row is PlayerSection => Boolean(row && String((row as PlayerSection).key || '').trim()))
-        .map((row) => ({
-            key: String(row.key),
-            title: String(row.title || ''),
-            type: String(row.type || ''),
-            agent: row.agent,
-            thumb: row.thumb,
-        }))
+        .map((row) => {
+            const type = String(row.type || '');
+            const title = String(row.title || '').trim() || libraryTitleFallback(type);
+            const serverId = String((row as PlayerSection).serverId || '').trim();
+            const serverName = String((row as PlayerSection).serverName || '').trim();
+            return {
+                key: String(row.key),
+                title,
+                type,
+                agent: row.agent,
+                thumb: row.thumb,
+                ...(serverId ? { serverId } : {}),
+                ...(serverName ? { serverName } : {}),
+            };
+        })
 );
 
 export const readPlayerLibrariesCache = (): PlayerSection[] => {
@@ -844,6 +862,11 @@ export const writePlayerLibrariesCache = (libraries: PlayerSection[]) => {
     const raw = JSON.stringify(playerLibrariesCache);
     try { window.localStorage.setItem(PLAYER_LIBRARIES_CACHE_KEY, raw); } catch { /* ignore */ }
     try { window.sessionStorage.setItem(PLAYER_LIBRARIES_CACHE_KEY, raw); } catch { /* ignore */ }
+    try {
+        window.dispatchEvent(new Event(PLAYER_LIBRARIES_EVENT));
+    } catch {
+        /* ignore */
+    }
 };
 
 export const isPlayerHomeCacheFresh = (maxAgeMs = PLAYER_HOME_CACHE_TTL_MS) => (

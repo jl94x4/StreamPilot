@@ -101,8 +101,9 @@ export const MediaPlayerCollection: React.FC<Props> = ({ ratingKey, sectionKey =
                 <div
                     className={upgraderPosterGridClass(gridSize)}
                     style={upgraderPosterGridStyle(gridSize)}
-                    data-tv-rail="1"
-                    data-tv-poster-rail="1"
+                    data-tv-row={tvShell ? '1' : undefined}
+                    data-tv-rail={tvShell ? '1' : undefined}
+                    data-tv-poster-grid={tvShell ? '1' : undefined}
                 >
                     {items.map((item) => (
                         <PlayerPosterCard

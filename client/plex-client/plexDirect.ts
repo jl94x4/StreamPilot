@@ -1044,14 +1044,26 @@ const mapList = (data: any) => {
         });
 };
 
+const sectionTitleFallback = (type: string) => {
+    const kind = String(type || '').toLowerCase();
+    if (kind === 'show') return 'TV Shows';
+    if (kind === 'artist') return 'Music';
+    if (kind === 'photo') return 'Photos';
+    return 'Movies';
+};
+
 const mapSections = (data: any) => asList<PlexMeta>(containerOf(data).Directory)
-    .filter((row) => row.key && row.title)
-    .map((row) => ({
-        key: String(row.key),
-        title: String(row.title),
-        type: String(row.type || 'movie'),
-        agent: row.agent || '',
-    }));
+    .filter((row) => row.key)
+    .map((row) => {
+        const type = String(row.type || 'movie');
+        const title = String(row.title || '').trim() || sectionTitleFallback(type);
+        return {
+            key: String(row.key),
+            title,
+            type,
+            agent: row.agent || '',
+        };
+    });
 
 const mapFirstCharacters = (data: any) => {
     const rows = asList<PlexMeta>(containerOf(data).Directory).map((row) => {
@@ -3534,19 +3546,53 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
             })),
         };
     }
-    if (path === '/api/media-player/libraries') {
+    if (path === '/api/media-player/servers/status') {
         await ensureServers();
         const servers = enabledServers();
+        const statuses = await Promise.all(servers.map(async (server) => ({
+            id: server.id,
+            name: server.name,
+            online: await probe(server.uri, server.accessToken),
+        })));
+        return { servers: statuses };
+    }
+    if (path === '/api/media-player/libraries') {
+        await ensureServers();
+        let servers = enabledServers();
+        // Boot can race discovery — wait once more if the list is still empty.
+        if (!servers.length) {
+            const token = accountToken() || readOwnerToken();
+            if (token) {
+                await beginServerDiscovery(token).catch(() => []);
+                servers = enabledServers();
+            }
+        }
         const many = servers.length > 1;
-        const groups = await Promise.all(servers.map((server) => withMapServer(server, async () => (
-            mapSections(await pms('/library/sections', server)).map((section) => ({
-                ...section,
-                key: many ? `${server.id}::${section.key}` : section.key,
-                title: many ? `${section.title}` : section.title,
-                serverId: server.id,
-                serverName: server.name,
-            }))
-        ))));
+        const loadSections = async (server: PlexServer) => {
+            const raw = await pms('/library/sections', server, 8000).catch(() => null);
+            if (raw) return mapSections(raw);
+            // One retry — PMS often answers on the second try after wake / TLS.
+            const retry = await pms('/library/sections', server, 10000).catch(() => null);
+            return mapSections(retry);
+        };
+        const groups = await Promise.all(servers.map((server) => (
+            withMapServer(server, async () => (
+                (await loadSections(server)).map((section) => ({
+                    ...section,
+                    key: many ? `${server.id}::${section.key}` : section.key,
+                    title: section.title,
+                    serverId: server.id,
+                    serverName: server.name,
+                }))
+            )).catch(() => [] as Array<{
+                key: string;
+                title: string;
+                type: string;
+                agent: string;
+                serverId: string;
+                serverName: string;
+            }>)
+        )));
         const libraries = groups.flat();
         const titles = new Map<string, number>();
         libraries.forEach((library) => titles.set(library.title, (titles.get(library.title) || 0) + 1));

@@ -6,6 +6,44 @@ import { readApkWhatsNewSeen, writeApkWhatsNewSeen } from '../media-player/playe
 import { getPlexClientAppVersion } from './config';
 
 const NOTES_BY_VERSION: Record<string, { title: string; items: string[] }[]> = {
+    '1.0.138': [
+        {
+            title: 'Watch Together',
+            items: [
+                'Watch the same title with friends — play, pause, and seek stay in sync over your StreamPilot portal',
+                'Works with portal sign-in and Plex-direct when the app has a StreamPilot portal URL',
+            ],
+        },
+        {
+            title: 'Browse',
+            items: [
+                'Up from the top Browse row reaches filters or the Recommended/Browse/Collections tabs (no dead end)',
+                'Back from a title keeps the poster or View more control you opened from',
+            ],
+        },
+        {
+            title: 'Search',
+            items: [
+                'Back steps results → search field → clears search (no longer opens the side menu while search is open)',
+                'Up/Down between search result groups and the search field works again',
+            ],
+        },
+        {
+            title: 'Watchlist & Playlists',
+            items: [
+                'Opening Watchlist or Playlists lands the orange ring on the first poster',
+                'Empty and error states are remote-friendly with a focused Back action',
+                'Playlist titles open correctly — Select no longer did nothing on playlist items',
+            ],
+        },
+        {
+            title: 'Navigation',
+            items: [
+                'Library names in the side menu load more reliably — failed refreshes no longer wipe the list, and a slow server is retried',
+                'Libraries show an orange warning when their Plex server is offline (like the official app)',
+            ],
+        },
+    ],
     '1.0.137': [
         {
             title: 'Libraries',

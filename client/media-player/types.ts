@@ -232,6 +232,9 @@ export type PlayerSection = {
     type: string;
     agent?: string;
     thumb?: string | null;
+    /** Owning PMS id — used for offline marks when multiple servers are enabled. */
+    serverId?: string | null;
+    serverName?: string | null;
 };
 
 export type PlayerProfile = {

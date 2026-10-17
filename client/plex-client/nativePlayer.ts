@@ -435,6 +435,16 @@ export const setNativePlayerPaused = async (paused: boolean): Promise<boolean> =
     }
 };
 
+export const seekNativePlayer = async (positionMs: number): Promise<boolean> => {
+    const bridge = window.NativeMediaPlayer;
+    if (!bridge?.seek) return false;
+    try {
+        return !!(await bridge.seek(Math.max(0, Math.floor(positionMs))));
+    } catch {
+        return false;
+    }
+};
+
 export const skipNativePlayerNext = async (): Promise<boolean> => {
     const bridge = window.NativeMediaPlayer;
     if (!bridge?.skipNext) return false;
