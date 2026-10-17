@@ -19,6 +19,8 @@ const loadDiscoverAvailabilityEnrich = async () => {
         format: 'cjs',
         platform: 'node',
         write: false,
+        // Mirror build:js — Capacitor is only present in the native client build.
+        external: ['@capacitor/core', '@capacitor/preferences'],
         plugins: [{
             name: 'mock-api-fetch',
             setup(buildApi) {
