@@ -4602,7 +4602,7 @@ export const SettingsDashboard: React.FC = () => {
 
                                                 <div>
                                                     <SettingFieldLabel
-                                                        hint={<SettingHint>Controls the installed home-screen icon, browser tab favicon, Android notification silhouette, and newsletter header. Choose Application logo for the stacked StreamPilot mark (recommended on iOS — Server logo often shows your Plex crest or a letter glyph). After changing this, remove the old home-screen icon and Add to Home Screen again so Safari picks up the new bitmap.</SettingHint>}
+                                                        hint={<SettingHint>Controls the installed home-screen icon, browser tab favicon, Android notification silhouette, and newsletter header. Application logo = stacked StreamPilot mark. Server logo = your uploaded Favicon/Logo when set, otherwise the Plex account avatar or Jellyfin branding icon. Save settings after changing this, then remove the old home-screen icon and Add to Home Screen again so the device picks up the new bitmap.</SettingHint>}
                                                     >
                                                         PWA Home Screen Icon
                                                     </SettingFieldLabel>
@@ -4611,7 +4611,7 @@ export const SettingsDashboard: React.FC = () => {
                                                         onChange={(value) => setPwaIconSource(value === 'application' ? 'application' : 'server')}
                                                         options={[
                                                             { label: 'Application logo (StreamPilot stacked)', value: 'application' },
-                                                            { label: 'Server logo (Plex / Jellyfin)', value: 'server' },
+                                                            { label: 'Server logo (upload / Plex / Jellyfin)', value: 'server' },
                                                         ]}
                                                     />
                                                 </div>

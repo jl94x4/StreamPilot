@@ -31,6 +31,7 @@ import {
     resolveAppleTouchIconHref,
     parseStampedPwaIconFileName,
     homeScreenIconFileRev,
+    portalPwaIconDir,
     HOME_SCREEN_ICON_REV,
     SERVER_PWA_ICON_BADGE_SCALE,
     SERVER_PWA_MASKABLE_BADGE_SCALE,
@@ -7993,9 +7994,16 @@ app.post('/api/config', setupRateLimit, async (req, res) => {
     refreshRuntimePublicBaseUrl(spotifySyncConfig);
     syncIntegrationServicesInStatusConfig(spotifySyncConfig);
     const brandingProfile = await getAdminProfile(spotifySyncConfig);
-    void refreshPortalBrandingAssets(spotifySyncConfig, brandingProfile).catch((error) => {
+    try {
+        const brandingSync = await refreshPortalBrandingAssets(spotifySyncConfig, brandingProfile);
+        if (!brandingSync?.synced) {
+            log(`[Branding] settings-save icon sync did not write icons (mode=${brandingSync?.mode || 'unknown'})`);
+        } else {
+            log(`[Branding] settings-save icon sync ok (mode=${brandingSync.mode})`);
+        }
+    } catch (error) {
         log(`[Branding] settings-save icon sync failed: ${error.message}`);
-    });
+    }
     try {
         await saveFile(STATUS_CONFIG_PATH, statusConfig);
     } catch (e) {
@@ -8201,7 +8209,7 @@ async function fetchTmdbTrendingBackgrounds(apiKey) {
 app.get('/api/config/public', async (req, res) => {
     try {
         const config = (await loadFile(CONFIG_PATH, {})) || {};
-        const publicProfile = { serverName: 'StreamPilot', thumb: null };
+        const publicProfile = await getAdminProfile(config).catch(() => ({ serverName: 'StreamPilot', thumb: null }));
         res.json({
             mediaServerType: config.mediaServerType || 'plex',
             jellyfinAnalyticsProvider: normalizeJellyfinAnalyticsProvider(config.jellyfinAnalyticsProvider, config),
@@ -16637,22 +16645,33 @@ const sendHomeScreenFaviconPng = async (res, buffer) => {
     return res.send(png);
 };
 
-const sendStaticHomeScreenIconFile = async (res, fileNames = [], cacheControl = HOME_SCREEN_ICON_CACHE) => {
+const sendStaticHomeScreenIconFile = async (
+    res,
+    fileNames = [],
+    cacheControl = HOME_SCREEN_ICON_CACHE,
+    { allowPackagedFallback = true } = {},
+) => {
     const staticRoot = path.join(process.cwd(), 'static');
+    // Prefer config/branding/pwa (synced for the active pwaIconSource). Packaged
+    // static/ always ships StreamPilot marks and is restored on every image deploy —
+    // skip it when Server logo is selected so we never serve a stale app mark.
+    const searchRoots = [portalPwaIconDir(BRANDING_DIR)];
+    if (allowPackagedFallback) searchRoots.push(staticRoot);
     for (const name of fileNames) {
-        const filePath = path.join(staticRoot, name);
-        let buffer;
-        try {
-            buffer = await fs.readFile(filePath);
-        } catch {
-            // try next
-            continue;
+        for (const root of searchRoots.filter(Boolean)) {
+            let buffer;
+            try {
+                buffer = await fs.readFile(path.join(root, name));
+            } catch {
+                continue;
+            }
+            if (!buffer?.length) continue;
+            res.setHeader('Content-Type', 'image/png');
+            res.setHeader('Cache-Control', cacheControl);
+            res.setHeader('X-Content-Type-Options', 'nosniff');
+            res.send(buffer);
+            return true;
         }
-        res.setHeader('Content-Type', 'image/png');
-        res.setHeader('Cache-Control', cacheControl);
-        res.setHeader('X-Content-Type-Options', 'nosniff');
-        res.send(buffer);
-        return true;
     }
     return false;
 };
@@ -16712,21 +16731,25 @@ const sendBrandingImageBuffer = async (res, buffer, contentTypeHint = '', pwaSiz
 app.get('/api/public/pwa-icon', async (req, res) => {
     const size = Number(req.query.size) >= 512 ? 512 : 192;
     const maskable = req.query.maskable === '1' || req.query.maskable === 'true';
-    // Prefer pre-synced static files so Cloudflare never waits on Plex branding.
-    if (maskable) {
-        const sentMaskable = await sendStaticHomeScreenIconFile(res, ['pwa-icon-maskable-512.png']);
-        if (sentMaskable) return sentMaskable;
-    } else {
-        const sentSized = await sendStaticHomeScreenIconFile(res, [
-            `pwa-icon-${size >= 512 ? 512 : 192}.png`,
-            'apple-touch-icon-192.png',
-            'apple-touch-icon.png',
-        ]);
-        if (sentSized) return sentSized;
-    }
     try {
         const config = await loadFile(CONFIG_PATH, {});
-        if (normalizePwaIconSource(config.pwaIconSource) === 'application') {
+        const useApplicationLogo = normalizePwaIconSource(config.pwaIconSource) === 'application';
+        const iconNames = maskable
+            ? ['pwa-icon-maskable-512.png']
+            : [
+                `pwa-icon-${size >= 512 ? 512 : 192}.png`,
+                'apple-touch-icon-192.png',
+                'apple-touch-icon.png',
+            ];
+        // Synced copy under config/branding/pwa, or packaged static only for Application logo.
+        const sentCached = await sendStaticHomeScreenIconFile(
+            res,
+            iconNames,
+            HOME_SCREEN_ICON_CACHE,
+            { allowPackagedFallback: useApplicationLogo },
+        );
+        if (sentCached) return sentCached;
+        if (useApplicationLogo) {
             return sendHomeScreenStaticLogoFallback(res);
         }
 
@@ -16743,6 +16766,10 @@ app.get('/api/public/pwa-icon', async (req, res) => {
             log('[Branding] PWA icon route: server branding unavailable, falling back to app logo');
             return sendHomeScreenStaticLogoFallback(res);
         }
+        // Persist for the next install / A2HS fetch (stamped /static URLs).
+        void refreshPortalBrandingAssets(config, profile || {}).catch((error) => {
+            log(`[Branding] PWA icon route sync failed: ${error.message}`);
+        });
 
         if (maskable) {
             const png = makeHomeScreenIconPng(buffer, size, {
@@ -16853,6 +16880,13 @@ const sendPortalBrandingIcon = async (req, res) => {
  * Do not attach publicReadRateLimit — a 429 JSON body makes iOS show a letter glyph.
  */
 const sendWellKnownAppleTouchIcon = async (req, res) => {
+    let allowPackagedFallback = true;
+    try {
+        const config = await loadFile(CONFIG_PATH, {});
+        allowPackagedFallback = normalizePwaIconSource(config.pwaIconSource) === 'application';
+    } catch {
+        // keep packaged fallback
+    }
     const sent = await sendStaticHomeScreenIconFile(res, [
         `apple-touch-${homeScreenIconFileRev()}.png`,
         'apple-touch-icon.png',
@@ -16860,8 +16894,11 @@ const sendWellKnownAppleTouchIcon = async (req, res) => {
         'apple-touch-icon-precomposed.png',
         'apple-touch-icon-192.png',
         'pwa-icon-192.png',
-    ]);
+    ], HOME_SCREEN_ICON_CACHE, { allowPackagedFallback });
     if (sent) return sent;
+    if (!allowPackagedFallback) {
+        return sendPortalBrandingIcon(req, res);
+    }
     // Never fall through to slow/auth branding for Safari's root probe — generate
     // the stacked application mark in-process so a missing static file cannot yield HTML/JSON.
     try {
@@ -22273,12 +22310,24 @@ if (BASE_PATH) {
 const sendStampedPwaIcon = async (req, res, next) => {
     const baseFile = parseStampedPwaIconFileName(req.params.file);
     if (!baseFile) return next();
+    let allowPackagedFallback = true;
+    try {
+        const config = await loadFile(CONFIG_PATH, {});
+        allowPackagedFallback = normalizePwaIconSource(config.pwaIconSource) === 'application';
+    } catch {
+        // keep packaged fallback
+    }
     const sent = await sendStaticHomeScreenIconFile(
         res,
         [baseFile, 'apple-touch-icon.png', 'pwa-icon-192.png'],
         'public, max-age=86400',
+        { allowPackagedFallback },
     );
     if (sent) return sent;
+    if (!allowPackagedFallback) {
+        // Server logo selected but persistent icons missing — generate live (same as branding-icon).
+        return sendPortalBrandingIcon(req, res);
+    }
     return sendWellKnownAppleTouchIcon(req, res);
 };
 app.get('/static/:file', sendStampedPwaIcon);

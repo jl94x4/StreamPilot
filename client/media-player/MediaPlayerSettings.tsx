@@ -16,6 +16,12 @@ import {
 } from './playerSettings';
 import { usePlayerSettings } from './usePlayerSettings';
 import type { PlayerSection } from './types';
+import {
+    isPlexClientApp,
+    normalizePortalBaseUrl,
+    readStoredPortalBaseUrl,
+    writeStoredPortalBaseUrl,
+} from '../plex-client/config';
 
 type Props = {
     onBack: () => void;
@@ -266,7 +272,7 @@ const TvReorderList: React.FC<{
     );
 };
 
-type SettingsTabId = 'home' | 'player' | 'titles' | 'servers';
+type SettingsTabId = 'home' | 'player' | 'titles' | 'servers' | 'connection';
 
 const SettingsTabBar: React.FC<{
     tabs: Array<{ id: SettingsTabId; label: string }>;
@@ -335,6 +341,10 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
     const [servers, setServers] = useState<Array<{ id: string; name: string; enabled: boolean }>>([]);
     const [saveState, setSaveState] = useState<'idle' | 'saved' | 'error'>('idle');
     const [settingsTab, setSettingsTab] = useState<SettingsTabId>('home');
+    const showPortalConnection = isPlexClientApp();
+    const [portalUrlDraft, setPortalUrlDraft] = useState(() => readStoredPortalBaseUrl());
+    const [portalUrlBaseline, setPortalUrlBaseline] = useState(() => readStoredPortalBaseUrl());
+    const [portalError, setPortalError] = useState('');
     const [heroMode, setHeroMode] = useState<HeroMode>('trending_week');
     const [heroSeasonalOnly, setHeroSeasonalOnly] = useState(false);
     const [cwSeasonPoster, setCwSeasonPoster] = useState(false);
@@ -501,19 +511,23 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
             { id: 'titles', label: t('mediaPlayerPage.settingsTabTitles') },
         ];
         if (servers.length > 1) rows.push({ id: 'servers', label: t('mediaPlayerPage.settingsTabServers') });
+        if (showPortalConnection) rows.push({ id: 'connection', label: t('mediaPlayerPage.settingsTabConnection') });
         return rows;
-    }, [servers.length, t]);
+    }, [servers.length, showPortalConnection, t]);
 
     useEffect(() => {
         if (settingsTab === 'servers' && servers.length < 2) setSettingsTab('home');
-    }, [servers.length, settingsTab]);
+        if (settingsTab === 'connection' && !showPortalConnection) setSettingsTab('home');
+    }, [servers.length, settingsTab, showPortalConnection]);
 
     const heroDirty = !!heroBaseline && (
         heroMode !== heroBaseline.mode
         || heroSeasonalOnly !== heroBaseline.seasonalInWindowOnly
         || cwSeasonPoster !== heroBaseline.continueWatchingSeasonPoster
     );
-    const dirty = playerDirty || heroDirty;
+    const portalDirty = showPortalConnection
+        && String(portalUrlDraft || '').trim().replace(/\/+$/, '') !== String(portalUrlBaseline || '').trim().replace(/\/+$/, '');
+    const dirty = playerDirty || heroDirty || portalDirty;
     const saving = playerSaving || heroSaving;
 
     useEffect(() => {
@@ -541,10 +555,40 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
             setHeroSeasonalOnly(heroBaseline.seasonalInWindowOnly);
             setCwSeasonPoster(heroBaseline.continueWatchingSeasonPoster);
         }
+        if (showPortalConnection) {
+            setPortalUrlDraft(portalUrlBaseline);
+            setPortalError('');
+        }
+    };
+
+    const persistPortalUrl = (): boolean => {
+        if (!showPortalConnection || !portalDirty) return true;
+        const raw = String(portalUrlDraft || '').trim();
+        if (!raw) {
+            writeStoredPortalBaseUrl('');
+            setPortalUrlBaseline('');
+            setPortalUrlDraft('');
+            setPortalError('');
+            return true;
+        }
+        const normalized = normalizePortalBaseUrl(raw);
+        if (!normalized.ok) {
+            setPortalError(normalized.error || t('mediaPlayerPage.settingsPortalUrlInvalid'));
+            return false;
+        }
+        writeStoredPortalBaseUrl(normalized.url);
+        setPortalUrlBaseline(normalized.url);
+        setPortalUrlDraft(normalized.url);
+        setPortalError('');
+        return true;
     };
 
     const handleSave = async () => {
         try {
+            if (!persistPortalUrl()) {
+                setSaveState('error');
+                return;
+            }
             if (playerDirty) await saveSettings();
             if (heroDirty && canEditHero) {
                 setHeroSaving(true);
@@ -571,6 +615,78 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
             setHeroSaving(false);
         }
     };
+
+    const connectionSettings = showPortalConnection ? (
+        <section className={tvShell ? 'flex flex-col gap-3' : sectionClass}>
+            {!tvShell ? (
+                <div className="border-b border-border px-5 py-4 sm:px-6">
+                    <h2 className="text-sm font-black uppercase tracking-widest text-muted">
+                        {t('mediaPlayerPage.settingsConnection')}
+                    </h2>
+                    <p className="mt-1 text-xs text-muted">{t('mediaPlayerPage.settingsPortalUrlHint')}</p>
+                </div>
+            ) : (
+                <p className="text-sm text-muted">{t('mediaPlayerPage.settingsPortalUrlHint')}</p>
+            )}
+            <div className={tvShell ? 'flex flex-col gap-3' : 'px-5 py-4 sm:px-6'}>
+                <label className="block space-y-2">
+                    <span className={`block font-bold text-text ${tvShell ? 'text-base' : 'text-sm'}`}>
+                        {t('mediaPlayerPage.settingsPortalUrl')}
+                    </span>
+                    <input
+                        data-tv-item="1"
+                        data-tv-action="1"
+                        data-tv-key="settings-portal-url"
+                        tabIndex={0}
+                        className={
+                            tvShell
+                                ? 'w-full rounded-2xl border border-white/15 bg-black/40 px-5 py-4 text-base text-white outline-none focus:border-plex/70'
+                                : 'w-full max-w-xl rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm text-text outline-none focus:border-plex/60'
+                        }
+                        value={portalUrlDraft}
+                        onChange={(e) => {
+                            setPortalUrlDraft(e.target.value);
+                            setPortalError('');
+                            setSaveState('idle');
+                        }}
+                        placeholder={t('mediaPlayerPage.settingsPortalUrlPlaceholder')}
+                        autoCapitalize="off"
+                        autoCorrect="off"
+                        spellCheck={false}
+                        inputMode="url"
+                        autoComplete="url"
+                    />
+                </label>
+                {portalError ? (
+                    <p className={`font-bold text-red-400 ${tvShell ? 'text-sm' : 'text-xs'}`}>{portalError}</p>
+                ) : portalUrlBaseline ? (
+                    <p className={`text-muted ${tvShell ? 'text-sm' : 'text-xs'}`}>
+                        {t('mediaPlayerPage.settingsPortalUrlSaved')}
+                    </p>
+                ) : null}
+                {portalUrlDraft || portalUrlBaseline ? (
+                    <button
+                        type="button"
+                        data-tv-item="1"
+                        data-tv-action="1"
+                        data-tv-key="settings-portal-url-clear"
+                        onClick={() => {
+                            setPortalUrlDraft('');
+                            setPortalError('');
+                            setSaveState('idle');
+                        }}
+                        className={
+                            tvShell
+                                ? `${tvRowClass} justify-center text-base font-bold text-muted`
+                                : 'text-xs font-bold text-muted hover:text-text'
+                        }
+                    >
+                        {t('mediaPlayerPage.settingsPortalUrlClear')}
+                    </button>
+                ) : null}
+            </div>
+        </section>
+    ) : null;
 
     const saveLocked = !dirty || saving;
     const saveActions = (
@@ -881,6 +997,7 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                 ) : null}
 
                 {settingsTab === 'servers' ? serverSettings : null}
+                {settingsTab === 'connection' ? connectionSettings : null}
                 </div>
                 {saveActions}
                 {versionLabel}
@@ -953,6 +1070,8 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                     <div className="px-5 py-4 sm:px-6">{serverSettings}</div>
                 </section>
             ) : null}
+
+            {settingsTab === 'connection' ? connectionSettings : null}
 
             {settingsTab === 'home' ? (
             <section className={sectionClass}>
