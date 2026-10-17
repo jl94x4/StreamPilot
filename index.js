@@ -112,7 +112,11 @@ import { createWatchSyncRouter } from './lib/watch-sync/index.js';
 import { startWatchSyncScheduler } from './lib/watch-sync/scheduler.js';
 import { startLiveWatch } from './lib/watch-sync/watcher.js';
 import { startWatchSyncJob } from './lib/watch-sync/runtime.js';
-import { attachWatchTogether, getWatchTogetherRoomSummary } from './lib/watch-together/index.js';
+import {
+    attachWatchTogether,
+    getWatchTogetherRoomSummary,
+    resolveWatchTogetherHostStream,
+} from './lib/watch-together/index.js';
 import { startOverlaysScheduler, startOverlaysBundleScheduler, runOverlaysScheduledJob } from './lib/overlays/scheduler.js';
 import { registerAchievementsRoutes } from './lib/achievements/http.js';
 import { registerProfileRoutes } from './lib/profile/http.js';
@@ -30192,7 +30196,11 @@ app.all(withWildcard('/api/collexions'), requireAdmin, requireCollexions, async 
             || suffix.startsWith('templates/franchise-search')
             || suffix === 'trending'
             || suffix === 'trakt/list'
-            || suffix.startsWith('trakt/list?');
+            || suffix.startsWith('trakt/list?')
+            || suffix === 'justwatch/list'
+            || suffix.startsWith('justwatch/list?')
+            || suffix === 'letterboxd/list'
+            || suffix.startsWith('letterboxd/list?');
         const timeoutMs = longSuffix ? COLLEXIONS_LONG_PROXY_MS : 20000;
         const upstream = await fetchWithTimeout(targetUrl.toString(), init, timeoutMs);
         const contentType = upstream.headers.get('content-type') || '';
@@ -30862,6 +30870,7 @@ app.use('/api/media-player', createMediaPlayerRouter({
     fetchImpl: fetch,
     clientId: CLIENT_ID,
     appVersion,
+    resolveWatchTogetherHostStream,
     resolveMemberPlexToken: async (req) => {
         const sessionUser = req?.user;
         if (!sessionUser) return null;

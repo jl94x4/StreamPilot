@@ -397,4 +397,6 @@ export type PlayerPlayOptions = {
     queue?: PlayerItem[];
     /** Next episode started by autoplay, not a user Play press. */
     fromAutoplay?: boolean;
+    /** Watch Together invite — play host library via portal WT stream gate. */
+    watchTogether?: string | null;
 };

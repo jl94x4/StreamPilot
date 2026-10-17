@@ -143,7 +143,7 @@ const JobsPage: React.FC = () => {
 
     // Search & Filter State
     const [searchQuery, setSearchQuery] = useState('');
-    const [serviceFilter, setServiceFilter] = useState<'all' | 'trakt' | 'mdblist'>('all');
+    const [serviceFilter, setServiceFilter] = useState<'all' | 'trakt' | 'mdblist' | 'justwatch' | 'letterboxd'>('all');
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(10);
 
@@ -454,6 +454,8 @@ const JobsPage: React.FC = () => {
         if (type.includes('trakt')) return <span className="px-2 py-0.5 bg-red-900/40 text-red-400 border border-red-800/50 rounded text-[10px] font-bold uppercase tracking-wider">Trakt</span>;
         if (type.includes('tmdb')) return <span className="px-2 py-0.5 bg-plex/10 text-plex border border-plex/30 rounded text-[10px] font-bold uppercase tracking-wider">TMDb</span>;
         if (type.includes('mdblist')) return <span className="px-2 py-0.5 bg-amber-500/10 text-amber-400 border border-amber-500/30 rounded text-[10px] font-bold uppercase tracking-wider">MdbList</span>;
+        if (type.includes('justwatch')) return <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded text-[10px] font-bold uppercase tracking-wider">JustWatch</span>;
+        if (type.includes('letterboxd')) return <span className="px-2 py-0.5 bg-orange-500/10 text-orange-300 border border-orange-500/30 rounded text-[10px] font-bold uppercase tracking-wider">Letterboxd</span>;
         return <span className="px-2 py-0.5 bg-card text-muted border border-border rounded text-[10px] font-bold uppercase tracking-wider">Other</span>;
     };
 
@@ -463,7 +465,9 @@ const JobsPage: React.FC = () => {
             job.library.toLowerCase().includes(searchQuery.toLowerCase());
         const matchesService = serviceFilter === 'all' ||
             (serviceFilter === 'trakt' && job.source_type.includes('trakt')) ||
-            (serviceFilter === 'mdblist' && job.source_type.includes('mdblist'));
+            (serviceFilter === 'mdblist' && job.source_type.includes('mdblist')) ||
+            (serviceFilter === 'justwatch' && job.source_type.includes('justwatch')) ||
+            (serviceFilter === 'letterboxd' && job.source_type.includes('letterboxd'));
         return matchesSearch && matchesService;
     }).sort((a, b) => b[1].created_at.localeCompare(a[1].created_at));
 
@@ -569,7 +573,7 @@ const JobsPage: React.FC = () => {
 
                 <div className="flex items-center gap-4 w-full md:w-auto">
                     <div className="flex bg-background/60 border border-border rounded-xl p-1">
-                        {(['all', 'trakt', 'mdblist'] as const).map(f => (
+                        {(['all', 'trakt', 'mdblist', 'justwatch', 'letterboxd'] as const).map(f => (
                             <button
                                 key={f}
                                 onClick={() => { setServiceFilter(f); setCurrentPage(1); }}

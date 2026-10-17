@@ -326,7 +326,7 @@ Onboarding (and Config → Import from portal) auto-fills Plex URL/token and TMD
 | Area | Purpose |
 |---|---|
 | **Dashboard / Gallery** | Collection health and artwork overview |
-| **Creator** | Build from Trending presets, TMDB Discover filters, Trakt / MDBList import lists, and custom recipes |
+| **Creator** | Build from Trending presets, TMDB Discover filters, Trakt / MDBList / JustWatch / Letterboxd import lists, and custom recipes |
 | **Jobs** | Scheduled auto-sync (including Random smart collections) with Run Now |
 | **Hubs** | Pin collections and keep **Show on home** / **Show on friends home** through syncs |
 | **Stats / Logs / Config** | Sync statistics, worker logs, and credentials |

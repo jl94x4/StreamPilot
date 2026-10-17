@@ -766,6 +766,11 @@ export const MediaPlayerDashboard: React.FC = () => {
                 ? opts.mediaIndex
                 : (readMediaIndexChoice(item.ratingKey) ?? undefined);
             if (rememberedIndex != null) writeMediaIndexChoice(item.ratingKey, rememberedIndex);
+            const wtInvite = String(
+                opts.watchTogether
+                || getWatchTogetherClient().state?.inviteCode
+                || '',
+            ).trim().toUpperCase();
             const baseOpts = {
                 offsetMs: opts.offsetMs,
                 qualityId: resolveStartPlaybackQualityId(opts.qualityId, settings.defaultQualityId),
@@ -773,6 +778,7 @@ export const MediaPlayerDashboard: React.FC = () => {
                 audioLanguage: savedAv?.audioLanguage || settings.audioLanguage,
                 subtitleMode: settings.subtitleMode,
                 serverId: item.serverId,
+                watchTogether: wtInvite || undefined,
                 // Prefer Direct Play/Stream from the resume offset. Unseekable parts
                 // still hop to HLS on scrub via native reason=seek.
             };
@@ -825,20 +831,45 @@ export const MediaPlayerDashboard: React.FC = () => {
     }, [settings.audioLanguage, settings.defaultQualityId, settings.subtitleMode, t]);
 
     const startWatchTogetherPlayback = useCallback(async (state: WtRoomState) => {
+        const offsetMs = Math.max(0, Number(state.positionMs) || 0);
+        const inviteCode = String(state.inviteCode || '').trim().toUpperCase();
+        const hostKey = String(state.ratingKey || '').trim();
+        if (!hostKey) {
+            notify(t('mediaPlayerPage.watchTogetherMissingTitle'), 'error');
+            return;
+        }
         try {
-            const page = await fetchMediaPlayerItem(state.ratingKey, {
-                core: true,
-                serverId: state.serverId || null,
-            });
-            const item = page.item;
-            if (!item?.canPlay && item?.type !== 'movie' && item?.type !== 'episode') {
-                notify(t('mediaPlayerPage.watchTogetherMissingTitle'), 'error');
-                return;
+            // Always play the host's ratingKey/server — joiners do not need their own copy.
+            let item: PlayerItem | null = null;
+            try {
+                const page = await fetchMediaPlayerItem(hostKey, {
+                    core: true,
+                    serverId: state.serverId || null,
+                });
+                item = page.item;
+            } catch {
+                item = null;
+            }
+            if (!item?.canPlay && item?.type !== 'movie' && item?.type !== 'episode' && item?.type !== 'track') {
+                item = {
+                    ratingKey: hostKey,
+                    serverId: state.serverId || '',
+                    title: state.title || t('mediaPlayerPage.watchTogether'),
+                    type: state.mediaType || 'movie',
+                    thumb: state.thumb || null,
+                    canPlay: true,
+                    durationMs: 0,
+                    viewOffsetMs: 0,
+                };
             }
             await startPlayback(item, {
-                offsetMs: Math.max(0, Number(state.positionMs) || 0),
+                offsetMs,
                 skipResume: true,
+                watchTogether: inviteCode || undefined,
             });
+            // Mark the room playing so solo-host buffering cannot snap position
+            // back to the create offset and force a stream restart.
+            getWatchTogetherClient().play(offsetMs);
         } catch {
             notify(t('mediaPlayerPage.watchTogetherMissingTitle'), 'error');
         }

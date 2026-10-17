@@ -429,6 +429,8 @@ export const MediaPlayerVideo: React.FC<Props> = ({
     const speedRef = useRef(localPrefs.current.speed);
     const applyingRemoteRef = useRef(false);
     const lastSeekIdRef = useRef<string | null>(null);
+    /** Suppress WT buffering reports after a remote seek (avoids PMS rebuild storms). */
+    const wtRemoteSeekGuardUntilRef = useRef(0);
     const watchTogetherRef = useRef(watchTogether);
     watchTogetherRef.current = watchTogether;
     const sendTimelineRef = useRef<(
@@ -553,16 +555,45 @@ export const MediaPlayerVideo: React.FC<Props> = ({
         if (!watchTogether) return undefined;
         const client = getWatchTogetherClient();
         let reportTimer = 0;
+        let seekCooldownTimer = 0;
+        let lastRemoteSeekAt = 0;
+        let pendingSeekMs: number | null = null;
+        const WT_SEEK_COOLDOWN_MS = 2500;
+        const WT_MAX_STALE_REWIND_MS = 30000;
+        const markRemoteSeek = () => {
+            lastRemoteSeekAt = Date.now();
+            wtRemoteSeekGuardUntilRef.current = lastRemoteSeekAt + 4000;
+        };
         const applyPosition = async (positionMs: number) => {
+            if (streamRebuildInFlightRef.current) return;
             const next = Math.max(0, Math.floor(positionMs || 0));
             currentMsRef.current = next;
             setCurrentMs(next);
+            markRemoteSeek();
             if (nativeLiveRef.current) {
                 await seekNativePlayer(next);
                 return;
             }
             const video = videoRef.current;
             if (video) video.currentTime = next / 1000;
+        };
+        const schedulePosition = (positionMs: number, force: boolean) => {
+            const next = Math.max(0, Math.floor(positionMs || 0));
+            const elapsed = Date.now() - lastRemoteSeekAt;
+            if (!force && elapsed < WT_SEEK_COOLDOWN_MS) {
+                pendingSeekMs = next;
+                if (!seekCooldownTimer) {
+                    seekCooldownTimer = window.setTimeout(() => {
+                        seekCooldownTimer = 0;
+                        const queued = pendingSeekMs;
+                        pendingSeekMs = null;
+                        if (queued != null) void applyPosition(queued);
+                    }, WT_SEEK_COOLDOWN_MS - elapsed);
+                }
+                return;
+            }
+            pendingSeekMs = null;
+            void applyPosition(next);
         };
         const applyPaused = async (shouldPause: boolean) => {
             setPaused(shouldPause);
@@ -577,7 +608,12 @@ export const MediaPlayerVideo: React.FC<Props> = ({
         };
         const off = client.onState((state) => {
             if (!state) return;
+            // Own non-corrective updates: still ack seek barrier, but do not
+            // re-apply pause/seek (solo buffering used to seek us to 0 → BAD_HTTP).
             if (state.originClientId && state.originClientId === client.localClientId && !state.corrective) {
+                if (state.waitingForSeekReady && state.seekId) {
+                    client.seekReady(state.seekId);
+                }
                 return;
             }
             applyingRemoteRef.current = true;
@@ -586,14 +622,20 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                     if (state.waitingForSeekReady && state.seekId) {
                         if (lastSeekIdRef.current !== state.seekId) {
                             lastSeekIdRef.current = state.seekId;
-                            await applyPosition(state.positionMs);
+                            schedulePosition(state.positionMs, true);
                         }
                         client.seekReady(state.seekId);
                         return;
                     }
                     const local = Math.max(0, Math.floor(currentMsRef.current || 0));
-                    if (state.corrective || Math.abs(local - state.positionMs) >= 1500) {
-                        await applyPosition(state.positionMs);
+                    const remote = Math.max(0, Math.floor(state.positionMs || 0));
+                    // Refuse stale rewinds (room stuck at 0) unless this is an
+                    // explicit seek barrier — those restarts spam PMS hard.
+                    const staleRewind = !state.waitingForSeekReady
+                        && local > WT_MAX_STALE_REWIND_MS
+                        && remote < local - WT_MAX_STALE_REWIND_MS;
+                    if (!staleRewind && (state.corrective || Math.abs(local - remote) >= 1500)) {
+                        schedulePosition(remote, !!state.corrective);
                     }
                     await applyPaused(!state.playing);
                 } finally {
@@ -615,6 +657,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
         return () => {
             off();
             window.clearInterval(reportTimer);
+            window.clearTimeout(seekCooldownTimer);
         };
     }, [watchTogether]);
     useEffect(() => {
@@ -1023,9 +1066,11 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                         nativeTimelineStateRef.current = state;
                         sendTimelineRef.current(state, event.positionMs);
                         if (watchTogetherRef.current && !applyingRemoteRef.current) {
+                            const buffering = event.state === 'buffering'
+                                && Date.now() >= wtRemoteSeekGuardUntilRef.current;
                             getWatchTogetherClient().report(
                                 Math.max(0, Math.floor(event.positionMs || 0)),
-                                event.state === 'buffering',
+                                buffering,
                             );
                         }
                         if (nativeMinimizedRef.current) publishMusicNowPlayingRef.current(true);
@@ -1115,6 +1160,11 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                             const sessionForStart = (currentlyHls && wantOriginal)
                                 ? newPlaySessionId()
                                 : (reuseSessionId || undefined);
+                            const wtInvite = String(
+                                watchTogetherRef.current
+                                    ? (getWatchTogetherClient().state?.inviteCode || '')
+                                    : '',
+                            ).trim().toUpperCase();
                             const startOpts = {
                                 offsetMs: offset,
                                 qualityId: safeQuality,
@@ -1124,6 +1174,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                                 serverId,
                                 delivery: forceHls ? 'hls' as const : undefined,
                                 sessionId: sessionForStart,
+                                watchTogether: wtInvite || undefined,
                             };
                             let fresh = await startMediaPlayerPlayback(ratingKey, startOpts).catch(() => null);
                             // Original←transcode sometimes races stop; retry Direct Play first.
@@ -1178,6 +1229,11 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                             startedId = playSessionIdFromSrc(nextSrc) || reuseSessionId;
                         }
                         if (!nextSrc && isPlexDirectMode()) {
+                            const wtInvite = String(
+                                watchTogetherRef.current
+                                    ? (getWatchTogetherClient().state?.inviteCode || '')
+                                    : '',
+                            ).trim().toUpperCase();
                             const forced = await startMediaPlayerPlayback(ratingKey, {
                                 offsetMs: offset,
                                 qualityId: safeQuality,
@@ -1187,6 +1243,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                                 serverId,
                                 delivery: safeQuality === 'original' ? undefined : 'hls',
                                 sessionId: newPlaySessionId(),
+                                watchTogether: wtInvite || undefined,
                             }).catch(() => null);
                             nextSrc = String(forced?.src || '');
                             startedId = String(forced?.sessionId || playSessionIdFromSrc(nextSrc) || '');
@@ -1297,6 +1354,11 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                             }
                             let hlsSrc = '';
                             if (isPlexPartPlaybackSrc(current) || isPlexDirectMode() || absolutePms || onHls) {
+                                const wtInvite = String(
+                                    watchTogetherRef.current
+                                        ? (getWatchTogetherClient().state?.inviteCode || '')
+                                        : '',
+                                ).trim().toUpperCase();
                                 const fresh = await startMediaPlayerPlayback(session.item.ratingKey, {
                                     offsetMs: offset,
                                     qualityId: qualityForStage,
@@ -1306,6 +1368,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                                     serverId: session.item.serverId,
                                     delivery: 'hls',
                                     sessionId: previous || undefined,
+                                    watchTogether: wtInvite || undefined,
                                 }).catch(() => null);
                                 hlsSrc = String(fresh?.src || '');
                             }

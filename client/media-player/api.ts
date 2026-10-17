@@ -776,6 +776,8 @@ export const startMediaPlayerPlayback = (ratingKey: string, opts: {
     delivery?: string | null;
     /** Reuse after stop — keeps Now Playing from spawning a new ghost per seek. */
     sessionId?: string | null;
+    /** Watch Together invite code — host-library stream on the portal. */
+    watchTogether?: string | null;
 } = {}) => {
     const caps = browserPlaybackCaps();
     const isNativeApp = typeof window !== 'undefined' && !!window.__PLEX_CLIENT__;
@@ -806,6 +808,8 @@ export const startMediaPlayerPlayback = (ratingKey: string, opts: {
     if (opts.serverId) qs.set('server', opts.serverId);
     if (opts.delivery) qs.set('delivery', opts.delivery);
     if (opts.sessionId) qs.set('sessionId', String(opts.sessionId).trim());
+    const wt = String(opts.watchTogether || '').trim().toUpperCase();
+    if (wt) qs.set('wt', wt);
     if (caps.hevc) qs.set('canPlayHevc', '1');
     if (caps.ac3) qs.set('canPlayAc3', '1');
     if (caps.hls) qs.set('canPlayNativeHls', '1');
