@@ -1137,7 +1137,7 @@ export const en = {
             helpTitle: 'Install App',
             helpSubtitle: '{server} Portal',
             closeHelp: 'Close install help',
-            helpIos: 'On iPhone or iPad, tap Share in Safari, then Add to Home Screen. Open the portal over HTTPS, then launch it from that icon.',
+            helpIos: 'On iPhone or iPad, tap Share, then Add to Home Screen (keep “Open as Web App” on if shown). Use Safari over HTTPS for the best result — Chrome/Firefox on iOS use the same Share sheet. Then launch from the home-screen icon.',
             helpFirefox: 'Tap the Firefox menu (⋮), then choose Install. Use your public HTTPS URL — not a plain http://IP address.',
             helpAndroidChrome: 'Open More → Install in the portal, or Chrome’s menu (⋮) → Install app. You must use HTTPS (not http://IP). If Install is missing, stay on this page about 30 seconds, tap once, reload, then try again.',
             helpGeneric: 'Use your browser menu and choose Install app or Add to Home Screen.',

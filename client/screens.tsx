@@ -70,6 +70,7 @@ import {
     wasInstallPromptSeenThisSession,
     type BeforeInstallPromptEvent,
 } from './shared/pwaInstallPrompt';
+import { isIosDevice } from './shared/webPushSubscribe';
 import { ProfileBadgeRack, AchievementsHomeWidget } from './achievements/AchievementsDashboard';
 import { AchievementsAnalyticsLeaderboard } from './achievements/AchievementsAnalyticsLeaderboard';
 import { goToProfile } from './profile/helpers';
@@ -12456,11 +12457,10 @@ export const Navigation: React.FC<NavigationProps> = ({ currentRoute, onNavigate
         && /Android/i.test(navigator.userAgent)
         && /Chrome|CriOS|EdgA|SamsungBrowser/i.test(navigator.userAgent)
         && !/Firefox/i.test(navigator.userAgent);
-    const isIosSafari = typeof navigator !== 'undefined'
-        && /iPhone|iPad|iPod/i.test(navigator.userAgent)
-        && /WebKit/i.test(navigator.userAgent)
-        && !/CriOS|FxiOS|EdgiOS|OPiOS|Chrome|Android/i.test(navigator.userAgent);
-    const showInstallNudge = !isInstalledApp && !installBannerDismissed && (!!installPrompt || isIosSafari || isFirefoxMobile);
+    // iOS never fires beforeinstallprompt — Share → Add to Home Screen only.
+    // Include iPadOS desktop UA + Chrome/Firefox on iOS (same WebKit A2HS path).
+    const isIosInstallClient = isIosDevice();
+    const showInstallNudge = !isInstalledApp && !installBannerDismissed && (!!installPrompt || isIosInstallClient || isFirefoxMobile);
     const [installDiag, setInstallDiag] = useState<string[] | null>(null);
 
     const dismissInstallBanner = useCallback(() => {
@@ -12624,7 +12624,7 @@ export const Navigation: React.FC<NavigationProps> = ({ currentRoute, onNavigate
         }
         // Firefox / iOS / most non-Chromium browsers never fire beforeinstallprompt —
         // always show manual install steps instead of appearing to do nothing.
-        if (!installPrompt || isFirefoxMobile || isIosSafari) {
+        if (!installPrompt || isFirefoxMobile || isIosInstallClient) {
             setInstallHelpOpen(true);
             return;
         }
@@ -13631,7 +13631,7 @@ export const Navigation: React.FC<NavigationProps> = ({ currentRoute, onNavigate
                             </button>
                         </div>
                         <p className="text-sm text-muted leading-relaxed">
-                            {isIosSafari
+                            {isIosInstallClient
                                 ? t('pwa.install.helpIos')
                                 : isFirefoxMobile
                                     ? t('pwa.install.helpFirefox')
