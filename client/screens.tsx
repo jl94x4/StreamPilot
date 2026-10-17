@@ -64,6 +64,12 @@ import { applyAppletPaletteOrder, getAppletPaletteAccountKey, readAppletPaletteO
 import { buildArrPortalEmbedHref } from '../lib/arr-portal-embed.js';
 import type { CustomNavTab } from './shared/types';
 import { isFirefoxMobileClient, useFirefoxMobileNavShell } from './shared/useFirefoxMobileNavShell';
+import {
+    clearDeferredInstallPrompt,
+    subscribeInstallPrompt,
+    wasInstallPromptSeenThisSession,
+    type BeforeInstallPromptEvent,
+} from './shared/pwaInstallPrompt';
 import { ProfileBadgeRack, AchievementsHomeWidget } from './achievements/AchievementsDashboard';
 import { AchievementsAnalyticsLeaderboard } from './achievements/AchievementsAnalyticsLeaderboard';
 import { goToProfile } from './profile/helpers';
@@ -261,12 +267,6 @@ declare global {
         __USE_24_HOUR_CLOCK__?: boolean;
     }
 }
-
-type BeforeInstallPromptEvent = Event & {
-    prompt: () => Promise<void>;
-    userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
-};
-
 
 const HOME_SCREEN_FALLBACK_REV = 'hs12-ios-stacked-app';
 
@@ -12499,12 +12499,12 @@ export const Navigation: React.FC<NavigationProps> = ({ currentRoute, onNavigate
     }, [profileOpen, navFeatures?.achievements]);
 
     useEffect(() => {
-        const handleBeforeInstallPrompt = (event: Event) => {
-            event.preventDefault();
-            setInstallPrompt(event as BeforeInstallPromptEvent);
-        };
+        const unsubscribe = subscribeInstallPrompt((event) => {
+            setInstallPrompt(event);
+        });
         const handleInstalled = () => {
             setIsInstalledApp(true);
+            clearDeferredInstallPrompt();
             setInstallPrompt(null);
             setInstallHelpOpen(false);
             dismissInstallBanner();
@@ -12518,12 +12518,11 @@ export const Navigation: React.FC<NavigationProps> = ({ currentRoute, onNavigate
             if (installed) dismissInstallBanner();
         };
         syncInstalledState();
-        window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
         window.addEventListener('appinstalled', handleInstalled);
         const standaloneMq = window.matchMedia?.('(display-mode: standalone)');
         standaloneMq?.addEventListener?.('change', syncInstalledState);
         return () => {
-            window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+            unsubscribe();
             window.removeEventListener('appinstalled', handleInstalled);
             standaloneMq?.removeEventListener?.('change', syncInstalledState);
         };
@@ -12551,10 +12550,25 @@ export const Navigation: React.FC<NavigationProps> = ({ currentRoute, onNavigate
                             notes.push('No service worker registered yet — Chrome Android needs one for Install (not just Create shortcut). Reload once over HTTPS and try again.');
                         } else if (!navigator.serviceWorker.controller) {
                             notes.push('Service worker is registered but not controlling this page yet — reload once, then retry Install.');
+                        } else {
+                            const active = regs[0]?.active;
+                            if (active?.scriptURL) {
+                                notes.push(`Service worker: ${active.scriptURL} (scope ${regs[0]?.scope || '?'})`);
+                            }
                         }
                     } catch {
                         // ignore SW probe failures
                     }
+                }
+                try {
+                    const related = typeof (navigator as any).getInstalledRelatedApps === 'function'
+                        ? await (navigator as any).getInstalledRelatedApps()
+                        : null;
+                    if (Array.isArray(related) && related.length) {
+                        notes.push('Chrome reports a related app may already be installed — remove the home-screen icon / WebAPK, then clear site data if Install stays missing.');
+                    }
+                } catch {
+                    // ignore related-apps probe
                 }
                 const manifestLink = document.querySelector('link[rel="manifest"]') as HTMLLinkElement | null;
                 const manifestHref = manifestLink?.href || portalUrl('/manifest.webmanifest');
@@ -12583,9 +12597,14 @@ export const Navigation: React.FC<NavigationProps> = ({ currentRoute, onNavigate
                             notes.push(`Icon could not be fetched (${icon.sizes || '?'}).`);
                         }
                     }
-                    if (!notes.length) {
+                    const blockingNotes = notes.filter((n) => !n.startsWith('Service worker:'));
+                    if (!blockingNotes.length) {
                         if (isAndroidChrome && !installPrompt) {
-                            notes.push('Chrome has not marked this visit installable yet. Stay on the portal over HTTPS for ~30 seconds, tap once, then hard-reload (so the service worker updates). Or use Chrome’s menu ⋮ → Install app / Install page. If you only see Create shortcut, clear site data for this site and try again.');
+                            if (wasInstallPromptSeenThisSession()) {
+                                notes.push('Chrome offered Install earlier this visit, but the prompt was used or dismissed. Stay on the page, tap once, hard-reload, then try again — or use Chrome ⋮ → Install app.');
+                            } else {
+                                notes.push('Chrome has not marked this visit installable yet. Stay on the portal over HTTPS for ~30 seconds, tap once, then hard-reload (so the service worker updates). Or use Chrome’s menu ⋮ → Install app / Install page. If you only see Create shortcut, clear site data for this site and try again.');
+                            }
                         }
                         notes.push('Manifest and icons look OK. Chrome Android: in-app Install (top bar / More), or browser ⋮ → Install app. Firefox: ⋮ → Install.');
                     }
@@ -12610,16 +12629,17 @@ export const Navigation: React.FC<NavigationProps> = ({ currentRoute, onNavigate
             return;
         }
         const promptEvent = installPrompt;
-        setInstallPrompt(null);
         dismissInstallBanner();
         try {
             await promptEvent.prompt();
             const choice = await promptEvent.userChoice;
+            // Event is spent after prompt() — clear only after choice settles.
+            clearDeferredInstallPrompt();
+            setInstallPrompt(null);
             if (choice.outcome === 'accepted') {
                 setIsInstalledApp(true);
                 addInstallToast(t('pwa.install.successBody', { server: serverName }), 'success');
             } else {
-                // User dismissed the browser prompt — keep banner quiet for this device.
                 dismissInstallBanner();
             }
         } catch {
@@ -13629,11 +13649,13 @@ export const Navigation: React.FC<NavigationProps> = ({ currentRoute, onNavigate
                         {!installDiag && installHelpOpen && (
                             <p className="mt-4 text-xs text-muted">{t('pwa.install.checking')}</p>
                         )}
-                        {isFirefoxMobile && (
+                        {(isFirefoxMobile || isAndroidChrome) && (
                             <button
                                 type="button"
                                 onClick={async () => {
                                     clearInstallBannerDismiss();
+                                    clearDeferredInstallPrompt();
+                                    setInstallPrompt(null);
                                     try {
                                         if ('serviceWorker' in navigator) {
                                             const regs = await navigator.serviceWorker.getRegistrations();

@@ -4,6 +4,8 @@ import { bindAppConfirm, bindAskConfirm, bindAppAlert, type AskConfirmOptions } 
 import { apiFetch } from './shared/api';
 import { getPublicOrigin, portalUrl, resolvePortalAssetUrl, stripBasePath } from './shared/basePath';
 import { isStandalonePwa, syncExistingWebPushSubscription } from './shared/webPushSubscribe';
+// Side-effect: capture beforeinstallprompt before Navigation mounts (post-login).
+import './shared/pwaInstallPrompt';
 import { ConfirmModal } from './shared/ui';
 import { Loader } from './shared/toast';
 import { AppAmbientBackground } from './shared/theme';
