@@ -2151,6 +2151,13 @@ html[data-tv="1"] .media-details-billboard-identity {
 html[data-tv="1"] .media-details-billboard-identity button {
   pointer-events: auto;
 }
+html[data-tv="1"] .media-details-billboard-title-stack {
+  align-items: flex-start;
+  gap: 0.7rem;
+}
+html[data-tv="1"] .media-details-billboard-title-stack .media-details-service-logo {
+  margin-bottom: 0;
+}
 html[data-tv="1"] .media-details-clearlogo {
   height: 4.75rem !important;
   max-height: 4.75rem !important;
@@ -2177,6 +2184,21 @@ html[data-tv="1"] .media-details-billboard-ratings .media-rating-pills {
   align-items: flex-start;
   justify-content: flex-start;
   width: auto;
+}
+/* Keep gb/PG · year · CSM · HDR10+ chips the same height (icons must not stretch pills). */
+.player-meta-chips .player-meta-chip {
+  box-sizing: border-box;
+  height: 1.75rem;
+  min-height: 1.75rem;
+  padding-top: 0;
+  padding-bottom: 0;
+  line-height: 1;
+}
+.player-meta-chips .player-meta-chip img,
+.player-meta-chips .player-meta-chip svg {
+  width: 0.875rem;
+  height: 0.875rem;
+  flex-shrink: 0;
 }
 html[data-tv="1"] .media-details-page:has(.media-details-billboard-identity) .media-details-title-desktop,
 html[data-tv="1"] .media-details-page:has(.media-details-billboard-identity) .media-details-crumbs,
@@ -2372,10 +2394,9 @@ html[data-tv="1"] .media-details-billboard-summary {
   font-size: 0.92rem;
   line-height: 1.45;
   color: rgba(255, 255, 255, 0.78) !important;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  display: block;
+  overflow: visible;
+  -webkit-line-clamp: unset;
   text-align: left;
 }
 html[data-tv="1"] [data-tv-kind="show"] {
@@ -2410,10 +2431,9 @@ html[data-tv="1"] [data-tv-kind="show"] .media-details-synopsis {
   margin-top: 0.15rem !important;
 }
 html[data-tv="1"] [data-tv-kind="show"] .media-overview-summary p {
-  -webkit-line-clamp: 2 !important;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  display: block !important;
+  overflow: visible !important;
+  -webkit-line-clamp: unset !important;
 }
 html[data-tv="1"] [data-tv-kind="show"] .media-details-seasons {
   margin-top: 0.2rem !important;
@@ -2586,7 +2606,9 @@ html[data-tv="1"] [data-tv-kind="season"] .media-details-billboard-summary {
   max-width: 42rem;
   font-size: 0.9rem;
   line-height: 1.4;
-  -webkit-line-clamp: 3;
+  display: block;
+  overflow: visible;
+  -webkit-line-clamp: unset;
 }
 html[data-tv="1"] [data-tv-kind="episode"] .media-details-tv-top-spacer,
 html[data-tv="1"] [data-tv-kind="season"] .media-details-tv-top-spacer {
@@ -2854,10 +2876,11 @@ html[data-tv="1"] .player-home-spot-stage {
   top: auto;
   bottom: 23.5rem;
   z-index: 2;
-  width: min(38rem, 44%);
-  /* Tall enough for logo + tagline + meta + 3-line synopsis + cast. */
-  height: 16.75rem;
-  max-height: 48%;
+  width: min(42rem, 48%);
+  /* Grow upward with full synopsis — no max-height (that + flex-shrink clipped the last line). */
+  height: auto;
+  max-height: none;
+  min-height: 14rem;
   pointer-events: none;
   overflow: visible;
   isolation: isolate;
@@ -2866,7 +2889,7 @@ html[data-tv="1"][data-tv-nav-open="1"] .player-home-spot-stage {
   left: 18.7rem;
 }
 html[data-tv="1"] .player-home-spot {
-  position: absolute;
+  position: relative;
   left: 0;
   right: 0;
   bottom: 0;
@@ -2875,7 +2898,7 @@ html[data-tv="1"] .player-home-spot {
   justify-content: flex-end;
   gap: 0.4rem;
   width: 100%;
-  max-height: 100%;
+  max-height: none;
   overflow: visible;
   pointer-events: none;
   backface-visibility: hidden;
@@ -2883,6 +2906,10 @@ html[data-tv="1"] .player-home-spot {
   transform: translate3d(0, 0, 0);
 }
 html[data-tv="1"] .player-home-spot.is-exit {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
   z-index: 2;
 }
 html[data-tv="1"] .player-home-spot.is-enter {
@@ -2918,6 +2945,26 @@ html[data-tv="1"] .player-home-spot.is-enter-down {
 @keyframes player-home-spot-enter-down {
   0% { opacity: 0; transform: translate3d(0, 1.1rem, 0); }
   100% { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+html[data-tv="1"] .player-service-brand-mark,
+html[data-tv="1"] .player-home-spot-service-logo,
+html[data-tv="1"] .media-details-service-logo {
+  display: block;
+  height: 2.35rem !important;
+  max-height: 2.35rem !important;
+  width: auto !important;
+  max-width: min(14rem, 72%) !important;
+  margin: 0 0 0.55rem;
+  object-fit: contain;
+  object-position: left center;
+  /* Must include invert here — a lone drop-shadow overrides Tailwind brightness-0 invert. */
+  filter: brightness(0) invert(1) drop-shadow(0 8px 18px rgb(0 0 0 / 0.55)) !important;
+}
+/* Peacock / Cinemax etc. — keep brand colours on the billboard. */
+html[data-tv="1"] .player-service-brand-mark.player-service-brand-mark--color,
+html[data-tv="1"] .player-home-spot-service-logo.player-service-brand-mark--color,
+html[data-tv="1"] .media-details-service-logo.player-service-brand-mark--color {
+  filter: drop-shadow(0 8px 18px rgb(0 0 0 / 0.55)) !important;
 }
 html[data-tv="1"] .player-home-spot-logo {
   display: block;
@@ -2974,26 +3021,27 @@ html[data-tv="1"] .player-home-spot-watched {
 }
 html[data-tv="1"] .player-home-spot-summary {
   margin: 0;
-  flex: 0 1 auto;
-  min-height: 0;
+  flex: 0 0 auto;
+  min-height: auto;
   max-width: 36rem;
   font-size: 0.92rem;
   line-height: 1.45;
   color: rgba(255, 255, 255, 0.78) !important;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  /* Keep at least two full lines — never crush mid-glyph. */
-  min-height: calc(0.92rem * 1.45 * 2);
+  /* Full synopsis — never clamp / shrink / ellipsis mid-sentence. */
+  display: block;
+  overflow: visible;
+  text-overflow: unset;
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
 }
 html[data-tv="1"] .player-home-spot-cast {
   margin: 0;
+  flex: 0 0 auto;
   flex-shrink: 0;
   font-size: 0.82rem;
   line-height: 1.35;
   color: rgba(255, 255, 255, 0.55) !important;
+  overflow: visible;
 }
 html[data-tv="1"] {
   --tv-display-font: "Satoshi", "Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif;

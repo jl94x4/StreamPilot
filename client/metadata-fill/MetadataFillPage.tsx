@@ -3,6 +3,7 @@ import {
     ChevronLeft, ChevronRight, FileText, Loader2, Play, RefreshCw, RotateCcw, Search, Square, Unlock, Wand2,
 } from 'lucide-react';
 import { apiFetch } from '../shared/api';
+import { portalUrl } from '../shared/basePath';
 import { DashboardHero, DashboardPageShell } from '../shared/dashboard/DashboardChrome';
 
 type FillLogRow = {
@@ -35,7 +36,59 @@ type ShowHit = {
     tvdbId?: string | null;
 };
 
-type LibraryRow = { key: string; title: string };
+type LibraryRow = { key: string; title: string; type?: string };
+
+type ClearlogoCandidate = {
+    ratingKey?: string;
+    provider?: string;
+    thumb?: string;
+    selected?: boolean;
+};
+
+type ClearlogoPreviewRow = {
+    ratingKey: string;
+    title?: string;
+    year?: number | null;
+    type?: string;
+    libraryKey?: string;
+    libraryTitle?: string;
+    thumb?: string | null;
+    status?: string;
+    candidateCount?: number;
+    candidates?: ClearlogoCandidate[];
+    bestCandidate?: ClearlogoCandidate | null;
+    applied?: boolean;
+    dryRun?: boolean;
+    error?: string | null;
+};
+
+type ClearlogoScanState = {
+    status?: string;
+    dryRun?: boolean;
+    inProcess?: boolean;
+    cancelRequested?: boolean;
+    stats?: {
+        scanned?: number;
+        hasLogo?: number;
+        available?: number;
+        none?: number;
+        applied?: number;
+        skipped?: number;
+        failed?: number;
+    };
+    cursor?: {
+        libraryTitle?: string;
+        title?: string;
+        libraryIndex?: number;
+        itemStart?: number;
+    };
+    preview?: ClearlogoPreviewRow[];
+    libraries?: LibraryRow[];
+    selectedLibraryKeys?: string[];
+    error?: string | null;
+    startedAt?: string | null;
+    finishedAt?: string | null;
+};
 
 type FillFields = {
     title: boolean;
@@ -110,6 +163,7 @@ type Status = {
     requireTitleAgreement: boolean;
     libraryKeys: string[];
     libraries: LibraryRow[];
+    clearlogoLibraries: LibraryRow[];
     librariesError?: string | null;
     tmdbConfigured: boolean;
     tvdbConfigured: boolean;
@@ -117,6 +171,14 @@ type Status = {
     log: FillLogRow[];
     retryQueue: RetryItem[];
     scan: ScanState | null;
+    clearlogoScan: ClearlogoScanState | null;
+};
+
+const plexThumbUrl = (path?: string | null, width = 80, height = 120) => {
+    const raw = String(path || '').trim();
+    if (!raw) return '';
+    if (raw.startsWith('http://') || raw.startsWith('https://') || raw.startsWith('data:')) return raw;
+    return portalUrl(`/api/plex/image?path=${encodeURIComponent(raw)}&width=${width}&height=${height}`);
 };
 
 const defaultFields = (): FillFields => ({
@@ -172,6 +234,11 @@ export const MetadataFillPage: React.FC = () => {
     const [busyToggle, setBusyToggle] = useState('');
     const [scanDryRun, setScanDryRun] = useState(true);
     const [scanBusy, setScanBusy] = useState(false);
+    const [clearlogoDryRun, setClearlogoDryRun] = useState(true);
+    const [clearlogoBusy, setClearlogoBusy] = useState(false);
+    const [clearlogoLibraryKeys, setClearlogoLibraryKeys] = useState<string[]>([]);
+    const [clearlogoShowNone, setClearlogoShowNone] = useState(false);
+    const [clearlogoRowBusy, setClearlogoRowBusy] = useState('');
     const [retryBusy, setRetryBusy] = useState(false);
     const [logFilter, setLogFilter] = useState<LogFilter>('all');
     const [logQuery, setLogQuery] = useState('');
@@ -203,6 +270,7 @@ export const MetadataFillPage: React.FC = () => {
                 requireTitleAgreement: !!data?.requireTitleAgreement,
                 libraryKeys: Array.isArray(data?.libraryKeys) ? data.libraryKeys.map(String) : [],
                 libraries: Array.isArray(data?.libraries) ? data.libraries : [],
+                clearlogoLibraries: Array.isArray(data?.clearlogoLibraries) ? data.clearlogoLibraries : [],
                 librariesError: data?.librariesError ? String(data.librariesError) : null,
                 tmdbConfigured: !!data?.tmdbConfigured,
                 tvdbConfigured: !!data?.tvdbConfigured,
@@ -210,8 +278,13 @@ export const MetadataFillPage: React.FC = () => {
                 log: Array.isArray(data?.log) ? data.log : [],
                 retryQueue: Array.isArray(data?.retryQueue) ? data.retryQueue : [],
                 scan: data?.scan || null,
+                clearlogoScan: data?.clearlogoScan || null,
             });
             if (data?.scan?.dryRun != null) setScanDryRun(!!data.scan.dryRun);
+            if (data?.clearlogoScan?.dryRun != null) setClearlogoDryRun(!!data.clearlogoScan.dryRun);
+            if (Array.isArray(data?.clearlogoScan?.selectedLibraryKeys)) {
+                setClearlogoLibraryKeys(data.clearlogoScan.selectedLibraryKeys.map(String));
+            }
         } catch (e: any) {
             setError(e?.message || 'Failed to load Metadata Fill');
             if (!silent) setStatus(null);
@@ -229,12 +302,16 @@ export const MetadataFillPage: React.FC = () => {
     const canResume = !scanRunning && !!status?.scan?.cursor && (
         ['interrupted', 'cancelled', 'running'].includes(String(status?.scan?.status || ''))
     );
+    const clearlogoRunning = !!status?.clearlogoScan?.inProcess;
+    const clearlogoCanResume = !clearlogoRunning && !!status?.clearlogoScan?.cursor && (
+        ['interrupted', 'cancelled', 'running'].includes(String(status?.clearlogoScan?.status || ''))
+    );
 
     useEffect(() => {
-        if (!scanRunning) return undefined;
+        if (!scanRunning && !clearlogoRunning) return undefined;
         const id = window.setInterval(() => { void load(true); }, 2500);
         return () => window.clearInterval(id);
-    }, [scanRunning, load]);
+    }, [scanRunning, clearlogoRunning, load]);
 
     const saveSettings = async (patch: Record<string, unknown>, busyKey = 'settings') => {
         setBusyToggle(busyKey);
@@ -418,6 +495,80 @@ export const MetadataFillPage: React.FC = () => {
         }
     };
 
+    const toggleClearlogoLibraryKey = (key: string) => {
+        setClearlogoLibraryKeys((prev) => {
+            const set = new Set(prev);
+            if (set.has(key)) set.delete(key);
+            else set.add(key);
+            return [...set];
+        });
+    };
+
+    const startClearlogoScan = async (resume = false) => {
+        setClearlogoBusy(true);
+        setError('');
+        setNotice('');
+        try {
+            await apiFetch('/api/metadata-fill/clearlogos/scan/start', {
+                method: 'POST',
+                body: JSON.stringify({
+                    dryRun: clearlogoDryRun,
+                    resume,
+                    libraryKeys: clearlogoLibraryKeys.length ? clearlogoLibraryKeys : null,
+                }),
+            });
+            setNotice(resume
+                ? 'Resumed clearlogo scan.'
+                : (clearlogoDryRun ? 'Clearlogo coverage scan started (dry-run).' : 'Clearlogo scan started (will apply available logos).'));
+            await load(true);
+        } catch (e: any) {
+            setError(e?.message || 'Failed to start clearlogo scan');
+        } finally {
+            setClearlogoBusy(false);
+        }
+    };
+
+    const cancelClearlogoScan = async () => {
+        setClearlogoBusy(true);
+        setError('');
+        try {
+            await apiFetch('/api/metadata-fill/clearlogos/scan/cancel', { method: 'POST', body: '{}' });
+            setNotice('Cancel requested. Clearlogo scan will stop after the current title.');
+            setStatus((prev) => (prev?.clearlogoScan ? {
+                ...prev,
+                clearlogoScan: { ...prev.clearlogoScan, cancelRequested: true },
+            } : prev));
+            await load(true);
+        } catch (e: any) {
+            setError(e?.message || 'Failed to cancel clearlogo scan');
+        } finally {
+            setClearlogoBusy(false);
+        }
+    };
+
+    const applyClearlogos = async (ratingKeys?: string[]) => {
+        const busyKey = ratingKeys?.length === 1 ? `apply:${ratingKeys[0]}` : 'apply-all';
+        if (ratingKeys?.length === 1) setClearlogoRowBusy(busyKey);
+        else setClearlogoBusy(true);
+        setError('');
+        setNotice('');
+        try {
+            const result = await apiFetch('/api/metadata-fill/clearlogos/scan/apply', {
+                method: 'POST',
+                body: JSON.stringify({
+                    ratingKeys: ratingKeys?.length ? ratingKeys : undefined,
+                }),
+            });
+            setNotice(`Applied ${result?.applied || 0} clearlogo(s)${result?.failed ? `, ${result.failed} failed` : ''}.`);
+            await load(true);
+        } catch (e: any) {
+            setError(e?.message || 'Failed to apply clearlogos');
+        } finally {
+            setClearlogoBusy(false);
+            setClearlogoRowBusy('');
+        }
+    };
+
     const processRetries = async () => {
         setRetryBusy(true);
         setError('');
@@ -537,6 +688,7 @@ export const MetadataFillPage: React.FC = () => {
     }, [logPage, logPageCount]);
 
     const scan = status?.scan;
+    const clearlogoScan = status?.clearlogoScan;
     const filteredPreview = useMemo(() => {
         const rows = scan?.preview || [];
         if (previewFilter === 'failed') return rows.filter((r) => r.ok === false);
@@ -545,6 +697,20 @@ export const MetadataFillPage: React.FC = () => {
         return rows;
     }, [scan?.preview, previewFilter]);
     const stats = scan?.stats;
+    const clearlogoStats = clearlogoScan?.stats;
+    const clearlogoTableRows = useMemo(() => {
+        const rows = clearlogoScan?.preview || [];
+        return rows.filter((row) => {
+            if (row.status === 'available' && !row.applied) return true;
+            if (clearlogoShowNone && row.status === 'none') return true;
+            if (row.status === 'applied' || row.status === 'failed') return true;
+            return false;
+        });
+    }, [clearlogoScan?.preview, clearlogoShowNone]);
+    const clearlogoAvailableCount = useMemo(
+        () => (clearlogoScan?.preview || []).filter((r) => r.status === 'available' && !r.applied).length,
+        [clearlogoScan?.preview],
+    );
 
     return (
         <DashboardPageShell>
@@ -927,6 +1093,262 @@ export const MetadataFillPage: React.FC = () => {
                             )}
                         </ul>
                     </div>
+                )}
+            </section>
+
+            <section className="mt-6 rounded-2xl border border-white/10 bg-background/40 p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                    <h2 className="text-sm font-bold uppercase tracking-wider text-muted">Clear logos</h2>
+                    <label className="flex items-center gap-2 text-xs text-text">
+                        <input
+                            type="checkbox"
+                            checked={clearlogoDryRun}
+                            disabled={clearlogoRunning || !status?.enabled}
+                            onChange={(e) => setClearlogoDryRun(e.target.checked)}
+                        />
+                        Dry-run / preview only
+                    </label>
+                </div>
+                <p className="text-xs text-muted">
+                    Scan movie and TV show libraries for titles with no selected clearlogo.
+                    Uses Plex’s own clearlogo providers only — selects the first agent candidate when applying.
+                </p>
+                {(status?.clearlogoLibraries?.length || 0) > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                        {status?.clearlogoLibraries?.map((lib) => {
+                            const key = String(lib.key);
+                            const explicitlyOn = clearlogoLibraryKeys.includes(key);
+                            const selected = !clearlogoLibraryKeys.length || explicitlyOn;
+                            return (
+                                <button
+                                    key={key}
+                                    type="button"
+                                    disabled={!status?.enabled || clearlogoBusy || clearlogoRunning}
+                                    onClick={() => { toggleClearlogoLibraryKey(key); }}
+                                    className={`rounded-lg px-2.5 py-1.5 text-[11px] font-bold ${
+                                        (clearlogoLibraryKeys.length ? explicitlyOn : selected)
+                                            ? 'border border-plex/40 bg-plex/15 text-plex'
+                                            : 'border border-white/10 text-muted'
+                                    }`}
+                                    title={clearlogoLibraryKeys.length
+                                        ? 'Toggle library in clearlogo scan scope'
+                                        : 'Click to limit scan to selected libraries'}
+                                >
+                                    {lib.title}
+                                    {lib.type ? ` · ${lib.type}` : ''}
+                                </button>
+                            );
+                        })}
+                        {clearlogoLibraryKeys.length > 0 && (
+                            <button
+                                type="button"
+                                disabled={clearlogoBusy || clearlogoRunning}
+                                onClick={() => setClearlogoLibraryKeys([])}
+                                className="rounded-lg border border-white/10 px-2.5 py-1.5 text-[11px] font-semibold text-muted"
+                            >
+                                Clear (scan all)
+                            </button>
+                        )}
+                    </div>
+                ) : (
+                    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-400/25 bg-amber-400/5 px-3 py-2 text-xs text-amber-100">
+                        <span className="min-w-0 flex-1">
+                            {status?.librariesError
+                                ? `Could not load movie/TV libraries from Plex: ${status.librariesError}`
+                                : 'No movie/TV libraries loaded from Plex yet.'}
+                        </span>
+                        <button
+                            type="button"
+                            disabled={loading || clearlogoBusy}
+                            onClick={() => { void load(); }}
+                            className="rounded-lg border border-amber-400/40 px-2.5 py-1 text-[11px] font-bold text-amber-200 disabled:opacity-40"
+                        >
+                            Retry
+                        </button>
+                    </div>
+                )}
+                <div className="flex flex-wrap gap-2">
+                    <button
+                        type="button"
+                        disabled={!status?.enabled || clearlogoBusy || clearlogoRunning}
+                        onClick={() => { void startClearlogoScan(false); }}
+                        className="inline-flex items-center gap-2 rounded-xl bg-plex px-3 py-2 text-sm font-bold text-background disabled:opacity-40"
+                    >
+                        {clearlogoBusy && !clearlogoRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                        {clearlogoDryRun ? 'Scan libraries' : 'Scan & apply available'}
+                    </button>
+                    {clearlogoCanResume && (
+                        <button
+                            type="button"
+                            disabled={!status?.enabled || clearlogoBusy || clearlogoRunning}
+                            onClick={() => { void startClearlogoScan(true); }}
+                            className="inline-flex items-center gap-2 rounded-xl border border-white/15 px-3 py-2 text-sm font-semibold text-text disabled:opacity-40"
+                        >
+                            Resume
+                        </button>
+                    )}
+                    {clearlogoRunning && (
+                        <button
+                            type="button"
+                            disabled={clearlogoBusy || !!clearlogoScan?.cancelRequested}
+                            onClick={() => { void cancelClearlogoScan(); }}
+                            className="inline-flex items-center gap-2 rounded-xl border border-red-400/40 px-3 py-2 text-sm font-semibold text-red-300 disabled:opacity-50"
+                        >
+                            <Square className="h-3.5 w-3.5" />
+                            {clearlogoScan?.cancelRequested ? 'Cancelling…' : 'Cancel'}
+                        </button>
+                    )}
+                    {clearlogoAvailableCount > 0 && !clearlogoRunning && (
+                        <button
+                            type="button"
+                            disabled={!status?.enabled || clearlogoBusy}
+                            onClick={() => { void applyClearlogos(); }}
+                            className="inline-flex items-center gap-2 rounded-xl border border-plex/40 bg-plex/15 px-3 py-2 text-sm font-bold text-plex disabled:opacity-40"
+                        >
+                            Apply all available ({clearlogoAvailableCount})
+                        </button>
+                    )}
+                </div>
+                {clearlogoScan && (
+                    <div className="flex flex-wrap gap-2 text-[11px]">
+                        <span className="rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1 text-muted">
+                            Status: <span className="font-semibold text-text">{clearlogoScan.status || 'idle'}</span>
+                            {clearlogoScan.dryRun ? ' · dry-run' : ' · write'}
+                            {clearlogoScan.cancelRequested && clearlogoRunning ? ' · cancelling' : ''}
+                        </span>
+                        <span className="rounded-lg border border-emerald-400/25 bg-emerald-400/10 px-2.5 py-1 font-semibold text-emerald-200">
+                            Has logo {clearlogoStats?.hasLogo || 0}
+                        </span>
+                        <span className="rounded-lg border border-plex/40 bg-plex/15 px-2.5 py-1 font-semibold text-plex">
+                            Available {clearlogoStats?.available || 0}
+                        </span>
+                        <span className="rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1 text-muted">
+                            None {clearlogoStats?.none || 0}
+                        </span>
+                        <span className="rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1 text-muted">
+                            Scanned {clearlogoStats?.scanned || 0}
+                            {(clearlogoStats?.applied || 0) > 0 ? ` · applied ${clearlogoStats?.applied}` : ''}
+                            {(clearlogoStats?.failed || 0) > 0 ? ` · errors ${clearlogoStats?.failed}` : ''}
+                        </span>
+                        {(clearlogoScan.cursor?.libraryTitle || clearlogoScan.cursor?.title) && clearlogoRunning && (
+                            <span className="rounded-lg border border-white/10 px-2.5 py-1 text-muted">
+                                {clearlogoScan.cursor.libraryTitle || 'Library'}
+                                {clearlogoScan.cursor.title ? ` → ${clearlogoScan.cursor.title}` : ''}
+                            </span>
+                        )}
+                        {clearlogoScan.error ? (
+                            <span className="rounded-lg border border-red-400/30 px-2.5 py-1 text-red-300">
+                                {clearlogoScan.error}
+                            </span>
+                        ) : null}
+                    </div>
+                )}
+                <label className="flex items-center gap-2 text-xs text-muted">
+                    <input
+                        type="checkbox"
+                        checked={clearlogoShowNone}
+                        onChange={(e) => setClearlogoShowNone(e.target.checked)}
+                    />
+                    Show titles with no Plex clearlogo candidates
+                </label>
+                {clearlogoTableRows.length > 0 && (
+                    <div className="overflow-auto rounded-xl border border-white/5">
+                        <table className="w-full min-w-[640px] text-left text-xs">
+                            <thead className="border-b border-white/10 bg-white/[0.03] text-[11px] uppercase tracking-wider text-muted">
+                                <tr>
+                                    <th className="px-2 py-2 font-bold">Title</th>
+                                    <th className="px-2 py-2 font-bold">Candidates</th>
+                                    <th className="px-2 py-2 font-bold">Preview</th>
+                                    <th className="px-2 py-2 font-bold text-right">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {clearlogoTableRows.slice(0, 120).map((row) => {
+                                    const poster = plexThumbUrl(row.thumb, 64, 96);
+                                    const isAvailable = row.status === 'available' && !row.applied;
+                                    return (
+                                        <tr key={row.ratingKey} className="border-b border-white/5 align-middle">
+                                            <td className="px-2 py-2">
+                                                <div className="flex items-center gap-2 min-w-0">
+                                                    {poster ? (
+                                                        <img
+                                                            src={poster}
+                                                            alt=""
+                                                            className="h-12 w-8 shrink-0 rounded object-cover bg-black/30"
+                                                        />
+                                                    ) : (
+                                                        <div className="h-12 w-8 shrink-0 rounded bg-white/5" />
+                                                    )}
+                                                    <div className="min-w-0">
+                                                        <p className="truncate font-semibold text-text">
+                                                            {row.title || 'Untitled'}
+                                                            {row.year ? ` (${row.year})` : ''}
+                                                        </p>
+                                                        <p className="truncate text-[11px] text-muted">
+                                                            {row.libraryTitle || ''}
+                                                            {row.type ? ` · ${row.type}` : ''}
+                                                            {row.status === 'none' ? ' · none in Plex' : ''}
+                                                            {row.status === 'applied' ? ' · applied' : ''}
+                                                            {row.error ? ` · ${row.error}` : ''}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td className="px-2 py-2 text-text">
+                                                {row.candidateCount ?? 0}
+                                            </td>
+                                            <td className="px-2 py-2">
+                                                <div className="flex items-center gap-1">
+                                                    {(row.candidates || []).slice(0, 4).map((c, ci) => {
+                                                        const src = plexThumbUrl(c.thumb || c.ratingKey, 96, 40);
+                                                        return src ? (
+                                                            <img
+                                                                key={`${row.ratingKey}-c-${ci}`}
+                                                                src={src}
+                                                                alt=""
+                                                                className="h-6 w-14 rounded object-contain bg-black/40"
+                                                                title={c.provider || ''}
+                                                            />
+                                                        ) : (
+                                                            <div
+                                                                key={`${row.ratingKey}-c-${ci}`}
+                                                                className="h-6 w-14 rounded bg-white/5"
+                                                            />
+                                                        );
+                                                    })}
+                                                    {!row.candidates?.length && (
+                                                        <span className="text-muted">—</span>
+                                                    )}
+                                                </div>
+                                            </td>
+                                            <td className="px-2 py-2 text-right">
+                                                {isAvailable ? (
+                                                    <button
+                                                        type="button"
+                                                        disabled={!status?.enabled || clearlogoBusy || !!clearlogoRowBusy || clearlogoRunning}
+                                                        onClick={() => { void applyClearlogos([row.ratingKey]); }}
+                                                        className="rounded-lg border border-plex/40 bg-plex/15 px-2.5 py-1 text-[11px] font-bold text-plex disabled:opacity-40"
+                                                    >
+                                                        {clearlogoRowBusy === `apply:${row.ratingKey}` ? (
+                                                            <Loader2 className="inline h-3.5 w-3.5 animate-spin" />
+                                                        ) : 'Apply'}
+                                                    </button>
+                                                ) : (
+                                                    <span className="text-muted">—</span>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+                {clearlogoScan && !clearlogoTableRows.length && clearlogoScan.status === 'done' && (
+                    <p className="text-xs text-muted">
+                        No gaps listed. Every scanned title either has a logo or had none in Plex
+                        {clearlogoShowNone ? '' : ' (enable “show none” to list empty titles)'}.
+                    </p>
                 )}
             </section>
 
