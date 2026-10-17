@@ -38,6 +38,9 @@ run(node, [path.join('scripts', 'bump-plex-client-version.mjs')]);
 run('npm', ['run', 'build:css'], { shellCommand: isWin ? 'npm run build:css' : undefined });
 run('npm', ['run', 'build:plex-client'], { shellCommand: isWin ? 'npm run build:plex-client' : undefined });
 
+// tar@7 (security override) breaks Capacitor's tar.default.extract during sync.
+run(node, [path.join('scripts', 'patch-capacitor-tar.mjs')]);
+
 const plexClient = path.join(root, 'plex-client');
 run('npx', ['cap', 'sync', 'android'], {
     cwd: plexClient,

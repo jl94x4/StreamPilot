@@ -6,6 +6,15 @@ import { readApkWhatsNewSeen, writeApkWhatsNewSeen } from '../media-player/playe
 import { getPlexClientAppVersion } from './config';
 
 const NOTES_BY_VERSION: Record<string, { title: string; items: string[] }[]> = {
+    '1.0.140': [
+        {
+            title: 'Watch Together',
+            items: [
+                'Settings → Connection lets you add or change your StreamPilot portal URL without signing out',
+                'Portal URL is required for Watch Together when you use Plex-direct sign-in',
+            ],
+        },
+    ],
     '1.0.138': [
         {
             title: 'Watch Together',
