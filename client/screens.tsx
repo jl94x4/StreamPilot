@@ -12585,9 +12585,9 @@ export const Navigation: React.FC<NavigationProps> = ({ currentRoute, onNavigate
                     }
                     if (!notes.length) {
                         if (isAndroidChrome && !installPrompt) {
-                            notes.push('Chrome has not marked this visit installable yet. Stay on the portal over HTTPS for ~30 seconds, tap once, reload, then try again. Or use More → Install App after Chrome fires the install prompt.');
+                            notes.push('Chrome has not marked this visit installable yet. Stay on the portal over HTTPS for ~30 seconds, tap once, then hard-reload (so the service worker updates). Or use Chrome’s menu ⋮ → Install app / Install page. If you only see Create shortcut, clear site data for this site and try again.');
                         }
-                        notes.push('Manifest and icons look OK. Chrome Android: use the in-app Install button (top bar / More menu), or browser menu ⋮ → Install app. Firefox: menu ⋮ → Install. If you only see Create shortcut / Add to Home screen, open the portal over HTTPS, reload once, and clear site data if it still will not Install.');
+                        notes.push('Manifest and icons look OK. Chrome Android: in-app Install (top bar / More), or browser ⋮ → Install app. Firefox: ⋮ → Install.');
                     }
                 }
             } catch {

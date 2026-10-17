@@ -22331,6 +22331,9 @@ const sendPwaManifest = async (_req, res) => {
 };
 
 app.get(['/manifest.webmanifest', '/manifest.json', '/site.webmanifest'], sendPwaManifest);
+// Public portal lives at /portal even when BASE_PATH is empty (reverse-proxy style).
+// Without these aliases, /portal/manifest.webmanifest falls through to the SPA HTML shell.
+app.get(['/portal/manifest.webmanifest', '/portal/manifest.json', '/portal/site.webmanifest'], sendPwaManifest);
 if (BASE_PATH) {
     app.get([
         `${BASE_PATH}/manifest.webmanifest`,
@@ -22341,7 +22344,7 @@ if (BASE_PATH) {
 
 // Chromium Android uses this for WebAPK installability. Firefox deliberately does not
 // register it (a bad SW makes Firefox Install silently no-op).
-const serviceWorkerScript = `/* portal-sw v11 */
+const serviceWorkerScript = `/* portal-sw v12 */
 self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
@@ -22350,12 +22353,25 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
 
-// Presence-only fetch listener — required for Chrome Android Install.
-// Do NOT event.respondWith(fetch(...)): proxying every request breaks
-// cross-origin posters (TMDB), fonts (Google), and Plex/user thumbs.
-self.addEventListener('fetch', () => {});
-
 const PORTAL_START = ${JSON.stringify(BASE_PATH ? `${BASE_PATH}/` : '/portal')};
+// Chrome's beforeinstallprompt heuristic ignores *empty* fetch handlers (sites used
+// them only to game installability). Keep this non-empty, but never proxy API/static/
+// cross-origin traffic — only soft-fail same-origin navigations when offline.
+self.addEventListener('fetch', (event) => {
+  if (event.request.mode !== 'navigate') return;
+  event.respondWith((async () => {
+    try {
+      return await fetch(event.request);
+    } catch (_) {
+      try {
+        return Response.redirect(new URL(PORTAL_START, self.registration.scope).href, 302);
+      } catch (_2) {
+        return new Response('Offline', { status: 503, statusText: 'Offline', headers: { 'Content-Type': 'text/plain' } });
+      }
+    }
+  })());
+});
+
 const PWA_ICON_PATH = ${JSON.stringify(withBasePath('/api/public/pwa-icon?size=192'))};
 const PWA_BADGE_PATH = ${JSON.stringify(withBasePath('/api/public/pwa-badge?size=96&m=sz3'))};
 
@@ -22422,6 +22438,7 @@ const sendServiceWorker = (_req, res) => {
 };
 
 app.get('/service-worker.js', sendServiceWorker);
+app.get('/portal/service-worker.js', sendServiceWorker);
 if (BASE_PATH) {
     app.get(`${BASE_PATH}/service-worker.js`, sendServiceWorker);
 }
@@ -22702,8 +22719,9 @@ const readPortalIndexHtml = async () => {
     return text;
 };
 
-// Serve the main index.html for SPA routes (after base-path strip, paths are root-relative)
-app.get(/^\/(?!api\/|static\/|manifest\.(?:webmanifest|json)|site\.webmanifest|service-worker\.js|apple-touch-icon(?:-precomposed)?(?:-\d+x\d+)?\.png$|favicon\.ico$).*$/, async (req, res) => {
+// Serve the main index.html for SPA routes (after base-path strip, paths are root-relative).
+// Exclude /portal/manifest + /portal/service-worker aliases used when BASE_PATH is empty.
+app.get(/^\/(?!api\/|static\/|(?:portal\/)?manifest\.(?:webmanifest|json)|(?:portal\/)?site\.webmanifest|(?:portal\/)?service-worker\.js|apple-touch-icon(?:-precomposed)?(?:-\d+x\d+)?\.png$|favicon\.ico$).*$/, async (req, res) => {
     if (!arePortalFrontendAssetsReady()) {
         res.status(503);
         res.setHeader('Content-Type', 'text/html; charset=utf-8');
