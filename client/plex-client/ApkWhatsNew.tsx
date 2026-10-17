@@ -6,7 +6,7 @@ import { readApkWhatsNewSeen, writeApkWhatsNewSeen } from '../media-player/playe
 import { getPlexClientAppVersion } from './config';
 
 const NOTES_BY_VERSION: Record<string, { title: string; items: string[] }[]> = {
-    '1.0.135': [
+    '1.0.136': [
         {
             title: 'Home',
             items: [
