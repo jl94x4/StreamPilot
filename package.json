@@ -67,6 +67,7 @@
     "proxy-addr": "2.0.8",
     "source-map-js": "1.2.2",
     "vue": "3.5.43",
-    "@vue/server-renderer": "3.5.43"
+    "@vue/server-renderer": "3.5.43",
+    "tar": "7.5.22"
   }
 }
