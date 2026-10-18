@@ -92,6 +92,7 @@ type ClearlogoScanState = {
     error?: string | null;
     startedAt?: string | null;
     finishedAt?: string | null;
+    updatedAt?: string | null;
 };
 
 type FillFields = {
@@ -195,6 +196,7 @@ type LogFilter = 'all' | 'filled' | 'failed' | 'preview' | 'skipped' | 'reverted
 type PreviewFilter = 'all' | 'ok' | 'failed' | 'skipped';
 
 const LOG_PAGE_SIZE = 25;
+const CLEARLOGO_PAGE_SIZE = 40;
 
 const reasonLabel = (reason?: string) => {
     switch (String(reason || '')) {
@@ -242,6 +244,7 @@ export const MetadataFillPage: React.FC = () => {
     const [clearlogoBusy, setClearlogoBusy] = useState(false);
     const [clearlogoLibraryKeys, setClearlogoLibraryKeys] = useState<string[]>([]);
     const [clearlogoTableFilter, setClearlogoTableFilter] = useState<ClearlogoTableFilter>('available');
+    const [clearlogoPage, setClearlogoPage] = useState(1);
     const [clearlogoRowBusy, setClearlogoRowBusy] = useState('');
     /** Optional per-title clearlogo candidate ratingKey overrides. */
     const [clearlogoPicks, setClearlogoPicks] = useState<Record<string, string>>({});
@@ -758,7 +761,23 @@ export const MetadataFillPage: React.FC = () => {
             return true;
         });
     }, [clearlogoScan?.preview, clearlogoTableFilter]);
-    const clearlogoAvailableCount = clearlogoCounts.available;
+    const clearlogoPageCount = Math.max(1, Math.ceil(clearlogoTableRows.length / CLEARLOGO_PAGE_SIZE));
+    const safeClearlogoPage = Math.min(clearlogoPage, clearlogoPageCount);
+    const pagedClearlogoRows = useMemo(() => {
+        const start = (safeClearlogoPage - 1) * CLEARLOGO_PAGE_SIZE;
+        return clearlogoTableRows.slice(start, start + CLEARLOGO_PAGE_SIZE);
+    }, [clearlogoTableRows, safeClearlogoPage]);
+    useEffect(() => {
+        setClearlogoPage(1);
+    }, [clearlogoTableFilter, clearlogoScan?.updatedAt, clearlogoScan?.finishedAt]);
+    useEffect(() => {
+        if (clearlogoPage > clearlogoPageCount) setClearlogoPage(clearlogoPageCount);
+    }, [clearlogoPage, clearlogoPageCount]);
+    // Prefer full scan stats — preview used to be capped at 500 and under-counted Apply all.
+    const clearlogoAvailableCount = Math.max(
+        clearlogoCounts.available,
+        Number(clearlogoStats?.available) || 0,
+    );
 
     return (
         <DashboardPageShell>
@@ -1257,6 +1276,12 @@ export const MetadataFillPage: React.FC = () => {
                             Apply all available ({clearlogoAvailableCount})
                         </button>
                     )}
+                    {clearlogoAvailableCount > clearlogoCounts.available && clearlogoCounts.available > 0 ? (
+                        <p className="w-full text-[11px] text-amber-200/90">
+                            Scan stats show {clearlogoAvailableCount} available, but only {clearlogoCounts.available} are listed from this run’s saved preview.
+                            Re-scan to load the full gap list before Apply all.
+                        </p>
+                    ) : null}
                 </div>
                 {clearlogoScan && (
                     <div className="flex flex-wrap gap-2 text-[11px]">
@@ -1336,6 +1361,38 @@ export const MetadataFillPage: React.FC = () => {
                     Click a preview logo to choose it (optional); Apply uses your pick or the first agent candidate.
                 </p>
                 {clearlogoTableRows.length > 0 && (
+                    <div className="space-y-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted">
+                            <span>
+                                Showing {(safeClearlogoPage - 1) * CLEARLOGO_PAGE_SIZE + 1}
+                                –
+                                {Math.min(safeClearlogoPage * CLEARLOGO_PAGE_SIZE, clearlogoTableRows.length)}
+                                {' '}of {clearlogoTableRows.length}
+                            </span>
+                            <div className="flex items-center gap-1">
+                                <button
+                                    type="button"
+                                    disabled={safeClearlogoPage <= 1}
+                                    onClick={() => setClearlogoPage((p) => Math.max(1, p - 1))}
+                                    className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-2 py-1 font-bold text-text disabled:opacity-40"
+                                >
+                                    <ChevronLeft className="h-3.5 w-3.5" />
+                                    Prev
+                                </button>
+                                <span className="px-2 font-semibold text-text">
+                                    {safeClearlogoPage} / {clearlogoPageCount}
+                                </span>
+                                <button
+                                    type="button"
+                                    disabled={safeClearlogoPage >= clearlogoPageCount}
+                                    onClick={() => setClearlogoPage((p) => Math.min(clearlogoPageCount, p + 1))}
+                                    className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-2 py-1 font-bold text-text disabled:opacity-40"
+                                >
+                                    Next
+                                    <ChevronRight className="h-3.5 w-3.5" />
+                                </button>
+                            </div>
+                        </div>
                     <div className="overflow-auto rounded-xl border border-white/5">
                         <table className="w-full min-w-[760px] text-left text-xs">
                             <thead className="border-b border-white/10 bg-white/[0.03] text-[11px] uppercase tracking-wider text-muted">
@@ -1348,7 +1405,7 @@ export const MetadataFillPage: React.FC = () => {
                                 </tr>
                             </thead>
                             <tbody>
-                                {clearlogoTableRows.slice(0, 120).map((row) => {
+                                {pagedClearlogoRows.map((row) => {
                                     const poster = plexThumbUrl(row.thumb, 120, 180);
                                     const isAvailable = row.status === 'available' && !row.applied;
                                     const isSet = row.status === 'hasLogo' || row.status === 'applied'
@@ -1498,6 +1555,29 @@ export const MetadataFillPage: React.FC = () => {
                                 })}
                             </tbody>
                         </table>
+                    </div>
+                    {clearlogoTableRows.length > CLEARLOGO_PAGE_SIZE && (
+                        <div className="flex justify-end gap-1 text-[11px]">
+                            <button
+                                type="button"
+                                disabled={safeClearlogoPage <= 1}
+                                onClick={() => setClearlogoPage((p) => Math.max(1, p - 1))}
+                                className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-2 py-1 font-bold text-text disabled:opacity-40"
+                            >
+                                <ChevronLeft className="h-3.5 w-3.5" />
+                                Prev
+                            </button>
+                            <button
+                                type="button"
+                                disabled={safeClearlogoPage >= clearlogoPageCount}
+                                onClick={() => setClearlogoPage((p) => Math.min(clearlogoPageCount, p + 1))}
+                                className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-2 py-1 font-bold text-text disabled:opacity-40"
+                            >
+                                Next
+                                <ChevronRight className="h-3.5 w-3.5" />
+                            </button>
+                        </div>
+                    )}
                     </div>
                 )}
                 {clearlogoScan && !clearlogoTableRows.length && (clearlogoScan.status === 'done' || clearlogoScan.status === 'cancelled') && (
