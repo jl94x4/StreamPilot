@@ -66,6 +66,52 @@ type ClearlogoPreviewRow = {
 
 type ClearlogoTableFilter = 'available' | 'hasLogo' | 'none' | 'all';
 
+type HyphenTitlePreviewRow = {
+    ratingKey: string;
+    plexTitle?: string;
+    tmdbTitle?: string | null;
+    tmdbId?: string | null;
+    year?: number | null;
+    thumb?: string | null;
+    libraryTitle?: string;
+    status?: 'available' | 'matched' | 'applied' | 'skipped' | 'noTmdbId' | 'failed' | string;
+    reason?: string;
+    applied?: boolean;
+    dryRun?: boolean;
+    error?: string | null;
+};
+
+type HyphenTitleTableFilter = 'available' | 'matched' | 'all';
+
+type HyphenTitleScanState = {
+    status?: string;
+    dryRun?: boolean;
+    cancelRequested?: boolean;
+    inProcess?: boolean;
+    cursor?: {
+        libraryIndex?: number;
+        itemStart?: number;
+        libraryTitle?: string;
+        title?: string | null;
+    } | null;
+    stats?: {
+        scanned?: number;
+        available?: number;
+        matched?: number;
+        skipped?: number;
+        applied?: number;
+        failed?: number;
+        noTmdbId?: number;
+    };
+    preview?: HyphenTitlePreviewRow[];
+    libraries?: LibraryRow[];
+    selectedLibraryKeys?: string[];
+    error?: string | null;
+    updatedAt?: string | null;
+    startedAt?: string | null;
+    finishedAt?: string | null;
+};
+
 type ClearlogoScanState = {
     status?: string;
     dryRun?: boolean;
@@ -169,6 +215,7 @@ type Status = {
     libraryKeys: string[];
     libraries: LibraryRow[];
     clearlogoLibraries: LibraryRow[];
+    movieLibraries: LibraryRow[];
     librariesError?: string | null;
     tmdbConfigured: boolean;
     tvdbConfigured: boolean;
@@ -177,6 +224,7 @@ type Status = {
     retryQueue: RetryItem[];
     scan: ScanState | null;
     clearlogoScan: ClearlogoScanState | null;
+    hyphenTitleScan: HyphenTitleScanState | null;
 };
 
 const plexThumbUrl = (path?: string | null, width = 80, height = 120) => {
@@ -197,6 +245,7 @@ type PreviewFilter = 'all' | 'ok' | 'failed' | 'skipped';
 
 const LOG_PAGE_SIZE = 25;
 const CLEARLOGO_PAGE_SIZE = 40;
+const HYPHEN_TITLE_PAGE_SIZE = 40;
 
 const reasonLabel = (reason?: string) => {
     switch (String(reason || '')) {
@@ -248,6 +297,12 @@ export const MetadataFillPage: React.FC = () => {
     const [clearlogoRowBusy, setClearlogoRowBusy] = useState('');
     /** Optional per-title clearlogo candidate ratingKey overrides. */
     const [clearlogoPicks, setClearlogoPicks] = useState<Record<string, string>>({});
+    const [hyphenDryRun, setHyphenDryRun] = useState(true);
+    const [hyphenBusy, setHyphenBusy] = useState(false);
+    const [hyphenLibraryKeys, setHyphenLibraryKeys] = useState<string[]>([]);
+    const [hyphenTableFilter, setHyphenTableFilter] = useState<HyphenTitleTableFilter>('available');
+    const [hyphenPage, setHyphenPage] = useState(1);
+    const [hyphenRowBusy, setHyphenRowBusy] = useState('');
     const [retryBusy, setRetryBusy] = useState(false);
     const [logFilter, setLogFilter] = useState<LogFilter>('all');
     const [logQuery, setLogQuery] = useState('');
@@ -280,6 +335,7 @@ export const MetadataFillPage: React.FC = () => {
                 libraryKeys: Array.isArray(data?.libraryKeys) ? data.libraryKeys.map(String) : [],
                 libraries: Array.isArray(data?.libraries) ? data.libraries : [],
                 clearlogoLibraries: Array.isArray(data?.clearlogoLibraries) ? data.clearlogoLibraries : [],
+                movieLibraries: Array.isArray(data?.movieLibraries) ? data.movieLibraries : [],
                 librariesError: data?.librariesError ? String(data.librariesError) : null,
                 tmdbConfigured: !!data?.tmdbConfigured,
                 tvdbConfigured: !!data?.tvdbConfigured,
@@ -288,11 +344,16 @@ export const MetadataFillPage: React.FC = () => {
                 retryQueue: Array.isArray(data?.retryQueue) ? data.retryQueue : [],
                 scan: data?.scan || null,
                 clearlogoScan: data?.clearlogoScan || null,
+                hyphenTitleScan: data?.hyphenTitleScan || null,
             });
             if (data?.scan?.dryRun != null) setScanDryRun(!!data.scan.dryRun);
             if (data?.clearlogoScan?.dryRun != null) setClearlogoDryRun(!!data.clearlogoScan.dryRun);
             if (Array.isArray(data?.clearlogoScan?.selectedLibraryKeys)) {
                 setClearlogoLibraryKeys(data.clearlogoScan.selectedLibraryKeys.map(String));
+            }
+            if (data?.hyphenTitleScan?.dryRun != null) setHyphenDryRun(!!data.hyphenTitleScan.dryRun);
+            if (Array.isArray(data?.hyphenTitleScan?.selectedLibraryKeys)) {
+                setHyphenLibraryKeys(data.hyphenTitleScan.selectedLibraryKeys.map(String));
             }
         } catch (e: any) {
             setError(e?.message || 'Failed to load Metadata Fill');
@@ -315,12 +376,16 @@ export const MetadataFillPage: React.FC = () => {
     const clearlogoCanResume = !clearlogoRunning && !!status?.clearlogoScan?.cursor && (
         ['interrupted', 'cancelled', 'running'].includes(String(status?.clearlogoScan?.status || ''))
     );
+    const hyphenRunning = !!status?.hyphenTitleScan?.inProcess;
+    const hyphenCanResume = !hyphenRunning && !!status?.hyphenTitleScan?.cursor && (
+        ['interrupted', 'cancelled', 'running'].includes(String(status?.hyphenTitleScan?.status || ''))
+    );
 
     useEffect(() => {
-        if (!scanRunning && !clearlogoRunning) return undefined;
+        if (!scanRunning && !clearlogoRunning && !hyphenRunning) return undefined;
         const id = window.setInterval(() => { void load(true); }, 2500);
         return () => window.clearInterval(id);
-    }, [scanRunning, clearlogoRunning, load]);
+    }, [scanRunning, clearlogoRunning, hyphenRunning, load]);
 
     const saveSettings = async (patch: Record<string, unknown>, busyKey = 'settings') => {
         setBusyToggle(busyKey);
@@ -608,6 +673,77 @@ export const MetadataFillPage: React.FC = () => {
         }
     };
 
+    const toggleHyphenLibraryKey = (key: string) => {
+        setHyphenLibraryKeys((prev) => {
+            if (prev.includes(key)) return prev.filter((k) => k !== key);
+            return [...prev, key];
+        });
+    };
+
+    const startHyphenTitleScan = async (resume = false) => {
+        setHyphenBusy(true);
+        setError('');
+        setNotice('');
+        try {
+            await apiFetch('/api/metadata-fill/hyphen-titles/scan/start', {
+                method: 'POST',
+                body: JSON.stringify({
+                    dryRun: hyphenDryRun,
+                    resume,
+                    libraryKeys: hyphenLibraryKeys.length ? hyphenLibraryKeys : null,
+                }),
+            });
+            setNotice(resume
+                ? 'Resumed hyphen title scan.'
+                : (hyphenDryRun
+                    ? 'Hyphen title scan started (dry-run).'
+                    : 'Hyphen title scan started (will lock matching TMDB titles).'));
+            await load(true);
+        } catch (e: any) {
+            setError(e?.message || 'Failed to start hyphen title scan');
+        } finally {
+            setHyphenBusy(false);
+        }
+    };
+
+    const cancelHyphenTitleScan = async () => {
+        setHyphenBusy(true);
+        setError('');
+        try {
+            await apiFetch('/api/metadata-fill/hyphen-titles/scan/cancel', { method: 'POST', body: '{}' });
+            setNotice('Cancel requested. Hyphen title scan will stop after the current movie.');
+            setStatus((prev) => (prev?.hyphenTitleScan ? {
+                ...prev,
+                hyphenTitleScan: { ...prev.hyphenTitleScan, cancelRequested: true },
+            } : prev));
+            await load(true);
+        } catch (e: any) {
+            setError(e?.message || 'Failed to cancel hyphen title scan');
+        } finally {
+            setHyphenBusy(false);
+        }
+    };
+
+    const applyHyphenTitles = async (ratingKeys?: string[]) => {
+        if (ratingKeys?.length === 1) setHyphenRowBusy(`hyphen:${ratingKeys[0]}`);
+        else setHyphenBusy(true);
+        setError('');
+        setNotice('');
+        try {
+            const result = await apiFetch('/api/metadata-fill/hyphen-titles/scan/apply', {
+                method: 'POST',
+                body: JSON.stringify({ ratingKeys: ratingKeys || null }),
+            });
+            setNotice(`Applied ${result?.applied || 0} hyphen title(s)${result?.failed ? `, ${result.failed} failed` : ''}.`);
+            await load(true);
+        } catch (e: any) {
+            setError(e?.message || 'Failed to apply hyphen titles');
+        } finally {
+            setHyphenBusy(false);
+            setHyphenRowBusy('');
+        }
+    };
+
     const processRetries = async () => {
         setRetryBusy(true);
         setError('');
@@ -779,13 +915,52 @@ export const MetadataFillPage: React.FC = () => {
         Number(clearlogoStats?.available) || 0,
     );
 
+    const hyphenScan = status?.hyphenTitleScan;
+    const hyphenStats = hyphenScan?.stats;
+    const hyphenCounts = useMemo(() => {
+        const rows = hyphenScan?.preview || [];
+        let available = 0;
+        let matched = 0;
+        for (const row of rows) {
+            if (row.status === 'available' && !row.applied) available += 1;
+            else if (row.status === 'matched' || row.status === 'applied' || row.applied) matched += 1;
+        }
+        return { available, matched, all: rows.length };
+    }, [hyphenScan?.preview]);
+    const hyphenTableRows = useMemo(() => {
+        const rows = hyphenScan?.preview || [];
+        return rows.filter((row) => {
+            const isAvailable = (row.status === 'available' || row.status === 'failed') && !row.applied;
+            const isMatched = row.status === 'matched' || row.status === 'applied' || !!row.applied;
+            if (hyphenTableFilter === 'available') return isAvailable;
+            if (hyphenTableFilter === 'matched') return isMatched;
+            return true;
+        });
+    }, [hyphenScan?.preview, hyphenTableFilter]);
+    const hyphenPageCount = Math.max(1, Math.ceil(hyphenTableRows.length / HYPHEN_TITLE_PAGE_SIZE));
+    const safeHyphenPage = Math.min(hyphenPage, hyphenPageCount);
+    const pagedHyphenRows = useMemo(() => {
+        const start = (safeHyphenPage - 1) * HYPHEN_TITLE_PAGE_SIZE;
+        return hyphenTableRows.slice(start, start + HYPHEN_TITLE_PAGE_SIZE);
+    }, [hyphenTableRows, safeHyphenPage]);
+    useEffect(() => {
+        setHyphenPage(1);
+    }, [hyphenTableFilter, hyphenScan?.updatedAt, hyphenScan?.finishedAt]);
+    useEffect(() => {
+        if (hyphenPage > hyphenPageCount) setHyphenPage(hyphenPageCount);
+    }, [hyphenPage, hyphenPageCount]);
+    const hyphenAvailableCount = Math.max(
+        hyphenCounts.available,
+        Number(hyphenStats?.available) || 0,
+    );
+
     return (
         <DashboardPageShell>
             <DashboardHero
                 accent="plex"
                 eyebrow="Metadata Fill"
                 title="Fill TBA episode metadata from TMDB, TVDB, and TVmaze"
-                description="When Plex is slow to scrape, write locked title, summary, and air date on Sonarr On Import, per show, or via a resumable library scan. Preview first, then apply; revert or unlock anytime."
+                description="When Plex is slow to scrape, write locked title, summary, and air date on Sonarr On Import, per show, or via a resumable library scan. Preview first, then apply; revert or unlock anytime. Also compare movie titles to TMDB when hyphens are involved."
                 icon={<Wand2 className="h-5 w-5" />}
                 secondaryBlob
                 actions={(
@@ -1160,6 +1335,271 @@ export const MetadataFillPage: React.FC = () => {
                             )}
                         </ul>
                     </div>
+                )}
+            </section>
+
+            <section className="mt-6 rounded-2xl border border-white/10 bg-background/40 p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                    <h2 className="text-sm font-bold uppercase tracking-wider text-muted">Hyphen titles (movies)</h2>
+                    <label className="flex items-center gap-2 text-xs text-text">
+                        <input
+                            type="checkbox"
+                            checked={hyphenDryRun}
+                            disabled={hyphenRunning || !status?.enabled}
+                            onChange={(e) => setHyphenDryRun(e.target.checked)}
+                        />
+                        Dry-run / preview only
+                    </label>
+                </div>
+                <p className="text-xs text-muted">
+                    Compare Plex movie titles to TMDB. Only titles whose <span className="text-text">TMDB</span> name
+                    contains a hyphen (e.g. Z-O-M-B-I-E-S) and differs from Plex are listed — then lock that TMDB
+                    title onto Plex so Poster Sets can match.
+                </p>
+                {!status?.tmdbConfigured && (
+                    <p className="text-xs text-amber-300/90">Configure a TMDB API key in Settings before scanning.</p>
+                )}
+                {(status?.movieLibraries?.length || 0) > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                        {status?.movieLibraries?.map((lib) => {
+                            const key = String(lib.key);
+                            const explicitlyOn = hyphenLibraryKeys.includes(key);
+                            const selected = !hyphenLibraryKeys.length || explicitlyOn;
+                            return (
+                                <button
+                                    key={key}
+                                    type="button"
+                                    disabled={!status?.enabled || hyphenBusy || hyphenRunning}
+                                    onClick={() => { toggleHyphenLibraryKey(key); }}
+                                    className={`rounded-lg border px-2.5 py-1 text-xs font-semibold transition ${
+                                        (hyphenLibraryKeys.length ? explicitlyOn : selected)
+                                            ? 'border-plex/50 bg-plex/15 text-plex'
+                                            : 'border-white/10 bg-white/5 text-muted hover:bg-white/10'
+                                    }`}
+                                    title={hyphenLibraryKeys.length
+                                        ? 'Toggle library in hyphen title scan scope'
+                                        : 'Click to limit scan to selected libraries'}
+                                >
+                                    {lib.title}
+                                </button>
+                            );
+                        })}
+                        {hyphenLibraryKeys.length > 0 && (
+                            <button
+                                type="button"
+                                disabled={hyphenBusy || hyphenRunning}
+                                onClick={() => setHyphenLibraryKeys([])}
+                                className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-muted hover:bg-white/10"
+                            >
+                                All movie libraries
+                            </button>
+                        )}
+                    </div>
+                ) : (
+                    <p className="text-xs text-muted">
+                        {status?.librariesError
+                            ? `Could not load movie libraries from Plex: ${status.librariesError}`
+                            : 'No movie libraries loaded from Plex yet.'}
+                    </p>
+                )}
+                <div className="flex flex-wrap gap-2">
+                    <button
+                        type="button"
+                        disabled={!status?.enabled || !status?.tmdbConfigured || hyphenBusy || hyphenRunning}
+                        onClick={() => { void startHyphenTitleScan(false); }}
+                        className="inline-flex items-center gap-2 rounded-xl border border-plex/40 bg-plex/15 px-3 py-1.5 text-xs font-bold text-plex disabled:opacity-40"
+                    >
+                        {hyphenBusy && !hyphenRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                        {hyphenDryRun ? 'Scan movie libraries' : 'Scan & apply mismatches'}
+                    </button>
+                    {hyphenCanResume && (
+                        <button
+                            type="button"
+                            disabled={!status?.enabled || hyphenBusy || hyphenRunning}
+                            onClick={() => { void startHyphenTitleScan(true); }}
+                            className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-text hover:bg-white/10 disabled:opacity-40"
+                        >
+                            Resume
+                        </button>
+                    )}
+                    {hyphenRunning && (
+                        <button
+                            type="button"
+                            disabled={hyphenBusy || !!hyphenScan?.cancelRequested}
+                            onClick={() => { void cancelHyphenTitleScan(); }}
+                            className="inline-flex items-center gap-2 rounded-xl border border-red-400/40 bg-red-500/10 px-3 py-1.5 text-xs font-bold text-red-300 disabled:opacity-40"
+                        >
+                            <Square className="h-3.5 w-3.5" />
+                            {hyphenScan?.cancelRequested ? 'Cancelling…' : 'Cancel'}
+                        </button>
+                    )}
+                    {hyphenAvailableCount > 0 && !hyphenRunning && (
+                        <button
+                            type="button"
+                            disabled={!status?.enabled || hyphenBusy}
+                            onClick={() => { void applyHyphenTitles(); }}
+                            className="inline-flex items-center gap-2 rounded-xl border border-green-400/40 bg-green-500/10 px-3 py-1.5 text-xs font-bold text-green-300 disabled:opacity-40"
+                        >
+                            Apply all mismatches ({hyphenAvailableCount})
+                        </button>
+                    )}
+                </div>
+                {hyphenScan && (
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+                        <span>
+                            Status: <span className="font-semibold text-text">{hyphenScan.status || 'idle'}</span>
+                            {hyphenScan.dryRun ? ' · dry-run' : ' · write'}
+                            {hyphenScan.cancelRequested && hyphenRunning ? ' · cancelling' : ''}
+                        </span>
+                        <button
+                            type="button"
+                            onClick={() => setHyphenTableFilter('available')}
+                            className={`rounded-md border px-2 py-0.5 ${
+                                hyphenTableFilter === 'available'
+                                    ? 'border-plex/50 bg-plex/15 text-plex'
+                                    : 'border-white/10 text-muted'
+                            }`}
+                        >
+                            Need fix {hyphenStats?.available || 0}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setHyphenTableFilter('matched')}
+                            className={`rounded-md border px-2 py-0.5 ${
+                                hyphenTableFilter === 'matched'
+                                    ? 'border-plex/50 bg-plex/15 text-plex'
+                                    : 'border-white/10 text-muted'
+                            }`}
+                        >
+                            Already match {hyphenStats?.matched || 0}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setHyphenTableFilter('all')}
+                            className={`rounded-md border px-2 py-0.5 ${
+                                hyphenTableFilter === 'all'
+                                    ? 'border-plex/50 bg-plex/15 text-plex'
+                                    : 'border-white/10 text-muted'
+                            }`}
+                        >
+                            All listed {hyphenCounts.all}
+                        </button>
+                        <span>
+                            Scanned {hyphenStats?.scanned || 0}
+                            {(hyphenStats?.applied || 0) > 0 ? ` · applied ${hyphenStats?.applied}` : ''}
+                            {(hyphenStats?.failed || 0) > 0 ? ` · errors ${hyphenStats?.failed}` : ''}
+                            {(hyphenStats?.noTmdbId || 0) > 0 ? ` · no TMDB id ${hyphenStats?.noTmdbId}` : ''}
+                        </span>
+                        {(hyphenScan.cursor?.libraryTitle || hyphenScan.cursor?.title) && hyphenRunning && (
+                            <span>
+                                {hyphenScan.cursor.libraryTitle || 'Library'}
+                                {hyphenScan.cursor.title ? ` → ${hyphenScan.cursor.title}` : ''}
+                            </span>
+                        )}
+                        {hyphenScan.error ? (
+                            <span className="text-red-300/90">{hyphenScan.error}</span>
+                        ) : null}
+                    </div>
+                )}
+                {hyphenTableRows.length > 0 && (
+                    <div className="space-y-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
+                            <span>
+                                Showing {(safeHyphenPage - 1) * HYPHEN_TITLE_PAGE_SIZE + 1}
+                                –
+                                {Math.min(safeHyphenPage * HYPHEN_TITLE_PAGE_SIZE, hyphenTableRows.length)}
+                                {' '}of {hyphenTableRows.length}
+                            </span>
+                            {hyphenPageCount > 1 && (
+                                <div className="flex items-center gap-1">
+                                    <button
+                                        type="button"
+                                        disabled={safeHyphenPage <= 1}
+                                        onClick={() => setHyphenPage((p) => Math.max(1, p - 1))}
+                                        className="rounded border border-white/10 p-1 disabled:opacity-40"
+                                    >
+                                        <ChevronLeft className="h-3.5 w-3.5" />
+                                    </button>
+                                    <span>{safeHyphenPage} / {hyphenPageCount}</span>
+                                    <button
+                                        type="button"
+                                        disabled={safeHyphenPage >= hyphenPageCount}
+                                        onClick={() => setHyphenPage((p) => Math.min(hyphenPageCount, p + 1))}
+                                        className="rounded border border-white/10 p-1 disabled:opacity-40"
+                                    >
+                                        <ChevronRight className="h-3.5 w-3.5" />
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                        <ul className="space-y-1.5">
+                            {pagedHyphenRows.map((row) => {
+                                const isAvailable = row.status === 'available' && !row.applied;
+                                const thumb = plexThumbUrl(row.thumb, 60, 90);
+                                return (
+                                    <li
+                                        key={`hyphen-${row.ratingKey}`}
+                                        className="flex flex-wrap items-center gap-3 rounded-xl border border-white/5 bg-black/20 px-2.5 py-2"
+                                    >
+                                        {thumb ? (
+                                            <img src={thumb} alt="" className="h-14 w-9 shrink-0 rounded object-cover" />
+                                        ) : (
+                                            <div className="flex h-14 w-9 shrink-0 items-center justify-center rounded bg-white/5 text-[9px] text-muted">—</div>
+                                        )}
+                                        <div className="min-w-0 flex-1">
+                                            <div className="truncate text-sm font-semibold text-text">
+                                                {row.plexTitle || 'Untitled'}
+                                                {row.year ? ` (${row.year})` : ''}
+                                            </div>
+                                            <div className="truncate text-xs text-muted">
+                                                {row.libraryTitle || 'Library'}
+                                                {row.tmdbId ? ` · TMDB ${row.tmdbId}` : ''}
+                                            </div>
+                                            {row.tmdbTitle ? (
+                                                <div className="mt-0.5 truncate text-xs text-plex">
+                                                    TMDB: {row.tmdbTitle}
+                                                </div>
+                                            ) : null}
+                                            {row.error ? (
+                                                <div className="mt-0.5 text-xs text-red-300/90">{row.error}</div>
+                                            ) : null}
+                                        </div>
+                                        <div className="text-[11px] font-bold uppercase tracking-wider text-muted">
+                                            {row.status === 'applied' || row.applied
+                                                ? 'Applied'
+                                                : row.status === 'matched'
+                                                    ? 'Match'
+                                                    : row.status === 'available'
+                                                        ? 'Need fix'
+                                                        : row.status || ''}
+                                        </div>
+                                        {isAvailable && (
+                                            <button
+                                                type="button"
+                                                disabled={!status?.enabled || hyphenBusy || !!hyphenRowBusy || hyphenRunning}
+                                                onClick={() => { void applyHyphenTitles([row.ratingKey]); }}
+                                                className="inline-flex items-center gap-1.5 rounded-lg border border-green-400/40 bg-green-500/10 px-2.5 py-1 text-xs font-bold text-green-300 disabled:opacity-40"
+                                            >
+                                                {hyphenRowBusy === `hyphen:${row.ratingKey}` ? (
+                                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                                ) : null}
+                                                Apply
+                                            </button>
+                                        )}
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    </div>
+                )}
+                {hyphenScan && !hyphenTableRows.length && (hyphenScan.status === 'done' || hyphenScan.status === 'cancelled') && (
+                    <p className="text-xs text-muted">
+                        {hyphenTableFilter === 'available'
+                            ? 'No hyphen title mismatches in this scan.'
+                            : hyphenTableFilter === 'matched'
+                                ? 'No already-matching hyphen titles listed for this scan window.'
+                                : 'No hyphen title results listed yet.'}
+                    </p>
                 )}
             </section>
 
