@@ -1,5 +1,6 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { NoPosterPlaceholder } from './NoPosterPlaceholder';
+import { warmPosterUrl } from './posterWarmCache';
 
 const MAX_RETRIES = 4;
 
@@ -19,11 +20,6 @@ type Props = {
     compactPlaceholder?: boolean;
 };
 
-/**
- * Poster img with soft retries. Never opacity-gates paint — that pattern made TV Home
- * posters load once then stay blank after rail remounts (same class of bug as Discover's
- * old fade-in). Browser HTTP cache still fills remounts instantly without a blank flash.
- */
 export const RetryablePoster: React.FC<Props> = ({
     src,
     fallbackSrc = '',
@@ -37,26 +33,15 @@ export const RetryablePoster: React.FC<Props> = ({
     const [useFallback, setUseFallback] = useState(false);
     const [failed, setFailed] = useState(!src && !fallbackSrc);
     const [displaySrc, setDisplaySrc] = useState(src || fallbackSrc);
-    const attemptTimerRef = useRef<number | null>(null);
 
-    useLayoutEffect(() => {
-        const next = src || fallbackSrc;
-        if (attemptTimerRef.current != null) {
-            window.clearTimeout(attemptTimerRef.current);
-            attemptTimerRef.current = null;
-        }
+    useEffect(() => {
         setAttempt(0);
         setUseFallback(false);
         setFailed(!src && !fallbackSrc);
-        setDisplaySrc(next);
+        setDisplaySrc(src || fallbackSrc);
+        // Warm the new URL immediately (cover swaps change the stamp ? new key).
+        if (src || fallbackSrc) warmPosterUrl(src || fallbackSrc);
     }, [src, fallbackSrc]);
-
-    useEffect(() => () => {
-        if (attemptTimerRef.current != null) {
-            window.clearTimeout(attemptTimerRef.current);
-            attemptTimerRef.current = null;
-        }
-    }, []);
 
     if (failed || (!src && !fallbackSrc)) {
         return <NoPosterPlaceholder compact={compactPlaceholder} />;
@@ -66,6 +51,7 @@ export const RetryablePoster: React.FC<Props> = ({
 
     return (
         <img
+            key={`${useFallback ? 'fb' : 'src'}-${attempt}-${currentSrc}`}
             src={currentSrc}
             alt={alt}
             loading={loading}
@@ -73,6 +59,10 @@ export const RetryablePoster: React.FC<Props> = ({
             {...(fetchPriority ? { fetchPriority } : {})}
             draggable={false}
             className={className}
+            onLoad={() => {
+                // Hold the decoded bitmap briefly for Home row remounts.
+                warmPosterUrl(displaySrc);
+            }}
             onError={() => {
                 if (!useFallback && fallbackSrc && fallbackSrc !== src) {
                     setUseFallback(true);
@@ -82,13 +72,7 @@ export const RetryablePoster: React.FC<Props> = ({
                 }
                 if (attempt < MAX_RETRIES) {
                     const next = attempt + 1;
-                    if (attemptTimerRef.current != null) {
-                        window.clearTimeout(attemptTimerRef.current);
-                    }
-                    attemptTimerRef.current = window.setTimeout(() => {
-                        attemptTimerRef.current = null;
-                        setAttempt(next);
-                    }, 280 * next);
+                    window.setTimeout(() => setAttempt(next), 280 * next);
                     return;
                 }
                 setFailed(true);

@@ -86,8 +86,7 @@ export const PlayerTvFocusStill: React.FC<{
     const show = useCallback((next: string) => {
         if (!next || next === currentRef.current || next === pendingRef.current) return;
         pendingRef.current = next;
-        const img = new Image();
-        img.onload = () => {
+        const commit = () => {
             if (pendingRef.current !== next) return;
             if (frontOnRef.current) {
                 setBack(next);
@@ -100,8 +99,26 @@ export const PlayerTvFocusStill: React.FC<{
             }
             currentRef.current = next;
         };
+        const warm = Array.from(document.images).find((img) => (
+            img.currentSrc === next && img.complete && img.naturalWidth > 0
+        ));
+        if (warm) {
+            commit();
+            return;
+        }
+        const img = new Image();
+        img.onload = commit;
         img.src = next;
     }, []);
+
+    const showTimerRef = useRef(0);
+    const showSoon = useCallback((next: string) => {
+        window.clearTimeout(showTimerRef.current);
+        if (!next) return;
+        showTimerRef.current = window.setTimeout(() => show(next), 70);
+    }, [show]);
+
+    useEffect(() => () => window.clearTimeout(showTimerRef.current), []);
 
     useEffect(() => {
         if (enabled && seed) show(seed);
@@ -111,7 +128,7 @@ export const PlayerTvFocusStill: React.FC<{
         if (!enabled) return undefined;
         const onFocus = (event: FocusEvent) => {
             const next = backdropFromFocusTarget(event.target);
-            if (next) show(next);
+            if (next) showSoon(next);
             const key = itemKeyFromFocusTarget(event.target);
             if (key) onFocusKey?.(key);
         };
@@ -122,7 +139,7 @@ export const PlayerTvFocusStill: React.FC<{
         const fromKey = itemKeyFromFocusTarget(focused);
         if (fromKey) onFocusKey?.(fromKey);
         return () => document.removeEventListener('focusin', onFocus, true);
-    }, [enabled, onFocusKey, show]);
+    }, [enabled, onFocusKey, show, showSoon]);
 
     if (!enabled) return null;
     const visible = frontOn ? front : back;
@@ -262,8 +279,8 @@ export const PlayerTvHubStage: React.FC<Props> = ({
         return {
             ...base,
             ...extra,
-            thumb: base.thumb,
-            art: extra.art || base.art,
+            thumb: base.thumb || extra.thumb,
+            art: base.art || extra.art,
             logo: extra.logo || base.logo,
             type: episodeBase ? 'episode' : (extra.type || base.type),
             title: base.title,
@@ -410,20 +427,27 @@ export const PlayerTvHubStage: React.FC<Props> = ({
     useEffect(() => {
         const key = String(tvSpotItem?.ratingKey || '');
         if (!active || !key) return undefined;
+        const serverId = tvSpotItem?.serverId || null;
         const cached = readPlayerItemCache(key);
         if (cached?.item) {
             setTvSpotExtra((prev) => (prev[key] ? prev : { ...prev, [key]: cached.item }));
-            if (cached.item.logo && itemHasBillboardBrandMeta(cached.item)) return undefined;
+            if (cached.item.logo && itemHasBillboardBrandMeta(cached.item) && cached.item.summary) return undefined;
         }
-        prefetchMediaPlayerItem(key);
         let cancelled = false;
-        void fetchMediaPlayerItem(key, { core: true, serverId: tvSpotItem?.serverId || null })
-            .then((page) => {
-                if (cancelled || !page?.item) return;
-                setTvSpotExtra((prev) => ({ ...prev, [key]: page.item }));
-            })
-            .catch(() => undefined);
-        return () => { cancelled = true; };
+        const timer = window.setTimeout(() => {
+            if (cancelled) return;
+            prefetchMediaPlayerItem(key);
+            void fetchMediaPlayerItem(key, { core: true, serverId })
+                .then((page) => {
+                    if (cancelled || !page?.item) return;
+                    setTvSpotExtra((prev) => ({ ...prev, [key]: page.item }));
+                })
+                .catch(() => undefined);
+        }, 180);
+        return () => {
+            cancelled = true;
+            window.clearTimeout(timer);
+        };
     }, [active, tvSpotItem?.ratingKey, tvSpotItem?.serverId]);
 
     if (loading && !rows.length) {

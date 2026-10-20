@@ -7,6 +7,9 @@
     <string name="player_close">Close player</string>
     <string name="player_pause">Pause</string>
     <string name="player_play">Play</string>
+    <string name="player_playback_stalled">This file stalled on this TV</string>
+    <string name="player_previous_episode">Previous episode</string>
+    <string name="player_next_episode">Next episode</string>
     <string name="player_seek_back">−10s</string>
     <string name="player_seek_fwd">+10s</string>
     <string name="player_settings">Settings</string>

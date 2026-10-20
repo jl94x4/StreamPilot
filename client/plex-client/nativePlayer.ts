@@ -31,6 +31,7 @@ export type NativePlayerSessionPayload = {
         credits?: { startMs: number; endMs?: number } | null;
     };
     nextItem?: { ratingKey: string; title?: string; thumb?: string } | null;
+    previousItem?: { ratingKey: string; title?: string; thumb?: string } | null;
     /** Credits-end “More like this” strip (native Up Next panel when no next episode). */
     relatedItems?: Array<{ ratingKey: string; title: string; thumb?: string }>;
     /** Per-show A/V delay in ms. */
@@ -126,6 +127,8 @@ export type NativePlayerCloseResult = {
     error?: boolean;
     playNext?: boolean;
     nextRatingKey?: string;
+    playPrevious?: boolean;
+    previousRatingKey?: string;
 };
 
 export type NativePlayerProgressEvent = {
@@ -236,6 +239,8 @@ export const installNativeMediaPlayerBridge = () => {
                     error: !!result?.error,
                     playNext: !!result?.playNext,
                     nextRatingKey: result?.nextRatingKey ? String(result.nextRatingKey) : undefined,
+                    playPrevious: !!result?.playPrevious,
+                    previousRatingKey: result?.previousRatingKey ? String(result.previousRatingKey) : undefined,
                 };
             },
             updateSrc: async (opts) => {
@@ -430,6 +435,8 @@ const attachTransientListeners = async (opts: NativePlayerOpenOptions) => {
                 error: !!data.error,
                 playNext: !!data.playNext,
                 nextRatingKey: data.nextRatingKey ? String(data.nextRatingKey) : undefined,
+                playPrevious: !!data.playPrevious,
+                previousRatingKey: data.previousRatingKey ? String(data.previousRatingKey) : undefined,
             });
         });
     }

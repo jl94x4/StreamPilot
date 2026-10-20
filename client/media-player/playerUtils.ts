@@ -1,4 +1,10 @@
 import { directPlexTranscodeUrl, portalUrl, resolvePortalAssetUrl } from '../shared/basePath';
+import {
+    clearWarmPosterUrls,
+    forgetWarmPosterUrl,
+    isPosterUrlWarm,
+    warmPosterUrl,
+} from '../shared/posterWarmCache';
 import { notePlayerItemProgress } from './playerMemory';
 import { PLAYER_API_ROOT, PLAYER_IMAGE_PATH } from './paths';
 import { sortContinueWatchingItems, type PlayerContinueWatchingLayout, type PlayerContinueWatchingSort } from './playerSettings';
@@ -9,31 +15,25 @@ export const PLAYER_POSTER_WIDTH = 300;
 export const PLAYER_POSTER_HEIGHT = 450;
 export const PLAYER_POSTER_QUALITY = 60;
 
-const prefetchedPlayerImages = new Set<string>();
-const PREFETCHED_IMAGE_CAP = 500;
-
-const rememberPrefetchedImage = (url: string) => {
-    if (prefetchedPlayerImages.has(url)) return false;
-    if (prefetchedPlayerImages.size >= PREFETCHED_IMAGE_CAP) {
-        const first = prefetchedPlayerImages.values().next().value;
-        if (first) prefetchedPlayerImages.delete(first);
-    }
-    prefetchedPlayerImages.add(url);
-    return true;
-};
+export const warmPlayerPoster = warmPosterUrl;
+export const isPlayerPosterWarm = isPosterUrlWarm;
+export const forgetPlayerPoster = forgetWarmPosterUrl;
 
 export const clearPrefetchedPlayerImages = () => {
-    prefetchedPlayerImages.clear();
+    clearWarmPosterUrls();
 };
 
 export const prefetchPlayerImages = (urls: Array<string | null | undefined>, limit = 12) => {
     if (typeof window === 'undefined') return;
     let started = 0;
     for (const url of urls) {
-        if (!url || !rememberPrefetchedImage(url)) continue;
-        const img = new Image();
-        img.decoding = 'async';
-        img.src = url;
+        const key = String(url || '').trim();
+        if (!key) continue;
+        if (isPosterUrlWarm(key)) {
+            warmPosterUrl(key);
+            continue;
+        }
+        warmPosterUrl(key);
         started += 1;
         if (started >= limit) return;
     }
@@ -448,14 +448,24 @@ export const formatPlayerDurationLong = (ms?: number | null) => {
     return `${hourPart} ${minPart}`;
 };
 
-/** Native player top meta line: "S1 · E8 · Show · 1 hour 59 minutes". */
+/** Native player top meta line: "S1 · E8 · Episode name · 26 minutes". */
 export const formatNativePlayerMeta = (item?: PlayerItem | null) => {
     if (!item) return '';
     const parts: string[] = [];
     const ep = formatEpisodeCode(item);
     if (ep) parts.push(ep);
-    const show = String(item.showTitle || item.seasonTitle || '').trim();
-    if (show) parts.push(show);
+    const show = String(item.showTitle || '').trim();
+    if (item.type === 'episode') {
+        const episodeName = String(
+            item.episodeTitle
+            || (item.title && item.title !== show ? item.title : '')
+            || '',
+        ).trim();
+        if (episodeName && episodeName.toLowerCase() !== show.toLowerCase()) parts.push(episodeName);
+    } else {
+        const label = String(item.showTitle || item.seasonTitle || item.title || '').trim();
+        if (label) parts.push(label);
+    }
     const runtime = formatPlayerDurationLong(item.durationMs);
     if (runtime) parts.push(runtime);
     return parts.join(' · ');
@@ -614,6 +624,28 @@ export const noteItemWatched = (
     }));
 };
 
+/**
+ * Progress replaces the Continue Watching card with the playback item, whose
+ * thumb is the series poster. Keep the season poster already on the rail.
+ */
+export const keepContinueWatchingPoster = (next: PlayerItem, current?: PlayerItem | null): PlayerItem => {
+    if (!current || current.cardAspect === '16/9') return next;
+    const preferSeason = !!(current.preferSeasonPoster || next.preferSeasonPoster);
+    const sameSeason = !!current.parentRatingKey
+        && String(current.parentRatingKey) === String(next.parentRatingKey || '');
+    return {
+        ...next,
+        preferSeasonPoster: preferSeason || undefined,
+        cardAspect: current.cardAspect || next.cardAspect || '2/3',
+        thumb: preferSeason && sameSeason ? (current.thumb || next.thumb) : next.thumb,
+        thumbUpdatedAt: preferSeason
+            ? (sameSeason ? (current.thumbUpdatedAt ?? null) : null)
+            : (current.thumbUpdatedAt ?? next.thumbUpdatedAt ?? null),
+        episodeThumb: next.episodeThumb || current.episodeThumb,
+        episodeTitle: next.episodeTitle || current.episodeTitle,
+    };
+};
+
 /** Swap a marked title for the next On Deck item in the same Continue Watching slot. */
 export const replaceFamilyContinueSlot = (list: PlayerItem[], ratingKey: string, nextItem?: PlayerItem | null) => {
     const key = String(ratingKey || '');
@@ -624,12 +656,11 @@ export const replaceFamilyContinueSlot = (list: PlayerItem[], ratingKey: string,
         return without;
     }
     const current = index >= 0 ? list[index] : null;
-    const card: PlayerItem = {
+    const card = keepContinueWatchingPoster({
         ...nextItem,
-        preferSeasonPoster: nextItem.preferSeasonPoster ?? current?.preferSeasonPoster,
         viewOffsetMs: Number(nextItem.viewOffsetMs || 0),
         watched: false,
-    };
+    }, current);
     if (index < 0) return [card, ...without].slice(0, 20);
     const copy = without.slice();
     copy.splice(Math.min(index, copy.length), 0, card);
@@ -788,23 +819,67 @@ export const withShowPoster = (item: PlayerItem): PlayerItem => {
         (item.type === 'season' ? item.parentRatingKey : item.grandparentRatingKey) || '',
     ).replace(/\D/g, '');
     const seasonKey = String(item.parentRatingKey || '').replace(/\D/g, '');
-    const current = libraryThumbPathFrom(item.thumb)
-        || libraryThumbPathFrom((item as { grandparentThumbPath?: string }).grandparentThumbPath)
-        || libraryThumbPathFrom((item as { parentThumbPath?: string }).parentThumbPath);
     if (!showKey && !seasonKey) return { ...item, cardAspect: item.cardAspect || '2/3' };
 
     const preferSeason = !!item.preferSeasonPoster && !!seasonKey;
     const targetKey = preferSeason ? seasonKey : showKey;
     const thumbUpdatedAt = (item as { thumbUpdatedAt?: number | string | null }).thumbUpdatedAt;
-    // Always rebuild from show/season key + thumbUpdatedAt. Keeping hub/episode
-    // `/thumb/<oldStamp>` URLs is why Netflix-era posters survived poster swaps.
-    // Don't apply a show stamp to a season key (PMS serves that as a miss/old art).
-    const stamped = stampedMetadataThumb(targetKey, null, preferSeason ? null : thumbUpdatedAt);
+    // Rebuild show/season path (stamped when we have updatedAt). Always resolve to an
+    // absolute PMS/portal image URL — bare /library/... paths blank out on TV when the
+    // /api/plex/image rewrite misses.
+    const stamped = stampedMetadataThumb(targetKey, null, preferSeason ? null : thumbUpdatedAt)
+        || (targetKey ? `/library/metadata/${targetKey}/thumb` : '');
+    const absolute = stamped
+        ? (
+            plexImageUrl(stamped, PLAYER_POSTER_WIDTH, PLAYER_POSTER_HEIGHT, { quality: PLAYER_POSTER_QUALITY })
+            || stamped
+        )
+        : '';
     return {
         ...item,
-        thumb: stamped || item.thumb,
+        thumb: absolute || item.thumb,
         cardAspect: '2/3',
     };
+};
+
+/**
+ * URLs needed when opening a Continue Watching episode (show poster on the rail,
+ * episode still, and details backdrop). Warming these on Home makes OK feel instant.
+ */
+export const continueWatchingImageUrls = (item: PlayerItem): string[] => {
+    const urls: string[] = [];
+    const push = (url?: string | null) => {
+        const key = String(url || '').trim();
+        if (key && !urls.includes(key)) urls.push(key);
+    };
+    const showPoster = withShowPoster(item).thumb;
+    push(playerCardImageUrl(showPoster, '2/3'));
+    if (showPoster && !/^https?:\/\//i.test(showPoster)) {
+        push(plexImageUrl(showPoster, PLAYER_POSTER_WIDTH, PLAYER_POSTER_HEIGHT, { quality: PLAYER_POSTER_QUALITY }));
+    }
+    const episodeStill = String(item.episodeThumb || (item.type === 'episode' ? item.thumb : '') || '').trim();
+    if (episodeStill) {
+        push(playerCardImageUrl(episodeStill, '16/9'));
+        push(resizePlexArtUrl(episodeStill, 426, 240, PLAYER_POSTER_QUALITY));
+        push(plexImageUrl(episodeStill, 426, 240, { quality: PLAYER_POSTER_QUALITY }));
+    }
+    const art = item.art || item.thumb || episodeStill;
+    push(plexBackdropPreviewUrl(art));
+    push(plexBackdropUrl(art));
+    return urls;
+};
+
+/** Prefetch CW show posters + episode stills/backdrops ahead of opening details. */
+export const prefetchContinueWatchingImages = (
+    items: Array<PlayerItem | null | undefined>,
+    limitItems = 24,
+) => {
+    if (typeof window === 'undefined' || !items?.length) return;
+    const urls = items
+        .filter((item): item is PlayerItem => !!item?.ratingKey)
+        .slice(0, limitItems)
+        .flatMap((item) => continueWatchingImageUrls(item));
+    prefetchPlayerImages(urls, Math.max(urls.length, 1));
 };
 
 /**
@@ -984,7 +1059,8 @@ export const heroRowCardItem = (item: PlayerItem): PlayerItem => ({
 });
 
 export const toPosterCardItem = (item: PlayerItem) => {
-    const leafThumb = stampedMetadataThumb(item.ratingKey, item.episodeThumb || item.thumb);
+    const ratingKey = String(item.ratingKey || '').replace(/\D/g, '');
+    const leafThumb = ratingKey ? `/library/metadata/${ratingKey}/thumb` : '';
     const showKey = String(
         (item.type === 'season' ? item.parentRatingKey : item.grandparentRatingKey) || '',
     ).replace(/\D/g, '');
@@ -992,22 +1068,35 @@ export const toPosterCardItem = (item: PlayerItem) => {
         ? String(item.parentRatingKey || '').replace(/\D/g, '')
         : '';
     const thumbUpdatedAt = (item as { thumbUpdatedAt?: number | string | null }).thumbUpdatedAt;
-    const showThumb = stampedMetadataThumb(showKey, null, thumbUpdatedAt);
+    const showThumb = showKey
+        ? (stampedMetadataThumb(showKey, null, item.preferSeasonPoster ? null : thumbUpdatedAt) || `/library/metadata/${showKey}/thumb`)
+        : '';
+    // Do not stamp the season poster with the episode or show updatedAt. That
+    // path 404s and the card falls back to the series poster.
     const seasonThumb = item.preferSeasonPoster && seasonKey
-        ? stampedMetadataThumb(seasonKey, null, thumbUpdatedAt)
+        ? (stampedMetadataThumb(seasonKey, item.thumb, null) || `/library/metadata/${seasonKey}/thumb`)
         : '';
     const posterThumb = seasonThumb || showThumb;
     const preferShowPoster = (item.type === 'episode' || item.type === 'season')
         && item.cardAspect !== '16/9'
         && (item.cardAspect === '2/3' || !item.cardAspect)
         && !!posterThumb;
-    // Prefer rebuilt stamped show/season path over any remote episode/hub still.
-    const thumb = (preferShowPoster ? posterThumb : '')
-        || libraryThumbPathFrom(item.thumb)
-        || item.thumb
-        || leafThumb
-        || undefined;
-    const remoteThumb = /^https?:\/\//i.test(String(thumb || ''));
+    // HEAD order: keep a working absolute item.thumb — never strip it via libraryThumbPathFrom.
+    let thumb = (preferShowPoster ? posterThumb : '') || item.thumb || leafThumb || undefined;
+    if (
+        thumb
+        && !/^https?:\/\//i.test(thumb)
+        && !String(thumb).startsWith('/api/')
+    ) {
+        thumb = plexImageUrl(
+            thumb,
+            PLAYER_POSTER_WIDTH,
+            PLAYER_POSTER_HEIGHT,
+            { quality: PLAYER_POSTER_QUALITY },
+        ) || thumb;
+    }
+    const remoteThumb = /^https?:\/\//i.test(String(thumb || ''))
+        || String(thumb || '').startsWith('/api/');
     // Episode stills are title cards. Never use them as a poster fallback.
     const movieLeafFallback = item.type !== 'episode' && item.type !== 'season'
         && leafThumb
@@ -1016,7 +1105,8 @@ export const toPosterCardItem = (item: PlayerItem) => {
     const posterFallbackUrl = heroOriginal && heroOriginal !== thumb
         ? heroOriginal
         : movieLeafFallback
-            ? `/api/plex/image?path=${encodeURIComponent(leafThumb)}&width=${PLAYER_POSTER_WIDTH}&height=${PLAYER_POSTER_HEIGHT}&quality=${PLAYER_POSTER_QUALITY}`
+            ? plexImageUrl(leafThumb, PLAYER_POSTER_WIDTH, PLAYER_POSTER_HEIGHT, { quality: PLAYER_POSTER_QUALITY })
+                || `/api/plex/image?path=${encodeURIComponent(leafThumb)}&width=${PLAYER_POSTER_WIDTH}&height=${PLAYER_POSTER_HEIGHT}&quality=${PLAYER_POSTER_QUALITY}`
             : undefined;
     return {
         title: item.title,

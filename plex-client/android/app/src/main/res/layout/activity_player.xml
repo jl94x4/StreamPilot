@@ -21,6 +21,16 @@
         android:focusable="false"
         android:focusableInTouchMode="false" />
 
+    <!-- SurfaceView punches through to the episode page until the first frame. -->
+    <View
+        android:id="@+id/player_surface_cover"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#FF000000"
+        android:clickable="false"
+        android:focusable="false"
+        android:importantForAccessibility="no" />
+
     <ImageView
         android:id="@+id/player_art"
         android:layout_width="324dp"
@@ -343,6 +353,24 @@
                 android:orientation="horizontal">
 
                 <ImageButton
+                    android:id="@+id/player_prev_episode"
+                    android:layout_width="@dimen/player_transport_size"
+                    android:layout_height="@dimen/player_transport_size"
+                    android:layout_marginEnd="6dp"
+                    android:background="@drawable/player_control_icon_bg"
+                    android:contentDescription="@string/player_previous_episode"
+                    android:defaultFocusHighlightEnabled="false"
+                    android:focusable="true"
+                    android:nextFocusRight="@id/player_play_pause"
+                    android:nextFocusUp="@id/player_seek"
+                    android:minWidth="@dimen/player_transport_size"
+                    android:minHeight="@dimen/player_transport_size"
+                    android:padding="@dimen/player_transport_padding"
+                    android:scaleType="centerInside"
+                    android:src="@drawable/ic_player_previous"
+                    android:visibility="gone" />
+
+                <ImageButton
                     android:id="@+id/player_play_pause"
                     android:layout_width="@dimen/player_transport_play_size"
                     android:layout_height="@dimen/player_transport_play_size"
@@ -351,13 +379,33 @@
                     android:defaultFocusHighlightEnabled="false"
                     android:focusable="true"
                     android:focusedByDefault="true"
-                    android:nextFocusRight="@id/player_settings"
+                    android:nextFocusLeft="@id/player_prev_episode"
+                    android:nextFocusRight="@id/player_next_episode"
                     android:nextFocusUp="@id/player_seek"
                     android:minWidth="@dimen/player_transport_play_size"
                     android:minHeight="@dimen/player_transport_play_size"
                     android:padding="@dimen/player_transport_padding"
                     android:scaleType="centerInside"
                     android:src="@drawable/ic_player_play" />
+
+                <ImageButton
+                    android:id="@+id/player_next_episode"
+                    android:layout_width="@dimen/player_transport_size"
+                    android:layout_height="@dimen/player_transport_size"
+                    android:layout_marginStart="6dp"
+                    android:background="@drawable/player_control_icon_bg"
+                    android:contentDescription="@string/player_next_episode"
+                    android:defaultFocusHighlightEnabled="false"
+                    android:focusable="true"
+                    android:nextFocusLeft="@id/player_play_pause"
+                    android:nextFocusRight="@id/player_settings"
+                    android:nextFocusUp="@id/player_seek"
+                    android:minWidth="@dimen/player_transport_size"
+                    android:minHeight="@dimen/player_transport_size"
+                    android:padding="@dimen/player_transport_padding"
+                    android:scaleType="centerInside"
+                    android:src="@drawable/ic_player_next"
+                    android:visibility="gone" />
 
                 <TextView
                     android:id="@+id/player_time"

@@ -1821,9 +1821,29 @@ const metadata = async (ratingKey: string, server: PlexServer | null = resolveSe
     return meta;
 };
 
-const childrenOf = async (ratingKey: string, server: PlexServer | null = resolveServer('', ratingKey)) => withMapServer(server, async () => {
-    const data = await pms(`/library/metadata/${encodeURIComponent(ratingKey)}/children?includeUserState=1&X-Plex-Container-Size=500`, server).catch(() => null);
-    const items = mapList(data);
+/** Plex invents a synthetic “All episodes” season unless excludeAllLeaves=1 on shows. */
+const isAllEpisodesSeason = (row: { type?: string | null; title?: string | null; index?: number | null }) => {
+    if (String(row?.type || '') !== 'season') return false;
+    if (Number(row?.index) === -1) return true;
+    return /^all\s+episodes$/i.test(String(row?.title || '').trim());
+};
+
+const childrenOf = async (
+    ratingKey: string,
+    server: PlexServer | null = resolveServer('', ratingKey),
+    opts: { excludeAllLeaves?: boolean } = {},
+) => withMapServer(server, async () => {
+    const qs = [
+        opts.excludeAllLeaves ? 'excludeAllLeaves=1' : '',
+        'includeUserState=1',
+        'X-Plex-Container-Size=500',
+    ].filter(Boolean).join('&');
+    const data = await pms(
+        `/library/metadata/${encodeURIComponent(ratingKey)}/children?${qs}`,
+        server,
+    ).catch(() => null);
+    let items = mapList(data);
+    if (opts.excludeAllLeaves) items = items.filter((row) => !isAllEpisodesSeason(row));
     if (items.length) return items;
     const playlist = await pms(`/playlists/${encodeURIComponent(ratingKey)}/items?includeUserState=1&X-Plex-Container-Size=500`, server).catch(() => null);
     return mapList(playlist);
@@ -3185,7 +3205,7 @@ const pinnedHubs = async (data: any, server: PlexServer, many: boolean, extra: P
     const missing = shells.filter((hub) => !ready.has(hubShellKey(hub)));
     if (missing.length) {
         // Fill every pinned shell — a 24-cap left later collections empty on big libraries.
-        const filled = await mapPool(missing, 4, async (shell) => ({
+        const filled = await mapPool(missing, 8, async (shell) => ({
             key: hubShellKey(shell),
             hub: await fillPlexHomeHub(shell, server, many),
         }));
@@ -3283,6 +3303,12 @@ const loadRecentFallbackHubs = async (server: PlexServer, many: boolean, section
     return filled.filter((hub): hub is NonNullable<typeof hub> => !!hub);
 };
 
+/** Filled pin rows, so a follow-up full=1 doesn't refetch every collection. */
+const homePinCache = new Map<string, { at: number; hubs: Awaited<ReturnType<typeof pinnedHubs>> }>();
+const HOME_PIN_CACHE_MS = 3 * 60_000;
+/** Because/brand pass shared across the fast follow-up so it isn't started twice. */
+const homeEnrichInflight = new Map<string, Promise<Awaited<ReturnType<typeof pinnedHubs>>>>();
+
 const loadServerHome = async (server: PlexServer, many: boolean, full = false) => withMapServer(server, async () => {
     const seasonPoster = readHeroConfig().continueWatchingSeasonPoster;
     // One promoted list with items inline. A second heavy hubs call only runs when this one
@@ -3300,10 +3326,14 @@ const loadServerHome = async (server: PlexServer, many: boolean, full = false) =
     // Fast path: only hubs that already have inline Metadata so Home can paint without
     // waiting on per-shell fills + brand hydration. Full=1 fills empty pinned shells.
     let hubs: Awaited<ReturnType<typeof pinnedHubs>> = [];
-    if (promotedResult.answered) {
+    const pinHit = full ? homePinCache.get(server.id) : undefined;
+    if (pinHit && (Date.now() - pinHit.at) < HOME_PIN_CACHE_MS && pinHit.hubs.length) {
+        hubs = pinHit.hubs;
+    } else if (promotedResult.answered) {
         hubs = full
             ? await pinnedHubs(promotedResult.data, server, many)
             : hubsFrom(promotedResult.data, server, many);
+        if (full && hubs.length) homePinCache.set(server.id, { at: Date.now(), hubs });
     }
     // If promoted only had Continue Watching (or failed to fill pins), pull /hubs/home
     // extras so library pins still land on Home.
@@ -3382,13 +3412,46 @@ const loadServerHome = async (server: PlexServer, many: boolean, full = false) =
         key: many ? `${server.id}::${section.key}` : section.key,
         serverId: server.id,
     }));
+    let becauseAttached = false;
     if (full) {
-        hubs = await attachBecauseYouWatched(hubs, continueItems, server);
-        // Brand tags are for details/spot logos — defer off the first Home paint.
-        hubs = await hydrateHubsBrandMeta(hubs, server);
+        // Pins are already in `hubs`. Because + brand lookups can take many seconds
+        // and used to hold every pinned row off screen until they finished.
+        const pins = hubs;
+        const enrichKey = server.id;
+        let enrich = homeEnrichInflight.get(enrichKey);
+        if (!enrich) {
+            enrich = (async () => {
+                let next = await attachBecauseYouWatched(pins, continueItems, server);
+                next = await hydrateHubsBrandMeta(next, server).catch(() => next);
+                homePinCache.set(enrichKey, { at: Date.now(), hubs: next });
+                return next;
+            })();
+            homeEnrichInflight.set(enrichKey, enrich);
+            void enrich.finally(() => {
+                if (homeEnrichInflight.get(enrichKey) === enrich) homeEnrichInflight.delete(enrichKey);
+            });
+        }
+        const raced = await Promise.race([
+            enrich.then((next) => ({ next, done: true as const })),
+            new Promise<{ next: typeof pins; done: false }>((resolve) => {
+                setTimeout(() => resolve({ next: pins, done: false }), 1200);
+            }),
+        ]);
+        if (raced.done) {
+            hubs = raced.next;
+            becauseAttached = true;
+        }
     }
     const hydratedContinue = hubs.find((hub) => continueHub(hub))?.items || continueItems;
-    return { server, hubs, onDeck: hydratedContinue, sections, recentByLibrary: [], partial: !full };
+    return {
+        server,
+        hubs,
+        onDeck: hydratedContinue,
+        sections,
+        recentByLibrary: [],
+        partial: !full || !becauseAttached,
+        becauseAttached,
+    };
 });
 
 const loadDiscoverPerson = async (name: string) => {
@@ -3944,7 +4007,8 @@ const collectPlayableQueue = async (key: string, server: PlexServer) => {
     if (item.type === 'artist') return playable(await allLeavesOf(key, server));
     if (item.type === 'season') return playable(await childrenOf(key, server));
     if (item.type === 'show') {
-        const seasons = (await childrenOf(key, server)).filter((row) => row.type === 'season');
+        const seasons = (await childrenOf(key, server, { excludeAllLeaves: true }))
+            .filter((row) => row.type === 'season');
         const episodes: ReturnType<typeof mapItem>[] = [];
         for (const season of seasons) {
             episodes.push(...await childrenOf(season.ratingKey, server));
@@ -3981,42 +4045,69 @@ const playFromQueueFor = async (key: string, server: PlexServer) => {
     return { items: idx >= 0 ? all.slice(idx) : [item] };
 };
 
+const pickRelatedHubForBecause = (hubs: PlexMeta[]) => {
+    const scored = hubs.map((hub) => {
+        const blob = `${hub.title || ''} ${hub.hubIdentifier || ''} ${hub.key || ''}`;
+        const count = asList<PlexMeta>(hub.Metadata).length;
+        let score = count;
+        if (/similar|related|recommend|because\s+you/i.test(blob)) score += 100;
+        if (/cast|crew|director|writer|genre|from\s+the\s+same/i.test(blob)) score -= 40;
+        return { hub, score, count };
+    }).filter((row) => row.count > 0);
+    scored.sort((a, b) => b.score - a.score || b.count - a.count);
+    return scored[0]?.hub || null;
+};
+
 const attachBecauseYouWatched = async (
     hubs: Array<{ title: string; identifier: string; items: ReturnType<typeof mapItem>[]; hubKey?: string | null; serverId?: string | null }>,
     continueItems: ReturnType<typeof mapItem>[],
     server: PlexServer,
 ) => {
-    const seeds: Array<{ key: string; title: string }> = [];
+    // Random Continue Watching titles (not always the first few on the rail).
+    const candidates: Array<{ key: string; title: string }> = [];
     for (const item of continueItems) {
-        if (seeds.length >= 2) break;
         const key = item.type === 'episode' || item.type === 'season'
-            ? String(item.grandparentRatingKey || item.parentRatingKey || '')
+            ? String(item.grandparentRatingKey || item.parentRatingKey || item.ratingKey || '')
             : String(item.ratingKey || '');
         const title = item.type === 'episode' || item.type === 'season'
             ? String(item.showTitle || item.title || '')
             : String(item.title || '');
-        if (!key || !title || seeds.some((row) => row.key === key)) continue;
-        seeds.push({ key, title });
+        const cleanKey = String(key || '').replace(/^\d+::/, '').replace(/\D/g, '') || String(key || '').trim();
+        if (!cleanKey || !title || candidates.some((row) => row.key === cleanKey)) continue;
+        candidates.push({ key: cleanKey, title });
     }
-    const extra: typeof hubs = [];
-    for (const seed of seeds) {
-        const data = await pms(`/hubs/metadata/${encodeURIComponent(seed.key)}/related?count=12`, server, 8000).catch(() => null);
-        const hub = asList<PlexMeta>(containerOf(data).Hub).find((row) => asList<PlexMeta>(row.Metadata).length);
-        if (!hub) continue;
+    const seeds = shuffleItems(candidates).slice(0, 3);
+    if (!seeds.length) return hubs;
+    const built = await Promise.all(seeds.map(async (seed) => {
+        const data = await pms(
+            `/hubs/metadata/${encodeURIComponent(seed.key)}/related?count=16&includeMeta=1&includeGuids=1`,
+            server,
+            10000,
+        ).catch(() => null);
+        const relatedHubs = asList<PlexMeta>(containerOf(data).Hub);
+        const hub = pickRelatedHubForBecause(relatedHubs);
+        if (!hub) return null;
         const items = mapList({ MediaContainer: { Metadata: asList<PlexMeta>(hub.Metadata) } })
             .filter((row) => row.ratingKey !== seed.key)
             .slice(0, 16);
-        if (!items.length) continue;
-        extra.push({
+        if (!items.length) return null;
+        return {
             title: `Because you watched ${seed.title}`,
             identifier: `because:${seed.key}`,
             items,
             hubKey: String(hub.key || '') || null,
             serverId: server.id,
-        });
-    }
+        };
+    }));
+    const extra = built.filter((row): row is NonNullable<typeof row> => !!row);
     if (!extra.length) return hubs;
-    return [...hubs, ...extra];
+    const seen = new Set(hubs.filter((hub) => becauseHub(hub)).map((hub) => hub.identifier));
+    const unique = extra.filter((hub) => {
+        if (seen.has(hub.identifier)) return false;
+        seen.add(hub.identifier);
+        return true;
+    });
+    return unique.length ? [...hubs, ...unique] : hubs;
 };
 
 const handlePlayer = async (path: string, method: string, query: URLSearchParams, body: any) => {
@@ -4193,6 +4284,7 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
             playlists: [],
             hubs,
             partial: rows.some((row) => row.partial),
+            becauseAttached: rows.every((row) => row.becauseAttached === true),
         };
     }
     if (path === '/api/media-player/home-hero-config') {
@@ -4954,7 +5046,10 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
             const extrasPromise = (item.type === 'movie' || item.type === 'show')
                 ? loadItemExtras(key, server, meta)
                 : Promise.resolve([] as ReturnType<typeof mapItem>[]);
-            if (item.type === 'show' || item.type === 'season' || item.type === 'artist' || item.type === 'album') {
+            if (item.type === 'show' || item.type === 'artist') {
+                // Drop Plex’s synthetic “All episodes” season (leads nowhere in our UI).
+                children = await childrenOf(key, server, { excludeAllLeaves: true });
+            } else if (item.type === 'season' || item.type === 'album') {
                 children = await childrenOf(key, server);
             } else if (item.type === 'track' && item.parentRatingKey) {
                 children = await childrenOf(String(item.parentRatingKey), server);
@@ -5167,6 +5262,21 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
         await pms(`/: /timeline?ratingKey=${encodeURIComponent(key)}&key=${encodeURIComponent(`/library/metadata/${key}`)}&state=stopped&time=0&duration=0`.replace('/: /', '/:/'), resolveServer('', key)).catch(() => undefined);
         return { ok: true };
     }
+    const refreshMeta = path.match(/^\/api\/media-player\/item\/([^/]+)\/refresh$/);
+    if (refreshMeta && (method === 'POST' || method === 'PUT')) {
+        const key = decodeURIComponent(refreshMeta[1]).replace(/^\d+::/, '').replace(/\D/g, '');
+        if (!key) throw new Error('Invalid title.');
+        const server = resolveServer(query.get('server') || body?.serverId, key);
+        if (!server) throw new Error('No Plex server selected');
+        const url = new URL(
+            `/library/metadata/${encodeURIComponent(key)}/refresh`,
+            server.uri.endsWith('/') ? server.uri : `${server.uri}/`,
+        );
+        url.searchParams.set('X-Plex-Token', server.accessToken);
+        await plexFetch(url.toString(), server.accessToken, { method: 'PUT' });
+        clearPlayerGetCache();
+        return { ok: true };
+    }
     const nextEpisode = async (meta: PlexMeta, server: PlexServer | null) => {
         const kind = normalizeItemType(meta);
         if ((kind !== 'episode' && kind !== 'track') || !meta.parentRatingKey) return { previous: null, next: null };
@@ -5175,7 +5285,8 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
         let nextItem = index >= 0 ? siblings[index + 1] || null : null;
         const previous = index > 0 ? siblings[index - 1] : null;
         if (!nextItem && meta.grandparentRatingKey) {
-            const seasons = await childrenOf(String(meta.grandparentRatingKey), server);
+            const seasons = (await childrenOf(String(meta.grandparentRatingKey), server, { excludeAllLeaves: true }))
+                .filter((row) => row.type === 'season');
             const seasonIndex = seasons.findIndex((row) => row.ratingKey === String(meta.parentRatingKey));
             const nextSeason = seasonIndex >= 0 ? seasons[seasonIndex + 1] : null;
             if (nextSeason?.ratingKey) {

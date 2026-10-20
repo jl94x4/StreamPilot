@@ -7,6 +7,7 @@ import type { PlayerItem } from './types';
 
 const IDLE_MS = 120_000;
 const SLIDE_MS = 14_000;
+const CROSSFADE_MS = 1400;
 
 const formatClock = (date: Date) => {
     const hours = String(date.getHours()).padStart(2, '0');
@@ -22,13 +23,6 @@ const shuffleInPlace = <T,>(list: T[]): T[] => {
         list[j] = tmp;
     }
     return list;
-};
-
-const randomOtherIndex = (current: number, length: number) => {
-    if (length <= 1) return 0;
-    let next = Math.floor(Math.random() * (length - 1));
-    if (next >= current) next += 1;
-    return next;
 };
 
 type Slide = {
@@ -67,6 +61,13 @@ const slidesFromItems = (items: PlayerItem[]): Slide[] => {
     return shuffleInPlace(out);
 };
 
+const poolFingerprint = (items: PlayerItem[]) => (
+    items
+        .map((item) => `${item.ratingKey || ''}:${item.art || item.thumb || ''}`)
+        .filter(Boolean)
+        .join('|')
+);
+
 type Props = {
     /** When false, screensaver never activates (e.g. left Home). */
     enabled: boolean;
@@ -82,7 +83,7 @@ type Props = {
 /**
  * TV Home idle ambient: cycles art from the chosen screensaver pool with a large
  * bottom-left clock. Any remote key / pointer dismisses and resets the idle timer.
- * Slide order is shuffled; advances pick a random other slide (not sequential).
+ * Advances crossfade from the real previous slide to a random other slide.
  */
 export const PlayerTvScreensaver: React.FC<Props> = ({
     enabled,
@@ -138,15 +139,33 @@ export const PlayerTvScreensaver: React.FC<Props> = ({
         return remoteItems.length ? remoteItems : continueWatchingItems;
     }, [continueWatchingItems, recommendedItems, remoteItems, source]);
 
-    const slides = useMemo(() => slidesFromItems(poolItems), [poolItems]);
+    const poolKey = useMemo(() => poolFingerprint(poolItems), [poolItems]);
+    const poolItemsRef = useRef(poolItems);
+    poolItemsRef.current = poolItems;
+
+    // Only reshuffle when the underlying titles/art actually change — not on every
+    // Home re-render with a fresh array identity.
+    const slides = useMemo(
+        () => slidesFromItems(poolItemsRef.current),
+        [poolKey],
+    );
+    const slidesRef = useRef(slides);
+    slidesRef.current = slides;
 
     const [active, setActive] = useState(false);
-    const [index, setIndex] = useState(0);
     const [clock, setClock] = useState(() => formatClock(new Date()));
+    const [frame, setFrame] = useState<{
+        current: Slide;
+        outgoing: Slide | null;
+        gen: number;
+    } | null>(null);
+    const currentKeyRef = useRef('');
 
     useEffect(() => {
         if (!enabled || slides.length === 0) {
             setActive(false);
+            setFrame(null);
+            currentKeyRef.current = '';
             return undefined;
         }
 
@@ -162,13 +181,19 @@ export const PlayerTvScreensaver: React.FC<Props> = ({
             clearIdle();
             idleTimer = window.setTimeout(() => {
                 if (cancelled) return;
-                setIndex(Math.floor(Math.random() * slides.length));
+                const pool = slidesRef.current;
+                if (!pool.length) return;
+                const start = pool[Math.floor(Math.random() * pool.length)];
+                currentKeyRef.current = start.key;
+                setFrame({ current: start, outgoing: null, gen: 0 });
                 setActive(true);
             }, IDLE_MS);
         };
 
         const dismiss = () => {
             setActive(false);
+            setFrame(null);
+            currentKeyRef.current = '';
             armIdle();
         };
 
@@ -185,6 +210,8 @@ export const PlayerTvScreensaver: React.FC<Props> = ({
         const onVisibility = () => {
             if (document.visibilityState === 'hidden') {
                 setActive(false);
+                setFrame(null);
+                currentKeyRef.current = '';
                 clearIdle();
                 return;
             }
@@ -202,13 +229,46 @@ export const PlayerTvScreensaver: React.FC<Props> = ({
         };
     }, [enabled, slides.length]);
 
+    // Advance: fade out the slide that is actually on screen, not array[index-1].
     useEffect(() => {
         if (!active || slides.length <= 1) return undefined;
         const id = window.setInterval(() => {
-            setIndex((n) => randomOtherIndex(n, slides.length));
+            const pool = slidesRef.current;
+            if (pool.length <= 1) return;
+            const currentKey = currentKeyRef.current;
+            const currentIdx = Math.max(0, pool.findIndex((row) => row.key === currentKey));
+            let nextIdx = Math.floor(Math.random() * (pool.length - 1));
+            if (nextIdx >= currentIdx) nextIdx += 1;
+            const next = pool[nextIdx];
+            const outgoing = pool[currentIdx] || pool.find((row) => row.key === currentKey) || null;
+            currentKeyRef.current = next.key;
+            setFrame((prev) => ({
+                current: next,
+                outgoing: outgoing || prev?.current || null,
+                gen: (prev?.gen || 0) + 1,
+            }));
         }, SLIDE_MS);
         return () => window.clearInterval(id);
     }, [active, slides.length]);
+
+    // Drop the outgoing layer after the crossfade finishes.
+    useEffect(() => {
+        if (!frame?.outgoing) return undefined;
+        const timer = window.setTimeout(() => {
+            setFrame((prev) => (prev ? { ...prev, outgoing: null } : prev));
+        }, CROSSFADE_MS);
+        return () => window.clearTimeout(timer);
+    }, [frame?.gen, frame?.outgoing]);
+
+    // If the pool reshuffles while active, keep showing a valid current slide.
+    useEffect(() => {
+        if (!active || !slides.length) return;
+        const stillThere = slides.some((row) => row.key === currentKeyRef.current);
+        if (stillThere) return;
+        const start = slides[Math.floor(Math.random() * slides.length)];
+        currentKeyRef.current = start.key;
+        setFrame({ current: start, outgoing: null, gen: 0 });
+    }, [active, slides]);
 
     useEffect(() => {
         if (!active) return undefined;
@@ -218,10 +278,9 @@ export const PlayerTvScreensaver: React.FC<Props> = ({
         return () => window.clearInterval(id);
     }, [active]);
 
-    if (!active || !slides.length) return null;
+    if (!active || !frame?.current) return null;
 
-    const current = slides[index % slides.length];
-    const prev = slides[(index + slides.length - 1) % slides.length];
+    const { current, outgoing, gen } = frame;
     const watermark = String(sourceLabel || '').trim();
 
     return (
@@ -230,16 +289,16 @@ export const PlayerTvScreensaver: React.FC<Props> = ({
             data-tv-screensaver="1"
             aria-hidden
         >
-            {slides.length > 1 ? (
+            {outgoing ? (
                 <div
-                    key={`prev-${prev.key}-${index}`}
+                    key={`out-${outgoing.key}-${gen}`}
                     className="player-tv-screensaver-slide player-tv-screensaver-slide--exit"
-                    style={{ backgroundImage: `url(${prev.artUrl})` }}
+                    style={{ backgroundImage: `url(${outgoing.artUrl})` }}
                 />
             ) : null}
             <div
-                key={`cur-${current.key}-${index}`}
-                className="player-tv-screensaver-slide player-tv-screensaver-slide--enter"
+                key={`cur-${current.key}-${gen}`}
+                className={`player-tv-screensaver-slide${outgoing ? ' player-tv-screensaver-slide--enter' : ''}`}
                 style={{ backgroundImage: `url(${current.artUrl})` }}
             />
             <div className="player-tv-screensaver-scrim" />

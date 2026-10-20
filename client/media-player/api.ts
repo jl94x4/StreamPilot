@@ -11,6 +11,9 @@ import {
 } from './studioBrowsePlate.js';
 import { PLAYER_API_ROOT } from './paths';
 import {
+    clearPlayerItemCache,
+    invalidatePlayerHomeCache,
+    PLAYER_METADATA_REFRESHED_EVENT,
     readPlayerItemCache,
     writePlayerItemCache,
     writePlayerHomeCache,
@@ -19,7 +22,7 @@ import {
     playerHomeHasRows,
     playerHomeNeedsFull,
 } from './playerMemory';
-import { applyRememberedProgress, browserPlaybackCaps, noteItemWatched, plexBackdropPreviewUrl, plexBackdropUrl, prefetchPlayerImages, withWatchedProgress } from './playerUtils';
+import { applyRememberedProgress, browserPlaybackCaps, forgetPlayerPoster, noteItemWatched, plexBackdropPreviewUrl, plexBackdropUrl, prefetchPlayerImages, withWatchedProgress } from './playerUtils';
 import { matchDiscoverCompanyByName } from './studioLogo.js';
 import type {
     PlayerHome,
@@ -459,6 +462,89 @@ export const deleteMediaPlayerItem = (ratingKey: string) => (
         method: 'DELETE',
     })
 );
+
+const metadataFingerprint = (item: PlayerItem | null | undefined) => {
+    if (!item) return '';
+    return [
+        item.thumb,
+        item.art,
+        item.logo,
+        item.title,
+        item.showTitle,
+        item.year,
+        String(item.summary || '').slice(0, 160),
+        (item as { thumbPath?: string | null }).thumbPath,
+    ].map((value) => String(value || '')).join('\0');
+};
+
+const sleepMs = (ms: number) => new Promise<void>((resolve) => {
+    window.setTimeout(resolve, ms);
+});
+
+export type MetadataRefreshResult = {
+    ok: boolean;
+    /** True when Plex metadata visibly changed vs the pre-refresh snapshot. */
+    updated: boolean;
+    item?: PlayerItem | null;
+};
+
+/**
+ * Ask Plex to refresh metadata, then poll until art/title/etc change (or timeout).
+ * On change: drop caches, warm new posters, and notify Home / Details.
+ */
+export const refreshMediaPlayerItemMetadata = async (
+    ratingKey: string,
+    opts?: { serverId?: string | null; baseline?: PlayerItem | null },
+): Promise<MetadataRefreshResult> => {
+    const key = String(ratingKey || '').trim();
+    if (!key) throw new Error('Invalid title.');
+    const serverId = opts?.serverId || null;
+    const baseline = opts?.baseline || readPlayerItemCache(key)?.item || null;
+    const before = metadataFingerprint(baseline);
+    if (baseline?.thumb) forgetPlayerPoster(baseline.thumb);
+    if (baseline?.art) forgetPlayerPoster(baseline.art);
+
+    await apiFetch(withServerQuery(`${PLAYER_API_ROOT}/item/${encodeURIComponent(key)}/refresh`, serverId), {
+        method: 'POST',
+    });
+
+    const startedAt = Date.now();
+    const deadline = startedAt + 90_000;
+    let last: PlayerItem | null = null;
+    while (Date.now() < deadline) {
+        await sleepMs(2000);
+        clearPlayerItemCache(key);
+        try {
+            const page = await fetchMediaPlayerItem(key, { core: true, serverId });
+            last = page?.item || null;
+            if (!last) continue;
+            const changed = before
+                ? metadataFingerprint(last) !== before
+                : Date.now() >= startedAt + 4000;
+            if (!changed) continue;
+            invalidatePlayerHomeCache();
+            if (last.thumb) prefetchPlayerImages([last.thumb], 1);
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent(PLAYER_METADATA_REFRESHED_EVENT, {
+                    detail: { ratingKey: key, serverId, item: last },
+                }));
+            }
+            return { ok: true, updated: true, item: last };
+        } catch {
+            /* keep polling while Plex agents run */
+        }
+    }
+
+    if (last) {
+        invalidatePlayerHomeCache();
+        if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent(PLAYER_METADATA_REFRESHED_EVENT, {
+                detail: { ratingKey: key, serverId, item: last },
+            }));
+        }
+    }
+    return { ok: true, updated: false, item: last };
+};
 
 export const mediaPlayerDownloadUrl = (ratingKey: string, mediaIndex = 0) => {
     const qs = new URLSearchParams({ download: '1' });

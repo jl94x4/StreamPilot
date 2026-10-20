@@ -32,7 +32,7 @@ import { applyLibraryNavOrder, PLAYER_SETTINGS_DRAFT_EVENT, PLAYER_SETTINGS_EVEN
 import { clearHeroSlidesCache, clearPlayerLibrariesCache, invalidatePlayerHomeCache } from './playerMemory';
 import { PLAYER_TV_NAV_EVENT } from './paths';
 import type { PlayerProfile, PlayerSection } from './types';
-import { focusTvContent } from '../plex-client/useTvRemote';
+import { focusTvContent, hasRememberedTvFocus, restoreTvFocusWhenReady } from '../plex-client/useTvRemote';
 
 type NavPage = 'home' | 'watchlist' | 'downloads' | 'playlists' | 'library' | 'settings' | 'other';
 
@@ -253,8 +253,12 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                 /* ignore */
             }
             window.dispatchEvent(new CustomEvent(PLAYER_TV_NAV_EVENT, { detail: { action: 'close' } }));
-            // Next frame is enough — long timeouts make nav exits feel laggy on TV.
-            window.requestAnimationFrame(() => focusTvContent());
+            // Home reset remembers Continue Watching before this frame; wait for that
+            // poster instead of falling through to the hero while row 0 remounts.
+            window.requestAnimationFrame(() => {
+                if (hasRememberedTvFocus()) restoreTvFocusWhenReady();
+                else focusTvContent();
+            });
         }
     };
 

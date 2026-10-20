@@ -64,6 +64,26 @@ const visibleContentRails = () => {
 
 const TV_OVERLAY = '[data-tv-item-menu="1"], [data-tv-select-menu="1"], [data-tv-resume-dialog="1"], [data-tv-season-watch-dialog="1"], [data-tv-still-watching-dialog="1"], [data-tv-whats-new="1"], [data-tv-home-switch="1"], [data-tv-version-dialog="1"], [data-tv-track-dialog="1"], [data-tv-settings-dialog="1"], [data-tv-playback="1"], [data-tv-playback-overlay="1"]';
 const TV_AUTH = '[data-tv-auth="1"]';
+const TV_WHATS_NEW_SCROLL = '[data-tv-whats-new-scroll="1"]';
+
+/** D-pad pans the What's New notes body (Continue is the only focusable control). */
+const scrollWhatsNewNotes = (dir: 'up' | 'down') => {
+    const body = document.querySelector<HTMLElement>(TV_WHATS_NEW_SCROLL);
+    if (!body) return false;
+    const maxScroll = Math.max(0, body.scrollHeight - body.clientHeight);
+    if (maxScroll < 4) return false;
+    const zoom = Math.max(0.01, readDocumentZoom());
+    const step = Math.max(96, Math.round(body.clientHeight * 0.55)) / zoom;
+    const before = body.scrollTop;
+    if (dir === 'down') {
+        if (before >= maxScroll - 2) return false;
+        body.scrollTop = Math.min(maxScroll, before + step);
+    } else {
+        if (before <= 2) return false;
+        body.scrollTop = Math.max(0, before - step);
+    }
+    return Math.abs(body.scrollTop - before) >= 1;
+};
 
 /** Prefer a real menu; a playback cover still owns the remote even with no buttons. */
 const tvOverlayRoot = () => (
@@ -834,6 +854,15 @@ const rowFocusIdOf = (row: HTMLElement | null) => {
 };
 
 export const hasRememberedTvFocus = (path = currentPath()) => Boolean(tvFocusByPath.get(path)?.key);
+
+/** Last remembered poster key for a path (Home restore must prefer this over stale row refs). */
+export const peekRememberedTvFocusKey = (path = currentPath()) => (
+    String(tvFocusByPath.get(path)?.key || '').trim()
+);
+
+export const peekRememberedRowFocusKey = (rowId: string) => (
+    String(tvRowFocusById.get(String(rowId || '').trim())?.key || '').trim()
+);
 
 export const rememberTvFocusKey = (key: string, path = currentPath(), railScroll?: number) => {
     const id = String(key || '').trim();
@@ -2112,6 +2141,14 @@ export const useTvRemote = (enabled = true) => {
             if (!dir) return;
             if (browseHoldDir && dir !== browseHoldDir) stopBrowseHold();
             if (episodeHoldDir && dir !== episodeHoldDir) stopEpisodeHold();
+
+            // What's New: Up/Down scrolls the notes before Continue dismisses.
+            if (document.querySelector('[data-tv-whats-new="1"]')) {
+                event.preventDefault();
+                event.stopPropagation();
+                if (dir === 'up' || dir === 'down') scrollWhatsNewNotes(dir);
+                return;
+            }
 
             const overlayOpen = Boolean(tvOverlayRoot());
             if (inNav && !overlayOpen) {

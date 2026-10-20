@@ -870,6 +870,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
             })),
             markers: session.markers || { intro: null, credits: null },
             nextItem: nativeNextItemPayload(item),
+            previousItem: nativeNextItemPayload(previousItemRef.current),
             relatedItems: relatedItemsRef.current.slice(0, 5).map((row) => ({
                 ratingKey: row.ratingKey,
                 title: row.title,
@@ -992,6 +993,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                 const sendStopped = sendTimelineRef.current;
                 const queued = playNextQueueRef.current[0];
                 const neighbor = nextItemRef.current;
+                const previous = previousItemRef.current;
                 // Only chain when native explicitly asked for play-next and we
                 // still have that item. A blind JS fallback kept the black cover
                 // up after movies / last episodes with no next.
@@ -1003,6 +1005,14 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                 const willPlayNext = Boolean(nextKey) && (
                     queued?.ratingKey === nextKey || neighbor?.ratingKey === nextKey
                 );
+                const previousKey = (
+                    !result?.error
+                    && !willPlayNext
+                    && result?.playPrevious
+                    && result.previousRatingKey
+                ) ? String(result.previousRatingKey) : '';
+                const willPlayPrevious = Boolean(previousKey) && previous?.ratingKey === previousKey;
+                const willChain = willPlayNext || willPlayPrevious;
                 if (result?.error) {
                     onPlaybackErrorRef.current?.('Playback failed. Check your connection and try again.');
                 }
@@ -1012,7 +1022,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                 publishMusicNowPlayingRef.current(false);
                 // Keep a black cover only while chaining to the next title; otherwise
                 // drop it immediately so the overview can paint without a blank pause.
-                if (willPlayNext) {
+                if (willChain) {
                     setNativeCover(true);
                     setNativeExclusive(true);
                 } else {
@@ -1020,13 +1030,17 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                     setNativeExclusive(false);
                 }
                 onCloseRef.current({
-                    playNext: willPlayNext,
+                    playNext: willChain,
                     ended: !!result?.ended,
                     item: session.item,
                 });
                 sendStopped('stopped', reportMs, { ended: !!result?.ended });
-                if (!willPlayNext || !nextKey) return;
+                if (!willChain) return;
                 window.setTimeout(() => {
+                    if (willPlayPrevious && previous) {
+                        onPlayItemRef.current?.(previous, { offsetMs: 0, skipResume: true });
+                        return;
+                    }
                     if (queued?.ratingKey === nextKey) {
                         onConsumePlayNextRef.current?.();
                         onPlayItemRef.current?.(queued, { offsetMs: 0, skipResume: true, fromAutoplay: true });
@@ -1246,7 +1260,9 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                             // Returning to Original must NOT force HLS — that blocks Direct Play
                             // (Tautulli keeps showing Transcode after 720→Original).
                             const wantOriginal = safeQuality === 'original';
-                            const forceHls = event.reason === 'seek' || (currentlyHls && !wantOriginal);
+                            // Seek stays on the open Direct Play. Forcing HLS here starts a
+                            // new transcode session for every scrub.
+                            const forceHls = currentlyHls && !wantOriginal;
                             // Fresh session when leaving a capped HLS ladder for Original so PMS
                             // does not keep the prior 720/1080 decision on the reused session id.
                             const sessionForStart = (currentlyHls && wantOriginal)
@@ -1599,10 +1615,10 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                 if (cancelled) return;
                 setPreviousItem(data.previous || null);
                 setNextItem(data.next || null);
-                const next = data.next;
-                if (next?.ratingKey && nativeExclusiveRef.current) {
+                if (nativeExclusiveRef.current) {
                     void updateNativePlayerSession({
-                        nextItem: nativeNextItemPayload(next),
+                        nextItem: nativeNextItemPayload(data.next),
+                        previousItem: nativeNextItemPayload(data.previous),
                     });
                 }
             })
@@ -1961,7 +1977,15 @@ export const MediaPlayerVideo: React.FC<Props> = ({
     const inCreditsRange = !!(markers.credits && !skippedCredits && currentMs >= markers.credits.startMs);
     const inIntro = skipIntroMode !== 'off' && inIntroRange;
     const inCredits = skipCreditsMode !== 'off' && inCreditsRange;
-    const nearEnd = durationMs > 30000 && remaining > 0 && remaining <= 15000;
+    const creditsStartMs = markers.credits && markers.credits.startMs > 0 ? markers.credits.startMs : -1;
+    // Same window as the TV player: credits marker, or two minutes before the end.
+    const upNextAtMs = durationMs > 30000
+        ? Math.min(
+            creditsStartMs >= 0 ? creditsStartMs : Number.POSITIVE_INFINITY,
+            Math.max(0, durationMs - 120_000),
+        )
+        : Number.POSITIVE_INFINITY;
+    const nearEnd = Number.isFinite(upNextAtMs) && currentMs >= upNextAtMs;
     const showUpNext = !!upNextItem && !dismissedUpNext && durationMs > 30000 && (
         !!queuedNext || session.item.type === 'episode' || session.item.type === 'track'
     ) && (
@@ -2781,14 +2805,6 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                 />
                 <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs font-bold text-white/80">
                     <div className="flex min-w-0 flex-wrap items-center gap-2">
-                        <button
-                            type="button"
-                            onClick={togglePlayback}
-                            className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-white hover:bg-white/20"
-                        >
-                            {paused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
-                            {theater ? (paused ? t('mediaPlayerPage.play') : t('mediaPlayerPage.pause')) : null}
-                        </button>
                         {theater && previousItem ? (
                             <button
                                 type="button"
@@ -2798,6 +2814,25 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                             >
                                 <SkipBack className="h-4 w-4" />
                                 <span className="hidden sm:inline">{t('mediaPlayerPage.previousEpisode')}</span>
+                            </button>
+                        ) : null}
+                        <button
+                            type="button"
+                            onClick={togglePlayback}
+                            className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-white hover:bg-white/20"
+                        >
+                            {paused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
+                            {theater ? (paused ? t('mediaPlayerPage.play') : t('mediaPlayerPage.pause')) : null}
+                        </button>
+                        {theater && upNextItem ? (
+                            <button
+                                type="button"
+                                onClick={() => playNeighbor(upNextItem)}
+                                className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1.5 text-white hover:bg-white/20"
+                                aria-label={t('mediaPlayerPage.nextEpisode')}
+                            >
+                                <SkipForward className="h-4 w-4" />
+                                <span className="hidden sm:inline">{t('mediaPlayerPage.nextEpisode')}</span>
                             </button>
                         ) : null}
                         {theater ? (
@@ -2837,17 +2872,6 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                                             {t('mediaPlayerPage.chapterNext')}
                                         </button>
                                     </>
-                                ) : null}
-                                {upNextItem ? (
-                                    <button
-                                        type="button"
-                                        onClick={() => playNeighbor(upNextItem)}
-                                        className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1.5 text-white hover:bg-white/20"
-                                        aria-label={t('mediaPlayerPage.nextEpisode')}
-                                    >
-                                        <SkipForward className="h-4 w-4" />
-                                        <span className="hidden sm:inline">{t('mediaPlayerPage.nextEpisode')}</span>
-                                    </button>
                                 ) : null}
                                 <button
                                     type="button"

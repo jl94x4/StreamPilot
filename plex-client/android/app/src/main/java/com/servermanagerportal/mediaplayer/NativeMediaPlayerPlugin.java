@@ -103,6 +103,8 @@ public class NativeMediaPlayerPlugin extends Plugin {
         }
         PlayerBridge.get().setPlayerForeground(true);
         startActivityForResult(call, intent, "onPlayerFinished");
+        android.app.Activity host = getActivity();
+        if (host != null) host.overridePendingTransition(0, 0);
     }
 
     @PluginMethod
@@ -250,8 +252,10 @@ public class NativeMediaPlayerPlugin extends Plugin {
         boolean ended = data != null && data.getBooleanExtra(PlayerActivity.EXTRA_ENDED, false);
         boolean error = data != null && data.getBooleanExtra(PlayerActivity.EXTRA_ERROR, false);
         boolean playNext = data != null && data.getBooleanExtra(PlayerActivity.EXTRA_PLAY_NEXT, false);
+        boolean playPrevious = data != null && data.getBooleanExtra(PlayerActivity.EXTRA_PLAY_PREVIOUS, false);
         long positionMs = data != null ? data.getLongExtra(PlayerActivity.EXTRA_POSITION_MS, 0L) : 0L;
         String nextRatingKey = data != null ? data.getStringExtra(PlayerActivity.EXTRA_NEXT_RATING_KEY) : null;
+        String previousRatingKey = data != null ? data.getStringExtra(PlayerActivity.EXTRA_PREVIOUS_RATING_KEY) : null;
 
         JSObject ret = new JSObject();
         ret.put("ended", ended);
@@ -260,6 +264,10 @@ public class NativeMediaPlayerPlugin extends Plugin {
         ret.put("playNext", playNext);
         if (nextRatingKey != null && !nextRatingKey.isEmpty()) {
             ret.put("nextRatingKey", nextRatingKey);
+        }
+        ret.put("playPrevious", playPrevious);
+        if (previousRatingKey != null && !previousRatingKey.isEmpty()) {
+            ret.put("previousRatingKey", previousRatingKey);
         }
         call.resolve(ret);
     }

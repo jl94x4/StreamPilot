@@ -581,7 +581,10 @@ export const focusPlayerSearchInput = () => {
     return true;
 };
 
-/** Clear home search and return to rails (e.g. sidebar Home while a query is active). */
+/**
+ * Clear home search and jump back to the top of Home (Continue Watching).
+ * Fired from sidebar Home, Back-to-home, and similar “return home” actions.
+ */
 export const PLAYER_HOME_RESET_EVENT = 'portal-media-player-home-reset';
 
 export const requestPlayerHomeReset = () => {
@@ -696,7 +699,11 @@ export const playerHomeHasContentHubs = (data: PlayerHome | null | undefined) =>
 
 /** Continue Watching-only (or partial) home still needs the full=1 hub pass. */
 export const playerHomeNeedsFull = (data: PlayerHome | null | undefined) => (
-    !data || !!data.partial || !playerHomeHasContentHubs(data)
+    !data
+    || !!data.partial
+    || !playerHomeHasContentHubs(data)
+    // Because rows are only filled on full=1 — keep asking until that pass lands.
+    || data.becauseAttached !== true
 );
 
 const mergePlayerItemsPreserveOrder = <T extends { ratingKey?: string | number | null }>(
@@ -772,6 +779,7 @@ export const mergePlayerHomePayloads = (full: PlayerHome, partial: PlayerHome): 
         continueWatching: mergePlayerItemsPreserveOrder(partial.continueWatching, full.continueWatching),
         hubs,
         partial: false,
+        becauseAttached: full.becauseAttached === true || partial.becauseAttached === true,
     };
 };
 
@@ -820,6 +828,21 @@ export const coalescePlayerHomeWithCache = (
     }
     if (!playerHomeHasContentHubs(next) && playerHomeHasContentHubs(cached)) {
         next = { ...mergePlayerHomePayloads(cached!, next), partial: true };
+    }
+    // Soft/partial responses omit Because rows — keep the last attached ones.
+    const liveBecause = (next.hubs || []).filter(isBecauseHomeHub);
+    const cachedBecause = (cached!.hubs || []).filter(isBecauseHomeHub);
+    if (!liveBecause.length && cachedBecause.length) {
+        next = {
+            ...next,
+            hubs: [
+                ...(next.hubs || []).filter((hub) => !isBecauseHomeHub(hub)),
+                ...cachedBecause,
+            ],
+            becauseAttached: next.becauseAttached === true || cached!.becauseAttached === true,
+        };
+    } else if (cached!.becauseAttached === true && next.becauseAttached !== true) {
+        next = { ...next, becauseAttached: true };
     }
     return next;
 };
@@ -1003,6 +1026,18 @@ export const writePlayerItemCache = (ratingKey: string, data: PlayerItemPage) =>
     const oldest = playerItemCache.keys().next().value;
     if (oldest && oldest !== key) playerItemCache.delete(oldest);
 };
+
+export const clearPlayerItemCache = (ratingKey?: string) => {
+    const key = String(ratingKey || '').trim();
+    if (!key) {
+        playerItemCache.clear();
+        return;
+    }
+    playerItemCache.delete(key);
+};
+
+/** Fired after Plex metadata refresh is detected (new thumb/title/etc). */
+export const PLAYER_METADATA_REFRESHED_EVENT = 'smp-player-metadata-refreshed';
 
 /** Paint a just-stopped offset onto the open title and any season list that contains it. */
 export const notePlayerItemProgress = (ratingKey: string, viewOffsetMs: number, durationMs = 0, watched?: boolean) => {

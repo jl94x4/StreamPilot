@@ -171,10 +171,7 @@ export const PlayerRail: React.FC<{
                             <PlayerPosterCard
                                 item={item}
                                 aspect={cardAspect}
-                                // TV remounts the active rail on every up/down — keep every
-                                // armed poster eager so WebView cache paints without lazy delays.
-                                imagePriority={tvShell || idx < eagerCount}
-                                loading={tvShell ? 'eager' : undefined}
+                                imagePriority={idx < eagerCount}
                                 showProgress={showProgress}
                                 showRemoveFromContinueWatching={showRemoveFromContinueWatching}
                                 isAdmin={isAdmin}

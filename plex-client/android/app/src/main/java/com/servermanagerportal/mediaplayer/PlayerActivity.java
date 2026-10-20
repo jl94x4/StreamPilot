@@ -61,6 +61,7 @@ import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.exoplayer.DefaultRenderersFactory;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.SeekParameters;
 import androidx.media3.exoplayer.Renderer;
 import androidx.media3.exoplayer.audio.AudioSink;
 import androidx.media3.exoplayer.audio.DefaultAudioSink;
@@ -118,6 +119,8 @@ public class PlayerActivity extends AppCompatActivity {
     public static final String EXTRA_ERROR = "error";
     public static final String EXTRA_PLAY_NEXT = "playNext";
     public static final String EXTRA_NEXT_RATING_KEY = "nextRatingKey";
+    public static final String EXTRA_PLAY_PREVIOUS = "playPrevious";
+    public static final String EXTRA_PREVIOUS_RATING_KEY = "previousRatingKey";
 
     private ExoPlayer player;
     private DefaultHttpDataSource.Factory httpFactory;
@@ -139,6 +142,8 @@ public class PlayerActivity extends AppCompatActivity {
     private ImageView artView;
     private TextView upNextLabel;
     private ImageButton playPauseBtn;
+    private ImageButton prevEpisodeBtn;
+    private ImageButton nextEpisodeBtn;
     private Button skipIntroBtn;
     private TextView upNextKicker;
     private TextView upNextCountdown;
@@ -185,7 +190,9 @@ public class PlayerActivity extends AppCompatActivity {
         @Override
         public void run() {
             if (seekHoldDirection == 0) return;
-            seekByWithFlash(seekHoldDirection * 10_000L);
+            // Move the clock only. One seek is applied when the key is released.
+            previewSeekBy(seekHoldDirection * 10_000L);
+            flashSeek(seekHoldDirection);
             mainHandler.postDelayed(this, 350);
         }
     };
@@ -240,6 +247,8 @@ public class PlayerActivity extends AppCompatActivity {
         applySkipChipVisibility(skipIntroChipActive, false);
     };
     private boolean userPaused;
+    /** Ignore the OK press that opened the player so it cannot pause the start. */
+    private long suppressPauseUntilElapsed;
     private long lastToggleElapsedMs;
     private long pendingSeekMs;
     /** Content time already skipped by a transcode URL offset. Player time starts at 0. */
@@ -301,6 +310,7 @@ public class PlayerActivity extends AppCompatActivity {
     private long creditsStartMs = -1;
     private long creditsEndMs = -1;
     private String nextRatingKey = "";
+    private String previousRatingKey = "";
     private String nextTitle = "";
     private String nextThumbUrl = "";
     private String loadedUpNextThumb = "";
@@ -367,11 +377,35 @@ public class PlayerActivity extends AppCompatActivity {
         setChromeVisible(false);
     };
     private final Runnable clearSwapRunnable = () -> streamSwapInFlight = false;
+    /**
+     * Resume target. Opening the file already at this time shows that frame and
+     * then the clock never moves. Start at 0, and seek only after frames advance.
+     */
+    private long playThenSeekMs = -1;
+    private boolean playThenSeekArmed;
+    private final Runnable playThenSeekRunnable = () -> {
+        if (player == null || finishing || playThenSeekMs <= 0) return;
+        if (userPaused) {
+            playThenSeekArmed = false;
+            return;
+        }
+        long target = playThenSeekMs;
+        playThenSeekMs = -1;
+        player.setSeekParameters(SeekParameters.CLOSEST_SYNC);
+        player.seekTo(target);
+        player.setSeekParameters(SeekParameters.DEFAULT);
+        player.setPlayWhenReady(true);
+        try {
+            player.play();
+        } catch (Throwable ignored) {
+            /* ignore */
+        }
+    };
     /** Position when the resume kick was armed — only remux if it stays frozen. */
     private long resumeKickArmPosMs = -1;
     /** After resume/seek, some SoCs show a still frame with playWhenReady stuck ineffective. */
     private final Runnable resumePlayKickRunnable = () -> {
-        if (player == null || userPaused || finishing) {
+        if (player == null || userPaused || finishing || playThenSeekMs > 0) {
             resumeKickArmPosMs = -1;
             return;
         }
@@ -381,24 +415,7 @@ public class PlayerActivity extends AppCompatActivity {
         } catch (Throwable ignored) {
             /* ignore */
         }
-        long now = contentPositionMs();
-        // Seek buffering often leaves READY + !isPlaying briefly — do not remux yet.
-        if (player.isPlaying()
-            || player.getPlaybackState() == Player.STATE_BUFFERING
-            || (resumeKickArmPosMs >= 0 && Math.abs(now - resumeKickArmPosMs) > 800)) {
-            resumeKickArmPosMs = -1;
-            return;
-        }
-        // Still not advancing after a Direct Play resume — Direct Stream remux (copy audio).
-        if (player.getPlaybackState() == Player.STATE_READY
-            && isDirectPlayUrl(currentUrl)
-            && now >= 5000) {
-            Log.w(TAG, "Resume frozen on Direct Play — requesting HLS remux");
-            resumeKickArmPosMs = -1;
-            requestStreamChange(qualityId, audioStreamId, subtitleStreamId, mediaIndex, now, "seek");
-        } else {
-            resumeKickArmPosMs = -1;
-        }
+        resumeKickArmPosMs = -1;
     };
     private final Runnable directSeekRunnable = () -> {
         if (player == null || scrubTargetMs < 0) return;
@@ -470,6 +487,7 @@ public class PlayerActivity extends AppCompatActivity {
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        overridePendingTransition(0, 0);
         PlayerBridge.get().attachActivity(this);
         try {
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -579,6 +597,8 @@ public class PlayerActivity extends AppCompatActivity {
                 .setWakeMode(localPlayback ? C.WAKE_MODE_LOCAL : C.WAKE_MODE_NETWORK)
                 .build();
             player.setVideoScalingMode(C.VIDEO_SCALING_MODE_SCALE_TO_FIT);
+            // Snap to the nearest keyframe so a seek does not download a long gap.
+            player.setSeekParameters(SeekParameters.CLOSEST_SYNC);
             applySpeed(playbackSpeed);
             applyNightMode();
             applyRepeatMode();
@@ -615,6 +635,7 @@ public class PlayerActivity extends AppCompatActivity {
             if (needsAvRebuild) {
                 Log.i(TAG, "Deferring prepare for AV rebuild url=" + summarizeUrl(currentUrl));
                 userPaused = false;
+                suppressPauseUntilElapsed = android.os.SystemClock.elapsedRealtime() + 1200;
                 player.setPlayWhenReady(true);
                 setBufferingVisible(true);
                 long offset = pendingSeekMs;
@@ -622,10 +643,16 @@ public class PlayerActivity extends AppCompatActivity {
             } else {
                 Log.i(TAG, "Starting ExoPlayer url=" + summarizeUrl(currentUrl));
                 userPaused = false;
+                suppressPauseUntilElapsed = android.os.SystemClock.elapsedRealtime() + 1200;
                 queueStartPosition(currentUrl, pendingSeekMs);
                 pendingSeekMs = 0;
                 player.setPlayWhenReady(true);
                 player.prepare();
+                try {
+                    player.play();
+                } catch (Throwable ignored) {
+                    /* prepare already has playWhenReady set */
+                }
                 applyAudioTrackPreference();
                 applyTextTrackPreference();
                 if (avChanged) notifyTracksOnlyChange();
@@ -691,6 +718,8 @@ public class PlayerActivity extends AppCompatActivity {
         metaView = findViewById(R.id.player_meta);
         seekFlashView = findViewById(R.id.player_seek_flash);
         playPauseBtn = findViewById(R.id.player_play_pause);
+        prevEpisodeBtn = findViewById(R.id.player_prev_episode);
+        nextEpisodeBtn = findViewById(R.id.player_next_episode);
         settingsBtn = findViewById(R.id.player_settings);
         skipRow = findViewById(R.id.player_skip_row);
         skipIntroBtn = findViewById(R.id.player_skip_intro);
@@ -734,6 +763,8 @@ public class PlayerActivity extends AppCompatActivity {
             close,
             seekBar,
             playPauseBtn,
+            prevEpisodeBtn,
+            nextEpisodeBtn,
             settingsBtn,
             findViewById(R.id.player_seek_back),
             findViewById(R.id.player_seek_fwd),
@@ -777,6 +808,8 @@ public class PlayerActivity extends AppCompatActivity {
 
     private void wireControls() {
         if (playPauseBtn != null) playPauseBtn.setOnClickListener(v -> togglePlayPause());
+        if (prevEpisodeBtn != null) prevEpisodeBtn.setOnClickListener(v -> finishForPlayPrevious());
+        if (nextEpisodeBtn != null) nextEpisodeBtn.setOnClickListener(v -> finishForPlayNext());
         if (settingsBtn != null) settingsBtn.setOnClickListener(v -> showSettingsRoot());
         View seekBack = findViewById(R.id.player_seek_back);
         if (seekBack != null) seekBack.setOnClickListener(v -> seekByWithFlash(-10_000));
@@ -928,7 +961,18 @@ public class PlayerActivity extends AppCompatActivity {
             }
 
             @Override
+            public void onRenderedFirstFrame() {
+                View cover = findViewById(R.id.player_surface_cover);
+                if (cover != null) cover.setVisibility(View.GONE);
+            }
+
+            @Override
             public void onIsPlayingChanged(boolean isPlaying) {
+                if (isPlaying && playThenSeekMs > 1500 && !playThenSeekArmed) {
+                    playThenSeekArmed = true;
+                    mainHandler.removeCallbacks(playThenSeekRunnable);
+                    mainHandler.postDelayed(playThenSeekRunnable, 350);
+                }
                 updatePlayPauseLabel();
                 emitProgress(isPlaying ? "playing" : "paused");
             }
@@ -1071,6 +1115,11 @@ public class PlayerActivity extends AppCompatActivity {
                 nextTitle = next.optString("title", "");
                 nextThumbUrl = next.optString("thumb", "");
             }
+            JSONObject previous = root.optJSONObject("previousItem");
+            if (previous != null) {
+                previousRatingKey = previous.optString("ratingKey", "");
+            }
+            applyEpisodeNavButtons();
             String prevMode = streamMode;
             if (root.has("playbackMode")) streamMode = root.optString("playbackMode", streamMode);
             JSONObject source = root.optJSONObject("source");
@@ -3333,6 +3382,9 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void requestStreamChange(String q, String a, String s, int mi, long positionMs, @Nullable String reason) {
+        // A Direct Play seek must not open a new PMS session. That rebuild is what
+        // stacks transcodes until the server falls over.
+        if ("seek".equals(reason) && !isTranscodeUrl(currentUrl)) return;
         // Coalesce with in-flight seek/quality rebuilds so PMS doesn't mint ghost sessions.
         markStreamSwap();
         JSObject data = new JSObject();
@@ -3401,9 +3453,16 @@ public class PlayerActivity extends AppCompatActivity {
     void applyPlayPause(boolean play) {
         if (player == null) return;
         if (!play) {
+            if (android.os.SystemClock.elapsedRealtime() < suppressPauseUntilElapsed) return;
             pausePositionMs = contentPositionMs();
             userPaused = true;
+            mainHandler.removeCallbacks(playThenSeekRunnable);
             player.setPlayWhenReady(false);
+            try {
+                player.pause();
+            } catch (Throwable ignored) {
+                /* setPlayWhenReady is the source of truth */
+            }
         } else {
             if (userPaused && rewindOnResumeSec > 0 && pausePositionMs >= 0) {
                 long target = Math.max(0, pausePositionMs - (rewindOnResumeSec * 1000L));
@@ -3414,6 +3473,11 @@ public class PlayerActivity extends AppCompatActivity {
             }
             userPaused = false;
             player.setPlayWhenReady(true);
+            try {
+                player.play();
+            } catch (Throwable ignored) {
+                /* some TVs ignore setPlayWhenReady until play() */
+            }
             if (player.getPlaybackState() == Player.STATE_IDLE && player.getMediaItemCount() > 0) {
                 try {
                     player.prepare();
@@ -3447,16 +3511,44 @@ public class PlayerActivity extends AppCompatActivity {
         mainHandler.postDelayed(hideSeekFlashRunnable, 650);
     }
 
+    private void previewSeekBy(long deltaMs) {
+        long duration = contentDurationMs();
+        long base = scrubTargetMs >= 0 ? scrubTargetMs : contentPositionMs();
+        long target = Math.max(0, base + deltaMs);
+        if (duration > 0) target = Math.min(target, Math.max(0, duration - 1500));
+        scrubTargetMs = target;
+        seekingUi = true;
+        scrubHoldUntilMs = android.os.SystemClock.elapsedRealtime() + 1600;
+        if (duration > 0 && seekBar != null) {
+            seekBar.setProgress((int) Math.min(1000, Math.max(0, (target * 1000L) / duration)));
+        }
+        setTimeLabels(target, Math.max(0, duration));
+        bumpChrome();
+        // Move the picture on each step. Direct Play only — no new server session.
+        if (!shouldRestartForSeek()) {
+            lastSeekTargetMs = target;
+            lastSeekAtMs = android.os.SystemClock.elapsedRealtime();
+            if (!streamSwapInFlight) seekRecoveryUsed = false;
+            mainHandler.removeCallbacks(directSeekRunnable);
+            mainHandler.postDelayed(directSeekRunnable, 160);
+        }
+    }
+
     private void startSeekHold(int direction) {
-        stopSeekHold();
         seekHoldDirection = direction < 0 ? -1 : 1;
-        seekByWithFlash(seekHoldDirection * 10_000L);
+        previewSeekBy(seekHoldDirection * 10_000L);
+        flashSeek(seekHoldDirection);
+        mainHandler.removeCallbacks(seekHoldRunnable);
         mainHandler.postDelayed(seekHoldRunnable, 420);
     }
 
     private void stopSeekHold() {
+        int direction = seekHoldDirection;
         seekHoldDirection = 0;
         mainHandler.removeCallbacks(seekHoldRunnable);
+        if (direction != 0 && scrubTargetMs >= 0 && player != null && !finishing) {
+            seekToContent(scrubTargetMs, true);
+        }
     }
 
     private void setTimeLabels(long pos, long duration) {
@@ -3763,7 +3855,7 @@ public class PlayerActivity extends AppCompatActivity {
             long playerPos = Math.max(0, timelineOriginMs + Math.max(0, player.getCurrentPosition()));
             boolean caughtUp = Math.abs(playerPos - scrubTargetMs) < 1500;
             boolean holding = android.os.SystemClock.elapsedRealtime() < scrubHoldUntilMs;
-            if (!caughtUp && holding) {
+            if (seekHoldDirection != 0 || (!caughtUp && holding)) {
                 long duration = contentDurationMs();
                 if (duration > 0 && seekBar != null) {
                     seekBar.setProgress((int) Math.min(1000, Math.max(0, (scrubTargetMs * 1000L) / duration)));
@@ -3797,7 +3889,9 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void emitProgress(String state) {
-        pingPlexTimeline(state);
+        boolean seekBuffer = "buffering".equals(state)
+            && (seekingUi || android.os.SystemClock.elapsedRealtime() - lastSeekAtMs < 4_000);
+        if (!seekBuffer) pingPlexTimeline(state);
         if (player == null) return;
         JSObject data = new JSObject();
         data.put("state", state);
@@ -4056,8 +4150,9 @@ public class PlayerActivity extends AppCompatActivity {
         View topEnd = findViewById(R.id.player_top_end);
         if (topEnd != null) topEnd.setVisibility(vis);
         setClockVisible(visible);
-        if (visible && wasHidden && playPauseBtn != null) {
+        if (visible && wasHidden && playPauseBtn != null && seekHoldDirection == 0) {
             // Up-next owns the remote while visible — do not steal focus to Play/Pause.
+            // A seek-hold must keep the key, or the repeat is eaten as focus movement.
             if (!isUpNextVisible()) playPauseBtn.requestFocus();
         } else if (!visible && !isOptionDialogShowing()) {
             if (isUpNextVisible()) {
@@ -4246,6 +4341,11 @@ public class PlayerActivity extends AppCompatActivity {
 
     private void maybeQualityNudge() {
         if (musicMode || qualityNudgeOffered || player == null) return;
+        // A seek buffer is not a reason to drop quality or start a transcode.
+        if (seekingUi || android.os.SystemClock.elapsedRealtime() - lastSeekAtMs < 12_000) {
+            bufferingStreakSec = 0;
+            return;
+        }
         if (streamSwapInFlight || userPaused || !player.getPlayWhenReady()
             || player.getPlaybackState() != Player.STATE_BUFFERING) {
             bufferingStreakSec = 0;
@@ -4329,10 +4429,9 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private boolean shouldRestartForSeek() {
-        // A transcode playlist is a live window. Seeking inside it 404s.
-        if (isTranscodeUrl(currentUrl)) return true;
-        if (player == null) return false;
-        return player.getPlaybackState() == Player.STATE_READY && !player.isCurrentMediaItemSeekable();
+        // Direct Play seeks inside the open file. Rebuilding the session on each
+        // scrub starts another transcode and is what takes the server down.
+        return isTranscodeUrl(currentUrl);
     }
 
     /**
@@ -4375,12 +4474,36 @@ public class PlayerActivity extends AppCompatActivity {
      */
     private boolean trySeekRecovery(PlaybackException error) {
         if (!isSeekIoError(error)) return false;
-        if (streamSwapInFlight) return true;
-        if (seekRecoveryUsed || lastSeekTargetMs < 0 || player == null) return false;
-        if (android.os.SystemClock.elapsedRealtime() - lastSeekAtMs > 8000) return false;
-        seekRecoveryUsed = true;
+        if (streamSwapInFlight && isTranscodeUrl(currentUrl)) return true;
+        if (lastSeekTargetMs < 0 || player == null) return false;
+        if (android.os.SystemClock.elapsedRealtime() - lastSeekAtMs > 12000) return false;
         playbackError = false;
         hideError();
+        if (!isTranscodeUrl(currentUrl)) {
+            // Stay on the file already open. A second session is what crashes PMS.
+            if (!seekRecoveryUsed) {
+                seekRecoveryUsed = true;
+                long target = Math.max(0, lastSeekTargetMs - timelineOriginMs);
+                player.setSeekParameters(SeekParameters.CLOSEST_SYNC);
+                player.seekTo(target);
+                try {
+                    player.prepare();
+                } catch (Throwable ignored) {
+                    /* already prepared */
+                }
+                if (!userPaused) {
+                    player.setPlayWhenReady(true);
+                    try {
+                        player.play();
+                    } catch (Throwable ignored) {
+                        /* ignore */
+                    }
+                }
+            }
+            return true;
+        }
+        if (seekRecoveryUsed) return true;
+        seekRecoveryUsed = true;
         long target = lastSeekTargetMs;
         scrubTargetMs = target;
         scrubHoldUntilMs = android.os.SystemClock.elapsedRealtime() + 8000;
@@ -4434,6 +4557,17 @@ public class PlayerActivity extends AppCompatActivity {
         }
         timelineOriginMs = 0;
         transcodeAnchorMs = 0;
+        // A start position on the media item decodes one frame and then sticks.
+        // Play from the beginning, then seek once the picture is actually moving.
+        if (start > 1500) {
+            playThenSeekMs = start;
+            playThenSeekArmed = false;
+            mainHandler.removeCallbacks(playThenSeekRunnable);
+            player.setMediaItem(item);
+            return;
+        }
+        playThenSeekMs = -1;
+        playThenSeekArmed = false;
         if (start > 0) player.setMediaItem(item, start);
         else player.setMediaItem(item);
     }
@@ -4479,6 +4613,11 @@ public class PlayerActivity extends AppCompatActivity {
             || code == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED
             || code == PlaybackException.ERROR_CODE_DECODING_FAILED;
         if (!io || currentUrl == null || currentUrl.isEmpty()) return false;
+        // A seek glitch on Direct Play must not be upgraded into a transcode.
+        if (!isTranscodeUrl(currentUrl) && lastSeekTargetMs >= 0
+            && android.os.SystemClock.elapsedRealtime() - lastSeekAtMs < 12_000) {
+            return false;
+        }
         String next = null;
         if (currentUrl.contains("/library/parts/") && streamFallbackStage < 1) {
             streamFallbackStage = 1;
@@ -4683,6 +4822,7 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void finishForPlayNext() {
+        if (nextRatingKey == null || nextRatingKey.isEmpty()) return;
         if (shouldStopForSleepEpisodes()) {
             clearSleepPrefs();
             finishWithResult(true, false);
@@ -4690,6 +4830,31 @@ public class PlayerActivity extends AppCompatActivity {
         }
         persistSleepPrefs();
         finishWithResult(true, true);
+    }
+
+    private void finishForPlayPrevious() {
+        if (previousRatingKey == null || previousRatingKey.isEmpty()) return;
+        finishWithResult(false, false, true);
+    }
+
+    private void applyEpisodeNavButtons() {
+        boolean hasPrev = previousRatingKey != null && !previousRatingKey.isEmpty();
+        boolean hasNext = nextRatingKey != null && !nextRatingKey.isEmpty();
+        if (prevEpisodeBtn != null) {
+            prevEpisodeBtn.setVisibility(hasPrev ? View.VISIBLE : View.GONE);
+            prevEpisodeBtn.setEnabled(hasPrev);
+        }
+        if (nextEpisodeBtn != null) {
+            nextEpisodeBtn.setVisibility(hasNext ? View.VISIBLE : View.GONE);
+            nextEpisodeBtn.setEnabled(hasNext);
+        }
+        if (playPauseBtn != null) {
+            playPauseBtn.setNextFocusLeftId(hasPrev ? R.id.player_prev_episode : View.NO_ID);
+            playPauseBtn.setNextFocusRightId(hasNext ? R.id.player_next_episode : R.id.player_settings);
+        }
+        if (settingsBtn != null) {
+            settingsBtn.setNextFocusLeftId(hasNext ? R.id.player_next_episode : R.id.player_play_pause);
+        }
     }
 
     private void requestPlayNextWithoutFinish() {
@@ -4747,6 +4912,10 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void finishWithResult(boolean ended, boolean playNext) {
+        finishWithResult(ended, playNext, false);
+    }
+
+    private void finishWithResult(boolean ended, boolean playNext, boolean playPrevious) {
         if (finishing) return;
         finishing = true;
         mainHandler.removeCallbacks(tickRunnable);
@@ -4774,6 +4943,10 @@ public class PlayerActivity extends AppCompatActivity {
         if (playNext && nextRatingKey != null && !nextRatingKey.isEmpty()) {
             closed.put("nextRatingKey", nextRatingKey);
         }
+        closed.put("playPrevious", playPrevious);
+        if (playPrevious && previousRatingKey != null && !previousRatingKey.isEmpty()) {
+            closed.put("previousRatingKey", previousRatingKey);
+        }
         PlayerBridge.get().setPlayerForeground(false);
         PlayerBridge.get().keepHostWebViewAlive();
         PlayerBridge.get().emit("closed", closed);
@@ -4795,6 +4968,10 @@ public class PlayerActivity extends AppCompatActivity {
         data.putExtra(EXTRA_PLAY_NEXT, playNext);
         if (playNext && nextRatingKey != null) {
             data.putExtra(EXTRA_NEXT_RATING_KEY, nextRatingKey);
+        }
+        data.putExtra(EXTRA_PLAY_PREVIOUS, playPrevious);
+        if (playPrevious && previousRatingKey != null) {
+            data.putExtra(EXTRA_PREVIOUS_RATING_KEY, previousRatingKey);
         }
         setResult(RESULT_OK, data);
 
@@ -4923,11 +5100,14 @@ public class PlayerActivity extends AppCompatActivity {
         }
         if (keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == KeyEvent.KEYCODE_CHANNEL_DOWN) {
             if (!chapters.isEmpty()) skipChapter(-1);
+            else finishForPlayPrevious();
             return true;
         }
 
         boolean seekLeft = keyCode == KeyEvent.KEYCODE_MEDIA_REWIND || keyCode == KeyEvent.KEYCODE_DPAD_LEFT;
         boolean seekRight = keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT;
+        // Hold already running: keep consuming left/right so chrome focus cannot swallow the repeat.
+        if (seekHoldDirection != 0 && (seekLeft || seekRight)) return true;
 
         if (!chromeVisible) {
             // Up-next card: D-pad must move between its buttons, not open the OSD / seek.

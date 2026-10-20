@@ -295,6 +295,11 @@ export type PlayerHome = {
     hubs?: PlayerLibraryHub[];
     /** Direct mode painted Continue Watching / Recently Added before Plex hubs arrived. */
     partial?: boolean;
+    /**
+     * Full home pass finished attaching "Because you watched" (even if Plex returned none).
+     * Missing this means Home should still run `?full=1` when the setting is on.
+     */
+    becauseAttached?: boolean;
 };
 
 export type PlayerLibraryHome = {

@@ -26,61 +26,241 @@ const compareAppVersions = (a: string, b: string) => {
     return 0;
 };
 
-/**
- * Notes for the build you're shipping now — always shown as the top card under
- * whatever versionName is in build.gradle. Update this when user-facing stuff changes;
- * do not chase version numbers (APK builds bump every time).
- */
-const CURRENT_RELEASE_NOTES: WhatsNewSection[] = [
-    {
-        title: 'Home (TV)',
-        items: [
-            'Fixed posters going blank when you scroll back up a Home row (no more opacity fade that hid already-loaded art)',
-            'Removed the false “Showing your saved library” banner — Home keeps the last good rows and refreshes quietly in the background',
-            'Continue Watching stays on top when a refresh only brings back Recently Added (On Deck blips no longer wipe the row)',
-            'Continue Watching pulls the live show poster from Plex (no more stuck Netflix / old art after you swap posters)',
-            'Recently Added TV shows SxxExx, episode title and synopsis — OK opens that episode (same as Plex)',
-            'Optional season posters on Recently Added (show posters stay the default)',
-            'Screensaver: pick the art pool in Settings (Continue Watching, Watchlist, Recommended, Trending, Popular, New releases, Recently added, Most watched, Something new, Completely random)',
-            'Screensaver cycles in random order and shows the chosen pool name above the clock',
-        ],
-    },
-    {
-        title: 'Player (TV)',
-        items: [
-            'Up next card is usable with the remote (OK / left-right) instead of opening the OSD',
-            'Back on Up next (or when playback has ended) returns straight to the episode overview — no blank wait through credits',
-        ],
-    },
-];
+/** True when `newer` is exactly one patch above `older` (same major.minor). */
+const isPriorPatchVersion = (newer: string, older: string) => {
+    const left = parseVersionParts(newer);
+    const right = parseVersionParts(older);
+    if (left.length < 3 || right.length < 3) return false;
+    return left[0] === right[0]
+        && left[1] === right[1]
+        && left[2] === right[2] + 1;
+};
 
-/** Fingerprint of current notes — Whats New reappears when these change, not on every APK bump. */
-const currentNotesSeenKey = (): string => {
+/**
+ * Up to `limit` newest note milestones at or below the running app version,
+ * but only a contiguous patch run (e.g. 1.0.240 → 1.0.239 → 1.0.238).
+ * Stops at the first gap so distant archives like 1.0.215 never pad the list.
+ */
+const recentWhatsNewReleases = (currentVersion: string, limit = 3): WhatsNewRelease[] => {
+    if (!currentVersion) return [];
+    const versions = Object.keys(NOTES_BY_VERSION)
+        .filter((version) => compareAppVersions(version, currentVersion) <= 0)
+        .sort((a, b) => compareAppVersions(b, a));
+    if (!versions.length) return [];
+    const run: WhatsNewRelease[] = [];
+    for (let i = 0; i < versions.length && run.length < limit; i += 1) {
+        const version = versions[i];
+        const sections = NOTES_BY_VERSION[version] || [];
+        if (!sections.length) continue;
+        if (run.length > 0 && !isPriorPatchVersion(run[run.length - 1].version, version)) break;
+        run.push({ version, sections });
+    }
+    return run;
+};
+
+/** Fingerprint of the notes shown for this app version — reappears when they change. */
+const currentNotesSeenKey = (currentVersion: string): string => {
     try {
-        return `notes:${JSON.stringify(CURRENT_RELEASE_NOTES)}`;
+        return `notes:${JSON.stringify(recentWhatsNewReleases(currentVersion, 3))}`;
     } catch {
         return 'notes:';
     }
 };
 
-/** Current build plus up to two prior archived releases (3 cards total). */
-const recentWhatsNewReleases = (currentVersion: string, limit = 3): WhatsNewRelease[] => {
-    if (!currentVersion) return [];
-    const releases: WhatsNewRelease[] = [];
-    if (CURRENT_RELEASE_NOTES.length > 0) {
-        releases.push({ version: currentVersion, sections: CURRENT_RELEASE_NOTES });
-    }
-    const historical = Object.keys(NOTES_BY_VERSION)
-        .filter((version) => compareAppVersions(version, currentVersion) < 0)
-        .sort((a, b) => compareAppVersions(b, a))
-        .slice(0, Math.max(0, limit - releases.length))
-        .map((version) => ({ version, sections: NOTES_BY_VERSION[version] || [] }))
-        .filter((row) => row.sections.length > 0);
-    return [...releases, ...historical];
-};
-
-/** Archived release notes (older than CURRENT_RELEASE_NOTES). */
+/**
+ * Release notes keyed by the versionName that shipped them.
+ * Keep the newest three patch versions populated so Whats New can show a
+ * contiguous 1.0.N / 1.0.N-1 / 1.0.N-2 sequence. When you ship new notes,
+ * add a new top key and leave the previous two in place.
+ */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.257': [
+        {
+            title: 'Player (TV)',
+            items: [
+                'Holding seek forward or back keeps stepping through the file',
+            ],
+        },
+    ],
+    '1.0.256': [
+        {
+            title: 'Player (TV)',
+            items: [
+                'Seeking stays on the current file instead of buffering into a new stream',
+            ],
+        },
+    ],
+    '1.0.255': [
+        {
+            title: 'Player (TV)',
+            items: [
+                'The episode page no longer flashes through while the player is opening',
+            ],
+        },
+    ],
+    '1.0.254': [
+        {
+            title: 'Player (TV)',
+            items: [
+                'Starting a title no longer pauses itself or switches off Direct Play',
+            ],
+        },
+    ],
+    '1.0.253': [
+        {
+            title: 'Player (TV)',
+            items: [
+                'Pause and play work again after you pause',
+                'Previous and next episode buttons are back beside play',
+            ],
+        },
+    ],
+    '1.0.252': [
+        {
+            title: 'Player (TV)',
+            items: [
+                'Resume starts the file playing, then jumps to the saved time, so Direct Play no longer sticks on one frame',
+            ],
+        },
+    ],
+    '1.0.251': [
+        {
+            title: 'Player (TV)',
+            items: [
+                'Playback is restored to the 1.0.210 player',
+            ],
+        },
+    ],
+    '1.0.250': [
+        {
+            title: 'Player (TV)',
+            items: [
+                'Start and resume use the 1.0.220 Direct Play path again',
+            ],
+        },
+    ],
+    '1.0.249': [
+        {
+            title: 'Player (TV)',
+            items: [
+                'Resume Direct Plays the original file again instead of transcoding',
+            ],
+        },
+    ],
+    '1.0.248': [
+        {
+            title: 'Player (TV)',
+            items: [
+                'Resume starts a stream at the saved time instead of seeking inside the file, which was sticking on that frame',
+            ],
+        },
+    ],
+    '1.0.247': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'Continue Watching keeps the season poster after you leave an episode',
+            ],
+        },
+    ],
+    '1.0.246': [
+        {
+            title: 'Player (TV)',
+            items: [
+                'Resume starts from the saved position. Starting in the middle of a file no longer sticks on that frame',
+            ],
+        },
+    ],
+    '1.0.245': [
+        {
+            title: 'Player (TV)',
+            items: [
+                'If a movie or episode sticks on the first frame, playback switches to a stream this TV can play, and play/pause starts it again',
+            ],
+        },
+    ],
+    '1.0.244': [
+        {
+            title: 'Player (TV)',
+            items: [
+                'Previous and next episode buttons sit on either side of play/pause',
+            ],
+        },
+    ],
+    '1.0.243': [
+        {
+            title: 'Player (TV)',
+            items: [
+                'The playback line shows the episode name (S1 · E4 · Episode title), not the show name again',
+            ],
+        },
+    ],
+    '1.0.242': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'Moving between titles updates the backdrop and description right away, without waiting on a metadata lookup',
+                'Pinned rows show up with the rest of Home instead of waiting on the slower recommendation lookups',
+            ],
+        },
+        {
+            title: 'Player (TV)',
+            items: [
+                'Up next / Watch credits appears at the credits marker or about two minutes before the end — whichever is sooner',
+                'Hold left/right to keep seeking; it no longer drops repeats while the stream restarts',
+                'Pause stays paused when you pause and play several times in a row',
+                'Returning from an episode no longer leaves a long black screen before the episode page',
+            ],
+        },
+    ],
+    '1.0.241': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'What’s New shows the last three app versions in order (e.g. 1.0.241 → 1.0.240 → 1.0.239)',
+            ],
+        },
+    ],
+    '1.0.240': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'Pressing Home in the side nav while already on Home jumps back to Continue Watching at the top',
+                'What’s New panel uses more of the screen — scroll with Up/Down for the full list',
+            ],
+        },
+    ],
+    '1.0.239': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'Restored 1.0.229-era image loading — posters and cast art use working Plex image URLs again (post-229 blank-art experiments removed)',
+                'Home keeps posters warm in memory for ~3 minutes so scrolling back up a row stays snappy; a Plex cover swap changes the URL stamp so new art loads immediately',
+                'Continue Watching also warms episode stills and detail backdrops in the background so opening an episode feels ready',
+                'Back from a title returns focus to the Continue Watching poster you opened (no more jumping to a different show)',
+                '“Because you watched” rows show again at the bottom of Home when the setting is on',
+            ],
+        },
+    ],
+    '1.0.238': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'Continue Watching pulls the live show poster from Plex (no more stuck Netflix / old art after you swap posters)',
+                'Recently Added TV shows SxxExx, episode title and synopsis — OK opens that episode (same as Plex)',
+                'Optional season posters on Recently Added (show posters stay the default)',
+                'Screensaver: pick the art pool in Settings (Continue Watching, Watchlist, Recommended, Trending, Popular, New releases, Recently added, Most watched, Something new, Completely random)',
+                'Screensaver cycles in random order and shows the chosen pool name above the clock',
+            ],
+        },
+        {
+            title: 'Player (TV)',
+            items: [
+                'Up next card is usable with the remote (OK / left-right) instead of opening the OSD',
+                'Back on Up next (or when playback has ended) returns straight to the episode overview — no blank wait through credits',
+            ],
+        },
+    ],
     '1.0.215': [
         {
             title: 'Details (TV)',
@@ -1102,11 +1282,11 @@ export const ApkWhatsNew: React.FC = () => {
     const [open, setOpen] = useState(false);
     const buttonRef = useRef<HTMLButtonElement>(null);
     const releases = useMemo(() => recentWhatsNewReleases(version, 3), [version]);
-    const seenKey = useMemo(() => currentNotesSeenKey(), []);
+    const seenKey = useMemo(() => currentNotesSeenKey(version), [version]);
 
     useEffect(() => {
         if (!version || !releases.length) return;
-        // Fingerprint of CURRENT_RELEASE_NOTES — reappears when notes change, not on every APK bump.
+        // Fingerprint of the last-3 note cards — reappears when they change, not on every APK bump.
         if (readApkWhatsNewSeen() === seenKey) return;
         setOpen(true);
     }, [releases.length, seenKey, version]);
@@ -1150,7 +1330,7 @@ export const ApkWhatsNew: React.FC = () => {
 
     const modal = (
         <div
-            className="fixed inset-0 z-[4200] flex items-center justify-center bg-black/70 p-6"
+            className="fixed inset-0 z-[4200] flex items-center justify-center bg-black/70 p-5 sm:p-8"
             role="dialog"
             aria-modal="true"
             aria-labelledby="apk-whats-new-title"
@@ -1162,23 +1342,31 @@ export const ApkWhatsNew: React.FC = () => {
                 aria-hidden
                 onClick={dismiss}
             />
-            <div className="player-popup-surface relative z-10 w-full max-w-xl overflow-hidden rounded-3xl border border-white/10 p-7 shadow-[0_28px_90px_rgba(0,0,0,0.55)]">
-                <div className="mb-5 flex items-center gap-2 text-plex">
-                    <Sparkles className="h-5 w-5 shrink-0" />
-                    <span className="text-xs font-bold uppercase tracking-[0.2em]">
-                        {t('mediaPlayerPage.apkWhatsNewTitle')}
-                    </span>
+            <div
+                className="player-popup-surface relative z-10 flex w-full max-w-3xl flex-col overflow-hidden rounded-3xl border border-white/10 shadow-[0_28px_90px_rgba(0,0,0,0.55)]"
+                style={{ height: 'min(calc(100vh / var(--tv-zoom, 1) - 3rem), 56rem)' }}
+            >
+                <div className="shrink-0 px-7 pb-3 pt-7">
+                    <div className="mb-4 flex items-center gap-2 text-plex">
+                        <Sparkles className="h-5 w-5 shrink-0" />
+                        <span className="text-xs font-bold uppercase tracking-[0.2em]">
+                            {t('mediaPlayerPage.apkWhatsNewTitle')}
+                        </span>
+                    </div>
+                    <h2 id="apk-whats-new-title" className="text-2xl font-black tracking-tight text-white">
+                        {version}
+                    </h2>
                 </div>
-                <h2 id="apk-whats-new-title" className="text-2xl font-black tracking-tight text-white">
-                    {version}
-                </h2>
-                <div className="mt-5 max-h-[50vh] space-y-6 overflow-y-auto pr-1">
+                <div
+                    data-tv-whats-new-scroll="1"
+                    className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain px-7 pb-2 pr-8"
+                >
                     {releases.map((release) => (
                         <div key={release.version} className="space-y-4">
                             {releases.length > 1 ? (
                                 <p className="text-sm font-bold tracking-tight text-white/70">
                                     {release.version}
-                                    {release.version === version ? (
+                                    {release.version === releases[0]?.version ? (
                                         <span className="ml-2 text-[0.7rem] font-bold uppercase tracking-[0.16em] text-plex">
                                             Latest
                                         </span>
@@ -1206,17 +1394,19 @@ export const ApkWhatsNew: React.FC = () => {
                         </div>
                     ))}
                 </div>
-                <button
-                    ref={buttonRef}
-                    type="button"
-                    data-tv-item="1"
-                    data-tv-action="1"
-                    data-tv-whats-new-primary="1"
-                    onClick={dismiss}
-                    className="mt-6 flex w-full min-h-[3.25rem] items-center justify-center rounded-2xl bg-plex px-5 py-3.5 text-base font-bold text-white outline-none"
-                >
-                    {t('mediaPlayerPage.apkWhatsNewContinue')}
-                </button>
+                <div className="shrink-0 border-t border-white/10 px-7 py-5">
+                    <button
+                        ref={buttonRef}
+                        type="button"
+                        data-tv-item="1"
+                        data-tv-action="1"
+                        data-tv-whats-new-primary="1"
+                        onClick={dismiss}
+                        className="flex w-full min-h-[3.25rem] items-center justify-center rounded-2xl bg-plex px-5 py-3.5 text-base font-bold text-white outline-none"
+                    >
+                        {t('mediaPlayerPage.apkWhatsNewContinue')}
+                    </button>
+                </div>
             </div>
         </div>
     );

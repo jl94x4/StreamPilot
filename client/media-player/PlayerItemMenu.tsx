@@ -18,6 +18,7 @@ import {
     MoreVertical,
     Music,
     Play,
+    RefreshCw,
     Shuffle,
     Star,
     Trash2,
@@ -33,6 +34,7 @@ import {
     deleteMediaPlayerItem,
     fetchMediaPlayerItem,
     fetchMediaPlayerPlaylists,
+    refreshMediaPlayerItemMetadata,
     removeMediaPlayerProgress,
     setMediaPlayerRating,
     setMediaPlayerWatched,
@@ -193,6 +195,18 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
     const useMobileModal = !isTv && variant !== 'toolbar' && phoneUi;
     const canFileInfo = variant !== 'toolbar'
         && (item.type === 'movie' || item.type === 'episode' || item.type === 'clip' || item.type === 'trailer');
+    const canRefreshMetadata = variant !== 'toolbar'
+        && !!String(item.ratingKey || '').replace(/^\d+::/, '').replace(/\D/g, '')
+        && (
+            item.type === 'movie'
+            || item.type === 'show'
+            || item.type === 'season'
+            || item.type === 'episode'
+            || item.type === 'artist'
+            || item.type === 'album'
+            || item.type === 'track'
+            || item.type === 'collection'
+        );
     const canPickAudio = variant === 'toolbar' && audioTracks.length > 0 && !!onAudioChange;
     const canPickSubtitles = variant === 'toolbar' && !!onSubtitleChange
         && (item.type === 'movie' || item.type === 'episode');
@@ -983,6 +997,31 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                 >
                     <Info className={iconClass} />
                     {t('mediaPlayerPage.fileInfo')}
+                </button>
+            ) : null}
+            {canRefreshMetadata ? (
+                <button
+                    type="button"
+                    role="menuitem"
+                    data-tv-item="1"
+                    data-tv-menu-item="1"
+                    className={itemClass}
+                    onClick={() => choose(async () => {
+                        toast(t('mediaPlayerPage.metadataRefreshStarted'), 'info');
+                        const result = await refreshMediaPlayerItemMetadata(item.ratingKey, {
+                            serverId: item.serverId || null,
+                            baseline: item,
+                        });
+                        toast(
+                            result.updated
+                                ? t('mediaPlayerPage.metadataRefreshUpdated')
+                                : t('mediaPlayerPage.metadataRefreshPending'),
+                            result.updated ? 'success' : 'info',
+                        );
+                    })}
+                >
+                    <RefreshCw className={iconClass} />
+                    {t('mediaPlayerPage.refreshMetadata')}
                 </button>
             ) : null}
             {canOfflineDownload ? (

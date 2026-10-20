@@ -78,6 +78,7 @@ import {
 } from '../shared/imageFocalPoint';
 import {
     writePlayerScrollTop,
+    PLAYER_METADATA_REFRESHED_EVENT,
     readPlayerItemCache,
     takePlayerItemSeed,
     writePlayerItemCache,
@@ -632,6 +633,44 @@ export const MediaPlayerDetails: React.FC<Props> = ({
     }, []);
 
     useEffect(() => {
+        const onMetadataRefreshed = (event: Event) => {
+            const detail = (event as CustomEvent<{ ratingKey?: string; item?: PlayerItem }>).detail;
+            const key = String(detail?.ratingKey || '').trim();
+            const next = detail?.item;
+            if (!key || !next) return;
+            if (String(ratingKey) !== key
+                && String(item?.ratingKey || '') !== key
+                && String(item?.grandparentRatingKey || '') !== key
+                && String(item?.parentRatingKey || '') !== key) {
+                return;
+            }
+            setItem((prev) => {
+                if (!prev) return applyRememberedProgress(next);
+                if (prev.type === 'episode' && next.type !== 'episode') {
+                    return applyRememberedProgress({
+                        ...prev,
+                        thumb: next.thumb || prev.thumb,
+                        art: next.art || prev.art,
+                        logo: next.logo || prev.logo,
+                        showTitle: next.title || prev.showTitle,
+                        summary: next.summary || prev.summary,
+                    });
+                }
+                return applyRememberedProgress({ ...prev, ...next, ratingKey: prev.ratingKey, type: prev.type });
+            });
+            void fetchMediaPlayerItem(ratingKey, { core: true, serverId: serverId || null })
+                .then((data) => {
+                    const rows = data.children || [];
+                    setItem(applyRememberedProgress(withWatchedProgress(data.item, rows)));
+                    setChildren(rows);
+                })
+                .catch(() => undefined);
+        };
+        window.addEventListener(PLAYER_METADATA_REFRESHED_EVENT, onMetadataRefreshed);
+        return () => window.removeEventListener(PLAYER_METADATA_REFRESHED_EVENT, onMetadataRefreshed);
+    }, [item?.grandparentRatingKey, item?.parentRatingKey, item?.ratingKey, ratingKey, serverId]);
+
+    useEffect(() => {
         let cancelled = false;
         // Core first (title + seasons/episodes). Extras/related/on-deck land via /more.
         const morePromise = fetchMediaPlayerItemMore(ratingKey, serverId || null).catch(() => null);
@@ -713,7 +752,12 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         fetchMediaPlayerItem(parentShowKey, { core: true, serverId: item.serverId || serverId || null })
             .then((page) => {
                 if (cancelled) return;
-                setShowSeasons((page.children || []).filter((row) => row.type === 'season' && row.ratingKey));
+                setShowSeasons((page.children || []).filter((row) => (
+                    row.type === 'season'
+                    && row.ratingKey
+                    && Number(row.index) !== -1
+                    && !/^all\s+episodes$/i.test(String(row.title || '').trim())
+                )));
             })
             .catch(() => {
                 if (!cancelled) setShowSeasons([]);
@@ -842,7 +886,11 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             setPhoneSeasonEpisodes(null);
             return undefined;
         }
-        const seasons = children.filter((row) => row.type === 'season');
+        const seasons = children.filter((row) => (
+            row.type === 'season'
+            && Number(row.index) !== -1
+            && !/^all\s+episodes$/i.test(String(row.title || '').trim())
+        ));
         if (seasons.length !== 1 || !seasons[0].ratingKey) {
             setPhoneSeasonEpisodes(null);
             return undefined;
@@ -870,7 +918,12 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             if (item?.type !== 'show') skipSingleSeasonRef.current = null;
             return;
         }
-        const seasons = children.filter((row) => row.type === 'season' && row.ratingKey);
+        const seasons = children.filter((row) => (
+            row.type === 'season'
+            && row.ratingKey
+            && Number(row.index) !== -1
+            && !/^all\s+episodes$/i.test(String(row.title || '').trim())
+        ));
         if (seasons.length !== 1) return;
         const season = seasons[0];
         const showKey = String(item.ratingKey || '');
@@ -1741,6 +1794,11 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             canPlay: nextType === 'album' || nextType === 'artist',
         } as PlayerItem);
     };
+    const isAllEpisodesSeason = (row: PlayerItem) => (
+        row.type === 'season'
+        && (Number(row.index) === -1 || /^all\s+episodes$/i.test(String(row.title || '').trim()))
+    );
+    const seasonChildren = children.filter((row) => row.type === 'season' && !isAllEpisodesSeason(row));
     const seasonPillLabel = (row: PlayerItem) => {
         if (row.index === 0) return row.title || t('common.specials');
         if (row.title) return row.title;
@@ -2787,15 +2845,15 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                         </div>
                     ) : null}
 
-                    {children.length && !isEpisodeGrid && !phoneListEpisodes.length && !musicItem ? (
+                    {seasonChildren.length && !isEpisodeGrid && !phoneListEpisodes.length && !musicItem ? (
                     <section className="media-details-seasons mt-6" data-tv-row="1" data-tv-row-id={`seasons:${item.ratingKey}`}>
                         <SectionHeading>
                             {isTvShell
-                                ? t(children.length === 1 ? 'common.seasonCount' : 'common.seasonCount_plural', { count: children.length })
+                                ? t(seasonChildren.length === 1 ? 'common.seasonCount' : 'common.seasonCount_plural', { count: seasonChildren.length })
                                 : t('mediaPlayerPage.seasons')}
                         </SectionHeading>
                         <Carousel posterRow flush>
-                            {children.map((row) => {
+                            {seasonChildren.map((row) => {
                                 const leaf = Number(row.leafCount || 0);
                                 const viewed = Number(row.viewedLeafCount || 0);
                                 const seasonWatched = Boolean(row.watched) || (leaf > 0 && viewed >= leaf);

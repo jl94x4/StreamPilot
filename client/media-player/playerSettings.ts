@@ -623,7 +623,7 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
     showServiceBrandLogos: true,
     serviceLogoPlates: true,
     showEpisodeFilePills: true,
-    watchedTickPosition: 'top-right',
+    watchedTickPosition: 'bottom-left',
     phoneOverviewPoster: false,
     skipSingleSeason: false,
     homeRowOrder: [],
@@ -698,7 +698,7 @@ export const normalizePlayerSettings = (raw: Partial<PlayerSettings> | Record<st
         showEpisodeFilePills: raw?.showEpisodeFilePills !== false,
         watchedTickPosition: isPlayerWatchedTickPosition(raw?.watchedTickPosition)
             ? raw!.watchedTickPosition as PlayerWatchedTickPosition
-            : 'top-right',
+            : 'bottom-left',
         phoneOverviewPoster: raw?.phoneOverviewPoster === true,
         skipSingleSeason: raw?.skipSingleSeason === true,
         homeRowOrder: collapseHomeRowOrder(raw?.homeRowOrder),

@@ -16,7 +16,14 @@ import {
 } from './host';
 import { fetchMediaPlayerHome, fetchMediaPlayerHomeFull, fetchMediaPlayerHomeHero, fetchMediaPlayerHomeHeroRefresh, fetchMediaPlayerItem, fetchMediaPlayerWatchlist, prefetchMediaPlayerItem, searchMediaPlayer, setMediaPlayerWatched } from './api';
 import { isPlexDirectMode } from '../plex-client/config';
-import { pinTvRailItemToSlot, visibleHomeStage } from '../plex-client/useTvRemote';
+import {
+    peekRememberedRowFocusKey,
+    peekRememberedTvFocusKey,
+    pinTvRailItemToSlot,
+    rememberTvFocusKey,
+    visibleHomeStage,
+} from '../plex-client/useTvRemote';
+import { PLAYER_APP_BASE, PLAYER_SCROLL_ID } from './paths';
 import { MediaPlayerHomeHero, type HomeHeroSlide } from './MediaPlayerHomeHero';
 import { PlayerPosterCard } from './PlayerPosterCard';
 import { PlayerRail } from './PlayerRail';
@@ -39,6 +46,7 @@ import {
     mergePlayerHomePayloads,
     PLAYER_HOME_RESET_EVENT,
     PLAYER_SEARCH_INPUT_ID,
+    PLAYER_METADATA_REFRESHED_EVENT,
     PLAYER_SEARCH_OPEN_EVENT,
     PLAYER_VOICE_RESULT_EVENT,
     coalescePlayerHomeWithCache,
@@ -59,7 +67,7 @@ import { PlayerClearLogo } from './PlayerClearLogo';
 import { PlayerServiceBrandMark } from './PlayerServiceBrandMark';
 import { PlayerTvScreensaver } from './PlayerTvScreensaver';
 import { itemHasBillboardBrandMeta } from './studioLogo.js';
-import { applyRememberedProgress, asRecentlyAddedPlayerItem, formatPlayerDate, formatPlayerDuration, heroRowCardItem, hideWatchedPlayerItems, isMusicPlayerItem, mapContinueWatchingItemsForLayout, pickRicherSummary, plexBackdropPreviewUrl, plexLogoUrl, PLAYER_PROGRESS_EVENT, replaceFamilyContinueSlot, restoreContinueSlot, watchTargetTouches, withShowPoster } from './playerUtils';
+import { applyRememberedProgress, asRecentlyAddedPlayerItem, formatPlayerDate, formatPlayerDuration, heroRowCardItem, hideWatchedPlayerItems, isMusicPlayerItem, keepContinueWatchingPoster, mapContinueWatchingItemsForLayout, pickRicherSummary, plexBackdropPreviewUrl, plexLogoUrl, PLAYER_PROGRESS_EVENT, prefetchContinueWatchingImages, replaceFamilyContinueSlot, restoreContinueSlot, watchTargetTouches, withShowPoster } from './playerUtils';
 import { usePlayerSettings } from './usePlayerSettings';
 import type { PlayerHome, PlayerItem, PlayerLibraryHub, PlayerPlayOptions, PlayerSection } from './types';
 
@@ -141,8 +149,7 @@ const HomeFocusStill: React.FC<{
     const show = useCallback((next: string) => {
         if (!next || next === currentRef.current || next === pendingRef.current) return;
         pendingRef.current = next;
-        const img = new Image();
-        img.onload = () => {
+        const commit = () => {
             if (pendingRef.current !== next) return;
             if (frontOnRef.current) {
                 setBack(next);
@@ -155,8 +162,27 @@ const HomeFocusStill: React.FC<{
             }
             currentRef.current = next;
         };
+        const warm = Array.from(document.images).find((img) => (
+            img.currentSrc === next && img.complete && img.naturalWidth > 0
+        ));
+        if (warm) {
+            commit();
+            return;
+        }
+        const img = new Image();
+        img.onload = commit;
         img.src = next;
     }, []);
+
+    const showTimerRef = useRef(0);
+    const showSoon = useCallback((next: string) => {
+        window.clearTimeout(showTimerRef.current);
+        if (!next) return;
+        // Skip the in-between posters while the remote is repeating.
+        showTimerRef.current = window.setTimeout(() => show(next), 70);
+    }, [show]);
+
+    useEffect(() => () => window.clearTimeout(showTimerRef.current), []);
 
     useEffect(() => {
         if (enabled && seed) show(seed);
@@ -166,7 +192,7 @@ const HomeFocusStill: React.FC<{
         if (!enabled) return undefined;
         const onFocus = (event: FocusEvent) => {
             const next = backdropFromFocusTarget(event.target);
-            if (next) show(next);
+            if (next) showSoon(next);
             const key = itemKeyFromFocusTarget(event.target);
             if (key) onFocusKey?.(key);
         };
@@ -177,7 +203,7 @@ const HomeFocusStill: React.FC<{
         const fromKey = itemKeyFromFocusTarget(focused);
         if (fromKey) onFocusKey?.(fromKey);
         return () => document.removeEventListener('focusin', onFocus, true);
-    }, [enabled, onFocusKey, show]);
+    }, [enabled, onFocusKey, show, showSoon]);
 
     if (!enabled) return null;
     const visible = frontOn ? front : back;
@@ -489,19 +515,6 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
     }, [searchArmed, isTvShell]);
 
     useEffect(() => {
-        const clearSearch = () => {
-            setQuery('');
-            setResults([]);
-            setSearching(false);
-            setSearchArmed(false);
-            setSearchActive(false);
-            searchRef.current?.blur();
-        };
-        window.addEventListener(PLAYER_HOME_RESET_EVENT, clearSearch);
-        return () => window.removeEventListener(PLAYER_HOME_RESET_EVENT, clearSearch);
-    }, []);
-
-    useEffect(() => {
         const onDraft = (event: Event) => {
             const detail = (event as CustomEvent<{ libraryNavOrder?: string[] }>).detail;
             setDraftLibraryOrder(Array.isArray(detail?.libraryNavOrder) ? detail.libraryNavOrder : null);
@@ -593,6 +606,61 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         window.addEventListener('online', onOnline);
         return () => window.removeEventListener('online', onOnline);
     }, [active, isTvShell, networkOnline, refreshHome]);
+
+    useEffect(() => {
+        if (!active) return undefined;
+        const onMetadataRefreshed = (event: Event) => {
+            const detail = (event as CustomEvent<{ ratingKey?: string; item?: PlayerItem }>).detail;
+            const key = String(detail?.ratingKey || '').trim();
+            const next = detail?.item;
+            if (!key || !next) {
+                void refreshHome({ force: true });
+                return;
+            }
+            const touches = (row: PlayerItem) => (
+                String(row.ratingKey || '') === key
+                || String(row.grandparentRatingKey || '') === key
+                || String(row.parentRatingKey || '') === key
+            );
+            const mergeRow = (row: PlayerItem): PlayerItem => {
+                if (!touches(row)) return row;
+                // Keep CW episode identity; swap poster/art/logo from refreshed metadata.
+                if (row.type === 'episode' && next.type !== 'episode') {
+                    return {
+                        ...row,
+                        thumb: next.thumb || row.thumb,
+                        art: next.art || row.art,
+                        logo: next.logo || row.logo,
+                        showTitle: next.title || row.showTitle,
+                    };
+                }
+                return { ...row, ...next, ratingKey: row.ratingKey, type: row.type };
+            };
+            setHome((prev) => {
+                if (!prev) return prev;
+                const hubs = (prev.hubs || []).map((hub) => ({
+                    ...hub,
+                    items: (hub.items || []).map(mergeRow),
+                }));
+                const patched = {
+                    ...prev,
+                    continueWatching: (prev.continueWatching || []).map(mergeRow),
+                    hubs,
+                    recentByLibrary: (prev.recentByLibrary || []).map((rail) => ({
+                        ...rail,
+                        items: (rail.items || []).map(mergeRow),
+                    })),
+                };
+                writePlayerHomeCache(patched);
+                return patched;
+            });
+            setWatchlistItems((prev) => prev.map(mergeRow));
+            // Soft full reload so any other rows pick up new stamps from Plex.
+            void refreshHome({ force: true });
+        };
+        window.addEventListener(PLAYER_METADATA_REFRESHED_EVENT, onMetadataRefreshed);
+        return () => window.removeEventListener(PLAYER_METADATA_REFRESHED_EVENT, onMetadataRefreshed);
+    }, [active, refreshHome]);
 
     useEffect(() => {
         if (!active) return undefined;
@@ -759,6 +827,15 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
     // updates in Plex and looked wrong next to Plex's own Continue Watching.
     const continueWatchingLayout = settings.continueWatchingLayout;
     const continueWatchingAspect = continueWatchingRailAspect(continueWatchingLayout);
+    // Warm CW show posters + episode stills/backdrops so opening an item does not wait on art.
+    useEffect(() => {
+        if (!active || !home || !showContinueWatchingRail) return undefined;
+        const cwHub = (home.hubs || []).find(isContinueWatchingHub);
+        const items = (cwHub?.items?.length ? cwHub.items : home.continueWatching) || [];
+        if (!items.length) return undefined;
+        const timer = window.setTimeout(() => prefetchContinueWatchingImages(items, 24), 0);
+        return () => window.clearTimeout(timer);
+    }, [active, home, showContinueWatchingRail]);
     const cwOrderKeysRef = useRef<string[]>([]);
     const cwOrderSortRef = useRef(settings.continueWatchingSort);
     const freezeContinueWatching = useCallback((items: PlayerItem[]) => {
@@ -981,6 +1058,59 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
     const tvRowFocusRef = useRef<Record<string, string>>({});
     tvRowIndexRef.current = tvRowIndex;
     tvRowsRef.current = tvHomeRows;
+
+    useEffect(() => {
+        const onHomeReset = () => {
+            setQuery('');
+            setResults([]);
+            setSearching(false);
+            setSearchArmed(false);
+            setSearchActive(false);
+            searchRef.current?.blur();
+            // Sidebar Home (or Back-to-home) while already on Home → Continue Watching.
+            setTvRowDir(null);
+            setTvRowIndex(0);
+            const firstRow = tvRowsRef.current[0];
+            const firstKey = String(firstRow?.items?.[0]?.ratingKey || '').trim();
+            if (firstRow?.id && firstKey) {
+                tvRowFocusRef.current[firstRow.id] = firstKey;
+                setTvFocusKey(firstKey);
+                rememberTvFocusKey(firstKey, PLAYER_APP_BASE);
+            }
+            const scroller = document.getElementById(PLAYER_SCROLL_ID);
+            if (scroller) {
+                try {
+                    scroller.scrollTo({ top: 0, behavior: 'auto' });
+                } catch {
+                    scroller.scrollTop = 0;
+                }
+            }
+            let attempts = 0;
+            const focusTop = () => {
+                const stage = visibleHomeStage();
+                const rail = stage?.querySelector<HTMLElement>('.player-home-stage-rail');
+                const match = firstKey && rail
+                    ? rail.querySelector<HTMLElement>(`[data-tv-poster-btn="1"][data-tv-key="${CSS.escape(firstKey)}"]`)
+                    : null;
+                const btn = match || rail?.querySelector<HTMLElement>('[data-tv-poster-btn="1"]');
+                if (btn) {
+                    try {
+                        btn.focus({ preventScroll: true });
+                    } catch {
+                        btn.focus();
+                    }
+                    pinTvRailItemToSlot(btn);
+                    return;
+                }
+                if (attempts++ < 24) window.setTimeout(focusTop, 16);
+            };
+            window.requestAnimationFrame(focusTop);
+            window.setTimeout(focusTop, 40);
+        };
+        window.addEventListener(PLAYER_HOME_RESET_EVENT, onHomeReset);
+        return () => window.removeEventListener(PLAYER_HOME_RESET_EVENT, onHomeReset);
+    }, []);
+
     const tvStage = isTvShell && !searchActive;
     const tvRowSafeIndex = Math.min(tvRowIndex, Math.max(0, tvHomeRows.length - 1));
     const tvActiveRow = tvHomeRows[tvRowSafeIndex] || null;
@@ -996,8 +1126,10 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         return {
             ...base,
             ...extra,
-            thumb: base.thumb,
-            art: extra.art || base.art,
+            thumb: base.thumb || extra.thumb,
+            // Keep the art already on the card. A later metadata fetch used to swap in a
+            // different URL and the backdrop sat on the previous title until it downloaded.
+            art: base.art || extra.art,
             logo: extra.logo || base.logo,
             // Recently Added cards use the show title on the poster; keep that for the
             // billboard headline and pull SxxExx / episode name / synopsis from the leaf.
@@ -1055,22 +1187,29 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         return () => window.removeEventListener(TV_HOME_ROW_EVENT, onRow);
     }, [active, tvFocusKey, tvStage]);
 
+    // Keep per-row restore in sync with live poster focus (horizontal moves used to
+    // leave a stale key — Back then jumped to an older Continue Watching title).
+    useEffect(() => {
+        if (!tvStage || !active || !tvActiveRow?.id || !tvFocusKey) return;
+        tvRowFocusRef.current[tvActiveRow.id] = tvFocusKey;
+    }, [active, tvActiveRow?.id, tvFocusKey, tvStage]);
+
     useEffect(() => {
         if (!tvStage || !active || !tvActiveRow) return undefined;
         const rowId = tvActiveRow.id;
-        const saved = tvRowFocusRef.current[rowId];
+        const railRowId = `hub:${rowId}`;
+        // Prefer path-level memory (updated on every focusin) over the row ref, which
+        // only used to update on vertical row changes and could revive an old poster.
+        const pathKey = peekRememberedTvFocusKey(PLAYER_APP_BASE) || peekRememberedTvFocusKey();
+        const rowKey = peekRememberedRowFocusKey(railRowId)
+            || peekRememberedRowFocusKey(rowId)
+            || tvRowFocusRef.current[rowId]
+            || '';
+        const saved = pathKey || rowKey;
+        if (saved) tvRowFocusRef.current[rowId] = saved;
         let cancelled = false;
-        const focusSaved = () => {
-            if (cancelled) return true;
-            const stage = visibleHomeStage();
-            if (!stage) return false;
-            const root = stage.querySelector<HTMLElement>('.player-home-stage-rail');
-            if (!root) return false;
-            const match = saved
-                ? root.querySelector<HTMLElement>(`[data-tv-poster-btn="1"][data-tv-key="${CSS.escape(saved)}"]`)
-                : null;
-            const btn = match || root.querySelector<HTMLElement>('[data-tv-poster-btn="1"]');
-            if (!btn) return false;
+        let attempts = 0;
+        const focusEl = (btn: HTMLElement) => {
             try {
                 btn.focus({ preventScroll: true });
             } catch {
@@ -1080,10 +1219,33 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             const activeEl = document.activeElement as HTMLElement | null;
             return Boolean(activeEl && (activeEl === btn || btn.contains(activeEl)));
         };
-        let attempts = 0;
+        const focusSaved = () => {
+            if (cancelled) return true;
+            const stage = visibleHomeStage();
+            if (!stage) return false;
+            const root = stage.querySelector<HTMLElement>('.player-home-stage-rail');
+            if (!root) return false;
+            const posters = root.querySelectorAll<HTMLElement>('[data-tv-poster-btn="1"]');
+            if (!posters.length) return false;
+            const pathMatch = pathKey
+                ? root.querySelector<HTMLElement>(`[data-tv-poster-btn="1"][data-tv-key="${CSS.escape(pathKey)}"]`)
+                : null;
+            if (pathMatch) {
+                tvRowFocusRef.current[rowId] = pathKey;
+                return focusEl(pathMatch);
+            }
+            const rowMatch = rowKey
+                ? root.querySelector<HTMLElement>(`[data-tv-poster-btn="1"][data-tv-key="${CSS.escape(rowKey)}"]`)
+                : null;
+            if (rowMatch) return focusEl(rowMatch);
+            // Path key may still be arming into this rail — wait before falling back.
+            // If it never appears, path memory belonged to another hub row.
+            if (pathKey && attempts < 36) return false;
+            return focusEl(posters[0]);
+        };
         const tick = () => {
             if (focusSaved()) return;
-            if (cancelled || attempts++ >= 24) return;
+            if (cancelled || attempts++ >= 48) return;
             window.setTimeout(tick, 16);
         };
         const timer = window.setTimeout(tick, 0);
@@ -1097,21 +1259,29 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
     useEffect(() => {
         const key = String(tvSpotItem?.ratingKey || '');
         if (!tvStage || !key) return undefined;
+        const serverId = tvSpotItem?.serverId || null;
         const cached = readPlayerItemCache(key);
         if (cached?.item) {
             setTvSpotExtra((prev) => (prev[key] ? prev : { ...prev, [key]: cached.item }));
             // Episodes need show studio / showTmdbId — leaf episode TMDB ids must not skip enrich.
-            if (cached.item.logo && itemHasBillboardBrandMeta(cached.item)) return undefined;
+            if (cached.item.logo && itemHasBillboardBrandMeta(cached.item) && cached.item.summary) return undefined;
         }
-        prefetchMediaPlayerItem(key);
         let cancelled = false;
-        void fetchMediaPlayerItem(key, { core: true, serverId: tvSpotItem?.serverId || null })
-            .then((page) => {
-                if (cancelled || !page?.item) return;
-                setTvSpotExtra((prev) => ({ ...prev, [key]: page.item }));
-            })
-            .catch(() => undefined);
-        return () => { cancelled = true; };
+        // Wait until the remote settles so a fast scroll does not pile metadata requests.
+        const timer = window.setTimeout(() => {
+            if (cancelled) return;
+            prefetchMediaPlayerItem(key);
+            void fetchMediaPlayerItem(key, { core: true, serverId })
+                .then((page) => {
+                    if (cancelled || !page?.item) return;
+                    setTvSpotExtra((prev) => ({ ...prev, [key]: page.item }));
+                })
+                .catch(() => undefined);
+        }, 180);
+        return () => {
+            cancelled = true;
+            window.clearTimeout(timer);
+        };
     }, [tvSpotItem?.ratingKey, tvSpotItem?.serverId, tvStage]);
 
     useEffect(() => {
@@ -1143,12 +1313,18 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                     let nextList = withoutContinue(list);
                     if (!drop && seed && Number(seed.viewOffsetMs || 0) > 0 && !seed.watched) {
                         const familyKey = String(seed.grandparentRatingKey || seed.parentRatingKey || seed.ratingKey);
+                        const previous = list.find((row) => (
+                            watchTargetTouches(row, key)
+                            || watchTargetTouches(row, familyKey)
+                            || String(row.ratingKey) === String(seed.ratingKey)
+                        ));
+                        const card = keepContinueWatchingPoster(seed, previous);
                         const without = nextList.filter((row) => (
                             !watchTargetTouches(row, key)
                             && !watchTargetTouches(row, familyKey)
                             && String(row.ratingKey) !== String(seed.ratingKey)
                         ));
-                        nextList = [seed, ...without].slice(0, 20);
+                        nextList = [card, ...without].slice(0, 20);
                     }
                     return nextList;
                 };

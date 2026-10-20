@@ -127,15 +127,7 @@ public class MainActivity extends BridgeActivity {
             try {
                 webView.invalidate();
                 webView.requestLayout();
-                // ExoPlayer often leaves the WebView compositor black until it is remounted.
-                if (webView.getVisibility() == View.VISIBLE) {
-                    webView.setVisibility(View.INVISIBLE);
-                    webView.post(() -> {
-                        webView.setVisibility(View.VISIBLE);
-                        webView.invalidate();
-                        webView.requestFocus();
-                    });
-                }
+                webView.requestFocus();
             } catch (Throwable ignored) {
                 /* older WebView */
             }

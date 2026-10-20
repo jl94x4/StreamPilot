@@ -1,9 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Leanback / D-pad sizes — keep chrome compact on the 10-foot UI. -->
-    <dimen name="player_transport_size">26dp</dimen>
-    <dimen name="player_transport_play_size">28dp</dimen>
-    <dimen name="player_transport_padding">4dp</dimen>
+    <!-- Leanback / D-pad sizes — keep chrome compact on the 10-foot UI (~15% smaller). -->
+    <dimen name="player_transport_size">22dp</dimen>
+    <dimen name="player_transport_play_size">24dp</dimen>
+    <dimen name="player_transport_padding">3dp</dimen>
+    <dimen name="player_transport_time_size">12sp</dimen>
+    <dimen name="player_transport_ends_size">11sp</dimen>
+    <dimen name="player_transport_mode_size">9sp</dimen>
+    <dimen name="player_transport_mode_pad_h">9dp</dimen>
+    <dimen name="player_transport_mode_pad_v">3dp</dimen>
     <dimen name="player_chip_min_height">28dp</dimen>
     <dimen name="player_chip_text_size">10sp</dimen>
     <dimen name="player_chip_padding_h">11dp</dimen>
