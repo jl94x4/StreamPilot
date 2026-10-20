@@ -269,7 +269,7 @@ declare global {
     }
 }
 
-const HOME_SCREEN_FALLBACK_REV = 'hs12-ios-stacked-app';
+const HOME_SCREEN_FALLBACK_REV = 'hs13-ios-centered';
 
 export const updateFavicon = (thumbUrl: string | null | undefined) => {
     let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
@@ -291,24 +291,29 @@ export const updateFavicon = (thumbUrl: string | null | undefined) => {
     // query-string icon URL. Always keep a same-origin relative URL — absolute
     // publicDomain hosts the phone cannot reach also fall back to a letter.
     void thumbUrl;
-    const fromConfig = typeof window !== 'undefined'
+    const sameOriginPath = (raw: string, fallback: string) => {
+        try {
+            if (/^https?:\/\//i.test(raw) && typeof window !== 'undefined') {
+                const parsed = new URL(raw, window.location.origin);
+                if (parsed.origin === window.location.origin) return `${parsed.pathname}${parsed.search}`;
+                return fallback;
+            }
+        } catch {
+            return fallback;
+        }
+        return raw || fallback;
+    };
+    const appleFallback = portalUrl(`/static/apple-touch-${HOME_SCREEN_FALLBACK_REV}.png`);
+    const faviconFallback = portalUrl('/static/favicon-180.png');
+    const appleRaw = typeof window !== 'undefined'
         ? String((window as any).__APPLE_TOUCH_ICON_HREF__ || '').trim()
         : '';
-    const raw = fromConfig || portalUrl(`/static/apple-touch-${HOME_SCREEN_FALLBACK_REV}.png`);
-    let href = raw;
-    try {
-        if (/^https?:\/\//i.test(raw) && typeof window !== 'undefined') {
-            const parsed = new URL(raw, window.location.origin);
-            href = parsed.origin === window.location.origin
-                ? `${parsed.pathname}${parsed.search}`
-                : portalUrl(`/static/apple-touch-${HOME_SCREEN_FALLBACK_REV}.png`);
-        }
-    } catch {
-        href = portalUrl(`/static/apple-touch-${HOME_SCREEN_FALLBACK_REV}.png`);
-    }
-    link.href = href;
-    appleLink.href = href;
-    appleLink.setAttribute('sizes', '180x180');
+    const faviconRaw = typeof window !== 'undefined'
+        ? String((window as any).__FAVICON_HREF__ || '').trim()
+        : '';
+    appleLink.href = sameOriginPath(appleRaw, appleFallback);
+    appleLink.setAttribute('sizes', '512x512');
+    link.href = sameOriginPath(faviconRaw, faviconFallback);
 };
 
 // --- Components ---

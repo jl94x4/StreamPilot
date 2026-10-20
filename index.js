@@ -22622,14 +22622,20 @@ const injectAppIconLinks = (html, iconHref) => {
     const manifestHref = escapeHtmlAttr(withBasePath('/manifest.webmanifest'));
     const manifestTag = `<link rel="manifest" href="${manifestHref}" />`;
     const bootScript = `<script>window.__APPLE_TOUCH_ICON_HREF__=${JSON.stringify(rawHref)};window.__HOME_SCREEN_ICON_REV__=${JSON.stringify(HOME_SCREEN_ICON_REV)};</script>`;
-    // Exactly one apple-touch-icon (180x180, same-origin, no query string) — the
-    // textbook shape iOS 26+ install reliably honours. Extra precomposed / duplicate
-    // links and ?hs= / ?v= query URLs were present on every deployment that showed a
-    // letter glyph instead of the logo. /apple-touch-icon.png is still served for probes.
+    // Exactly one apple-touch-icon (same-origin, no query string). Extra precomposed
+    // links and ?hs= / ?v= query URLs made iOS 26+ install show a letter glyph.
+    // The file is 512px so the home-screen preview is not an upscaled 180px favicon.
+    // /apple-touch-icon.png is still served for probes.
+    const faviconHref = escapeHtmlAttr(resolvePublicAssetHref('/static/favicon-180.png'));
+    const favicon32Href = escapeHtmlAttr(resolvePublicAssetHref('/static/favicon-32.png'));
     const iconLinks = [
-        bootScript,
-        `<link rel="icon" type="image/png" sizes="180x180" href="${safeHref}" />`,
-        `<link rel="apple-touch-icon" sizes="180x180" href="${safeHref}" />`,
+        bootScript.replace(
+            'window.__APPLE_TOUCH_ICON_HREF__=',
+            `window.__FAVICON_HREF__=${JSON.stringify(resolvePublicAssetHref('/static/favicon-180.png'))};window.__APPLE_TOUCH_ICON_HREF__=`,
+        ),
+        `<link rel="icon" type="image/png" sizes="32x32" href="${favicon32Href}" />`,
+        `<link rel="icon" type="image/png" sizes="180x180" href="${faviconHref}" />`,
+        `<link rel="apple-touch-icon" sizes="512x512" href="${safeHref}" />`,
     ].join('\n    ');
     let updated = html
         .replace(/<link\b(?=[^>]*\brel=["'][^"']*manifest[^"']*["'])[^>]*>\s*/gi, '')
