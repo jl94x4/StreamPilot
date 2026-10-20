@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Leanback / D-pad sizes — keep chrome compact on the 10-foot UI. -->
-    <dimen name="player_transport_size">35dp</dimen>
-    <dimen name="player_transport_play_size">40dp</dimen>
-    <dimen name="player_transport_padding">8dp</dimen>
+    <dimen name="player_transport_size">26dp</dimen>
+    <dimen name="player_transport_play_size">28dp</dimen>
+    <dimen name="player_transport_padding">4dp</dimen>
     <dimen name="player_chip_min_height">28dp</dimen>
     <dimen name="player_chip_text_size">10sp</dimen>
     <dimen name="player_chip_padding_h">11dp</dimen>
-    <dimen name="player_menu_row_min_height">34dp</dimen>
+    <dimen name="player_menu_row_min_height">32dp</dimen>
     <dimen name="player_menu_row_text_size">13sp</dimen>
-    <dimen name="player_bottom_pad">25dp</dimen>
+    <dimen name="player_bottom_pad">8dp</dimen>
 </resources>

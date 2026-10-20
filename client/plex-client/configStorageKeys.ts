@@ -1,4 +1,6 @@
 export const STORAGE_PORTAL = 'plexClient.portalBaseUrl';
+/** Dedicated Watch Together sync relay (WS). Preferred over portalBaseUrl for WT. */
+export const STORAGE_WT_RELAY = 'plexClient.wtRelayUrl';
 export const STORAGE_TOKEN = 'plexClient.sessionToken';
 export const STORAGE_AUTH_MODE = 'plexClient.authMode';
 export const STORAGE_PLEX_SERVER = 'plexClient.plexServer';

@@ -1,8 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import {
+    Carousel,
     CustomSelect,
     DiscoverGridSizeSelect,
+    DiscoverSectionHeader,
+    DiscoveryLogo,
     discoveryTheme,
     PosterGridSkeleton,
     homeRailPosterDensity,
@@ -17,8 +20,12 @@ import {
     fetchMediaPlayerLibrary,
     fetchMediaPlayerLibraryFilters,
     fetchMediaPlayerLibraryHome,
+    fetchMediaPlayerLibraryStudios,
     setMediaPlayerWatched,
 } from './api';
+import { discoveryLogoUrl } from '../discovery/discoveryLogoUtils';
+import { studioBrowsePlateBackground } from './studioBrowsePlate.js';
+import type { PlayerStudioBrowseCard } from './types';
 import { readLibraryBrowseState, readLibraryHomeCache, writeLibraryBrowseState, writeLibraryHomeCache } from './playerMemory';
 import { PLAYER_SCROLL_ID } from './paths';
 import { PlayerPosterCard } from './PlayerPosterCard';
@@ -35,6 +42,7 @@ import {
     heroRowCardItem,
     hideWatchedPlayerItems,
     isMusicPlayerItem,
+    asRecentlyAddedPlayerItem,
     mapContinueWatchingItemsForLayout,
     playerCardImageUrl,
     PLAYER_PROGRESS_EVENT,
@@ -46,7 +54,7 @@ import {
 } from './playerUtils';
 import type { PlayerItem, PlayerLibraryHub, PlayerPlayOptions } from './types';
 
-type LibraryTab = 'home' | 'browse' | 'collections';
+type LibraryTab = 'home' | 'browse' | 'collections' | 'studios';
 
 type Props = {
     sectionKey: string;
@@ -56,6 +64,7 @@ type Props = {
     onOpenItem: (item: PlayerItem) => void;
     onOpenCollection: (sectionKey: string, item: PlayerItem) => void;
     onOpenHub?: (hub: PlayerLibraryHub) => void;
+    onOpenStudio?: (studio: { key: string; name: string; sectionKey?: string; mediaType?: 'movie' | 'show' }) => void;
     onChangeTab: (tab: LibraryTab) => void;
     onPlay: (item: PlayerItem, opts?: PlayerPlayOptions) => void;
     onPlayNext?: (item: PlayerItem) => void;
@@ -168,6 +177,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
     onOpenItem,
     onOpenCollection,
     onOpenHub,
+    onOpenStudio,
     onChangeTab,
     onPlay,
     onPlayNext,
@@ -211,6 +221,8 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
     const [hubs, setHubs] = useState<PlayerLibraryHub[]>(() => readLibraryHomeCache(sectionKey)?.hubs || []);
     const [items, setItems] = useState<PlayerItem[]>([]);
     const [collections, setCollections] = useState<PlayerItem[]>([]);
+    const [studioNetworks, setStudioNetworks] = useState<PlayerStudioBrowseCard[]>([]);
+    const [studioStudios, setStudioStudios] = useState<PlayerStudioBrowseCard[]>([]);
     const [total, setTotal] = useState(0);
     const [loading, setLoading] = useState(() => tab === 'home' ? !readLibraryHomeCache(sectionKey)?.hubs?.length : true);
     const [loadingMore, setLoadingMore] = useState(false);
@@ -291,9 +303,14 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
             const items = settings.hideWatchedFromRecents
                 ? hideWatchedPlayerItems(hub.items)
                 : (hub.items || []);
-            return { ...hub, items: items.map(withShowPoster) };
+            return {
+                ...hub,
+                items: items.map((item) => asRecentlyAddedPlayerItem(item, {
+                    preferSeasonPoster: settings.recentlyAddedSeasonPoster,
+                })),
+            };
         }).filter((hub) => hub.items?.length);
-    }, [hubs, settings.hideWatchedFromRecents]);
+    }, [hubs, settings.hideWatchedFromRecents, settings.recentlyAddedSeasonPoster]);
 
     const freezeContinueWatching = useCallback((items: PlayerItem[]) => {
         if (cwOrderSortRef.current !== settings.continueWatchingSort) {
@@ -319,7 +336,11 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                 ? freezeContinueWatching(hub.items).map(withShowPoster)
                 : hero
                     ? hub.items.map(heroRowCardItem)
-                    : hub.items;
+                    : recent
+                        ? hub.items.map((item) => asRecentlyAddedPlayerItem(item, {
+                            preferSeasonPoster: settings.recentlyAddedSeasonPoster,
+                        }))
+                        : hub.items;
             if (!items.length) continue;
             rows.push({
                 id: hub.identifier || `hub:${hub.title}`,
@@ -343,7 +364,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
             });
         }
         return rows;
-    }, [freezeContinueWatching, homeHubs, musicLibrary, onOpenHub]);
+    }, [freezeContinueWatching, homeHubs, musicLibrary, onOpenHub, settings.recentlyAddedSeasonPoster]);
 
     const loadHome = useCallback(async () => {
         const seq = homeLoadRef.current + 1;
@@ -596,6 +617,29 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
         }
     }, [sectionKey, t]);
 
+    const loadStudios = useCallback(async () => {
+        setLoading(true);
+        try {
+            const data = await fetchMediaPlayerLibraryStudios(sectionKey);
+            setTitle(t('mediaPlayerPage.studios'));
+            setStudioNetworks(data.networks || []);
+            setStudioStudios(data.studios || []);
+            setError(null);
+        } catch (err: any) {
+            setError(String(err?.message || t('mediaPlayerPage.loadError')));
+            setStudioNetworks([]);
+            setStudioStudios([]);
+        } finally {
+            setLoading(false);
+        }
+    }, [sectionKey, t]);
+
+    useEffect(() => {
+        if (musicLibrary && tab === 'studios') {
+            onChangeTab('home');
+        }
+    }, [musicLibrary, onChangeTab, tab]);
+
     useEffect(() => {
         if (tab !== 'browse') {
             browseGenRef.current += 1;
@@ -608,12 +652,13 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
         if (!hydrated) return;
         if (tab === 'home') void loadHome();
         else if (tab === 'collections') void loadCollections();
+        else if (tab === 'studios') void loadStudios();
         else {
             setItems([]);
             clearPrefetchedPlayerImages();
             void loadBrowse(0, false);
         }
-    }, [hydrated, loadBrowse, loadCollections, loadHome, tab]);
+    }, [hydrated, loadBrowse, loadCollections, loadHome, loadStudios, tab]);
 
     useEffect(() => {
         clearPrefetchedPlayerImages();
@@ -628,6 +673,18 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
             );
             return;
         }
+        if (tab === 'studios') {
+            const cards = [...studioNetworks, ...studioStudios].slice(0, 8);
+            if (!cards.length) return;
+            prefetchPlayerImages(
+                cards.flatMap((card) => [
+                    playerCardImageUrl(card.thumb || card.art, '2/3'),
+                    card.logoPath ? discoveryLogoUrl(card.logoPath, 300) : null,
+                ]),
+                8,
+            );
+            return;
+        }
         if (tab !== 'browse' || !items.length) return;
         const cols = Math.max(1, browseColumnsRef.current || estimateBrowseColumns(gridSize));
         const from = Math.max(0, browseFocusAbsRef.current);
@@ -637,7 +694,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
             slice.map((item) => playerCardImageUrl(item.thumb, item.type === 'episode' ? '16/9' : musicLibrary ? 'square' : '2/3')),
             Math.min(16, slice.length),
         );
-    }, [collections, gridSize, items, musicLibrary, tab]);
+    }, [collections, gridSize, items, musicLibrary, studioNetworks, studioStudios, tab]);
 
     useEffect(() => {
         if (!active || tab !== 'browse' || !browseHasMore || !items.length) return;
@@ -847,7 +904,9 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
         ? homeHubs.some((hub) => hub.items?.length)
         : tab === 'collections'
             ? collections.length > 0
-            : items.length > 0;
+            : tab === 'studios'
+                ? (studioNetworks.length + studioStudios.length) > 0
+                : items.length > 0;
 
     useEffect(() => {
         if (!isTvShell() || !posterReady) return undefined;
@@ -1047,6 +1106,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
         { id: 'home', label: t('mediaPlayerPage.libraryHome') },
         { id: 'browse', label: t('mediaPlayerPage.browse') },
         { id: 'collections', label: t('mediaPlayerPage.collections') },
+        ...(!musicLibrary ? [{ id: 'studios' as const, label: t('mediaPlayerPage.studios') }] : []),
     ];
 
     const sortLabels: Record<string, string> = {
@@ -1473,6 +1533,26 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                     className={upgraderPosterGridClass(gridSize)}
                     style={upgraderPosterGridStyle(gridSize)}
                 />
+            ) : loading && tab === 'studios' && !studioNetworks.length && !studioStudios.length ? (
+                tvShell ? (
+                    <div className="flex min-h-[40vh] w-full flex-col items-center justify-center gap-3">
+                        <Loader2 className="h-10 w-10 animate-spin text-white/70" aria-hidden />
+                        <p className="text-sm font-semibold text-muted">{t('mediaPlayerPage.loading')}</p>
+                    </div>
+                ) : (
+                    <div className="flex flex-col gap-8">
+                        <div className="flex gap-3 overflow-hidden">
+                            {Array.from({ length: 5 }).map((_, i) => (
+                                <div key={`net-skel-${i}`} className="h-52 w-36 flex-shrink-0 animate-pulse rounded-xl bg-white/5" />
+                            ))}
+                        </div>
+                        <div className="flex gap-3 overflow-hidden">
+                            {Array.from({ length: 4 }).map((_, i) => (
+                                <div key={`stu-skel-${i}`} className="h-28 w-52 flex-shrink-0 animate-pulse rounded-xl bg-white/5" />
+                            ))}
+                        </div>
+                    </div>
+                )
             ) : error && tab !== 'browse' ? (
                 tvShell ? (
                     <PlayerTvStatusPanel
@@ -1480,6 +1560,8 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                         onRetry={() => {
                             setError(null);
                             if (tab === 'collections') void loadCollections();
+                            else if (tab === 'studios') void loadStudios();
+                            else if (tab === 'home') void loadHome();
                             else void loadBrowse(0, false);
                         }}
                         onBack={onBack}
@@ -1554,6 +1636,134 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                 ) : (
                     <div className={discoveryTheme.emptyState}>
                         <p className={discoveryTheme.emptyTitle}>{t('mediaPlayerPage.emptyCollections')}</p>
+                    </div>
+                )
+            ) : tab === 'studios' ? (
+                (studioNetworks.length || studioStudios.length) ? (
+                    <div className="player-library-studios tv-poster-rows player-home-rows flex flex-col gap-12 pb-10">
+                        {studioNetworks.length ? (
+                            <div
+                                data-tv-row="1"
+                                data-tv-row-id="lib:networks"
+                                className="flex min-w-0 max-w-full flex-col gap-3"
+                            >
+                                <DiscoverSectionHeader title={t('mediaPlayerPage.browseByNetwork')} />
+                                <Carousel posterRow flush>
+                                    {studioNetworks.map((card, index) => {
+                                        const artUrl = playerCardImageUrl(card.thumb || card.art, '2/3');
+                                        return (
+                                            <div
+                                                key={`net-${card.key}-${card.title}`}
+                                                className="player-studio-network-card relative z-0 w-[10.5rem] flex-shrink-0 snap-start sm:w-[12rem]"
+                                            >
+                                                <button
+                                                    type="button"
+                                                    data-tv-item={tvShell ? '1' : undefined}
+                                                    data-tv-key={tvShell ? `studio-network-${card.key}` : undefined}
+                                                    aria-label={card.title}
+                                                    onClick={() => onOpenStudio?.({
+                                                        key: card.key,
+                                                        name: card.title,
+                                                        sectionKey,
+                                                        mediaType: 'show',
+                                                    })}
+                                                    className="group flex w-full flex-col overflow-hidden rounded-[1.15rem] bg-[#141414] text-left shadow-[0_10px_28px_rgba(0,0,0,0.55)] transition focus:outline-none focus-visible:ring-2 focus-visible:ring-plex"
+                                                >
+                                                    {/* Vision: art plane on top, hard-cut dark logo strip — no wash/fade. */}
+                                                    <div className="aspect-[4/5] w-full overflow-hidden bg-[#0c0c0c]">
+                                                        {artUrl ? (
+                                                            <img
+                                                                src={artUrl}
+                                                                alt=""
+                                                                loading={index < 8 ? 'eager' : 'lazy'}
+                                                                className="h-full w-full object-cover"
+                                                            />
+                                                        ) : (
+                                                            <div
+                                                                className="h-full w-full"
+                                                                style={{ background: studioBrowsePlateBackground(card.title) }}
+                                                            />
+                                                        )}
+                                                    </div>
+                                                    <div className="flex h-[4.25rem] items-center justify-center bg-[#1a1a1a] px-4 sm:h-[4.6rem]">
+                                                        {card.logoPath ? (
+                                                            <DiscoveryLogo
+                                                                logoPath={card.logoPath}
+                                                                alt={card.title}
+                                                                width={300}
+                                                                tone="light"
+                                                                loading={index < 8 ? 'eager' : 'lazy'}
+                                                                className="max-h-[2.35rem] max-w-[88%] object-contain sm:max-h-[2.6rem]"
+                                                            />
+                                                        ) : (
+                                                            <span className="line-clamp-2 text-center text-xs font-bold tracking-wide text-white">
+                                                                {card.title}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </button>
+                                            </div>
+                                        );
+                                    })}
+                                </Carousel>
+                            </div>
+                        ) : null}
+                        {studioStudios.length ? (
+                            <div
+                                data-tv-row="1"
+                                data-tv-row-id="lib:studios"
+                                className="flex min-w-0 max-w-full flex-col gap-2"
+                            >
+                                <div className="flex flex-col gap-1">
+                                    <DiscoverSectionHeader title={t('mediaPlayerPage.browseByStudio')} />
+                                    <p className="player-studio-browse-subtitle pl-5 text-sm font-medium text-white/45">
+                                        {t('mediaPlayerPage.browseByStudioSubtitle')}
+                                    </p>
+                                </div>
+                                <Carousel posterRow flush>
+                                    {studioStudios.map((card, index) => (
+                                        <div
+                                            key={`stu-${card.key}-${card.title}`}
+                                            className="player-studio-plate-card relative z-0 w-[17.5rem] flex-shrink-0 snap-start sm:w-[20rem]"
+                                        >
+                                            <button
+                                                type="button"
+                                                data-tv-item={tvShell ? '1' : undefined}
+                                                data-tv-key={tvShell ? `studio-studio-${card.key}` : undefined}
+                                                aria-label={card.title}
+                                                onClick={() => onOpenStudio?.({
+                                                    key: card.key,
+                                                    name: card.title,
+                                                    sectionKey,
+                                                    mediaType: 'movie',
+                                                })}
+                                                className="group relative flex h-[9.75rem] w-full items-center justify-center overflow-hidden rounded-[1.15rem] px-6 shadow-[0_10px_28px_rgba(0,0,0,0.5)] transition focus:outline-none focus-visible:ring-2 focus-visible:ring-plex sm:h-[10.75rem]"
+                                                style={{ background: studioBrowsePlateBackground(card.title) }}
+                                            >
+                                                {card.logoPath ? (
+                                                    <DiscoveryLogo
+                                                        logoPath={card.logoPath}
+                                                        alt={card.title}
+                                                        width={780}
+                                                        tone="light"
+                                                        loading={index < 8 ? 'eager' : 'lazy'}
+                                                        className="relative z-10 max-h-[68%] max-w-[78%] object-contain drop-shadow-[0_6px_20px_rgba(0,0,0,0.4)]"
+                                                    />
+                                                ) : (
+                                                    <span className="relative z-10 line-clamp-2 text-center text-lg font-bold tracking-wide text-white">
+                                                        {card.title}
+                                                    </span>
+                                                )}
+                                            </button>
+                                        </div>
+                                    ))}
+                                </Carousel>
+                            </div>
+                        ) : null}
+                    </div>
+                ) : (
+                    <div className={discoveryTheme.emptyState}>
+                        <p className={discoveryTheme.emptyTitle}>{t('mediaPlayerPage.emptyStudios')}</p>
                     </div>
                 )
             ) : (

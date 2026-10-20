@@ -70,14 +70,22 @@ export const resolvePlayerCardAspect = (
     return '2/3';
 };
 
-/** Rewrite a Plex photo transcode so album art is not pre-cropped to 2:3. */
-export const resizePlexArtUrl = (url: string | null | undefined, width: number, height: number) => {
+/** Rewrite a Plex photo transcode size (and optional quality) without changing the path. */
+export const resizePlexArtUrl = (
+    url: string | null | undefined,
+    width: number,
+    height: number,
+    quality?: number,
+) => {
     const value = String(url || '').trim();
     if (!value || !/\/photo\/:\/transcode|\/api\/plex\/image/i.test(value)) return value;
     try {
         const parsed = new URL(value, 'https://plex.local');
         parsed.searchParams.set('width', String(width));
         parsed.searchParams.set('height', String(height));
+        if (quality != null && Number.isFinite(quality)) {
+            parsed.searchParams.set('quality', String(Math.max(1, Math.min(100, Math.round(quality)))));
+        }
         if (/^https?:/i.test(value)) return parsed.toString();
         return `${parsed.pathname}?${parsed.searchParams.toString()}`;
     } catch {
@@ -108,6 +116,23 @@ export const playerCardImageUrl = (thumb?: string | null, aspect: '2/3' | 'squar
 };
 
 export const plexLogoUrl = (path?: string | null) => plexImageUrl(path, 640, 240, { fit: 'contain', quality: 70 });
+
+/** Prefer the fullest synopsis (Plex agents often truncate mid-sentence). */
+export const pickRicherSummary = (...parts: Array<string | null | undefined>) => {
+    const cleaned = parts
+        .map((part) => String(part || '').replace(/\s+/g, ' ').trim())
+        .filter(Boolean);
+    if (!cleaned.length) return '';
+    return cleaned.reduce((best, next) => {
+        if (next.length >= best.length + 12) return next;
+        if (best.length >= next.length + 12) return best;
+        const bestEnds = /[.!?…]"?'?$/.test(best);
+        const nextEnds = /[.!?…]"?'?$/.test(next);
+        if (nextEnds && !bestEnds) return next;
+        if (bestEnds && !nextEnds) return best;
+        return next.length > best.length ? next : best;
+    });
+};
 
 /**
  * Full hero art. TV stays at 1920×1080 (layout width) but JPEG quality is maxed.
@@ -338,6 +363,13 @@ export const titleCaseProfile = (value?: string | null) => {
     return raw.replace(/\b\w/g, (char) => char.toUpperCase());
 };
 
+export type PlayerHdrBadge = 'DV' | 'DV HDR10' | 'HDR10+' | 'HDR10' | 'HLG' | 'HDR';
+
+export {
+    detectPlayerHdrLabel,
+    playerHdrBadgeTitle,
+} from './hdrBadge.js';
+
 export const formatMediaVideoLine = (video?: {
     width?: number | null;
     height?: number | null;
@@ -401,6 +433,32 @@ export const formatPlayerDuration = (ms?: number | null) => {
     const hours = Math.floor(totalMin / 60);
     const minutes = totalMin % 60;
     return minutes ? `${hours}h ${minutes}m` : `${hours}h`;
+};
+
+/** Plex-style spoken runtime for native player meta, e.g. "1 hour 59 minutes". */
+export const formatPlayerDurationLong = (ms?: number | null) => {
+    const totalMin = Math.round(Number(ms || 0) / 60000);
+    if (!Number.isFinite(totalMin) || totalMin <= 0) return '';
+    if (totalMin < 60) return totalMin === 1 ? '1 minute' : `${totalMin} minutes`;
+    const hours = Math.floor(totalMin / 60);
+    const minutes = totalMin % 60;
+    const hourPart = hours === 1 ? '1 hour' : `${hours} hours`;
+    if (!minutes) return hourPart;
+    const minPart = minutes === 1 ? '1 minute' : `${minutes} minutes`;
+    return `${hourPart} ${minPart}`;
+};
+
+/** Native player top meta line: "S1 · E8 · Show · 1 hour 59 minutes". */
+export const formatNativePlayerMeta = (item?: PlayerItem | null) => {
+    if (!item) return '';
+    const parts: string[] = [];
+    const ep = formatEpisodeCode(item);
+    if (ep) parts.push(ep);
+    const show = String(item.showTitle || item.seasonTitle || '').trim();
+    if (show) parts.push(show);
+    const runtime = formatPlayerDurationLong(item.durationMs);
+    if (runtime) parts.push(runtime);
+    return parts.join(' · ');
 };
 
 /** Continue Watching overlay — “42 min left”. */
@@ -678,17 +736,118 @@ export const unwatchedCount = (item?: PlayerItem | null) => {
 
 export const PLAYBACK_SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
+/**
+ * Prefer Plex thumb paths that already include a `/thumb/<stamp>` cache buster.
+ * Bare `/library/metadata/{id}/thumb` URLs keep serving stale art after poster changes.
+ */
+export const libraryThumbPathFrom = (value?: string | null) => {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    if (raw.startsWith('/library/') || raw.startsWith('/hubs/')) {
+        return raw.split('#')[0].split('?')[0];
+    }
+    try {
+        const parsed = new URL(raw);
+        const inner = String(parsed.searchParams.get('url') || '').trim();
+        if (inner.startsWith('/library/') || inner.startsWith('/hubs/')) {
+            return inner.split('#')[0].split('?')[0];
+        }
+        if (parsed.pathname.includes('/library/metadata/')) {
+            return `${parsed.pathname}`.split('#')[0];
+        }
+    } catch {
+        /* ignore */
+    }
+    return '';
+};
+
+export const stampedMetadataThumb = (
+    ratingKey?: string | null,
+    existingPath?: string | null,
+    updatedAt?: string | number | null,
+) => {
+    const key = String(ratingKey || '').replace(/\D/g, '');
+    const existing = libraryThumbPathFrom(existingPath);
+    const stamp = String(updatedAt ?? '').replace(/\D/g, '');
+    // Prefer an explicit updatedAt stamp (fresh show metadata). Stamped paths from
+    // episode/hub rows are immutable and keep serving pre-swap poster art forever.
+    if (key && stamp) return `/library/metadata/${key}/thumb/${stamp}`;
+    if (key && existing.includes(`/library/metadata/${key}/thumb`)) {
+        // Keep only if already stamped for this key; else use unstamped current.
+        if (/\/thumb\/\d+/.test(existing)) return existing;
+        return `/library/metadata/${key}/thumb`;
+    }
+    if (key) return `/library/metadata/${key}/thumb`;
+    return existing;
+};
+
 /** Recently Added must use the show poster, never the episode title card. */
 export const withShowPoster = (item: PlayerItem): PlayerItem => {
     if (item.type !== 'episode' && item.type !== 'season') return item;
     const showKey = String(
         (item.type === 'season' ? item.parentRatingKey : item.grandparentRatingKey) || '',
     ).replace(/\D/g, '');
-    if (!showKey) return { ...item, cardAspect: item.cardAspect || '2/3' };
+    const seasonKey = String(item.parentRatingKey || '').replace(/\D/g, '');
+    const current = libraryThumbPathFrom(item.thumb)
+        || libraryThumbPathFrom((item as { grandparentThumbPath?: string }).grandparentThumbPath)
+        || libraryThumbPathFrom((item as { parentThumbPath?: string }).parentThumbPath);
+    if (!showKey && !seasonKey) return { ...item, cardAspect: item.cardAspect || '2/3' };
+
+    const preferSeason = !!item.preferSeasonPoster && !!seasonKey;
+    const targetKey = preferSeason ? seasonKey : showKey;
+    const thumbUpdatedAt = (item as { thumbUpdatedAt?: number | string | null }).thumbUpdatedAt;
+    // Always rebuild from show/season key + thumbUpdatedAt. Keeping hub/episode
+    // `/thumb/<oldStamp>` URLs is why Netflix-era posters survived poster swaps.
+    // Don't apply a show stamp to a season key (PMS serves that as a miss/old art).
+    const stamped = stampedMetadataThumb(targetKey, null, preferSeason ? null : thumbUpdatedAt);
     return {
         ...item,
-        thumb: `/library/metadata/${showKey}/thumb`,
+        thumb: stamped || item.thumb,
         cardAspect: '2/3',
+    };
+};
+
+/**
+ * Plex-style Recently Added: show poster + show title, keep episode key / SxxExx /
+ * episode synopsis so home focus + click open that episode.
+ * Optional `preferSeasonPoster` (settings) uses the season poster instead.
+ */
+export const asRecentlyAddedPlayerItem = (
+    item: PlayerItem,
+    opts?: { preferSeasonPoster?: boolean },
+): PlayerItem => {
+    const preferSeason = opts?.preferSeasonPoster === true || !!item.preferSeasonPoster;
+    if (item.type !== 'episode' && item.type !== 'season') {
+        return withShowPoster(preferSeason ? { ...item, preferSeasonPoster: true } : item);
+    }
+    const showName = String(
+        item.type === 'season'
+            ? (item.showTitle || item.seasonTitle || item.title)
+            : (item.showTitle || item.title)
+        || '',
+    ).trim();
+    const episodeTitle = item.type === 'episode'
+        ? String(
+            item.episodeTitle
+            || (item.showTitle && item.title && item.title !== item.showTitle ? item.title : '')
+            || '',
+        ).trim()
+        : '';
+    const painted = withShowPoster({
+        ...item,
+        preferSeasonPoster: preferSeason || undefined,
+    });
+    return {
+        ...painted,
+        preferSeasonPoster: preferSeason || undefined,
+        episodeTitle: episodeTitle || item.episodeTitle || null,
+        title: showName || item.title,
+        showTitle: showName || item.showTitle || null,
+        dedupeKey: item.dedupeKey
+            || item.grandparentRatingKey
+            || item.parentRatingKey
+            || item.ratingKey
+            || null,
     };
 };
 
@@ -705,8 +864,10 @@ export const applyContinueWatchingLayout = (
         return { ...item, cardAspect: '16/9' };
     }
     const ratingKey = String(item.ratingKey || '').replace(/\D/g, '');
-    const episodeThumb = item.episodeThumb
-        || (ratingKey ? `/library/metadata/${ratingKey}/thumb` : item.thumb);
+    const episodeThumb = stampedMetadataThumb(
+        ratingKey,
+        item.episodeThumb || item.thumb,
+    ) || item.episodeThumb || item.thumb;
     const episodeTitle = String(item.episodeTitle || item.title || '').trim() || item.title;
     return {
         ...item,
@@ -748,6 +909,34 @@ export const sliceQueueToNextUnwatched = (items: PlayerItem[] | null | undefined
     const idx = rows.findIndex((row) => shouldOfferResume(row) || !isPlayerItemWatched(row));
     if (idx <= 0) return rows;
     return rows.slice(idx);
+};
+
+/**
+ * Keep the focused “from here” leaf, then skip already-watched titles after it
+ * (in-progress still included). Used by Play unwatched from here.
+ */
+export const sliceQueueUnwatchedFromHere = (items: PlayerItem[] | null | undefined): PlayerItem[] => {
+    const rows = Array.isArray(items) ? items : [];
+    if (rows.length <= 1) return rows;
+    const [first, ...rest] = rows;
+    return [first, ...rest.filter((row) => shouldOfferResume(row) || !isPlayerItemWatched(row))];
+};
+
+/** Unwatched + in-progress leaves only (for Shuffle unwatched). */
+export const filterQueueUnwatched = (items: PlayerItem[] | null | undefined): PlayerItem[] => (
+    (Array.isArray(items) ? items : []).filter((row) => shouldOfferResume(row) || !isPlayerItemWatched(row))
+);
+
+/** Fisher–Yates copy — used by Shuffle unwatched after filtering watched leaves. */
+export const shufflePlayerItems = <T,>(items: T[] | null | undefined): T[] => {
+    const rows = Array.isArray(items) ? items.slice() : [];
+    for (let i = rows.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(Math.random() * (i + 1));
+        const tmp = rows[i];
+        rows[i] = rows[j];
+        rows[j] = tmp;
+    }
+    return rows;
 };
 
 /** Drop fully watched titles from Recently Added rows. */
@@ -795,23 +984,29 @@ export const heroRowCardItem = (item: PlayerItem): PlayerItem => ({
 });
 
 export const toPosterCardItem = (item: PlayerItem) => {
-    const leafThumb = item.ratingKey ? `/library/metadata/${item.ratingKey}/thumb` : '';
+    const leafThumb = stampedMetadataThumb(item.ratingKey, item.episodeThumb || item.thumb);
     const showKey = String(
         (item.type === 'season' ? item.parentRatingKey : item.grandparentRatingKey) || '',
     ).replace(/\D/g, '');
-    const showThumb = showKey ? `/library/metadata/${showKey}/thumb` : '';
     const seasonKey = item.type === 'episode'
         ? String(item.parentRatingKey || '').replace(/\D/g, '')
         : '';
+    const thumbUpdatedAt = (item as { thumbUpdatedAt?: number | string | null }).thumbUpdatedAt;
+    const showThumb = stampedMetadataThumb(showKey, null, thumbUpdatedAt);
     const seasonThumb = item.preferSeasonPoster && seasonKey
-        ? `/library/metadata/${seasonKey}/thumb`
+        ? stampedMetadataThumb(seasonKey, null, thumbUpdatedAt)
         : '';
     const posterThumb = seasonThumb || showThumb;
     const preferShowPoster = (item.type === 'episode' || item.type === 'season')
         && item.cardAspect !== '16/9'
         && (item.cardAspect === '2/3' || !item.cardAspect)
         && !!posterThumb;
-    const thumb = (preferShowPoster ? posterThumb : '') || item.thumb || leafThumb || undefined;
+    // Prefer rebuilt stamped show/season path over any remote episode/hub still.
+    const thumb = (preferShowPoster ? posterThumb : '')
+        || libraryThumbPathFrom(item.thumb)
+        || item.thumb
+        || leafThumb
+        || undefined;
     const remoteThumb = /^https?:\/\//i.test(String(thumb || ''));
     // Episode stills are title cards. Never use them as a poster fallback.
     const movieLeafFallback = item.type !== 'episode' && item.type !== 'season'
@@ -948,10 +1143,22 @@ export const resolveStartPlaybackQualityId = (
 };
 
 const IMAGE_SUBTITLE_CODEC = /^(pgs|vobsub|dvd|dvdsub|image|bluray|dvbsub|xsub)$/i;
+const COMPLEX_TEXT_SUBTITLE_CODEC = /^(ass|ssa)$/i;
 
-export const subtitleCodecNeedsBurn = (codec?: string | null) => (
-    IMAGE_SUBTITLE_CODEC.test(String(codec || '').trim())
-);
+export type SubtitleBurnMode = 'auto' | 'always' | 'image';
+
+export const subtitleCodecNeedsBurn = (
+    codec?: string | null,
+    mode: SubtitleBurnMode | string | null | undefined = 'auto',
+) => {
+    const policy = String(mode || 'auto').toLowerCase();
+    const raw = String(codec || '').trim();
+    if (!raw) return false;
+    if (policy === 'always') return true;
+    if (policy === 'image') return IMAGE_SUBTITLE_CODEC.test(raw);
+    // auto — image formats + complex ASS/SSA
+    return IMAGE_SUBTITLE_CODEC.test(raw) || COMPLEX_TEXT_SUBTITLE_CODEC.test(raw);
+};
 
 export const nativeDirectPlayEligible = (input: {
     canDirectPlay?: boolean;
@@ -971,7 +1178,16 @@ export const nativeDirectPlayEligible = (input: {
     if (sub) {
         const track = (input.subtitles || []).find((row) => String(row.id || '') === sub);
         // Image subs still need burn-in. Text / unknown ride with Direct Play.
-        if (track && subtitleCodecNeedsBurn(track.codec)) return false;
+        if (track) {
+            let burnMode: SubtitleBurnMode = 'auto';
+            try {
+                const raw = window.localStorage?.getItem('portal-media-player-settings');
+                const parsed = raw ? JSON.parse(raw) : null;
+                const mode = String(parsed?.burnSubtitles || 'auto').toLowerCase();
+                if (mode === 'always' || mode === 'image') burnMode = mode;
+            } catch { /* default auto */ }
+            if (subtitleCodecNeedsBurn(track.codec, burnMode)) return false;
+        }
     }
     if (input.playbackMode === 'directPlay') return true;
     const quality = nativeSafeQualityId(opts?.qualityId ?? input.qualityId);

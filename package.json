@@ -19,7 +19,8 @@
     "test": "node --test",
     "test:media-automation": "node --test lib/media-automation/media-automation.test.js",
     "start": "npm run build && node --env-file=.env index.js",
-    "start:prod": "node index.js"
+    "start:prod": "node index.js",
+    "wt:relay": "node scripts/run-watch-together-relay.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^6.2.2",

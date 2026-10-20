@@ -21,7 +21,7 @@ declare global {
 }
 
 import { mirrorAuthToNativeStorage } from './authPersistence';
-import { STORAGE_AUTH_MODE, STORAGE_PLEX_HOME_USER, STORAGE_PLEX_OWNER_TOKEN, STORAGE_PORTAL, STORAGE_TOKEN } from './configStorageKeys';
+import { STORAGE_AUTH_MODE, STORAGE_PLEX_HOME_USER, STORAGE_PLEX_OWNER_TOKEN, STORAGE_PORTAL, STORAGE_TOKEN, STORAGE_WT_RELAY } from './configStorageKeys';
 
 /** Desktop-like CSS layout width used by native TV density (MainActivity). */
 export const TV_LAYOUT_WIDTH = 1920;
@@ -95,6 +95,25 @@ export const writeStoredPortalBaseUrl = (url: string) => {
                 portalBaseUrl: next || undefined,
             };
         }
+    } catch {
+        /* ignore */
+    }
+};
+
+export const readStoredWtRelayUrl = (): string => {
+    try {
+        return trimSlash(localStorage.getItem(STORAGE_WT_RELAY) || '');
+    } catch {
+        return '';
+    }
+};
+
+export const writeStoredWtRelayUrl = (url: string) => {
+    try {
+        const next = trimSlash(url);
+        if (next) localStorage.setItem(STORAGE_WT_RELAY, next);
+        else localStorage.removeItem(STORAGE_WT_RELAY);
+        void mirrorAuthToNativeStorage(STORAGE_WT_RELAY, next);
     } catch {
         /* ignore */
     }

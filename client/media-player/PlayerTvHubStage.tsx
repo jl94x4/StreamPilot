@@ -4,10 +4,12 @@ import { fetchMediaPlayerItem, prefetchMediaPlayerItem } from './api';
 import { pinTvRailItemToSlot, visibleHomeStage } from '../plex-client/useTvRemote';
 import { homeRailPosterDensity } from './host';
 import { PlayerClearLogo } from './PlayerClearLogo';
+import { PlayerServiceBrandMark } from './PlayerServiceBrandMark';
 import { PlayerRail } from './PlayerRail';
 import type { ViewMoreShelfSource } from './PlayerViewMoreCard';
 import { readPlayerItemCache } from './playerMemory';
-import { formatPlayerDate, formatPlayerDuration, plexBackdropPreviewUrl, plexLogoUrl } from './playerUtils';
+import { itemHasBillboardBrandMeta } from './studioLogo.js';
+import { formatPlayerDate, formatPlayerDuration, pickRicherSummary, plexBackdropPreviewUrl, plexLogoUrl } from './playerUtils';
 import { PlayerTvStatusPanel } from './PlayerTvStatusPanel';
 import type { PlayerItem, PlayerPlayOptions } from './types';
 
@@ -160,15 +162,24 @@ export const PlayerTvSpot: React.FC<{ item: PlayerItem | null }> = ({ item }) =>
     const season = Number(item.parentIndex);
     const episode = Number(item.index);
     const epCode = item.type === 'episode' && season > 0 && episode > 0 ? `S${season} E${episode}` : '';
+    const episodeTitle = item.type === 'episode'
+        ? String(
+            item.episodeTitle
+            || (item.showTitle && item.title && item.title !== item.showTitle ? item.title : '')
+            || '',
+        ).trim()
+        : '';
+    const epLine = [epCode, episodeTitle].filter(Boolean).join(' · ');
     const date = formatPlayerDate(item.originallyAvailableAt);
     const duration = formatPlayerDuration(item.durationMs);
     const rating = String(item.contentRating || '').trim();
     const year = item.type === 'episode' ? '' : (item.year ? String(item.year) : '');
-    const meta = [epCode, date || year, duration, rating].filter(Boolean);
+    const meta = [epLine || null, date || year, duration, rating].filter(Boolean);
     const cast = (item.cast || []).slice(0, 4).map((row) => row.name).filter(Boolean).join(', ');
     return (
         <div className="player-home-spot-stage" aria-live="polite">
             <div className="player-home-spot">
+                <PlayerServiceBrandMark item={item} className="player-home-spot-service-logo" />
                 {showLogo ? (
                     <>
                         <PlayerClearLogo
@@ -183,7 +194,7 @@ export const PlayerTvSpot: React.FC<{ item: PlayerItem | null }> = ({ item }) =>
                 ) : (
                     <h2 className="player-home-spot-title">{title}</h2>
                 )}
-                {tagline ? <p className="player-home-spot-tagline">{tagline}</p> : null}
+                {!epLine && tagline ? <p className="player-home-spot-tagline">{tagline}</p> : null}
                 {item.watched || meta.length ? (
                     <p className="player-home-spot-meta">
                         {item.watched ? (
@@ -247,14 +258,25 @@ export const PlayerTvHubStage: React.FC<Props> = ({
         const extra = key ? tvSpotExtra[key] : null;
         if (!base) return extra || null;
         if (!extra) return base;
+        const episodeBase = base.type === 'episode' || extra.type === 'episode';
         return {
             ...base,
             ...extra,
             thumb: base.thumb,
             art: extra.art || base.art,
             logo: extra.logo || base.logo,
+            type: episodeBase ? 'episode' : (extra.type || base.type),
             title: base.title,
-            showTitle: base.showTitle || extra.showTitle,
+            showTitle: base.showTitle || extra.showTitle || (episodeBase ? extra.showTitle : null),
+            episodeTitle: base.episodeTitle
+                || extra.episodeTitle
+                || (episodeBase && extra.title && extra.title !== (base.showTitle || base.title) ? extra.title : null),
+            parentIndex: base.parentIndex ?? extra.parentIndex,
+            index: base.index ?? extra.index,
+            summary: pickRicherSummary(base.summary, extra.summary),
+            ratingKey: base.ratingKey,
+            parentRatingKey: base.parentRatingKey || extra.parentRatingKey,
+            grandparentRatingKey: base.grandparentRatingKey || extra.grandparentRatingKey,
         };
     }, [tvActiveRow, tvFocusKey, tvSpotExtra]);
 
@@ -391,7 +413,7 @@ export const PlayerTvHubStage: React.FC<Props> = ({
         const cached = readPlayerItemCache(key);
         if (cached?.item) {
             setTvSpotExtra((prev) => (prev[key] ? prev : { ...prev, [key]: cached.item }));
-            if (cached.item.logo) return undefined;
+            if (cached.item.logo && itemHasBillboardBrandMeta(cached.item)) return undefined;
         }
         prefetchMediaPlayerItem(key);
         let cancelled = false;

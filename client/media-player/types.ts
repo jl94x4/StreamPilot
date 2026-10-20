@@ -28,6 +28,14 @@ export type PlayerMediaStreamInfo = {
     codedHeight?: number | null;
     displayTitle?: string | null;
     aspectRatio?: string | null;
+    /** Transfer characteristics (smpte2084 / arib-std-b67, …). */
+    colorTrc?: string | null;
+    colorPrimaries?: string | null;
+    /** Plex Dolby Vision flag on the video stream. */
+    DOVIPresent?: boolean | null;
+    DOVIProfile?: number | string | null;
+    videoDynamicRange?: string | null;
+    videoDynamicRangeType?: string | null;
     channels?: number | null;
     channelLayout?: string | null;
     samplingRate?: number | null;
@@ -88,6 +96,8 @@ export type PlayerItem = {
     episodeThumb?: string | null;
     /** Episode name before Continue Watching show-title swap (server). */
     episodeTitle?: string | null;
+    /** Unix stamp from Plex show/season thumb path — busts poster caches after art swaps. */
+    thumbUpdatedAt?: number | null;
     /** Force rail/card shape (recently added TV uses show posters). */
     cardAspect?: '2/3' | 'square' | '16/9';
     /** Home row uses the title background with a year or season count caption. */
@@ -111,11 +121,23 @@ export type PlayerItem = {
     grandparentRatingKey?: string | null;
     contentRating?: string | null;
     audienceRating?: number | null;
+    /** Common Sense Media age badge from Plex (movies/shows; inherited on episodes). */
+    commonSenseMedia?: {
+        age: number | null;
+        ageLabel: string | null;
+        stars: number | null;
+        ageGroup?: string | null;
+        oneLiner?: string | null;
+    } | null;
     /** Plex user rating 1–10 (UI shows 5 stars). */
     userRating?: number | null;
     originallyAvailableAt?: string | null;
     tmdbId?: number | null;
     showTmdbId?: number | null;
+    /** Plex Studio / Network / Label tags (search/filters). */
+    studioLabels?: string[];
+    /** Plex Network tags only — same facet as Advanced Filters (TV billboard logos). */
+    networkLabels?: string[];
     genres?: string[];
     countries?: string[];
     collections?: string[];
@@ -128,6 +150,8 @@ export type PlayerItem = {
     watchlisted?: boolean;
     discoverRatingKey?: string | null;
     plexGuid?: string | null;
+    /** Show guid for episode/season watchlist actions (`plex://show/...`). */
+    showPlexGuid?: string | null;
     chapters?: PlayerChapter[];
     frameRate?: number | null;
     plexUrl?: string | null;
@@ -281,6 +305,19 @@ export type PlayerLibraryHome = {
 
 export type PlayerLibraryFilterOption = { key: string; title: string };
 
+export type PlayerStudioBrowseCard = {
+    key: string;
+    title: string;
+    logoPath?: string | null;
+    art?: string | null;
+    thumb?: string | null;
+};
+
+export type PlayerLibraryStudios = {
+    networks: PlayerStudioBrowseCard[];
+    studios: PlayerStudioBrowseCard[];
+};
+
 export type PlayerLibraryFilters = {
     genres: PlayerLibraryFilterOption[];
     decades?: PlayerLibraryFilterOption[];
@@ -383,6 +420,8 @@ export type PlayerPlaySession = {
     playbackMode?: PlayerPlaybackMode;
     source?: PlayerPlaybackSource;
     client?: 'web' | 'android' | 'ios';
+    /** Phone offline download — local file://, skip network timeline. */
+    offlineLocal?: boolean;
 };
 
 export type PlayerPlayOptions = {
@@ -393,10 +432,16 @@ export type PlayerPlayOptions = {
     audioStreamId?: string | null;
     subtitleStreamId?: string | null;
     shuffle?: boolean;
+    /** Show/season: shuffle only unwatched (and in-progress) leaves. */
+    shuffleUnwatched?: boolean;
     playFromHere?: boolean;
+    /** Episode/track: play from here, skip later watched leaves, cross seasons for shows. */
+    playUnwatchedFromHere?: boolean;
     queue?: PlayerItem[];
     /** Next episode started by autoplay, not a user Play press. */
     fromAutoplay?: boolean;
     /** Watch Together invite — play host library via portal WT stream gate. */
     watchTogether?: string | null;
+    /** Prefer completed in-app offline download (phone). */
+    offlineLocal?: boolean;
 };

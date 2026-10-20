@@ -1,17 +1,20 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, Check, ChevronDown, ChevronUp, Loader2, Save, X } from 'lucide-react';
+import { ArrowLeft, Check, ChevronDown, ChevronUp, Loader2, Save } from 'lucide-react';
 import { CustomSelect, discoveryTheme, MediaPlayerBetaBanner, SettingsToggleRow, StickySaveBar, useDiscoverI18n } from './host';
 import { fetchMediaPlayerHomeHeroConfig, fetchMediaPlayerLibraries, fetchMediaPlayerServers, saveMediaPlayerHomeHeroConfig, saveMediaPlayerServers } from './api';
 import { clearHeroSlidesCache, notifyPlayerServersChanged, PLAYER_SERVERS_EVENT } from './playerMemory';
 import {
     PLAYER_AUDIO_LANGUAGES,
     PLAYER_QUALITY_CHOICES,
+    PLAYER_SCREENSAVER_SOURCE_LABEL_KEYS,
+    PLAYER_SCREENSAVER_SOURCES,
     applyHomeRowOrder,
     applyLibraryNavOrder,
     defaultHomeRowIds,
     moveHomeRow,
     type PlayerContinueWatchingSort,
+    type PlayerScreensaverSource,
     type PlayerSubtitleMode,
 } from './playerSettings';
 import { usePlayerSettings } from './usePlayerSettings';
@@ -20,7 +23,9 @@ import {
     isPlexClientApp,
     normalizePortalBaseUrl,
     readStoredPortalBaseUrl,
+    readStoredWtRelayUrl,
     writeStoredPortalBaseUrl,
+    writeStoredWtRelayUrl,
 } from '../plex-client/config';
 import { PLAYER_APP_BASE, PLAYER_NAVIGATE_EVENT } from './paths';
 import { isWatchTogetherAvailable } from './watchTogetherClient';
@@ -97,26 +102,41 @@ type TvChoiceRowProps = {
 };
 
 const TvChoiceRow: React.FC<TvChoiceRowProps> = ({ title, description, value, options, onChange }) => {
-    const { t } = useDiscoverI18n();
     const [open, setOpen] = useState(false);
     const triggerRef = useRef<HTMLButtonElement | null>(null);
     const selected = options.find((row) => row.value === value) || options[0];
 
     const closePicker = useCallback(() => {
         setOpen(false);
+        try {
+            delete document.documentElement.dataset.tvMenuOpen;
+        } catch {
+            /* ignore */
+        }
         // Portal unmount drops focus to body; put it back on the settings row.
         window.requestAnimationFrame(() => {
             triggerRef.current?.focus({ preventScroll: true });
         });
     }, []);
 
+    const openPicker = useCallback(() => {
+        setOpen(true);
+        try {
+            document.documentElement.dataset.tvMenuOpen = '1';
+        } catch {
+            /* ignore */
+        }
+    }, []);
+
     useEffect(() => {
         if (!open) return undefined;
         const id = window.setTimeout(() => {
-            const dialog = document.querySelector('[data-tv-settings-dialog="1"]');
-            const target = dialog?.querySelector<HTMLElement>('[data-tv-settings-primary="1"]')
-                || dialog?.querySelector<HTMLElement>('[data-tv-item="1"]');
-            target?.focus();
+            const sheet = document.querySelector('[data-tv-settings-choice="1"]');
+            const target = sheet?.querySelector<HTMLElement>('[data-tv-settings-primary="1"]')
+                || sheet?.querySelector<HTMLElement>('[data-tv-item="1"]');
+            target?.focus({ preventScroll: true });
+            const scroller = sheet?.querySelector<HTMLElement>('[data-tv-overlay-scroll="1"]');
+            if (scroller) scroller.scrollTop = 0;
         }, 30);
         const close = () => closePicker();
         window.addEventListener('smp-tv-overlay-close', close);
@@ -134,7 +154,7 @@ const TvChoiceRow: React.FC<TvChoiceRowProps> = ({ title, description, value, op
                 data-tv-item="1"
                 data-tv-action="1"
                 data-tv-row="1"
-                onClick={() => setOpen(true)}
+                onClick={openPicker}
                 className={tvRowClass}
             >
                 <span className="min-w-0">
@@ -144,32 +164,33 @@ const TvChoiceRow: React.FC<TvChoiceRowProps> = ({ title, description, value, op
                 <span className="shrink-0 text-base font-bold text-white/85">{selected?.label || '—'}</span>
             </button>
             {open && typeof document !== 'undefined' ? createPortal(
-                <div className="smp-choice-scrim" data-tv-settings-dialog="1">
+                <div
+                    className="fixed inset-0 z-[3500] flex justify-end bg-black/35"
+                    data-tv-context-backdrop="1"
+                    data-tv-settings-dialog="1"
+                    onClick={(event) => {
+                        if (event.target === event.currentTarget) closePicker();
+                    }}
+                >
                     <div
-                        className="smp-choice-sheet"
-                        role="dialog"
-                        aria-modal="true"
+                        role="menu"
                         aria-label={title}
+                        data-tv-item-menu="1"
+                        data-tv-context-sheet="1"
+                        data-tv-settings-choice="1"
+                        className="player-context-sheet flex max-h-full w-[min(30rem,48vw)] min-w-[22rem] flex-col overflow-hidden outline-none"
+                        onClick={(event) => event.stopPropagation()}
                     >
-                        <div className="smp-choice-head">
-                            <div className="min-w-0">
-                                <h2 className="smp-choice-title">{title}</h2>
-                                {description ? <p className="smp-choice-hint">{description}</p> : null}
-                            </div>
-                            <button
-                                type="button"
-                                className="smp-choice-close"
-                                data-tv-item="1"
-                                data-tv-action="1"
-                                aria-label={t('common.close')}
-                                onClick={() => closePicker()}
-                            >
-                                <X aria-hidden="true" />
-                            </button>
+                        <div className="shrink-0 px-1 pb-3 pt-1">
+                            <h2 className="truncate text-[1.35rem] font-bold leading-tight tracking-tight text-white">
+                                {title}
+                            </h2>
+                            {description ? (
+                                <p className="mt-1.5 text-sm leading-snug text-white/50">{description}</p>
+                            ) : null}
                         </div>
                         <div
-                            className="smp-choice-list"
-                            data-tv-rail="1"
+                            className="min-h-0 flex-1 overflow-y-auto overscroll-contain hide-scrollbar"
                             data-tv-overlay-scroll="1"
                         >
                             {options.map((row) => {
@@ -178,20 +199,26 @@ const TvChoiceRow: React.FC<TvChoiceRowProps> = ({ title, description, value, op
                                     <button
                                         key={row.value}
                                         type="button"
-                                        className={`smp-choice-option${isSelected ? ' is-selected' : ''}`}
+                                        role="menuitem"
+                                        className={`flex w-full items-center justify-between gap-3 px-3.5 py-3 text-left text-[1.02rem] font-semibold tracking-tight outline-none ${
+                                            isSelected ? 'text-white' : 'text-white/90'
+                                        }`}
                                         data-tv-item="1"
+                                        data-tv-menu-item="1"
                                         data-tv-action="1"
                                         data-tv-settings-primary={isSelected ? '1' : undefined}
-                                        aria-pressed={isSelected}
+                                        aria-checked={isSelected}
                                         onClick={() => {
                                             onChange(row.value);
                                             closePicker();
                                         }}
                                     >
-                                        <span className="smp-choice-label">{row.label}</span>
-                                        <span className="smp-choice-mark" aria-hidden="true">
-                                            {isSelected ? <Check strokeWidth={2.75} /> : null}
-                                        </span>
+                                        <span className="min-w-0 truncate">{row.label}</span>
+                                        {isSelected ? (
+                                            <Check className="h-5 w-5 shrink-0" strokeWidth={2.75} aria-hidden />
+                                        ) : (
+                                            <span className="h-5 w-5 shrink-0" aria-hidden />
+                                        )}
                                     </button>
                                 );
                             })}
@@ -344,10 +371,14 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
     const [saveState, setSaveState] = useState<'idle' | 'saved' | 'error'>('idle');
     const [settingsTab, setSettingsTab] = useState<SettingsTabId>('home');
     const showPortalUrlField = isPlexClientApp();
-    const showConnectionTab = showPortalUrlField || isWatchTogetherAvailable();
+    const showWtRelayField = isPlexClientApp();
+    const showConnectionTab = showPortalUrlField || showWtRelayField || isWatchTogetherAvailable();
     const [portalUrlDraft, setPortalUrlDraft] = useState(() => readStoredPortalBaseUrl());
     const [portalUrlBaseline, setPortalUrlBaseline] = useState(() => readStoredPortalBaseUrl());
     const [portalError, setPortalError] = useState('');
+    const [wtRelayDraft, setWtRelayDraft] = useState(() => readStoredWtRelayUrl());
+    const [wtRelayBaseline, setWtRelayBaseline] = useState(() => readStoredWtRelayUrl());
+    const [wtRelayError, setWtRelayError] = useState('');
     const [heroMode, setHeroMode] = useState<HeroMode>('trending_week');
     const [heroSeasonalOnly, setHeroSeasonalOnly] = useState(false);
     const [cwSeasonPoster, setCwSeasonPoster] = useState(false);
@@ -500,6 +531,12 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
         { value: 'recentlyWatched', label: t('mediaPlayerPage.continueWatchingSortRecentlyWatched') },
         { value: 'title', label: t('mediaPlayerPage.continueWatchingSortTitle') },
     ]), [t]);
+    const screensaverSourceOptions = useMemo(() => (
+        PLAYER_SCREENSAVER_SOURCES.map((value) => ({
+            value,
+            label: t(PLAYER_SCREENSAVER_SOURCE_LABEL_KEYS[value]),
+        }))
+    ), [t]);
 
     const orderedRowIds = applyHomeRowOrder(defaultHomeRowIds(), settings.homeRowOrder);
     const orderedLibraries = applyLibraryNavOrder(libraries, settings.libraryNavOrder);
@@ -530,7 +567,9 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
     );
     const portalDirty = showPortalUrlField
         && String(portalUrlDraft || '').trim().replace(/\/+$/, '') !== String(portalUrlBaseline || '').trim().replace(/\/+$/, '');
-    const dirty = playerDirty || heroDirty || portalDirty;
+    const wtRelayDirty = showWtRelayField
+        && String(wtRelayDraft || '').trim().replace(/\/+$/, '') !== String(wtRelayBaseline || '').trim().replace(/\/+$/, '');
+    const dirty = playerDirty || heroDirty || portalDirty || wtRelayDirty;
     const saving = playerSaving || heroSaving;
 
     useEffect(() => {
@@ -562,6 +601,10 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
             setPortalUrlDraft(portalUrlBaseline);
             setPortalError('');
         }
+        if (showWtRelayField) {
+            setWtRelayDraft(wtRelayBaseline);
+            setWtRelayError('');
+        }
     };
 
     const persistPortalUrl = (): boolean => {
@@ -586,9 +629,31 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
         return true;
     };
 
+    const persistWtRelayUrl = (): boolean => {
+        if (!showWtRelayField || !wtRelayDirty) return true;
+        const raw = String(wtRelayDraft || '').trim();
+        if (!raw) {
+            writeStoredWtRelayUrl('');
+            setWtRelayBaseline('');
+            setWtRelayDraft('');
+            setWtRelayError('');
+            return true;
+        }
+        const normalized = normalizePortalBaseUrl(raw);
+        if (!normalized.ok) {
+            setWtRelayError(normalized.error || t('mediaPlayerPage.settingsWtRelayUrlInvalid'));
+            return false;
+        }
+        writeStoredWtRelayUrl(normalized.url);
+        setWtRelayBaseline(normalized.url);
+        setWtRelayDraft(normalized.url);
+        setWtRelayError('');
+        return true;
+    };
+
     const handleSave = async () => {
         try {
-            if (!persistPortalUrl()) {
+            if (!persistWtRelayUrl() || !persistPortalUrl()) {
                 setSaveState('error');
                 return;
             }
@@ -627,22 +692,81 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         {t('mediaPlayerPage.settingsConnection')}
                     </h2>
                     <p className="mt-1 text-xs text-muted">
-                        {showPortalUrlField
-                            ? t('mediaPlayerPage.settingsPortalUrlHint')
+                        {showWtRelayField
+                            ? t('mediaPlayerPage.settingsWtRelayUrlHint')
                             : t('mediaPlayerPage.settingsWatchTogetherJoinHint')}
                     </p>
                 </div>
             ) : (
                 <p className="text-sm text-muted">
-                    {showPortalUrlField
-                        ? t('mediaPlayerPage.settingsPortalUrlHint')
+                    {showWtRelayField
+                        ? t('mediaPlayerPage.settingsWtRelayUrlHint')
                         : t('mediaPlayerPage.settingsWatchTogetherJoinHint')}
                 </p>
             )}
             <div className={tvShell ? 'flex flex-col gap-3' : 'px-5 py-4 sm:px-6'}>
-                {showPortalUrlField ? (
+                {showWtRelayField ? (
                     <>
                         <label className="block space-y-2">
+                            <span className={`block font-bold text-text ${tvShell ? 'text-base' : 'text-sm'}`}>
+                                {t('mediaPlayerPage.settingsWtRelayUrl')}
+                            </span>
+                            <input
+                                data-tv-item="1"
+                                data-tv-action="1"
+                                data-tv-key="settings-wt-relay-url"
+                                tabIndex={0}
+                                className={
+                                    tvShell
+                                        ? 'w-full rounded-2xl border border-white/15 bg-black/40 px-5 py-4 text-base text-white outline-none focus:border-plex/70'
+                                        : 'w-full max-w-xl rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm text-text outline-none focus:border-plex/60'
+                                }
+                                value={wtRelayDraft}
+                                onChange={(e) => {
+                                    setWtRelayDraft(e.target.value);
+                                    setWtRelayError('');
+                                    setSaveState('idle');
+                                }}
+                                placeholder={t('mediaPlayerPage.settingsWtRelayUrlPlaceholder')}
+                                autoCapitalize="off"
+                                autoCorrect="off"
+                                spellCheck={false}
+                                inputMode="url"
+                                autoComplete="url"
+                            />
+                        </label>
+                        {wtRelayError ? (
+                            <p className={`font-bold text-red-400 ${tvShell ? 'text-sm' : 'text-xs'}`}>{wtRelayError}</p>
+                        ) : wtRelayBaseline ? (
+                            <p className={`text-muted ${tvShell ? 'text-sm' : 'text-xs'}`}>
+                                {t('mediaPlayerPage.settingsWtRelayUrlSaved')}
+                            </p>
+                        ) : null}
+                        {wtRelayDraft || wtRelayBaseline ? (
+                            <button
+                                type="button"
+                                data-tv-item="1"
+                                data-tv-action="1"
+                                data-tv-key="settings-wt-relay-url-clear"
+                                onClick={() => {
+                                    setWtRelayDraft('');
+                                    setWtRelayError('');
+                                    setSaveState('idle');
+                                }}
+                                className={
+                                    tvShell
+                                        ? `${tvRowClass} justify-center text-base font-bold text-muted`
+                                        : 'text-xs font-bold text-muted hover:text-text'
+                                }
+                            >
+                                {t('mediaPlayerPage.settingsWtRelayUrlClear')}
+                            </button>
+                        ) : null}
+                    </>
+                ) : null}
+                {showPortalUrlField ? (
+                    <>
+                        <label className={`block space-y-2 ${showWtRelayField ? (tvShell ? 'mt-2' : 'mt-4') : ''}`}>
                             <span className={`block font-bold text-text ${tvShell ? 'text-base' : 'text-sm'}`}>
                                 {t('mediaPlayerPage.settingsPortalUrl')}
                             </span>
@@ -676,7 +800,11 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                             <p className={`text-muted ${tvShell ? 'text-sm' : 'text-xs'}`}>
                                 {t('mediaPlayerPage.settingsPortalUrlSaved')}
                             </p>
-                        ) : null}
+                        ) : (
+                            <p className={`text-muted ${tvShell ? 'text-sm' : 'text-xs'}`}>
+                                {t('mediaPlayerPage.settingsPortalUrlOptionalHint')}
+                            </p>
+                        )}
                         {portalUrlDraft || portalUrlBaseline ? (
                             <button
                                 type="button"
@@ -701,11 +829,11 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                 ) : null}
                 {isWatchTogetherAvailable() ? (
                     <div className={
-                        showPortalUrlField
+                        (showWtRelayField || showPortalUrlField)
                             ? (tvShell ? 'mt-2 flex flex-col gap-2' : 'mt-4 border-t border-border/40 pt-4')
                             : 'flex flex-col gap-2'
                     }>
-                        {showPortalUrlField ? (
+                        {(showWtRelayField || showPortalUrlField) ? (
                             <p className={`text-muted ${tvShell ? 'text-sm' : 'text-xs'}`}>
                                 {t('mediaPlayerPage.settingsWatchTogetherJoinHint')}
                             </p>
@@ -802,18 +930,6 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         onChange={(checked) => updateSettings({ showContinueWatching: checked })}
                     />
                     <TvChoiceRow
-                        title={t('mediaPlayerPage.continueWatchingLayout')}
-                        description={t('mediaPlayerPage.continueWatchingLayoutHint')}
-                        value={settings.continueWatchingLayout}
-                        options={[
-                            { value: 'poster', label: t('mediaPlayerPage.continueWatchingLayoutPoster') },
-                            { value: 'title', label: t('mediaPlayerPage.continueWatchingLayoutTitle') },
-                        ]}
-                        onChange={(value) => updateSettings({
-                            continueWatchingLayout: value as typeof settings.continueWatchingLayout,
-                        })}
-                    />
-                    <TvChoiceRow
                         title={t('mediaPlayerPage.continueWatchingSort')}
                         description={t('mediaPlayerPage.continueWatchingSortHint')}
                         value={settings.continueWatchingSort}
@@ -847,10 +963,25 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         onChange={(checked) => updateSettings({ hideWatchedFromRecents: checked })}
                     />
                     <TvToggleRow
+                        title={t('mediaPlayerPage.recentlyAddedSeasonPoster')}
+                        description={t('mediaPlayerPage.recentlyAddedSeasonPosterHint')}
+                        checked={settings.recentlyAddedSeasonPoster}
+                        onChange={(checked) => updateSettings({ recentlyAddedSeasonPoster: checked })}
+                    />
+                    <TvToggleRow
                         title={t('mediaPlayerPage.reduceMotion')}
                         description={t('mediaPlayerPage.reduceMotionHint')}
                         checked={settings.reduceMotion}
                         onChange={(checked) => updateSettings({ reduceMotion: checked })}
+                    />
+                    <TvChoiceRow
+                        title={t('mediaPlayerPage.screensaverSource')}
+                        description={t('mediaPlayerPage.screensaverSourceHint')}
+                        value={settings.screensaverSource}
+                        options={screensaverSourceOptions}
+                        onChange={(value) => updateSettings({
+                            screensaverSource: value as PlayerScreensaverSource,
+                        })}
                     />
                     <TvToggleRow
                         title={t('mediaPlayerPage.continueWatchingSeasonPoster')}
@@ -871,20 +1002,6 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                                 : undefined}
                         />
                     ) : null}
-                    <TvReorderList
-                        title={t('mediaPlayerPage.homeRowOrder')}
-                        description={t('mediaPlayerPage.homeRowOrderHint')}
-                        items={orderedRowIds
-                            .filter((id) => !hiddenRows.has(id))
-                            .map((id) => ({ id, label: rowLabels[id] || id }))}
-                        onMove={(index, delta) => {
-                            const visible = orderedRowIds.filter((id) => !hiddenRows.has(id));
-                            const fullIndex = orderedRowIds.indexOf(visible[index]);
-                            if (fullIndex < 0) return;
-                            updateSettings({ homeRowOrder: moveHomeRow(orderedRowIds, fullIndex, delta) });
-                        }}
-                        onReset={() => updateSettings({ homeRowOrder: [] })}
-                    />
                 </section>
                 ) : null}
 
@@ -987,23 +1104,46 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         checked={settings.audioPassthrough}
                         onChange={(checked) => updateSettings({ audioPassthrough: checked })}
                     />
-                    <TvToggleRow
+                    <TvChoiceRow
                         title={t('mediaPlayerPage.cinemaTrailers')}
                         description={t('mediaPlayerPage.cinemaTrailersHint')}
-                        checked={settings.cinemaTrailers}
-                        onChange={(checked) => updateSettings({ cinemaTrailers: checked })}
+                        value={String(settings.cinemaTrailerCount || 0)}
+                        options={[0, 1, 2, 3, 4, 5].map((n) => ({
+                            value: String(n),
+                            label: n === 0 ? t('mediaPlayerPage.skipMarkerOff') : String(n),
+                        }))}
+                        onChange={(value) => {
+                            const n = Math.min(5, Math.max(0, Number(value) || 0));
+                            updateSettings({ cinemaTrailerCount: n, cinemaTrailers: n > 0 });
+                        }}
                     />
-                    <TvToggleRow
+                    <TvChoiceRow
                         title={t('mediaPlayerPage.autoSkipIntro')}
                         description={t('mediaPlayerPage.autoSkipIntroHint')}
-                        checked={settings.autoSkipIntro}
-                        onChange={(checked) => updateSettings({ autoSkipIntro: checked })}
+                        value={settings.skipIntroMode}
+                        options={[
+                            { value: 'off', label: t('mediaPlayerPage.skipMarkerOff') },
+                            { value: 'manual', label: t('mediaPlayerPage.skipMarkerManual') },
+                            { value: 'auto', label: t('mediaPlayerPage.skipMarkerAuto') },
+                        ]}
+                        onChange={(value) => updateSettings({
+                            skipIntroMode: value as typeof settings.skipIntroMode,
+                            autoSkipIntro: value === 'auto',
+                        })}
                     />
-                    <TvToggleRow
+                    <TvChoiceRow
                         title={t('mediaPlayerPage.autoSkipCredits')}
                         description={t('mediaPlayerPage.autoSkipCreditsHint')}
-                        checked={settings.autoSkipCredits}
-                        onChange={(checked) => updateSettings({ autoSkipCredits: checked })}
+                        value={settings.skipCreditsMode}
+                        options={[
+                            { value: 'off', label: t('mediaPlayerPage.skipMarkerOff') },
+                            { value: 'manual', label: t('mediaPlayerPage.skipMarkerManual') },
+                            { value: 'auto', label: t('mediaPlayerPage.skipMarkerAuto') },
+                        ]}
+                        onChange={(value) => updateSettings({
+                            skipCreditsMode: value as typeof settings.skipCreditsMode,
+                            autoSkipCredits: value === 'auto',
+                        })}
                     />
                 </section>
                 ) : null}
@@ -1017,6 +1157,12 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         onChange={(checked) => updateSettings({ playThemeTunes: checked })}
                     />
                     <TvToggleRow
+                        title={t('mediaPlayerPage.showServiceBrandLogos')}
+                        description={t('mediaPlayerPage.showServiceBrandLogosHint')}
+                        checked={settings.showServiceBrandLogos}
+                        onChange={(checked) => updateSettings({ showServiceBrandLogos: checked })}
+                    />
+                    <TvToggleRow
                         title={t('mediaPlayerPage.serviceLogoPlates')}
                         description={t('mediaPlayerPage.serviceLogoPlatesHint')}
                         checked={settings.serviceLogoPlates}
@@ -1027,6 +1173,12 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         description={t('mediaPlayerPage.showEpisodeFilePillsHint')}
                         checked={settings.showEpisodeFilePills}
                         onChange={(checked) => updateSettings({ showEpisodeFilePills: checked })}
+                    />
+                    <TvToggleRow
+                        title={t('mediaPlayerPage.skipSingleSeason')}
+                        description={t('mediaPlayerPage.skipSingleSeasonHint')}
+                        checked={settings.skipSingleSeason}
+                        onChange={(checked) => updateSettings({ skipSingleSeason: checked })}
                     />
                     <TvChoiceRow
                         title={t('mediaPlayerPage.watchedTickPosition')}
@@ -1257,6 +1409,12 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         onChange={(checked) => updateSettings({ hideWatchedFromRecents: checked })}
                     />
                     <SettingsToggleRow
+                        title={t('mediaPlayerPage.recentlyAddedSeasonPoster')}
+                        description={t('mediaPlayerPage.recentlyAddedSeasonPosterHint')}
+                        checked={settings.recentlyAddedSeasonPoster}
+                        onChange={(checked) => updateSettings({ recentlyAddedSeasonPoster: checked })}
+                    />
+                    <SettingsToggleRow
                         title={t('mediaPlayerPage.reduceMotion')}
                         description={t('mediaPlayerPage.reduceMotionHint')}
                         checked={settings.reduceMotion}
@@ -1329,6 +1487,12 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         />
                         ) : null}
                         <SettingsToggleRow
+                            title={t('mediaPlayerPage.showServiceBrandLogos')}
+                            description={t('mediaPlayerPage.showServiceBrandLogosHint')}
+                            checked={settings.showServiceBrandLogos}
+                            onChange={(checked) => updateSettings({ showServiceBrandLogos: checked })}
+                        />
+                        <SettingsToggleRow
                             title={t('mediaPlayerPage.serviceLogoPlates')}
                             description={t('mediaPlayerPage.serviceLogoPlatesHint')}
                             checked={settings.serviceLogoPlates}
@@ -1339,6 +1503,12 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                             description={t('mediaPlayerPage.showEpisodeFilePillsHint')}
                             checked={settings.showEpisodeFilePills}
                             onChange={(checked) => updateSettings({ showEpisodeFilePills: checked })}
+                        />
+                        <SettingsToggleRow
+                            title={t('mediaPlayerPage.skipSingleSeason')}
+                            description={t('mediaPlayerPage.skipSingleSeasonHint')}
+                            checked={settings.skipSingleSeason}
+                            onChange={(checked) => updateSettings({ skipSingleSeason: checked })}
                         />
                         <div className="py-4">
                             <label className="mb-2 block text-sm font-bold text-text" htmlFor="media-player-watched-tick">
@@ -1529,25 +1699,59 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                             checked={settings.audioPassthrough}
                             onChange={(checked) => updateSettings({ audioPassthrough: checked })}
                         />
-                        <SettingsToggleRow
-                            title={t('mediaPlayerPage.cinemaTrailers')}
-                            description={t('mediaPlayerPage.cinemaTrailersHint')}
-                            checked={settings.cinemaTrailers}
-                            onChange={(checked) => updateSettings({ cinemaTrailers: checked })}
-                        />
-                        <SettingsToggleRow
-                            title={t('mediaPlayerPage.autoSkipIntro')}
-                            description={t('mediaPlayerPage.autoSkipIntroHint')}
-                            checked={settings.autoSkipIntro}
-                            onChange={(checked) => updateSettings({ autoSkipIntro: checked })}
-                        />
-                        <SettingsToggleRow
-                            title={t('mediaPlayerPage.autoSkipCredits')}
-                            description={t('mediaPlayerPage.autoSkipCreditsHint')}
-                            checked={settings.autoSkipCredits}
-                            onChange={(checked) => updateSettings({ autoSkipCredits: checked })}
-                            border={false}
-                        />
+                        <div className="flex flex-col gap-1 border-b border-border py-3 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="min-w-0 sm:pr-4">
+                                <p className="text-sm font-semibold text-ink">{t('mediaPlayerPage.cinemaTrailers')}</p>
+                                <p className="mt-0.5 text-xs text-muted">{t('mediaPlayerPage.cinemaTrailersHint')}</p>
+                            </div>
+                            <CustomSelect
+                                value={String(settings.cinemaTrailerCount || 0)}
+                                options={[0, 1, 2, 3, 4, 5].map((n) => ({
+                                    value: String(n),
+                                    label: n === 0 ? t('mediaPlayerPage.skipMarkerOff') : String(n),
+                                }))}
+                                onChange={(value) => {
+                                    const n = Math.min(5, Math.max(0, Number(value) || 0));
+                                    updateSettings({ cinemaTrailerCount: n, cinemaTrailers: n > 0 });
+                                }}
+                            />
+                        </div>
+                        <div className="flex flex-col gap-1 border-b border-border py-3 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="min-w-0 sm:pr-4">
+                                <p className="text-sm font-semibold text-ink">{t('mediaPlayerPage.autoSkipIntro')}</p>
+                                <p className="mt-0.5 text-xs text-muted">{t('mediaPlayerPage.autoSkipIntroHint')}</p>
+                            </div>
+                            <CustomSelect
+                                value={settings.skipIntroMode}
+                                options={[
+                                    { value: 'off', label: t('mediaPlayerPage.skipMarkerOff') },
+                                    { value: 'manual', label: t('mediaPlayerPage.skipMarkerManual') },
+                                    { value: 'auto', label: t('mediaPlayerPage.skipMarkerAuto') },
+                                ]}
+                                onChange={(value) => updateSettings({
+                                    skipIntroMode: value as typeof settings.skipIntroMode,
+                                    autoSkipIntro: value === 'auto',
+                                })}
+                            />
+                        </div>
+                        <div className="flex flex-col gap-1 py-3 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="min-w-0 sm:pr-4">
+                                <p className="text-sm font-semibold text-ink">{t('mediaPlayerPage.autoSkipCredits')}</p>
+                                <p className="mt-0.5 text-xs text-muted">{t('mediaPlayerPage.autoSkipCreditsHint')}</p>
+                            </div>
+                            <CustomSelect
+                                value={settings.skipCreditsMode}
+                                options={[
+                                    { value: 'off', label: t('mediaPlayerPage.skipMarkerOff') },
+                                    { value: 'manual', label: t('mediaPlayerPage.skipMarkerManual') },
+                                    { value: 'auto', label: t('mediaPlayerPage.skipMarkerAuto') },
+                                ]}
+                                onChange={(value) => updateSettings({
+                                    skipCreditsMode: value as typeof settings.skipCreditsMode,
+                                    autoSkipCredits: value === 'auto',
+                                })}
+                            />
+                        </div>
                     </div>
                 </section>
             </div>

@@ -31,6 +31,10 @@ export type NativePlayerSessionPayload = {
         credits?: { startMs: number; endMs?: number } | null;
     };
     nextItem?: { ratingKey: string; title?: string; thumb?: string } | null;
+    /** Credits-end “More like this” strip (native Up Next panel when no next episode). */
+    relatedItems?: Array<{ ratingKey: string; title: string; thumb?: string }>;
+    /** Per-show A/V delay in ms. */
+    audioDelayMs?: number;
     playbackMode?: 'directPlay' | 'directStream' | 'transcode' | string;
     source?: {
         videoCodec?: string | null;
@@ -44,8 +48,23 @@ export type NativePlayerSessionPayload = {
     autoplayNext?: boolean;
     autoSkipIntro?: boolean;
     autoSkipCredits?: boolean;
+    skipIntroMode?: 'off' | 'manual' | 'auto';
+    skipCreditsMode?: 'off' | 'manual' | 'auto';
+    rewindOnResumeSec?: number;
+    audioBoost?: number;
+    burnSubtitles?: 'auto' | 'always' | 'image';
+    subtitleDelayMs?: number;
+    subtitleAutoSync?: boolean;
+    /** Server has voice-activity data for this title (auto-sync usable). */
+    subtitleAutoSyncAvailable?: boolean;
+    /** Computed auto-sync offset applied on top of manual subtitleDelayMs. */
+    subtitleAutoSyncOffsetMs?: number;
+    audioPassthrough?: boolean;
+    cinemaTrailerCount?: number;
     title?: string;
     subtitle?: string;
+    /** Episode/movie meta under the title, e.g. "S1 · E8 · Show · 1 hour 59 minutes". */
+    meta?: string;
     logoUrl?: string;
     posterUrl?: string;
     music?: boolean;
@@ -89,11 +108,16 @@ export type NativePlayerOpenOptions = {
     onProgress?: (event: NativePlayerProgressEvent) => void;
     onStreamChange?: (event: NativePlayerStreamChangeEvent) => void | Promise<void>;
     onPlayNext?: (event: { ratingKey: string }) => void;
+    onPlayRelated?: (event: { ratingKey: string }) => void;
     onSpeed?: (event: { speed: number }) => void;
     onError?: (event: { message?: string }) => void;
     onMinimized?: (event: NativePlayerProgressEvent) => void;
     onRestored?: (event: { state?: string }) => void;
     onSubtitleSearch?: (event: { ratingKey?: string }) => void;
+    /** In-player Settings cog changed a persisted preference. */
+    onSettings?: (patch: Record<string, unknown>) => void;
+    /** Native asked JS to compute voice-activity subtitle auto-sync offset. */
+    onSubtitleAutoSync?: (event: { ratingKey?: string; subtitleStreamId?: string; sidecarUrl?: string }) => void;
 };
 
 export type NativePlayerCloseResult = {
@@ -348,6 +372,12 @@ const attachTransientListeners = async (opts: NativePlayerOpenOptions) => {
             if (key) opts.onPlayNext?.({ ratingKey: key });
         });
     }
+    if (opts.onPlayRelated) {
+        await add('playRelated', (data) => {
+            const key = data.ratingKey ? String(data.ratingKey) : '';
+            if (key) opts.onPlayRelated?.({ ratingKey: key });
+        });
+    }
     if (opts.onSpeed) {
         await add('speed', (data) => {
             opts.onSpeed?.({ speed: Number(data.speed) || 1 });
@@ -376,6 +406,20 @@ const attachTransientListeners = async (opts: NativePlayerOpenOptions) => {
     if (opts.onSubtitleSearch) {
         await add('subtitleSearch', (data) => {
             opts.onSubtitleSearch?.({ ratingKey: data.ratingKey ? String(data.ratingKey) : undefined });
+        });
+    }
+    if (opts.onSettings) {
+        await add('settings', (data) => {
+            opts.onSettings?.(data || {});
+        });
+    }
+    if (opts.onSubtitleAutoSync) {
+        await add('subtitleAutoSync', (data) => {
+            opts.onSubtitleAutoSync?.({
+                ratingKey: data.ratingKey ? String(data.ratingKey) : undefined,
+                subtitleStreamId: data.subtitleStreamId != null ? String(data.subtitleStreamId) : undefined,
+                sidecarUrl: data.sidecarUrl != null ? String(data.sidecarUrl) : undefined,
+            });
         });
     }
     if (opts.onClose) {

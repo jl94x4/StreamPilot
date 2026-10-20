@@ -27,6 +27,7 @@ import {
     applyLibraryNavOrderToHubs,
     classifyPlayerHomeHub,
     continueWatchingRailAspect,
+    PLAYER_SCREENSAVER_SOURCE_LABEL_KEYS,
     PLAYER_SETTINGS_DRAFT_EVENT,
     PLAYER_SETTINGS_EVENT,
     stabilizeContinueWatchingOrder,
@@ -40,6 +41,7 @@ import {
     PLAYER_SEARCH_INPUT_ID,
     PLAYER_SEARCH_OPEN_EVENT,
     PLAYER_VOICE_RESULT_EVENT,
+    coalescePlayerHomeWithCache,
     playerHomeHasContentHubs,
     playerHomeHasRows,
     playerHomeNeedsFull,
@@ -54,7 +56,10 @@ import {
 } from './playerMemory';
 import { PlayerTvStatusPanel } from './PlayerTvStatusPanel';
 import { PlayerClearLogo } from './PlayerClearLogo';
-import { applyRememberedProgress, formatPlayerDate, formatPlayerDuration, heroRowCardItem, hideWatchedPlayerItems, isMusicPlayerItem, mapContinueWatchingItemsForLayout, plexBackdropPreviewUrl, plexLogoUrl, PLAYER_PROGRESS_EVENT, replaceFamilyContinueSlot, restoreContinueSlot, watchTargetTouches, withShowPoster } from './playerUtils';
+import { PlayerServiceBrandMark } from './PlayerServiceBrandMark';
+import { PlayerTvScreensaver } from './PlayerTvScreensaver';
+import { itemHasBillboardBrandMeta } from './studioLogo.js';
+import { applyRememberedProgress, asRecentlyAddedPlayerItem, formatPlayerDate, formatPlayerDuration, heroRowCardItem, hideWatchedPlayerItems, isMusicPlayerItem, mapContinueWatchingItemsForLayout, pickRicherSummary, plexBackdropPreviewUrl, plexLogoUrl, PLAYER_PROGRESS_EVENT, replaceFamilyContinueSlot, restoreContinueSlot, watchTargetTouches, withShowPoster } from './playerUtils';
 import { usePlayerSettings } from './usePlayerSettings';
 import type { PlayerHome, PlayerItem, PlayerLibraryHub, PlayerPlayOptions, PlayerSection } from './types';
 
@@ -211,14 +216,23 @@ const HomeSpotBody: React.FC<{ item: PlayerItem }> = ({ item }) => {
     const season = Number(item.parentIndex);
     const episode = Number(item.index);
     const epCode = item.type === 'episode' && season > 0 && episode > 0 ? `S${season} E${episode}` : '';
+    const episodeTitle = item.type === 'episode'
+        ? String(
+            item.episodeTitle
+            || (item.showTitle && item.title && item.title !== item.showTitle ? item.title : '')
+            || '',
+        ).trim()
+        : '';
+    const epLine = [epCode, episodeTitle].filter(Boolean).join(' · ');
     const date = formatPlayerDate(item.originallyAvailableAt);
     const duration = formatPlayerDuration(item.durationMs);
     const rating = String(item.contentRating || '').trim();
     const year = item.type === 'episode' ? '' : (item.year ? String(item.year) : '');
-    const meta = [epCode, date || year, duration, rating].filter(Boolean);
+    const meta = [epLine || null, date || year, duration, rating].filter(Boolean);
     const cast = (item.cast || []).slice(0, 4).map((row) => row.name).filter(Boolean).join(', ');
     return (
         <>
+            <PlayerServiceBrandMark item={item} className="player-home-spot-service-logo" />
             {showLogo ? (
                 <>
                     <PlayerClearLogo
@@ -233,7 +247,8 @@ const HomeSpotBody: React.FC<{ item: PlayerItem }> = ({ item }) => {
             ) : (
                 <h2 className="player-home-spot-title">{title}</h2>
             )}
-            {tagline ? <p className="player-home-spot-tagline">{tagline}</p> : null}
+            {/* Episode title lives in meta (SxxExx · Title); keep show tagline only when no episode line. */}
+            {!epLine && tagline ? <p className="player-home-spot-tagline">{tagline}</p> : null}
             {item.watched || meta.length ? (
                 <p className="player-home-spot-meta">
                     {item.watched ? (
@@ -417,7 +432,6 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
     const [heroPending, setHeroPending] = useState(() => !isHeroSlidesCacheFresh());
     const [heroEffectiveMode, setHeroEffectiveMode] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const [homeStale, setHomeStale] = useState(false);
     const [loading, setLoading] = useState(() => {
         const cached = readPlayerHomeCache();
         const hasRows = !!cached && (
@@ -505,7 +519,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         setDraftLibraryOrder(null);
     }, [settings.libraryNavOrder]);
 
-    const refreshHome = useCallback((opts?: { force?: boolean }) => {
+    const refreshHome = useCallback((opts?: { force?: boolean; quietRetry?: boolean }) => {
         const cachedHome = readPlayerHomeCache();
         const cachedHasRows = playerHomeHasRows(cachedHome);
         const cachedNeedsFull = playerHomeNeedsFull(cachedHome);
@@ -515,15 +529,15 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             setLoading(false);
         }
         const applyFull = (full: PlayerHome, base: PlayerHome | null) => {
-            const merged = playerHomeHasRows(full)
+            const mergedRaw = playerHomeHasRows(full)
                 ? mergePlayerHomePayloads(full, base || full)
                 : { ...(base || full), partial: true };
+            const merged = coalescePlayerHomeWithCache(mergedRaw, readPlayerHomeCache()) || mergedRaw;
             if (!playerHomeHasContentHubs(full) && !playerHomeHasContentHubs(merged)) {
                 merged.partial = true;
             }
             if (playerHomeHasRows(merged)) writePlayerHomeCache(merged);
             setHome(merged);
-            setHomeStale(false);
         };
         const followFull = (base: PlayerHome | null) => (
             fetchMediaPlayerHomeFull()
@@ -542,26 +556,25 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         return fetchMediaPlayerHome()
             .then((data) => {
                 const cached = readPlayerHomeCache();
-                let next = playerHomeHasRows(data) || !playerHomeHasRows(cached) ? data : cached;
-                if (
-                    data?.partial
-                    && cached
-                    && playerHomeHasContentHubs(cached)
-                    && !playerHomeHasContentHubs(data)
-                ) {
-                    next = { ...mergePlayerHomePayloads(cached, data), partial: true };
-                }
+                const next = coalescePlayerHomeWithCache(data, cached) || data;
                 if (next && playerHomeHasRows(next)) writePlayerHomeCache(next);
                 setHome(next);
                 setError(null);
-                setHomeStale(!playerHomeHasRows(data) && playerHomeHasRows(next));
                 setLoading(false);
                 if (!playerHomeNeedsFull(next) && !data?.partial) return undefined;
                 return followFull(next);
             })
             .catch((err) => {
-                if (readPlayerHomeCache()) {
-                    setHomeStale(true);
+                const cached = readPlayerHomeCache();
+                if (playerHomeHasRows(cached)) {
+                    // Keep showing the last good Home. Never flash "saved library" for a
+                    // transient PMS blip — Android TV hits this constantly while LAN is fine.
+                    setHome(cached);
+                    if (!opts?.quietRetry) {
+                        window.setTimeout(() => {
+                            void refreshHome({ quietRetry: true });
+                        }, 2000);
+                    }
                 } else {
                     setError(String(err?.message || t('mediaPlayerPage.loadError')));
                 }
@@ -570,6 +583,16 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 setLoading(false);
             });
     }, [t]);
+
+    // Coming back online (or a flaky Android offline→online flip) should refetch quietly.
+    useEffect(() => {
+        if (!active || !isTvShell || networkOnline) return undefined;
+        const onOnline = () => {
+            void refreshHome({ force: true });
+        };
+        window.addEventListener('online', onOnline);
+        return () => window.removeEventListener('online', onOnline);
+    }, [active, isTvShell, networkOnline, refreshHome]);
 
     useEffect(() => {
         if (!active) return undefined;
@@ -665,6 +688,13 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         [home?.libraries, libraryNavOrder],
     );
 
+    const mapRecentItem = useCallback(
+        (item: PlayerItem) => asRecentlyAddedPlayerItem(item, {
+            preferSeasonPoster: settings.recentlyAddedSeasonPoster,
+        }),
+        [settings.recentlyAddedSeasonPoster],
+    );
+
     const recentRails = useMemo(() => {
         const rows = home?.recentByLibrary || [];
         const byKey = new Map(rows.map((row) => [String(row.library.key), row]));
@@ -676,7 +706,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                     title: t('mediaPlayerPage.recentlyAddedIn', { name: library.title }),
                     items: (settings.hideWatchedFromRecents
                         ? hideWatchedPlayerItems(row?.items)
-                        : (row?.items || [])).map(withShowPoster),
+                        : (row?.items || [])).map(mapRecentItem),
                     hubKey: `/library/sections/${library.key}/recentlyAdded`,
                     identifier: 'recentlyAdded',
                 };
@@ -714,18 +744,20 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 title: titles[type],
                 items: (settings.hideWatchedFromRecents
                     ? hideWatchedPlayerItems(dedupeItems(buckets[type]))
-                    : dedupeItems(buckets[type])).map(withShowPoster),
+                    : dedupeItems(buckets[type])).map(mapRecentItem),
                 // Hub page pages recentlyAdded for months of titles (home rail stays short).
                 hubKey: library ? `/library/sections/${library.key}/recentlyAdded` : undefined,
                 identifier: 'recentlyAdded',
             };
         }).filter((row) => row.items.length);
-    }, [home, orderedLibraries, settings.hideWatchedFromRecents, settings.mixLibraries, t]);
+    }, [home, mapRecentItem, orderedLibraries, settings.hideWatchedFromRecents, settings.mixLibraries, t]);
 
     const hideContinueWatchingRail = !isTvShell && heroEffectiveMode === 'continue_watching';
     const showContinueWatchingRail = settings.showContinueWatching && !hideContinueWatchingRail;
     const showWatchlistRail = settings.showWatchlist;
-    const continueWatchingLayout = isTvShell ? 'title' : settings.continueWatchingLayout;
+    // TV used to force "title" (episode stills). That ignored show/season poster
+    // updates in Plex and looked wrong next to Plex's own Continue Watching.
+    const continueWatchingLayout = settings.continueWatchingLayout;
     const continueWatchingAspect = continueWatchingRailAspect(continueWatchingLayout);
     const cwOrderKeysRef = useRef<string[]>([]);
     const cwOrderSortRef = useRef(settings.continueWatchingSort);
@@ -762,12 +794,12 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             return true;
         }).map((hub) => (
             /recent/i.test(`${hub.identifier || ''} ${hub.title || ''}`)
-                ? { ...hub, items: hub.items.map(withShowPoster) }
+                ? { ...hub, items: hub.items.map(mapRecentItem) }
                 : hub
         ));
-        if (directHome) return filtered;
+        // Always regroup by Library order (incl. plex-direct / TV). Pins stay; only stack order changes.
         return applyLibraryNavOrderToHubs(filtered, orderedLibraries, libraryNavOrder);
-    }, [home, libraryNavOrder, orderedLibraries, showContinueWatchingRail, settings.showBecauseYouWatched]);
+    }, [home, libraryNavOrder, mapRecentItem, orderedLibraries, showContinueWatchingRail, settings.showBecauseYouWatched]);
 
     useEffect(() => {
         if (!active || !showWatchlistRail) {
@@ -837,7 +869,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                     : (isRecentHub(hub)
                         ? (settings.hideWatchedFromRecents
                             ? hideWatchedPlayerItems(hub.items)
-                            : hub.items).map(withShowPoster)
+                            : hub.items).map(mapRecentItem)
                         : hub.items),
                 aspect: hero
                     ? '16/9'
@@ -892,6 +924,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         onOpenHub,
         onOpenWatchlist,
         freezeContinueWatching,
+        mapRecentItem,
         plexHubs,
         recentRails,
         settings.hideWatchedFromRecents,
@@ -959,14 +992,27 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         const extra = key ? tvSpotExtra[key] : null;
         if (!base) return extra || null;
         if (!extra) return base;
+        const episodeBase = base.type === 'episode' || extra.type === 'episode';
         return {
             ...base,
             ...extra,
             thumb: base.thumb,
             art: extra.art || base.art,
             logo: extra.logo || base.logo,
+            // Recently Added cards use the show title on the poster; keep that for the
+            // billboard headline and pull SxxExx / episode name / synopsis from the leaf.
+            type: episodeBase ? 'episode' : (extra.type || base.type),
             title: base.title,
-            showTitle: base.showTitle || extra.showTitle,
+            showTitle: base.showTitle || extra.showTitle || (episodeBase ? extra.showTitle : null),
+            episodeTitle: base.episodeTitle
+                || extra.episodeTitle
+                || (episodeBase && extra.title && extra.title !== (base.showTitle || base.title) ? extra.title : null),
+            parentIndex: base.parentIndex ?? extra.parentIndex,
+            index: base.index ?? extra.index,
+            summary: pickRicherSummary(base.summary, extra.summary),
+            ratingKey: base.ratingKey,
+            parentRatingKey: base.parentRatingKey || extra.parentRatingKey,
+            grandparentRatingKey: base.grandparentRatingKey || extra.grandparentRatingKey,
         };
     }, [tvActiveRow, tvFocusKey, tvSpotExtra]);
     const tvStageStillSeed = plexBackdropPreviewUrl(tvSpotItem?.art || tvSpotItem?.thumb || '')
@@ -1054,7 +1100,8 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         const cached = readPlayerItemCache(key);
         if (cached?.item) {
             setTvSpotExtra((prev) => (prev[key] ? prev : { ...prev, [key]: cached.item }));
-            if (cached.item.logo) return undefined;
+            // Episodes need show studio / showTmdbId — leaf episode TMDB ids must not skip enrich.
+            if (cached.item.logo && itemHasBillboardBrandMeta(cached.item)) return undefined;
         }
         prefetchMediaPlayerItem(key);
         let cancelled = false;
@@ -1611,27 +1658,6 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 </div>
             ) : null}
 
-            {isTvShell && (homeStale || !networkOnline) && home && !query.trim() ? (
-                <div
-                    data-tv-row={tvStage ? undefined : '1'}
-                    className={tvStage
-                        ? 'player-home-stage-banner rounded-xl border border-amber-400/20 bg-amber-500/10 px-4 py-3'
-                        : 'flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-400/20 bg-amber-500/10 px-4 py-3'}
-                    aria-live="polite"
-                >
-                    <p className="text-sm text-amber-100/90">{t('mediaPlayerPage.showingSavedHome')}</p>
-                    <button
-                        type="button"
-                        data-tv-item={tvStage ? undefined : '1'}
-                        data-tv-action={tvStage ? undefined : '1'}
-                        onClick={() => void refreshHome({ force: true })}
-                        className="mt-2 shrink-0 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-bold text-white outline-none ring-plex/40 focus-visible:ring-2"
-                    >
-                        {t('common.retry')}
-                    </button>
-                </div>
-            ) : null}
-
             {!query.trim() && home && tvStage && longPressHint ? (
                 <div
                     className="player-home-stage-banner mb-2 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.06] px-4 py-3"
@@ -1684,7 +1710,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                     ) : null}
                 </div>
             ) : !query.trim() && home && !tvStage ? (
-                <div className="player-home-rows flex min-w-0 flex-col gap-6">
+                <div className="player-home-rows flex min-w-0 flex-col gap-6 max-md:gap-3">
                     {homeSections}
                 </div>
             ) : null}
@@ -1700,6 +1726,24 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                         <p className={discoveryTheme.emptyTitle}>{t('mediaPlayerPage.emptyHome')}</p>
                     </div>
                 )
+            ) : null}
+
+            {isTvShell && home ? (
+                <PlayerTvScreensaver
+                    enabled={Boolean(active && !query.trim())}
+                    continueWatchingItems={
+                        tvHomeRows.find((row) => /continue|ondeck/i.test(row.id))?.items
+                        || home.continueWatching
+                        || []
+                    }
+                    recommendedItems={
+                        plexHubs
+                            .filter(isBecauseYouWatchedHub)
+                            .flatMap((hub) => hub.items || [])
+                    }
+                    source={settings.screensaverSource}
+                    sourceLabel={t(PLAYER_SCREENSAVER_SOURCE_LABEL_KEYS[settings.screensaverSource])}
+                />
             ) : null}
         </div>
     );

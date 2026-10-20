@@ -39,6 +39,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(NativeMediaPlayerPlugin.class);
+        registerPlugin(MediaDownloadsPlugin.class);
         registerPlugin(DeviceUiPlugin.class);
         super.onCreate(savedInstanceState);
         applyWebViewDisplayFixes();

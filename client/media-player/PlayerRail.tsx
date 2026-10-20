@@ -1,14 +1,22 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Carousel, DiscoverSectionHeader, discoverRowCardWidthClass, posterGridCardWidthStyle, posterGridScaleRem, useDiscoverI18n } from './host';
 import { PlayerPosterCard } from './PlayerPosterCard';
 import { PlayerViewMoreCard, type ViewMoreShelfSource } from './PlayerViewMoreCard';
-import { isMusicPlayerItem, playerCardImageUrl, prefetchPlayerImages, resizePlexArtUrl, resolvePlayerCardAspect } from './playerUtils';
+import { isMusicPlayerItem, PLAYER_POSTER_QUALITY, playerCardImageUrl, prefetchPlayerImages, resizePlexArtUrl, resolvePlayerCardAspect } from './playerUtils';
 import type { PlayerItem, PlayerPlayOptions } from './types';
 
 const isTvShell = () => {
     try {
         return document.documentElement?.dataset?.tv === '1'
             || window.__PLEX_CLIENT__?.isTv === true;
+    } catch {
+        return false;
+    }
+};
+
+const isPhoneShell = () => {
+    try {
+        return document.documentElement?.dataset?.phone === '1';
     } catch {
         return false;
     }
@@ -67,50 +75,73 @@ export const PlayerRail: React.FC<{
 }) => {
     const { t } = useDiscoverI18n();
     const tvShell = isTvShell();
+    const phoneShell = !tvShell && isPhoneShell();
+    const lazyMount = tvShell || phoneShell;
     const moreLabel = t('common.viewMore');
     const eagerCount = tvShell
         ? (staggerIndex === 0 ? 12 : staggerIndex <= 2 ? 6 : 2)
-        : (staggerIndex === 0 ? 8 : 4);
-    const tvArmedFloor = staggerIndex === 0 ? 14 : 8;
+        : phoneShell
+            ? (staggerIndex === 0 ? 6 : staggerIndex <= 2 ? 4 : 2)
+            : (staggerIndex === 0 ? 8 : 4);
+    const armedFloor = tvShell
+        ? (staggerIndex === 0 ? 14 : 8)
+        : phoneShell
+            ? (staggerIndex === 0 ? 8 : 6)
+            : items.length;
     const restoreIndex = restoreFocusKey
         ? items.findIndex((item) => String(item.ratingKey || '') === restoreFocusKey)
         : -1;
     const [armedCount, setArmedCount] = useState(() => (
-        tvShell
-            ? Math.min(items.length, Math.max(tvArmedFloor, restoreIndex >= 0 ? restoreIndex + 6 : 0))
+        lazyMount
+            ? Math.min(items.length, Math.max(armedFloor, restoreIndex >= 0 ? restoreIndex + 6 : 0))
             : items.length
     ));
+    const armSentinelRef = useRef<HTMLDivElement | null>(null);
+
     useEffect(() => {
-        if (!tvShell) {
+        if (!lazyMount) {
             setArmedCount(items.length);
             return;
         }
         setArmedCount((current) => {
             if (!items.length) return 0;
             const restored = restoreIndex >= 0 ? restoreIndex + 6 : 0;
-            return Math.min(items.length, Math.max(current, tvArmedFloor, restored));
+            return Math.min(items.length, Math.max(current, armedFloor, restored));
         });
-    }, [items.length, restoreIndex, tvArmedFloor, tvShell]);
+    }, [armedFloor, items.length, lazyMount, restoreIndex]);
+
     useEffect(() => {
-        const take = tvShell ? Math.max(eagerCount, 12) : eagerCount + 8;
+        const take = tvShell ? Math.max(eagerCount, 12) : eagerCount;
         const urls = items.slice(0, take).map((item) => {
             const cardAspect = resolvePlayerCardAspect(item, aspect);
             const raw = playerCardImageUrl(item.thumb, cardAspect);
-            if (cardAspect === 'square') return resizePlexArtUrl(raw, 300, 300);
-            if (cardAspect === '16/9') return resizePlexArtUrl(raw, 426, 240);
-            return raw;
+            if (cardAspect === 'square') return resizePlexArtUrl(raw, 300, 300, PLAYER_POSTER_QUALITY);
+            if (cardAspect === '16/9') return resizePlexArtUrl(raw, 426, 240, PLAYER_POSTER_QUALITY);
+            return resizePlexArtUrl(raw, 300, 450, PLAYER_POSTER_QUALITY) || raw;
         });
         prefetchPlayerImages(urls, take);
     }, [aspect, eagerCount, items, tvShell]);
 
+    useEffect(() => {
+        if (!phoneShell || armedCount >= items.length) return undefined;
+        const node = armSentinelRef.current;
+        if (!node || typeof IntersectionObserver === 'undefined') return undefined;
+        const observer = new IntersectionObserver((entries) => {
+            if (!entries.some((entry) => entry.isIntersecting)) return;
+            setArmedCount((current) => Math.min(items.length, current + 8));
+        }, { root: null, rootMargin: '0px 160px', threshold: 0.01 });
+        observer.observe(node);
+        return () => observer.disconnect();
+    }, [armedCount, items.length, phoneShell]);
+
     if (!items.length) return null;
-    const visibleItems = tvShell ? items.slice(0, Math.max(1, armedCount)) : items;
+    const visibleItems = lazyMount ? items.slice(0, Math.max(1, armedCount)) : items;
     return (
         <div
             data-tv-row="1"
             data-tv-row-id={rowId || `rail:${title}`}
             className="player-rail-enter flex min-w-0 max-w-full flex-col gap-2"
-            style={{ animationDelay: `${Math.min(Math.max(staggerIndex, 0), 12) * 55}ms` }}
+            style={{ animationDelay: `${Math.min(Math.max(staggerIndex, 0), 12) * (phoneShell ? 28 : 55)}ms` }}
         >
             <DiscoverSectionHeader
                 title={title}
@@ -140,7 +171,10 @@ export const PlayerRail: React.FC<{
                             <PlayerPosterCard
                                 item={item}
                                 aspect={cardAspect}
-                                imagePriority={idx < eagerCount}
+                                // TV remounts the active rail on every up/down — keep every
+                                // armed poster eager so WebView cache paints without lazy delays.
+                                imagePriority={tvShell || idx < eagerCount}
+                                loading={tvShell ? 'eager' : undefined}
                                 showProgress={showProgress}
                                 showRemoveFromContinueWatching={showRemoveFromContinueWatching}
                                 isAdmin={isAdmin}
@@ -157,6 +191,13 @@ export const PlayerRail: React.FC<{
                         </div>
                     );
                 })}
+                {phoneShell && armedCount < items.length ? (
+                    <div
+                        ref={armSentinelRef}
+                        className="h-px w-px flex-shrink-0 self-stretch"
+                        aria-hidden
+                    />
+                ) : null}
                 {tvShell && onViewAll ? (
                     <div
                         className={`${aspect === '16/9' ? 'player-rail-landscape' : aspect === 'square' ? 'player-rail-square' : discoverRowCardWidthClass(density)} relative z-0 flex-shrink-0 snap-start hover:z-20 focus-within:z-20`}

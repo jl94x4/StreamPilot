@@ -1,5 +1,28 @@
 export type PlayerSubtitleMode = 'off' | 'forced' | 'always';
 
+/** Skip intro/credits marker behavior (Plex-style). */
+export type PlayerSkipMarkerMode = 'off' | 'manual' | 'auto';
+
+export const PLAYER_SKIP_MARKER_MODES: PlayerSkipMarkerMode[] = ['off', 'manual', 'auto'];
+
+export const isPlayerSkipMarkerMode = (value: unknown): value is PlayerSkipMarkerMode => (
+    PLAYER_SKIP_MARKER_MODES.includes(String(value || '') as PlayerSkipMarkerMode)
+);
+
+/** Burn-in policy when a subtitle track is selected. */
+export type PlayerBurnSubtitlesMode = 'auto' | 'always' | 'image';
+
+export const PLAYER_BURN_SUBTITLES_MODES: PlayerBurnSubtitlesMode[] = ['auto', 'always', 'image'];
+
+export const isPlayerBurnSubtitlesMode = (value: unknown): value is PlayerBurnSubtitlesMode => (
+    PLAYER_BURN_SUBTITLES_MODES.includes(String(value || '') as PlayerBurnSubtitlesMode)
+);
+
+const migrateSkipMode = (modeRaw: unknown, legacyBool: unknown): PlayerSkipMarkerMode => {
+    if (isPlayerSkipMarkerMode(modeRaw)) return modeRaw;
+    return legacyBool === true ? 'auto' : 'manual';
+};
+
 export type PlayerWatchedTickPosition = 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left';
 
 export const PLAYER_WATCHED_TICK_POSITIONS: PlayerWatchedTickPosition[] = [
@@ -33,6 +56,50 @@ export const PLAYER_CONTINUE_WATCHING_SORTS: PlayerContinueWatchingSort[] = [
 export const isPlayerContinueWatchingSort = (value: unknown): value is PlayerContinueWatchingSort => (
     PLAYER_CONTINUE_WATCHING_SORTS.includes(String(value || '') as PlayerContinueWatchingSort)
 );
+
+/** TV idle screensaver art pool. */
+export type PlayerScreensaverSource =
+    | 'continue_watching'
+    | 'watchlist'
+    | 'recommended'
+    | 'trending'
+    | 'popular'
+    | 'new_releases'
+    | 'recently_added'
+    | 'most_watched'
+    | 'unwatched'
+    | 'random';
+
+export const PLAYER_SCREENSAVER_SOURCES: PlayerScreensaverSource[] = [
+    'continue_watching',
+    'watchlist',
+    'recommended',
+    'trending',
+    'popular',
+    'new_releases',
+    'recently_added',
+    'most_watched',
+    'unwatched',
+    'random',
+];
+
+export const isPlayerScreensaverSource = (value: unknown): value is PlayerScreensaverSource => (
+    PLAYER_SCREENSAVER_SOURCES.includes(String(value || '') as PlayerScreensaverSource)
+);
+
+/** i18n keys under mediaPlayerPage for screensaver source labels (watermark + settings). */
+export const PLAYER_SCREENSAVER_SOURCE_LABEL_KEYS: Record<PlayerScreensaverSource, string> = {
+    continue_watching: 'mediaPlayerPage.screensaverSourceContinueWatching',
+    watchlist: 'mediaPlayerPage.screensaverSourceWatchlist',
+    recommended: 'mediaPlayerPage.screensaverSourceRecommended',
+    trending: 'mediaPlayerPage.screensaverSourceTrending',
+    popular: 'mediaPlayerPage.screensaverSourcePopular',
+    new_releases: 'mediaPlayerPage.screensaverSourceNewReleases',
+    recently_added: 'mediaPlayerPage.screensaverSourceRecentlyAdded',
+    most_watched: 'mediaPlayerPage.screensaverSourceMostWatched',
+    unwatched: 'mediaPlayerPage.screensaverSourceUnwatched',
+    random: 'mediaPlayerPage.screensaverSourceRandom',
+};
 
 const continueWatchingUnixMs = (value: unknown): number => {
     const n = Number(value) || 0;
@@ -188,9 +255,24 @@ export type PlayerSettings = {
     defaultQualityId: string;
     audioLanguage: string;
     subtitleMode: PlayerSubtitleMode;
+    /** @deprecated Prefer skipIntroMode; kept for older saves / server payloads. */
     autoSkipIntro: boolean;
+    /** @deprecated Prefer skipCreditsMode. */
     autoSkipCredits: boolean;
+    skipIntroMode: PlayerSkipMarkerMode;
+    skipCreditsMode: PlayerSkipMarkerMode;
+    /** Seconds to rewind when unpausing (0 = off). */
+    rewindOnResumeSec: number;
+    /** Plex-style audioBoost percent for transcodes (100 / 200 / 300). */
+    audioBoost: number;
+    burnSubtitles: PlayerBurnSubtitlesMode;
+    /** External/text subtitle timing offset in ms (−5000…5000). */
+    subtitleDelayMs: number;
+    /** Prefer server voice-activity auto-sync when available. */
+    subtitleAutoSync: boolean;
     playThemeTunes: boolean;
+    /** Billboard + overview studio / network / streaming logos (on by default). */
+    showServiceBrandLogos: boolean;
     /** Grey plate behind studio / network / streaming logos on overview. */
     serviceLogoPlates: boolean;
     /** Resolution / codec pills on season episode cards. */
@@ -199,17 +281,29 @@ export type PlayerSettings = {
     watchedTickPosition: PlayerWatchedTickPosition;
     /** Phone overview: poster on the still instead of the clear logo. */
     phoneOverviewPoster: boolean;
+    /**
+     * Shows with only one season open the episode list directly
+     * instead of the seasons overview. Off by default.
+     */
+    skipSingleSeason: boolean;
     homeRowOrder: string[];
     libraryNavOrder: string[];
     /** Hide watched movies/shows from Recently Added rows. */
     hideWatchedFromRecents: boolean;
+    /** Recently Added TV: use season posters instead of the series poster. */
+    recentlyAddedSeasonPoster: boolean;
+    /** TV screensaver: which library pool to cycle as ambient art. */
+    screensaverSource: PlayerScreensaverSource;
     /** TV: skip focus zoom and screen-enter motion. */
     reduceMotion: boolean;
     nightMode: boolean;
     matchFrameRate: boolean;
     /** HDMI bitstream of DD/DTS/TrueHD when the sink supports it. */
     audioPassthrough: boolean;
+    /** @deprecated Prefer cinemaTrailerCount. */
     cinemaTrailers: boolean;
+    /** How many trailers to play before a movie (0–5). */
+    cinemaTrailerCount: number;
     subtitleSize: number;
     subtitleColor: string;
     subtitleBackground: string;
@@ -518,19 +612,31 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
     subtitleMode: 'forced',
     autoSkipIntro: false,
     autoSkipCredits: false,
+    skipIntroMode: 'manual',
+    skipCreditsMode: 'manual',
+    rewindOnResumeSec: 0,
+    audioBoost: 100,
+    burnSubtitles: 'auto',
+    subtitleDelayMs: 0,
+    subtitleAutoSync: false,
     playThemeTunes: true,
+    showServiceBrandLogos: true,
     serviceLogoPlates: true,
     showEpisodeFilePills: true,
     watchedTickPosition: 'top-right',
     phoneOverviewPoster: false,
+    skipSingleSeason: false,
     homeRowOrder: [],
     libraryNavOrder: [],
     hideWatchedFromRecents: false,
+    recentlyAddedSeasonPoster: false,
+    screensaverSource: 'continue_watching',
     reduceMotion: false,
     nightMode: false,
     matchFrameRate: true,
     audioPassthrough: false,
     cinemaTrailers: false,
+    cinemaTrailerCount: 0,
     subtitleSize: 100,
     subtitleColor: '#ffffff',
     subtitleBackground: 'none',
@@ -564,15 +670,37 @@ export const normalizePlayerSettings = (raw: Partial<PlayerSettings> | Record<st
         defaultQualityId: QUALITY_IDS.has(quality) ? quality : 'auto',
         audioLanguage: /^[a-z]{2}(?:-[a-z]{2})?$/.test(audioLanguage) ? audioLanguage : '',
         subtitleMode: SUBTITLE_MODES.has(subtitleMode) ? subtitleMode : 'forced',
-        autoSkipIntro: raw?.autoSkipIntro === true,
-        autoSkipCredits: raw?.autoSkipCredits === true,
+        autoSkipIntro: raw?.autoSkipIntro === true || String(raw?.skipIntroMode || '') === 'auto',
+        autoSkipCredits: raw?.autoSkipCredits === true || String(raw?.skipCreditsMode || '') === 'auto',
+        skipIntroMode: migrateSkipMode(raw?.skipIntroMode, raw?.autoSkipIntro),
+        skipCreditsMode: migrateSkipMode(raw?.skipCreditsMode, raw?.autoSkipCredits),
+        rewindOnResumeSec: (() => {
+            const n = Number(raw?.rewindOnResumeSec);
+            if (![0, 5, 10, 15, 20, 30].includes(n)) return 0;
+            return n;
+        })(),
+        audioBoost: (() => {
+            const n = Number(raw?.audioBoost);
+            if (n === 200 || n === 300) return n;
+            return 100;
+        })(),
+        burnSubtitles: isPlayerBurnSubtitlesMode(raw?.burnSubtitles) ? raw.burnSubtitles : 'auto',
+        subtitleDelayMs: (() => {
+            const n = Math.round(Number(raw?.subtitleDelayMs) || 0);
+            if (!Number.isFinite(n)) return 0;
+            const stepped = Math.round(n / 500) * 500;
+            return Math.min(5000, Math.max(-5000, stepped));
+        })(),
+        subtitleAutoSync: raw?.subtitleAutoSync === true,
         playThemeTunes: raw?.playThemeTunes !== false,
+        showServiceBrandLogos: raw?.showServiceBrandLogos !== false,
         serviceLogoPlates: raw?.serviceLogoPlates !== false,
         showEpisodeFilePills: raw?.showEpisodeFilePills !== false,
         watchedTickPosition: isPlayerWatchedTickPosition(raw?.watchedTickPosition)
             ? raw!.watchedTickPosition as PlayerWatchedTickPosition
             : 'top-right',
         phoneOverviewPoster: raw?.phoneOverviewPoster === true,
+        skipSingleSeason: raw?.skipSingleSeason === true,
         homeRowOrder: collapseHomeRowOrder(raw?.homeRowOrder),
         libraryNavOrder: normalizeLibraryNavOrder(
             Array.isArray(raw?.libraryNavOrder) && raw.libraryNavOrder.length
@@ -580,11 +708,24 @@ export const normalizePlayerSettings = (raw: Partial<PlayerSettings> | Record<st
                 : libraryNavOrderFromHomeRows(raw?.homeRowOrder),
         ),
         hideWatchedFromRecents: raw?.hideWatchedFromRecents === true,
+        recentlyAddedSeasonPoster: raw?.recentlyAddedSeasonPoster === true,
+        screensaverSource: isPlayerScreensaverSource(raw?.screensaverSource)
+            ? raw.screensaverSource
+            : 'continue_watching',
         reduceMotion: raw?.reduceMotion === true,
         nightMode: raw?.nightMode === true,
         matchFrameRate: raw?.matchFrameRate !== false,
         audioPassthrough: raw?.audioPassthrough === true,
-        cinemaTrailers: raw?.cinemaTrailers === true,
+        cinemaTrailers: (() => {
+            const count = Number(raw?.cinemaTrailerCount);
+            if (Number.isFinite(count)) return count > 0;
+            return raw?.cinemaTrailers === true;
+        })(),
+        cinemaTrailerCount: (() => {
+            const count = Number(raw?.cinemaTrailerCount);
+            if (Number.isFinite(count)) return Math.min(5, Math.max(0, Math.floor(count)));
+            return raw?.cinemaTrailers === true ? 2 : 0;
+        })(),
         subtitleSize: Math.min(200, Math.max(50, Number(raw?.subtitleSize) || 100)),
         subtitleColor: /^#[0-9a-f]{6}$/i.test(String(raw?.subtitleColor || ''))
             ? String(raw?.subtitleColor)
@@ -613,19 +754,31 @@ export const playerSettingsEqual = (a: PlayerSettings, b: PlayerSettings) => (
     && a.subtitleMode === b.subtitleMode
     && a.autoSkipIntro === b.autoSkipIntro
     && a.autoSkipCredits === b.autoSkipCredits
+    && a.skipIntroMode === b.skipIntroMode
+    && a.skipCreditsMode === b.skipCreditsMode
+    && a.rewindOnResumeSec === b.rewindOnResumeSec
+    && a.audioBoost === b.audioBoost
+    && a.burnSubtitles === b.burnSubtitles
+    && a.subtitleDelayMs === b.subtitleDelayMs
+    && a.subtitleAutoSync === b.subtitleAutoSync
     && a.playThemeTunes === b.playThemeTunes
+    && a.showServiceBrandLogos === b.showServiceBrandLogos
     && a.serviceLogoPlates === b.serviceLogoPlates
     && a.showEpisodeFilePills === b.showEpisodeFilePills
     && a.watchedTickPosition === b.watchedTickPosition
     && a.phoneOverviewPoster === b.phoneOverviewPoster
+    && a.skipSingleSeason === b.skipSingleSeason
     && a.homeRowOrder.join('\0') === b.homeRowOrder.join('\0')
     && a.libraryNavOrder.join('\0') === b.libraryNavOrder.join('\0')
     && a.hideWatchedFromRecents === b.hideWatchedFromRecents
+    && a.recentlyAddedSeasonPoster === b.recentlyAddedSeasonPoster
+    && a.screensaverSource === b.screensaverSource
     && a.reduceMotion === b.reduceMotion
     && a.nightMode === b.nightMode
     && a.matchFrameRate === b.matchFrameRate
     && a.audioPassthrough === b.audioPassthrough
     && a.cinemaTrailers === b.cinemaTrailers
+    && a.cinemaTrailerCount === b.cinemaTrailerCount
     && a.subtitleSize === b.subtitleSize
     && a.subtitleColor === b.subtitleColor
     && a.subtitleBackground === b.subtitleBackground

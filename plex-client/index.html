@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -238,7 +238,7 @@
     #boot-splash .boot-splash-progress {
       position: absolute;
       left: 50%;
-      bottom: max(8%, 2.5rem);
+      bottom: max(12%, 3.75rem);
       z-index: 1;
       width: min(14rem, 38vw);
       height: 3px;
@@ -246,6 +246,23 @@
       border-radius: 999px;
       background: rgba(255, 255, 255, 0.08);
       transform: translateX(-50%);
+    }
+    #boot-splash .boot-splash-version {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: max(3.5%, 1rem);
+      z-index: 1;
+      margin: 0;
+      text-align: center;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      color: rgba(255, 255, 255, 0.42);
+    }
+    #boot-splash .boot-splash-version:empty {
+      display: none;
     }
     #boot-splash .boot-splash-progress > span {
       display: block;
@@ -323,30 +340,41 @@
       font-size: 14px !important;
       font-weight: 500;
     }
-    /* Home row headings stay slightly smaller. Poster lines are sized below. */
-    html[data-tv="1"] .player-home-rows [data-tv-row="1"] h2,
-    html[data-tv="1"] .player-home-rows [data-tv-row="1"] > div > button,
-    html[data-tv="1"] .player-home-rows .player-row-header-title {
-      font-size: 1.35rem !important;
-      font-weight: 800 !important;
-      letter-spacing: 0.015em !important;
-      line-height: 1.2 !important;
-      color: rgba(255, 255, 255, 0.96) !important;
-      text-shadow: 0 1px 10px rgba(0, 0, 0, 0.35);
-    }
-    html[data-tv="1"] .player-home-rows .player-row-header {
+    /* All home / library / details rail headers — Satoshi + plex accent mark. */
+    html[data-tv="1"] .player-row-header {
+      position: relative;
       gap: 0.7rem !important;
-      margin-bottom: 0.1rem;
+      margin: 0 0 0.15rem;
+      padding-left: 0;
     }
-    html[data-tv="1"] .player-home-rows .player-row-header-mark {
-      display: inline-block;
-      width: 0.22rem;
-      height: 1.05em;
+    html[data-tv="1"] .player-row-header-mark {
+      position: absolute;
+      left: -0.55rem;
+      top: 50%;
+      display: inline-block !important;
+      width: 0.28rem;
+      height: 1.15em;
       border-radius: 999px;
       background: linear-gradient(180deg, #fbbf24 0%, rgba(245, 158, 11, 0.45) 100%);
       box-shadow: 0 0 12px rgba(251, 191, 36, 0.4);
+      transform: translateY(-50%);
     }
-    /* Default (non-home) — keep mark subtle if the header is reused. */
+    html[data-tv="1"] .player-row-header-title,
+    html[data-tv="1"] .player-row-header h2,
+    html[data-tv="1"] .player-row-header > button,
+    html[data-tv="1"] .player-home-rows [data-tv-row="1"] h2,
+    html[data-tv="1"] .player-home-rows [data-tv-row="1"] > div > button,
+    html[data-tv="1"] .player-home-rows .player-row-header-title,
+    html[data-tv="1"] [data-tv-library="1"] .player-row-header-title {
+      font-family: "Satoshi", "Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif !important;
+      font-size: 1.45rem !important;
+      font-weight: 800 !important;
+      letter-spacing: 0.01em !important;
+      line-height: 1.2 !important;
+      color: #fff !important;
+      text-shadow: 0 1px 12px rgba(0, 0, 0, 0.55);
+    }
+    /* Non-TV fallback mark (portal / phone). */
     .player-row-header-mark {
       display: inline-block;
       width: 0.18rem;
@@ -400,6 +428,19 @@
       box-shadow: none !important;
       border-radius: 9999px !important;
       z-index: 5;
+    }
+    /* Android TV / WebView often leaves :hover stuck after D-pad moves past a
+       library row (grey pill that never clears). Hover is meaningless on TV —
+       only :focus should paint a highlight. */
+    html[data-tv="1"] [data-tv-nav="1"]:hover:not(:focus):not(:focus-visible) {
+      background: transparent !important;
+      color: rgba(255, 255, 255, 0.8) !important;
+      box-shadow: none !important;
+    }
+    html[data-tv="1"] [data-tv-nav="1"]:hover:not(:focus):not(:focus-visible) svg,
+    html[data-tv="1"] [data-tv-nav="1"]:hover:not(:focus):not(:focus-visible) .player-nav-label {
+      color: rgba(255, 255, 255, 0.8) !important;
+      stroke: currentColor !important;
     }
     /* Library list scrolls — keep overflow visible for the focus pill, but no
        extra horizontal inset (that misaligned library icons vs Home/Settings). */
@@ -1958,7 +1999,14 @@
       color: rgba(255, 255, 255, 0.55) !important;
     }
     html[data-tv="1"] .player-row-header-title,
-    html[data-tv="1"] .player-tv-clock {
+    html[data-tv="1"] .player-row-header h2,
+    html[data-tv="1"] .player-row-header > button,
+    html[data-tv="1"] .player-tv-clock,
+    html[data-tv="1"] .player-library-title,
+    html[data-tv="1"] [data-tv-library="1"] h1,
+    html[data-tv="1"] .player-home-stage .player-row-header-title,
+    html[data-tv="1"] .player-home-rows .player-row-header-title,
+    html[data-tv="1"] [data-tv-library="1"] .player-row-header-title {
       font-family: "Satoshi", "Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif !important;
     }
     html[data-tv="1"] .player-tv-clock {
@@ -1983,8 +2031,90 @@
     }
     /* Options sheet sits under the clock corner — tuck it away while the menu is open. */
     html[data-tv="1"]:has([data-tv-item-menu="1"]) .player-tv-clock,
-    html[data-tv="1"]:has([data-tv-context-sheet="1"]) .player-tv-clock {
+    html[data-tv="1"]:has([data-tv-context-sheet="1"]) .player-tv-clock,
+    html[data-tv="1"]:has([data-tv-screensaver="1"]) .player-tv-clock {
       display: none !important;
+    }
+    html[data-tv="1"] .player-tv-screensaver {
+      position: fixed;
+      inset: 0;
+      z-index: 5000;
+      overflow: hidden;
+      background: #05070c;
+      pointer-events: auto;
+    }
+    html[data-tv="1"] .player-tv-screensaver-slide {
+      position: absolute;
+      inset: 0;
+      background-position: center center;
+      background-size: cover;
+      background-repeat: no-repeat;
+      transform: scale(1.04);
+    }
+    html[data-tv="1"] .player-tv-screensaver-slide--enter {
+      animation: player-tv-screensaver-in 1.4s ease both;
+    }
+    html[data-tv="1"] .player-tv-screensaver-slide--exit {
+      animation: player-tv-screensaver-out 1.4s ease both;
+    }
+    @keyframes player-tv-screensaver-in {
+      from { opacity: 0; transform: scale(1.08); }
+      to { opacity: 1; transform: scale(1.04); }
+    }
+    @keyframes player-tv-screensaver-out {
+      from { opacity: 1; transform: scale(1.04); }
+      to { opacity: 0; transform: scale(1.01); }
+    }
+    html[data-tv="1"] .player-tv-screensaver-scrim {
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(90deg, rgba(0, 0, 0, 0.72) 0%, rgba(0, 0, 0, 0.28) 42%, rgba(0, 0, 0, 0.08) 70%, transparent 100%),
+        linear-gradient(0deg, rgba(0, 0, 0, 0.78) 0%, rgba(0, 0, 0, 0.2) 38%, transparent 62%);
+      pointer-events: none;
+    }
+    html[data-tv="1"] .player-tv-screensaver-footer {
+      position: absolute;
+      left: 2.75rem;
+      bottom: 2.4rem;
+      z-index: 2;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.85rem;
+      width: max-content;
+      max-width: min(42rem, 70vw);
+      pointer-events: none;
+    }
+    html[data-tv="1"] .player-tv-screensaver-clock {
+      margin: 0;
+      color: #fff;
+      font-family: "Satoshi", "Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif;
+      font-size: clamp(4.6rem, 9.5vw, 7.25rem);
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      line-height: 0.92;
+      font-variant-numeric: tabular-nums;
+      text-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+    }
+    html[data-tv="1"] .player-tv-screensaver-logo {
+      display: block;
+      height: 3.1rem;
+      width: auto;
+      max-width: 100%;
+      object-fit: contain;
+      object-position: center center;
+      filter: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.65));
+    }
+    html[data-tv="1"] .player-tv-screensaver-title {
+      margin: 0;
+      color: rgba(255, 255, 255, 0.88);
+      font-family: "Satoshi", "Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif;
+      font-size: 1.35rem;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+      text-align: center;
+      text-shadow: 0 8px 22px rgba(0, 0, 0, 0.55);
     }
     html[data-tv="1"] .player-home-stage-rail {
       position: absolute;
@@ -2044,32 +2174,6 @@
     }
     html[data-tv="1"] .player-home-stage .player-rail-arrows {
       display: none !important;
-    }
-    html[data-tv="1"] .player-home-stage .player-row-header {
-      position: relative;
-      gap: 0.7rem !important;
-      margin: 0 0 0.15rem;
-      padding-left: 0;
-    }
-    html[data-tv="1"] .player-home-stage .player-row-header-mark {
-      position: absolute;
-      left: -0.55rem;
-      top: 50%;
-      display: inline-block !important;
-      width: 0.28rem;
-      height: 1.15em;
-      border-radius: 999px;
-      background: linear-gradient(180deg, #fbbf24 0%, rgba(245, 158, 11, 0.45) 100%);
-      box-shadow: 0 0 12px rgba(251, 191, 36, 0.4);
-      transform: translateY(-50%);
-    }
-    html[data-tv="1"] .player-home-stage .player-row-header-title {
-      font-size: 1.45rem !important;
-      font-weight: 800 !important;
-      letter-spacing: 0.01em !important;
-      line-height: 1.2 !important;
-      color: #fff !important;
-      text-shadow: 0 1px 12px rgba(0, 0, 0, 0.55);
     }
     html[data-tv="1"] .player-home-next-row {
       padding-left: 0;
@@ -2159,10 +2263,99 @@
       background: rgb(var(--tv-page-surface, 36 40 48)) !important;
       background-image: none !important;
     }
-    /* PIN keypad must fit fully — no scroll, no clipped 0/Del/OK row. */
+    /* TV Plex Home PIN — leanback keypad, no clipping. */
+    html[data-tv="1"] .player-tv-home-pin,
     html[data-tv="1"] [data-tv-home-switch="1"][data-tv-home-switch-pin="1"] {
-      max-height: min(96vh, 56rem) !important;
-      overflow: hidden !important;
+      max-width: min(42rem, 92vw) !important;
+      max-height: none !important;
+      overflow: visible !important;
+      background: rgb(var(--tv-page-surface, 36 40 48)) !important;
+      background-image: none !important;
+    }
+    html[data-tv="1"] .player-tv-home-pin-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0.85rem;
+      width: min(100%, 26rem);
+    }
+    html[data-tv="1"] .player-tv-home-pin-key {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 4.35rem;
+      border-radius: 1.15rem;
+      border: 2px solid rgba(255, 255, 255, 0.14);
+      background: rgba(0, 0, 0, 0.38);
+      color: #fff;
+      font-size: 1.65rem;
+      font-weight: 800;
+      letter-spacing: 0.02em;
+      line-height: 1;
+    }
+    html[data-tv="1"] .player-tv-home-pin-key.is-del {
+      font-size: 1.15rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.78);
+    }
+    html[data-tv="1"] .player-tv-home-pin-key.is-go {
+      font-size: 1.2rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      background: rgba(229, 160, 13, 0.92);
+      border-color: rgba(229, 160, 13, 1);
+      color: #111;
+    }
+    html[data-tv="1"] .player-tv-home-pin-key:focus,
+    html[data-tv="1"] .player-tv-home-pin-key:focus-visible {
+      outline: none !important;
+      border-color: #e5a00d !important;
+      background: rgba(229, 160, 13, 0.18) !important;
+      color: #fff !important;
+      box-shadow: 0 0 0 3px rgba(229, 160, 13, 0.28);
+    }
+    html[data-tv="1"] .player-tv-home-pin-key.is-go:focus,
+    html[data-tv="1"] .player-tv-home-pin-key.is-go:focus-visible {
+      background: #fff !important;
+      border-color: #fff !important;
+      color: #111 !important;
+    }
+    html[data-tv="1"] .player-tv-home-pin-key:disabled {
+      opacity: 0.35;
+    }
+    html[data-tv="1"] .player-tv-home-pin-dot {
+      width: 1.15rem;
+      height: 1.15rem;
+      border-radius: 999px;
+      border: 2px solid rgba(255, 255, 255, 0.35);
+      background: transparent;
+    }
+    html[data-tv="1"] .player-tv-home-pin-dot.is-filled {
+      background: #fff;
+      border-color: #fff;
+      box-shadow: 0 0 18px rgba(255, 255, 255, 0.28);
+    }
+    html[data-tv="1"] .player-tv-home-pin-back {
+      min-height: 3.1rem;
+      padding: 0 1.5rem;
+      border-radius: 999px;
+      border: 2px solid rgba(255, 255, 255, 0.14);
+      background: transparent;
+      color: rgba(255, 255, 255, 0.78);
+      font-size: 1.05rem;
+      font-weight: 700;
+    }
+    html[data-tv="1"] .player-tv-home-pin-back:focus,
+    html[data-tv="1"] .player-tv-home-pin-back:focus-visible {
+      outline: none !important;
+      border-color: #e5a00d !important;
+      color: #fff !important;
+      background: rgba(229, 160, 13, 0.14) !important;
+    }
+    html[data-tv="1"] .player-tv-home-pin-profile img,
+    html[data-tv="1"] .player-tv-home-pin-profile > span > span {
+      width: 4.5rem !important;
+      height: 4.5rem !important;
     }
     html[data-tv="1"] .player-context-logo {
       display: flex !important;
@@ -2489,10 +2682,27 @@
     html[data-tv="1"] [data-tv-settings="1"] [data-tv-action="1"] {
       border-radius: 1rem !important;
     }
+    /* Save is always plex orange — glow on orange is nearly invisible. Flip to
+       white like Play so focus is obvious against Discard beside it. */
+    html[data-tv="1"] [data-tv-settings-save="1"] {
+      background: #e5a00d !important;
+      color: #111111 !important;
+      border: 2px solid #e5a00d !important;
+      box-shadow: none !important;
+    }
     html[data-tv="1"] [data-tv-settings-save="1"]:focus,
     html[data-tv="1"] [data-tv-settings-save="1"]:focus-visible {
       outline: none !important;
+      background: #ffffff !important;
+      color: #111111 !important;
+      border-color: #ffffff !important;
       box-shadow: var(--tv-focus-glow-cover) !important;
+      transform: scale(1.04);
+    }
+    html[data-tv="1"] [data-tv-settings-save="1"]:focus svg,
+    html[data-tv="1"] [data-tv-settings-save="1"]:focus-visible svg {
+      color: #111111 !important;
+      stroke: #111111 !important;
     }
     html[data-tv="1"] [data-tv-play="1"] {
       height: 2.75rem !important;
@@ -3999,6 +4209,7 @@
         <img src="./logo.png" alt="StreamPilot" />
       </div>
       <div class="boot-splash-progress" aria-hidden="true"><span></span></div>
+      <p class="boot-splash-version">__APP_VERSION__</p>
     </div>
   </div>
   <script type="module" src="./plex-client.js"></script>

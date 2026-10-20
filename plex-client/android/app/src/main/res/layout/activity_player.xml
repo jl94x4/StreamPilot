@@ -112,85 +112,120 @@
         android:layout_height="wrap_content"
         android:layout_gravity="top"
         android:background="@drawable/player_scrim_top"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
+        android:orientation="vertical"
         android:paddingStart="25dp"
         android:paddingTop="18dp"
-        android:paddingEnd="90dp"
-        android:paddingBottom="25dp">
+        android:paddingEnd="110dp"
+        android:paddingBottom="18dp">
 
-        <FrameLayout
-            android:layout_width="0dp"
+        <!-- Logo/title column — meta centers under the clearlogo width. -->
+        <LinearLayout
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:minHeight="58dp">
+            android:gravity="center_horizontal"
+            android:orientation="vertical">
 
-            <ImageView
-                android:id="@+id/player_logo"
+            <FrameLayout
                 android:layout_width="wrap_content"
-                android:layout_height="58dp"
-                android:layout_gravity="center_vertical|start"
-                android:adjustViewBounds="true"
-                android:contentDescription="@null"
-                android:focusable="false"
-                android:maxWidth="468dp"
-                android:scaleType="fitStart"
-                android:visibility="gone" />
+                android:layout_height="wrap_content"
+                android:minHeight="58dp">
+
+                <ImageView
+                    android:id="@+id/player_logo"
+                    android:layout_width="wrap_content"
+                    android:layout_height="58dp"
+                    android:layout_gravity="center_horizontal"
+                    android:adjustViewBounds="true"
+                    android:contentDescription="@null"
+                    android:focusable="false"
+                    android:maxWidth="468dp"
+                    android:scaleType="fitCenter"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/player_title"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center_horizontal"
+                    android:ellipsize="end"
+                    android:letterSpacing="0.01"
+                    android:maxWidth="520dp"
+                    android:maxLines="2"
+                    android:shadowColor="#80000000"
+                    android:shadowRadius="6"
+                    android:textAlignment="center"
+                    android:textColor="@color/player_text_primary"
+                    android:textSize="22sp"
+                    android:textStyle="bold" />
+            </FrameLayout>
 
             <TextView
-                android:id="@+id/player_title"
-                android:layout_width="match_parent"
+                android:id="@+id/player_meta"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_gravity="center_vertical|start"
+                android:layout_marginTop="6dp"
                 android:ellipsize="end"
-                android:letterSpacing="0.01"
-                android:maxLines="2"
+                android:gravity="center_horizontal"
+                android:maxWidth="468dp"
+                android:maxLines="1"
                 android:shadowColor="#80000000"
-                android:shadowRadius="6"
-                android:textColor="@color/player_text_primary"
-                android:textSize="20sp"
-                android:textStyle="bold" />
-        </FrameLayout>
-
-        <ImageButton
-            android:id="@+id/player_close"
-            android:layout_width="33dp"
-            android:layout_height="33dp"
-            android:background="@drawable/player_control_icon_bg"
-            android:contentDescription="@string/player_close"
-            android:defaultFocusHighlightEnabled="false"
-            android:focusable="true"
-            android:minWidth="33dp"
-            android:minHeight="33dp"
-            android:padding="7dp"
-            android:scaleType="centerInside"
-            android:src="@drawable/ic_player_close" />
+                android:shadowRadius="4"
+                android:textAlignment="center"
+                android:textColor="@color/player_text_secondary"
+                android:textSize="14sp"
+                android:visibility="gone" />
+        </LinearLayout>
     </LinearLayout>
 
-    <TextView
-        android:id="@+id/player_clock"
+    <!-- Clock + circular close stacked top-right; X centered under the time. -->
+    <LinearLayout
+        android:id="@+id/player_top_end"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="top|end"
-        android:layout_marginTop="14dp"
-        android:layout_marginEnd="18dp"
-        android:background="@drawable/player_clock_pill"
-        android:clickable="false"
-        android:focusable="false"
-        android:fontFamily="sans-serif-medium"
-        android:fontFeatureSettings="tnum"
-        android:importantForAccessibility="no"
-        android:letterSpacing="0.02"
-        android:minWidth="50dp"
-        android:paddingStart="10dp"
-        android:paddingTop="5dp"
-        android:paddingEnd="10dp"
-        android:paddingBottom="5dp"
-        android:text="00:00"
-        android:textAlignment="center"
-        android:textColor="#FFFFFF"
-        android:textSize="12sp"
-        android:textStyle="bold" />
+        android:layout_marginTop="12dp"
+        android:layout_marginEnd="16dp"
+        android:gravity="center_horizontal"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/player_clock"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/player_clock_pill"
+            android:clickable="false"
+            android:focusable="false"
+            android:fontFamily="sans-serif-medium"
+            android:fontFeatureSettings="tnum"
+            android:importantForAccessibility="no"
+            android:letterSpacing="0.02"
+            android:minWidth="72dp"
+            android:paddingStart="10dp"
+            android:paddingTop="5dp"
+            android:paddingEnd="10dp"
+            android:paddingBottom="5dp"
+            android:text="12:00 AM"
+            android:textAlignment="center"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <ImageButton
+            android:id="@+id/player_close"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:layout_marginTop="8dp"
+            android:background="@drawable/player_close_btn_bg"
+            android:contentDescription="@string/player_close"
+            android:defaultFocusHighlightEnabled="false"
+            android:focusable="true"
+            android:minWidth="30dp"
+            android:minHeight="30dp"
+            android:padding="7dp"
+            android:scaleType="centerInside"
+            android:src="@drawable/ic_player_close"
+            android:tint="@color/player_close_icon" />
+    </LinearLayout>
 
     <LinearLayout
         android:id="@+id/player_chrome"
@@ -200,258 +235,53 @@
         android:background="@drawable/player_scrim_bottom"
         android:orientation="vertical"
         android:paddingStart="25dp"
-        android:paddingTop="18dp"
+        android:paddingTop="10dp"
         android:paddingEnd="25dp"
         android:paddingBottom="@dimen/player_bottom_pad">
 
-        <LinearLayout
-            android:id="@+id/player_skip_row"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="end"
-            android:orientation="horizontal"
-            android:paddingBottom="11dp"
-            android:visibility="gone">
-
-            <Button
-                android:id="@+id/player_skip_intro"
-                style="@style/PlayerChipButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginEnd="8dp"
-                android:focusable="true"
-                android:focusableInTouchMode="true"
-                android:text="@string/player_skip_intro"
-                android:visibility="gone" />
-
-            <Button
-                android:id="@+id/player_skip_credits"
-                style="@style/PlayerChipButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:focusable="true"
-                android:focusableInTouchMode="true"
-                android:text="@string/player_skip_credits"
-                android:visibility="gone" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center_horizontal"
-            android:orientation="horizontal">
-
-            <ImageButton
-                android:id="@+id/player_seek_back"
-                android:layout_width="@dimen/player_transport_size"
-                android:layout_height="@dimen/player_transport_size"
-                android:background="@drawable/player_control_icon_bg"
-                android:contentDescription="@string/player_seek_back"
-                android:defaultFocusHighlightEnabled="false"
-                android:focusable="true"
-                android:nextFocusRight="@id/player_play_pause"
-                android:nextFocusDown="@id/player_quality"
-                android:minWidth="@dimen/player_transport_size"
-                android:minHeight="@dimen/player_transport_size"
-                android:padding="@dimen/player_transport_padding"
-                android:scaleType="centerInside"
-                android:src="@drawable/ic_player_replay_10" />
-
-            <ImageButton
-                android:id="@+id/player_play_pause"
-                android:layout_width="@dimen/player_transport_play_size"
-                android:layout_height="@dimen/player_transport_play_size"
-                android:layout_marginHorizontal="7dp"
-                android:background="@drawable/player_control_icon_bg"
-                android:contentDescription="@string/player_play"
-                android:defaultFocusHighlightEnabled="false"
-                android:focusable="true"
-                android:focusedByDefault="true"
-                android:nextFocusLeft="@id/player_seek_back"
-                android:nextFocusRight="@id/player_seek_fwd"
-                android:nextFocusDown="@id/player_quality"
-                android:minWidth="@dimen/player_transport_play_size"
-                android:minHeight="@dimen/player_transport_play_size"
-                android:padding="@dimen/player_transport_padding"
-                android:scaleType="centerInside"
-                android:src="@drawable/ic_player_play" />
-
-            <ImageButton
-                android:id="@+id/player_seek_fwd"
-                android:layout_width="@dimen/player_transport_size"
-                android:layout_height="@dimen/player_transport_size"
-                android:background="@drawable/player_control_icon_bg"
-                android:contentDescription="@string/player_seek_fwd"
-                android:defaultFocusHighlightEnabled="false"
-                android:focusable="true"
-                android:nextFocusLeft="@id/player_play_pause"
-                android:nextFocusDown="@id/player_quality"
-                android:minWidth="@dimen/player_transport_size"
-                android:minHeight="@dimen/player_transport_size"
-                android:padding="@dimen/player_transport_padding"
-                android:scaleType="centerInside"
-                android:src="@drawable/ic_player_forward_10" />
-        </LinearLayout>
-
+        <!-- Hidden chip strip kept for findViewById / settings tree value helpers -->
         <HorizontalScrollView
             android:id="@+id/player_actions_scroll"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="9dp"
-            android:clipToPadding="false"
-            android:fadingEdgeLength="22dp"
-            android:fillViewport="true"
-            android:requiresFadingEdge="horizontal"
-            android:scrollbars="none">
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:visibility="gone">
 
             <LinearLayout
                 android:id="@+id/player_actions"
-                android:layout_width="match_parent"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:gravity="center_horizontal"
                 android:orientation="horizontal">
 
-                <Button
-                    android:id="@+id/player_quality"
-                    style="@style/PlayerChipButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginEnd="6dp"
-                    android:nextFocusUp="@id/player_play_pause"
-                    android:nextFocusRight="@id/player_audio"
-                    android:text="@string/player_quality" />
-
-                <Button
-                    android:id="@+id/player_audio"
-                    style="@style/PlayerChipButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginEnd="6dp"
-                    android:nextFocusUp="@id/player_play_pause"
-                    android:nextFocusLeft="@id/player_quality"
-                    android:nextFocusRight="@id/player_subs"
-                    android:text="@string/player_audio" />
-
-                <Button
-                    android:id="@+id/player_subs"
-                    style="@style/PlayerChipButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginEnd="6dp"
-                    android:nextFocusUp="@id/player_play_pause"
-                    android:nextFocusLeft="@id/player_audio"
-                    android:nextFocusRight="@id/player_version"
-                    android:text="@string/player_subs" />
-
-                <Button
-                    android:id="@+id/player_version"
-                    style="@style/PlayerChipButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginEnd="6dp"
-                    android:nextFocusUp="@id/player_play_pause"
-                    android:nextFocusLeft="@id/player_subs"
-                    android:nextFocusRight="@id/player_speed"
-                    android:text="@string/player_version" />
-
-                <Button
-                    android:id="@+id/player_speed"
-                    style="@style/PlayerChipButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginEnd="6dp"
-                    android:text="@string/player_speed" />
-
-                <Button
-                    android:id="@+id/player_zoom"
-                    style="@style/PlayerChipButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginEnd="6dp"
-                    android:nextFocusUp="@id/player_play_pause"
-                    android:text="@string/player_zoom" />
-
-                <Button
-                    android:id="@+id/player_delay"
-                    style="@style/PlayerChipButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginEnd="6dp"
-                    android:nextFocusUp="@id/player_play_pause"
-                    android:text="@string/player_delay" />
-
-                <Button
-                    android:id="@+id/player_repeat"
-                    style="@style/PlayerChipButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginEnd="6dp"
-                    android:nextFocusUp="@id/player_play_pause"
-                    android:text="@string/player_repeat" />
-
-                <Button
-                    android:id="@+id/player_sleep"
-                    style="@style/PlayerChipButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginEnd="6dp"
-                    android:text="@string/player_sleep" />
-
-                <Button
-                    android:id="@+id/player_external"
-                    style="@style/PlayerChipButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginEnd="6dp"
-                    android:text="@string/player_external" />
-
-                <Button
-                    android:id="@+id/player_chapters"
-                    style="@style/PlayerChipButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginEnd="6dp"
-                    android:nextFocusUp="@id/player_play_pause"
-                    android:text="@string/player_chapters"
-                    android:visibility="gone" />
-
-                <Button
-                    android:id="@+id/player_pip"
-                    style="@style/PlayerChipButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/player_pip"
-                    android:visibility="gone" />
+                <Button android:id="@+id/player_quality" style="@style/PlayerChipButton" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/player_quality" />
+                <Button android:id="@+id/player_audio" style="@style/PlayerChipButton" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/player_audio" />
+                <Button android:id="@+id/player_subs" style="@style/PlayerChipButton" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/player_subs" />
+                <Button android:id="@+id/player_version" style="@style/PlayerChipButton" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/player_version" />
+                <Button android:id="@+id/player_speed" style="@style/PlayerChipButton" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/player_speed" />
+                <Button android:id="@+id/player_zoom" style="@style/PlayerChipButton" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/player_zoom" />
+                <Button android:id="@+id/player_delay" style="@style/PlayerChipButton" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/player_delay" />
+                <Button android:id="@+id/player_repeat" style="@style/PlayerChipButton" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/player_repeat" />
+                <Button android:id="@+id/player_sleep" style="@style/PlayerChipButton" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/player_sleep" />
+                <Button android:id="@+id/player_external" style="@style/PlayerChipButton" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/player_external" />
+                <Button android:id="@+id/player_chapters" style="@style/PlayerChipButton" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/player_chapters" />
+                <Button android:id="@+id/player_pip" style="@style/PlayerChipButton" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/player_pip" />
             </LinearLayout>
         </HorizontalScrollView>
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="11dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
+        <ImageButton
+            android:id="@+id/player_seek_back"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:contentDescription="@string/player_seek_back"
+            android:src="@drawable/ic_player_replay_10"
+            android:visibility="gone" />
 
-            <TextView
-                android:id="@+id/player_time"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:fontFamily="sans-serif-medium"
-                android:text="0:00 / 0:00"
-                android:textColor="@color/player_text_secondary"
-                android:textSize="12sp" />
-
-            <TextView
-                android:id="@+id/player_speed_label"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:fontFamily="sans-serif-medium"
-                android:paddingEnd="4dp"
-                android:text="1.0×"
-                android:textColor="@color/player_accent"
-                android:textSize="12sp" />
-        </LinearLayout>
+        <ImageButton
+            android:id="@+id/player_seek_fwd"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:contentDescription="@string/player_seek_fwd"
+            android:src="@drawable/ic_player_forward_10"
+            android:visibility="gone" />
 
         <ImageView
             android:id="@+id/player_seek_preview"
@@ -465,22 +295,186 @@
             android:scaleType="centerCrop"
             android:visibility="gone" />
 
+        <TextView
+            android:id="@+id/player_seek_flash"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginBottom="2dp"
+            android:background="@drawable/player_clock_pill"
+            android:paddingStart="14dp"
+            android:paddingTop="6dp"
+            android:paddingEnd="14dp"
+            android:paddingBottom="6dp"
+            android:textColor="@color/player_text_primary"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
+
         <SeekBar
             android:id="@+id/player_seek"
             style="@style/PlayerSeekBar"
             android:layout_width="match_parent"
-            android:layout_height="32dp"
-            android:layout_marginTop="2dp"
+            android:layout_height="24dp"
             android:background="@null"
             android:clickable="true"
             android:defaultFocusHighlightEnabled="false"
             android:duplicateParentState="false"
             android:focusable="true"
             android:max="1000"
+            android:nextFocusDown="@id/player_play_pause"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp"
             android:progressDrawable="@drawable/player_seek_progress"
             android:splitTrack="false"
             android:thumb="@drawable/player_seek_thumb"
             android:thumbOffset="9dp" />
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp">
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="start|center_vertical"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <ImageButton
+                    android:id="@+id/player_play_pause"
+                    android:layout_width="@dimen/player_transport_play_size"
+                    android:layout_height="@dimen/player_transport_play_size"
+                    android:background="@drawable/player_control_icon_bg"
+                    android:contentDescription="@string/player_play"
+                    android:defaultFocusHighlightEnabled="false"
+                    android:focusable="true"
+                    android:focusedByDefault="true"
+                    android:nextFocusRight="@id/player_settings"
+                    android:nextFocusUp="@id/player_seek"
+                    android:minWidth="@dimen/player_transport_play_size"
+                    android:minHeight="@dimen/player_transport_play_size"
+                    android:padding="@dimen/player_transport_padding"
+                    android:scaleType="centerInside"
+                    android:src="@drawable/ic_player_play" />
+
+                <TextView
+                    android:id="@+id/player_time"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="10dp"
+                    android:fontFeatureSettings="tnum"
+                    android:text="0:00"
+                    android:textColor="@color/player_text_primary"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:id="@+id/player_speed_label"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="10dp"
+                    android:text="1.0×"
+                    android:textColor="@color/player_accent"
+                    android:textSize="13sp"
+                    android:visibility="gone" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/player_mode_chip"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:background="@drawable/player_clock_pill"
+                android:fontFamily="sans-serif-medium"
+                android:letterSpacing="0.04"
+                android:paddingStart="10dp"
+                android:paddingTop="4dp"
+                android:paddingEnd="10dp"
+                android:paddingBottom="4dp"
+                android:textAllCaps="true"
+                android:textColor="@color/player_text_secondary"
+                android:textSize="11sp"
+                android:visibility="gone" />
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="end|center_vertical"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/player_ends_at"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="14dp"
+                    android:fontFeatureSettings="tnum"
+                    android:textColor="@color/player_text_secondary"
+                    android:textSize="13sp"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/player_remaining"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="12dp"
+                    android:fontFeatureSettings="tnum"
+                    android:text="-0:00"
+                    android:textColor="@color/player_text_primary"
+                    android:textSize="14sp" />
+
+                <ImageButton
+                    android:id="@+id/player_settings"
+                    android:layout_width="@dimen/player_transport_size"
+                    android:layout_height="@dimen/player_transport_size"
+                    android:background="@drawable/player_control_icon_bg"
+                    android:contentDescription="@string/player_settings"
+                    android:defaultFocusHighlightEnabled="false"
+                    android:focusable="true"
+                    android:nextFocusLeft="@id/player_play_pause"
+                    android:nextFocusUp="@id/player_seek"
+                    android:minWidth="@dimen/player_transport_size"
+                    android:minHeight="@dimen/player_transport_size"
+                    android:padding="@dimen/player_transport_padding"
+                    android:scaleType="centerInside"
+                    android:src="@drawable/ic_player_settings" />
+            </LinearLayout>
+        </FrameLayout>
+    </LinearLayout>
+
+    <!-- Outside chrome so Skip Intro/Credits can show with OSD hidden. -->
+    <LinearLayout
+        android:id="@+id/player_skip_row"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:layout_marginEnd="25dp"
+        android:layout_marginBottom="96dp"
+        android:gravity="end"
+        android:orientation="horizontal"
+        android:visibility="gone">
+
+        <Button
+            android:id="@+id/player_skip_intro"
+            style="@style/PlayerChipButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="8dp"
+            android:focusable="true"
+            android:focusableInTouchMode="true"
+            android:text="@string/player_skip_intro"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/player_skip_credits"
+            style="@style/PlayerChipButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:focusable="true"
+            android:focusableInTouchMode="true"
+            android:text="@string/player_skip_credits"
+            android:visibility="gone" />
     </LinearLayout>
 
     <LinearLayout
@@ -558,6 +552,10 @@
                     android:layout_height="wrap_content"
                     android:layout_marginEnd="7dp"
                     android:focusable="true"
+                    android:nextFocusLeft="@id/player_up_next_credits"
+                    android:nextFocusRight="@id/player_up_next_play"
+                    android:nextFocusUp="@id/player_up_next_credits"
+                    android:nextFocusDown="@id/player_up_next_credits"
                     android:text="@string/player_watch_credits" />
 
                 <Button
@@ -566,6 +564,10 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:focusable="true"
+                    android:nextFocusLeft="@id/player_up_next_credits"
+                    android:nextFocusRight="@id/player_up_next_play"
+                    android:nextFocusUp="@id/player_up_next_play"
+                    android:nextFocusDown="@id/player_up_next_play"
                     android:text="@string/player_play_now" />
             </LinearLayout>
         </LinearLayout>
@@ -575,7 +577,7 @@
         android:id="@+id/player_menu_scrim"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="#99000000"
+        android:background="#59000000"
         android:clickable="true"
         android:focusable="false"
         android:visibility="gone">
@@ -583,29 +585,36 @@
         <LinearLayout
             android:id="@+id/player_menu_sheet"
             android:layout_width="300dp"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:background="@drawable/player_menu_sheet"
-            android:elevation="18dp"
-            android:minWidth="260dp"
+            android:layout_height="match_parent"
+            android:layout_gravity="end"
+            android:layout_marginTop="18dp"
+            android:layout_marginEnd="18dp"
+            android:layout_marginBottom="18dp"
+            android:background="@drawable/player_context_sheet"
+            android:elevation="0dp"
             android:orientation="vertical"
-            android:padding="16dp">
+            android:paddingStart="16dp"
+            android:paddingTop="20dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="16dp">
 
             <TextView
                 android:id="@+id/player_menu_title"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="10dp"
+                android:layout_marginBottom="14dp"
                 android:ellipsize="end"
+                android:letterSpacing="-0.01"
                 android:maxLines="2"
                 android:textColor="@color/player_text_primary"
-                android:textSize="15sp"
+                android:textSize="22sp"
                 android:textStyle="bold" />
 
             <ScrollView
                 android:id="@+id/player_menu_scroll"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
+                android:layout_height="0dp"
+                android:layout_weight="1"
                 android:overScrollMode="never"
                 android:scrollbars="none">
 

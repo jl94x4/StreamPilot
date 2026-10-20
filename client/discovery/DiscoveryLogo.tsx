@@ -18,6 +18,8 @@ type Props = {
     duotone?: boolean;
     /** Flat white mark. One pass, so a dark Disney wordmark and a green Hulu wordmark match. */
     tone?: 'auto' | 'light';
+    /** TV billboards: Android WebView often skips lazy images in absolute layers. */
+    loading?: 'lazy' | 'eager';
     onError?: () => void;
 };
 
@@ -41,16 +43,23 @@ export const DiscoveryLogo: React.FC<Props> = ({
     width = 154,
     duotone = false,
     tone = 'auto',
+    loading = 'lazy',
     onError,
 }) => {
     const [isLightTheme, setIsLightTheme] = useState(readLightTheme);
+    const [duotoneFailed, setDuotoneFailed] = useState(false);
     const forceLight = tone === 'light';
-    const useDuotone = duotone && !forceLight
+    const wantDuotone = duotone && !forceLight
         && !isBundledOrAbsoluteLogo(logoPath)
         && !shouldPreserveColorLogo(logoPath, alt);
+    const useDuotone = wantDuotone && !duotoneFailed;
     const src = useDuotone
         ? tmdbDuotoneLogo(logoPath, width === 154 ? 300 : width, isLightTheme ? 'onLight' : 'onDark')
         : discoveryLogoUrl(logoPath, width);
+
+    useEffect(() => {
+        setDuotoneFailed(false);
+    }, [logoPath, width, duotone, tone]);
 
     useEffect(() => {
         const apply = () => setIsLightTheme(readLightTheme());
@@ -75,14 +84,14 @@ export const DiscoveryLogo: React.FC<Props> = ({
             return undefined;
         }
 
-        // Bundled SVGs are typically dark marks for light UIs — force invert on dark cards.
-        if (String(logoPath || '').startsWith('/static/')) {
-            setInvert(!isLightTheme);
+        if (shouldNeverInvertLogo(logoPath, alt)) {
+            setInvert(false);
             return undefined;
         }
 
-        if (shouldNeverInvertLogo(logoPath, alt)) {
-            setInvert(false);
+        // Bundled SVGs are typically dark marks for light UIs — force invert on dark cards.
+        if (String(logoPath || '').startsWith('/static/')) {
+            setInvert(!isLightTheme);
             return undefined;
         }
 
@@ -115,8 +124,15 @@ export const DiscoveryLogo: React.FC<Props> = ({
         <img
             src={src}
             alt={alt}
-            loading="lazy"
-            onError={onError}
+            loading={loading}
+            onError={() => {
+                // TMDB duotone CDN filters often 404 — fall back to the plain logo once.
+                if (useDuotone) {
+                    setDuotoneFailed(true);
+                    return;
+                }
+                onError?.();
+            }}
             className={`${className}${forceLight || invert ? ' brightness-0 invert' : ''}`}
         />
     );

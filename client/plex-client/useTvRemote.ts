@@ -698,8 +698,14 @@ const focusItem = (el: HTMLElement, block: ScrollLogicalPosition = 'nearest', di
     }
     const settingsRoot = el.closest<HTMLElement>('[data-tv-settings="1"]');
     if (settingsRoot) {
-        const first = settingsRoot.querySelector<HTMLElement>('[data-tv-item="1"]');
-        if (first && (el === first || first.contains(el))) {
+        // Any tab, or the first row in the active panel, should pin the page
+        // header back into view — not only the very first tab button (Home).
+        const onTab = Boolean(el.closest('[data-tv-settings-tabs="1"]'));
+        const panel = settingsRoot.querySelector<HTMLElement>('[data-tv-settings-panel="1"]');
+        const firstPanel = panel ? focusableTvItems(panel)[0] : null;
+        const atSettingsTop = onTab
+            || Boolean(firstPanel && (el === firstPanel || firstPanel.contains(el)));
+        if (atSettingsTop) {
             const top = settingsRoot.querySelector<HTMLElement>('[data-tv-page-top="1"]') || settingsRoot;
             scrollEl(top, 'start');
             return;
@@ -1384,6 +1390,15 @@ export const visibleHomeStage = (): HTMLElement | null => (
 const visibleStageRail = (): HTMLElement | null => (
     visibleHomeStage()?.querySelector<HTMLElement>('.player-home-stage-rail') || null
 );
+
+/** First focusable poster in the visible stage rail. */
+const visibleStagePoster = (): HTMLElement | null => {
+    const rail = visibleStageRail();
+    if (!rail) return null;
+    return Array.from(rail.querySelectorAll<HTMLElement>('[data-tv-poster-btn="1"]'))
+        .find((el) => hasLayout(el))
+        || null;
+};
 
 const isPlayerItemPath = () => /\/item\/[^/]+/.test(currentPath());
 
@@ -2232,8 +2247,8 @@ export const useTvRemote = (enabled = true) => {
             // those tabs must land on posters — not fire row-swap (which leaves
             // focus stuck on Recommended with no ring on the cards).
             if (!target && !menuRoot && current.closest('.player-library-stage-chrome') && dir === 'down') {
-                const poster = visibleStageRail()?.querySelector<HTMLElement>('[data-tv-poster-btn="1"]') || null;
-                if (poster && hasLayout(poster)) {
+                const poster = visibleStagePoster();
+                if (poster) {
                     focusItem(poster, 'nearest', dir);
                     return;
                 }
@@ -2255,8 +2270,8 @@ export const useTvRemote = (enabled = true) => {
                 && !current.closest('[hidden]')
                 && (dir === 'up' || dir === 'down' || dir === 'left' || dir === 'right')
             ) {
-                const poster = visibleStageRail()?.querySelector<HTMLElement>('[data-tv-poster-btn="1"]') || null;
-                if (poster && hasLayout(poster)) {
+                const poster = visibleStagePoster();
+                if (poster) {
                     focusItem(poster, 'nearest', dir);
                     return;
                 }

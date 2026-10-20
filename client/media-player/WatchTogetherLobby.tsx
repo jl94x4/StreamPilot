@@ -3,6 +3,7 @@ import { ArrowLeft, Copy, Loader2, Users } from 'lucide-react';
 import { useDiscoverI18n } from './host';
 import { isAndroidTvUi } from '../plex-client/config';
 import {
+    collectWatchTogetherGuids,
     discardWatchTogetherClient,
     fetchWatchTogetherRoomSummary,
     getWatchTogetherClient,
@@ -59,6 +60,9 @@ export const WatchTogetherLobby: React.FC<Props> = ({
                 type: item.type || 'movie',
                 thumb: item.thumb || null,
                 positionMs: Number(item.viewOffsetMs) || 0,
+                guids: collectWatchTogetherGuids(item),
+                tmdbId: item.externalIds?.tmdb || item.tmdbId || null,
+                year: item.year != null ? Number(item.year) : null,
             })
             .then((state) => {
                 if (!cancelled) setRoom(state);
@@ -70,7 +74,7 @@ export const WatchTogetherLobby: React.FC<Props> = ({
                 if (!cancelled) setBusy(false);
             });
         return () => { cancelled = true; };
-    }, [mode, item?.ratingKey, item?.serverId, item?.title, item?.type, item?.thumb, item?.viewOffsetMs, room, t]);
+    }, [mode, item?.ratingKey, item?.serverId, item?.title, item?.type, item?.thumb, item?.viewOffsetMs, item?.plexGuid, item?.tmdbId, item?.year, item?.externalIds, room, t]);
 
     useEffect(() => {
         const code = String(inviteCodeProp || '').trim();

@@ -110,6 +110,8 @@ export type PlayerAvChoice = {
     /** Preferred language tag/name — rematched across episodes of the same show. */
     audioLanguage?: string;
     subtitleLanguage?: string;
+    /** Per-show A/V lip-sync delay (ms) remembered across episodes. */
+    audioDelayMs?: number;
 };
 
 type AvLangTrack = {
@@ -172,11 +174,13 @@ export const readAvChoice = (showKey?: string | null, ratingKey?: string | null)
     const all = readJson(PLAYER_AV_CHOICES_KEY) as Record<string, PlayerAvChoice> | null;
     const row = all?.[key];
     if (!row || typeof row !== 'object') return null;
+    const delay = Number(row.audioDelayMs);
     return {
         audioStreamId: String(row.audioStreamId || ''),
         subtitleStreamId: String(row.subtitleStreamId || ''),
         audioLanguage: String(row.audioLanguage || ''),
         subtitleLanguage: String(row.subtitleLanguage || ''),
+        audioDelayMs: Number.isFinite(delay) ? Math.max(0, Math.min(1000, Math.round(delay))) : undefined,
     };
 };
 
@@ -218,13 +222,33 @@ export const writeAvChoice = (
     const key = avChoiceKey(showKey, ratingKey);
     if (!key || typeof window === 'undefined') return;
     const all = (readJson(PLAYER_AV_CHOICES_KEY) as Record<string, PlayerAvChoice> | null) || {};
+    const delay = Number(choice.audioDelayMs);
     all[key] = {
         audioStreamId: String(choice.audioStreamId || ''),
         subtitleStreamId: String(choice.subtitleStreamId || ''),
         audioLanguage: String(choice.audioLanguage || ''),
         subtitleLanguage: String(choice.subtitleLanguage || ''),
+        ...(Number.isFinite(delay)
+            ? { audioDelayMs: Math.max(0, Math.min(1000, Math.round(delay))) }
+            : {}),
     };
     writeJson(window.localStorage, PLAYER_AV_CHOICES_KEY, all);
+};
+
+/** Persist A/V delay for a show without clobbering saved stream choices. */
+export const writeAvDelayChoice = (
+    showKey: string | null | undefined,
+    ratingKey: string | null | undefined,
+    audioDelayMs: number,
+) => {
+    const existing = readAvChoice(showKey, ratingKey) || {
+        audioStreamId: '',
+        subtitleStreamId: '',
+    };
+    writeAvChoice(showKey, ratingKey, {
+        ...existing,
+        audioDelayMs: Math.max(0, Math.min(1000, Math.round(Number(audioDelayMs) || 0))),
+    });
 };
 
 /** Persist stream IDs plus language tags so the next episode can rematch. */
@@ -751,6 +775,55 @@ export const mergePlayerHomePayloads = (full: PlayerHome, partial: PlayerHome): 
     };
 };
 
+const homeContinueItems = (data: PlayerHome | null | undefined): PlayerItem[] => {
+    if (!data) return [];
+    const fromHub = (data.hubs || []).find((hub) => isContinueHomeHub(hub))?.items;
+    if (fromHub?.length) return fromHub;
+    return Array.isArray(data.continueWatching) ? data.continueWatching : [];
+};
+
+/**
+ * Soft home responses often paint Recently Added while On Deck timed out.
+ * Keep the last good Continue Watching (and missing content hubs) from cache
+ * so TV Home does not drop CW or flash a false "saved library" banner.
+ */
+export const coalescePlayerHomeWithCache = (
+    live: PlayerHome | null | undefined,
+    cached: PlayerHome | null | undefined,
+): PlayerHome | null => {
+    if (!playerHomeHasRows(live)) {
+        return playerHomeHasRows(cached) ? cached! : (live || cached || null);
+    }
+    if (!playerHomeHasRows(cached)) return live!;
+
+    let next: PlayerHome = live!;
+    const liveCw = homeContinueItems(live);
+    const cachedCw = homeContinueItems(cached);
+    if (!liveCw.length && cachedCw.length) {
+        const hubsWithoutCw = (live!.hubs || []).filter((hub) => !isContinueHomeHub(hub));
+        const cachedCwHub = (cached!.hubs || []).find((hub) => isContinueHomeHub(hub));
+        next = {
+            ...live!,
+            continueWatching: (cached!.continueWatching || []).length
+                ? cached!.continueWatching
+                : cachedCw,
+            hubs: [
+                cachedCwHub || {
+                    title: 'Continue Watching',
+                    identifier: 'home.continueWatching',
+                    items: cachedCw,
+                    hubKey: '/library/onDeck',
+                },
+                ...hubsWithoutCw,
+            ],
+        };
+    }
+    if (!playerHomeHasContentHubs(next) && playerHomeHasContentHubs(cached)) {
+        next = { ...mergePlayerHomePayloads(cached!, next), partial: true };
+    }
+    return next;
+};
+
 export const readPlayerHomeCache = (): PlayerHome | null => {
     if (!playerHomeCache) {
         const persisted = readPersistedHomeCache();
@@ -772,24 +845,37 @@ export const writePlayerHomeCache = (data: PlayerHome) => {
         if (!playerHomeCache && stored) playerHomeCache = stored;
         return;
     }
-    playerHomeCache = { at: Date.now(), data };
+    const coalesced = storedFresh
+        ? coalescePlayerHomeWithCache(data, stored?.data) || data
+        : data;
+    playerHomeCache = { at: Date.now(), data: coalesced };
     writePersistedHomeCache(playerHomeCache);
-    if (Array.isArray(data?.libraries) && data.libraries.length) {
-        writePlayerLibrariesCache(data.libraries);
+    if (Array.isArray(coalesced?.libraries) && coalesced.libraries.length) {
+        writePlayerLibrariesCache(coalesced.libraries);
     }
 };
 
-/** Browser online flag for stale-cache / offline UI. */
+/**
+ * Browser online flag for offline UI.
+ * Android TV WebViews often report navigator.onLine=false even on a healthy LAN —
+ * start optimistic and only flip offline after an explicit offline event (or stay
+ * online until a real API failure marks home stale).
+ */
 export const usePlayerNetworkStatus = () => {
-    const [online, setOnline] = useState(() => (
-        typeof navigator === 'undefined' ? true : navigator.onLine
-    ));
+    const [online, setOnline] = useState(true);
     useEffect(() => {
         if (typeof window === 'undefined') return undefined;
         const on = () => setOnline(true);
-        const off = () => setOnline(false);
+        const off = () => {
+            // Capacitor / Android TV: ignore flaky offline if the page is still loading
+            // assets over the network — only trust offline after we were online.
+            setOnline(false);
+        };
         window.addEventListener('online', on);
         window.addEventListener('offline', off);
+        // If the browser already thinks we are online, keep that; never seed from a
+        // false-negative offline boot state.
+        if (navigator.onLine) setOnline(true);
         return () => {
             window.removeEventListener('online', on);
             window.removeEventListener('offline', off);

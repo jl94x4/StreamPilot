@@ -96,7 +96,12 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
     const artHeight = resolvedAspect === 'square' ? 300 : resolvedAspect === '16/9' ? 240 : 450;
     const cardSource = item.heroCard ? (item.heroArt || item.art || item.thumb) : item.thumb;
     const sizedItem = cardSource
-        ? { ...item, thumb: item.heroCard ? heroRailCardImageUrl(cardSource) : resizePlexArtUrl(cardSource, artWidth, artHeight) }
+        ? {
+            ...item,
+            thumb: item.heroCard
+                ? heroRailCardImageUrl(cardSource)
+                : resizePlexArtUrl(cardSource, artWidth, artHeight, PLAYER_POSTER_QUALITY),
+        }
         : item;
     const heroLine = item.heroCard ? heroRowSubtitle(item) : '';
     const episodeCode = formatEpisodeCode(item);
@@ -266,18 +271,21 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
                 ) : item.type === 'episode' ? (
                     <div className="player-poster-caption px-1 text-left">
                         <div className={`${isTvShell ? 'text-base font-semibold' : 'text-xs font-medium'} line-clamp-2 leading-snug text-text`}>
-                            {item.showTitle && item.showTitle !== item.title ? item.showTitle : item.title}
+                            {item.showTitle || item.title}
                         </div>
-                        {item.showTitle && item.showTitle !== item.title ? (
-                            <div className={`${isTvShell ? 'text-sm' : 'text-[11px]'} mt-0.5 truncate text-muted`}>
-                                {item.title}
-                            </div>
-                        ) : null}
-                        {episodeCode ? (
-                            <div className={`${isTvShell ? 'text-sm' : 'text-[11px]'} mt-0.5 truncate text-muted/80`}>
-                                {episodeCode}
-                            </div>
-                        ) : null}
+                        {(() => {
+                            const epName = String(
+                                item.episodeTitle
+                                || (item.showTitle && item.title && item.title !== item.showTitle ? item.title : '')
+                                || '',
+                            ).trim();
+                            const line = [episodeCode, epName].filter(Boolean).join(' · ');
+                            return line ? (
+                                <div className={`${isTvShell ? 'text-sm' : 'text-[11px]'} mt-0.5 truncate text-muted`}>
+                                    {line}
+                                </div>
+                            ) : null;
+                        })()}
                     </div>
                 ) : undefined}
                 showQualityBadges={false}

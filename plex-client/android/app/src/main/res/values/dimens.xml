@@ -1,13 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Phone / touch defaults (TV overrides in values-television). -->
-    <dimen name="player_transport_size">52dp</dimen>
-    <dimen name="player_transport_play_size">60dp</dimen>
-    <dimen name="player_transport_padding">12dp</dimen>
+    <dimen name="player_transport_size">36dp</dimen>
+    <dimen name="player_transport_play_size">40dp</dimen>
+    <dimen name="player_transport_padding">6dp</dimen>
     <dimen name="player_chip_min_height">44dp</dimen>
     <dimen name="player_chip_text_size">13sp</dimen>
     <dimen name="player_chip_padding_h">14dp</dimen>
-    <dimen name="player_menu_row_min_height">48dp</dimen>
-    <dimen name="player_menu_row_text_size">15sp</dimen>
-    <dimen name="player_bottom_pad">20dp</dimen>
+    <dimen name="player_menu_row_min_height">34dp</dimen>
+    <dimen name="player_menu_row_text_size">13sp</dimen>
+    <dimen name="player_bottom_pad">10dp</dimen>
 </resources>

@@ -64,7 +64,8 @@ const NEVER_INVERT_LOGO_PATHS = new Set([
 
 /**
  * Dark / brand-blue wordmarks — invert to white on dark billboards.
- * (Disney+ / Universal blue is hard to read on TV stills.)
+ * Disney+ SVG is authored white (WebView filter on SVG is unreliable) — keep it
+ * in this set so PNG/TMDB Disney marks still force-white via CSS.
  */
 const FORCE_INVERT_STATIC_PATHS = new Set([
     '/static/logos/bbc.png',

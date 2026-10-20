@@ -3,7 +3,7 @@
  * Native CapacitorHttp patches fetch so the WebView is not blocked by CORS.
  */
 import { mirrorAuthToNativeStorage } from './authPersistence';
-import { getPortalBaseUrl, getSessionToken, writeStoredSessionToken } from './config';
+import { getPortalBaseUrl, getSessionToken, readStoredPortalBaseUrl, writeStoredSessionToken } from './config';
 import { STORAGE_PLEX_CLIENT_ID, STORAGE_PLEX_HOME_USER, STORAGE_PLEX_OWNER_TOKEN, STORAGE_PLEX_SERVER, STORAGE_PLEX_SERVERS } from './configStorageKeys';
 import { DEFAULT_PLAYER_SETTINGS, type PlayerSettings } from '../media-player/playerSettings';
 import { PLAYER_SERVERS_EVENT } from '../media-player/playerMemory';
@@ -13,6 +13,13 @@ import {
     NATIVE_COPY_AUDIO_CODECS,
     subtitleCodecNeedsBurn,
 } from '../../lib/media-player/directPlayCaps.js';
+import { buildGenreRelatedHubs } from '../../lib/media-player/mapItem.js';
+import {
+    fillStudioBrowseArt,
+    mapStudioBrowseOptions,
+    STUDIO_BROWSE_ART_CONCURRENCY,
+    STUDIO_BROWSE_FETCH,
+} from '../../lib/media-player/studioBrowse.js';
 
 type PlexServer = {
     id: string;
@@ -370,7 +377,16 @@ const matchTrendingToLibrary = async (candidates: TrendingCandidate[], limit = T
                 rememberItem(mapped.ratingKey, server);
                 if (candidate.backdropUrl) mapped.heroBackdropUrl = candidate.backdropUrl;
                 if (!mapped.tmdbId && candidate.tmdbId) mapped.tmdbId = candidate.tmdbId;
-                if (candidate.overview && !mapped.summary) mapped.summary = candidate.overview;
+                // Plex agents often truncate mid-sentence; prefer the longer TMDB overview.
+                if (candidate.overview) {
+                    const plexSummary = String(mapped.summary || '').trim();
+                    const tmdbOverview = String(candidate.overview || '').trim();
+                    if (!plexSummary || tmdbOverview.length >= plexSummary.length + 12) {
+                        mapped.summary = tmdbOverview;
+                    } else if (!/[.!?…]"?'?$/.test(plexSummary) && /[.!?…]"?'?$/.test(tmdbOverview)) {
+                        mapped.summary = tmdbOverview;
+                    }
+                }
                 return mapped;
             }).catch(() => null);
             if (!item?.ratingKey || seen.has(item.ratingKey)) continue;
@@ -638,7 +654,38 @@ if (typeof window !== 'undefined') {
 
 const containerOf = (data: any) => data?.MediaContainer || data || {};
 
-const imageUrl = (path: string | null | undefined, width: number, height: number, options?: { crop?: boolean }) => {
+/** Relative PMS image path, preserving `/thumb/<stamp>` cache busters. */
+const libraryImagePath = (value: unknown) => {
+    let raw = String(value || '').trim();
+    if (!raw) return '';
+    const libraryIdx = raw.indexOf('/library/');
+    const hubsIdx = raw.indexOf('/hubs/');
+    const idx = libraryIdx >= 0 ? libraryIdx : hubsIdx;
+    if (idx > 0) raw = raw.slice(idx);
+    if (!raw.startsWith('/library/') && !raw.startsWith('/hubs/')) return '';
+    return raw.split('#')[0].split('?')[0];
+};
+
+const stampedThumbPath = (
+    ratingKey: string | null | undefined,
+    rawPath: unknown,
+    updatedAt?: string | number | null,
+) => {
+    const key = String(ratingKey || '').replace(/\D/g, '');
+    const existing = libraryImagePath(rawPath);
+    if (key && existing.includes(`/library/metadata/${key}/thumb`)) return existing;
+    const stamp = String(updatedAt ?? '').replace(/\D/g, '');
+    if (key && stamp) return `/library/metadata/${key}/thumb/${stamp}`;
+    if (key) return `/library/metadata/${key}/thumb`;
+    return existing;
+};
+
+const imageUrl = (
+    path: string | null | undefined,
+    width: number,
+    height: number,
+    options?: { crop?: boolean; quality?: number },
+) => {
     const server = mapServer || readServer();
     const value = String(path || '').trim();
     if (!value || !server) return null;
@@ -648,7 +695,9 @@ const imageUrl = (path: string | null | undefined, width: number, height: number
     url.searchParams.set('height', String(height));
     if (options?.crop !== false) url.searchParams.set('minSize', '1');
     url.searchParams.set('upscale', '0');
-    url.searchParams.set('quality', '70');
+    // Match PLAYER_POSTER_QUALITY (60) for thumbs; keep art/logo sharper when callers pass quality.
+    const quality = options?.quality != null ? options.quality : (width >= 1280 ? 85 : 60);
+    url.searchParams.set('quality', String(quality));
     url.searchParams.set('url', value.startsWith('/') ? value : `/${value}`);
     url.searchParams.set('X-Plex-Token', server.accessToken);
     return url.toString();
@@ -771,6 +820,32 @@ const mapRatings = (meta: PlexMeta) => {
     return { ids, ratings: out };
 };
 
+/** Plex CommonSenseMedia → official AgeRating (age badge + stars / 5). */
+const mapCommonSenseMedia = (meta: PlexMeta) => {
+    const root = asList<PlexMeta>(meta.CommonSenseMedia)[0]
+        || (meta.CommonSenseMedia && typeof meta.CommonSenseMedia === 'object'
+            ? meta.CommonSenseMedia as PlexMeta
+            : null);
+    if (!root) return null;
+    const ages = asList<PlexMeta>((root as PlexMeta).AgeRating);
+    const official = ages.find((row) => String(row?.type || '').toLowerCase() === 'official')
+        || ages[0]
+        || null;
+    if (!official) return null;
+    const ageNum = Number(official.age);
+    const starsNum = Number(official.rating);
+    const age = Number.isFinite(ageNum) && ageNum > 0 ? Math.round(ageNum) : null;
+    const stars = Number.isFinite(starsNum) && starsNum > 0 ? starsNum : null;
+    if (age == null && stars == null) return null;
+    return {
+        age,
+        ageLabel: age != null ? `${age}+` : null,
+        stars,
+        ageGroup: String(official.ageGroup || '').trim() || null,
+        oneLiner: String((root as PlexMeta).oneLiner || '').trim() || null,
+    };
+};
+
 /** Unique watched episodes. Rewatches do not push the count past the episode total. */
 const uniqueViewedLeafCount = (meta: PlexMeta) => {
     const leaf = Math.max(0, Number(meta.leafCount) || 0);
@@ -858,6 +933,11 @@ const mapItem = (meta: PlexMeta) => {
         art: imageUrl(meta.art || meta.grandparentArt, 1920, 1080),
         backdropArt: imageUrl(heroBackdropPath(meta, type), 1920, 1080, { crop: false }),
         logo: imageUrl(clearLogo(meta), 640, 240),
+        // Keep stamped library paths so Continue Watching can remount show/season
+        // posters after Plex art changes (imageUrl alone wraps the episode still).
+        thumbPath: libraryImagePath(meta.thumb) || null,
+        parentThumbPath: libraryImagePath(meta.parentThumb) || null,
+        grandparentThumbPath: libraryImagePath(meta.grandparentThumb) || null,
         durationMs: meta.duration ? Number(meta.duration) : null,
         viewOffsetMs,
         index: meta.index != null ? Number(meta.index) : null,
@@ -869,6 +949,7 @@ const mapItem = (meta: PlexMeta) => {
         grandparentRatingKey: meta.grandparentRatingKey ? String(meta.grandparentRatingKey) : null,
         contentRating: meta.contentRating || null,
         audienceRating: meta.audienceRating != null ? Number(meta.audienceRating) : null,
+        commonSenseMedia: mapCommonSenseMedia(meta),
         userRating: Number(meta.userRating) > 0 ? Number(meta.userRating) : null,
         ratings,
         externalIds: ids,
@@ -881,12 +962,64 @@ const mapItem = (meta: PlexMeta) => {
         watched,
         extraType: meta.extraType != null ? String(meta.extraType) : null,
         plexGuid: String(meta.guid || '').trim() || null,
+        showPlexGuid: String(
+            meta.grandparentGuid
+            || (String(meta.type || '').toLowerCase() === 'show' ? meta.guid : '')
+            || (String(meta.type || '').toLowerCase() === 'season' ? meta.parentGuid : '')
+            || '',
+        ).trim() || null,
         extraSubtype: meta.subtype
             ? String(meta.subtype)
             : ((String(meta.type || '').toLowerCase() === 'trailer' || String(meta.type) === '5') ? 'trailer' : null),
         canPlay: type === 'movie' || type === 'episode' || type === 'show' || type === 'season' || type === 'clip' || type === 'trailer' || type === 'track' || type === 'album' || type === 'artist',
         tagline: meta.tagline || '',
-        studio: meta.studio || '',
+        // TV → Plex Network first (same facet as Advanced Filters). Movies → Studio.
+        studio: (() => {
+            const isTv = type === 'show' || type === 'season' || type === 'episode';
+            const network = String(asList<PlexMeta>(meta.Network)[0]?.tag || '').trim();
+            const studio = String(meta.studio || asList<PlexMeta>(meta.Studio)[0]?.tag || '').trim();
+            return isTv ? (network || studio) : (studio || network);
+        })(),
+        networkLabels: (() => {
+            const labels: string[] = [];
+            const push = (value: unknown) => {
+                const next = String(value || '').trim();
+                if (!next || labels.some((row) => row.toLowerCase() === next.toLowerCase())) return;
+                labels.push(next);
+            };
+            // Only real Network tags — never meta.studio (can poison hydrate with Netflix).
+            asList<PlexMeta>(meta.Network).forEach((row) => push(row?.tag));
+            return labels;
+        })(),
+        studioLabels: (() => {
+            const labels: string[] = [];
+            const push = (value: unknown) => {
+                const next = String(value || '').trim();
+                if (!next || labels.some((row) => row.toLowerCase() === next.toLowerCase())) return;
+                labels.push(next);
+            };
+            push(meta.studio);
+            asList<PlexMeta>(meta.Studio).forEach((row) => push(row?.tag));
+            asList<PlexMeta>(meta.Network).forEach((row) => push(row?.tag));
+            // Labels stay for search/filters — not used as TV network logos.
+            asList<PlexMeta>(meta.Label).forEach((row) => push(row?.tag));
+            return labels;
+        })(),
+        // Episodes/seasons: series TMDB from grandparent Guid — never the episode leaf id.
+        showTmdbId: (() => {
+            if (type !== 'episode' && type !== 'season') {
+                return ids.tmdb && ids.tmdb > 0 ? ids.tmdb : null;
+            }
+            const blobs = [
+                meta.grandparentGuid,
+                type === 'season' ? (meta.parentGuid || meta.guid) : meta.parentGuid,
+            ];
+            for (const raw of blobs) {
+                const match = String(raw || '').match(/(?:tmdb|themoviedb):\/\/(\d+)/i);
+                if (match) return Number(match[1]);
+            }
+            return null;
+        })(),
         librarySectionID: meta.librarySectionID ? String(meta.librarySectionID) : null,
         serverId: mapServer?.id || null,
         directors: asList<PlexMeta>(meta.Director).map((row) => String(row.tag || '')).filter(Boolean),
@@ -935,6 +1068,18 @@ const mapItem = (meta: PlexMeta) => {
                         width: streams.video.width ? Number(streams.video.width) : null,
                         height: streams.video.height ? Number(streams.video.height) : null,
                         frameRate: streams.video.frameRate ? Number(streams.video.frameRate) : null,
+                        colorTrc: streams.video.colorTrc || null,
+                        colorPrimaries: streams.video.colorPrimaries || null,
+                        DOVIPresent: streams.video.DOVIPresent === true
+                            || streams.video.DOVIPresent === 1
+                            || String(streams.video.DOVIPresent || '').toLowerCase() === 'true'
+                            || String(streams.video.DOVIPresent || '') === '1'
+                            || null,
+                        DOVIProfile: streams.video.DOVIProfile != null && streams.video.DOVIProfile !== ''
+                            ? streams.video.DOVIProfile
+                            : null,
+                        videoDynamicRange: streams.video.videoDynamicRange || null,
+                        videoDynamicRangeType: streams.video.videoDynamicRangeType || null,
                     },
                     audio: streams.audio.map((stream) => ({
                         id: String(stream.id || ''),
@@ -1219,24 +1364,33 @@ const pms = async (
     }
 };
 
-const probe = (uri: string, token: string) => new Promise<boolean>((resolve) => {
+/** Reachability check for sidebar offline marks. Keep generous — TV LAN wake / TLS
+ *  handshakes often exceed 1–2s; a false offline badge is worse than a slow green. */
+const probeOnce = (uri: string, token: string, timeoutMs: number) => new Promise<boolean>((resolve) => {
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
         controller.abort();
         resolve(false);
-    }, 1600);
-    fetch(`${uri.replace(/\/+$/, '')}/identity`, {
+    }, timeoutMs);
+    const base = uri.replace(/\/+$/, '');
+    fetch(`${base}/identity`, {
         headers: plexHeaders(token),
         signal: controller.signal,
         cache: 'no-store',
     }).then((response) => {
         window.clearTimeout(timer);
-        resolve(response.ok);
+        resolve(!!response?.ok);
     }).catch(() => {
         window.clearTimeout(timer);
         resolve(false);
     });
 });
+
+const probe = async (uri: string, token: string) => {
+    if (await probeOnce(uri, token, 4500)) return true;
+    // Second try: PMS often answers after wake / first TLS fail.
+    return probeOnce(uri, token, 6000);
+};
 
 
 const isRelayConnection = (connection: PlexMeta) => connection.relay === true || connection.relay === 1;
@@ -1383,6 +1537,30 @@ const QUALITIES = [
     { id: '480-1.5', label: '480p · 1.5 Mbps', videoResolution: '480', maxVideoBitrate: 1500, videoQuality: 40 },
 ];
 
+const readPlayerSetting = <T,>(key: string, fallback: T): T => {
+    try {
+        const raw = window.localStorage?.getItem('portal-media-player-settings');
+        if (!raw) return fallback;
+        const parsed = JSON.parse(raw);
+        if (parsed == null || parsed[key] === undefined) return fallback;
+        return parsed[key] as T;
+    } catch {
+        return fallback;
+    }
+};
+
+const nativeBurnSubtitlesMode = (): 'auto' | 'always' | 'image' => {
+    const mode = String(readPlayerSetting('burnSubtitles', 'auto') || 'auto').toLowerCase();
+    if (mode === 'always' || mode === 'image') return mode;
+    return 'auto';
+};
+
+const nativeAudioBoost = () => {
+    const n = Number(readPlayerSetting('audioBoost', 100));
+    if (n === 200 || n === 300) return n;
+    return 100;
+};
+
 const nativeAudioPassthroughEnabled = () => {
     try {
         const raw = window.localStorage?.getItem('portal-media-player-settings');
@@ -1402,7 +1580,7 @@ const nativeAudioPlayable = (stream?: PlexMeta | null) => {
 };
 
 const isTextSubtitle = (stream?: PlexMeta | null) => (
-    !subtitleCodecNeedsBurn(stream?.codec)
+    !subtitleCodecNeedsBurn(stream?.codec, nativeBurnSubtitlesMode())
 );
 
 const clampPlayOffsetMs = (offsetMs: number, durationMs: number) => {
@@ -1504,7 +1682,8 @@ const playSrc = (
         : null;
     // Only burn when we know the stream is image-based. Missing metadata must not
     // force burn-in (that stacks under Exo text captions during quality swaps).
-    const burnSubtitles = Boolean(subtitleId) && !!subStream && subtitleCodecNeedsBurn(subStream.codec);
+    const burnSubtitles = Boolean(subtitleId) && !!subStream
+        && subtitleCodecNeedsBurn(subStream.codec, nativeBurnSubtitlesMode());
     const capsForAudio = (id: string) => canHttpDirectPlay(meta, {
         client: 'android',
         mediaIndex,
@@ -1609,7 +1788,7 @@ const playSrc = (
         ...(offsetSec > 0 ? { offset: String(offsetSec) } : {}),
         ...(audioId ? { audioStreamID: audioId } : {}),
         subtitleStreamID: burnSubtitles ? subtitleId : '0',
-        audioBoost: '100',
+        audioBoost: String(nativeAudioBoost()),
         videoQuality: String(quality?.videoQuality || 100),
         videoResolution: quality?.videoResolution || '3840x2160',
         maxVideoBitrate: String(quality?.maxVideoBitrate || 200000),
@@ -2077,46 +2256,317 @@ const contentHomeHub = (hub: { identifier?: string; title?: string; items?: unkn
     !!hub.items?.length && !continueHub(hub) && !becauseHub(hub) && !playlistHomeHub(hub)
 );
 
-/** Live episode artwork. On Deck keeps the thumb from when the row was built. */
-const currentEpisodeThumbPath = (meta: PlexMeta) => {
-    const ratingKey = String(meta.ratingKey || '').replace(/\D/g, '');
-    const raw = String(meta.thumb || '').trim().split('?')[0];
-    if (raw.startsWith('/library/metadata/') && /\/thumb\/\d+/.test(raw)) return raw;
-    const stamp = String(meta.updatedAt || '').replace(/\D/g, '');
-    if (ratingKey && stamp) return `/library/metadata/${ratingKey}/thumb/${stamp}`;
-    if (raw.startsWith('/library/')) return raw;
-    return ratingKey ? `/library/metadata/${ratingKey}/thumb` : '';
+const currentEpisodeThumbPath = (meta: PlexMeta) => (
+    stampedThumbPath(String(meta.ratingKey || ''), meta.thumb, meta.updatedAt as string | number | null | undefined)
+);
+
+/**
+ * Match portal mapContinueWatchingItem: Continuity cards use the show (or season)
+ * poster — never the episode still — and keep Plex's stamped thumb paths so poster
+ * swaps show up on a fresh Stream Pilot install.
+ */
+type MappedPlayerItem = ReturnType<typeof mapItem> & {
+    thumbPath?: string | null;
+    parentThumbPath?: string | null;
+    grandparentThumbPath?: string | null;
+    episodeThumb?: string | null;
+    episodeTitle?: string | null;
+    preferSeasonPoster?: boolean;
+};
+
+const asContinueWatchingItem = (
+    item: MappedPlayerItem,
+    meta?: PlexMeta | null,
+    preferSeasonPoster = false,
+): MappedPlayerItem => {
+    if (item.type !== 'episode') {
+        return preferSeasonPoster ? { ...item, preferSeasonPoster: true } : item;
+    }
+    const episodeKey = String(item.ratingKey || '').replace(/\D/g, '');
+    const seasonKey = String(item.parentRatingKey || '').replace(/\D/g, '');
+    const showKey = String(item.grandparentRatingKey || '').replace(/\D/g, '');
+    const episodeThumbPath = meta
+        ? currentEpisodeThumbPath(meta)
+        : (libraryImagePath(item.episodeThumb) || libraryImagePath(item.thumbPath) || stampedThumbPath(episodeKey, null));
+    // When meta is present it already carries fresh show/season thumbs from refresh.
+    // Without meta, prefer unstamped show/season /thumb (always current) over any
+    // cached stamped path left on the item from an older hub payload.
+    const seasonPath = meta
+        ? libraryImagePath(meta.parentThumb)
+        : (seasonKey ? `/library/metadata/${seasonKey}/thumb` : '');
+    const showPath = meta
+        ? libraryImagePath(meta.grandparentThumb)
+        : (showKey ? `/library/metadata/${showKey}/thumb` : '');
+    const posterKey = preferSeasonPoster && (seasonPath || seasonKey)
+        ? seasonKey
+        : (showKey || seasonKey);
+    const posterPath = preferSeasonPoster
+        ? (seasonPath || showPath)
+        : (showPath || seasonPath);
+    const stampedPoster = posterPath || stampedThumbPath(posterKey, null);
+    const showTitle = String(
+        (meta?.grandparentTitle as string | undefined)
+        || item.showTitle
+        || '',
+    ).trim();
+    const episodeTitle = String(
+        (meta?.title as string | undefined)
+        || item.episodeTitle
+        || item.title
+        || '',
+    ).trim();
+    const thumbStamp = (() => {
+        const stamped = String(stampedPoster || '');
+        const match = stamped.match(/\/thumb\/(\d+)/);
+        return match?.[1] || null;
+    })();
+    return {
+        ...item,
+        preferSeasonPoster: preferSeasonPoster || undefined,
+        episodeTitle: episodeTitle || item.episodeTitle || null,
+        episodeThumb: imageUrl(episodeThumbPath, 426, 240)
+            || episodeThumbPath
+            || item.episodeThumb
+            || null,
+        title: showTitle || item.title,
+        showTitle: showTitle || item.showTitle || null,
+        thumb: imageUrl(stampedPoster, 300, 450) || stampedPoster || item.thumb,
+        // Lets the client rebuild poster URLs after poster swaps (hub stamps go stale).
+        thumbUpdatedAt: thumbStamp ? Number(thumbStamp) : null,
+        cardAspect: '2/3' as const,
+        parentThumbPath: seasonPath || item.parentThumbPath || null,
+        grandparentThumbPath: showPath || item.grandparentThumbPath || null,
+    };
 };
 
 const refreshContinueEpisodeThumbs = async (
     items: Array<ReturnType<typeof mapItem>>,
     server: PlexServer,
+    preferSeasonPoster = false,
 ) => {
     const ids = [...new Set(items
         .filter((item) => item.type === 'episode')
         .map((item) => String(item.ratingKey || '').replace(/\D/g, ''))
         .filter(Boolean))];
-    if (!ids.length) return items;
+    if (!ids.length) {
+        return items.map((item) => asContinueWatchingItem(item, null, preferSeasonPoster || !!item.preferSeasonPoster));
+    }
     const data = await pms(`/library/metadata/${ids.join(',')}?includeGuids=0`, server, 8000).catch(() => null);
-    const fresh = new Map<string, { thumb: string; title: string }>();
+    const fresh = new Map<string, PlexMeta>();
     for (const meta of asList<PlexMeta>(containerOf(data).Metadata)) {
         const id = String(meta.ratingKey || '').replace(/\D/g, '');
-        const thumb = currentEpisodeThumbPath(meta);
-        if (!id || !thumb) continue;
-        fresh.set(id, { thumb, title: String(meta.title || '').trim() });
+        if (id) fresh.set(id, meta);
     }
-    if (!fresh.size) return items;
+    // Always re-fetch show/season metadata. Hub/episode grandparentThumb stamps are
+    // frozen at the old poster; only the show's own Metadata.thumb is current.
+    const parentIds = new Set<string>();
+    for (const meta of fresh.values()) {
+        const show = String(meta.grandparentRatingKey || '').replace(/\D/g, '');
+        const season = String(meta.parentRatingKey || '').replace(/\D/g, '');
+        if (show) parentIds.add(show);
+        if (season) parentIds.add(season);
+    }
+    for (const item of items) {
+        if (item.type !== 'episode') continue;
+        const show = String(item.grandparentRatingKey || '').replace(/\D/g, '');
+        const season = String(item.parentRatingKey || '').replace(/\D/g, '');
+        if (show) parentIds.add(show);
+        if (season) parentIds.add(season);
+    }
+    const parentFresh = new Map<string, PlexMeta>();
+    if (parentIds.size) {
+        const parentData = await pms(
+            `/library/metadata/${[...parentIds].join(',')}?includeGuids=0`,
+            server,
+            8000,
+        ).catch(() => null);
+        for (const meta of asList<PlexMeta>(containerOf(parentData).Metadata)) {
+            const id = String(meta.ratingKey || '').replace(/\D/g, '');
+            if (id) parentFresh.set(id, meta);
+        }
+    }
     return items.map((item) => {
-        if (item.type !== 'episode') return item;
+        if (item.type !== 'episode') {
+            return asContinueWatchingItem(item, null, preferSeasonPoster || !!item.preferSeasonPoster);
+        }
         const id = String(item.ratingKey || '').replace(/\D/g, '');
-        const row = fresh.get(id);
-        if (!row) return item;
-        return {
-            ...item,
-            episodeThumb: row.thumb,
-            episodeTitle: row.title || item.episodeTitle || null,
+        const meta = fresh.get(id);
+        if (!meta) return asContinueWatchingItem(item, null, preferSeasonPoster || !!item.preferSeasonPoster);
+        const showKey = String(meta.grandparentRatingKey || item.grandparentRatingKey || '').replace(/\D/g, '');
+        const seasonKey = String(meta.parentRatingKey || item.parentRatingKey || '').replace(/\D/g, '');
+        const showMeta = showKey ? parentFresh.get(showKey) : null;
+        const seasonMeta = seasonKey ? parentFresh.get(seasonKey) : null;
+        // Never reuse stamped grandparentThumb/parentThumb from the episode/hub row —
+        // those stamps are immutable and keep serving pre-swap (e.g. Netflix) art forever.
+        // Only trust thumb paths from a fresh show/season metadata fetch.
+        const enriched: PlexMeta = {
+            ...meta,
+            grandparentThumb: showMeta
+                ? (stampedThumbPath(
+                    showKey,
+                    showMeta.thumb,
+                    showMeta.updatedAt as string | number | null | undefined,
+                ) || `/library/metadata/${showKey}/thumb`)
+                : (showKey ? `/library/metadata/${showKey}/thumb` : meta.grandparentThumb),
+            parentThumb: seasonMeta
+                ? (stampedThumbPath(
+                    seasonKey,
+                    seasonMeta.thumb,
+                    seasonMeta.updatedAt as string | number | null | undefined,
+                ) || `/library/metadata/${seasonKey}/thumb`)
+                : (seasonKey ? `/library/metadata/${seasonKey}/thumb` : meta.parentThumb),
         };
+        return asContinueWatchingItem(
+            item,
+            enriched,
+            preferSeasonPoster || !!item.preferSeasonPoster,
+        );
     });
+};
+
+/**
+ * Hub / On Deck rows omit Network + Studio tags even though Plex filters on them.
+ * Batch-fetch show/movie metadata so Channel 4 / ITVX / Marvel land on billboards.
+ */
+const itemHasTmdbGuid = (item: ReturnType<typeof mapItem>) => {
+    const isTvChild = item.type === 'episode' || item.type === 'season';
+    if (isTvChild) {
+        return Number(item.showTmdbId) > 0 || Number(item.externalIds?.tmdb) > 0;
+    }
+    return Number(item.tmdbId) > 0 || Number(item.externalIds?.tmdb) > 0;
+};
+
+const hydrateHubsBrandMeta = async <T extends { items?: Array<ReturnType<typeof mapItem>> }>(
+    hubs: T[],
+    server: PlexServer,
+) => {
+    const showKeys = new Set<string>();
+    const directKeys = new Set<string>();
+    for (const hub of hubs) {
+        for (const item of hub.items || []) {
+            const isTv = item.type === 'show' || item.type === 'season' || item.type === 'episode';
+            const hasNetwork = Array.isArray(item.networkLabels) && item.networkLabels.length > 0;
+            // Always refill when TMDB id is missing — studio text alone cannot drive logos.
+            if (itemHasTmdbGuid(item) && (!isTv || hasNetwork)) continue;
+            if (item.type === 'episode') {
+                const key = String(item.grandparentRatingKey || '').replace(/\D/g, '');
+                if (key) showKeys.add(key);
+            } else if (item.type === 'season') {
+                const key = String(item.parentRatingKey || '').replace(/\D/g, '');
+                if (key) showKeys.add(key);
+            } else if (item.type === 'show' || item.type === 'movie') {
+                const key = String(item.ratingKey || '').replace(/\D/g, '');
+                if (key) directKeys.add(key);
+            }
+        }
+    }
+    const allKeys = [...new Set([...showKeys, ...directKeys])];
+    if (!allKeys.length) return hubs;
+
+    type Brand = {
+        studio: string;
+        studioLabels: string[];
+        networkLabels: string[];
+        tmdbId: number | null;
+        externalIds: ReturnType<typeof mapItem>['externalIds'];
+    };
+    const byKey = new Map<string, Brand>();
+    for (let index = 0; index < allKeys.length; index += 40) {
+        const ids = allKeys.slice(index, index + 40).join(',');
+        const data = await pms(`/library/metadata/${ids}?includeGuids=1`, server, 8000).catch(() => null);
+        for (const meta of asList<PlexMeta>(containerOf(data).Metadata)) {
+            const id = String(meta.ratingKey || '').replace(/\D/g, '');
+            if (!id) continue;
+            const mapped = mapItem(meta);
+            if (
+                !mapped.studio
+                && !(mapped.networkLabels && mapped.networkLabels.length)
+                && !(mapped.studioLabels && mapped.studioLabels.length)
+                && !mapped.tmdbId
+            ) {
+                continue;
+            }
+            byKey.set(id, {
+                studio: mapped.studio || '',
+                studioLabels: mapped.studioLabels || [],
+                networkLabels: mapped.networkLabels || [],
+                tmdbId: mapped.tmdbId,
+                externalIds: mapped.externalIds,
+            });
+        }
+    }
+    if (!byKey.size) return hubs;
+
+    return hubs.map((hub) => ({
+        ...hub,
+        items: (hub.items || []).map((item) => {
+            let brand: Brand | undefined;
+            if (item.type === 'episode') {
+                brand = byKey.get(String(item.grandparentRatingKey || '').replace(/\D/g, ''));
+            } else if (item.type === 'season') {
+                brand = byKey.get(String(item.parentRatingKey || '').replace(/\D/g, ''));
+            } else {
+                brand = byKey.get(String(item.ratingKey || '').replace(/\D/g, ''));
+            }
+            if (!brand) return item;
+            const isTvChild = item.type === 'episode' || item.type === 'season';
+            const hasNetwork = Array.isArray(item.networkLabels) && item.networkLabels.length > 0;
+            const hasStudioLabels = Array.isArray(item.studioLabels) && item.studioLabels.length > 0;
+            return {
+                ...item,
+                studio: item.studio || brand.studio,
+                studioLabels: hasStudioLabels ? item.studioLabels : (brand.studioLabels.length ? brand.studioLabels : item.studioLabels),
+                networkLabels: hasNetwork ? item.networkLabels : (brand.networkLabels.length ? brand.networkLabels : item.networkLabels),
+                showTmdbId: isTvChild
+                    ? (item.showTmdbId || brand.tmdbId || null)
+                    : item.showTmdbId,
+                tmdbId: item.type === 'show' || item.type === 'movie'
+                    ? (item.tmdbId || brand.tmdbId)
+                    : item.tmdbId,
+                externalIds: {
+                    imdb: item.externalIds?.imdb || brand.externalIds?.imdb || null,
+                    tmdb: isTvChild
+                        ? (item.externalIds?.tmdb || item.showTmdbId || brand.externalIds?.tmdb || brand.tmdbId || null)
+                        : (item.externalIds?.tmdb || item.tmdbId || brand.externalIds?.tmdb || brand.tmdbId || null),
+                    tvdb: item.externalIds?.tvdb || brand.externalIds?.tvdb || null,
+                },
+            };
+        }),
+    }));
+};
+
+/**
+ * Recently Added (Plex-style): show poster + show title on the card, but keep the
+ * episode ratingKey / SxxExx / episode summary so focus + click open that episode.
+ */
+const asRecentlyAddedItem = (item: ReturnType<typeof mapItem>): ReturnType<typeof mapItem> => {
+    if (item.type !== 'episode' && item.type !== 'season') return item;
+    const showKey = String(
+        item.type === 'season' ? item.parentRatingKey : item.grandparentRatingKey || '',
+    ).replace(/\D/g, '');
+    const showName = String(
+        item.type === 'season'
+            ? (item.showTitle || item.seasonTitle || item.title)
+            : (item.showTitle || item.title),
+    ).trim();
+    const episodeTitle = item.type === 'episode'
+        ? String((item as { episodeTitle?: string | null }).episodeTitle || item.title || '').trim()
+        : '';
+    const showThumbPath = showKey
+        ? (libraryImagePath((item as { grandparentThumbPath?: string }).grandparentThumbPath)
+            || `/library/metadata/${showKey}/thumb`)
+        : '';
+    if (showKey) rememberItem(showKey, mapServer);
+    return {
+        ...item,
+        episodeTitle: episodeTitle || (item as { episodeTitle?: string | null }).episodeTitle || null,
+        title: showName || item.title,
+        showTitle: showName || item.showTitle || null,
+        thumb: (showThumbPath ? imageUrl(showThumbPath, 300, 450) : null) || item.thumb,
+        cardAspect: '2/3' as const,
+        dedupeKey: showKey || item.ratingKey,
+        // Keep type/ratingKey/parentIndex/index/summary — open + billboard stay on the episode.
+    };
 };
 
 const collapseRecentShows = (items: ReturnType<typeof mapItem>[], identifier: string, title: string) => {
@@ -2125,37 +2575,13 @@ const collapseRecentShows = (items: ReturnType<typeof mapItem>[], identifier: st
     const seen = new Set<string>();
     const collapsed: ReturnType<typeof mapItem>[] = [];
     items.forEach((item) => {
-        if (item.type !== 'episode' && item.type !== 'season') {
-            if (!seen.has(item.ratingKey)) {
-                seen.add(item.ratingKey);
-                collapsed.push(item);
-            }
-            return;
-        }
-        const showKey = String(item.type === 'season' ? item.parentRatingKey : item.grandparentRatingKey || '').replace(/\D/g, '');
-        const dedupe = showKey || item.ratingKey;
+        const mapped = asRecentlyAddedItem(item);
+        const dedupe = String(
+            (mapped as { dedupeKey?: string }).dedupeKey || mapped.ratingKey || '',
+        );
         if (!dedupe || seen.has(dedupe)) return;
         seen.add(dedupe);
-        if (!showKey) {
-            collapsed.push(item);
-            return;
-        }
-        rememberItem(showKey, mapServer);
-        collapsed.push({
-            ...item,
-            ratingKey: showKey,
-            title: String(item.showTitle || item.seasonTitle || item.title),
-            showTitle: null,
-            seasonTitle: null,
-            type: 'show',
-            thumb: imageUrl(`/library/metadata/${showKey}/thumb`, 300, 450) || item.thumb,
-            index: null,
-            parentIndex: null,
-            parentRatingKey: null,
-            grandparentRatingKey: null,
-            viewOffsetMs: 0,
-            canPlay: false,
-        });
+        collapsed.push(mapped);
     });
     return collapsed;
 };
@@ -2187,7 +2613,8 @@ const hubsFrom = (data: any, server: PlexServer, many: boolean) => {
                 /^(artist|album|track|audio)$/.test(hubKind)
                 || /^(artist|music|album)\./.test(idLower)
             );
-            const seasonPoster = continueHub({ identifier, title }) && readHeroConfig().continueWatchingSeasonPoster;
+            const isContinue = continueHub({ identifier, title });
+            const seasonPoster = isContinue && readHeroConfig().continueWatchingSeasonPoster;
             const items = mapped.map((item) => {
                 const itemType = String(item?.type || '').toLowerCase();
                 const movieOrShowItem = /^(movie|show|season|episode|collection)$/.test(itemType);
@@ -2195,7 +2622,8 @@ const hubsFrom = (data: any, server: PlexServer, many: boolean) => {
                 const next = (musicHub && !movieOrShowItem)
                     ? { ...item, cardAspect: 'square' as const }
                     : item;
-                return seasonPoster && next.type === 'episode' ? { ...next, preferSeasonPoster: true } : next;
+                if (!isContinue) return next;
+                return asContinueWatchingItem(next, null, !!seasonPoster);
             });
             const rawKey = String(hub.key || hub.hubKey || '').trim();
             const listPath = /^https?:\/\//i.test(rawKey)
@@ -2859,30 +3287,38 @@ const loadServerHome = async (server: PlexServer, many: boolean, full = false) =
     const seasonPoster = readHeroConfig().continueWatchingSeasonPoster;
     // One promoted list with items inline. A second heavy hubs call only runs when this one
     // answered and had nothing — a timeout must not stack another scan on top of it.
-    const hubQuery = 'count=16&includeMeta=1';
+    // includeGuids so hub rows carry tmdb:// ids for studio/streaming logo lookups.
+    const hubQuery = 'count=16&includeMeta=1&includeGuids=1';
     const [promotedResult, onDeckData, sectionsRaw] = await Promise.all([
-        pms(`/hubs/promoted?${hubQuery}`, server, full ? 12000 : 5000)
+        pms(`/hubs/promoted?${hubQuery}`, server, full ? 12000 : 8000)
             .then((data) => ({ data, answered: true }))
             .catch(() => ({ data: null, answered: false })),
-        pms('/library/onDeck?X-Plex-Container-Size=24', server, full ? 8000 : 5000).catch(() => null),
+        // Continue Watching is first-class on TV Home — give On Deck a full 8s budget.
+        pms('/library/onDeck?X-Plex-Container-Size=24', server, 8000).catch(() => null),
         pms('/library/sections', server, full ? 8000 : 4000).catch(() => null),
     ]);
-    // Always fill pinned shells (collections/playlists). hubsFrom alone dropped any
-    // promoted hub Plex returned without inline Metadata — so pinned collections
-    // vanished until a lucky full refresh, and often never came back.
-    let hubs: Awaited<ReturnType<typeof pinnedHubs>> = promotedResult.answered
-        ? await pinnedHubs(promotedResult.data, server, many)
-        : [];
+    // Fast path: only hubs that already have inline Metadata so Home can paint without
+    // waiting on per-shell fills + brand hydration. Full=1 fills empty pinned shells.
+    let hubs: Awaited<ReturnType<typeof pinnedHubs>> = [];
+    if (promotedResult.answered) {
+        hubs = full
+            ? await pinnedHubs(promotedResult.data, server, many)
+            : hubsFrom(promotedResult.data, server, many);
+    }
     // If promoted only had Continue Watching (or failed to fill pins), pull /hubs/home
     // extras so library pins still land on Home.
     if (!hubs.some(contentHomeHub)) {
         const homeData = await pms(`/hubs/home?${hubQuery}`, server, full ? 12000 : 8000).catch(() => null);
         if (homeData) {
-            const extra = await pinnedHubs(homeData, server, many);
+            const extra = full
+                ? await pinnedHubs(homeData, server, many)
+                : hubsFrom(homeData, server, many);
             hubs = hubs.length ? mergeHomeHubs(hubs, extra) : extra;
         }
     }
-    if (full && !hubs.some(contentHomeHub)) {
+    // Recently Added fallback on the fast path too — empty promoted+home was painting
+    // cache-only Home and flashing the false "saved library" banner.
+    if (!hubs.some(contentHomeHub)) {
         const recent = await loadRecentFallbackHubs(server, many, sectionsRaw);
         hubs = mergeHomeHubs(hubs, recent);
     }
@@ -2892,10 +3328,7 @@ const loadServerHome = async (server: PlexServer, many: boolean, full = false) =
     } else {
         hubs = applyHeroRowFlags(hubs, server);
     }
-    const onDeckRaw = mapList(onDeckData);
-    const onDeck = seasonPoster
-        ? onDeckRaw.map((item) => (item.type === 'episode' ? { ...item, preferSeasonPoster: true } : item))
-        : onDeckRaw;
+    const onDeck = mapList(onDeckData).map((item) => asContinueWatchingItem(item, null, seasonPoster));
     const watchingHubs = hubs.filter((hub) => continueHub(hub));
     const primary = watchingHubs.find((hub) => (
         /continue/i.test(`${hub.identifier} ${hub.title}`)
@@ -2920,12 +3353,11 @@ const loadServerHome = async (server: PlexServer, many: boolean, full = false) =
         if (!item.ratingKey || seenWatching.has(key)) return false;
         seenWatching.add(key);
         return true;
-    }).map((item) => (
-        seasonPoster && item.type === 'episode' ? { ...item, preferSeasonPoster: true } : item
-    ));
-    const merged = full
-        ? await refreshContinueEpisodeThumbs(watchingList, server)
-        : watchingList;
+    });
+    // Always stamp show/season posters (fast path included) — bare episode stills /
+    // unstamped /thumb URLs were why CW kept old Netflix-era art after poster swaps.
+    const merged = await refreshContinueEpisodeThumbs(watchingList, server, seasonPoster)
+        .catch(() => watchingList);
     // Always keep On Deck. /hubs/promoted often has only collection rails (no continue
     // hub); the old ternary then discarded onDeck whenever any other hub had items,
     // which hid Continue Watching entirely on Android TV / direct home.
@@ -2952,8 +3384,11 @@ const loadServerHome = async (server: PlexServer, many: boolean, full = false) =
     }));
     if (full) {
         hubs = await attachBecauseYouWatched(hubs, continueItems, server);
+        // Brand tags are for details/spot logos — defer off the first Home paint.
+        hubs = await hydrateHubsBrandMeta(hubs, server);
     }
-    return { server, hubs, onDeck: continueItems, sections, recentByLibrary: [], partial: !full };
+    const hydratedContinue = hubs.find((hub) => continueHub(hub))?.items || continueItems;
+    return { server, hubs, onDeck: hydratedContinue, sections, recentByLibrary: [], partial: !full };
 });
 
 const loadDiscoverPerson = async (name: string) => {
@@ -3169,6 +3604,85 @@ const firstHeroPool = async (
     return [];
 };
 
+/** Map screensaver setting → hero-style pool loaders. */
+const screensaverHeroMode = (source: string) => {
+    const key = String(source || '').trim().toLowerCase();
+    if (key === 'continue_watching') return 'continue_watching';
+    if (key === 'trending') return 'trending_week';
+    if (key === 'popular') return 'popular';
+    if (key === 'new_releases') return 'new_releases';
+    if (key === 'recently_added') return 'recently_added';
+    if (key === 'most_watched') return 'most_watched';
+    if (key === 'unwatched' || key === 'recommended') return 'unwatched_picks';
+    if (key === 'random') return 'random_spotlight';
+    return 'continue_watching';
+};
+
+const buildScreensaverPool = async (source: string) => {
+    await ensureServers();
+    const effective = screensaverHeroMode(source);
+    let items: Array<HeroMappedItem | ReturnType<typeof mapItem>> = [];
+    try {
+        if (effective === 'continue_watching') {
+            items = await heroItemsFromServers((server) => (
+                heroPms('/library/onDeck?X-Plex-Container-Size=24', server)
+                    .then((data) => (data ? mapList(data).filter(heroReady) : []))
+            ));
+        } else if (effective === 'popular') {
+            items = await firstHeroPool([
+                (server) => librarySpotlight(server, 'audienceRating:desc'),
+                (server) => librarySpotlight(server, 'rating:desc'),
+                (server) => sectionFeed(server, 'recentlyAdded'),
+            ]);
+        } else if (effective === 'recently_added') {
+            items = await firstHeroPool([
+                (server) => sectionFeed(server, 'recentlyAdded'),
+                (server) => librarySpotlight(server, 'addedAt:desc'),
+            ]);
+        } else if (effective === 'new_releases') {
+            items = await firstHeroPool([
+                (server) => sectionFeed(server, 'newest'),
+                (server) => librarySpotlight(server, 'originallyAvailableAt:desc'),
+                (server) => librarySpotlight(server, 'year:desc'),
+            ]);
+        } else if (effective === 'most_watched') {
+            items = await firstHeroPool([
+                (server) => librarySpotlight(server, 'viewCount:desc'),
+                (server) => librarySpotlight(server, 'lastViewedAt:desc'),
+            ]);
+        } else if (effective === 'unwatched_picks') {
+            items = await firstHeroPool([
+                (server) => librarySpotlight(server, 'audienceRating:desc', 'unwatched=1'),
+                (server) => librarySpotlight(server, 'addedAt:desc', 'unwatched=1'),
+                (server) => librarySpotlight(server, 'audienceRating:desc'),
+            ]);
+        } else if (effective === 'random_spotlight') {
+            items = shuffleItems(await heroItemsFromServers((server) => sectionFeed(server, 'recentlyAdded')));
+        } else if (effective === 'trending_week') {
+            const candidates = await loadTrendingCandidates();
+            items = candidates.length ? await matchTrendingToLibrary(candidates) : [];
+            if (!heroSlidesFrom(items).length) {
+                items = await firstHeroPool([
+                    (server) => librarySpotlight(server, 'audienceRating:desc'),
+                    (server) => sectionFeed(server, 'recentlyAdded'),
+                ]);
+            }
+        }
+        if (!heroSlidesFrom(items).length) {
+            items = await firstHeroPool([
+                (server) => sectionFeed(server, 'recentlyAdded'),
+                (server) => librarySpotlight(server, 'audienceRating:desc'),
+                (server) => heroPms('/library/onDeck?X-Plex-Container-Size=12', server)
+                    .then((data) => (data ? mapList(data).filter(heroReady) : [])),
+            ]);
+        }
+    } catch {
+        items = [];
+    }
+    const slides = shuffleItems(heroSlidesFrom(items, 24));
+    return { source: String(source || 'continue_watching'), items: slides };
+};
+
 const buildHomeHero = async () => {
     await ensureServers();
     const config = readHeroConfig();
@@ -3267,7 +3781,7 @@ const itemGuids = (meta: PlexMeta | null | undefined) => {
 };
 
 const matchLibraryByGuids = async (guids: string[], title: string, year: string | number | null, type: string, server: PlexServer) => {
-    for (const guid of guids.slice(0, 6)) {
+    for (const guid of guids.slice(0, 8)) {
         const data = await pms(`/library/all?guid=${encodeURIComponent(guid)}`, server, 5000).catch(() => null);
         const meta = asList<PlexMeta>(containerOf(data).Metadata)[0];
         if (meta) return mapItem(meta);
@@ -3276,7 +3790,9 @@ const matchLibraryByGuids = async (guids: string[], title: string, year: string 
     if (!queryTitle) return null;
     const data = await pms(`/hubs/search?query=${encodeURIComponent(queryTitle)}&limit=12`, server, 6000).catch(() => null);
     const rows = asList<PlexMeta>(containerOf(data).Hub).flatMap((hub) => asList<PlexMeta>(hub.Metadata));
-    const wantType = /show|tv|series/i.test(type) ? 'show' : 'movie';
+    const wantType = /episode/i.test(type)
+        ? 'episode'
+        : (/show|tv|series/i.test(type) ? 'show' : 'movie');
     const wantYear = String(year || '').slice(0, 4);
     const want = queryTitle.toLowerCase();
     const hit = rows.find((row) => {
@@ -3284,10 +3800,37 @@ const matchLibraryByGuids = async (guids: string[], title: string, year: string 
         if (mapped !== wantType) return false;
         const titleHit = String(row.title || '').trim().toLowerCase() === want;
         if (!titleHit) return false;
-        if (!wantYear) return true;
+        if (!wantYear || wantType === 'episode') return true;
         return String(row.year || '').slice(0, 4) === wantYear;
-    }) || rows.find((row) => String(row.title || '').trim().toLowerCase() === want);
+    }) || rows.find((row) => {
+        if (normalizeItemType(row) !== wantType) return false;
+        return String(row.title || '').trim().toLowerCase() === want;
+    });
     return hit ? mapItem(hit) : null;
+};
+
+/** Find a local playable library copy for Watch Together (sync-only join). */
+const resolveWatchTogetherLocal = async (query: URLSearchParams) => {
+    await ensureServers();
+    const guids = String(query.get('guids') || '')
+        .split(',')
+        .map((row) => row.trim())
+        .filter(Boolean);
+    const tmdbId = Number(query.get('tmdbId') || 0);
+    if (Number.isFinite(tmdbId) && tmdbId > 0) {
+        if (!guids.includes(`tmdb://${tmdbId}`)) guids.push(`tmdb://${tmdbId}`);
+        if (!guids.includes(`themoviedb://${tmdbId}`)) guids.push(`themoviedb://${tmdbId}`);
+    }
+    const title = String(query.get('title') || '').trim();
+    const year = query.get('year');
+    const type = String(query.get('type') || query.get('mediaType') || 'movie').trim() || 'movie';
+    for (const server of enabledServers()) {
+        const local = await withMapServer(server, () => matchLibraryByGuids(guids, title, year, type, server));
+        if (local?.ratingKey && (local.canPlay || local.type === 'movie' || local.type === 'episode')) {
+            return { item: local };
+        }
+    }
+    return { item: null };
 };
 
 const loadWatchlist = async () => {
@@ -3430,9 +3973,10 @@ const playFromQueueFor = async (key: string, server: PlexServer) => {
         const idx = rest.findIndex((row) => row.ratingKey === key);
         return { items: idx >= 0 ? rest.slice(idx) : rest };
     }
-    const seasonKey = String(item.parentRatingKey || '');
-    if (!seasonKey) return { items: [item] };
-    const all = await collectPlayableQueue(seasonKey, server);
+    // Show-scoped so season finales continue into the next season.
+    const showKey = String(item.grandparentRatingKey || item.parentRatingKey || '');
+    if (!showKey) return { items: [item] };
+    const all = await collectPlayableQueue(showKey, server);
     const idx = all.findIndex((row) => row.ratingKey === key);
     return { items: idx >= 0 ? all.slice(idx) : [item] };
 };
@@ -3507,10 +4051,26 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
     }
     if (path === '/api/media-player/watchlist' && (method === 'POST' || method === 'PUT' || method === 'DELETE')) {
         const action = method === 'DELETE' || body?.remove ? 'remove' : 'add';
-        const guid = String(body?.guid || query.get('guid') || '');
+        let guid = String(body?.guid || query.get('guid') || '');
         const discoverKey = String(body?.discoverRatingKey || '').trim();
-        const fromGuid = guid.match(/^plex:\/\/(?:movie|show|season|episode)\/([a-f0-9]+)/i);
-        const ratingKey = discoverKey || (fromGuid ? fromGuid[1] : '');
+        const libraryKey = String(body?.ratingKey || query.get('ratingKey') || '').trim();
+        let fromGuid = guid.match(/^plex:\/\/(?:movie|show|season|episode)\/([a-f0-9]+)/i);
+        let ratingKey = discoverKey || (fromGuid ? fromGuid[1] : '');
+        // Hub cards sometimes omit plex:// guids — resolve from library metadata.
+        if (!ratingKey && !fromGuid && libraryKey) {
+            await ensureServers();
+            const server = resolveServer(query.get('server') || body?.serverId, libraryKey);
+            if (server) {
+                const meta = await metadata(libraryKey, server).catch(() => null);
+                const type = String(meta?.type || '').toLowerCase();
+                const preferred = (type === 'episode' || type === 'season')
+                    ? String(meta?.grandparentGuid || meta?.parentGuid || meta?.guid || '')
+                    : String(meta?.guid || '');
+                if (preferred) guid = preferred;
+                fromGuid = guid.match(/^plex:\/\/(?:movie|show|season|episode)\/([a-f0-9]+)/i);
+                ratingKey = fromGuid ? fromGuid[1] : '';
+            }
+        }
         if (!ratingKey && !guid) throw new Error('Missing watchlist id');
         return watchlistAction(action, ratingKey, guid);
     }
@@ -3640,6 +4200,9 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
         return readHeroConfig();
     }
     if (path === '/api/media-player/home-hero') return buildHomeHero();
+    if (path === '/api/media-player/screensaver') {
+        return buildScreensaverPool(String(query.get('source') || 'continue_watching'));
+    }
     if (path === '/api/media-player/hub') {
         const { server, path: hubPath } = splitLibraryKey(String(query.get('path') || ''));
         if (!server || !hubPath) return { title: query.get('title') || '', items: [] };
@@ -3660,6 +4223,7 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
         const params = new URLSearchParams({
             'X-Plex-Container-Start': start,
             'X-Plex-Container-Size': size,
+            includeGuids: '1',
         });
         const sort = query.get('sort');
         if (sort) params.set('sort', sort);
@@ -3851,7 +4415,7 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
         // Watching (or returns an empty shell), which hid the rail on Recommended.
         const [requested, onDeckData] = await Promise.all([
             pms(
-                `/hubs/sections/${encodeURIComponent(section)}?includeMeta=1&count=18`,
+                `/hubs/sections/${encodeURIComponent(section)}?includeMeta=1&includeGuids=1&count=18`,
                 active,
                 12000,
             )
@@ -3892,15 +4456,16 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                 if (recent.length) {
                     hubs = uniquifyHubs([
                         ...hubs,
-                        { title: 'Recently Added', identifier: 'recentlyAdded', items: recent },
+                        {
+                            title: 'Recently Added',
+                            identifier: 'recentlyAdded',
+                            items: collapseRecentShows(recent, 'recentlyAdded', 'Recently Added'),
+                        },
                     ]);
                 }
             }
         }
-        const onDeckRaw = mapList(onDeckData);
-        const onDeckItems = seasonPoster
-            ? onDeckRaw.map((item) => (item.type === 'episode' ? { ...item, preferSeasonPoster: true } : item))
-            : onDeckRaw;
+        const onDeckItems = mapList(onDeckData).map((item) => asContinueWatchingItem(item, null, seasonPoster));
         const sectionCw = hubs.filter((hub) => continueHub(hub));
         const otherHubs = hubs.filter((hub) => !continueHub(hub));
         // Prefer section On Deck (same as portal assembleLibraryHomeHubs); fall back to
@@ -3937,7 +4502,7 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                     }
                     next.push({
                         ...hub,
-                        items: await refreshContinueEpisodeThumbs(hub.items, active),
+                        items: await refreshContinueEpisodeThumbs(hub.items, active, seasonPoster),
                     });
                 }
                 // Match Home: stamp Heros/Heroes labels, then merge same-label / same-title rows.
@@ -3946,7 +4511,10 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
             return {
                 title: sectionRow?.title || 'Library',
                 type: sectionRow?.type || 'movie',
-                hubs: mergeSameTitleHubs(mergeSameLabelHubs(stamped)),
+                hubs: await hydrateHubsBrandMeta(
+                    mergeSameTitleHubs(mergeSameLabelHubs(stamped)),
+                    active,
+                ),
             };
         }
         if (!requested.answered) {
@@ -3970,9 +4538,13 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
         return {
             title: sectionRow?.title || 'Library',
             type: sectionRow?.type || 'movie',
-            hubs: [
-                { title: 'Recently Added', identifier: 'recentlyAdded', items: recent },
-            ].filter((hub) => hub.items.length),
+            hubs: await hydrateHubsBrandMeta([
+                {
+                    title: 'Recently Added',
+                    identifier: 'recentlyAdded',
+                    items: collapseRecentShows(recent, 'recentlyAdded', 'Recently Added'),
+                },
+            ].filter((hub) => hub.items.length), active),
         };
     }
     const libraryFilters = path.match(/^\/api\/media-player\/libraries\/([^/]+)\/filters$/);
@@ -4075,6 +4647,49 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
         });
         return { title: 'Collections', items };
     }
+    const libraryStudios = path.match(/^\/api\/media-player\/libraries\/([^/]+)\/studios$/);
+    if (libraryStudios) {
+        const { server, section } = splitLibraryKey(libraryStudios[1]);
+        return withMapServer(server, async () => {
+            const sections = mapSections(await pms('/library/sections', server).catch(() => null));
+            const sectionRow = sections.find((row) => row.key === section);
+            const sectionType = String(sectionRow?.type || '');
+            if (sectionType === 'artist') return { networks: [], studios: [] };
+            const pinnedType = sectionAllType(sectionType);
+            const typeQs = pinnedType ? `type=${encodeURIComponent(pinnedType)}&` : '';
+            const facet = (name: string) => (
+                pms(
+                    `/library/sections/${encodeURIComponent(section)}/${name}?${typeQs}X-Plex-Container-Size=${FILTER_FACET_CAP}`,
+                    server,
+                    8000,
+                )
+                    .then((data) => mapFilterFacet(data, name))
+                    .catch(() => [] as Array<{ key: string; title: string }>)
+            );
+            const [studioFacet, networkFacet] = await Promise.all([
+                facet('studio'),
+                facet('network'),
+            ]);
+            const studios = mapStudioBrowseOptions(studioFacet, STUDIO_BROWSE_FETCH);
+            const networks = mapStudioBrowseOptions(networkFacet, STUDIO_BROWSE_FETCH);
+            const sampleFor = (param: string) => async (card: { key: string }) => {
+                const listed = await pms(
+                    `/library/sections/${encodeURIComponent(section)}/all?${typeQs}${encodeURIComponent(param)}=${encodeURIComponent(card.key)}&sort=audienceRating:desc&X-Plex-Container-Start=0&X-Plex-Container-Size=1`,
+                    server,
+                    8000,
+                ).catch(() => null);
+                const meta = asList<PlexMeta>(containerOf(listed).Metadata)[0];
+                if (!meta) return null;
+                const item = mapItem(meta);
+                return { art: item.art || null, thumb: item.thumb || null };
+            };
+            await Promise.all([
+                fillStudioBrowseArt(networks, sampleFor('network'), STUDIO_BROWSE_ART_CONCURRENCY),
+                fillStudioBrowseArt(studios, sampleFor('studio'), STUDIO_BROWSE_ART_CONCURRENCY),
+            ]);
+            return { networks, studios };
+        });
+    }
     const collectionPath = path.match(/^\/api\/media-player\/collection\/([^/]+)$/);
     if (collectionPath && method === 'GET') {
         const key = decodeURIComponent(collectionPath[1]).replace(/\D/g, '');
@@ -4124,6 +4739,89 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
         const server = resolveServer(query.get('server'), key);
         return loadSubtitleSearch(key, server, query.get('language') || 'en');
     }
+    const itemVoiceActivity = path.match(/^\/api\/media-player\/item\/([^/]+)\/voice-activity$/);
+    if (itemVoiceActivity && method === 'GET') {
+        const key = decodeURIComponent(itemVoiceActivity[1]);
+        const server = resolveServer(query.get('server'), key);
+        if (!server) return { available: false, speechMs: [] as number[] };
+        try {
+            const meta = await metadata(key, server);
+            const blob = JSON.stringify(meta || {});
+            const flagged = /hasVoiceActivity["']?\s*[:=]\s*(?:true|1)/i.test(blob)
+                || /"VoiceActivity"/i.test(blob)
+                || /voiceActivity/i.test(blob);
+            const speechMs: number[] = [];
+            // Marker / interval shapes some PMS builds expose on metadata.
+            const markerBags = [
+                asList<PlexMeta>((meta as any)?.Marker),
+                asList<PlexMeta>((meta as any)?.VoiceActivity),
+                asList<PlexMeta>(containerOf(meta as any).Marker),
+            ];
+            for (const bag of markerBags) {
+                for (const row of bag) {
+                    const type = String((row as any).type || (row as any).markerType || '').toLowerCase();
+                    if (type && type !== 'voice' && type !== 'voiceactivity' && !type.includes('voice')) continue;
+                    const start = Number((row as any).startTimeOffset ?? (row as any).start ?? (row as any).startTimeMs);
+                    if (Number.isFinite(start) && start >= 0) speechMs.push(Math.floor(start));
+                }
+            }
+            // Part index: /library/parts/{id}/indexes/voiceActivity (JSON intervals or bitmap).
+            const media = asList<PlexMeta>((meta as any).Media)[0];
+            const part = asList<PlexMeta>((media as any)?.Part)[0];
+            const partId = String((part as any)?.id || '').replace(/\D/g, '');
+            if (partId && server) {
+                try {
+                    const indexData = await pms(
+                        `/library/parts/${encodeURIComponent(partId)}/indexes/voiceActivity`,
+                        server,
+                        6000,
+                    );
+                    const intervals = [
+                        ...asList<PlexMeta>(containerOf(indexData).VoiceActivity),
+                        ...asList<PlexMeta>((indexData as any)?.VoiceActivity),
+                        ...asList<PlexMeta>(containerOf(indexData).Marker),
+                    ];
+                    for (const row of intervals) {
+                        const start = Number((row as any).startTimeOffset ?? (row as any).start ?? (row as any).startTimeMs);
+                        if (Number.isFinite(start) && start >= 0) speechMs.push(Math.floor(start));
+                    }
+                } catch {
+                    /* index may be binary-only or missing */
+                }
+                if (!speechMs.length) {
+                    try {
+                        const url = new URL(
+                            `/library/parts/${encodeURIComponent(partId)}/indexes/voiceActivity`,
+                            server.uri.endsWith('/') ? server.uri : `${server.uri}/`,
+                        );
+                        url.searchParams.set('X-Plex-Token', server.accessToken);
+                        const res = await fetch(url.toString(), {
+                            headers: { Accept: '*/*', 'X-Plex-Token': server.accessToken },
+                            cache: 'no-store',
+                        });
+                        if (res.ok) {
+                            const buf = new Uint8Array(await res.arrayBuffer());
+                            // Skip tiny XML/JSON error bodies.
+                            if (buf.length > 64 && buf[0] !== 0x3c && buf[0] !== 0x7b) {
+                                let prev = false;
+                                for (let i = 0; i < buf.length && speechMs.length < 400; i++) {
+                                    const active = buf[i] > 0;
+                                    if (active && !prev) speechMs.push(i * 10);
+                                    prev = active;
+                                }
+                            }
+                        }
+                    } catch {
+                        /* ignore binary probe failures */
+                    }
+                }
+            }
+            const unique = Array.from(new Set(speechMs)).sort((a, b) => a - b).slice(0, 400);
+            return { available: flagged || unique.length > 0, speechMs: unique };
+        } catch {
+            return { available: false, speechMs: [] as number[] };
+        }
+    }
     const itemMore = path.match(/^\/api\/media-player\/item\/([^/]+)\/more$/);
     if (itemMore && method === 'GET') {
         const key = decodeURIComponent(itemMore[1]);
@@ -4165,6 +4863,44 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
             if (kind === 'show' || kind === 'season') {
                 onDeck = await resolvePlayableEpisode(key, server, kind);
             }
+            if (core && (kind === 'show' || kind === 'movie')) {
+                const section = String(core.librarySectionID || '').trim();
+                const plexType = kind === 'show' ? '2' : '1';
+                let genreFacet: Array<{ key: string; title: string }> | null = null;
+                const genreHubs = await buildGenreRelatedHubs({
+                    meta: core,
+                    excludeRatingKey: key,
+                    existingHubs: related,
+                    many,
+                    serverId: server.id,
+                    sectionKey: section,
+                    resolveGenreId: async (title: string) => {
+                        if (!section) return '';
+                        if (!genreFacet) {
+                            const data = await pms(
+                                `/library/sections/${encodeURIComponent(section)}/genre?type=${plexType}`,
+                                server,
+                                6000,
+                            ).catch(() => null);
+                            genreFacet = mapFilterFacet(data, 'genre');
+                        }
+                        const want = String(title || '').trim().toLowerCase();
+                        return genreFacet.find((row) => row.title.toLowerCase() === want)?.key || '';
+                    },
+                    loadGenreItems: async (genreId: string) => {
+                        if (!section || !genreId) return [];
+                        const data = await pms(
+                            `/library/sections/${encodeURIComponent(section)}/all?type=${plexType}`
+                            + `&genre=${encodeURIComponent(genreId)}&sort=audienceRating:desc`
+                            + '&X-Plex-Container-Start=0&X-Plex-Container-Size=16&includeGuids=1',
+                            server,
+                            8000,
+                        ).catch(() => null);
+                        return mapList(data);
+                    },
+                });
+                related.push(...genreHubs);
+            }
             return { extras, related, onDeck };
         });
     }
@@ -4187,13 +4923,30 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                     if (!item.showTitle) item.showTitle = showItem.title || null;
                     if (!item.logo && showItem.logo) item.logo = showItem.logo;
                     if (!item.art && showItem.art) item.art = showItem.art;
+                    // Prefer the show network/studio for episode/season service logos.
+                    if (showItem.studio) item.studio = showItem.studio;
+                    if (Array.isArray(showItem.studioLabels) && showItem.studioLabels.length) {
+                        item.studioLabels = showItem.studioLabels;
+                    }
+                    if (Array.isArray(showItem.networkLabels) && showItem.networkLabels.length) {
+                        item.networkLabels = showItem.networkLabels;
+                    }
+                    if (!item.commonSenseMedia && showItem.commonSenseMedia) {
+                        item.commonSenseMedia = showItem.commonSenseMedia;
+                    }
                     if (ratingsEmpty && showItem.ratings) item.ratings = showItem.ratings;
-                    if (!item.externalIds?.imdb && !item.externalIds?.tmdb && !item.externalIds?.tvdb) {
+                    // Always prefer the series TMDB id — episode Guid ids break /tv/{id} lookups.
+                    if (showItem.tmdbId) {
+                        item.showTmdbId = showItem.tmdbId;
+                        item.tmdbId = showItem.tmdbId;
+                        item.externalIds = {
+                            imdb: item.externalIds?.imdb || showItem.externalIds?.imdb || null,
+                            tmdb: showItem.tmdbId,
+                            tvdb: item.externalIds?.tvdb || showItem.externalIds?.tvdb || null,
+                        };
+                    } else if (!item.externalIds?.imdb && !item.externalIds?.tmdb && !item.externalIds?.tvdb) {
                         item.externalIds = showItem.externalIds;
                         item.tmdbId = showItem.tmdbId;
-                    } else if (!item.tmdbId && showItem.tmdbId) {
-                        item.tmdbId = showItem.tmdbId;
-                        item.externalIds = { ...(item.externalIds || { imdb: null, tmdb: null, tvdb: null }), tmdb: showItem.tmdbId };
                     }
                 }
             }
@@ -4212,6 +4965,54 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                 onDeck = await resolvePlayableEpisode(key, server, item.type);
             }
             return { item, children, extras, related: [], onDeck };
+        });
+    }
+    const downloadSource = path.match(/^\/api\/media-player\/download-source\/([^/]+)$/);
+    if (downloadSource && method === 'GET') {
+        const key = decodeURIComponent(downloadSource[1]);
+        const server = resolveServer(query.get('server'), key);
+        return withMapServer(server, async () => {
+            let meta = await metadata(key, server).catch(() => extraMetaByKey.get(key) || null);
+            if (!meta) throw new Error('This title cannot be downloaded.');
+            const seed = mapItem(meta);
+            if (seed.type === 'show' || seed.type === 'season') {
+                throw new Error('Download an episode, not the whole series.');
+            }
+            const mediaIndex = Math.max(0, Math.floor(Number(query.get('mediaIndex') || 0)));
+            const medias = asList<PlexMeta>(meta.Media);
+            const media = medias[mediaIndex] || medias[0] || {};
+            const part = asList<PlexMeta>(media?.Part)[0] || null;
+            if (!part?.key) throw new Error('No downloadable media file for this title.');
+            const chosen = playSrc(meta, mediaIndex, 'original', '', '', 0, false, '');
+            if (chosen.mode !== 'directPlay' || !chosen.src) {
+                throw new Error('No downloadable media file for this title.');
+            }
+            const item = mapItem(meta);
+            const rawFile = String(part.file || item.title || `plex-${key}`);
+            const baseName = rawFile.split(/[/\\]/).pop() || `plex-${key}`;
+            const container = String(part.container || media.container || '').replace(/[^\w]+/g, '') || 'bin';
+            const fileName = /\.[a-z0-9]{2,5}$/i.test(baseName) ? baseName : `${baseName}.${container}`;
+            const headers: Record<string, string> = {
+                Accept: '*/*',
+                'Accept-Encoding': 'identity',
+                'X-Plex-Token': String(server?.accessToken || ''),
+                'X-Plex-Client-Identifier': clientId(),
+                'X-Plex-Product': 'StreamPilot',
+                'X-Plex-Platform': 'Android',
+                'X-Plex-Device': 'Android',
+            };
+            return {
+                url: chosen.src,
+                headers,
+                fileName,
+                bytes: Number(part.size || media.size || 0) || 0,
+                ratingKey: String(item.ratingKey || key),
+                title: item.title || 'Download',
+                type: item.type || 'movie',
+                thumb: item.thumb || null,
+                serverId: String(server?.id || item.serverId || ''),
+                plexGuid: item.plexGuid || null,
+            };
         });
     }
     const play = path.match(/^\/api\/media-player\/play\/([^/]+)$/);
@@ -4465,6 +5266,9 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
             items,
             profile,
         };
+    }
+    if (path === '/api/media-player/watch-together/resolve' && method === 'GET') {
+        return resolveWatchTogetherLocal(query);
     }
     if (path === '/api/media-player/search') {
         const q = query.get('q') || '';
@@ -4869,6 +5673,117 @@ export const handlePlexDirectRequest = async (url: string, options: RequestInit 
     }
     if (path === '/api/discovery/fact' && method === 'GET') {
         return loadDirectFacts(parsed.searchParams).catch(() => ({ facts: [], fact: null, sources: { wikipedia: 0, tmdb: 0 } }));
+    }
+    // IMDB → TMDB id (libraries that only store imdb:// Guids).
+    const discoveryFind = path.match(/^\/api\/discovery\/proxy\/find\/([^/]+)$/);
+    if (discoveryFind && method === 'GET') {
+        const externalId = decodeURIComponent(discoveryFind[1] || '').trim();
+        const empty = { movie_results: [], tv_results: [], person_results: [] };
+        if (!externalId) return empty;
+        const source = String(parsed.searchParams.get('external_source') || 'imdb_id').trim() || 'imdb_id';
+        const portal = String(readStoredPortalBaseUrl() || '').replace(/\/+$/, '');
+        const token = String(getSessionToken() || '').trim();
+        if (portal) {
+            const headers: Record<string, string> = {
+                Accept: 'application/json',
+                'X-Requested-With': 'ServerManagerPortal',
+            };
+            if (token) headers.Authorization = `Bearer ${token}`;
+            const portalRes = await fetch(
+                `${portal}/api/discovery/proxy/find/${encodeURIComponent(externalId)}?external_source=${encodeURIComponent(source)}`,
+                { headers, cache: 'no-store' },
+            ).catch(() => null);
+            if (portalRes?.ok) {
+                const payload = await portalRes.json().catch(() => null);
+                if (payload && typeof payload === 'object') return payload;
+            }
+        }
+        const key = readTmdbApiKey();
+        if (!key) return empty;
+        const res = await fetch(
+            `https://api.themoviedb.org/3/find/${encodeURIComponent(externalId)}`
+            + `?api_key=${encodeURIComponent(key)}&external_source=${encodeURIComponent(source)}`,
+        ).catch(() => null);
+        if (!res?.ok) return empty;
+        const json = await res.json().catch(() => null);
+        return json && typeof json === 'object' ? json : empty;
+    }
+    // Movie/TV details for service logos (streaming / studio / network).
+    const discoveryDetail = path.match(/^\/api\/discovery\/proxy\/(movie|tv)\/(\d+)$/);
+    if (discoveryDetail && method === 'GET') {
+        const mediaType = discoveryDetail[1] as 'movie' | 'tv';
+        const tmdbId = discoveryDetail[2];
+        const empty = { networks: [], productionCompanies: [], watchProviders: [] };
+        // Prefer the user's StreamPilot portal when configured (even in plex-direct auth).
+        const portal = String(readStoredPortalBaseUrl() || '').replace(/\/+$/, '');
+        const token = String(getSessionToken() || '').trim();
+        if (portal) {
+            // Public endpoint needs no JWT — works for plex-direct + portal URL setups.
+            const publicRes = await fetch(
+                `${portal}/api/public/media-player/service-logos?mediaType=${encodeURIComponent(mediaType)}&tmdbId=${encodeURIComponent(tmdbId)}`,
+                { headers: { Accept: 'application/json' }, cache: 'no-store' },
+            ).catch(() => null);
+            if (publicRes?.ok) {
+                const payload = await publicRes.json().catch(() => null);
+                if (payload && typeof payload === 'object' && payload.reason !== 'missing-tmdb-key') {
+                    return payload;
+                }
+            }
+            const headers: Record<string, string> = {
+                Accept: 'application/json',
+                'X-Requested-With': 'ServerManagerPortal',
+            };
+            if (token) headers.Authorization = `Bearer ${token}`;
+            const portalRes = await fetch(
+                `${portal}/api/discovery/proxy/${mediaType}/${encodeURIComponent(tmdbId)}`,
+                { headers, cache: 'no-store' },
+            ).catch(() => null);
+            if (portalRes?.ok) {
+                const payload = await portalRes.json().catch(() => null);
+                if (payload && typeof payload === 'object') return payload;
+            }
+        }
+        const key = readTmdbApiKey();
+        if (!key) return empty;
+        const res = await fetch(
+            `https://api.themoviedb.org/3/${mediaType}/${encodeURIComponent(tmdbId)}?api_key=${encodeURIComponent(key)}&append_to_response=${encodeURIComponent('watch/providers')}`,
+        ).catch(() => null);
+        if (!res?.ok) return empty;
+        const json = await res.json().catch(() => null);
+        const providerResults = json?.['watch/providers']?.results || {};
+        const watchProviders = Object.entries(providerResults).map(([iso, provider]: [string, any]) => ({
+            iso_3166_1: iso,
+            link: provider?.link,
+            buy: [].concat(provider?.buy || []).map((row: any) => ({
+                id: row?.provider_id,
+                name: row?.provider_name,
+                logoPath: row?.logo_path,
+            })),
+            flatrate: [].concat(provider?.flatrate || []).map((row: any) => ({
+                id: row?.provider_id,
+                name: row?.provider_name,
+                logoPath: row?.logo_path,
+            })),
+            ads: [].concat(provider?.ads || []).map((row: any) => ({
+                id: row?.provider_id,
+                name: row?.provider_name,
+                logoPath: row?.logo_path,
+            })),
+        }));
+        // Keep name-only rows — client fills catalog logos when TMDB omits logo_path (common for UK nets).
+        const networks = mediaType === 'tv'
+            ? [].concat(json?.networks || []).map((row: any) => ({
+                id: row?.id,
+                name: row?.name,
+                logoPath: row?.logo_path || '',
+            })).filter((row: { name?: string }) => row.name)
+            : [];
+        const productionCompanies = [].concat(json?.production_companies || []).map((row: any) => ({
+            id: row?.id,
+            name: row?.name,
+            logoPath: row?.logo_path || '',
+        })).filter((row: { name?: string }) => row.name);
+        return { networks, productionCompanies, watchProviders };
     }
     if (path.startsWith('/api/discovery/')) return method === 'GET' ? { results: [] } : { ok: true };
     if (path.startsWith('/api/notifications')) return { notifications: [] };

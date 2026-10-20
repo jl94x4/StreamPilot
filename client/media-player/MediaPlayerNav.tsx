@@ -4,6 +4,7 @@ import {
     CircleAlert,
     Clapperboard,
     Bookmark,
+    Download,
     Home,
     Image as ImageIcon,
     ListMusic,
@@ -33,7 +34,7 @@ import { PLAYER_TV_NAV_EVENT } from './paths';
 import type { PlayerProfile, PlayerSection } from './types';
 import { focusTvContent } from '../plex-client/useTvRemote';
 
-type NavPage = 'home' | 'watchlist' | 'playlists' | 'library' | 'settings' | 'other';
+type NavPage = 'home' | 'watchlist' | 'downloads' | 'playlists' | 'library' | 'settings' | 'other';
 
 type Props = {
     libraries: PlayerSection[];
@@ -44,6 +45,7 @@ type Props = {
     onToggleExpanded: () => void;
     onHome: () => void;
     onWatchlist: () => void;
+    onDownloads?: () => void;
     onSearch: () => void;
     onOpenLibrary: (section: PlayerSection) => void;
     onOpenPlaylists?: () => void;
@@ -100,7 +102,8 @@ const navButtonClass = (active: boolean, expanded: boolean, tv = false) => (
     } ${
         active && expanded && !tv
             ? 'bg-white text-zinc-900 shadow-lg shadow-black/25'
-            : 'text-white/80 hover:bg-white/10 hover:text-white'
+            // TV: no hover fill — Android WebView sticks :hover on library rows after D-pad.
+            : (tv ? 'text-white/80' : 'text-white/80 hover:bg-white/10 hover:text-white')
     }`
 );
 
@@ -120,6 +123,7 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
     onToggleExpanded,
     onHome,
     onWatchlist,
+    onDownloads,
     onSearch,
     onOpenLibrary,
     onOpenPlaylists,
@@ -349,6 +353,17 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                     <NavIcon><Bookmark className={NAV_ICON_CLASS} /></NavIcon>
                     {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.navWatchlist')}</span> : null}
                 </button>
+                {onDownloads && !isTvShell ? (
+                    <button
+                        type="button"
+                        className={navButtonClass(page === 'downloads', showLabels, isTvShell)}
+                        onClick={() => go(onDownloads)}
+                        title={t('mediaPlayerPage.navDownloads')}
+                    >
+                        <NavIcon><Download className={NAV_ICON_CLASS} /></NavIcon>
+                        {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.navDownloads')}</span> : null}
+                    </button>
+                ) : null}
                 <button
                     type="button"
                     {...tvNavProps(isTvShell, expanded, false)}

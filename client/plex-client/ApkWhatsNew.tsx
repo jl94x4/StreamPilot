@@ -5,7 +5,388 @@ import { useDiscoverI18n } from '../media-player/host';
 import { readApkWhatsNewSeen, writeApkWhatsNewSeen } from '../media-player/playerMemory';
 import { getPlexClientAppVersion } from './config';
 
-const NOTES_BY_VERSION: Record<string, { title: string; items: string[] }[]> = {
+type WhatsNewSection = { title: string; items: string[] };
+type WhatsNewRelease = { version: string; sections: WhatsNewSection[] };
+
+const parseVersionParts = (version: string): number[] =>
+    String(version || '')
+        .trim()
+        .replace(/^v/i, '')
+        .split(/[.+-]/)
+        .map((part) => Number.parseInt(part, 10) || 0);
+
+const compareAppVersions = (a: string, b: string) => {
+    const left = parseVersionParts(a);
+    const right = parseVersionParts(b);
+    const len = Math.max(left.length, right.length);
+    for (let i = 0; i < len; i += 1) {
+        const diff = (left[i] || 0) - (right[i] || 0);
+        if (diff) return diff;
+    }
+    return 0;
+};
+
+/**
+ * Notes for the build you're shipping now — always shown as the top card under
+ * whatever versionName is in build.gradle. Update this when user-facing stuff changes;
+ * do not chase version numbers (APK builds bump every time).
+ */
+const CURRENT_RELEASE_NOTES: WhatsNewSection[] = [
+    {
+        title: 'Home (TV)',
+        items: [
+            'Fixed posters going blank when you scroll back up a Home row (no more opacity fade that hid already-loaded art)',
+            'Removed the false “Showing your saved library” banner — Home keeps the last good rows and refreshes quietly in the background',
+            'Continue Watching stays on top when a refresh only brings back Recently Added (On Deck blips no longer wipe the row)',
+            'Continue Watching pulls the live show poster from Plex (no more stuck Netflix / old art after you swap posters)',
+            'Recently Added TV shows SxxExx, episode title and synopsis — OK opens that episode (same as Plex)',
+            'Optional season posters on Recently Added (show posters stay the default)',
+            'Screensaver: pick the art pool in Settings (Continue Watching, Watchlist, Recommended, Trending, Popular, New releases, Recently added, Most watched, Something new, Completely random)',
+            'Screensaver cycles in random order and shows the chosen pool name above the clock',
+        ],
+    },
+    {
+        title: 'Player (TV)',
+        items: [
+            'Up next card is usable with the remote (OK / left-right) instead of opening the OSD',
+            'Back on Up next (or when playback has ended) returns straight to the episode overview — no blank wait through credits',
+        ],
+    },
+];
+
+/** Fingerprint of current notes — Whats New reappears when these change, not on every APK bump. */
+const currentNotesSeenKey = (): string => {
+    try {
+        return `notes:${JSON.stringify(CURRENT_RELEASE_NOTES)}`;
+    } catch {
+        return 'notes:';
+    }
+};
+
+/** Current build plus up to two prior archived releases (3 cards total). */
+const recentWhatsNewReleases = (currentVersion: string, limit = 3): WhatsNewRelease[] => {
+    if (!currentVersion) return [];
+    const releases: WhatsNewRelease[] = [];
+    if (CURRENT_RELEASE_NOTES.length > 0) {
+        releases.push({ version: currentVersion, sections: CURRENT_RELEASE_NOTES });
+    }
+    const historical = Object.keys(NOTES_BY_VERSION)
+        .filter((version) => compareAppVersions(version, currentVersion) < 0)
+        .sort((a, b) => compareAppVersions(b, a))
+        .slice(0, Math.max(0, limit - releases.length))
+        .map((version) => ({ version, sections: NOTES_BY_VERSION[version] || [] }))
+        .filter((row) => row.sections.length > 0);
+    return [...releases, ...historical];
+};
+
+/** Archived release notes (older than CURRENT_RELEASE_NOTES). */
+const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.215': [
+        {
+            title: 'Details (TV)',
+            items: [
+                'Related Shows now includes genre rows from this show’s library (e.g. Drama, Reality)',
+                'Optional: skip the seasons page for single-season shows (Settings → Titles, off by default)',
+                'Shuffle stays as an icon chip; Shuffle unwatched lives in the ⋯ menu',
+                'Show and movie synopses show in full — no mid-sentence cutoff',
+            ],
+        },
+        {
+            title: 'Home (phone)',
+            items: [
+                'Home loads faster — first paint no longer waits on every pinned row and brand lookup',
+                'Tighter spacing between rows so less empty space between shelves',
+            ],
+        },
+    ],
+    '1.0.190': [
+        {
+            title: 'Player settings',
+            items: [
+                'In-player Settings cog matches Plex playback options: subtitle look, burn-in, sync delay, night mode, frame rate, passthrough, and media info',
+                'Skip intro/credits: Off, Manual, or Automatic; rewind on resume; audio boost; cinema trailer count 0–5',
+                'Subtitle auto-sync when the server has voice analysis; otherwise greyed out with manual delay still available',
+            ],
+        },
+    ],
+    '1.0.185': [
+        {
+            title: 'Player',
+            items: [
+                'Minimal playback chrome: clearlogo + episode meta, remaining time, and when the title ends',
+                'All quality / audio / subtitle / playback options live in a Settings tree behind the cog',
+                'Left/Right seek ±10s with on-screen flash; hold to scrub continuously',
+                'Satoshi type on the player and on Home / library titles',
+            ],
+        },
+    ],
+    '1.0.183': [
+        {
+            title: 'Home & playback',
+            items: [
+                'Idle screensaver on Home cycles Continue Watching art with a large clock in the bottom left',
+                'Shuffle unwatched for shows and seasons',
+                'If playback buffers for a while, you can lower quality in one tap',
+            ],
+        },
+    ],
+    '1.0.182': [
+        {
+            title: 'Playback',
+            items: [
+                'Sleep timer: after 1–2 more episodes, or stop at credits (plus the existing timed / end-of-episode options)',
+                'Play unwatched from here on episode menus — skips later watched episodes and continues into the next season',
+                'A/V delay remembered per show; brief Direct Play / Transcode chip when playback starts',
+                'More like this at credits when there is no next episode (or after Watch credits)',
+            ],
+        },
+    ],
+    '1.0.181': [
+        {
+            title: 'Playback',
+            items: [
+                'After an episode ends, Back works again during the next-episode handoff (no multi-minute black screen trap)',
+                'Autoplay-next returns to the app immediately instead of lingering on a black player window',
+            ],
+        },
+    ],
+    '1.0.180': [
+        {
+            title: 'Home',
+            items: [
+                'Disney+ and Universal billboard logos render white on dark stills (easier to read)',
+                'Home spot synopsis and cast no longer clip mid-line above the poster row',
+            ],
+        },
+    ],
+    '1.0.179': [
+        {
+            title: 'Home',
+            items: [
+                'Far more billboard logos: hub rows now always pull TMDB ids (studio text alone used to skip them)',
+                'If TMDB has no studio/network mark, fall back to the streaming service logo (Netflix, Disney+, …)',
+            ],
+        },
+    ],
+    '1.0.178': [
+        {
+            title: 'Home',
+            items: [
+                'Billboards use real studio logos from TMDB (Marvel red plate, Universal globe, …) — not plain text labels',
+                'Movies pick the production studio listed on TMDB and map it to bundled logo art',
+            ],
+        },
+    ],
+    '1.0.177': [
+        {
+            title: 'Home',
+            items: [
+                'Marvel Studios and other dark studio wordmarks invert to white on billboards again',
+                'Major studio logos (Disney, Warner, Universal, …) ship in the APK so more movies show a mark without TMDB CDN',
+            ],
+        },
+    ],
+    '1.0.175': [
+        {
+            title: 'Home',
+            items: [
+                'Network logos (Channel 4, BBC, …) render on Fire TV / Android again — text SVGs were blank in WebView; billboards resolve Plex Network marks immediately',
+            ],
+        },
+    ],
+    '1.0.174': [
+        {
+            title: 'Home',
+            items: [
+                'TV logos follow Plex Network tags (same as Advanced Filters) — Gogglebox shows Channel 4, not a Netflix Label/watch-provider',
+            ],
+        },
+    ],
+    '1.0.173': [
+        {
+            title: 'Home',
+            items: [
+                'TV logos follow Plex Network tags (same as Advanced Filters) — Gogglebox shows Channel 4, not a Netflix Label/watch-provider',
+            ],
+        },
+    ],
+    '1.0.172': [
+        {
+            title: 'Home',
+            items: [
+                'TV logos follow Plex Network tags (same as Advanced Filters) — Gogglebox shows Channel 4, not a Netflix Label/watch-provider',
+            ],
+        },
+    ],
+    '1.0.171': [
+        {
+            title: 'Home',
+            items: [
+                'Home and library rows pull Plex Network tags (Channel 4, ITVX, …) so billboard logos match the same filters as Plex',
+            ],
+        },
+    ],
+    '1.0.170': [
+        {
+            title: 'Home',
+            items: [
+                'Continue Watching episodes (e.g. Gogglebox) load the show network again — Channel 4 / BBC were missing before',
+            ],
+        },
+    ],
+    '1.0.169': [
+        {
+            title: 'Home',
+            items: [
+                'Movies show studio logos; TV shows show network logos — maximum coverage without wrong streamer badges',
+            ],
+        },
+    ],
+    '1.0.164': [
+        {
+            title: 'Home',
+            items: [
+                'Channel 4 / BBC shows no longer show Netflix when a watch-provider lists them — broadcaster wins',
+            ],
+        },
+    ],
+    '1.0.163': [
+        {
+            title: 'Home',
+            items: [
+                'Discovery+ mark keeps the coloured D icon with white “discovery+” text',
+            ],
+        },
+    ],
+    '1.0.162': [
+        {
+            title: 'Home',
+            items: [
+                'Prime Video / Netflix exclusives show the streamer mark (Amazon Studios → Prime); full synopsis no longer clipped by a fixed-height panel',
+            ],
+        },
+    ],
+    '1.0.161': [
+        {
+            title: 'Home',
+            items: [
+                'Studio / network logos are always white on the billboard; full description text (no mid-sentence cut-off)',
+            ],
+        },
+    ],
+    '1.0.157': [
+        {
+            title: 'Home',
+            items: [
+                'Discovery+ mark is text-only (no icon) so it reads cleanly as white on dark art',
+            ],
+        },
+    ],
+    '1.0.156': [
+        {
+            title: 'Home',
+            items: [
+                'TV logos prefer the broadcast network (Channel 4, BBC, …) over “also on Netflix” watch-provider badges',
+            ],
+        },
+    ],
+    '1.0.155': [
+        {
+            title: 'Home',
+            items: [
+                'More titles show studio/network logos — Channel 4 / ITVX / BBC / Netflix and movies that only had IMDb IDs in Plex',
+            ],
+        },
+    ],
+    '1.0.154': [
+        {
+            title: 'Home',
+            items: [
+                'Marvel Studios (and similar filled-colour marks) keep brand colours — forced white was turning MARVEL into a blank block',
+            ],
+        },
+    ],
+    '1.0.152': [
+        {
+            title: 'Home',
+            items: [
+                'Studio / network logos above titles are forced white on dark art (Paramount and other black marks were invisible before)',
+            ],
+        },
+    ],
+    '1.0.151': [
+        {
+            title: 'Home',
+            items: [
+                'Major UK/US brands in the logo catalog — ITVX, BBC, Channel 4/5, CBeebies, Sky Originals, Netflix, Disney+, Prime, Paramount+, Discovery+, NBC, CBS, Cartoon Network, Pixar, and more',
+            ],
+        },
+    ],
+    '1.0.150': [
+        {
+            title: 'Settings',
+            items: [
+                'New Titles toggle: Studio / network logos — turn off the streaming, studio, and network marks above titles (on by default)',
+            ],
+        },
+    ],
+    '1.0.149': [
+        {
+            title: 'Home',
+            items: [
+                'Channel 4 / Netflix and other network logos above Continue Watching titles — UK Channel 4 is in the catalog, and episodes use the parent show’s network (not a broken episode TMDB id)',
+            ],
+        },
+    ],
+    '1.0.148': [
+        {
+            title: 'Home',
+            items: [
+                'Studio logos show on far more movies — plain white marks (no broken duotone), TMDB ids on home rows, and studio preferred over streaming for films',
+            ],
+        },
+    ],
+    '1.0.147': [
+        {
+            title: 'Home',
+            items: [
+                'Many more titles show a studio or streaming logo — better name matching, TMDB studio fallback, and retry if an image fails',
+            ],
+        },
+    ],
+    '1.0.146': [
+        {
+            title: 'Home',
+            items: [
+                'Streaming / studio / network logo now appears above the clearlogo on the Home focus spotlight (not only on title details)',
+            ],
+        },
+    ],
+    '1.0.144': [
+        {
+            title: 'Details',
+            items: [
+                'Brand logo above the clearlogo is fixed — studio/network tags resolve again, and marks stay visible on dark art',
+            ],
+        },
+    ],
+    '1.0.143': [
+        {
+            title: 'Details',
+            items: [
+                'One brand logo above the title clearlogo — streaming first, then studio, then network (never more than one)',
+            ],
+        },
+    ],
+    '1.0.142': [
+        {
+            title: 'Browse',
+            items: [
+                'Long-press menu now lists Mark Watched and Mark Unwatched separately (movies, shows, seasons, episodes)',
+                'Add to Watchlist sits near the top of the context menu — episodes and seasons add the parent show',
+            ],
+        },
+    ],
     '1.0.141': [
         {
             title: 'Watch Together',
@@ -720,13 +1101,15 @@ export const ApkWhatsNew: React.FC = () => {
     const version = useMemo(() => getPlexClientAppVersion() || '', []);
     const [open, setOpen] = useState(false);
     const buttonRef = useRef<HTMLButtonElement>(null);
-    const sections = NOTES_BY_VERSION[version] || [];
+    const releases = useMemo(() => recentWhatsNewReleases(version, 3), [version]);
+    const seenKey = useMemo(() => currentNotesSeenKey(), []);
 
     useEffect(() => {
-        if (!version || !sections.length) return;
-        if (readApkWhatsNewSeen() === version) return;
+        if (!version || !releases.length) return;
+        // Fingerprint of CURRENT_RELEASE_NOTES — reappears when notes change, not on every APK bump.
+        if (readApkWhatsNewSeen() === seenKey) return;
         setOpen(true);
-    }, [sections.length, version]);
+    }, [releases.length, seenKey, version]);
 
     useEffect(() => {
         if (!open) return undefined;
@@ -758,10 +1141,10 @@ export const ApkWhatsNew: React.FC = () => {
         };
     }, [open]);
 
-    if (!open || !sections.length) return null;
+    if (!open || !releases.length) return null;
 
     const dismiss = () => {
-        writeApkWhatsNewSeen(version);
+        writeApkWhatsNewSeen(seenKey);
         setOpen(false);
     };
 
@@ -789,20 +1172,37 @@ export const ApkWhatsNew: React.FC = () => {
                 <h2 id="apk-whats-new-title" className="text-2xl font-black tracking-tight text-white">
                     {version}
                 </h2>
-                <div className="mt-5 max-h-[50vh] space-y-5 overflow-y-auto pr-1">
-                    {sections.map((section) => (
-                        <div key={section.title}>
-                            <h3 className="text-xs font-bold uppercase tracking-[0.18em] text-plex">
-                                {section.title}
-                            </h3>
-                            <ul className="mt-2 space-y-2">
-                                {section.items.map((item) => (
-                                    <li key={item} className="relative pl-4 text-sm leading-relaxed text-white/85">
-                                        <span className="absolute left-0 text-plex" aria-hidden>•</span>
-                                        {item}
-                                    </li>
-                                ))}
-                            </ul>
+                <div className="mt-5 max-h-[50vh] space-y-6 overflow-y-auto pr-1">
+                    {releases.map((release) => (
+                        <div key={release.version} className="space-y-4">
+                            {releases.length > 1 ? (
+                                <p className="text-sm font-bold tracking-tight text-white/70">
+                                    {release.version}
+                                    {release.version === version ? (
+                                        <span className="ml-2 text-[0.7rem] font-bold uppercase tracking-[0.16em] text-plex">
+                                            Latest
+                                        </span>
+                                    ) : null}
+                                </p>
+                            ) : null}
+                            {release.sections.map((section) => (
+                                <div key={`${release.version}:${section.title}`}>
+                                    <h3 className="text-xs font-bold uppercase tracking-[0.18em] text-plex">
+                                        {section.title}
+                                    </h3>
+                                    <ul className="mt-2 space-y-2">
+                                        {section.items.map((item) => (
+                                            <li
+                                                key={`${release.version}:${item}`}
+                                                className="relative pl-4 text-sm leading-relaxed text-white/85"
+                                            >
+                                                <span className="absolute left-0 text-plex" aria-hidden>•</span>
+                                                {item}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            ))}
                         </div>
                     ))}
                 </div>

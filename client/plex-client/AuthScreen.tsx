@@ -4,6 +4,7 @@ import { apiFetch } from '../shared/api';
 import { PlexHomeSwitchModal } from '../shared/PlexHomeSwitchModal';
 import {
     clearPlexClientPortal,
+    getPlexClientAppVersion,
     getPortalBaseUrl,
     isAndroidTvUi,
     normalizePortalBaseUrl,
@@ -102,14 +103,18 @@ const AuthMark: React.FC<{ tv?: boolean }> = ({ tv }) => (
     </div>
 );
 
-export const PlexClientBootSplash: React.FC = () => (
-    <div id="boot-splash">
-        <div className="boot-splash-mark">
-            <img src={LOGO_SRC} alt="StreamPilot" />
+export const PlexClientBootSplash: React.FC = () => {
+    const version = getPlexClientAppVersion();
+    return (
+        <div id="boot-splash">
+            <div className="boot-splash-mark">
+                <img src={LOGO_SRC} alt="StreamPilot" />
+            </div>
+            <div className="boot-splash-progress" aria-hidden><span /></div>
+            {version ? <p className="boot-splash-version">{version}</p> : null}
         </div>
-        <div className="boot-splash-progress" aria-hidden><span /></div>
-    </div>
-);
+    );
+};
 
 export const PlexClientAuthScreen: React.FC<Props> = ({ onAuthenticated }) => {
     const [portalUrl, setPortalUrl] = useState(() => getPortalBaseUrl() || readStoredPortalBaseUrl());
@@ -193,7 +198,7 @@ export const PlexClientAuthScreen: React.FC<Props> = ({ onAuthenticated }) => {
         setPin(null);
         setHomeUsers(null);
         writeAuthMode('plex');
-        // Keep any stored portalBaseUrl — Watch Together still needs the portal relay host.
+        // Keep any stored portalBaseUrl / wtRelayUrl — optional; WT prefers Settings → relay URL.
         try {
             const data = await apiFetch('/api/auth/plex/login', {
                 method: 'POST',
@@ -410,7 +415,7 @@ export const PlexClientAuthScreen: React.FC<Props> = ({ onAuthenticated }) => {
                                         disabled={busy}
                                     />
                                     <span className="block text-xs leading-relaxed text-zinc-500">
-                                        Needed for Watch Together. Leave blank if you only browse and play.
+                                        Optional. Watch Together uses a relay URL in Settings → Connection instead.
                                     </span>
                                 </label>
                                 <button

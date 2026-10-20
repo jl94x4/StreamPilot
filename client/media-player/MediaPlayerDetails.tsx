@@ -29,12 +29,14 @@ import { PlayerClearLogo } from './PlayerClearLogo';
 import { PlayerFileInfo } from './PlayerFileInfo';
 import { PlayerItemMenu, type PlayerItemMenuHandle } from './PlayerItemMenu';
 import { PlayerSeasonWatchDialog } from './PlayerSeasonWatchDialog';
+import { PlayerServiceBrandMark } from './PlayerServiceBrandMark';
 import { PlayerRail } from './PlayerRail';
 import { MediaPlayerMusicTracks } from './MediaPlayerMusicTracks';
 import { PlayerTvStatusPanel } from './PlayerTvStatusPanel';
 import { watchedTickPositionClass } from './playerSettings';
 import { usePlayerSettings } from './usePlayerSettings';
 import {
+    detectPlayerHdrLabel,
     formatBitrateMbps,
     formatEpisodeCode,
     fileInfoPills,
@@ -43,6 +45,7 @@ import {
     formatPlayerDate,
     formatPlayerDuration,
     formatPlayerResolution,
+    playerHdrBadgeTitle,
     remainingWatchMs,
     type FileInfoPill,
     isPlayerTrailer,
@@ -193,7 +196,7 @@ type Props = {
     ratingKey: string;
     serverId?: string | null;
     onBack: () => void;
-    onOpenItem: (item: PlayerItem) => void;
+    onOpenItem: (item: PlayerItem, opts?: { replace?: boolean }) => void;
     onOpenPerson: (person: { id: string; name: string; thumb?: string | null }) => void;
     onOpenStudio: (studio: { key: string; name: string; sectionKey?: string; mediaType?: 'movie' | 'show' }) => void;
     onPlay: (item: PlayerItem, opts?: PlayerPlayOptions) => void;
@@ -835,7 +838,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
     }, [isTvShell, spotlightKey, item?.ratingKey, item?.serverId, serverId]);
 
     useEffect(() => {
-        if (!phoneUi || item?.type !== 'show') {
+        if (!phoneUi || !settings.skipSingleSeason || item?.type !== 'show') {
             setPhoneSeasonEpisodes(null);
             return undefined;
         }
@@ -857,7 +860,31 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                 if (!cancelled) setPhoneSeasonEpisodes(null);
             });
         return () => { cancelled = true; };
-    }, [phoneUi, item?.type, item?.ratingKey, children, serverId]);
+    }, [phoneUi, settings.skipSingleSeason, item?.type, item?.ratingKey, children, serverId]);
+
+    // Non-phone: one-season shows can skip the seasons overview and open the episode hub.
+    // Phone keeps the show page and lists episodes inline when this setting is on.
+    const skipSingleSeasonRef = useRef<string | null>(null);
+    useEffect(() => {
+        if (phoneUi || !settings.skipSingleSeason || !item || item.type !== 'show') {
+            if (item?.type !== 'show') skipSingleSeasonRef.current = null;
+            return;
+        }
+        const seasons = children.filter((row) => row.type === 'season' && row.ratingKey);
+        if (seasons.length !== 1) return;
+        const season = seasons[0];
+        const showKey = String(item.ratingKey || '');
+        if (!showKey || skipSingleSeasonRef.current === showKey) return;
+        skipSingleSeasonRef.current = showKey;
+        onOpenItem({
+            ...season,
+            thumb: season.thumb || item.thumb,
+            art: season.art || item.art,
+            logo: season.logo || item.logo,
+            showTitle: season.showTitle || item.title || item.showTitle,
+            serverId: season.serverId || item.serverId || serverId || null,
+        }, { replace: true });
+    }, [phoneUi, settings.skipSingleSeason, item, children, onOpenItem, serverId]);
 
     useEffect(() => {
         if (!settings.showPlaylists) {
@@ -1592,7 +1619,35 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             ? { icon: null, label: t(musicAlbums.length === 1 ? 'mediaPlayerPage.albumCount' : 'mediaPlayerPage.albumCount_plural', { count: musicAlbums.length }) }
             : null,
         item.audienceRating ? { icon: <Star className="h-3.5 w-3.5 text-plex" />, label: String(item.audienceRating) } : null,
-    ].filter(Boolean) as Array<{ icon: React.ReactNode; label: string }>;
+        item.commonSenseMedia?.ageLabel
+            ? {
+                icon: (
+                    <img
+                        src="/static/logos/common-sense-media.png"
+                        alt=""
+                        className="h-3.5 w-3.5 object-contain object-center"
+                        aria-hidden
+                    />
+                ),
+                label: item.commonSenseMedia.ageLabel,
+                title: item.commonSenseMedia.oneLiner
+                    || `Common Sense Media${item.commonSenseMedia.stars != null ? ` · ${item.commonSenseMedia.stars}/5` : ''}`,
+            }
+            : null,
+        (() => {
+            const hdrItem = (onDeck?.mediaInfo?.length ? onDeck : item);
+            const badge = detectPlayerHdrLabel({
+                mediaInfo: hdrItem?.mediaInfo,
+                mediaIndex,
+            });
+            if (!badge) return null;
+            return {
+                icon: null,
+                label: badge,
+                title: playerHdrBadgeTitle(badge),
+            };
+        })(),
+    ].filter(Boolean) as Array<{ icon: React.ReactNode; label: string; title?: string }>;
     const streamRows = (() => {
         const media = (item.mediaInfo || [])[Math.min(Math.max(0, mediaIndex), Math.max(0, (item.mediaInfo || []).length - 1))] || item.mediaInfo?.[0];
         const part = media?.parts?.[0] || activeMediaPart;
@@ -1778,9 +1833,13 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             ) : null}
             <div className="player-meta-chips flex flex-wrap items-center gap-1.5">
                 {metaChips.map((chip) => (
-                    <div key={chip.label} className="player-meta-chip flex items-center gap-1 bg-black/45 px-2 py-1 rounded-md backdrop-blur-md border border-white/10 text-[11px] text-white/85 font-semibold">
-                        {chip.icon}
-                        {chip.label}
+                    <div
+                        key={chip.label}
+                        title={chip.title}
+                        className="player-meta-chip inline-flex h-7 items-center gap-1 rounded-md border border-white/10 bg-black/45 px-2 text-[11px] font-semibold leading-none text-white/85 backdrop-blur-md"
+                    >
+                        {chip.icon ? <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center [&_img]:h-3.5 [&_img]:w-3.5 [&_svg]:h-3.5 [&_svg]:w-3.5">{chip.icon}</span> : null}
+                        <span className="leading-none">{chip.label}</span>
                     </div>
                 ))}
             </div>
@@ -1879,7 +1938,10 @@ export const MediaPlayerDetails: React.FC<Props> = ({
     const phonePosterUrl = phoneUi && settings.phoneOverviewPoster && phonePosterPath
         ? plexImageUrl(phonePosterPath, 360, 540, { quality: 72 })
         : '';
-    const mobileShowTitleNode = phonePosterUrl && !phonePosterFailed ? (
+    const serviceBrandMark = isTvShell ? (
+        <PlayerServiceBrandMark item={item} className="media-details-service-logo" />
+    ) : null;
+    const mobileClearTitleNode = phonePosterUrl && !phonePosterFailed ? (
         <img
             src={phonePosterUrl}
             alt={mobileBillboardTitle}
@@ -1899,6 +1961,14 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         <span className="media-details-title-text w-full text-center text-[1.85rem] font-black leading-[1.05] tracking-tight text-white drop-shadow-[0_8px_24px_rgba(0,0,0,0.8)]">
             {mobileBillboardTitle}
         </span>
+    );
+    const mobileShowTitleNode = isTvShell ? (
+        <div className="media-details-billboard-title-stack flex w-full flex-col items-start gap-2.5">
+            {serviceBrandMark}
+            {mobileClearTitleNode}
+        </div>
+    ) : (
+        mobileClearTitleNode
     );
     const mobileBillboardIdentity = (
         <>
@@ -1964,9 +2034,13 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                 <div className="media-details-billboard-ratings pointer-events-auto mt-2.5 flex w-full flex-col items-center gap-2">
                     <div className="player-meta-chips flex flex-wrap items-center justify-center gap-1.5">
                         {metaChips.map((chip) => (
-                            <div key={chip.label} className="player-meta-chip flex items-center gap-1 bg-black/45 px-2 py-1 rounded-md backdrop-blur-md border border-white/10 text-[11px] text-white/85 font-semibold">
-                                {chip.icon}
-                                {chip.label}
+                            <div
+                                key={chip.label}
+                                title={chip.title}
+                                className="player-meta-chip inline-flex h-7 items-center gap-1 rounded-md border border-white/10 bg-black/45 px-2 text-[11px] font-semibold leading-none text-white/85 backdrop-blur-md"
+                            >
+                                {chip.icon ? <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center [&_img]:h-3.5 [&_img]:w-3.5 [&_svg]:h-3.5 [&_svg]:w-3.5">{chip.icon}</span> : null}
+                                <span className="leading-none">{chip.label}</span>
                             </div>
                         ))}
                     </div>
@@ -2308,8 +2382,6 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                                     <span className="media-details-action-label">{t('mediaPlayerPage.trailer')}</span>
                                                 </button>
                                             ) : null}
-                                            {watchlistChip}
-                                            {watchTogetherChip}
                                             {item.type === 'movie' || item.type === 'episode' || item.type === 'show' || item.type === 'season' ? (
                                                 <button
                                                     type="button"
@@ -2325,6 +2397,8 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                                     <span className="media-details-action-label">{phoneUi ? actionWatchedLabel : (item.watched ? t('mediaPlayerPage.markUnwatched') : t('mediaPlayerPage.markWatched'))}</span>
                                                 </button>
                                             ) : null}
+                                            {watchlistChip}
+                                            {watchTogetherChip}
                                             {settings.showPlaylists
                                                 && (item.type === 'movie' || item.type === 'episode' || item.type === 'show' || item.type === 'season') ? (
                                                 <div className="relative media-details-action-slot">
@@ -2515,8 +2589,6 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                             <span className="media-details-action-label">{t('mediaPlayerPage.trailer')}</span>
                                         </button>
                                     ) : null}
-                                    {watchlistChip}
-                                    {watchTogetherChip}
                                     <button
                                         type="button"
                                         data-tv-item="1"
@@ -2538,6 +2610,8 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                         {item.watched ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                                         <span className="media-details-action-label">{phoneUi ? actionWatchedLabel : (item.watched ? t('mediaPlayerPage.markUnwatched') : t('mediaPlayerPage.markWatched'))}</span>
                                     </button>
+                                    {watchlistChip}
+                                    {watchTogetherChip}
                                     {settings.showPlaylists ? (
                                         <div className="relative media-details-action-slot">
                                             <button
@@ -2736,12 +2810,20 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                         data-tv-item="1"
                                         data-tv-season-poster-btn="1"
                                         data-tv-key={row.ratingKey}
-                                        onClick={() => onOpenItem({
-                                            ...row,
-                                            thumb: row.thumb || item.thumb,
-                                            art: row.art || item.art,
-                                            showTitle: row.showTitle || item.title || item.showTitle,
-                                        })}
+                                        onClick={() => {
+                                            if (row.ratingKey) {
+                                                void fetchMediaPlayerItem(row.ratingKey, {
+                                                    core: true,
+                                                    serverId: row.serverId || item.serverId || serverId || null,
+                                                });
+                                            }
+                                            onOpenItem({
+                                                ...row,
+                                                thumb: row.thumb || item.thumb,
+                                                art: row.art || item.art,
+                                                showTitle: row.showTitle || item.title || item.showTitle,
+                                            });
+                                        }}
                                         className="relative z-0 block w-full overflow-visible rounded-[12px] border-0 bg-transparent p-0 text-left outline-none"
                                         aria-label={row.title}
                                     >

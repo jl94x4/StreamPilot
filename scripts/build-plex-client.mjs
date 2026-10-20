@@ -40,6 +40,7 @@ const injected = html
         "appVersion: ''",
         `appVersion: ${JSON.stringify(appVersion)}`,
     )
+    .replace('__APP_VERSION__', appVersion || '')
     .replace('./tailwind.css"', `./tailwind.css?v=${assetStamp}"`)
     .replace('./plex-client.js"', `./plex-client.js?v=${assetStamp}"`);
 fs.writeFileSync(path.join(outDir, 'index.html'), injected);
@@ -63,6 +64,17 @@ if (fs.existsSync(twSrc)) {
 const logoSrc = path.join(root, 'static', 'logo.png');
 if (fs.existsSync(logoSrc)) {
     fs.copyFileSync(logoSrc, path.join(outDir, 'logo.png'));
+}
+
+// Bundled network wordmarks (Channel 4, ITV, Sky, …) for TV billboards.
+const logosSrc = path.join(root, 'static', 'logos');
+const logosDest = path.join(outDir, 'static', 'logos');
+if (fs.existsSync(logosSrc)) {
+    fs.mkdirSync(logosDest, { recursive: true });
+    for (const name of fs.readdirSync(logosSrc)) {
+        const from = path.join(logosSrc, name);
+        if (fs.statSync(from).isFile()) fs.copyFileSync(from, path.join(logosDest, name));
+    }
 }
 
 const fontsSrc = path.join(root, 'plex-client', 'fonts');

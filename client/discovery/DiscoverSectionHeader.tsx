@@ -1,5 +1,4 @@
 import React from 'react';
-import { discoveryTheme } from './discoveryThemeClasses';
 
 export const DiscoverSectionHeader: React.FC<{
     title: string;
@@ -13,12 +12,12 @@ export const DiscoverSectionHeader: React.FC<{
             <button
                 type="button"
                 onClick={onViewAll}
-                className={`player-row-header-title ${discoveryTheme.sectionTitle} min-w-0 truncate text-left hover:text-plex transition-colors`}
+                className="player-row-header-title min-w-0 truncate text-left text-xl font-bold text-text transition-colors hover:text-plex"
             >
                 {title}
             </button>
         ) : (
-            <h2 className={`player-row-header-title ${discoveryTheme.sectionTitle} min-w-0 truncate`}>
+            <h2 className="player-row-header-title min-w-0 truncate text-xl font-bold text-text">
                 {title}
             </h2>
         )}

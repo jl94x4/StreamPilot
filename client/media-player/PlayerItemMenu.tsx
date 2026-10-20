@@ -38,6 +38,7 @@ import {
     setMediaPlayerWatched,
     setMediaPlayerWatchlisted,
     setSeasonEpisodesWatched,
+    resolveMediaPlayerDownloadSource,
     startMediaPlayerDownload,
 } from './api';
 import { PLAYER_SCROLL_ID } from './paths';
@@ -47,6 +48,18 @@ import { PlayerFileInfo } from './PlayerFileInfo';
 import { PlayerSeasonWatchDialog } from './PlayerSeasonWatchDialog';
 import { readPlayerItemCache } from './playerMemory';
 import { applyRememberedProgress, isMusicPlayerItem, plexLogoUrl, shouldOfferResume } from './playerUtils';
+import {
+    cancelMediaDownload,
+    deleteMediaDownload,
+    getMediaDownload,
+    isMediaDownloadsSupported,
+    mediaDownloadsAvailable,
+    onMediaDownloadChange,
+    startMediaDownload,
+    type MediaDownloadItem,
+} from '../plex-client/mediaDownloads';
+import { isPhoneUi } from '../plex-client/config';
+import { portalUrl } from '../shared/basePath';
 
 export type PlayerItemMenuHandle = {
     openAt: (clientX: number, clientY: number) => void;
@@ -168,7 +181,6 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
     const canShuffle = !!onPlay && (item.type === 'show' || item.type === 'season' || item.type === 'playlist' || item.type === 'collection'
         || item.type === 'album' || item.type === 'artist');
     const canPlayFromHere = !!onPlay && (item.type === 'episode' || item.type === 'track');
-    const canWatchlist = item.type === 'movie' || item.type === 'show';
     const canRate = item.type === 'movie' || item.type === 'show' || item.type === 'episode' || item.type === 'season';
     const ratingStars = Math.max(0, Math.min(5, Math.round(Number(item.userRating || 0) / 2)));
     const canPlaylist = playlistsEnabled
@@ -184,9 +196,40 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
     const canPickAudio = variant === 'toolbar' && audioTracks.length > 0 && !!onAudioChange;
     const canPickSubtitles = variant === 'toolbar' && !!onSubtitleChange
         && (item.type === 'movie' || item.type === 'episode');
-    const canDownload = !isTv
+    const phoneDownloads = !isTv && isMediaDownloadsSupported() && isPhoneUi();
+    const canOfflineDownload = phoneDownloads
+        && (item.type === 'movie' || item.type === 'episode');
+    const canAdminFileDownload = !isTv
+        && !phoneDownloads
         && isAdmin
         && (item.type === 'movie' || item.type === 'episode' || item.type === 'clip' || item.type === 'trailer');
+    const [downloadRow, setDownloadRow] = useState<MediaDownloadItem | null>(null);
+    const [downloadBusy, setDownloadBusy] = useState(false);
+
+    useEffect(() => {
+        if (!canOfflineDownload || !item.ratingKey) {
+            setDownloadRow(null);
+            return undefined;
+        }
+        let cancelled = false;
+        void mediaDownloadsAvailable().then((ok) => {
+            if (!ok || cancelled) return;
+            return getMediaDownload({ ratingKey: item.ratingKey });
+        }).then((row) => {
+            if (!cancelled) setDownloadRow(row);
+        }).catch(() => {
+            if (!cancelled) setDownloadRow(null);
+        });
+        const off = onMediaDownloadChange((next) => {
+            if (String(next.ratingKey || '') === String(item.ratingKey || '')) {
+                setDownloadRow(next);
+            }
+        });
+        return () => {
+            cancelled = true;
+            off();
+        };
+    }, [canOfflineDownload, item.ratingKey]);
     const canPrimaryOpen = !!onOpenItem && variant !== 'toolbar'
         && (item.type === 'movie' || item.type === 'episode' || item.type === 'show' || item.type === 'season'
             || item.type === 'clip' || item.type === 'trailer' || item.type === 'album' || item.type === 'artist');
@@ -227,6 +270,27 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
     const canGoArtist = Boolean(onOpenItem && artistKey);
     const canGoAlbum = Boolean(onOpenItem && albumKey);
     const canMarkSeasonWatched = item.type === 'episode' && !!seasonKey;
+    // Plex watchlist is movie/show only — episode/season menus add the parent show.
+    const watchlistTarget: PlayerItem | null = item.type === 'movie' || item.type === 'show'
+        ? item
+        : (item.type === 'episode' || item.type === 'season') && showKey
+            ? {
+                ...item,
+                ratingKey: showKey,
+                type: 'show',
+                title: showName || item.title,
+                plexGuid: item.showPlexGuid || (
+                    String(item.plexGuid || '').startsWith('plex://show/') ? item.plexGuid : null
+                ),
+                discoverRatingKey: item.discoverRatingKey || null,
+                watchlisted: item.watchlisted,
+            }
+            : null;
+    const canWatchlist = !!watchlistTarget;
+    const [watchlisted, setWatchlisted] = useState(!!item.watchlisted);
+    useEffect(() => {
+        setWatchlisted(!!item.watchlisted);
+    }, [item.ratingKey, item.watchlisted]);
     const goShowLabel = showName
         ? t('mediaPlayerPage.goToNamed', { title: showName })
         : t('mediaPlayerPage.goToShow');
@@ -480,36 +544,86 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
             });
     };
 
-    const watchToggle = canWatchToggle ? (
+    const runWatchChange = (next: boolean) => {
+        if (item.type === 'season' && next) {
+            close();
+            setSeasonWatchOpen(true);
+            return;
+        }
+        choose(async () => {
+            if (item.type === 'season') await setSeasonEpisodesWatched(item.ratingKey, next, item.serverId);
+            else await setMediaPlayerWatched(item.ratingKey, next, item);
+            onWatchedChange?.(item, next);
+            toast(next ? t('mediaPlayerPage.markedWatched') : t('mediaPlayerPage.markedUnwatched'));
+        });
+    };
+
+    /** TV matches Plex Web: both Mark Watched and Mark Unwatched stay listed. */
+    const markWatchedBtn = canWatchToggle ? (
         <button
             type="button"
             role="menuitem"
             data-tv-item="1"
             data-tv-menu-item="1"
             className={itemClass}
-            onClick={() => {
-                const next = !item.watched;
-                if (item.type === 'season' && next) {
-                    close();
-                    setSeasonWatchOpen(true);
-                    return;
-                }
-                choose(async () => {
-                    if (item.type === 'season') await setSeasonEpisodesWatched(item.ratingKey, next, item.serverId);
-                    else await setMediaPlayerWatched(item.ratingKey, next, item);
-                    onWatchedChange?.(item, next);
-                    toast(next ? t('mediaPlayerPage.markedWatched') : t('mediaPlayerPage.markedUnwatched'));
-                });
-            }}
+            onClick={() => runWatchChange(true)}
         >
-            {useContextSheet
-                ? (item.watched
-                    ? <Circle className={iconClass} />
-                    : <CheckCircle2 className={iconClass} />)
-                : (item.watched
-                    ? <EyeOff className={iconClass} />
-                    : <Eye className={iconClass} />)}
-            {item.watched ? t('mediaPlayerPage.markUnwatched') : t('mediaPlayerPage.markWatched')}
+            {useContextSheet ? <CheckCircle2 className={iconClass} /> : <Eye className={iconClass} />}
+            {t('mediaPlayerPage.markWatched')}
+        </button>
+    ) : null;
+
+    const markUnwatchedBtn = canWatchToggle ? (
+        <button
+            type="button"
+            role="menuitem"
+            data-tv-item="1"
+            data-tv-menu-item="1"
+            className={itemClass}
+            onClick={() => runWatchChange(false)}
+        >
+            {useContextSheet ? <Circle className={iconClass} /> : <EyeOff className={iconClass} />}
+            {t('mediaPlayerPage.markUnwatched')}
+        </button>
+    ) : null;
+
+    const watchToggle = canWatchToggle ? (
+        useContextSheet ? (
+            <>
+                {markWatchedBtn}
+                {markUnwatchedBtn}
+            </>
+        ) : (
+            <button
+                type="button"
+                role="menuitem"
+                data-tv-item="1"
+                data-tv-menu-item="1"
+                className={itemClass}
+                onClick={() => runWatchChange(!item.watched)}
+            >
+                {item.watched ? <EyeOff className={iconClass} /> : <Eye className={iconClass} />}
+                {item.watched ? t('mediaPlayerPage.markUnwatched') : t('mediaPlayerPage.markWatched')}
+            </button>
+        )
+    ) : null;
+
+    const watchlistBtn = canWatchlist && watchlistTarget ? (
+        <button
+            type="button"
+            role="menuitem"
+            data-tv-item="1"
+            data-tv-menu-item="1"
+            className={itemClass}
+            onClick={() => choose(async () => {
+                const next = !watchlisted;
+                await setMediaPlayerWatchlisted(watchlistTarget, next);
+                setWatchlisted(next);
+                toast(next ? t('mediaPlayerPage.addedToWatchlist') : t('mediaPlayerPage.removedFromWatchlist'));
+            })}
+        >
+            {watchlisted ? <BookmarkCheck className={iconClass} /> : <Bookmark className={iconClass} />}
+            {watchlisted ? t('mediaPlayerPage.removeFromWatchlist') : t('mediaPlayerPage.addToWatchlist')}
         </button>
     ) : null;
 
@@ -587,6 +701,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
     const actionRows = mode === 'main' ? (
         <>
             {!useContextSheet && isTv ? watchToggle : null}
+            {useContextSheet ? watchlistBtn : null}
             {canPlayNext ? (
                 <button
                     type="button"
@@ -616,6 +731,23 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                     {t('mediaPlayerPage.shufflePlay')}
                 </button>
             ) : null}
+            {canShuffle && (item.type === 'show' || item.type === 'season') ? (
+                <button
+                    type="button"
+                    role="menuitem"
+                    data-tv-item="1"
+                    data-tv-menu-item="1"
+                    className={itemClass}
+                    onClick={() => choose(() => onPlay?.(item, {
+                        shuffleUnwatched: true,
+                        skipResume: true,
+                        offsetMs: 0,
+                    }))}
+                >
+                    <Shuffle className={iconClass} />
+                    {t('mediaPlayerPage.shuffleUnwatched')}
+                </button>
+            ) : null}
             {canPlayFromHere ? (
                 <button
                     type="button"
@@ -629,6 +761,23 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                     {t('mediaPlayerPage.playFromHere')}
                 </button>
             ) : null}
+            {canPlayFromHere && item.type === 'episode' ? (
+                <button
+                    type="button"
+                    role="menuitem"
+                    data-tv-item="1"
+                    data-tv-menu-item="1"
+                    className={itemClass}
+                    onClick={() => choose(() => onPlay?.(item, {
+                        playUnwatchedFromHere: true,
+                        skipResume: true,
+                        offsetMs: 0,
+                    }))}
+                >
+                    <Play className={iconClass} />
+                    {t('mediaPlayerPage.playUnwatchedFromHere')}
+                </button>
+            ) : null}
             {useContextSheet && (item.type === 'episode' || item.type === 'season') ? (
                 <>
                     {goToShowBtn}
@@ -636,23 +785,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                     {markSeasonBtn}
                 </>
             ) : null}
-            {canWatchlist ? (
-                <button
-                    type="button"
-                    role="menuitem"
-                    data-tv-item="1"
-                    data-tv-menu-item="1"
-                    className={itemClass}
-                    onClick={() => choose(async () => {
-                        const next = !item.watchlisted;
-                        await setMediaPlayerWatchlisted(item, next);
-                        toast(next ? t('mediaPlayerPage.addedToWatchlist') : t('mediaPlayerPage.removedFromWatchlist'));
-                    })}
-                >
-                    {item.watchlisted ? <BookmarkCheck className={iconClass} /> : <Bookmark className={iconClass} />}
-                    {item.watchlisted ? t('mediaPlayerPage.removeFromWatchlist') : t('mediaPlayerPage.addToWatchlist')}
-                </button>
-            ) : null}
+            {!useContextSheet ? watchlistBtn : null}
             {canRate ? (
                 <div className="px-1 py-1.5" data-tv-rail="1">
                     <p className="px-2.5 pb-1 text-[11px] font-bold uppercase tracking-[0.16em] text-white/45">
@@ -852,10 +985,112 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                     {t('mediaPlayerPage.fileInfo')}
                 </button>
             ) : null}
-            {isAdmin ? (
+            {canOfflineDownload ? (
                 <>
                     {!useContextSheet ? <div className="my-1.5 border-t border-white/10" /> : null}
-                    {canDownload ? (
+                    {downloadRow?.status === 'complete' ? (
+                        <button
+                            type="button"
+                            role="menuitem"
+                            data-tv-item="1"
+                            data-tv-menu-item="1"
+                            className={itemClass}
+                            disabled={downloadBusy}
+                            onClick={() => choose(async () => {
+                                setDownloadBusy(true);
+                                try {
+                                    await deleteMediaDownload({
+                                        id: downloadRow.id,
+                                        ratingKey: item.ratingKey,
+                                    });
+                                    setDownloadRow(null);
+                                    toast(t('mediaPlayerPage.downloadRemoved'));
+                                } catch {
+                                    toast(t('mediaPlayerPage.downloadError'), 'error');
+                                } finally {
+                                    setDownloadBusy(false);
+                                }
+                            })}
+                        >
+                            <Trash2 className={iconClass} />
+                            {t('mediaPlayerPage.downloadRemove')}
+                        </button>
+                    ) : downloadRow?.status === 'downloading' || downloadRow?.status === 'queued' ? (
+                        <button
+                            type="button"
+                            role="menuitem"
+                            data-tv-item="1"
+                            data-tv-menu-item="1"
+                            className={itemClass}
+                            disabled={downloadBusy}
+                            onClick={() => choose(async () => {
+                                setDownloadBusy(true);
+                                try {
+                                    if (downloadRow.id) await cancelMediaDownload(downloadRow.id);
+                                    setDownloadRow((prev) => (prev ? { ...prev, status: 'cancelled' } : prev));
+                                    toast(t('mediaPlayerPage.downloadCancelled'));
+                                } catch {
+                                    toast(t('mediaPlayerPage.downloadError'), 'error');
+                                } finally {
+                                    setDownloadBusy(false);
+                                }
+                            })}
+                        >
+                            <Download className={iconClass} />
+                            {downloadRow.totalBytes && downloadRow.bytes
+                                ? t('mediaPlayerPage.downloadProgress', {
+                                    percent: Math.min(99, Math.round((Number(downloadRow.bytes) / Number(downloadRow.totalBytes)) * 100)),
+                                })
+                                : t('mediaPlayerPage.downloadCancel')}
+                        </button>
+                    ) : (
+                        <button
+                            type="button"
+                            role="menuitem"
+                            data-tv-item="1"
+                            data-tv-menu-item="1"
+                            className={itemClass}
+                            disabled={downloadBusy}
+                            onClick={() => choose(async () => {
+                                setDownloadBusy(true);
+                                try {
+                                    const source = await resolveMediaPlayerDownloadSource(item.ratingKey, {
+                                        mediaIndex: mediaIndex || 0,
+                                        serverId: item.serverId || null,
+                                    });
+                                    const started = await startMediaDownload({
+                                        url: source.url,
+                                        headers: source.headers || {},
+                                        ratingKey: source.ratingKey || item.ratingKey,
+                                        title: source.title || item.title,
+                                        type: source.type || item.type,
+                                        serverId: source.serverId || String(item.serverId || ''),
+                                        plexGuid: source.plexGuid || item.plexGuid || '',
+                                        fileName: source.fileName,
+                                        thumbUrl: source.thumb
+                                            ? portalUrl(source.thumb)
+                                            : (item.thumb ? portalUrl(item.thumb) : ''),
+                                        bytes: source.bytes || 0,
+                                    });
+                                    setDownloadRow(started);
+                                    toast(t('mediaPlayerPage.downloadStarted'));
+                                } catch (error: any) {
+                                    toast(String(error?.message || t('mediaPlayerPage.downloadError')), 'error');
+                                } finally {
+                                    setDownloadBusy(false);
+                                }
+                            })}
+                        >
+                            <Download className={iconClass} />
+                            {t('mediaPlayerPage.download')}
+                        </button>
+                    )}
+                </>
+            ) : null}
+            {isAdmin ? (
+                <>
+                    {!useContextSheet && !canOfflineDownload ? <div className="my-1.5 border-t border-white/10" /> : null}
+                    {canAdminFileDownload ? (
                         <button
                             type="button"
                             role="menuitem"

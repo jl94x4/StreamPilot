@@ -177,7 +177,14 @@ export const PlexHomeSwitchModal: React.FC<{
     };
 
     return ReactDOM.createPortal(
-        <div className="fixed inset-0 z-[110] flex items-end sm:items-center justify-center p-0 sm:p-6" role="dialog" aria-modal="true" aria-labelledby="plex-home-switch-title">
+        <div
+            className={`fixed inset-0 z-[110] flex justify-center ${
+                pinUser && isTvShell ? 'items-center p-6' : 'items-end sm:items-center p-0 sm:p-6'
+            }`}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="plex-home-switch-title"
+        >
             <button
                 type="button"
                 tabIndex={-1}
@@ -190,38 +197,129 @@ export const PlexHomeSwitchModal: React.FC<{
                 <div className="absolute bottom-0 right-0 h-56 w-56 rounded-full bg-amber-500/10 blur-[80px]" />
             </div>
 
+            {pinUser && isTvShell ? (
+                <div
+                    data-tv-home-switch="1"
+                    data-tv-home-switch-pin="1"
+                    className="player-tv-home-pin relative flex w-full max-w-[42rem] flex-col items-center rounded-[1.75rem] border border-white/12 shadow-[0_40px_120px_rgba(0,0,0,0.65)] animate-fade-in"
+                >
+                    <div className="player-tv-home-pin-header flex w-full items-start justify-between gap-4 px-8 pt-7 pb-2">
+                        <div className="min-w-0">
+                            <p className="mb-1 text-sm font-bold uppercase tracking-[0.22em] text-plex">Plex Home</p>
+                            <h2 id="plex-home-switch-title" className="text-3xl font-black tracking-tight text-white">
+                                Enter PIN
+                            </h2>
+                        </div>
+                        <button
+                            type="button"
+                            data-tv-item="1"
+                            data-tv-key="home-switch-close"
+                            tabIndex={0}
+                            onClick={dismiss}
+                            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/12 bg-white/5 text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+                            aria-label={loginMode ? 'Use a different Plex account' : 'Close profile switcher'}
+                        >
+                            <X className="h-6 w-6" />
+                        </button>
+                    </div>
+
+                    <div className="player-tv-home-pin-profile flex w-full items-center gap-4 px-8 pb-5 pt-3">
+                        <ProfileAvatar user={pinUser} current />
+                        <div className="min-w-0">
+                            <p className="truncate text-xl font-bold text-white">{pinUser.title}</p>
+                            <p className="mt-1 text-base text-white/55">Home PIN for this profile</p>
+                        </div>
+                    </div>
+
+                    <form
+                        onSubmit={submitPin}
+                        className="player-tv-home-pin-pad flex w-full flex-col items-center px-8 pb-8 pt-1"
+                    >
+                        <div className="player-tv-home-pin-dots mb-6 flex items-center justify-center gap-3.5" aria-hidden>
+                            {[0, 1, 2, 3].map((i) => (
+                                <span
+                                    key={i}
+                                    className={`player-tv-home-pin-dot ${i < pin.length ? 'is-filled' : ''}`}
+                                />
+                            ))}
+                        </div>
+
+                        <div className="player-tv-home-pin-grid" data-tv-rail="1">
+                            {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'back', '0', 'go'].map((key) => {
+                                const isGo = key === 'go';
+                                const isDel = key === 'back';
+                                return (
+                                    <button
+                                        key={key}
+                                        type="button"
+                                        data-tv-item="1"
+                                        data-tv-key={`home-switch-pin-${key}`}
+                                        tabIndex={0}
+                                        disabled={busy || (isGo && pin.trim().length < 4)}
+                                        className={`player-tv-home-pin-key ${isGo ? 'is-go' : ''} ${isDel ? 'is-del' : ''}`}
+                                        onClick={() => {
+                                            if (isDel) {
+                                                setPin((current) => current.slice(0, -1));
+                                                return;
+                                            }
+                                            if (isGo) {
+                                                submitPin();
+                                                return;
+                                            }
+                                            const next = `${pin}${key}`.replace(/\D/g, '').slice(0, 8);
+                                            setPin(next);
+                                            if (next.length >= 4 && pinUser && !busy) {
+                                                onSelect(pinUser, next, remember);
+                                            }
+                                        }}
+                                    >
+                                        {isDel ? 'Del' : isGo ? 'OK' : key}
+                                    </button>
+                                );
+                            })}
+                        </div>
+
+                        <button
+                            type="button"
+                            data-tv-item="1"
+                            data-tv-key="home-switch-pin-back"
+                            tabIndex={0}
+                            className="player-tv-home-pin-back mt-5"
+                            onClick={() => { setPinUser(null); setPin(''); }}
+                            disabled={busy}
+                        >
+                            Back to profiles
+                        </button>
+
+                        {error ? (
+                            <p className="mt-4 text-center text-base font-semibold text-red-300">{error}</p>
+                        ) : null}
+                    </form>
+                </div>
+            ) : (
             <div
                 data-tv-home-switch="1"
-                data-tv-home-switch-pin={pinUser && isTvShell ? '1' : undefined}
                 className={`player-popup-surface relative w-full sm:max-w-2xl rounded-t-2xl sm:rounded-3xl border border-white/10 shadow-[0_30px_80px_rgba(0,0,0,0.55)] animate-fade-in ${
-                    pinUser && isTvShell
-                        ? 'max-h-[min(96vh,56rem)] overflow-hidden'
-                        : pinUser
-                            ? 'max-h-[min(88dvh,48rem)] sm:max-h-[min(92vh,48rem)] overflow-y-auto'
-                            : 'max-h-[min(72dvh,32rem)] sm:max-h-[min(86vh,40rem)] overflow-y-auto'
+                    pinUser
+                        ? 'max-h-[min(88dvh,48rem)] sm:max-h-[min(92vh,48rem)] overflow-y-auto'
+                        : 'max-h-[min(72dvh,32rem)] sm:max-h-[min(86vh,40rem)] overflow-y-auto'
                 }`}
             >
                 <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-plex/70 to-transparent" />
                 <div className="sm:hidden flex justify-center pt-2.5 pb-0.5" aria-hidden>
                     <span className="h-1 w-10 rounded-full bg-white/25" />
                 </div>
-                <div className={`flex items-start justify-between gap-3 px-4 sm:px-8 pb-1 sm:pb-2 ${
-                    pinUser && isTvShell ? 'pt-3 sm:pt-4' : 'pt-3 sm:pt-7'
-                }`}>
+                <div className="flex items-start justify-between gap-3 px-4 sm:px-8 pb-1 sm:pb-2 pt-3 sm:pt-7">
                     <div>
                         <p className="text-[10px] sm:text-[11px] font-bold text-plex uppercase tracking-[0.22em] mb-0.5 sm:mb-1">Plex Home</p>
-                        <h2 id="plex-home-switch-title" className={`font-black text-text tracking-tight ${
-                            pinUser && isTvShell ? 'text-xl sm:text-2xl' : 'text-xl sm:text-3xl'
-                        }`}>
-                            {pinUser && isTvShell ? 'Enter Home PIN' : <>Who&apos;s watching?</>}
+                        <h2 id="plex-home-switch-title" className="font-black text-text tracking-tight text-xl sm:text-3xl">
+                            Who&apos;s watching?
                         </h2>
-                        {!(pinUser && isTvShell) ? (
-                            <p className="hidden sm:block text-sm text-muted mt-1.5 max-w-md">
-                                {loginMode
-                                    ? 'Pick a profile to continue. Managed family accounts use this Plex Home login, then a PIN if one is set.'
-                                    : 'Switch to another profile on this device. PIN-protected profiles need their Home PIN.'}
-                            </p>
-                        ) : null}
+                        <p className="hidden sm:block text-sm text-muted mt-1.5 max-w-md">
+                            {loginMode
+                                ? 'Pick a profile to continue. Managed family accounts use this Plex Home login, then a PIN if one is set.'
+                                : 'Switch to another profile on this device. PIN-protected profiles need their Home PIN.'}
+                        </p>
                     </div>
                     <button
                         type="button"
@@ -236,17 +334,13 @@ export const PlexHomeSwitchModal: React.FC<{
                     </button>
                 </div>
 
-                <div className={`px-4 sm:px-8 pb-[max(0.85rem,env(safe-area-inset-bottom))] ${
-                    pinUser && isTvShell ? 'sm:pb-4 pt-2 sm:pt-2' : 'sm:pb-6 pt-3 sm:pt-4'
-                }`}>
+                <div className="px-4 sm:px-8 pb-[max(0.85rem,env(safe-area-inset-bottom))] sm:pb-6 pt-3 sm:pt-4">
                     {pinUser ? (
-                        <div className={`mb-3 flex items-center gap-3 rounded-xl border border-plex/40 bg-plex/10 px-3 ${
-                            isTvShell ? 'py-2' : 'py-2.5'
-                        }`}>
+                        <div className="mb-3 flex items-center gap-3 rounded-xl border border-plex/40 bg-plex/10 px-3 py-2.5">
                             <ProfileAvatar user={pinUser} current compact />
                             <div className="min-w-0">
                                 <p className="text-sm font-bold text-text truncate">{pinUser.title}</p>
-                                <p className="text-[11px] text-muted">Plex Home PIN, not your plex.tv password</p>
+                                <p className="text-xs text-muted">Plex Home PIN, not your plex.tv password</p>
                             </div>
                         </div>
                     ) : (
@@ -303,63 +397,23 @@ export const PlexHomeSwitchModal: React.FC<{
                     {pinUser ? (
                         <form
                             onSubmit={submitPin}
-                            className={`rounded-xl sm:rounded-2xl border border-plex/30 bg-black/35 ${
-                                isTvShell ? 'p-3 sm:p-4' : 'p-3 sm:p-5'
-                            }`}
+                            className="rounded-xl sm:rounded-2xl border border-plex/30 bg-black/35 p-3 sm:p-5"
                         >
-                            {isTvShell ? (
-                                <div className="mb-3">
-                                    <p className="mb-2 text-center font-mono text-2xl tracking-[0.45em] text-text">
-                                        {pin ? pin.replace(/./g, '•') : '••••'}
-                                    </p>
-                                    <div className="mx-auto grid max-w-[16rem] grid-cols-3 gap-1.5" data-tv-rail="1">
-                                        {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'back', '0', 'go'].map((key) => (
-                                            <button
-                                                key={key}
-                                                type="button"
-                                                data-tv-item="1"
-                                                data-tv-key={`home-switch-pin-${key}`}
-                                                tabIndex={0}
-                                                disabled={busy}
-                                                className="rounded-xl border border-white/15 bg-black/40 py-2.5 text-sm font-bold text-text hover:border-plex/60 hover:bg-plex/10 disabled:opacity-40"
-                                                onClick={() => {
-                                                    if (key === 'back') {
-                                                        setPin((current) => current.slice(0, -1));
-                                                        return;
-                                                    }
-                                                    if (key === 'go') {
-                                                        submitPin();
-                                                        return;
-                                                    }
-                                                    const next = `${pin}${key}`.replace(/\D/g, '').slice(0, 8);
-                                                    setPin(next);
-                                                    if (next.length >= 4 && pinUser && !busy) {
-                                                        onSelect(pinUser, next, remember);
-                                                    }
-                                                }}
-                                            >
-                                                {key === 'back' ? 'Del' : key === 'go' ? 'OK' : key}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                            ) : (
-                                <input
-                                    type="password"
-                                    inputMode="numeric"
-                                    autoComplete="one-time-code"
-                                    data-tv-item="1"
-                                    data-tv-key="home-switch-pin"
-                                    tabIndex={0}
-                                    value={pin}
-                                    onChange={(event) => setPin(event.target.value.replace(/\D/g, '').slice(0, 8))}
-                                    className="w-full bg-black/25 border border-white/15 rounded-xl px-4 py-2.5 sm:py-3 text-center text-base sm:text-lg tracking-[0.4em] text-text outline-none focus:border-plex/70 focus:ring-2 focus:ring-plex/20"
-                                    placeholder="••••"
-                                    autoFocus
-                                    disabled={busy}
-                                />
-                            )}
-                            {showRemember && !isTvShell ? (
+                            <input
+                                type="password"
+                                inputMode="numeric"
+                                autoComplete="one-time-code"
+                                data-tv-item="1"
+                                data-tv-key="home-switch-pin"
+                                tabIndex={0}
+                                value={pin}
+                                onChange={(event) => setPin(event.target.value.replace(/\D/g, '').slice(0, 8))}
+                                className="w-full bg-black/25 border border-white/15 rounded-xl px-4 py-2.5 sm:py-3 text-center text-base sm:text-lg tracking-[0.4em] text-text outline-none focus:border-plex/70 focus:ring-2 focus:ring-plex/20"
+                                placeholder="••••"
+                                autoFocus
+                                disabled={busy}
+                            />
+                            {showRemember ? (
                                 <label className="mt-3 flex items-start gap-2.5 cursor-pointer">
                                     <input
                                         type="checkbox"
@@ -432,6 +486,7 @@ export const PlexHomeSwitchModal: React.FC<{
                     ) : null}
                 </div>
             </div>
+            )}
         </div>,
         document.body,
     );

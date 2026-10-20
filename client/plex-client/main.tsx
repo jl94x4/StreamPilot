@@ -16,6 +16,7 @@ import {
     getSessionToken,
     isAndroidTvUi,
 } from './config';
+import { installMediaDownloadsBridge } from './mediaDownloads';
 import { installNativeMediaPlayerBridge } from './nativePlayer';
 import { useTvRemote } from './useTvRemote';
 
@@ -47,6 +48,7 @@ const PlexClientApp: React.FC = () => {
             if (cancelled) return;
             setTvReady(tv || isAndroidTvUi());
             installNativeMediaPlayerBridge();
+            installMediaDownloadsBridge();
             setReady(true);
             const token = getSessionToken();
             if (!token) {

@@ -1,9 +1,16 @@
 /**
- * StreamPilot Watch Together — client for the portal WebSocket sync relay.
- * Works with portal JWT or Plex-direct account token; always needs a relay host.
+ * StreamPilot Watch Together — client for the WebSocket sync relay.
+ * Sync-only: each client plays their own library copy. Relay is play/pause/seek only.
+ * Auth: portal JWT or Plex account token.
  */
 import { getBasePath } from '../shared/basePath';
-import { getSessionToken, isPlexClientApp, readStoredPortalBaseUrl } from '../plex-client/config';
+import {
+    getSessionToken,
+    isPlexClientApp,
+    readStoredPortalBaseUrl,
+    readStoredWtRelayUrl,
+} from '../plex-client/config';
+import type { PlayerItem } from './types';
 
 export type WtParticipant = {
     userId: string;
@@ -23,6 +30,9 @@ export type WtRoomState = {
     title: string;
     mediaType?: string;
     thumb?: string | null;
+    guids?: string[];
+    tmdbId?: number | null;
+    year?: number | null;
     playing: boolean;
     positionMs: number;
     seekId?: string | null;
@@ -32,6 +42,27 @@ export type WtRoomState = {
     corrective?: boolean;
     clientId?: string;
     userId?: string;
+};
+
+/** Guids / external ids for cross-library match when creating a room. */
+export const collectWatchTogetherGuids = (item: PlayerItem | null | undefined): string[] => {
+    const out: string[] = [];
+    const push = (value: unknown) => {
+        const guid = String(value || '').trim();
+        if (guid && !out.includes(guid)) out.push(guid);
+    };
+    if (!item) return out;
+    push(item.plexGuid);
+    const tmdb = Number(item.externalIds?.tmdb || item.tmdbId || 0);
+    if (Number.isFinite(tmdb) && tmdb > 0) {
+        push(`tmdb://${tmdb}`);
+        push(`themoviedb://${tmdb}`);
+    }
+    const imdb = String(item.externalIds?.imdb || '').trim();
+    if (imdb) push(imdb.startsWith('imdb://') ? imdb : `imdb://${imdb}`);
+    const tvdb = String(item.externalIds?.tvdb || '').trim();
+    if (tvdb) push(tvdb.startsWith('tvdb://') ? tvdb : `tvdb://${tvdb}`);
+    return out.slice(0, 12);
 };
 
 export type WtError = {
@@ -45,10 +76,11 @@ type WtErrorListener = (error: WtError) => void;
 
 const STORAGE_PORTAL = 'plexClient.portalBaseUrl';
 
-/** Relay HTTP(S) origin. Empty = same-origin portal web. */
+/** Relay HTTP(S) origin. Prefer dedicated wtRelayUrl; else portal; else same-origin. */
 export const getWatchTogetherRelayBaseUrl = (): string => {
     if (typeof window === 'undefined') return '';
-    // Prefer stored portal even in plex auth mode (API routing ignores it; WT needs it).
+    const relay = readStoredWtRelayUrl();
+    if (relay) return relay;
     const stored = readStoredPortalBaseUrl();
     if (stored) return stored;
     try {
@@ -61,7 +93,7 @@ export const getWatchTogetherRelayBaseUrl = (): string => {
     return fromWindow;
 };
 
-/** True when a portal relay is reachable config-wise (same-origin web, or stored portalBaseUrl). */
+/** True when a WT relay is reachable config-wise (same-origin web, wtRelayUrl, or portal). */
 export const isWatchTogetherAvailable = (): boolean => {
     if (typeof window === 'undefined') return false;
     if (!isPlexClientApp()) return true;
@@ -132,7 +164,7 @@ export class WatchTogetherClient {
             throw new Error('Sign in required for Watch Together.');
         }
         if (isPlexClientApp() && !getWatchTogetherRelayBaseUrl()) {
-            throw new Error('Watch Together needs a StreamPilot portal URL.');
+            throw new Error('Watch Together needs a relay URL in Settings → Connection.');
         }
         this.intentionalClose = false;
         await new Promise<void>((resolve, reject) => {
@@ -260,6 +292,9 @@ export class WatchTogetherClient {
         type?: string;
         thumb?: string | null;
         positionMs?: number;
+        guids?: string[];
+        tmdbId?: number | null;
+        year?: number | null;
     }): Promise<WtRoomState> {
         await this.connect();
         return new Promise((resolve, reject) => {
@@ -283,6 +318,9 @@ export class WatchTogetherClient {
                 mediaType: opts.type || 'movie',
                 thumb: opts.thumb || null,
                 positionMs: opts.positionMs || 0,
+                guids: Array.isArray(opts.guids) ? opts.guids : [],
+                tmdbId: opts.tmdbId != null ? opts.tmdbId : null,
+                year: opts.year != null ? opts.year : null,
             });
             window.setTimeout(() => {
                 off();
@@ -375,6 +413,9 @@ export const fetchWatchTogetherRoomSummary = async (code: string): Promise<{
     thumb?: string | null;
     ratingKey: string;
     serverId: string;
+    guids?: string[];
+    tmdbId?: number | null;
+    year?: number | null;
     participantCount: number;
 } | null> => {
     const base = getWatchTogetherRelayBaseUrl();

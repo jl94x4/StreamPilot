@@ -35,6 +35,31 @@ const run = (command, args = [], opts = {}) => {
 
 const node = process.execPath;
 run(node, [path.join('scripts', 'bump-plex-client-version.mjs')]);
+
+const whatsNewPath = path.join(root, 'client', 'plex-client', 'ApkWhatsNew.tsx');
+const whatsNewSrc = fs.existsSync(whatsNewPath) ? fs.readFileSync(whatsNewPath, 'utf8') : '';
+const currentNotesMatch = whatsNewSrc.match(
+    /const CURRENT_RELEASE_NOTES: WhatsNewSection\[\] = \[([\s\S]*?)\];/,
+);
+const currentNotesBody = currentNotesMatch ? currentNotesMatch[1].trim() : '';
+if (!currentNotesBody || currentNotesBody === '[]' || !currentNotesBody.includes('items:')) {
+    console.warn(
+        `\n⚠  CURRENT_RELEASE_NOTES in client/plex-client/ApkWhatsNew.tsx looks empty.\n`
+        + `   Update it when shipping user-facing changes — What's New uses that block,\n`
+        + `   not the auto-bumped versionName.\n`,
+    );
+} else {
+    const gradleAfterBump = fs.readFileSync(
+        path.join(root, 'plex-client', 'android', 'app', 'build.gradle'),
+        'utf8',
+    );
+    const bumpedVersion = (gradleAfterBump.match(/versionName\s+"([^"]+)"/) || [])[1] || '?';
+    console.log(
+        `What's New: CURRENT_RELEASE_NOTES will show under ${bumpedVersion} `
+        + `(update that block when features change)`,
+    );
+}
+
 run('npm', ['run', 'build:css'], { shellCommand: isWin ? 'npm run build:css' : undefined });
 run('npm', ['run', 'build:plex-client'], { shellCommand: isWin ? 'npm run build:plex-client' : undefined });
 

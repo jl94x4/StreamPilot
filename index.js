@@ -16963,6 +16963,82 @@ const fetchMediaPlayerOgMetadata = async (config, ratingKey) => {
 };
 
 let mediaPlayerTrendingWeekCache = null;
+const mediaPlayerServiceLogoCache = new Map();
+const MEDIA_PLAYER_SERVICE_LOGO_TTL_MS = 6 * 60 * 60 * 1000;
+
+/** Unauthenticated TMDB logos for the TV app (plex-direct + portal URL, no JWT). */
+app.get('/api/public/media-player/service-logos', publicReadRateLimit, async (req, res) => {
+    try {
+        const mediaType = String(req.query.mediaType || req.query.type || 'movie').toLowerCase() === 'tv'
+            ? 'tv'
+            : 'movie';
+        const tmdbId = Number(req.query.tmdbId || req.query.id || 0);
+        if (!Number.isFinite(tmdbId) || tmdbId <= 0) {
+            return res.status(400).json({ networks: [], productionCompanies: [], watchProviders: [], reason: 'bad-id' });
+        }
+        const cacheKey = `${mediaType}:${tmdbId}`;
+        const cached = mediaPlayerServiceLogoCache.get(cacheKey);
+        if (cached && Date.now() - cached.at < MEDIA_PLAYER_SERVICE_LOGO_TTL_MS) {
+            res.setHeader('Cache-Control', 'public, max-age=600');
+            return res.json(cached.payload);
+        }
+        const config = await loadFile(CONFIG_PATH, {});
+        const apiKey = String(config.tmdbApiKey || '').trim();
+        if (!apiKey || apiKey === '********') {
+            return res.status(503).json({ networks: [], productionCompanies: [], watchProviders: [], reason: 'missing-tmdb-key' });
+        }
+        const upstream = await fetch(
+            `https://api.themoviedb.org/3/${mediaType}/${encodeURIComponent(String(tmdbId))}`
+            + `?api_key=${encodeURIComponent(apiKey)}&append_to_response=${encodeURIComponent('watch/providers')}`,
+        ).catch(() => null);
+        if (!upstream?.ok) {
+            return res.status(502).json({ networks: [], productionCompanies: [], watchProviders: [], reason: 'tmdb-upstream' });
+        }
+        const json = await upstream.json().catch(() => null);
+        const providerResults = json?.['watch/providers']?.results || {};
+        const mapProviders = (rows = []) => [].concat(rows || []).map((row) => ({
+            id: row?.provider_id,
+            name: row?.provider_name,
+            logoPath: row?.logo_path,
+        })).filter((row) => row.name && row.logoPath);
+        const watchProviders = Object.entries(providerResults).map(([iso, provider]) => ({
+            iso_3166_1: iso,
+            link: provider?.link,
+            buy: mapProviders(provider?.buy),
+            flatrate: mapProviders(provider?.flatrate),
+            ads: mapProviders(provider?.ads),
+        }));
+        // Keep name-only networks/companies — the client fills bundled catalog logos (BBC, C4, …).
+        const networks = mediaType === 'tv'
+            ? [].concat(json?.networks || []).map((row) => ({
+                id: row?.id,
+                name: row?.name,
+                logoPath: row?.logo_path || '',
+            })).filter((row) => row.name)
+            : [];
+        const productionCompanies = [].concat(json?.production_companies || []).map((row) => ({
+            id: row?.id,
+            name: row?.name,
+            logoPath: row?.logo_path || '',
+        })).filter((row) => row.name);
+        const payload = { networks, productionCompanies, watchProviders, reason: 'ok' };
+        mediaPlayerServiceLogoCache.set(cacheKey, { at: Date.now(), payload });
+        if (mediaPlayerServiceLogoCache.size > 400) {
+            const oldest = mediaPlayerServiceLogoCache.keys().next().value;
+            if (oldest) mediaPlayerServiceLogoCache.delete(oldest);
+        }
+        res.setHeader('Cache-Control', 'public, max-age=600');
+        return res.json(payload);
+    } catch (error) {
+        return res.status(500).json({
+            networks: [],
+            productionCompanies: [],
+            watchProviders: [],
+            reason: 'error',
+            error: String(error?.message || error),
+        });
+    }
+});
 
 app.get('/api/public/media-player/trending-week', publicReadRateLimit, async (req, res) => {
     try {

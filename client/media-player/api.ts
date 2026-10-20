@@ -1,6 +1,14 @@
 import { apiErrorMessage, apiFetch, PORTAL_CSRF_HEADER, PORTAL_CSRF_VALUE } from '../shared/api';
 import { portalUrl } from '../shared/basePath';
+import { DISCOVER_NETWORKS, DISCOVER_STUDIOS } from '../discovery/discoverConstants';
 import { pickTmdbPersonMatch, personCreditYear, splitPersonCredits } from '../discovery/personCredits';
+import { preferStudioBrowseLogos } from '../../lib/media-player/studioBrowse.js';
+import {
+    NETWORK_BROWSE_PRIORITY,
+    STUDIO_BROWSE_PRIORITY,
+    sortStudioBrowseCards,
+    studioBrowseDedupeKey,
+} from './studioBrowsePlate.js';
 import { PLAYER_API_ROOT } from './paths';
 import {
     readPlayerItemCache,
@@ -12,6 +20,7 @@ import {
     playerHomeNeedsFull,
 } from './playerMemory';
 import { applyRememberedProgress, browserPlaybackCaps, noteItemWatched, plexBackdropPreviewUrl, plexBackdropUrl, prefetchPlayerImages, withWatchedProgress } from './playerUtils';
+import { matchDiscoverCompanyByName } from './studioLogo.js';
 import type {
     PlayerHome,
     PlayerItem,
@@ -19,6 +28,7 @@ import type {
     PlayerLibraryFilters,
     PlayerLibraryHome,
     PlayerLibraryPage,
+    PlayerLibraryStudios,
     PlayerPlaySession,
     PlayerPersonBundle,
     PlayerPersonCreditRow,
@@ -26,6 +36,7 @@ import type {
     PlayerPersonProfile,
     PlayerProfile,
     PlayerSection,
+    PlayerStudioBrowseCard,
 } from './types';
 
 const prefetchItemBackdrop = (item?: { art?: string | null } | null) => {
@@ -275,6 +286,37 @@ export const fetchMediaPlayerCollections = (sectionKey: string) => (
     apiFetch(`${PLAYER_API_ROOT}/libraries/${encodeURIComponent(sectionKey)}/collections`) as Promise<{ title: string; items: PlayerItem[] }>
 );
 
+export const fetchMediaPlayerLibraryStudios = async (sectionKey: string) => {
+    const data = await apiFetch(
+        `${PLAYER_API_ROOT}/libraries/${encodeURIComponent(sectionKey)}/studios`,
+    ) as PlayerLibraryStudios;
+    const attachLogo = (
+        cards: PlayerStudioBrowseCard[] | undefined,
+        catalog: Array<{ name: string; logoPath: string }>,
+        priority: string[],
+    ) => sortStudioBrowseCards(
+        preferStudioBrowseLogos(
+            (Array.isArray(cards) ? cards : []).map((card) => {
+                const hit = matchDiscoverCompanyByName(card.title, catalog);
+                const logoPath = hit?.logoPath ? String(hit.logoPath) : (card.logoPath || '');
+                return {
+                    ...card,
+                    // Prefer the catalog display name when we matched a brand logo.
+                    title: hit?.name ? String(hit.name) : card.title,
+                    logoPath: logoPath || undefined,
+                };
+            }),
+            undefined,
+            studioBrowseDedupeKey,
+        ),
+        priority,
+    );
+    return {
+        networks: attachLogo(data?.networks, DISCOVER_NETWORKS, NETWORK_BROWSE_PRIORITY),
+        studios: attachLogo(data?.studios, DISCOVER_STUDIOS, STUDIO_BROWSE_PRIORITY),
+    } as PlayerLibraryStudios;
+};
+
 export const fetchMediaPlayerCollection = (ratingKey: string, sectionKey?: string) => {
     const qs = sectionKey ? `?section=${encodeURIComponent(sectionKey)}` : '';
     return apiFetch(`${PLAYER_API_ROOT}/collection/${encodeURIComponent(ratingKey)}${qs}`) as Promise<PlayerItemPage>;
@@ -422,6 +464,29 @@ export const mediaPlayerDownloadUrl = (ratingKey: string, mediaIndex = 0) => {
     const qs = new URLSearchParams({ download: '1' });
     if (mediaIndex) qs.set('mediaIndex', String(mediaIndex));
     return `${PLAYER_API_ROOT}/file/${encodeURIComponent(ratingKey)}?${qs}`;
+};
+
+/** Absolute PMS/portal part URL + headers for phone in-app offline downloads. */
+export const resolveMediaPlayerDownloadSource = (
+    ratingKey: string,
+    opts: { mediaIndex?: number; serverId?: string | null } = {},
+) => {
+    const params = new URLSearchParams();
+    if (opts.mediaIndex != null) params.set('mediaIndex', String(opts.mediaIndex));
+    if (opts.serverId) params.set('server', opts.serverId);
+    const qs = params.toString() ? `?${params}` : '';
+    return apiFetch(`${PLAYER_API_ROOT}/download-source/${encodeURIComponent(ratingKey)}${qs}`) as Promise<{
+        url: string;
+        headers: Record<string, string>;
+        fileName: string;
+        bytes: number;
+        ratingKey: string;
+        title: string;
+        type: string;
+        thumb?: string | null;
+        serverId?: string;
+        plexGuid?: string | null;
+    }>;
 };
 
 /** Trigger a browser file download without navigating away (large media-safe). */
@@ -688,6 +753,24 @@ export const searchMediaPlayer = (query: string) => (
     apiFetch(`${PLAYER_API_ROOT}/search?q=${encodeURIComponent(query)}`) as Promise<{ results: PlayerItemPage['item'][] }>
 );
 
+/** Resolve a local library copy for Watch Together join (guid / tmdb / title match). */
+export const resolveWatchTogetherLocalItem = (opts: {
+    guids?: string[] | null;
+    tmdbId?: number | null;
+    year?: number | null;
+    title?: string | null;
+    mediaType?: string | null;
+}) => {
+    const params = new URLSearchParams();
+    const guids = Array.isArray(opts.guids) ? opts.guids.filter(Boolean) : [];
+    if (guids.length) params.set('guids', guids.join(','));
+    if (opts.tmdbId != null && Number(opts.tmdbId) > 0) params.set('tmdbId', String(Math.floor(Number(opts.tmdbId))));
+    if (opts.year != null && Number(opts.year) > 0) params.set('year', String(Math.floor(Number(opts.year))));
+    if (opts.title) params.set('title', String(opts.title));
+    if (opts.mediaType) params.set('type', String(opts.mediaType));
+    return apiFetch(`${PLAYER_API_ROOT}/watch-together/resolve?${params}`) as Promise<{ item: PlayerItem | null }>;
+};
+
 export const fetchMediaPlayerServers = () => (
     apiFetch(`${PLAYER_API_ROOT}/servers`) as Promise<{ servers: Array<{ id: string; name: string; enabled: boolean }> }>
 )
@@ -729,12 +812,31 @@ export const fetchMediaPlayerSubtitleSearch = (ratingKey: string, opts: { langua
     }>;
 };
 
+/** Probe whether PMS has voice-activity data for subtitle auto-sync. */
+export const fetchMediaPlayerVoiceActivity = (ratingKey: string, opts: { serverId?: string | null } = {}) => {
+    const params = new URLSearchParams();
+    if (opts.serverId) params.set('server', opts.serverId);
+    const qs = params.toString() ? `?${params}` : '';
+    return apiFetch(`${PLAYER_API_ROOT}/item/${encodeURIComponent(ratingKey)}/voice-activity${qs}`) as Promise<{
+        available: boolean;
+        speechMs?: number[];
+    }>;
+};
+
 export const fetchMediaPlayerWatchlist = (force = false) => {
     if (!force && watchlistCache) return watchlistCache;
     watchlistCache = apiFetch(`${PLAYER_API_ROOT}/watchlist`) as Promise<{ items: PlayerItem[] }>;
     watchlistCache.catch(() => { watchlistCache = null; });
     return watchlistCache;
 };
+
+/** TV screensaver art pool for a chosen source (trending, popular, random, …). */
+export const fetchMediaPlayerScreensaver = (source: string) => (
+    apiFetch(`${PLAYER_API_ROOT}/screensaver?source=${encodeURIComponent(source)}`) as Promise<{
+        source: string;
+        items: PlayerItem[];
+    }>
+);
 
 export const setMediaPlayerWatchlisted = (item: PlayerItem, watchlisted: boolean) => {
     watchlistCache = null;
@@ -743,7 +845,8 @@ export const setMediaPlayerWatchlisted = (item: PlayerItem, watchlisted: boolean
         body: JSON.stringify({
             ratingKey: item.ratingKey,
             discoverRatingKey: item.discoverRatingKey || undefined,
-            guid: item.plexGuid || undefined,
+            guid: item.plexGuid || item.showPlexGuid || undefined,
+            serverId: item.serverId || undefined,
             remove: !watchlisted,
         }),
     }) as Promise<{ ok: boolean }>;
@@ -776,7 +879,10 @@ export const startMediaPlayerPlayback = (ratingKey: string, opts: {
     delivery?: string | null;
     /** Reuse after stop — keeps Now Playing from spawning a new ghost per seek. */
     sessionId?: string | null;
-    /** Watch Together invite code — host-library stream on the portal. */
+    /**
+     * Deprecated: host-stream gate removed (sync-only Watch Together).
+     * Kept on the type so older call sites compile; ignored at runtime.
+     */
     watchTogether?: string | null;
 } = {}) => {
     const caps = browserPlaybackCaps();
@@ -808,8 +914,6 @@ export const startMediaPlayerPlayback = (ratingKey: string, opts: {
     if (opts.serverId) qs.set('server', opts.serverId);
     if (opts.delivery) qs.set('delivery', opts.delivery);
     if (opts.sessionId) qs.set('sessionId', String(opts.sessionId).trim());
-    const wt = String(opts.watchTogether || '').trim().toUpperCase();
-    if (wt) qs.set('wt', wt);
     if (caps.hevc) qs.set('canPlayHevc', '1');
     if (caps.ac3) qs.set('canPlayAc3', '1');
     if (caps.hls) qs.set('canPlayNativeHls', '1');

@@ -1027,6 +1027,22 @@ html[data-phone="1"] .media-details-hero {
   html[data-phone="1"] .player-phone-hide {
     display: none !important;
   }
+  html[data-phone="1"] .player-home-page {
+    gap: 0.85rem !important;
+  }
+  html[data-phone="1"] .player-home-page .player-home-rows {
+    gap: 0.85rem !important;
+  }
+  html[data-phone="1"] .player-home-page .player-rail-enter {
+    gap: 0.3rem !important;
+  }
+  html[data-phone="1"] .player-home-page .player-row-header {
+    margin: 0 !important;
+  }
+  html[data-phone="1"] .player-home-page .player-row-header-title {
+    font-size: 1.05rem !important;
+    line-height: 1.2 !important;
+  }
   html[data-phone="1"] .player-home-page [data-tv-row="1"] .snap-start:not(.player-rail-landscape) {
     width: min(36vw, 9rem) !important;
   }
@@ -1034,7 +1050,9 @@ html[data-phone="1"] .media-details-hero {
     width: min(48vw, 12rem) !important;
   }
   html[data-phone="1"] .tv-poster-rows [data-tv-rail="1"] {
-    gap: 0.7rem;
+    gap: 0.55rem;
+    padding-top: 0.1rem !important;
+    padding-bottom: 0.1rem !important;
     padding-right: 2.25rem !important;
     scroll-snap-type: x proximity;
     -webkit-mask-image: linear-gradient(to right, #000 0%, #000 calc(100% - 1.35rem), transparent 100%);
@@ -1055,7 +1073,7 @@ html[data-phone="1"] .media-details-hero {
     height: 0.75rem;
   }
   html[data-phone="1"] .player-home-hero {
-    margin-top: 0.75rem;
+    margin-top: 0.15rem;
     margin-left: 0;
     margin-right: 0;
     border-radius: 1.1rem;
@@ -2087,7 +2105,67 @@ html[data-tv="1"] .player-tv-home-skel-still {
   background: rgb(var(--tv-page-surface, 6 10 16));
 }
 html[data-tv="1"] .player-tv-home-skel-still .skeleton-base {
-  opacity: 0.55;
+  /* Full-bleed shimmer so the stage doesn't look empty on the right while loading. */
+  opacity: 0.88;
+}
+html[data-tv="1"] .player-tv-home-skel .player-home-focus-still::after {
+  /* Keep a readable still across the full width — do not fade the right side to empty black. */
+  background:
+    linear-gradient(90deg, rgba(6, 10, 16, 0.9) 0%, rgba(6, 10, 16, 0.62) 22%, rgba(6, 10, 16, 0.32) 48%, rgba(6, 10, 16, 0.2) 72%, rgba(6, 10, 16, 0.24) 100%),
+    linear-gradient(180deg, rgba(6, 10, 16, 0.12) 0%, transparent 18%, transparent 40%, rgba(6, 10, 16, 0.32) 58%, rgba(6, 10, 16, 0.72) 78%, #060a10 100%);
+}
+html[data-tv="1"] .player-tv-home-skel .player-home-stage-rail {
+  /* Let poster placeholders run to the right edge (no extra inset clipping the row). */
+  left: 0;
+  right: 0;
+  width: auto;
+  max-width: none;
+}
+html[data-tv="1"] .player-tv-home-skel-rail-track {
+  display: flex;
+  flex-wrap: nowrap;
+  width: 100%;
+  max-width: none;
+  overflow: hidden;
+}
+html[data-tv="1"] .player-tv-home-skel-card {
+  flex: 0 0 auto !important;
+  min-width: 0;
+}
+html[data-tv="1"] .player-tv-home-skel-card--hero {
+  width: 21rem !important;
+  aspect-ratio: 16 / 9;
+}
+html[data-tv="1"] .player-tv-home-skel-card--poster {
+  width: 9.5rem !important;
+  aspect-ratio: 2 / 3;
+}
+
+/* Library Studios / Networks — vision: portrait art+logo strip + tinted studio plates. */
+html[data-tv="1"] .player-library-studios .player-rail-arrows {
+  display: none !important;
+}
+html[data-tv="1"] .player-library-studios .player-studio-browse-subtitle {
+  padding-left: 1.35rem;
+  font-size: 1rem;
+  color: rgba(255, 255, 255, 0.48) !important;
+}
+html[data-tv="1"] .player-library-studios .player-studio-network-card {
+  width: 12.75rem !important;
+}
+html[data-tv="1"] .player-library-studios .player-studio-network-card > button > div:last-child {
+  height: 5rem !important;
+}
+html[data-tv="1"] .player-library-studios .player-studio-plate-card {
+  width: 22rem !important;
+}
+html[data-tv="1"] .player-library-studios .player-studio-plate-card > button {
+  height: 12rem !important;
+}
+html[data-tv="1"] .player-library-studios [data-tv-item="1"]:focus,
+html[data-tv="1"] .player-library-studios [data-tv-item="1"]:focus-visible {
+  outline: none;
+  box-shadow: var(--tv-focus-glow) !important;
 }
 
 html[data-tv="1"] .media-details-page .animate-pulse,
@@ -2289,7 +2367,7 @@ html[data-tv="1"] .media-details-page [data-tv-action-row="1"] .media-details-ac
 }
 html[data-tv="1"] .media-details-page:has(.media-details-billboard-identity) .media-details-synopsis {
   order: 3;
-  max-width: 42rem;
+  max-width: min(48rem, 62vw);
   margin-top: 0.35rem;
 }
 html[data-tv="1"] .media-details-page:has(.media-details-billboard-identity) .media-details-seasons,
@@ -2394,9 +2472,12 @@ html[data-tv="1"] .media-details-billboard-summary {
   font-size: 0.92rem;
   line-height: 1.45;
   color: rgba(255, 255, 255, 0.78) !important;
-  display: block;
-  overflow: visible;
-  -webkit-line-clamp: unset;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  text-overflow: ellipsis;
   text-align: left;
 }
 html[data-tv="1"] [data-tv-kind="show"] {
@@ -2426,14 +2507,28 @@ html[data-tv="1"] [data-tv-kind="show"] .media-details-hero-content {
   padding-top: 0 !important;
   padding-bottom: 0.35rem !important;
 }
-html[data-tv="1"] [data-tv-kind="show"] .media-details-synopsis {
+html[data-tv="1"] [data-tv-kind="show"] .media-details-synopsis,
+html[data-tv="1"] [data-tv-kind="movie"] .media-details-synopsis {
   display: block;
   margin-top: 0.15rem !important;
+  max-height: none !important;
+  overflow: visible !important;
 }
-html[data-tv="1"] [data-tv-kind="show"] .media-overview-summary p {
+html[data-tv="1"] [data-tv-kind="show"] .media-overview-summary,
+html[data-tv="1"] [data-tv-kind="movie"] .media-overview-summary {
+  max-width: min(48rem, 62vw);
+}
+html[data-tv="1"] .media-overview-summary-full,
+html[data-tv="1"] [data-tv-kind="show"] .media-overview-summary p,
+html[data-tv="1"] [data-tv-kind="movie"] .media-overview-summary p {
   display: block !important;
   overflow: visible !important;
+  text-overflow: unset !important;
+  -webkit-box-orient: unset !important;
   -webkit-line-clamp: unset !important;
+  line-clamp: unset !important;
+  max-height: none !important;
+  white-space: normal !important;
 }
 html[data-tv="1"] [data-tv-kind="show"] .media-details-seasons {
   margin-top: 0.2rem !important;
@@ -2603,12 +2698,15 @@ html[data-tv="1"] [data-tv-kind="season"].media-details-page:has(.media-details-
 html[data-tv="1"] [data-tv-kind="episode"] .media-details-billboard-summary,
 html[data-tv="1"] [data-tv-kind="season"] .media-details-billboard-summary {
   margin-top: 0.35rem;
-  max-width: 42rem;
+  max-width: 36rem;
   font-size: 0.9rem;
   line-height: 1.4;
-  display: block;
-  overflow: visible;
-  -webkit-line-clamp: unset;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 html[data-tv="1"] [data-tv-kind="episode"] .media-details-tv-top-spacer,
 html[data-tv="1"] [data-tv-kind="season"] .media-details-tv-top-spacer {
@@ -3022,17 +3120,18 @@ html[data-tv="1"] .player-home-spot-watched {
 html[data-tv="1"] .player-home-spot-summary {
   margin: 0;
   flex: 0 0 auto;
-  min-height: auto;
+  min-height: calc(0.92rem * 1.45 * 2);
   max-width: 36rem;
   font-size: 0.92rem;
   line-height: 1.45;
   color: rgba(255, 255, 255, 0.78) !important;
-  /* Full synopsis — never clamp / shrink / ellipsis mid-sentence. */
-  display: block;
-  overflow: visible;
-  text-overflow: unset;
-  -webkit-line-clamp: unset;
-  line-clamp: unset;
+  /* Short billboard copy — 3 lines max so cast stays clear below. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 html[data-tv="1"] .player-home-spot-cast {
   margin: 0;
@@ -3046,9 +3145,45 @@ html[data-tv="1"] .player-home-spot-cast {
 html[data-tv="1"] {
   --tv-display-font: "Satoshi", "Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif;
 }
+/* Satoshi on every home / library / details rail header (not only home-stage). */
 html[data-tv="1"] .player-row-header-title,
-html[data-tv="1"] .player-tv-clock {
+html[data-tv="1"] .player-row-header h2,
+html[data-tv="1"] .player-row-header > button,
+html[data-tv="1"] .player-tv-clock,
+html[data-tv="1"] .player-library-title,
+html[data-tv="1"] [data-tv-library="1"] h1,
+html[data-tv="1"] .player-home-stage .player-row-header-title,
+html[data-tv="1"] .player-home-rows .player-row-header-title,
+html[data-tv="1"] [data-tv-library="1"] .player-row-header-title {
   font-family: var(--tv-display-font) !important;
+}
+html[data-tv="1"] .player-row-header {
+  position: relative;
+  gap: 0.7rem !important;
+  margin: 0 0 0.15rem;
+  padding-left: 0;
+}
+html[data-tv="1"] .player-row-header-mark {
+  position: absolute;
+  left: -0.55rem;
+  top: 50%;
+  display: inline-block !important;
+  width: 0.28rem;
+  height: 1.15em;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #fbbf24 0%, rgba(245, 158, 11, 0.45) 100%);
+  box-shadow: 0 0 12px rgba(251, 191, 36, 0.4);
+  transform: translateY(-50%);
+}
+html[data-tv="1"] .player-row-header-title,
+html[data-tv="1"] .player-row-header h2,
+html[data-tv="1"] .player-row-header > button {
+  font-size: 1.45rem !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.01em !important;
+  line-height: 1.2 !important;
+  color: #fff !important;
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.55);
 }
 html[data-tv="1"] .player-tv-clock {
   position: fixed;
@@ -3072,8 +3207,104 @@ html[data-tv="1"] .player-tv-clock {
 }
 /* Options sheet sits under the clock corner — tuck it away while the menu is open. */
 html[data-tv="1"]:has([data-tv-item-menu="1"]) .player-tv-clock,
-html[data-tv="1"]:has([data-tv-context-sheet="1"]) .player-tv-clock {
+html[data-tv="1"]:has([data-tv-context-sheet="1"]) .player-tv-clock,
+html[data-tv="1"]:has([data-tv-screensaver="1"]) .player-tv-clock {
   display: none !important;
+}
+
+/* Idle ambient — Continue Watching art + oversized bottom-left clock. */
+html[data-tv="1"] .player-tv-screensaver {
+  position: fixed;
+  inset: 0;
+  z-index: 5000;
+  overflow: hidden;
+  background: #05070c;
+  pointer-events: auto;
+}
+html[data-tv="1"] .player-tv-screensaver-slide {
+  position: absolute;
+  inset: 0;
+  background-position: center center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  transform: scale(1.04);
+}
+html[data-tv="1"] .player-tv-screensaver-slide--enter {
+  animation: player-tv-screensaver-in 1.4s ease both;
+}
+html[data-tv="1"] .player-tv-screensaver-slide--exit {
+  animation: player-tv-screensaver-out 1.4s ease both;
+}
+@keyframes player-tv-screensaver-in {
+  from { opacity: 0; transform: scale(1.08); }
+  to { opacity: 1; transform: scale(1.04); }
+}
+@keyframes player-tv-screensaver-out {
+  from { opacity: 1; transform: scale(1.04); }
+  to { opacity: 0; transform: scale(1.01); }
+}
+html[data-tv="1"] .player-tv-screensaver-scrim {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgba(0, 0, 0, 0.72) 0%, rgba(0, 0, 0, 0.28) 42%, rgba(0, 0, 0, 0.08) 70%, transparent 100%),
+    linear-gradient(0deg, rgba(0, 0, 0, 0.78) 0%, rgba(0, 0, 0, 0.2) 38%, transparent 62%);
+  pointer-events: none;
+}
+html[data-tv="1"] .player-tv-screensaver-footer {
+  position: absolute;
+  left: 2.75rem;
+  bottom: 2.4rem;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.55rem;
+  width: max-content;
+  max-width: min(42rem, 70vw);
+  pointer-events: none;
+}
+html[data-tv="1"] .player-tv-screensaver-watermark {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.55);
+  font-family: var(--tv-ui-font, var(--tv-display-font));
+  font-size: clamp(0.78rem, 1.35vw, 0.95rem);
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  line-height: 1.2;
+  text-transform: uppercase;
+  text-align: center;
+  text-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+}
+html[data-tv="1"] .player-tv-screensaver-clock {
+  margin: 0;
+  color: #fff;
+  font-family: var(--tv-display-font);
+  font-size: clamp(4.6rem, 9.5vw, 7.25rem);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 0.92;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+}
+html[data-tv="1"] .player-tv-screensaver-logo {
+  display: block;
+  height: 3.1rem;
+  width: auto;
+  max-width: 100%;
+  object-fit: contain;
+  object-position: center center;
+  filter: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.65));
+}
+html[data-tv="1"] .player-tv-screensaver-title {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.88);
+  font-family: var(--tv-display-font);
+  font-size: 1.35rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-align: center;
+  text-shadow: 0 8px 22px rgba(0, 0, 0, 0.55);
 }
 /* Global music dock — fixed bottom bar on every browse surface while minimized. */
 html[data-tv="1"] .player-home-now-playing {
@@ -3264,32 +3495,6 @@ html[data-tv="1"] .player-home-stage [data-tv-poster-btn="1"] + div {
 html[data-tv="1"] .player-home-stage .player-rail-arrows {
   display: none !important;
 }
-html[data-tv="1"] .player-home-stage .player-row-header {
-  position: relative;
-  gap: 0.7rem !important;
-  margin: 0 0 0.15rem;
-  padding-left: 0;
-}
-html[data-tv="1"] .player-home-stage .player-row-header-mark {
-  position: absolute;
-  left: -0.55rem;
-  top: 50%;
-  display: inline-block !important;
-  width: 0.28rem;
-  height: 1.15em;
-  border-radius: 999px;
-  background: linear-gradient(180deg, #fbbf24 0%, rgba(245, 158, 11, 0.45) 100%);
-  box-shadow: 0 0 12px rgba(251, 191, 36, 0.4);
-  transform: translateY(-50%);
-}
-html[data-tv="1"] .player-home-stage .player-row-header-title {
-  font-size: 1.45rem !important;
-  font-weight: 800 !important;
-  letter-spacing: 0.01em !important;
-  line-height: 1.2 !important;
-  color: #fff !important;
-  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.55);
-}
 html[data-tv="1"] .player-home-next-row {
   padding-left: 0;
   pointer-events: none;
@@ -3405,10 +3610,100 @@ html[data-phone="1"] .player-mobile-context-modal {
   background-color: rgb(var(--tv-details-surface, var(--color-bg))) !important;
 }
 
-/* TV Switch User PIN keypad: fit full pad (incl. 0/Del/OK) without scroll. */
+/* TV Plex Home PIN — leanback keypad, no clipping. */
+html[data-tv="1"] .player-tv-home-pin,
 html[data-tv="1"] [data-tv-home-switch="1"][data-tv-home-switch-pin="1"] {
-  max-height: min(96vh, 56rem) !important;
-  overflow: hidden !important;
+  max-width: min(42rem, 92vw) !important;
+  max-height: none !important;
+  overflow: visible !important;
+  background: rgb(var(--tv-page-surface, 36 40 48)) !important;
+  background-image: none !important;
+}
+html[data-tv="1"] .player-tv-home-pin-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.85rem;
+  width: min(100%, 26rem);
+}
+html[data-tv="1"] .player-tv-home-pin-key {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 4.35rem;
+  border-radius: 1.15rem;
+  border: 2px solid rgba(255, 255, 255, 0.14);
+  background: rgba(0, 0, 0, 0.38);
+  color: #fff;
+  font-size: 1.65rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+html[data-tv="1"] .player-tv-home-pin-key.is-del {
+  font-size: 1.15rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.78);
+}
+html[data-tv="1"] .player-tv-home-pin-key.is-go {
+  font-size: 1.2rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: rgba(229, 160, 13, 0.92);
+  border-color: rgba(229, 160, 13, 1);
+  color: #111;
+}
+html[data-tv="1"] .player-tv-home-pin-key:focus,
+html[data-tv="1"] .player-tv-home-pin-key:focus-visible {
+  outline: none !important;
+  border-color: #e5a00d !important;
+  background: rgba(229, 160, 13, 0.18) !important;
+  color: #fff !important;
+  box-shadow: 0 0 0 3px rgba(229, 160, 13, 0.28);
+}
+html[data-tv="1"] .player-tv-home-pin-key.is-go:focus,
+html[data-tv="1"] .player-tv-home-pin-key.is-go:focus-visible {
+  background: #fff !important;
+  border-color: #fff !important;
+  color: #111 !important;
+}
+html[data-tv="1"] .player-tv-home-pin-key:disabled {
+  opacity: 0.35;
+}
+html[data-tv="1"] .player-tv-home-pin-dot {
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  background: transparent;
+}
+html[data-tv="1"] .player-tv-home-pin-dot.is-filled {
+  background: #fff;
+  border-color: #fff;
+  box-shadow: 0 0 18px rgba(255, 255, 255, 0.28);
+}
+html[data-tv="1"] .player-tv-home-pin-back {
+  min-height: 3.1rem;
+  padding: 0 1.5rem;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.14);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+html[data-tv="1"] .player-tv-home-pin-back:focus,
+html[data-tv="1"] .player-tv-home-pin-back:focus-visible {
+  outline: none !important;
+  border-color: #e5a00d !important;
+  color: #fff !important;
+  background: rgba(229, 160, 13, 0.14) !important;
+}
+html[data-tv="1"] .player-tv-home-pin-profile img,
+html[data-tv="1"] .player-tv-home-pin-profile > span > span {
+  width: 4.5rem !important;
+  height: 4.5rem !important;
 }
 
 .discover-content-enter {

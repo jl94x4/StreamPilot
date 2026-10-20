@@ -1,6 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Minimal transport affordance — no glass. Soft ring only when focused. -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@drawable/player_glass_oval_focus" android:state_focused="true" />
-    <item android:drawable="@drawable/player_glass_oval_pressed" android:state_pressed="true" />
-    <item android:drawable="@drawable/player_glass_oval" />
+    <item android:state_focused="true">
+        <shape android:shape="oval">
+            <solid android:color="#22FFFFFF" />
+        </shape>
+    </item>
+    <item android:state_pressed="true">
+        <shape android:shape="oval">
+            <solid android:color="#33FFFFFF" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="oval">
+            <solid android:color="@android:color/transparent" />
+        </shape>
+    </item>
 </selector>
