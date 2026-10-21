@@ -91,6 +91,36 @@ winners = {
 out = compose_poster(poster, winners, config={}, paths=None)
 assert out.size == (1000, 1500)
 
+# A non-2:3 poster is cover-cropped before the badge, so the inset survives
+# the same crop the card and Plex proxy apply later.
+from kometa_render import fit_poster_frame
+wide = Image.new("RGB", (2000, 1500), (10, 20, 30))
+for x in range(200):
+    for y in range(0, 1500, 50):
+        wide.putpixel((x, y), (255, 0, 0))
+fitted = fit_poster_frame(wide)
+assert fitted.size == (1000, 1500), fitted.size
+assert fitted.getpixel((0, 0))[:3] != (255, 0, 0)
+tall = Image.new("RGB", (1000, 2000), (10, 20, 30))
+for y in range(200):
+    tall.putpixel((0, y), (0, 255, 0))
+fitted_tall = fit_poster_frame(tall)
+assert fitted_tall.size == (1000, 1500), fitted_tall.size
+assert fitted_tall.getpixel((0, 0))[:3] != (0, 255, 0)
+wide_out = compose_poster(
+    wide,
+    {"resolution": Winner(family="resolution", name="4K DV", key="4kdv", text="4K DV")},
+    config={},
+    paths=None,
+)
+assert wide_out.size == (1000, 1500)
+def _badge(x, y):
+    return wide_out.getpixel((x, y))[:3] != (10, 20, 30)
+# 1% top and 1.5% left stay empty; the plate itself starts just inside that.
+assert not any(_badge(x, y) for y in range(12) for x in range(400))
+assert not any(_badge(x, y) for x in range(12) for y in range(130))
+assert any(_badge(x, y) for y in range(14, 40) for x in range(14, 80))
+
 # EXIF marker round-trip
 from kometa_render import save_with_marker, has_overlay_marker
 import tempfile, os
