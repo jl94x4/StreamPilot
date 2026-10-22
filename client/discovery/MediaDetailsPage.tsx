@@ -584,11 +584,12 @@ export const MediaDetailsPage: React.FC<{
         : null;
     const requestOptionsBlocksAction = requestNotify?.canRequest === false;
     const requestOptionsSaysAvailable = requestOptionsStatus === 5
-        || requestBlockReason.includes('already available');
+        || /this (movie|title|show|series) is already available/.test(requestBlockReason);
     const requestOptionsSaysRequested = requestOptionsStatus === 2
         || requestOptionsStatus === 3
         || requestBlockReason.includes('pending request');
     const availabilitySaysAvailable = availability?.kind === 'available';
+    const requestingRemainingSeasons = requestButton.label === 'Request Seasons' && !requestButton.disabled;
     const notifyCta = requestNotify?.canNotify || requestNotify?.isWatching
         ? {
             label: requestNotify.isWatching ? t('request.watching') : t('request.notifyMe'),
@@ -600,7 +601,8 @@ export const MediaDetailsPage: React.FC<{
     const preferRequestCta = !notifyCta && !requestButton.disabled && requestButton.variant === 'action';
     const visibleRequestButtonBase = preferRequestCta ? requestButton : (notifyCta || requestButton);
     const visibleRequestButton = (
-        visibleRequestButtonBase.variant === 'action'
+        !requestingRemainingSeasons
+        && visibleRequestButtonBase.variant === 'action'
         && !notifyCta
         && (
             (requestOptionsBlocksAction && (requestOptionsSaysAvailable || requestOptionsSaysRequested))

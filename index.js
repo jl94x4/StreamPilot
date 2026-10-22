@@ -92,6 +92,7 @@ import {
     spawnCommand,
 } from './lib/media-automation/index.js';
 import { createPosterSetsRouter, startPosterSetsWatcher, setPosterSetsNotifyDigest, schedulePosterSetsArrHook, startTpdbCacheDailyRefresh } from './lib/poster-sets/index.js';
+import { librariesForPosterSets } from './lib/poster-sets/config.js';
 import { createMetadataFillRouter, scheduleMetadataFillArrHook } from './lib/metadata-fill/index.js';
 import { createMediaPlayerRouter } from './lib/media-player/index.js';
 import { normalizePlayerSettings } from './lib/media-player/mapItem.js';
@@ -9425,20 +9426,38 @@ const getPlexConnectionUri = async (config) => {
     }
 };
 
-const listPlexLibrariesForConfig = async (config) => {
+const listPlexLibrariesForConfig = async (config, { strict = false } = {}) => {
     const uri = await getPlexConnectionUri(config);
     if (!uri) throw new Error('Cannot connect to Plex');
     const token = normalizePlexToken(config.plexToken);
     if (!token) throw new Error('Plex token is required');
 
-    const sectionsRes = await fetchWithTimeout(
+    const response = await fetchWithTimeout(
         `${uri}/library/sections?X-Plex-Token=${encodeURIComponent(token)}`,
         { headers: plexClientHeaders(config.plexToken) },
         15000,
-    ).then((r) => r.json()).catch(() => null);
-
-    const directories = sectionsRes?.MediaContainer?.Directory;
-    if (!Array.isArray(directories)) return [];
+    );
+    const text = await response.text();
+    if (!response.ok) {
+        if (strict) throw new Error(`Plex library list failed (HTTP ${response.status})`);
+        return [];
+    }
+    if (!String(text || '').trim()) {
+        if (strict) throw new Error('Unexpected end of JSON input');
+        return [];
+    }
+    let sectionsRes = null;
+    try {
+        sectionsRes = JSON.parse(text);
+    } catch (error) {
+        if (strict) throw new Error(error?.message || 'Plex library list was not valid JSON');
+        return [];
+    }
+    const raw = sectionsRes?.MediaContainer?.Directory;
+    const directories = Array.isArray(raw) ? raw : (raw && typeof raw === 'object' ? [raw] : []);
+    if (!directories.length && strict) {
+        throw new Error('Plex returned a library list with no sections.');
+    }
     return directories.map((section) => ({
         id: section.key,
         title: section.title,
@@ -31078,25 +31097,22 @@ app.use('/api/poster-sets', createPosterSetsRouter({
         }
         let libraries = [];
         try {
-            libraries = await listPlexLibrariesForConfig(config);
+            libraries = await listPlexLibrariesForConfig(config, { strict: true });
         } catch (error) {
             throw new Error(`Could not list Plex libraries: ${error.message || error}`);
         }
-        const selectedIds = Array.isArray(config.defaultLibraryIds)
-            ? config.defaultLibraryIds.map((id) => String(id))
-            : [];
-        const scoped = selectedIds.length
-            ? libraries.filter((lib) => selectedIds.includes(String(lib.id)))
-            : libraries;
-        const source = selectedIds.length ? scoped : libraries;
-        const tv_library = source.filter((lib) => lib.type === 'show').map((lib) => lib.title).filter(Boolean);
-        const movie_library = source.filter((lib) => lib.type === 'movie').map((lib) => lib.title).filter(Boolean);
+        const picked = librariesForPosterSets(libraries);
+        if (!picked.tv_library.length && !picked.movie_library.length) {
+            const types = [...new Set(libraries.map((lib) => lib.type).filter(Boolean))].join(', ') || 'unknown';
+            throw new Error(`Plex returned ${libraries.length} libraries, but none are TV or movies (${types}).`);
+        }
         return {
             base_url: base_url.endsWith('/') ? base_url : `${base_url}/`,
             token,
-            tv_library,
-            movie_library,
-            librarySource: selectedIds.length ? 'default-libraries' : 'all-sections',
+            tv_library: picked.tv_library,
+            movie_library: picked.movie_library,
+            skipped: picked.skipped,
+            librarySource: picked.librarySource,
         };
     },
 }));

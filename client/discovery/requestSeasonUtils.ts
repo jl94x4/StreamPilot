@@ -202,10 +202,45 @@ export const hasAnyEpisodeAired = (details: any): boolean => {
     return false;
 };
 
+const sonarrSeasonOnDisk = (probe: any): boolean => {
+    if (!probe) return false;
+    if (probe.complete) return true;
+    const aired = Number(probe.airedTotal) || 0;
+    const withFile = Number(probe.airedWithFile ?? probe.withFile) || 0;
+    if (aired > 0 && withFile >= aired) return true;
+    const total = Number(probe.total) || 0;
+    return total > 0 && Number(probe.withFile) >= total;
+};
+
+/**
+ * True when TMDB has aired main seasons that Sonarr does not have on disk.
+ * Browse rows without a season list return false so existing badges stay put.
+ */
+export const airedSeasonsMissingFromSonarr = (details: any): boolean => {
+    const tmdb = Array.isArray(details?.seasons) ? details.seasons : [];
+    const lastAired = Number(details?.lastEpisodeToAir?.seasonNumber);
+    if (!tmdb.length || !(lastAired > 0)) return false;
+    const probes = new Map<number, any>(
+        (Array.isArray(details?.sonarrLibraryStatus?.seasons) ? details.sonarrLibraryStatus.seasons : [])
+            .map((season: any) => [Number(season?.seasonNumber), season]),
+    );
+    return tmdb.some((season: any) => {
+        const seasonNumber = Number(season?.seasonNumber ?? season?.season_number);
+        if (!isMainSeasonNumber(seasonNumber) || seasonNumber > lastAired) return false;
+        const episodes = Number(season?.episodeCount ?? season?.episode_count) || 0;
+        if (seasonNumber < lastAired && episodes <= 0) return false;
+        if (seasonNumber < lastAired || episodes > 0) {
+            return !sonarrSeasonOnDisk(probes.get(seasonNumber));
+        }
+        return false;
+    });
+};
+
 /** True when Sonarr confirms every aired main season is complete on disk. */
 export const sonarrMainSeasonsFullyOnDisk = (details: any): boolean => {
     const sonarr = details?.sonarrLibraryStatus;
     if (!sonarr?.matched || sonarr.hasActiveDownloads || sonarr.nextAiring) return false;
+    if (airedSeasonsMissingFromSonarr(details)) return false;
     if (sonarr.showComplete) return true;
 
     const main = (sonarr.seasons || []).filter((s: any) => isMainSeasonNumber(Number(s?.seasonNumber)));
@@ -317,6 +352,7 @@ const fulfilledSeasonLabel = (label: string) => (
 export const sonarrCaughtUpWithAiredEpisodes = (details: any): boolean => {
     const sonarr = details?.sonarrLibraryStatus;
     if (!sonarr?.matched || sonarr.hasActiveDownloads) return false;
+    if (airedSeasonsMissingFromSonarr(details)) return false;
     if (sonarr.showComplete) return true;
 
     const main = (sonarr.seasons || []).filter((season: any) => isMainSeasonNumber(Number(season?.seasonNumber)));
@@ -345,7 +381,8 @@ export const isTvShowLibraryComplete = (
     // Future airings mean the show is still Partial for Discover badges.
     if (sonarr?.nextAiring) return false;
     // Sonarr is the source of truth when the portal can see the series.
-    if (sonarr?.matched) {
+    // Seasons it does not have are still requestable, even if the ones it has are full.
+    if (sonarr?.matched && !airedSeasonsMissingFromSonarr(details)) {
         if (sonarr.hasActiveDownloads) return false;
         if (sonarr.showComplete) return true;
         if (sonarrMainSeasonsFullyOnDisk(details)) return true;
@@ -382,8 +419,8 @@ export const isSeasonHandledInLibrary = (label: string) => (
 );
 
 /**
- * Seerr often lacks per-season rows even when Sonarr is monitoring a season.
- * Infer "Up to date" for aired seasons on returning/partial shows already in the library.
+ * Only lock a season Seerr did not list when Sonarr itself has that season.
+ * Other aired seasons on a show that already has some seasons stay requestable.
  */
 export const inferMissingLibrarySeasonStatus = (
     details: any,
@@ -391,68 +428,33 @@ export const inferMissingLibrarySeasonStatus = (
     seasonRow: SeasonStatusInfo,
 ): { requestable: boolean; statusLabel: string } | null => {
     if (!seasonRow.requestable || seasonRow.statusLabel !== 'Not requested') return null;
-    if (!Number(mediaInfo?.id)) return null;
-
-    const showStatus = Number(mediaInfo?.status);
-    const librarySeasons = Array.isArray(mediaInfo?.seasons) ? mediaInfo.seasons : [];
-    const trackedStatuses: number[] = [
-        MEDIA_STATUS.PROCESSING,
-        MEDIA_STATUS.PARTIAL,
-        MEDIA_STATUS.AVAILABLE,
-        MEDIA_STATUS.PENDING,
-    ];
-    const hasTrackedSeason = librarySeasons.some(
-        (s: any) => trackedStatuses.includes(Number(s?.status)),
-    );
-    const showInLibrary = showStatus === MEDIA_STATUS.PROCESSING
-        || showStatus === MEDIA_STATUS.PARTIAL
-        || showStatus === MEDIA_STATUS.AVAILABLE
-        || hasTrackedSeason;
-    if (!showInLibrary) return null;
-
     const seasonNumber = Number(seasonRow.seasonNumber);
-    const lastAiredSeason = Number(details?.lastEpisodeToAir?.seasonNumber);
     if (!Number.isFinite(seasonNumber)) return null;
-    if (!Number.isFinite(lastAiredSeason)) return null;
-    if (seasonNumber > lastAiredSeason) return null;
-    if (!hasSeasonAired(details, seasonNumber)) return null;
 
-    const knownSeasonNumbers = librarySeasons
-        .map((s: any) => Number(s?.seasonNumber))
-        .filter((n: number) => Number.isFinite(n));
+    const sonarr = details?.sonarrLibraryStatus;
+    if (!sonarr?.matched || !Array.isArray(sonarr.seasons)) return null;
+    const probe = sonarr.seasons.find((season: any) => Number(season?.seasonNumber) === seasonNumber);
+    if (!probe) return null;
 
-    const requests = Array.isArray(mediaInfo?.requests) ? mediaInfo.requests : [];
-    for (const req of requests) {
-        if (!Array.isArray(req?.seasons)) continue;
-        for (const season of req.seasons) {
-            const num = Number(season?.seasonNumber);
-            if (Number.isFinite(num)) knownSeasonNumbers.push(num);
-        }
+    const withFile = Number(probe.airedWithFile ?? probe.withFile) || 0;
+    const aired = Number(probe.airedTotal) || 0;
+    const total = Number(probe.total) || 0;
+    const complete = !!probe.complete || (total > 0 && Number(probe.withFile) >= total);
+    if (complete && (aired > 0 || withFile > 0)) {
+        return {
+            requestable: false,
+            statusLabel: isSeasonStillAiring(details, seasonNumber) ? 'Up to date' : 'Available',
+        };
     }
-
-    if (!knownSeasonNumbers.length) {
-        return null;
+    if (withFile > 0) {
+        return {
+            requestable: false,
+            statusLabel: isSeasonStillAiring(details, seasonNumber) ? 'Up to date' : 'Partial',
+        };
     }
-    const maxKnownSeason = Math.max(...knownSeasonNumbers);
-    if (seasonNumber > maxKnownSeason + 1) return null;
-
-    if (isSeasonStillAiring(details, seasonNumber)) {
-        return { requestable: false, statusLabel: 'Up to date' };
+    if (aired > 0 || total > 0) {
+        return { requestable: false, statusLabel: 'Requested' };
     }
-
-    if (isReturningSeries(details) && seasonNumber <= lastAiredSeason) {
-        return { requestable: false, statusLabel: 'Up to date' };
-    }
-
-    if (isEndedShow(details) && showInLibrary && seasonNumber > 0 && seasonNumber <= lastAiredSeason) {
-        const mainLibrarySeasons = librarySeasons.filter(
-            (s: any) => isMainSeasonNumber(Number(s?.seasonNumber)),
-        );
-        if (mainLibrarySeasons.length > 0 || showStatus === MEDIA_STATUS.PARTIAL || showStatus === MEDIA_STATUS.AVAILABLE) {
-            return { requestable: false, statusLabel: 'Available' };
-        }
-    }
-
     return null;
 };
 
@@ -476,7 +478,7 @@ export const applySonarrLibrarySeasonOverrides = (
     const sonarr = details?.sonarrLibraryStatus;
     if (!sonarr?.matched) return seasonRows;
 
-    if (sonarr.showComplete) {
+    if (sonarr.showComplete && !airedSeasonsMissingFromSonarr(details)) {
         return seasonRows.map((row) => {
             if (!isMainSeasonNumber(Number(row.seasonNumber))) return row;
             if (!canMarkTvAsAvailable(details)) return row;
@@ -858,15 +860,14 @@ export const getRequestButtonState = (
         return { label: 'Processing', disabled: true, variant: 'pending' as const };
     }
 
-    // Already monitored in Sonarr and still airing / Partial continuing — Sonarr will
-    // pick up new episodes. Do not offer "Request Seasons" for that case.
-    // Ended incomplete shows (missing seasons) still get a Request CTA.
+    // Sonarr keeps grabbing new episodes of a monitored continuing show. That must
+    // not hide Request when other seasons are still missing.
     const sonarr = details?.sonarrLibraryStatus;
     const returning = !!(details && isReturningSeries(details));
     const monitoredContinuing = !!sonarr?.matched
         && (!!sonarr?.nextAiring || returning);
     const stampedContinuingPartial = status === MEDIA_STATUS.PARTIAL && returning;
-    if (monitoredContinuing || stampedContinuingPartial) {
+    if ((monitoredContinuing || stampedContinuingPartial) && requestableCount === 0) {
         return {
             label: 'Up to date',
             disabled: true,

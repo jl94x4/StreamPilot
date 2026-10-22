@@ -183,6 +183,7 @@ export const posterSetsApi = {
             base_url?: string;
             tv_library?: string[];
             movie_library?: string[];
+            skipped?: string[];
             librarySource?: string;
         };
         error?: string;
