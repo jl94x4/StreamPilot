@@ -6,7 +6,7 @@ import {
     useDiscoverI18n,
     type ToastMessage,
 } from './host';
-import { fetchMediaPlayerItem, fetchMediaPlayerItemMore, fetchMediaPlayerLibraries, fetchMediaPlayerMe, fetchMediaPlayerPlayFromQueue, fetchMediaPlayerServerStatus, fetchMediaPlayerShuffleQueue, resolveWatchTogetherLocalItem, startMediaPlayerPlayback, stopMediaPlayerTranscode } from './api';
+import { fetchMediaPlayerItem, fetchMediaPlayerItemMore, fetchMediaPlayerLibraries, fetchMediaPlayerMe, fetchMediaPlayerPlayFromQueue, fetchMediaPlayerServerStatus, fetchMediaPlayerShuffleQueue, resolveWatchTogetherLocalItem, startMediaPlayerPlayback, stopMediaPlayerTranscode, takePreparedMediaPlayerPlayback } from './api';
 import { MediaPlayerHome } from './MediaPlayerHome';
 import { MediaPlayerWatchlist } from './MediaPlayerWatchlist';
 import { MediaPlayerDownloads } from './MediaPlayerDownloads';
@@ -64,6 +64,7 @@ import {
     readPlayerNavExpanded,
     requestPlayerHomeReset,
     requestPlayerSearchFocus,
+    requestPlayerSearchQuery,
     restorePlayerHomeScrollWhenReady,
     restorePlayerLibraryScroll,
     restorePlayerLibraryScrollWhenReady,
@@ -78,17 +79,21 @@ import type { PlayerItem, PlayerLibraryHub, PlayerPlayOptions, PlayerPlaySession
 type PlayerPersonRef = { id: string; name: string; thumb?: string | null };
 type LibraryTab = 'home' | 'browse' | 'collections' | 'studios';
 
-const formatTvClock = (date: Date) => {
-    const hours = String(date.getHours()).padStart(2, '0');
+const formatTvClock = (date: Date, hour24: boolean) => {
     const minutes = String(date.getMinutes()).padStart(2, '0');
-    return `${hours}:${minutes}`;
+    if (hour24) return `${String(date.getHours()).padStart(2, '0')}:${minutes}`;
+    const hours = date.getHours();
+    const hour12 = hours % 12 || 12;
+    return `${hour12}:${minutes} ${hours < 12 ? 'AM' : 'PM'}`;
 };
 
 const PlayerTvClock: React.FC = () => {
-    const [label, setLabel] = useState(() => formatTvClock(new Date()));
+    const [settings] = usePlayerSettings();
+    const hour24 = settings.clock24Hour !== false;
+    const [label, setLabel] = useState(() => formatTvClock(new Date(), hour24));
 
     useEffect(() => {
-        const tick = () => setLabel(formatTvClock(new Date()));
+        const tick = () => setLabel(formatTvClock(new Date(), hour24));
         tick();
         const id = window.setInterval(tick, 1000);
         const onVisibility = () => {
@@ -99,7 +104,7 @@ const PlayerTvClock: React.FC = () => {
             window.clearInterval(id);
             document.removeEventListener('visibilitychange', onVisibility);
         };
-    }, []);
+    }, [hour24]);
 
     return (
         <div className="player-tv-clock" aria-hidden>
@@ -732,6 +737,27 @@ export const MediaPlayerDashboard: React.FC = () => {
         };
     }, [openSearch]);
 
+    // Android shell: Assistant / system "search for X" and Watch Next row taps.
+    // MainActivity retries until these exist, so they are only set once signed in.
+    useEffect(() => {
+        const searchFor = (query: string) => {
+            requestPlayerSearchQuery(query);
+            openSearch();
+        };
+        const openItem = (ratingKey: string, serverId?: string) => {
+            const key = String(ratingKey || '').trim();
+            if (!key) return;
+            const serverQs = serverId ? `?server=${encodeURIComponent(serverId)}` : '';
+            navigate(`${PLAYER_APP_BASE}/item/${encodeURIComponent(key)}${serverQs}`);
+        };
+        window.__SMP_SEARCH_FOR__ = searchFor;
+        window.__SMP_OPEN_ITEM__ = openItem;
+        return () => {
+            if (window.__SMP_SEARCH_FOR__ === searchFor) delete window.__SMP_SEARCH_FOR__;
+            if (window.__SMP_OPEN_ITEM__ === openItem) delete window.__SMP_OPEN_ITEM__;
+        };
+    }, [navigate, openSearch]);
+
     useEffect(() => {
         const onNowPlaying = (event: Event) => {
             const detail = (event as CustomEvent<MusicNowPlayingDetail>).detail || null;
@@ -810,7 +836,10 @@ export const MediaPlayerDashboard: React.FC = () => {
         if (isAndroidTvUi() && !replacingMusic) captureTvFocusSnapshot();
         setStartingPlay(true);
         setPendingResume(null);
-        if (!replacingMusic) setPlayNextBridge(true);
+        if (!replacingMusic) {
+            playNextBridgeRef.current = true;
+            setPlayNextBridge(true);
+        }
         try {
             const wantOffline = Boolean(
                 opts.offlineLocal
@@ -832,6 +861,7 @@ export const MediaPlayerDashboard: React.FC = () => {
                         client: 'android',
                         offlineLocal: true,
                     });
+                    playNextBridgeRef.current = false;
                     setPlayNextBridge(false);
                     return;
                 }
@@ -854,11 +884,16 @@ export const MediaPlayerDashboard: React.FC = () => {
                 // Prefer Direct Play/Stream from the resume offset. Unseekable parts
                 // still hop to HLS on scrub via native reason=seek.
             };
-            let session = await startMediaPlayerPlayback(item.ratingKey, {
+            const playRequest = {
                 ...baseOpts,
                 audioStreamId: opts.audioStreamId !== undefined ? opts.audioStreamId : undefined,
                 subtitleStreamId: opts.subtitleStreamId !== undefined ? opts.subtitleStreamId : undefined,
-            });
+            };
+            const prepared = takePreparedMediaPlayerPlayback(item.ratingKey, playRequest);
+            let session = prepared
+                ? await prepared.catch(() => null)
+                : null;
+            if (!session) session = await startMediaPlayerPlayback(item.ratingKey, playRequest);
             if (gen !== startPlaybackGenRef.current) return;
             if (opts.audioStreamId === undefined || opts.subtitleStreamId === undefined) {
                 const resolved = resolveAvChoiceForTracks(
@@ -895,9 +930,11 @@ export const MediaPlayerDashboard: React.FC = () => {
             }
             if (gen !== startPlaybackGenRef.current) return;
             setPlaySession(session);
+            playNextBridgeRef.current = false;
             setPlayNextBridge(false);
         } catch (error: any) {
             if (gen === startPlaybackGenRef.current) {
+                playNextBridgeRef.current = false;
                 setPlayNextBridge(false);
                 setToasts((prev) => appendToast(prev, String(error?.message || t('mediaPlayerPage.playError')), 'error'));
             }
@@ -1081,6 +1118,7 @@ export const MediaPlayerDashboard: React.FC = () => {
 
     useEffect(() => {
         if (playSession) {
+            playNextBridgeRef.current = false;
             setPlayNextBridge(false);
             return undefined;
         }
@@ -1088,6 +1126,16 @@ export const MediaPlayerDashboard: React.FC = () => {
         const id = window.setTimeout(() => restoreTvFocusWhenReady(), 120);
         return () => window.clearTimeout(id);
     }, [playSession]);
+
+    useEffect(() => {
+        const onReturned = () => {
+            if (isAndroidTvUi()) {
+                window.setTimeout(() => restoreTvFocusWhenReady(), 80);
+            }
+        };
+        window.addEventListener('smp-native-player-returned', onReturned);
+        return () => window.removeEventListener('smp-native-player-returned', onReturned);
+    }, []);
 
     // While the play-next black bridge is up, MediaPlayerVideo is unmounted so
     // __SMP_CLOSE_PLAYBACK__ is gone — Back must still cancel the hang.
@@ -1428,10 +1476,12 @@ export const MediaPlayerDashboard: React.FC = () => {
                     onClose={(meta) => {
                         const chaining = !!meta?.playNext;
                         if (chaining) {
+                            playNextBridgeRef.current = true;
                             setPlayNextBridge(true);
                             setPlaySession(null);
                             return;
                         }
+                        playNextBridgeRef.current = false;
                         setPlayNextBridge(false);
                         setPlaySession(null);
                         if (getWatchTogetherClient().state?.inviteCode) {
@@ -1456,7 +1506,10 @@ export const MediaPlayerDashboard: React.FC = () => {
                     aria-hidden
                     data-tv-playback-overlay="1"
                 >
-                    <div className="pointer-events-none h-8 w-8 animate-spin rounded-full border-2 border-white/25 border-t-white/80" />
+                    <div className="pointer-events-none flex flex-col items-center gap-4">
+                        <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/25 border-t-white/80" />
+                        <p className="text-sm font-semibold text-white/80">{t('mediaPlayerPage.loadingNextEpisode')}</p>
+                    </div>
                 </div>
             ) : null}
             {/* Global TV music dock — visible on home, library, details, search, etc. */}

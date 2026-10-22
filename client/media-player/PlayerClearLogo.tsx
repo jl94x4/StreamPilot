@@ -16,19 +16,21 @@ type Props = {
     fillSlot?: boolean;
 };
 
+type Visual = { from: string; src: string; left: number; top: number };
+
 export const PlayerClearLogo: React.FC<Props> = ({ src, alt, className, onError, boostTopMark = false, center = false, trimTop = true, fillSlot = false }) => {
-    const [visual, setVisual] = useState<{ src: string; left: number; top: number } | null>(() => {
+    const [visual, setVisual] = useState<Visual | null>(() => {
         if (boostTopMark) {
             const composed = peekComposedLogo(src);
-            if (composed) return { src: composed.url, left: composed.insets.left, top: composed.insets.top };
+            if (composed) return { from: src, src: composed.url, left: composed.insets.left, top: composed.insets.top };
             if (composed === null) {
                 const cached = peekLogoInsets(src);
-                return cached ? { src, left: cached.left, top: cached.top } : null;
+                return cached ? { from: src, src, left: cached.left, top: cached.top } : null;
             }
             return null;
         }
         const cached = peekLogoInsets(src);
-        return cached ? { src, left: cached.left, top: cached.top } : null;
+        return cached ? { from: src, src, left: cached.left, top: cached.top } : null;
     });
 
     useEffect(() => {
@@ -36,28 +38,28 @@ export const PlayerClearLogo: React.FC<Props> = ({ src, alt, className, onError,
         if (!boostTopMark) {
             const cached = peekLogoInsets(src);
             if (cached) {
-                setVisual({ src, left: cached.left, top: cached.top });
+                setVisual({ from: src, src, left: cached.left, top: cached.top });
                 return undefined;
             }
             setVisual(null);
             measureLogoInsets(src).then((next) => {
-                if (!cancelled) setVisual({ src, left: next.left, top: next.top });
+                if (!cancelled) setVisual({ from: src, src, left: next.left, top: next.top });
             });
             return () => { cancelled = true; };
         }
 
         const applyPlain = () => measureLogoInsets(src).then((next) => {
-            if (!cancelled) setVisual({ src, left: next.left, top: next.top });
+            if (!cancelled) setVisual({ from: src, src, left: next.left, top: next.top });
         });
 
         const composed = peekComposedLogo(src);
         if (composed) {
-            setVisual({ src: composed.url, left: composed.insets.left, top: composed.insets.top });
+            setVisual({ from: src, src: composed.url, left: composed.insets.left, top: composed.insets.top });
             return undefined;
         }
         if (composed === null) {
             const cached = peekLogoInsets(src);
-            if (cached) setVisual({ src, left: cached.left, top: cached.top });
+            if (cached) setVisual({ from: src, src, left: cached.left, top: cached.top });
             else {
                 setVisual(null);
                 applyPlain();
@@ -69,7 +71,7 @@ export const PlayerClearLogo: React.FC<Props> = ({ src, alt, className, onError,
         composeBoostedStudioLogo(src).then((next) => {
             if (cancelled) return;
             if (next) {
-                setVisual({ src: next.url, left: next.insets.left, top: next.insets.top });
+                setVisual({ from: src, src: next.url, left: next.insets.left, top: next.insets.top });
                 return;
             }
             applyPlain();
@@ -77,9 +79,9 @@ export const PlayerClearLogo: React.FC<Props> = ({ src, alt, className, onError,
         return () => { cancelled = true; };
     }, [boostTopMark, src]);
 
-    const ready = visual != null;
-    const left = visual?.left || 0;
-    const top = trimTop ? (visual?.top || 0) : 0;
+    const ready = visual != null && visual.from === src;
+    const left = ready ? visual.left : 0;
+    const top = trimTop && ready ? visual.top : 0;
     // Half the left pad recenters artwork that sits in an asymmetric PNG.
     const shiftX = center ? left / 2 : left;
     const shift = shiftX > 0 || top > 0;
@@ -117,7 +119,7 @@ export const PlayerClearLogo: React.FC<Props> = ({ src, alt, className, onError,
 
     return (
         <img
-            src={visual?.src || src}
+            src={ready ? visual.src : src}
             alt={alt}
             className={className}
             ref={(node) => {

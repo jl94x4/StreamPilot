@@ -1,12 +1,14 @@
 package com.servermanagerportal.mediaplayer;
 
 import android.app.Activity;
+import android.app.SearchManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.speech.RecognizerIntent;
@@ -30,6 +32,11 @@ public class MainActivity extends BridgeActivity {
     /** Desktop-like CSS layout width on leanback (phone density makes TV look zoomed-in). */
     private static final int TV_TARGET_CSS_WIDTH = 1920;
     private static final int VOICE_SEARCH_REQUEST = 9173;
+    private static final String GMS_SEARCH_ACTION = "com.google.android.gms.actions.SEARCH_ACTION";
+    /** ~40s: covers a cold WebView boot plus server sign-in on a slow TV stick. */
+    private static final int EXTERNAL_INTENT_MAX_ATTEMPTS = 80;
+    private static final long EXTERNAL_INTENT_RETRY_MS = 500;
+    private int externalIntentGeneration;
 
     @Override
     protected void attachBaseContext(Context newBase) {
@@ -47,6 +54,61 @@ public class MainActivity extends BridgeActivity {
         scheduleTvMark();
         schedulePhoneMark();
         registerSpaBackHandler();
+        // A recreated activity still holds the launch intent. Do not replay it.
+        if (savedInstanceState == null) handleExternalIntent(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleExternalIntent(intent);
+    }
+
+    /**
+     * Watch Next rows (smpplayer://item/...) and "search for X" from Assistant /
+     * system search. The SPA may still be booting or signing in, so delivery waits
+     * until the dashboard registers its handler.
+     */
+    private void handleExternalIntent(@Nullable Intent intent) {
+        if (intent == null) return;
+        String action = intent.getAction();
+        String script = null;
+        if (Intent.ACTION_SEARCH.equals(action) || GMS_SEARCH_ACTION.equals(action)) {
+            String query = intent.getStringExtra(SearchManager.QUERY);
+            if (query == null || query.trim().isEmpty()) return;
+            script = "(function(){try{if(typeof window.__SMP_SEARCH_FOR__!=='function')return false;"
+                + "window.__SMP_SEARCH_FOR__(" + JSONObject.quote(query.trim()) + ");return true;}catch(e){return false;}})()";
+        } else if (Intent.ACTION_VIEW.equals(action) && intent.getData() != null) {
+            Uri data = intent.getData();
+            if (!WatchNext.DEEP_LINK_SCHEME.equals(data.getScheme())
+                || !WatchNext.DEEP_LINK_HOST_ITEM.equals(data.getHost())) return;
+            String ratingKey = data.getLastPathSegment();
+            if (ratingKey == null || ratingKey.trim().isEmpty()) return;
+            String server = data.getQueryParameter("server");
+            script = "(function(){try{if(typeof window.__SMP_OPEN_ITEM__!=='function')return false;"
+                + "window.__SMP_OPEN_ITEM__(" + JSONObject.quote(ratingKey.trim()) + ","
+                + JSONObject.quote(server == null ? "" : server.trim()) + ");return true;}catch(e){return false;}})()";
+        }
+        if (script == null) return;
+        externalIntentGeneration += 1;
+        deliverExternalIntent(script, externalIntentGeneration, 0);
+    }
+
+    private void deliverExternalIntent(String script, int generation, int attempt) {
+        if (generation != externalIntentGeneration || attempt > EXTERNAL_INTENT_MAX_ATTEMPTS) return;
+        if (bridge == null || bridge.getWebView() == null) {
+            getWindow().getDecorView().postDelayed(
+                () -> deliverExternalIntent(script, generation, attempt + 1),
+                EXTERNAL_INTENT_RETRY_MS
+            );
+            return;
+        }
+        WebView webView = bridge.getWebView();
+        webView.post(() -> webView.evaluateJavascript(script, value -> {
+            if (value != null && value.contains("true")) return;
+            webView.postDelayed(() -> deliverExternalIntent(script, generation, attempt + 1), EXTERNAL_INTENT_RETRY_MS);
+        }));
     }
 
     /**
@@ -119,7 +181,7 @@ public class MainActivity extends BridgeActivity {
 
     private void wakeWebViewAfterNativePlayer() {
         resumeHostWebView();
-        if (!PlayerBridge.get().consumePendingWebViewWake()) return;
+        boolean fromPlayer = PlayerBridge.get().consumePendingWebViewWake();
         if (bridge == null || bridge.getWebView() == null) return;
         WebView webView = bridge.getWebView();
         webView.post(() -> {
@@ -131,6 +193,34 @@ public class MainActivity extends BridgeActivity {
             } catch (Throwable ignored) {
                 /* older WebView */
             }
+            if (!fromPlayer) return;
+            // Leanback Chromium often keeps a black surface until visibility flips.
+            try {
+                webView.setVisibility(View.INVISIBLE);
+            } catch (Throwable ignored) {
+                /* older WebView */
+            }
+            webView.post(() -> {
+                try {
+                    webView.setVisibility(View.VISIBLE);
+                    resumeHostWebView();
+                    webView.invalidate();
+                    webView.requestLayout();
+                    webView.requestFocus();
+                    webView.evaluateJavascript(
+                        "(function(){try{"
+                            + "window.dispatchEvent(new Event('smp-native-player-returned'));"
+                            + "var r=document.documentElement;"
+                            + "r.style.transform='translateZ(0)';"
+                            + "void r.offsetHeight;"
+                            + "r.style.transform='';"
+                            + "}catch(e){}})();",
+                        null
+                    );
+                } catch (Throwable ignored) {
+                    /* older WebView */
+                }
+            });
         });
     }
 
@@ -208,7 +298,9 @@ public class MainActivity extends BridgeActivity {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 webView.setDefaultFocusHighlightEnabled(false);
                 webView.setFocusedByDefault(true);
-                webView.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, true);
+                // waivedWhenNotVisible=true lets Chromium drop the compositor while
+                // PlayerActivity is in front — returning then paints a black WebView.
+                webView.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false);
             }
             webView.post(() -> webView.requestFocus(View.FOCUS_DOWN));
         }

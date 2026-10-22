@@ -2948,14 +2948,16 @@ html[data-tv="1"] .player-home-focus-still img {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: 80% 8%;
+  object-position: 80% 12%;
+  transform: translateY(-10%);
   opacity: 0;
   transition: opacity 0.45s ease;
 }
 html[data-tv="1"] .player-home-stage .player-home-focus-still img {
   inset: 0;
   height: 100%;
-  object-position: 82% 8%;
+  object-position: 82% 12%;
+  transform: translateY(-10%);
   -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 40%, rgba(0, 0, 0, 0.7) 56%, rgba(0, 0, 0, 0.28) 70%, rgba(0, 0, 0, 0.06) 82%, transparent 100%);
   mask-image: linear-gradient(180deg, #000 0%, #000 40%, rgba(0, 0, 0, 0.7) 56%, rgba(0, 0, 0, 0.28) 70%, rgba(0, 0, 0, 0.06) 82%, transparent 100%);
 }
@@ -2968,23 +2970,46 @@ html[data-tv="1"] .player-home-focus-still img.is-front {
 html[data-tv="1"] .player-home-focus-still img.is-behind {
   opacity: 0;
 }
-html[data-tv="1"] .player-home-spot-stage {
+html[data-tv="1"] .player-home-stage-copy {
   position: absolute;
-  left: 6.9rem;
+  left: 0;
+  right: 0;
+  top: 4.25rem;
+  bottom: 0.35rem;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 0;
+  padding-left: 6.75rem;
+  overflow: hidden;
+  pointer-events: none;
+}
+html[data-tv="1"][data-tv-nav-open="1"] .player-home-stage-copy {
+  padding-left: 18.5rem;
+}
+html[data-tv="1"] .player-home-spot-stage {
+  position: relative;
+  left: 0;
   top: auto;
-  bottom: 23.5rem;
+  bottom: auto;
   z-index: 2;
   width: min(42rem, 48%);
-  /* Grow upward with full synopsis — no max-height (that + flex-shrink clipped the last line). */
   height: auto;
   max-height: none;
-  min-height: 14rem;
+  flex: 0 0 auto;
+  margin: 0 0 6.5rem;
   pointer-events: none;
-  overflow: visible;
+  overflow: hidden;
   isolation: isolate;
 }
-html[data-tv="1"][data-tv-nav-open="1"] .player-home-spot-stage {
-  left: 18.7rem;
+html[data-tv="1"] .player-home-active-row-name {
+  position: relative;
+  z-index: 4;
+  flex: 0 0 auto;
+  width: min(42rem, 70%);
+  margin: 0.15rem 0 0.1rem;
+  pointer-events: none;
 }
 html[data-tv="1"] .player-home-spot {
   position: relative;
@@ -3067,12 +3092,14 @@ html[data-tv="1"] .media-details-service-logo.player-service-brand-mark--color {
 html[data-tv="1"] .player-home-spot-logo {
   display: block;
   flex-shrink: 0;
-  height: 4.85rem;
+  height: 4.2rem;
+  max-height: 4.2rem;
   width: auto;
   max-width: min(100%, 22rem);
   object-fit: contain;
   object-position: left bottom;
-  overflow: visible;
+  overflow: hidden;
+  transform: none !important;
   filter: drop-shadow(0 10px 28px rgba(0, 0, 0, 0.7));
 }
 html[data-tv="1"] .player-home-spot-title {
@@ -3224,10 +3251,11 @@ html[data-tv="1"] .player-tv-screensaver {
 html[data-tv="1"] .player-tv-screensaver-slide {
   position: absolute;
   inset: 0;
-  background-position: center center;
-  background-size: cover;
-  background-repeat: no-repeat;
-  transform: scale(1.04);
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center center;
+  pointer-events: none;
 }
 html[data-tv="1"] .player-tv-screensaver-slide--enter {
   animation: player-tv-screensaver-in 1.4s ease both;
@@ -3236,12 +3264,12 @@ html[data-tv="1"] .player-tv-screensaver-slide--exit {
   animation: player-tv-screensaver-out 1.4s ease both;
 }
 @keyframes player-tv-screensaver-in {
-  from { opacity: 0; transform: scale(1.08); }
-  to { opacity: 1; transform: scale(1.04); }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 @keyframes player-tv-screensaver-out {
-  from { opacity: 1; transform: scale(1.04); }
-  to { opacity: 0; transform: scale(1.01); }
+  from { opacity: 1; }
+  to { opacity: 0; }
 }
 html[data-tv="1"] .player-tv-screensaver-scrim {
   position: absolute;
@@ -3436,16 +3464,173 @@ html[data-tv="1"] .player-home-now-playing [data-tv-item="1"]:focus-visible {
   background: #fff;
   box-shadow: none;
 }
-html[data-tv="1"] .player-home-stage-rail {
+html[data-tv="1"] [data-tv-search="1"] {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0.35rem;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #060a10;
+  padding: 0.95rem 7.5rem 0 6.75rem;
+}
+html[data-tv="1"][data-tv-nav-open="1"] [data-tv-search="1"] {
+  padding-left: 18.5rem;
+}
+html[data-tv="1"] .player-tv-search {
+  position: relative;
   z-index: 2;
-  padding-left: 6.75rem;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.05rem;
+  padding: 0 0 0.55rem;
+}
+html[data-tv="1"] .player-tv-search-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overflow-anchor: none;
+  padding: 0.65rem 0 5rem;
+  scroll-padding-top: 0.65rem;
+}
+html[data-tv="1"] .player-tv-search-body .player-home-rows {
+  padding-bottom: 0.75rem !important;
+}
+html[data-tv="1"] .player-tv-search-body .player-rail-enter {
+  animation: none !important;
+  transform: none !important;
+  opacity: 1 !important;
+}
+html[data-tv="1"] .player-tv-search-body .player-row-header {
+  overflow: visible;
+  min-height: 2.1rem;
+  padding-left: 0.75rem;
+}
+html[data-tv="1"] .player-tv-search-body [data-tv-poster-rail="1"] {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  padding-top: 1.05rem !important;
+  padding-bottom: 0.9rem !important;
+  padding-left: 0.9rem !important;
+  padding-right: 1.25rem !important;
+  scroll-padding-left: 0.9rem;
+}
+html[data-tv="1"] .player-tv-search-query {
+  min-height: 3.05rem;
+  width: 100%;
+  margin: 0;
+  padding: 0.6rem 1.1rem;
+  border-radius: 0.8rem;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #fff;
+  font-size: 1.5rem;
+  font-weight: 650;
+  line-height: 1.3;
+  text-align: left;
+}
+html[data-tv="1"] .player-tv-search-query.is-empty {
+  color: rgba(255, 255, 255, 0.45);
+  font-weight: 500;
+}
+html[data-tv="1"] .player-tv-search-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1.15em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: #fff;
+}
+html[data-tv="1"] .player-tv-search-pad {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+}
+html[data-tv="1"] .player-tv-search-row {
+  display: flex;
+  justify-content: center;
+  gap: 0.36rem;
+}
+html[data-tv="1"] .player-tv-search-key {
+  min-width: 2.84rem;
+  height: 2.84rem;
+  padding: 0 0.63rem;
+  border: 0;
+  border-radius: 0.63rem;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  font-size: 1.125rem;
+  font-weight: 700;
+  outline: none;
+}
+html[data-tv="1"] .player-tv-search-key.is-wide {
+  min-width: 6.75rem;
+  font-size: 0.9rem;
+  letter-spacing: 0.04em;
+}
+html[data-tv="1"] .player-tv-search-key:focus,
+html[data-tv="1"] .player-tv-search-key:focus-visible {
+  background: #fff;
+  color: #111;
+  transform: scale(1.06);
+}
+html[data-tv="1"] .player-tv-search-recent-chip:focus,
+html[data-tv="1"] .player-tv-search-recent-chip:focus-visible {
+  background: #fff;
+  color: #111;
+}
+html[data-tv="1"] .player-tv-search-recent {
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0 0 1.35rem;
+  padding: 0.25rem 0.4rem 0.15rem 1rem;
+}
+html[data-tv="1"] .player-tv-search-recent-label {
+  margin: 0 0 0.55rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.55);
+}
+html[data-tv="1"] .player-tv-search-recent-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+html[data-tv="1"] .player-tv-search-recent-chip {
+  max-width: 16rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  padding: 0.7rem 1.1rem;
+  font-size: 1.05rem;
+  font-weight: 650;
+  outline: none;
+}
+html[data-tv="1"] .player-home-stage-rail {
+  position: relative;
+  left: auto;
+  right: auto;
+  bottom: auto;
+  z-index: 3;
+  flex: 0 0 auto;
+  width: 100%;
+  padding-left: 0;
+  pointer-events: auto;
 }
 html[data-tv="1"][data-tv-nav-open="1"] .player-home-stage-rail {
-  padding-left: 18.5rem;
+  padding-left: 0;
 }
 html[data-tv="1"] .player-home-stage-rail [data-tv-poster-rail="1"] {
   padding-top: 0.7rem !important;
@@ -3492,13 +3677,33 @@ html[data-tv="1"] .player-home-stage .player-poster-caption,
 html[data-tv="1"] .player-home-stage [data-tv-poster-btn="1"] + div {
   display: none !important;
 }
+html[data-tv="1"] .player-home-stage [data-tv-search="1"] .player-poster-caption,
+html[data-tv="1"] .player-home-stage [data-tv-search="1"] [data-tv-poster-btn="1"] + div {
+  display: block !important;
+}
 html[data-tv="1"] .player-home-stage .player-rail-arrows {
   display: none !important;
+}
+html[data-tv="1"] .player-home-stage-rail .player-rail-enter {
+  animation: none !important;
+  opacity: 1 !important;
+  transform: none !important;
+}
+html[data-tv="1"] .player-home-row-park {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 0;
 }
 html[data-tv="1"] .player-home-next-row {
   padding-left: 0;
   pointer-events: none;
   margin-top: 0.05rem;
+  max-height: 5.5rem;
+  overflow: hidden;
 }
 html[data-tv="1"] .player-home-next-row .player-row-header {
   margin: 0;
@@ -3798,6 +4003,10 @@ html[data-tv="1"] [data-tv-poster="1"],
 html[data-tv="1"] .player-poster-frame {
   border: none;
 }
+/* Progressive JPEGs paint scan by scan. Hold the bitmap until it is whole. */
+.player-poster-pending {
+  visibility: hidden !important;
+}
 
 /* End-of-rail View More — poster shelf washed into the card, amber CTA on top. */
 html[data-tv="1"] .player-view-more-card {
@@ -3932,6 +4141,20 @@ html[data-tv="1"] [data-tv-episode-btn="1"][data-tv-focused="1"]:focus-visible {
 html[data-tv="1"] [data-tv-poster-grid="1"],
 html[data-tv="1"] .upgrader-poster-grid {
   padding-bottom: calc(420px / var(--tv-zoom, 1));
+}
+/* Library grids need that gap so the last row clears the bezel.
+   Search stacks TV, Movies, and the rest — the gap was hiding every group after the first. */
+html[data-tv="1"] .player-tv-search-body [data-tv-poster-grid="1"],
+html[data-tv="1"] .player-tv-search-body .upgrader-poster-grid {
+  padding-bottom: 0.75rem !important;
+}
+html[data-tv="1"] .player-tv-search-body [data-tv-row-id="search:episode"] [data-tv-poster-grid="1"] {
+  column-gap: 1.5rem !important;
+  row-gap: 2.25rem !important;
+}
+html[data-tv="1"] .player-tv-search-body [data-tv-poster-card="1"] {
+  scroll-margin-top: 12px;
+  scroll-margin-bottom: 12px;
 }
 
 html[data-tv="1"] [data-tv-poster-card="1"] {

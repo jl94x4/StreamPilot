@@ -531,14 +531,12 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
             >
                 <div
                     data-tv-nav-root="1"
-                    className={`pointer-events-auto flex max-h-[calc(100%-3rem)] flex-col rounded-[28px] bg-[#0b1018]/80 backdrop-blur-2xl transition-[width] duration-200 ${
-                        isTvShell ? 'border-0 shadow-none' : 'border border-white shadow-[0_18px_50px_rgba(0,0,0,0.45)]'
+                    className={`pointer-events-auto flex max-h-[calc(100%-3rem)] flex-col rounded-[28px] bg-[#0b1018]/80 backdrop-blur-2xl ${
+                        isTvShell ? 'border-0 shadow-none' : 'border border-white shadow-[0_18px_50px_rgba(0,0,0,0.45)] transition-[width] duration-200'
                     } ${
                         isTvShell ? 'overflow-x-visible overflow-y-auto' : 'overflow-hidden'
                     } ${
-                        expanded
-                            ? `w-[16.25rem] ${isTvShell ? 'h-[calc(100%-3rem)]' : ''}`
-                            : 'w-[4.25rem]'
+                        expanded ? 'w-[16.25rem]' : 'w-[4.25rem]'
                     }`}
                 >
                     {renderNav(expanded, true)}

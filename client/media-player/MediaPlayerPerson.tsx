@@ -12,7 +12,6 @@ import {
 import { fetchPlayerPersonBundle, setMediaPlayerWatched } from './api';
 import { writePlayerScrollTop } from './playerMemory';
 import {
-    plexBackdropPreviewUrl,
     plexBackdropUrl,
     plexImageUrl,
     playerCardImageUrl,
@@ -196,7 +195,6 @@ export const MediaPlayerPerson: React.FC<Props> = ({ actorId, name, thumb, onBac
         return null;
     }, [items]);
     const backdropUrl = plexBackdropUrl(artSource);
-    const backdropPreviewUrl = plexBackdropPreviewUrl(artSource);
 
     const filmographyRows = useMemo<PlayerPersonCreditRow[]>(() => (
         filmography.length
@@ -322,7 +320,6 @@ export const MediaPlayerPerson: React.FC<Props> = ({ actorId, name, thumb, onBac
                     <PlayerBackdropImage
                         key={backdropUrl}
                         src={backdropUrl}
-                        previewSrc={isTvShell ? backdropPreviewUrl : undefined}
                         className="player-person-ambient-img h-full w-full object-cover"
                         fetchPriority="low"
                         onError={() => setBackdropFailed(true)}

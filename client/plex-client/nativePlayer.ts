@@ -68,6 +68,17 @@ export type NativePlayerSessionPayload = {
     meta?: string;
     logoUrl?: string;
     posterUrl?: string;
+    /** Android TV home "Continue Watching" row. Native downloads artUrl once and serves it token-free. */
+    watchNext?: {
+        serverId?: string;
+        type: 'movie' | 'episode';
+        title: string;
+        episodeTitle?: string;
+        seasonNumber?: number;
+        episodeNumber?: number;
+        artUrl?: string;
+        artHeaders?: Record<string, string>;
+    } | null;
     music?: boolean;
     chapters?: Array<{ startMs: number; title?: string }>;
     previewThumbTemplate?: string | null;
@@ -473,7 +484,13 @@ export const updateNativePlayerSession = async (session: NativePlayerSessionPayl
     if (!(await isNativePlayerAvailable())) return false;
     const bridge = window.NativeMediaPlayer;
     if (!bridge?.updateSession) return false;
-    return bridge.updateSession(session);
+    // Neighbors often return before PlayerActivity exists. A dropped update
+    // leaves previous/next hidden for the whole play.
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+        if (await bridge.updateSession(session)) return true;
+        await new Promise((resolve) => window.setTimeout(resolve, 250));
+    }
+    return false;
 };
 
 export const setNativePlayerPaused = async (paused: boolean): Promise<boolean> => {

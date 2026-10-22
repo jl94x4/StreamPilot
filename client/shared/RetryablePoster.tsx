@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { NoPosterPlaceholder } from './NoPosterPlaceholder';
-import { warmPosterUrl } from './posterWarmCache';
+import { isPosterUrlWarm, warmPosterUrl } from './posterWarmCache';
 
 const MAX_RETRIES = 4;
 
@@ -33,24 +33,50 @@ export const RetryablePoster: React.FC<Props> = ({
     const [useFallback, setUseFallback] = useState(false);
     const [failed, setFailed] = useState(!src && !fallbackSrc);
     const [displaySrc, setDisplaySrc] = useState(src || fallbackSrc);
+    const [ready, setReady] = useState(() => isPosterUrlWarm(src || fallbackSrc));
+    const imgRef = useRef<HTMLImageElement | null>(null);
 
     useEffect(() => {
         setAttempt(0);
         setUseFallback(false);
         setFailed(!src && !fallbackSrc);
         setDisplaySrc(src || fallbackSrc);
+        setReady(isPosterUrlWarm(src || fallbackSrc));
         // Warm the new URL immediately (cover swaps change the stamp ? new key).
         if (src || fallbackSrc) warmPosterUrl(src || fallbackSrc);
     }, [src, fallbackSrc]);
+
+    const currentSrc = withRetryParam(displaySrc, attempt);
+
+    useLayoutEffect(() => {
+        const img = imgRef.current;
+        if (img?.complete && img.naturalWidth > 0) {
+            setReady(true);
+            return;
+        }
+        if (isPosterUrlWarm(displaySrc)) {
+            setReady(true);
+            return;
+        }
+        setReady(false);
+    }, [currentSrc, displaySrc]);
 
     if (failed || (!src && !fallbackSrc)) {
         return <NoPosterPlaceholder compact={compactPlaceholder} />;
     }
 
-    const currentSrc = withRetryParam(displaySrc, attempt);
+    const reveal = (img: HTMLImageElement) => {
+        const finish = () => setReady(true);
+        if (typeof img.decode === 'function') {
+            img.decode().then(finish, finish);
+            return;
+        }
+        finish();
+    };
 
     return (
         <img
+            ref={imgRef}
             key={`${useFallback ? 'fb' : 'src'}-${attempt}-${currentSrc}`}
             src={currentSrc}
             alt={alt}
@@ -58,10 +84,10 @@ export const RetryablePoster: React.FC<Props> = ({
             decoding="async"
             {...(fetchPriority ? { fetchPriority } : {})}
             draggable={false}
-            className={className}
-            onLoad={() => {
-                // Hold the decoded bitmap briefly for Home row remounts.
+            className={`${className}${ready ? '' : ' player-poster-pending'}`}
+            onLoad={(event) => {
                 warmPosterUrl(displaySrc);
+                reveal(event.currentTarget);
             }}
             onError={() => {
                 if (!useFallback && fallbackSrc && fallbackSrc !== src) {

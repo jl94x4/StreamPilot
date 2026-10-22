@@ -10,7 +10,7 @@ type Props = {
     onError?: () => void;
 };
 
-/** Tiny JPEG first, then the sharp 1080p art — same final pixels, much faster first paint. */
+/** Full backdrop. The image shown is the sharp source, not a soft preview. */
 export const PlayerBackdropImage: React.FC<Props> = ({
     src,
     previewSrc,

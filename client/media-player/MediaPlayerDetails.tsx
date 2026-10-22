@@ -13,7 +13,7 @@ import {
     useDiscoverI18n,
     type CombinedRatings,
 } from './host';
-import { addMediaPlayerPlaylistItem, createMediaPlayerPlaylist, fetchMediaPlayerItem, fetchMediaPlayerItemMore, fetchMediaPlayerNeighbors, fetchMediaPlayerPlaylists, fetchMediaPlayerWatchlist, setMediaPlayerWatched, setMediaPlayerWatchlisted, setSeasonEpisodesWatched } from './api';
+import { addMediaPlayerPlaylistItem, createMediaPlayerPlaylist, fetchMediaPlayerItem, fetchMediaPlayerItemMore, fetchMediaPlayerNeighbors, fetchMediaPlayerPlaylists, fetchMediaPlayerWatchlist, pausePlayerBackgroundLoads, resumePlayerBackgroundLoads, setMediaPlayerWatched, setMediaPlayerWatchlisted, setSeasonEpisodesWatched } from './api';
 import { MediaPlayerThemeTune } from './MediaPlayerThemeTune';
 import {
     OVERVIEW_FACT_WIDTH_CLASS,
@@ -53,8 +53,8 @@ import {
     MUSIC_NOW_PLAYING_EVENT,
     type MusicNowPlayingDetail,
     plexImageUrl,
+    PLAYER_POSTER_QUALITY,
     resizePlexArtUrl,
-    plexBackdropPreviewUrl,
     plexBackdropUrl,
     plexLogoUrl,
     applyRememberedProgress,
@@ -272,7 +272,7 @@ const PhoneEpisodeList: React.FC<{
                         <div className="relative w-[7.4rem] shrink-0 overflow-hidden rounded-lg bg-black/40">
                             {row.thumb ? (
                                 <img
-                                    src={plexImageUrl(row.thumb, 320, 180, { quality: 60 })}
+                                    src={plexImageUrl(row.thumb, 320, 180, { quality: PLAYER_POSTER_QUALITY })}
                                     alt=""
                                     className="aspect-video w-full object-cover"
                                 />
@@ -383,6 +383,10 @@ export const MediaPlayerDetails: React.FC<Props> = ({
     playbackActive = false,
 }) => {
     const { t, locale } = useDiscoverI18n();
+    useEffect(() => {
+        pausePlayerBackgroundLoads();
+        return () => resumePlayerBackgroundLoads();
+    }, []);
     const [settings] = usePlayerSettings();
     const [gridSize] = useDiscoverGridSize();
     const [item, setItem] = useState<PlayerItem | null>(() => {
@@ -1372,13 +1376,12 @@ export const MediaPlayerDetails: React.FC<Props> = ({
     useEffect(() => {
         if (!item?.ratingKey) return undefined;
         const posterSampleUrl = plexImageUrl(item.thumb, 160, 240, { quality: 40 });
-        const previewUrl = plexBackdropPreviewUrl(item.art || item.thumb);
         const url = plexBackdropUrl(item.art || item.thumb);
-        if (!posterSampleUrl && !url && !previewUrl) return undefined;
+        if (!posterSampleUrl && !url) return undefined;
         let cancelled = false;
         let framed = false;
         applyTvDetailsSurface(isTvShell ? TV_FLOOR_RGB : DEFAULT_BACKDROP_SURFACE_RGB);
-        const artUrl = url || previewUrl;
+        const artUrl = url;
         const frameArt = (position: string) => {
             if (cancelled || framed) return;
             framed = true;
@@ -1390,7 +1393,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         const sampleSurface = async (position: string) => {
             const node = document.querySelector<HTMLElement>('[data-tv-details="1"]');
             const backdrop = node?.querySelector<HTMLElement>('.media-details-hero-backdrop');
-            const sampleUrl = (isPhoneDetailsUi() ? (artUrl || previewUrl) : (previewUrl || artUrl)) || posterSampleUrl;
+            const sampleUrl = artUrl || posterSampleUrl;
             const frame = backdrop && backdrop.clientWidth > 2 && backdrop.clientHeight > 2
                 ? { width: backdrop.clientWidth, height: backdrop.clientHeight, position }
                 : undefined;
@@ -1576,11 +1579,6 @@ export const MediaPlayerDetails: React.FC<Props> = ({
     ) || item;
     const isEpisodeHub = isTvShell && (item.type === 'episode' || item.type === 'season');
     const backdropUrl = episodeHubBackdropUrl || plexBackdropUrl(item.art || item.thumb);
-    const backdropPreviewUrl = plexBackdropPreviewUrl(
-        isEpisodeHub
-            ? (hubItem.art || hubItem.thumb || item.art || item.thumb)
-            : (item.art || item.thumb),
-    );
     const hubTechPills = isTvShell && (item.type === 'episode' || item.type === 'season')
         ? episodeTechPills(hubItem)
         : [];
@@ -2167,7 +2165,6 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                         <PlayerBackdropImage
                             key={backdropUrl}
                             src={backdropUrl}
-                            previewSrc={isTvShell ? backdropPreviewUrl : undefined}
                             className="absolute inset-0 w-full h-full object-cover"
                             fetchPriority="high"
                             onLoad={() => setBackdropReady(true)}
@@ -2891,7 +2888,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                         >
                                             {row.thumb || item.thumb ? (
                                                 <img
-                                                    src={plexImageUrl(row.thumb || item.thumb, 300, 450, { quality: 60 })}
+                                                    src={plexImageUrl(row.thumb || item.thumb, 300, 450, { quality: PLAYER_POSTER_QUALITY })}
                                                     alt=""
                                                     className="aspect-[2/3] w-full object-cover transition-transform group-hover:scale-[1.03]"
                                                 />
@@ -2982,7 +2979,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                         >
                                             {row.thumb ? (
                                                 <img
-                                                    src={plexImageUrl(row.thumb, 720, 405, { quality: 60 })}
+                                                    src={plexImageUrl(row.thumb, 720, 405, { quality: PLAYER_POSTER_QUALITY })}
                                                     alt=""
                                                     className="aspect-video w-full object-cover transition-transform group-hover:scale-[1.03]"
                                                 />
@@ -3157,7 +3154,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                         >
                                             {extra.thumb ? (
                                                 <img
-                                                    src={plexImageUrl(extra.thumb, 426, 240, { quality: 60 })}
+                                                    src={plexImageUrl(extra.thumb, 426, 240, { quality: PLAYER_POSTER_QUALITY })}
                                                     alt=""
                                                     className="aspect-video w-full object-cover transition-transform group-hover:scale-[1.03]"
                                                 />

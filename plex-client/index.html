@@ -1040,6 +1040,11 @@
       gap: 0.45rem !important;
       padding-bottom: calc(280px / var(--tv-zoom, 1)) !important;
     }
+    /* That pad is for the home scroller. Inside search it shoves the next row
+       off the list and leaves a black gap under Continue Watching. */
+    html[data-tv="1"] .player-tv-search-body .player-home-rows {
+      padding-bottom: 0.75rem !important;
+    }
     html[data-tv="1"] .player-home-rows [data-tv-poster-rail="1"] {
       /* Room for scale(1.05) + soft drop-shadow above/below — overflow-x rails clip Y. */
       padding-top: 1.2rem !important;
@@ -1065,6 +1070,19 @@
       padding-right: 1.35rem !important;
       /* Slightly more air between posters than default gap-4 (1rem). */
       gap: 1.2rem !important;
+    }
+    /* Search list is its own scroller. The home rail's negative margin
+       pulls the first poster under the left edge and clips the row. */
+    html[data-tv="1"] .player-tv-search-body [data-tv-poster-rail="1"] {
+      width: 100% !important;
+      max-width: 100% !important;
+      margin-left: 0 !important;
+      margin-right: 0 !important;
+      padding-top: 1.05rem !important;
+      padding-bottom: 0.9rem !important;
+      padding-left: 0.9rem !important;
+      padding-right: 1.25rem !important;
+      scroll-padding-left: 0.9rem !important;
     }
     html[data-tv="1"] [data-tv-poster-btn="1"],
     html[data-tv="1"] [data-tv-poster-card="1"] {
@@ -2172,6 +2190,15 @@
     html[data-tv="1"] .player-home-stage [data-tv-poster-btn="1"] + div {
       display: none !important;
     }
+    /* Home hides names because the spotlight shows them. Search has no spotlight. */
+    html[data-tv="1"] .player-home-stage [data-tv-search="1"] .player-poster-caption,
+    html[data-tv="1"] .player-home-stage [data-tv-search="1"] [data-tv-poster-btn="1"] + div {
+      display: block !important;
+    }
+    html[data-tv="1"] .player-tv-search-body .player-row-header {
+      padding-left: 0.75rem !important;
+      overflow: visible !important;
+    }
     html[data-tv="1"] .player-home-stage .player-rail-arrows {
       display: none !important;
     }
@@ -2452,9 +2479,23 @@
       /* Last row must be able to scroll fully above the overscan/bezel. */
       padding-bottom: calc(420px / var(--tv-zoom, 1)) !important;
     }
+    /* That bezel gap is per grid. Search stacks TV, Movies, Episodes — with
+       TV zoom the gap is most of the list, so the next group is a black void. */
+    html[data-tv="1"] .player-tv-search-body [data-tv-poster-grid="1"],
+    html[data-tv="1"] .player-tv-search-body .upgrader-poster-grid {
+      padding-bottom: 0.75rem !important;
+    }
+    html[data-tv="1"] .player-tv-search-body [data-tv-row-id="search:episode"] [data-tv-poster-grid="1"] {
+      column-gap: 1.5rem !important;
+      row-gap: 2.25rem !important;
+    }
     html[data-tv="1"] [data-tv-poster-card="1"] {
       scroll-margin-top: calc(24px / var(--tv-zoom, 1));
       scroll-margin-bottom: calc(96px / var(--tv-zoom, 1));
+    }
+    html[data-tv="1"] .player-tv-search-body [data-tv-poster-card="1"] {
+      scroll-margin-top: 12px;
+      scroll-margin-bottom: 12px;
     }
     html[data-tv="1"] #media-player-scroll:has([data-tv-poster-grid="1"]),
     html[data-tv="1"] #media-player-scroll:has(.upgrader-poster-grid) {
@@ -3251,7 +3292,13 @@
     }
     html[data-tv="1"] [data-tv-play="1"],
     html[data-tv="1"] [data-tv-nav="1"] {
-      transition: background-color 0.18s ease, width 0.2s ease !important;
+      transition: background-color 0.18s ease !important;
+    }
+    /* Do not tween width or lock the menu to the screen height. That stretch
+       played over Search when the side menu opened or closed. */
+    html[data-tv="1"] [data-tv-nav-root="1"] {
+      transition: none !important;
+      height: auto !important;
     }
     html[data-tv="1"] [data-tv-season-art="1"],
     html[data-tv="1"] [data-tv-episode-art="1"],

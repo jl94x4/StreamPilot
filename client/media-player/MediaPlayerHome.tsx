@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Check, Film, Music, Search, Tv } from 'lucide-react';
 import {
     DiscoverGridSizeSelect,
@@ -14,10 +14,10 @@ import {
     upgraderPosterGridClass,
     upgraderPosterGridStyle,
 } from './host';
-import { fetchMediaPlayerHome, fetchMediaPlayerHomeFull, fetchMediaPlayerHomeHero, fetchMediaPlayerHomeHeroRefresh, fetchMediaPlayerItem, fetchMediaPlayerWatchlist, prefetchMediaPlayerItem, searchMediaPlayer, setMediaPlayerWatched } from './api';
+import { beginHomeRowPriority, endHomeRowPriority, fetchMediaPlayerHome, fetchMediaPlayerHomeFull, fetchMediaPlayerHomeHero, fetchMediaPlayerHomeHeroRefresh, fetchMediaPlayerItem, fetchMediaPlayerLibrary, fetchMediaPlayerWatchlist, fetchPopularSearches, prefetchMediaPlayerItem, recordPopularSearch, searchMediaPlayer, setMediaPlayerWatched } from './api';
 import { isPlexDirectMode } from '../plex-client/config';
 import {
-    peekRememberedRowFocusKey,
+    forgetHomePosterFocus,
     peekRememberedTvFocusKey,
     pinTvRailItemToSlot,
     rememberTvFocusKey,
@@ -26,7 +26,7 @@ import {
 import { PLAYER_APP_BASE, PLAYER_SCROLL_ID } from './paths';
 import { MediaPlayerHomeHero, type HomeHeroSlide } from './MediaPlayerHomeHero';
 import { PlayerPosterCard } from './PlayerPosterCard';
-import { PlayerRail } from './PlayerRail';
+import { PlayerRail, PlayerTvRowStack } from './PlayerRail';
 import { viewMoreShelfFromHub, type ViewMoreShelfSource } from './PlayerViewMoreCard';
 import {
     applyHomeRowOrder,
@@ -41,14 +41,18 @@ import {
 } from './playerSettings';
 import {
     consumePlayerSearchFocus,
+    consumePlayerSearchQuery,
     isHeroSlidesCacheFresh,
     isPlayerHomeCacheFresh,
     mergePlayerHomePayloads,
     PLAYER_HOME_RESET_EVENT,
+    PLAYER_SEARCH_CLEAR_EVENT,
     PLAYER_SEARCH_INPUT_ID,
     PLAYER_METADATA_REFRESHED_EVENT,
     PLAYER_SEARCH_OPEN_EVENT,
     PLAYER_VOICE_RESULT_EVENT,
+    readRecentSearches,
+    rememberRecentSearch,
     coalescePlayerHomeWithCache,
     playerHomeHasContentHubs,
     playerHomeHasRows,
@@ -66,8 +70,9 @@ import { PlayerTvStatusPanel } from './PlayerTvStatusPanel';
 import { PlayerClearLogo } from './PlayerClearLogo';
 import { PlayerServiceBrandMark } from './PlayerServiceBrandMark';
 import { PlayerTvScreensaver } from './PlayerTvScreensaver';
+import { PlayerTvSearch, PlayerTvSearchRecents } from './PlayerTvSearch';
 import { itemHasBillboardBrandMeta } from './studioLogo.js';
-import { applyRememberedProgress, asRecentlyAddedPlayerItem, formatPlayerDate, formatPlayerDuration, heroRowCardItem, hideWatchedPlayerItems, isMusicPlayerItem, keepContinueWatchingPoster, mapContinueWatchingItemsForLayout, pickRicherSummary, plexBackdropPreviewUrl, plexLogoUrl, PLAYER_PROGRESS_EVENT, prefetchContinueWatchingImages, replaceFamilyContinueSlot, restoreContinueSlot, watchTargetTouches, withShowPoster } from './playerUtils';
+import { applyRememberedProgress, asRecentlyAddedPlayerItem, formatPlayerDate, formatPlayerDuration, heroRowCardItem, hideWatchedPlayerItems, isMusicPlayerItem, isPlayerBackdropReady, keepContinueWatchingPoster, mapContinueWatchingItemsForLayout, pickRicherSummary, pinTvNeighborBackdrops, playerItemBackdropUrl, plexBackdropUrl, plexLogoUrl, PLAYER_PROGRESS_EVENT, prefetchContinueWatchingImages, prefetchHomeRowPosters, primeNearbyTvBillboard, replaceFamilyContinueSlot, restoreContinueSlot, stampFamilyLastViewed, warmPlayerBackdrop, watchTargetTouches, withShowPoster } from './playerUtils';
 import { usePlayerSettings } from './usePlayerSettings';
 import type { PlayerHome, PlayerItem, PlayerLibraryHub, PlayerPlayOptions, PlayerSection } from './types';
 
@@ -162,10 +167,7 @@ const HomeFocusStill: React.FC<{
             }
             currentRef.current = next;
         };
-        const warm = Array.from(document.images).find((img) => (
-            img.currentSrc === next && img.complete && img.naturalWidth > 0
-        ));
-        if (warm) {
+        if (isPlayerBackdropReady(next)) {
             commit();
             return;
         }
@@ -175,14 +177,25 @@ const HomeFocusStill: React.FC<{
     }, []);
 
     const showTimerRef = useRef(0);
+    const keyTimerRef = useRef(0);
     const showSoon = useCallback((next: string) => {
         window.clearTimeout(showTimerRef.current);
         if (!next) return;
         // Skip the in-between posters while the remote is repeating.
         showTimerRef.current = window.setTimeout(() => show(next), 70);
     }, [show]);
+    const keySoon = useCallback((key: string) => {
+        window.clearTimeout(keyTimerRef.current);
+        if (!key) return;
+        // The focus ring moves immediately. The billboard waits until the
+        // remote pauses so a fast scroll doesn't rebuild Home on every poster.
+        keyTimerRef.current = window.setTimeout(() => onFocusKey?.(key), 90);
+    }, [onFocusKey]);
 
-    useEffect(() => () => window.clearTimeout(showTimerRef.current), []);
+    useEffect(() => () => {
+        window.clearTimeout(showTimerRef.current);
+        window.clearTimeout(keyTimerRef.current);
+    }, []);
 
     useEffect(() => {
         if (enabled && seed) show(seed);
@@ -191,19 +204,23 @@ const HomeFocusStill: React.FC<{
     useEffect(() => {
         if (!enabled) return undefined;
         const onFocus = (event: FocusEvent) => {
+            primeNearbyTvBillboard(event.target, prefetchMediaPlayerItem);
             const next = backdropFromFocusTarget(event.target);
-            if (next) showSoon(next);
+            if (next) {
+                if (isPlayerBackdropReady(next)) show(next);
+                else showSoon(next);
+            }
             const key = itemKeyFromFocusTarget(event.target);
-            if (key) onFocusKey?.(key);
+            if (key) keySoon(key);
         };
         document.addEventListener('focusin', onFocus, true);
         const focused = document.activeElement;
         const fromFocus = backdropFromFocusTarget(focused);
         if (fromFocus) show(fromFocus);
         const fromKey = itemKeyFromFocusTarget(focused);
-        if (fromKey) onFocusKey?.(fromKey);
+        if (fromKey) keySoon(fromKey);
         return () => document.removeEventListener('focusin', onFocus, true);
-    }, [enabled, onFocusKey, show, showSoon]);
+    }, [enabled, keySoon, onFocusKey, show, showSoon]);
 
     if (!enabled) return null;
     const visible = frontOn ? front : back;
@@ -419,6 +436,36 @@ const dedupeItems = (list: PlayerItem[]) => {
     }).slice(0, 24);
 };
 
+const recentShowIdentity = (item: PlayerItem) => {
+    const raw = item.type === 'episode'
+        ? item.grandparentRatingKey
+        : item.type === 'season'
+            ? item.parentRatingKey
+            : item.type === 'show'
+                ? item.ratingKey
+                : '';
+    const id = String(raw || '').replace(/\D/g, '');
+    if (id) return `id:${id}`;
+    const title = String(item.showTitle || item.title || '').trim().toLowerCase();
+    return title ? `title:${title}` : '';
+};
+
+/** A bulk episode add collapses to one card and used to be the whole row. */
+const mergeThinRecentShows = (items: PlayerItem[], extra?: PlayerItem[]) => {
+    if (!extra?.length || items.length >= 8) return items;
+    const seen = new Set(items.map(recentShowIdentity).filter(Boolean));
+    const out = items.slice();
+    for (const show of extra) {
+        if (out.length >= 24) break;
+        if (show.type !== 'show') continue;
+        const identity = recentShowIdentity(show);
+        if (!identity || seen.has(identity)) continue;
+        seen.add(identity);
+        out.push(show);
+    }
+    return out;
+};
+
 export const MediaPlayerHome = React.memo(function MediaPlayerHome({
     active = true,
     onOpenItem,
@@ -468,36 +515,50 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         return !hasRows;
     });
     const [watchlistItems, setWatchlistItems] = useState<PlayerItem[]>([]);
+    const [recentFillBySection, setRecentFillBySection] = useState<Record<string, PlayerItem[]>>({});
+    const recentFillLoadedRef = useRef(new Set<string>());
     const networkOnline = usePlayerNetworkStatus();
     const [query, setQuery] = useState('');
+    const [recentSearches, setRecentSearches] = useState<string[]>(() => readRecentSearches());
+    const [popularSearches, setPopularSearches] = useState<string[]>([]);
     const [results, setResults] = useState<PlayerItem[]>([]);
     const [searching, setSearching] = useState(false);
     const [searchActive, setSearchActive] = useState(false);
-    /** TV: focus can land on search without IME; Select/Enter arms editing and opens the keyboard. */
-    const [searchArmed, setSearchArmed] = useState(false);
     const searchRef = useRef<HTMLInputElement>(null);
     const isTvShell = typeof document !== 'undefined' && (
         document.documentElement?.dataset?.tv === '1'
         || window.__PLEX_CLIENT__?.isTv === true
     );
-    const searchReadOnly = isTvShell && !searchArmed;
 
     useEffect(() => {
-        const openSearch = (arm = false) => {
+        const openSearch = () => {
             setSearchActive(true);
-            if (arm && isTvShell) setSearchArmed(true);
             window.setTimeout(() => {
+                if (isTvShell) {
+                    const key = document.querySelector<HTMLElement>('[data-tv-search-key="q"]');
+                    key?.focus();
+                    return;
+                }
                 searchRef.current?.focus({ preventScroll: false });
-                if (!isTvShell) searchRef.current?.select();
-            }, 0);
+                searchRef.current?.select();
+            }, 40);
         };
-        const onOpen = () => openSearch(isTvShell);
+        const onOpen = () => openSearch();
         const onVoice = (event: Event) => {
             const query = String((event as CustomEvent<string>).detail || '').trim();
-            openSearch(true);
+            // Handled live. Drop the copy kept for a Home that was not mounted yet.
+            consumePlayerSearchQuery();
+            openSearch();
             if (query) setQuery(query);
         };
-        if (consumePlayerSearchFocus()) openSearch(isTvShell);
+        const pendingQuery = consumePlayerSearchQuery();
+        if (pendingQuery) {
+            consumePlayerSearchFocus();
+            openSearch();
+            setQuery(pendingQuery);
+        } else if (consumePlayerSearchFocus()) {
+            openSearch();
+        }
         window.addEventListener(PLAYER_SEARCH_OPEN_EVENT, onOpen);
         window.addEventListener(PLAYER_VOICE_RESULT_EVENT, onVoice);
         return () => {
@@ -505,14 +566,6 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             window.removeEventListener(PLAYER_VOICE_RESULT_EVENT, onVoice);
         };
     }, [isTvShell]);
-
-    useEffect(() => {
-        if (!searchArmed || !isTvShell) return;
-        const input = searchRef.current;
-        if (!input) return;
-        input.focus();
-        input.select();
-    }, [searchArmed, isTvShell]);
 
     useEffect(() => {
         const onDraft = (event: Event) => {
@@ -532,19 +585,43 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         setDraftLibraryOrder(null);
     }, [settings.libraryNavOrder]);
 
+    const homeRefreshGen = useRef(0);
     const refreshHome = useCallback((opts?: { force?: boolean; quietRetry?: boolean }) => {
+        const gen = ++homeRefreshGen.current;
+        const current = () => gen === homeRefreshGen.current;
         const cachedHome = readPlayerHomeCache();
         const cachedHasRows = playerHomeHasRows(cachedHome);
         const cachedNeedsFull = playerHomeNeedsFull(cachedHome);
-        if (!cachedHasRows) setLoading(true);
-        else {
+        const skipPartial = !opts?.force && cachedHasRows && !!cachedHome && isPlayerHomeCacheFresh();
+        if (skipPartial && !cachedNeedsFull) {
+            if (current()) {
+                setHome(cachedHome);
+                setLoading(false);
+            }
+            return Promise.resolve();
+        }
+        beginHomeRowPriority();
+        if (!cachedHasRows) {
+            if (current()) setLoading(true);
+        } else if (current()) {
             setHome(cachedHome);
             setLoading(false);
         }
         const applyFull = (full: PlayerHome, base: PlayerHome | null) => {
-            const mergedRaw = playerHomeHasRows(full)
-                ? mergePlayerHomePayloads(full, base || full)
-                : { ...(base || full), partial: true };
+            if (!current()) return;
+            const livePins = (full.hubs || []).some((hub) => (
+                !!hub.items?.length
+                && !isContinueWatchingHub(hub)
+                && !isBecauseYouWatchedHub(hub)
+                && !/^recentlyadded\./i.test(String(hub.identifier || ''))
+            ));
+            // A successful pin list replaces what was on screen, including rows
+            // Collexions has since removed. Merge only when this pass found no pins.
+            const mergedRaw = livePins
+                ? full
+                : (playerHomeHasRows(full)
+                    ? mergePlayerHomePayloads(full, base || full)
+                    : { ...(base || full), partial: true });
             const merged = coalescePlayerHomeWithCache(mergedRaw, readPlayerHomeCache()) || mergedRaw;
             if (!playerHomeHasContentHubs(full) && !playerHomeHasContentHubs(merged)) {
                 merged.partial = true;
@@ -557,17 +634,42 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 .then((full) => applyFull(full, base))
                 .catch(() => undefined)
         );
-        const skipPartial = !opts?.force && cachedHasRows && !!cachedHome && isPlayerHomeCacheFresh();
-        if (skipPartial && !cachedNeedsFull) {
-            setLoading(false);
-            return Promise.resolve();
-        }
-        if (skipPartial && cachedNeedsFull) {
-            setLoading(false);
-            return followFull(cachedHome);
+        if (isTvShell || (skipPartial && cachedNeedsFull)) {
+            // Paint includeMeta pins as soon as they arrive. The full pass still
+            // fills empty shells and replaces the list — it must not be the first
+            // paint, or opening the app waits on every hub refill.
+            setLoading(!cachedHasRows);
+            const paintFast = (data: PlayerHome | null) => {
+                // The fast Home answer often has one mixed Recently Added row and
+                // drops pins that still need a fill. Keep the last real Home on screen.
+                if (isTvShell && cachedHasRows && cachedHome && playerHomeHasContentHubs(cachedHome)) {
+                    return cachedHome;
+                }
+                if (!current() || !data || !playerHomeHasRows(data)) return data;
+                const cached = readPlayerHomeCache();
+                const next = coalescePlayerHomeWithCache(data, cached) || data;
+                if (playerHomeHasRows(next)) writePlayerHomeCache(next);
+                setHome(next);
+                setError(null);
+                setLoading(false);
+                return next;
+            };
+            return fetchMediaPlayerHome()
+                .then((data) => paintFast(data) || data)
+                .catch(() => cachedHasRows ? cachedHome : null)
+                .then((base) => followFull(base || (cachedHasRows ? cachedHome : null)))
+                .catch((err) => {
+                    if (!current() || cachedHasRows) return;
+                    setError(String(err?.message || t('mediaPlayerPage.loadError')));
+                })
+                .finally(() => {
+                    if (current()) setLoading(false);
+                    endHomeRowPriority();
+                });
         }
         return fetchMediaPlayerHome()
             .then((data) => {
+                if (!current()) return undefined;
                 const cached = readPlayerHomeCache();
                 const next = coalescePlayerHomeWithCache(data, cached) || data;
                 if (next && playerHomeHasRows(next)) writePlayerHomeCache(next);
@@ -578,6 +680,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 return followFull(next);
             })
             .catch((err) => {
+                if (!current()) return;
                 const cached = readPlayerHomeCache();
                 if (playerHomeHasRows(cached)) {
                     // Keep showing the last good Home. Never flash "saved library" for a
@@ -593,9 +696,10 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 }
             })
             .finally(() => {
-                setLoading(false);
+                if (current()) setLoading(false);
+                endHomeRowPriority();
             });
-    }, [t]);
+    }, [isTvShell, t]);
 
     // Coming back online (or a flaky Android offline→online flip) should refetch quietly.
     useEffect(() => {
@@ -665,7 +769,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
     useEffect(() => {
         if (!active) return undefined;
         let cancelled = false;
-        void refreshHome().then(() => {
+        void refreshHome({ force: true }).then(() => {
             if (cancelled) return;
         });
         if (isTvShell) {
@@ -750,6 +854,35 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             window.clearTimeout(timer);
         };
     }, [query]);
+
+    useEffect(() => {
+        const trimmed = query.trim();
+        if (trimmed.length < 2 || searching || !results.length) return undefined;
+        const timer = window.setTimeout(() => {
+            setRecentSearches(rememberRecentSearch(trimmed));
+            void recordPopularSearch(trimmed)
+                .then((data) => setPopularSearches(Array.isArray(data?.queries) ? data.queries : []))
+                .catch(() => {});
+        }, 900);
+        return () => window.clearTimeout(timer);
+    }, [query, results, searching]);
+
+    useEffect(() => {
+        if (!isTvShell || !searchActive) return undefined;
+        let cancelled = false;
+        void fetchPopularSearches()
+            .then((data) => {
+                if (!cancelled) setPopularSearches(Array.isArray(data?.queries) ? data.queries : []);
+            })
+            .catch(() => {});
+        return () => { cancelled = true; };
+    }, [isTvShell, searchActive]);
+
+    useEffect(() => {
+        const onClear = () => setQuery('');
+        window.addEventListener(PLAYER_SEARCH_CLEAR_EVENT, onClear);
+        return () => window.removeEventListener(PLAYER_SEARCH_CLEAR_EVENT, onClear);
+    }, []);
 
     const orderedLibraries = useMemo(
         () => applyLibraryNavOrder(home?.libraries || [], libraryNavOrder),
@@ -844,7 +977,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             cwOrderSortRef.current = settings.continueWatchingSort;
         }
         const next = stabilizeContinueWatchingOrder(
-            items,
+            items.map(stampFamilyLastViewed),
             settings.continueWatchingSort,
             cwOrderKeysRef.current,
         );
@@ -864,8 +997,9 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         const directHome = isPlexDirectMode();
         const filtered = (home?.hubs || []).filter((hub) => {
             if (!hub.items?.length) return false;
-            if (isPlaylistHub(hub)) return false;
+            // TV Home shows every pinned row, including playlist pins.
             if (directHome) return true;
+            if (isPlaylistHub(hub)) return false;
             if (!showContinueWatchingRail && isContinueWatchingHub(hub)) return false;
             if (!settings.showBecauseYouWatched && isBecauseYouWatchedHub(hub)) return false;
             return true;
@@ -894,6 +1028,82 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             });
         return () => { cancelled = true; };
     }, [active, showWatchlistRail]);
+
+    const thinRecentShowKeys = useMemo(() => {
+        if (!isTvShell || settings.mixLibraries || !home) return [] as Array<{ sectionId: string; libraryKey: string }>;
+        const showLibrary = (library?: { type?: string; title?: string }) => {
+            const type = String(library?.type || '').toLowerCase();
+            if (type === 'show' || type === 'tv') return true;
+            return /\btv\b|show/i.test(String(library?.title || ''));
+        };
+        const libraryForBare = (sectionId: string) => orderedLibraries.find((library) => {
+            const bare = String(library.key || '').split('::').pop();
+            return bare === sectionId || String(library.key) === sectionId;
+        });
+        const out: Array<{ sectionId: string; libraryKey: string }> = [];
+        const seen = new Set<string>();
+        const add = (sectionId: string, count: number) => {
+            if (!sectionId || count >= 8 || seen.has(sectionId)) return;
+            const library = libraryForBare(sectionId);
+            if (!library || !showLibrary(library)) return;
+            seen.add(sectionId);
+            out.push({ sectionId, libraryKey: String(library.key) });
+        };
+        for (const hub of plexHubs) {
+            if (!isRecentHub(hub)) continue;
+            const groups = new Map<string, number>();
+            let grouped = true;
+            for (const item of hub.items || []) {
+                const id = String(item.librarySectionID || '').trim();
+                if (!id) {
+                    grouped = false;
+                    break;
+                }
+                groups.set(id, (groups.get(id) || 0) + 1);
+            }
+            if (grouped && groups.size) {
+                for (const [id, count] of groups) add(id, count);
+                continue;
+            }
+            const name = String(hub.title || '').match(/recently added\s*(?:in|·)\s+(.+)/i)?.[1]?.trim().toLowerCase();
+            if (!name || (hub.items?.length || 0) >= 8) continue;
+            const library = orderedLibraries.find((row) => row.title.trim().toLowerCase() === name);
+            if (!library || !showLibrary(library)) continue;
+            add(String(library.key || '').split('::').pop() || '', hub.items?.length || 0);
+        }
+        return out;
+    }, [home, isTvShell, orderedLibraries, plexHubs, settings.mixLibraries]);
+
+    useEffect(() => {
+        if (!active || !thinRecentShowKeys.length) return undefined;
+        const pending = thinRecentShowKeys.filter((row) => !recentFillLoadedRef.current.has(row.sectionId));
+        if (!pending.length) return undefined;
+        pending.forEach((row) => recentFillLoadedRef.current.add(row.sectionId));
+        let cancelled = false;
+        void Promise.all(pending.map(async (row) => {
+            const load = (sort: string) => fetchMediaPlayerLibrary(row.libraryKey, 0, 40, { sort }).catch(() => null);
+            const page = (await load('updatedAt:desc')) || (await load('addedAt:desc'));
+            const items = Array.isArray(page?.items) ? page.items : [];
+            if (!items.length) recentFillLoadedRef.current.delete(row.sectionId);
+            return { sectionId: row.sectionId, items };
+        })).then((rows) => {
+            if (cancelled) {
+                rows.forEach((row) => recentFillLoadedRef.current.delete(row.sectionId));
+                return;
+            }
+            setRecentFillBySection((prev) => {
+                const next = { ...prev };
+                let changed = false;
+                for (const row of rows) {
+                    if (!row.items.length || next[row.sectionId]?.length) continue;
+                    next[row.sectionId] = row.items;
+                    changed = true;
+                }
+                return changed ? next : prev;
+            });
+        });
+        return () => { cancelled = true; };
+    }, [active, thinRecentShowKeys]);
 
     const tvHomeRows = useMemo((): TvHomeRow[] => {
         if (!isTvShell || !home) return [];
@@ -936,17 +1146,88 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         }
         const becauseHubs = plexHubs.filter(isBecauseYouWatchedHub);
         const others = plexHubs.filter((hub) => !isContinueWatchingHub(hub) && !isBecauseYouWatchedHub(hub));
+        const libraryForSection = (sectionId: string) => orderedLibraries.find((library) => {
+            const bare = String(library.key || '').split('::').pop();
+            return bare === sectionId || String(library.key) === sectionId;
+        });
         for (const hub of others) {
             const hero = Boolean(hub.heroRow);
+            const recentItems = isRecentHub(hub) && !settings.mixLibraries
+                ? hub.items
+                : null;
+            const recentGroups = new Map<string, PlayerItem[]>();
+            if (recentItems) {
+                for (const item of recentItems) {
+                    const sectionId = String(item.librarySectionID || '').trim();
+                    if (!sectionId) {
+                        recentGroups.clear();
+                        break;
+                    }
+                    const list = recentGroups.get(sectionId) || [];
+                    list.push(item);
+                    recentGroups.set(sectionId, list);
+                }
+            }
+            if (recentGroups.size > 1) {
+                const order = orderedLibraries
+                    .map((library) => String(library.key || '').split('::').pop() || '')
+                    .filter((id) => recentGroups.has(id));
+                for (const sectionId of recentGroups.keys()) {
+                    if (!order.includes(sectionId)) order.push(sectionId);
+                }
+                for (const sectionId of order) {
+                    const library = libraryForSection(sectionId);
+                    const base = settings.hideWatchedFromRecents
+                        ? hideWatchedPlayerItems(recentGroups.get(sectionId) || [])
+                        : (recentGroups.get(sectionId) || []);
+                    const extra = settings.hideWatchedFromRecents
+                        ? hideWatchedPlayerItems(recentFillBySection[sectionId])
+                        : recentFillBySection[sectionId];
+                    const items = mergeThinRecentShows(base, extra).map(mapRecentItem);
+                    if (!items.length) continue;
+                    const title = library
+                        ? t('mediaPlayerPage.recentlyAddedIn', { name: library.title })
+                        : hub.title;
+                    rows.push({
+                        id: `recent:${sectionId}`,
+                        title,
+                        items,
+                        aspect: library?.type === 'artist' ? 'square' : '2/3',
+                        onViewAll: library && onOpenHub ? () => onOpenHub({
+                            title,
+                            identifier: 'recentlyAdded',
+                            items,
+                            hubKey: `/library/sections/${library.key}/recentlyAdded`,
+                        }) : undefined,
+                        viewMoreShelf: library
+                            ? { path: `/library/sections/${library.key}/recentlyAdded`, identifier: 'recentlyAdded' }
+                            : viewMoreShelfFromHub(hub),
+                    });
+                }
+                continue;
+            }
+            const recentSectionId = recentGroups.size === 1
+                ? ([...recentGroups.keys()][0] || '')
+                : '';
+            const titledLibrary = !recentSectionId && isRecentHub(hub)
+                ? orderedLibraries.find((row) => row.title.trim().toLowerCase() === String(hub.title || '').match(/recently added\s*(?:in|·)\s+(.+)/i)?.[1]?.trim().toLowerCase())
+                : undefined;
+            const fillSectionId = recentSectionId || (titledLibrary ? (String(titledLibrary.key || '').split('::').pop() || '') : '');
+            const recentBase = isRecentHub(hub)
+                ? (settings.hideWatchedFromRecents ? hideWatchedPlayerItems(hub.items) : hub.items)
+                : hub.items;
+            const recentExtra = fillSectionId
+                ? (settings.hideWatchedFromRecents
+                    ? hideWatchedPlayerItems(recentFillBySection[fillSectionId])
+                    : recentFillBySection[fillSectionId])
+                : undefined;
             rows.push({
                 id: hub.identifier || `hub:${hub.title}`,
                 title: hub.title,
                 items: hero
                     ? hub.items.map(heroRowCardItem)
                     : (isRecentHub(hub)
-                        ? (settings.hideWatchedFromRecents
-                            ? hideWatchedPlayerItems(hub.items)
-                            : hub.items).map(mapRecentItem)
+                        ? mergeThinRecentShows(recentBase, recentExtra).map(mapRecentItem)
                         : hub.items),
                 aspect: hero
                     ? '16/9'
@@ -1002,8 +1283,11 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         onOpenWatchlist,
         freezeContinueWatching,
         mapRecentItem,
+        orderedLibraries,
         plexHubs,
         recentRails,
+        settings.mixLibraries,
+        recentFillBySection,
         settings.hideWatchedFromRecents,
         settings.showBecauseYouWatched,
         showContinueWatchingRail,
@@ -1016,7 +1300,9 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         if (!isTvShell || !home) return '';
         const first = tvHomeRows[0]?.items?.[0]
             || home.recentByLibrary?.[0]?.items?.[0];
-        return plexBackdropPreviewUrl(first?.art || first?.thumb) || '';
+        return plexBackdropUrl(
+            (first as { backdropArt?: string | null } | undefined)?.backdropArt || first?.art || first?.thumb,
+        ) || '';
     }, [home, isTvShell, tvHomeRows]);
 
     const searchGroups = useMemo(() => {
@@ -1032,6 +1318,23 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             else if (row.type === 'episode') episodes.push(row);
             else more.push(row);
         }
+        episodes.sort((a, b) => {
+            const showA = String(a.showTitle || '').toLowerCase();
+            const showB = String(b.showTitle || '').toLowerCase();
+            if (showA !== showB) return showA < showB ? -1 : 1;
+            const seasonA = Number(a.parentIndex);
+            const seasonB = Number(b.parentIndex);
+            const seasonRank = (value: number) => (Number.isFinite(value) && value > 0 ? value : 9999);
+            if (seasonRank(seasonA) !== seasonRank(seasonB)) return seasonRank(seasonA) - seasonRank(seasonB);
+            const episodeA = Number(a.index);
+            const episodeB = Number(b.index);
+            const episodeRank = (value: number) => (Number.isFinite(value) && value > 0 ? value : 9999);
+            if (episodeRank(episodeA) !== episodeRank(episodeB)) return episodeRank(episodeA) - episodeRank(episodeB);
+            const titleA = String(a.episodeTitle || a.title || '').toLowerCase();
+            const titleB = String(b.episodeTitle || b.title || '').toLowerCase();
+            if (titleA !== titleB) return titleA < titleB ? -1 : 1;
+            return 0;
+        });
         return [
             { id: 'person', title: t('mediaPlayerPage.searchPeople'), items: people, aspect: '2/3' as const },
             { id: 'show', title: t('mediaPlayerPage.searchShows'), items: shows, aspect: '2/3' as const },
@@ -1056,24 +1359,34 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
     const tvRowIndexRef = useRef(0);
     const tvRowsRef = useRef(tvHomeRows);
     const tvRowFocusRef = useRef<Record<string, string>>({});
+    /** Sidebar Home starts on the first poster. Back from a title keeps the open card. */
+    const landOnFirstRef = useRef(true);
     tvRowIndexRef.current = tvRowIndex;
     tvRowsRef.current = tvHomeRows;
+
+    const clearHomeRowHighlights = () => {
+        const ids = tvRowsRef.current.map((row) => row.id);
+        tvRowFocusRef.current = {};
+        forgetHomePosterFocus(ids);
+        landOnFirstRef.current = true;
+    };
 
     useEffect(() => {
         const onHomeReset = () => {
             setQuery('');
             setResults([]);
             setSearching(false);
-            setSearchArmed(false);
             setSearchActive(false);
             searchRef.current?.blur();
-            // Sidebar Home (or Back-to-home) while already on Home → Continue Watching.
+            // Sidebar Home (or Back-to-home) while already on Home → first poster of the first row.
+            clearHomeRowHighlights();
+            landOnFirstRef.current = false;
             setTvRowDir(null);
             setTvRowIndex(0);
+            setTvFocusKey('');
             const firstRow = tvRowsRef.current[0];
             const firstKey = String(firstRow?.items?.[0]?.ratingKey || '').trim();
             if (firstRow?.id && firstKey) {
-                tvRowFocusRef.current[firstRow.id] = firstKey;
                 setTvFocusKey(firstKey);
                 rememberTvFocusKey(firstKey, PLAYER_APP_BASE);
             }
@@ -1114,7 +1427,6 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
     const tvStage = isTvShell && !searchActive;
     const tvRowSafeIndex = Math.min(tvRowIndex, Math.max(0, tvHomeRows.length - 1));
     const tvActiveRow = tvHomeRows[tvRowSafeIndex] || null;
-    const tvNextRow = tvHomeRows[tvRowSafeIndex + 1] || null;
     const tvSpotItem = useMemo(() => {
         if (!tvActiveRow) return null;
         const key = tvFocusKey || tvActiveRow.items[0]?.ratingKey || '';
@@ -1147,8 +1459,26 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             grandparentRatingKey: base.grandparentRatingKey || extra.grandparentRatingKey,
         };
     }, [tvActiveRow, tvFocusKey, tvSpotExtra]);
-    const tvStageStillSeed = plexBackdropPreviewUrl(tvSpotItem?.art || tvSpotItem?.thumb || '')
-        || tvFocusStillSeed;
+    const tvStageStillSeed = plexBackdropUrl(
+        (tvSpotItem as { backdropArt?: string | null } | null)?.backdropArt || tvSpotItem?.art || tvSpotItem?.thumb || '',
+    ) || tvFocusStillSeed;
+
+    useEffect(() => {
+        if (!tvStage || !active) return;
+        const prev = tvHomeRows[tvRowSafeIndex - 1];
+        const next = tvHomeRows[tvRowSafeIndex + 1];
+        const neighbors = [
+            playerItemBackdropUrl(next?.items?.[0]),
+            playerItemBackdropUrl(next?.items?.[1]),
+            playerItemBackdropUrl(prev?.items?.[0]),
+            playerItemBackdropUrl(prev?.items?.[1]),
+        ];
+        pinTvNeighborBackdrops(neighbors);
+        if (tvStageStillSeed) warmPlayerBackdrop(tvStageStillSeed, true);
+        const nextFirst = playerItemBackdropUrl(next?.items?.[0]);
+        if (nextFirst) warmPlayerBackdrop(nextFirst, true);
+        if (tvHomeRows.length) prefetchHomeRowPosters(tvHomeRows, tvRowSafeIndex);
+    }, [active, tvRowSafeIndex, tvActiveRow?.id, tvStage, tvStageStillSeed, tvHomeRows]);
 
     useEffect(() => {
         if (tvRowIndex >= tvHomeRows.length && tvHomeRows.length) setTvRowIndex(0);
@@ -1157,16 +1487,6 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
     useEffect(() => {
         // Keep-alive Home must not steal Library Recommended row events.
         if (!tvStage || !active) return undefined;
-        const parkStageFocus = () => {
-            const stage = visibleHomeStage();
-            if (!stage) return;
-            if (!stage.hasAttribute('tabindex')) stage.tabIndex = -1;
-            try {
-                stage.focus({ preventScroll: true });
-            } catch {
-                stage.focus();
-            }
-        };
         const onRow = (event: Event) => {
             const dir = (event as CustomEvent<{ dir?: 'up' | 'down' }>).detail?.dir;
             const rows = tvRowsRef.current;
@@ -1176,9 +1496,11 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 ? Math.min(rows.length - 1, current + 1)
                 : Math.max(0, current - 1);
             const prev = rows[current];
-            if (prev && tvFocusKey) tvRowFocusRef.current[prev.id] = tvFocusKey;
+            if (prev && tvFocusKey && !landOnFirstRef.current) {
+                tvRowFocusRef.current[prev.id] = tvFocusKey;
+            }
+            landOnFirstRef.current = false;
             if (next !== current) {
-                parkStageFocus();
                 setTvRowDir(dir);
                 setTvRowIndex(next);
             }
@@ -1187,26 +1509,24 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         return () => window.removeEventListener(TV_HOME_ROW_EVENT, onRow);
     }, [active, tvFocusKey, tvStage]);
 
-    // Keep per-row restore in sync with live poster focus (horizontal moves used to
-    // leave a stale key — Back then jumped to an older Continue Watching title).
+    // Keep per-row restore in sync with live poster focus while this Home visit lasts.
+    // Sidebar Home sets landOnFirstRef so that visit starts on the first poster.
     useEffect(() => {
+        if (landOnFirstRef.current) return;
         if (!tvStage || !active || !tvActiveRow?.id || !tvFocusKey) return;
         tvRowFocusRef.current[tvActiveRow.id] = tvFocusKey;
     }, [active, tvActiveRow?.id, tvFocusKey, tvStage]);
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         if (!tvStage || !active || !tvActiveRow) return undefined;
         const rowId = tvActiveRow.id;
-        const railRowId = `hub:${rowId}`;
-        // Prefer path-level memory (updated on every focusin) over the row ref, which
-        // only used to update on vertical row changes and could revive an old poster.
-        const pathKey = peekRememberedTvFocusKey(PLAYER_APP_BASE) || peekRememberedTvFocusKey();
-        const rowKey = peekRememberedRowFocusKey(railRowId)
-            || peekRememberedRowFocusKey(rowId)
-            || tvRowFocusRef.current[rowId]
-            || '';
-        const saved = pathKey || rowKey;
-        if (saved) tvRowFocusRef.current[rowId] = saved;
+        const landOnFirst = landOnFirstRef.current;
+        if (landOnFirst && tvRowIndexRef.current !== 0) return undefined;
+        const rowHas = (key: string) => Boolean(key) && tvActiveRow.items.some((item) => String(item.ratingKey || '') === key);
+        const remembered = landOnFirst ? '' : peekRememberedTvFocusKey();
+        const saved = (rowHas(remembered) ? remembered : '')
+            || (rowHas(tvRowFocusRef.current[rowId] || '') ? tvRowFocusRef.current[rowId] : '')
+            || (rowHas(tvFocusKey) ? tvFocusKey : '');
         let cancelled = false;
         let attempts = 0;
         const focusEl = (btn: HTMLElement) => {
@@ -1225,29 +1545,35 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             if (!stage) return false;
             const root = stage.querySelector<HTMLElement>('.player-home-stage-rail');
             if (!root) return false;
-            const posters = root.querySelectorAll<HTMLElement>('[data-tv-poster-btn="1"]');
+            const posters = Array.from(root.querySelectorAll<HTMLElement>('[data-tv-poster-btn="1"]'))
+                .filter((el) => !el.closest('[inert]'));
             if (!posters.length) return false;
-            const pathMatch = pathKey
-                ? root.querySelector<HTMLElement>(`[data-tv-poster-btn="1"][data-tv-key="${CSS.escape(pathKey)}"]`)
+            const rowMatch = saved
+                ? posters.find((el) => el.getAttribute('data-tv-key') === saved) || null
                 : null;
-            if (pathMatch) {
-                tvRowFocusRef.current[rowId] = pathKey;
-                return focusEl(pathMatch);
+            const btn = rowMatch || posters[0];
+            const focused = focusEl(btn);
+            if (focused && landOnFirst) {
+                const key = String(btn.getAttribute('data-tv-key') || '').trim();
+                landOnFirstRef.current = false;
+                if (key) {
+                    setTvFocusKey(key);
+                    rememberTvFocusKey(key, PLAYER_APP_BASE);
+                }
+            } else if (focused && saved && saved !== tvFocusKey) {
+                setTvFocusKey(saved);
             }
-            const rowMatch = rowKey
-                ? root.querySelector<HTMLElement>(`[data-tv-poster-btn="1"][data-tv-key="${CSS.escape(rowKey)}"]`)
-                : null;
-            if (rowMatch) return focusEl(rowMatch);
-            // Path key may still be arming into this rail — wait before falling back.
-            // If it never appears, path memory belonged to another hub row.
-            if (pathKey && attempts < 36) return false;
-            return focusEl(posters[0]);
+            return focused;
         };
         const tick = () => {
             if (focusSaved()) return;
             if (cancelled || attempts++ >= 48) return;
             window.setTimeout(tick, 16);
         };
+        // Position the poster before Chromium paints the rail at scrollLeft=0.
+        if (focusSaved()) {
+            return () => { cancelled = true; };
+        }
         const timer = window.setTimeout(tick, 0);
         window.requestAnimationFrame(tick);
         return () => {
@@ -1277,7 +1603,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                     setTvSpotExtra((prev) => ({ ...prev, [key]: page.item }));
                 })
                 .catch(() => undefined);
-        }, 180);
+        }, 0);
         return () => {
             cancelled = true;
             window.clearTimeout(timer);
@@ -1680,22 +2006,142 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         );
     }
 
+    const searchResultsNode = query.trim().length >= 2 ? (
+        <div
+            className="flex flex-col gap-6"
+            data-tv-search-results={isTvShell ? '1' : undefined}
+        >
+            {searching && !results.length ? (
+                <DiscoverSectionHeader title={t('common.searching')} />
+            ) : null}
+            {isTvShell ? searchGroups.map((group) => (
+                group.id === 'episode' ? (
+                    <section
+                        key={group.id}
+                        data-tv-row="1"
+                        data-tv-row-id={`search:${group.id}`}
+                        className="flex min-w-0 max-w-full flex-col gap-2"
+                    >
+                        <DiscoverSectionHeader title={group.title} />
+                        <div
+                            data-tv-poster-grid="1"
+                            className={`${upgraderPosterGridClass(homePosterDensity)} px-3`}
+                            style={{
+                                ...upgraderLandscapeGridStyle(homePosterDensity),
+                                columnGap: '1.5rem',
+                                rowGap: '2.25rem',
+                            }}
+                        >
+                            {group.items.map((item) => (
+                                <PlayerPosterCard
+                                    key={item.ratingKey}
+                                    item={item}
+                                    aspect={group.aspect}
+                                    onOpenItem={onOpenItem}
+                                    onPlay={onPlay}
+                                    onToggleWatched={toggleWatched}
+                                    onPlayNext={onPlayNext}
+                                    onWatchedChange={(row, watched) => patchWatched(row.ratingKey, watched)}
+                                    onRemovedFromContinueWatching={removeFromContinueWatching}
+                                    onDeleted={removeItemEverywhere}
+                                    onToast={onToast}
+                                    isAdmin={isAdmin}
+                                    playlistsEnabled={playlistsEnabled}
+                                />
+                            ))}
+                        </div>
+                    </section>
+                ) : (
+                    <PlayerRail
+                        key={group.id}
+                        title={group.title}
+                        rowId={`search:${group.id}`}
+                        items={group.items}
+                        density={homePosterDensity}
+                        aspect={group.aspect}
+                        onOpenItem={onOpenItem}
+                        onPlay={onPlay}
+                        onToggleWatched={toggleWatched}
+                        onPlayNext={onPlayNext}
+                        onWatchedChange={(row, watched) => patchWatched(row.ratingKey, watched)}
+                        onRemovedFromContinueWatching={removeFromContinueWatching}
+                        onDeleted={removeItemEverywhere}
+                        onToast={onToast}
+                        isAdmin={isAdmin}
+                        playlistsEnabled={playlistsEnabled}
+                    />
+                )
+            )) : searchGroups.map((group) => (
+                <section
+                    key={group.id}
+                    className="flex flex-col gap-3"
+                >
+                    <DiscoverSectionHeader title={group.title} />
+                    <div
+                        className={upgraderPosterGridClass(gridSize)}
+                        style={group.aspect === '16/9' ? upgraderLandscapeGridStyle(gridSize) : upgraderPosterGridStyle(gridSize)}
+                    >
+                        {group.items.map((item) => (
+                            <PlayerPosterCard
+                                key={item.ratingKey}
+                                item={item}
+                                aspect={group.aspect}
+                                onOpenItem={onOpenItem}
+                                onPlay={onPlay}
+                                onToggleWatched={toggleWatched}
+                                onPlayNext={onPlayNext}
+                                onWatchedChange={(row, watched) => patchWatched(row.ratingKey, watched)}
+                                onRemovedFromContinueWatching={removeFromContinueWatching}
+                                onDeleted={removeItemEverywhere}
+                                onToast={onToast}
+                                isAdmin={isAdmin}
+                                playlistsEnabled={playlistsEnabled}
+                            />
+                        ))}
+                    </div>
+                </section>
+            ))}
+            {!searching && !results.length ? (
+                <div className={discoveryTheme.emptyState}>
+                    <p className={discoveryTheme.emptyTitle}>{t('mediaPlayerPage.emptySearch')}</p>
+                </div>
+            ) : null}
+        </div>
+    ) : null;
+
     return (
-        <div className={tvStage
+        <div className={isTvShell
             ? 'tv-poster-rows player-home-page player-home-stage'
-            : `tv-poster-rows player-home-page flex flex-col pb-8 ${isTvShell ? 'player-home-rows' : 'gap-6'}`
+            : 'tv-poster-rows player-home-page flex flex-col gap-6 pb-8'
         }>
             <HomeFocusStill
-                enabled={tvStage && active}
+                enabled={tvStage && active && !searchActive}
                 seed={tvStage ? tvStageStillSeed : ''}
                 onFocusKey={tvStage ? setTvFocusKey : undefined}
             />
-            {tvStage ? (
-                <HomeSpot
-                    item={tvSpotItem}
-                    rowId={tvActiveRow?.id || ''}
-                    rowDir={tvRowDir}
-                />
+            {tvStage && !searchActive ? (
+                <div className="player-home-stage-copy">
+                    <HomeSpot
+                        item={tvSpotItem}
+                        rowId={tvActiveRow?.id || ''}
+                        rowDir={tvRowDir}
+                    />
+                    {home && tvActiveRow ? (
+                        <PlayerTvRowStack
+                            rows={tvHomeRows.map((row) => ({
+                                ...row,
+                                viewAllLabel: row.onViewAll ? t('common.viewMore') : undefined,
+                            }))}
+                            activeIndex={tvRowSafeIndex}
+                            density={homePosterDensity}
+                            restoreFocusById={tvRowFocusRef.current}
+                            onOpenItem={onOpenItem}
+                            onPlay={onPlay}
+                            onToggleWatched={toggleWatched}
+                            {...railMenuProps}
+                        />
+                    ) : null}
+                </div>
             ) : null}
             {!isTvShell && !searchActive && heroSlides.length ? (
                 <MediaPlayerHomeHero
@@ -1743,90 +2189,51 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 </section>
             ) : null}
 
-            {searchActive ? (
-            <div
-                className="relative"
-                data-tv-row={isTvShell ? '1' : undefined}
-                data-tv-rail={isTvShell ? '1' : undefined}
-            >
+            {isTvShell && searchActive ? (
+                <div data-tv-search="1">
+                    <PlayerTvSearch
+                        query={query}
+                        onChange={setQuery}
+                    />
+                    <div data-tv-search-body="1" className="player-tv-search-body">
+                        <PlayerTvSearchRecents
+                            query={query}
+                            recent={recentSearches}
+                            popular={popularSearches}
+                            onPickRecent={(value) => {
+                                setQuery(value);
+                                window.setTimeout(() => {
+                                    document.querySelector<HTMLElement>('[data-tv-search-key="q"]')?.focus();
+                                }, 40);
+                            }}
+                        />
+                        {query.trim().length >= 2 ? searchResultsNode : (
+                            home ? (
+                                <div className="player-home-rows flex min-w-0 flex-col gap-6">
+                                    {homeSections}
+                                </div>
+                            ) : null
+                        )}
+                    </div>
+                </div>
+            ) : searchActive ? (
+            <div className="relative">
                 <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
                 <input
                     id={PLAYER_SEARCH_INPUT_ID}
                     ref={searchRef}
                     value={query}
-                    readOnly={searchReadOnly}
-                    inputMode={searchReadOnly ? 'none' : 'search'}
+                    inputMode="search"
                     enterKeyHint="search"
-                    data-tv-item={isTvShell ? '1' : undefined}
-                    data-tv-key={isTvShell ? 'home-search' : undefined}
                     aria-label={t('mediaPlayerPage.searchPlaceholder')}
                     onChange={(event) => setQuery(event.target.value)}
-                    onBlur={() => {
-                        if (isTvShell) setSearchArmed(false);
-                    }}
-                    onKeyDown={(event) => {
-                        if (!isTvShell) return;
-                        if (searchArmed) return;
-                        if (event.key !== 'Enter' && event.key !== ' ') return;
-                        event.preventDefault();
-                        event.stopPropagation();
-                        setSearchArmed(true);
-                    }}
-                    onClick={() => {
-                        // Touch / mouse: open IME. TV D-pad focus alone must not.
-                        if (isTvShell && !searchArmed) setSearchArmed(true);
-                    }}
                     placeholder={t('mediaPlayerPage.searchPlaceholder')}
                     className={discoveryTheme.searchInput}
                 />
             </div>
             ) : null}
 
-            {query.trim().length >= 2 ? (
-                <div className="flex flex-col gap-6">
-                    {searching && !results.length ? (
-                        <DiscoverSectionHeader title={t('common.searching')} />
-                    ) : null}
-                    {searchGroups.map((group) => (
-                        <section
-                            key={group.id}
-                            className="flex flex-col gap-3"
-                            data-tv-row={isTvShell ? '1' : undefined}
-                            data-tv-rail={isTvShell ? '1' : undefined}
-                        >
-                            <DiscoverSectionHeader title={group.title} />
-                            <div
-                                data-tv-poster-grid={isTvShell ? '1' : undefined}
-                                className={upgraderPosterGridClass(gridSize)}
-                                style={group.aspect === '16/9' ? upgraderLandscapeGridStyle(gridSize) : upgraderPosterGridStyle(gridSize)}
-                            >
-                                {group.items.map((item) => (
-                                    <PlayerPosterCard
-                                        key={item.ratingKey}
-                                        item={item}
-                                        aspect={group.aspect}
-                                        onOpenItem={onOpenItem}
-                                        onPlay={onPlay}
-                                        onToggleWatched={toggleWatched}
-                                        onPlayNext={onPlayNext}
-                                        onWatchedChange={(row, watched) => patchWatched(row.ratingKey, watched)}
-                                        onRemovedFromContinueWatching={removeFromContinueWatching}
-                                        onDeleted={removeItemEverywhere}
-                                        onToast={onToast}
-                                        isAdmin={isAdmin}
-                                        playlistsEnabled={playlistsEnabled}
-                                    />
-                                ))}
-                            </div>
-                        </section>
-                    ))}
-                    {!searching && !results.length ? (
-                        <div className={discoveryTheme.emptyState}>
-                            <p className={discoveryTheme.emptyTitle}>{t('mediaPlayerPage.emptySearch')}</p>
-                        </div>
-                    ) : null}
-                </div>
-            ) : null}
+            {isTvShell && searchActive ? null : searchResultsNode}
 
             {!isTvShell && error ? (
                 <div className={discoveryTheme.emptyState}>
@@ -1834,7 +2241,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 </div>
             ) : null}
 
-            {!query.trim() && home && tvStage && longPressHint ? (
+            {!searchActive && !query.trim() && home && tvStage && longPressHint ? (
                 <div
                     className="player-home-stage-banner mb-2 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.06] px-4 py-3"
                     aria-live="polite"
@@ -1855,43 +2262,13 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 </div>
             ) : null}
 
-            {!query.trim() && home && tvStage && tvActiveRow ? (
-                <div className="player-home-stage-rail">
-                    <PlayerRail
-                        key={tvActiveRow.id}
-                        title={tvActiveRow.title}
-                        rowId={`hub:${tvActiveRow.id}`}
-                        restoreFocusKey={tvRowFocusRef.current[tvActiveRow.id]}
-                        items={tvActiveRow.items}
-                        density={homePosterDensity}
-                        staggerIndex={0}
-                        onOpenItem={onOpenItem}
-                        onPlay={onPlay}
-                        onToggleWatched={toggleWatched}
-                        showProgress={tvActiveRow.showProgress}
-                        showRemoveFromContinueWatching={tvActiveRow.showRemoveFromContinueWatching}
-                        aspect={tvActiveRow.aspect}
-                        onViewAll={tvActiveRow.onViewAll}
-                        viewAllLabel={tvActiveRow.onViewAll ? t('common.viewMore') : undefined}
-                        viewMoreShelf={tvActiveRow.viewMoreShelf}
-                        {...railMenuProps}
-                    />
-                    {tvNextRow ? (
-                        <div className="player-home-next-row" aria-hidden="true">
-                            <div className="player-row-header">
-                                <span className="player-row-header-mark" />
-                                <p className="player-row-header-title truncate">{tvNextRow.title}</p>
-                            </div>
-                        </div>
-                    ) : null}
-                </div>
-            ) : !query.trim() && home && !tvStage ? (
+            {!searchActive && !query.trim() && home && !tvStage ? (
                 <div className="player-home-rows flex min-w-0 flex-col gap-6 max-md:gap-3">
                     {homeSections}
                 </div>
             ) : null}
 
-            {!query.trim() && !error && !hasRails && !home?.partial ? (
+            {!searchActive && !query.trim() && !error && !hasRails && !home?.partial ? (
                 isTvShell ? (
                     <PlayerTvStatusPanel
                         title={t('mediaPlayerPage.emptyHome')}
@@ -1919,6 +2296,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                     }
                     source={settings.screensaverSource}
                     sourceLabel={t(PLAYER_SCREENSAVER_SOURCE_LABEL_KEYS[settings.screensaverSource])}
+                    shiftClock={settings.screensaverShiftClock}
                 />
             ) : null}
         </div>

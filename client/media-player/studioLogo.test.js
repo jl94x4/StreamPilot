@@ -193,6 +193,32 @@ test('pickPreferredServiceLogo falls back to streaming when studio/network empty
     }, [], 'show')?.name, 'Channel 4');
 });
 
+test('pickPreferredServiceLogo uses studio before streaming when a show has no network', () => {
+    assert.equal(pickPreferredServiceLogo({
+        streaming: [{ name: 'Netflix', logoPath: '/n.png', key: 'n' }],
+        studio: [{ name: 'Studio Lambert', logoPath: '/s.png', key: 's' }],
+        network: [],
+    }, [], 'show')?.name, 'Studio Lambert');
+    assert.deepEqual(listPreferredServiceLogos({
+        streaming: [{ name: 'Netflix', logoPath: '/n.png', key: 'n' }],
+        studio: [],
+        network: [],
+    }, 'show').map((row) => row.name), ['Netflix']);
+});
+
+test('resolvePlayerBrandLogo falls back to a studio catalog logo', () => {
+    const hit = resolvePlayerBrandLogo({
+        type: 'show',
+        networkLabels: [],
+        studio: 'Studio Lambert',
+        studioLabels: ['Netflix'],
+    }, {
+        networks: [{ id: 213, name: 'Netflix', logoPath: '/netflix.svg' }],
+        studios: [{ id: 88, name: 'Studio Lambert', logoPath: '/lambert.png' }],
+    });
+    assert.equal(hit?.name, 'Studio Lambert');
+});
+
 test('listPreferredServiceLogos is type-scoped', () => {
     assert.deepEqual(listPreferredServiceLogos({
         streaming: [{ name: 'Netflix', logoPath: '/n.png', key: 'n' }],

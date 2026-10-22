@@ -2,7 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Carousel, DiscoverSectionHeader, discoverRowCardWidthClass, posterGridCardWidthStyle, posterGridScaleRem, useDiscoverI18n } from './host';
 import { PlayerPosterCard } from './PlayerPosterCard';
 import { PlayerViewMoreCard, type ViewMoreShelfSource } from './PlayerViewMoreCard';
-import { isMusicPlayerItem, PLAYER_POSTER_QUALITY, playerCardImageUrl, prefetchPlayerImages, resizePlexArtUrl, resolvePlayerCardAspect } from './playerUtils';
+import { isHomeRowsBusy, PLAYER_HOME_ROWS_IDLE_EVENT, prefetchTvRowItems } from './api';
+import { beginTvRowBackdropPreload, isMusicPlayerItem, playerRailPosterUrl, plexBackdropUrl, plexLogoUrl, prefetchPlayerImages, resolvePlayerCardAspect, warmPlayerBackdrop, warmPlayerPoster } from './playerUtils';
 import type { PlayerItem, PlayerPlayOptions } from './types';
 
 const isTvShell = () => {
@@ -49,6 +50,10 @@ export const PlayerRail: React.FC<{
     rowId?: string;
     /** TV: mount enough cards so a restored focus key is in the DOM. */
     restoreFocusKey?: string;
+    /** TV Home: only the focused row warms backdrops. Parked rows keep posters. */
+    tvActive?: boolean;
+    /** TV Home draws the row name itself so it cannot sit on the billboard. */
+    showHeader?: boolean;
 }> = ({
     title,
     items,
@@ -72,6 +77,8 @@ export const PlayerRail: React.FC<{
     staggerIndex = 0,
     rowId,
     restoreFocusKey,
+    tvActive = true,
+    showHeader = true,
 }) => {
     const { t } = useDiscoverI18n();
     const tvShell = isTvShell();
@@ -79,12 +86,12 @@ export const PlayerRail: React.FC<{
     const lazyMount = tvShell || phoneShell;
     const moreLabel = t('common.viewMore');
     const eagerCount = tvShell
-        ? (staggerIndex === 0 ? 12 : staggerIndex <= 2 ? 6 : 2)
+        ? 6
         : phoneShell
             ? (staggerIndex === 0 ? 6 : staggerIndex <= 2 ? 4 : 2)
             : (staggerIndex === 0 ? 8 : 4);
     const armedFloor = tvShell
-        ? (staggerIndex === 0 ? 14 : 8)
+        ? Math.min(items.length, items.length <= 48 ? items.length : 28)
         : phoneShell
             ? (staggerIndex === 0 ? 8 : 6)
             : items.length;
@@ -111,16 +118,59 @@ export const PlayerRail: React.FC<{
     }, [armedFloor, items.length, lazyMount, restoreIndex]);
 
     useEffect(() => {
-        const take = tvShell ? Math.max(eagerCount, 12) : eagerCount;
-        const urls = items.slice(0, take).map((item) => {
-            const cardAspect = resolvePlayerCardAspect(item, aspect);
-            const raw = playerCardImageUrl(item.thumb, cardAspect);
-            if (cardAspect === 'square') return resizePlexArtUrl(raw, 300, 300, PLAYER_POSTER_QUALITY);
-            if (cardAspect === '16/9') return resizePlexArtUrl(raw, 426, 240, PLAYER_POSTER_QUALITY);
-            return resizePlexArtUrl(raw, 300, 450, PLAYER_POSTER_QUALITY) || raw;
-        });
+        const take = tvShell ? items.length : eagerCount;
+        const urls = items.slice(0, take).map((item) => playerRailPosterUrl(item, aspect));
         prefetchPlayerImages(urls, take);
     }, [aspect, eagerCount, items, tvShell]);
+
+    const tvRowKey = tvShell
+        ? `${rowId || title}|${items.map((item) => `${item.ratingKey}|${item.art || ''}|${(item as { backdropArt?: string | null }).backdropArt || ''}|${item.logo || ''}`).join(',')}`
+        : '';
+
+    useEffect(() => {
+        if (!tvShell || !tvActive || !items.length) return undefined;
+        const start = Math.max(0, restoreIndex);
+        const ordered = items.slice(start).concat(items.slice(0, start));
+        const urls: string[] = [];
+        const keys: string[] = [];
+        ordered.forEach((item) => {
+            const url = plexBackdropUrl(
+                (item as { backdropArt?: string | null }).backdropArt || item.art || item.thumb,
+            );
+            if (url) urls.push(url);
+            const key = String(item.ratingKey || '').trim();
+            if (key && /^\d+$/.test(key) && item.type !== 'collection' && item.type !== 'playlist') keys.push(key);
+        });
+        let stopArt = beginTvRowBackdropPreload(urls.slice(0, 2), 0);
+        if (urls[0]) warmPlayerBackdrop(urls[0], true);
+        if (urls[1]) warmPlayerBackdrop(urls[1], true);
+        let stopMeta = () => {};
+        let timer = 0;
+        const startExtras = () => {
+            if (isHomeRowsBusy()) {
+                window.addEventListener(PLAYER_HOME_ROWS_IDLE_EVENT, arm);
+                return;
+            }
+            stopArt = beginTvRowBackdropPreload(urls, 0);
+            stopMeta = prefetchTvRowItems(keys);
+            ordered.slice(0, 8).forEach((item) => {
+                const logo = plexLogoUrl(item.logo);
+                if (logo) warmPlayerPoster(logo);
+            });
+        };
+        const arm = () => {
+            window.clearTimeout(timer);
+            timer = window.setTimeout(startExtras, 400);
+        };
+        if (!isHomeRowsBusy()) arm();
+        else window.addEventListener(PLAYER_HOME_ROWS_IDLE_EVENT, arm);
+        return () => {
+            window.clearTimeout(timer);
+            window.removeEventListener(PLAYER_HOME_ROWS_IDLE_EVENT, arm);
+            stopArt();
+            stopMeta();
+        };
+    }, [tvRowKey, tvShell, tvActive]);
 
     useEffect(() => {
         if (!phoneShell || armedCount >= items.length) return undefined;
@@ -143,11 +193,13 @@ export const PlayerRail: React.FC<{
             className="player-rail-enter flex min-w-0 max-w-full flex-col gap-2"
             style={{ animationDelay: `${Math.min(Math.max(staggerIndex, 0), 12) * (phoneShell ? 28 : 55)}ms` }}
         >
-            <DiscoverSectionHeader
-                title={title}
-                onViewAll={tvShell ? undefined : onViewAll}
-                viewAllLabel={tvShell ? undefined : viewAllLabel}
-            />
+            {showHeader ? (
+                <DiscoverSectionHeader
+                    title={title}
+                    onViewAll={tvShell ? undefined : onViewAll}
+                    viewAllLabel={tvShell ? undefined : viewAllLabel}
+                />
+            ) : null}
             <Carousel posterRow>
                 {visibleItems.map((item, idx) => {
                     const cardAspect = resolvePlayerCardAspect(item, aspect);
@@ -164,8 +216,8 @@ export const PlayerRail: React.FC<{
                             className={`${landscape ? 'player-rail-landscape' : square ? 'player-rail-square' : discoverRowCardWidthClass(density)} relative z-0 flex-shrink-0 snap-start group hover:z-20 focus-within:z-20`}
                             style={cardWidth}
                             onFocusCapture={() => {
-                                if (!tvShell) return;
-                                setArmedCount((current) => Math.max(current, Math.min(items.length, idx + 5)));
+                                if (!tvShell && !phoneShell) return;
+                                setArmedCount((current) => Math.max(current, Math.min(items.length, idx + 18)));
                             }}
                         >
                             <PlayerPosterCard
@@ -195,7 +247,7 @@ export const PlayerRail: React.FC<{
                         aria-hidden
                     />
                 ) : null}
-                {tvShell && onViewAll ? (
+                {tvShell && onViewAll && armedCount >= items.length ? (
                     <div
                         className={`${aspect === '16/9' ? 'player-rail-landscape' : aspect === 'square' ? 'player-rail-square' : discoverRowCardWidthClass(density)} relative z-0 flex-shrink-0 snap-start hover:z-20 focus-within:z-20`}
                         style={aspect === '16/9'
@@ -219,6 +271,78 @@ export const PlayerRail: React.FC<{
                     </div>
                 ) : null}
             </Carousel>
+        </div>
+    );
+};
+
+export type PlayerTvStackRow = {
+    id: string;
+    title: string;
+    items: PlayerItem[];
+    aspect?: '2/3' | 'square' | '16/9';
+    showProgress?: boolean;
+    showRemoveFromContinueWatching?: boolean;
+    onViewAll?: () => void;
+    viewAllLabel?: string;
+    viewMoreShelf?: ViewMoreShelfSource | null;
+};
+
+/** Keep the previous, current, and next Home rows mounted so posters stay decoded. */
+export const PlayerTvRowStack: React.FC<{
+    rows: PlayerTvStackRow[];
+    activeIndex: number;
+    density: number;
+    restoreFocusById: Record<string, string>;
+    onOpenItem: (item: PlayerItem) => void;
+    onPlay: (item: PlayerItem, opts?: PlayerPlayOptions) => void;
+    onToggleWatched?: (item: PlayerItem) => void;
+    onPlayNext?: (item: PlayerItem) => void;
+    onWatchedChange?: (item: PlayerItem, watched: boolean) => void;
+    onRemovedFromContinueWatching?: (item: PlayerItem) => void;
+    onDeleted?: (item: PlayerItem) => void;
+    onToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
+    isAdmin?: boolean;
+    playlistsEnabled?: boolean;
+}> = ({
+    rows,
+    activeIndex,
+    density,
+    restoreFocusById,
+    ...railProps
+}) => {
+    return (
+        <div className="player-home-stage-rail">
+            {rows.map((row, index) => {
+                if (index < activeIndex - 1 || index > activeIndex + 1) return null;
+                const active = index === activeIndex;
+                const peek = index === activeIndex + 1;
+                return (
+                    <div
+                        key={row.id}
+                        data-tv-stack-index={index}
+                        className={peek ? 'player-home-next-row' : (active ? undefined : 'player-home-row-park')}
+                        inert={!active ? true : undefined}
+                        aria-hidden={!active}
+                    >
+                        <PlayerRail
+                            tvActive={active}
+                            title={row.title}
+                                rowId={`hub:${row.id}`}
+                                restoreFocusKey={restoreFocusById[row.id]}
+                                items={row.items}
+                                density={density}
+                                staggerIndex={0}
+                                aspect={row.aspect}
+                                showProgress={row.showProgress}
+                                showRemoveFromContinueWatching={row.showRemoveFromContinueWatching}
+                                onViewAll={row.onViewAll}
+                                viewAllLabel={row.viewAllLabel}
+                                viewMoreShelf={row.viewMoreShelf}
+                            {...railProps}
+                        />
+                    </div>
+                );
+            })}
         </div>
     );
 };

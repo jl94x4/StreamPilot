@@ -4,7 +4,7 @@ import { DiscoverPosterCard, useDiscoverI18n } from './host';
 import { prefetchMediaPlayerItem } from './api';
 import { PlayerItemMenu, type PlayerItemMenuHandle } from './PlayerItemMenu';
 import { watchedTickPositionClass } from './playerSettings';
-import { applyRememberedProgress, formatEpisodeCode, formatRemainingWatchTime, heroRailCardImageUrl, heroRowSubtitle, PLAYER_PROGRESS_EVENT, plexBackdropPreviewUrl, PLAYER_POSTER_QUALITY, prefetchPlayerImages, progressPercent, remainingWatchMs, resizePlexArtUrl, resolvePlayerCardAspect, toPosterCardItem } from './playerUtils';
+import { applyRememberedProgress, formatEpisodeCode, formatRemainingWatchTime, heroRailCardImageUrl, heroRowSubtitle, PLAYER_PROGRESS_EVENT, plexBackdropUrl, PLAYER_POSTER_QUALITY, prefetchPlayerImages, progressPercent, remainingWatchMs, resizePlexArtUrl, resolvePlayerCardAspect, toPosterCardItem } from './playerUtils';
 import { usePlayerSettings } from './usePlayerSettings';
 import type { PlayerItem, PlayerPlayOptions } from './types';
 
@@ -94,13 +94,27 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
     const resolvedAspect = resolvePlayerCardAspect(item, aspect);
     const artWidth = resolvedAspect === '16/9' ? 426 : 300;
     const artHeight = resolvedAspect === 'square' ? 300 : resolvedAspect === '16/9' ? 240 : 450;
-    const cardSource = item.heroCard ? (item.heroArt || item.art || item.thumb) : item.thumb;
+    const landscapeEpisode = item.type === 'episode' && resolvedAspect === '16/9';
+    const episodeKey = landscapeEpisode ? String(item.ratingKey || '').replace(/\D/g, '') : '';
+    const rawThumb = String(item.episodeThumb || item.thumb || '').trim();
+    const thumbOwner = rawThumb.match(/\/library\/metadata\/(\d+)\//)?.[1] || '';
+    const episodeStill = episodeKey
+        ? ((thumbOwner === episodeKey || (/^https?:\/\//i.test(rawThumb) && !/\/library\/metadata\//.test(rawThumb)))
+            ? rawThumb
+            : `/library/metadata/${episodeKey}/thumb`)
+        : '';
+    const cardSource = item.heroCard
+        ? (item.heroArt || item.art || item.thumb)
+        : (episodeStill || item.thumb);
     const sizedItem = cardSource
         ? {
             ...item,
+            cardAspect: landscapeEpisode ? '16/9' as const : item.cardAspect,
             thumb: item.heroCard
                 ? heroRailCardImageUrl(cardSource)
-                : resizePlexArtUrl(cardSource, artWidth, artHeight, PLAYER_POSTER_QUALITY),
+                : (landscapeEpisode && String(episodeStill).startsWith('/library/')
+                    ? episodeStill
+                    : resizePlexArtUrl(cardSource, artWidth, artHeight, PLAYER_POSTER_QUALITY)),
         }
         : item;
     const heroLine = item.heroCard ? heroRowSubtitle(item) : '';
@@ -153,12 +167,12 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
         if (!item?.ratingKey || item.type === 'collection' || item.type === 'playlist') return;
         if (prefetchTimerRef.current) window.clearTimeout(prefetchTimerRef.current);
         const key = item.ratingKey;
-        const art = item.art;
-        const delay = isTvShell ? 1000 : 450;
+        const art = (item as { backdropArt?: string | null }).backdropArt || item.art;
+        const delay = isTvShell ? 0 : 450;
         prefetchTimerRef.current = window.setTimeout(() => {
             prefetchTimerRef.current = null;
             prefetchMediaPlayerItem(key);
-            if (art) prefetchPlayerImages([plexBackdropPreviewUrl(art)], 1);
+            if (art && !isTvShell) prefetchPlayerImages([plexBackdropUrl(art)], 1);
         }, delay);
     };
     const cancelPrefetch = () => {
@@ -182,7 +196,9 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
         <div
             ref={rootRef}
             data-browse-index={browseIndex}
-            data-tv-backdrop={isTvShell ? (plexBackdropPreviewUrl(item.art || item.thumb) || undefined) : undefined}
+            data-tv-backdrop={isTvShell ? (plexBackdropUrl(
+                (item as { backdropArt?: string | null }).backdropArt || item.art || item.thumb,
+            ) || undefined) : undefined}
             className="player-poster-hold relative touch-manipulation select-none [-webkit-touch-callout:none] [-webkit-user-select:none] [user-select:none]"
             onFocusCapture={schedulePrefetch}
             onBlurCapture={cancelPrefetch}
@@ -251,7 +267,7 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
                 item={toPosterCardItem(sizedItem)}
                 aspect={resolvedAspect}
                 posterWidth={item.heroCard ? 854 : (resolvedAspect === '16/9' ? 426 : 300)}
-                posterQuality={item.heroCard ? 72 : PLAYER_POSTER_QUALITY}
+                posterQuality={PLAYER_POSTER_QUALITY}
                 loading={loadingProp || (imagePriority ? 'eager' : 'lazy')}
                 fetchPriority={imagePriority ? 'high' : 'low'}
                 posterHeight={item.heroCard ? 480 : (resolvedAspect === '16/9' ? 360 : undefined)}
@@ -268,26 +284,44 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
                             </div>
                         ) : null}
                     </div>
-                ) : item.type === 'episode' ? (
+                ) : (
                     <div className="player-poster-caption px-1 text-left">
-                        <div className={`${isTvShell ? 'text-base font-semibold' : 'text-xs font-medium'} line-clamp-2 leading-snug text-text`}>
-                            {item.showTitle || item.title}
-                        </div>
-                        {(() => {
+                        {item.type === 'episode' ? (() => {
                             const epName = String(
                                 item.episodeTitle
                                 || (item.showTitle && item.title && item.title !== item.showTitle ? item.title : '')
                                 || '',
                             ).trim();
-                            const line = [episodeCode, epName].filter(Boolean).join(' · ');
-                            return line ? (
-                                <div className={`${isTvShell ? 'text-sm' : 'text-[11px]'} mt-0.5 truncate text-muted`}>
-                                    {line}
+                            const heading = [episodeCode, epName].filter(Boolean).join(' · ');
+                            const showName = String(item.showTitle || '').trim();
+                            const primary = heading || showName || item.title;
+                            const secondary = heading && showName && showName !== epName ? showName : '';
+                            return (
+                                <>
+                                    <div className={`${isTvShell ? 'text-base font-semibold' : 'text-xs font-medium'} line-clamp-2 leading-snug text-text`}>
+                                        {primary}
+                                    </div>
+                                    {secondary ? (
+                                        <div className={`${isTvShell ? 'text-sm' : 'text-[11px]'} mt-0.5 truncate text-muted`}>
+                                            {secondary}
+                                        </div>
+                                    ) : null}
+                                </>
+                            );
+                        })() : (
+                            <>
+                                <div className={`${isTvShell ? 'text-base font-semibold' : 'text-xs font-medium'} line-clamp-2 leading-snug text-text`}>
+                                    {item.title}
                                 </div>
-                            ) : null;
-                        })()}
+                                {item.year ? (
+                                    <div className={`${isTvShell ? 'text-sm' : 'text-[11px]'} mt-0.5 truncate text-muted`}>
+                                        {item.year}
+                                    </div>
+                                ) : null}
+                            </>
+                        )}
                     </div>
-                ) : undefined}
+                )}
                 showQualityBadges={false}
                 posterOnlyLink={isTvShell}
                 onPosterClick={() => {

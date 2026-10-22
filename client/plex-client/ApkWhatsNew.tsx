@@ -38,10 +38,10 @@ const isPriorPatchVersion = (newer: string, older: string) => {
 
 /**
  * Up to `limit` newest note milestones at or below the running app version,
- * but only a contiguous patch run (e.g. 1.0.240 → 1.0.239 → 1.0.238).
+ * but only a contiguous patch run (e.g. 1.0.261 → 1.0.260 → 1.0.259).
  * Stops at the first gap so distant archives like 1.0.215 never pad the list.
  */
-const recentWhatsNewReleases = (currentVersion: string, limit = 3): WhatsNewRelease[] => {
+const recentWhatsNewReleases = (currentVersion: string, limit = 10): WhatsNewRelease[] => {
     if (!currentVersion) return [];
     const versions = Object.keys(NOTES_BY_VERSION)
         .filter((version) => compareAppVersions(version, currentVersion) <= 0)
@@ -61,7 +61,7 @@ const recentWhatsNewReleases = (currentVersion: string, limit = 3): WhatsNewRele
 /** Fingerprint of the notes shown for this app version — reappears when they change. */
 const currentNotesSeenKey = (currentVersion: string): string => {
     try {
-        return `notes:${JSON.stringify(recentWhatsNewReleases(currentVersion, 3))}`;
+        return `notes:${JSON.stringify(recentWhatsNewReleases(currentVersion, 10))}`;
     } catch {
         return 'notes:';
     }
@@ -69,11 +69,378 @@ const currentNotesSeenKey = (currentVersion: string): string => {
 
 /**
  * Release notes keyed by the versionName that shipped them.
- * Keep the newest three patch versions populated so Whats New can show a
- * contiguous 1.0.N / 1.0.N-1 / 1.0.N-2 sequence. When you ship new notes,
- * add a new top key and leave the previous two in place.
+ * Keep a contiguous run of patch keys so Whats New can show the last 10.
+ * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.298': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'A collection labeled Hero or Heroes shows as a 16:9 row',
+            ],
+        },
+    ],
+    '1.0.297': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'Back from a title highlights the show or movie you just opened',
+            ],
+        },
+    ],
+    '1.0.296': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'Heros and Heroes rows use the Plex 16:9 cover, not the backdrop',
+            ],
+        },
+    ],
+    '1.0.295': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'Home and library backdrops move up so the subject sits closer to the top',
+            ],
+        },
+    ],
+    '1.0.294': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'Home and library backdrops sit higher in the frame',
+            ],
+        },
+    ],
+    '1.0.293': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'Rows labeled Heros or Heroes use the Plex 16:9 hero poster instead of the backdrop',
+            ],
+        },
+    ],
+    '1.0.292': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'Recently Added TV rows fill with the other shows in that library after a bulk add',
+            ],
+        },
+    ],
+    '1.0.291': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'Bulk-adding a show no longer leaves Recently Added as a single poster. The rest of that library stays on the row',
+            ],
+        },
+    ],
+    '1.0.290': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'Recently Added rows keep the rest of the library when one show was added in a big batch',
+            ],
+        },
+    ],
+    '1.0.289': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'Title logos, details, and the description sit higher so they clear the row name',
+            ],
+        },
+    ],
+    '1.0.288': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'The row name sits above its posters again',
+                'Moving between rows keeps the focus ring with the row',
+                'Recently Added stays as one row per library, with your Plex pins, from the first paint',
+                'Settings can switch the corner clock between 24-hour and 12-hour',
+            ],
+        },
+    ],
+    '1.0.287': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'The row name sits under the title logo and description, with a clear gap',
+            ],
+        },
+    ],
+    '1.0.286': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'Title logos and description sit higher so they stay clear of the row name',
+            ],
+        },
+    ],
+    '1.0.285': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'Title details sit above the row name instead of overlapping it',
+            ],
+        },
+    ],
+    '1.0.284': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'Title logos, details, and the backdrop sit a little higher so they no longer cover the row name',
+            ],
+        },
+    ],
+    '1.0.283': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'Home posters stay on every row. They are already there when you move, with no blank cards and no pop-in',
+            ],
+        },
+    ],
+    '1.0.282': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'Home rows always load first. Last visit appears immediately, then Plex fills the pins. The current and next row backgrounds start right away so changing rows does not wait',
+            ],
+        },
+        {
+            title: 'Playback (TV)',
+            items: [
+                'Leaving playback returns to Home or the title page instead of a black screen',
+            ],
+        },
+    ],
+    '1.0.281': [
+        {
+            title: 'Playback (TV)',
+            items: [
+                'Playback keeps a larger buffer, so brief network hiccups no longer stall the picture for a few seconds',
+            ],
+        },
+    ],
+    '1.0.280': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'Backgrounds are 1080p so Plex is not overloaded',
+                'Posters load at 90% quality',
+                'Opening a title stops the row preload so the logo, background, and episodes can load',
+            ],
+        },
+    ],
+    '1.0.279': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'Posters appear whole, instead of filling in halfway',
+                'The background, logo, and description update sooner when you move along a row',
+            ],
+        },
+    ],
+    '1.0.278': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'Coming back to Home starts each row on its first poster',
+                'Apple TV and HBO logos are white, and the DC logo is blue',
+            ],
+        },
+    ],
+    '1.0.277': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'Backgrounds load the full-quality picture first, instead of a soft preview',
+            ],
+        },
+    ],
+    '1.0.276': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'Home loads the rows pinned in Plex again, instead of stopping at Continue Watching and Watchlist',
+            ],
+        },
+    ],
+    '1.0.275': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'Moving back to a row keeps the show you were on in the same place',
+                'The Continue Watching screensaver uses the shows on that row',
+                'Continue Watching backgrounds use the full-quality picture',
+            ],
+        },
+    ],
+    '1.0.274': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'Home reliably loads the collections currently pinned in Plex',
+                'Episodes from one show added within 24 hours appear as one Recently Added card',
+            ],
+        },
+    ],
+    '1.0.273': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'Home, library Recommended, and Browse show their first rows sooner',
+                'Scrolling a row stays on each show instead of jumping ahead',
+            ],
+        },
+    ],
+    '1.0.272': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'Home shows every row Plex has pinned, and loads them again each time you come back',
+                'Recently Added lists every episode, so a big add to one show fills the row',
+            ],
+        },
+        {
+            title: 'Playback',
+            items: [
+                'Resume stays on the open file. A second Plex session no longer starts on top of it',
+            ],
+        },
+    ],
+    '1.0.271': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'Recently watched Continue Watching puts the show you just finished at the front of the row',
+                'Resuming an episode starts playback, and previous and next show up',
+                'The next episode shows that it is loading instead of sitting on a blank screen',
+            ],
+        },
+    ],
+    '1.0.270': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'Continue Watching uses the same full-quality background as the show page',
+            ],
+        },
+    ],
+    '1.0.269': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'Continue Watching uses the current background after you change it in Plex',
+            ],
+        },
+    ],
+    '1.0.268': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'Continue Watching uses the current background after you change it in Plex',
+            ],
+        },
+    ],
+    '1.0.267': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'The screensaver clock stays still',
+                'Settings can shift the clock on each slide for OLED screens',
+            ],
+        },
+    ],
+    '1.0.266': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'The screensaver uses the background currently set in Plex, including after you change a movie like Wonka',
+            ],
+        },
+    ],
+    '1.0.265': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'Search episodes sit further apart',
+                'Episodes are listed in season order',
+                'The side menu stays the height of its items when Search opens',
+            ],
+        },
+    ],
+    '1.0.264': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'Search episodes wrap into a grid and scroll down',
+                'Each episode shows its own picture and its own name',
+                'Recent searches stay fully on screen, and popular searches sit underneath',
+            ],
+        },
+    ],
+    '1.0.263': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'Search puts the name under each show, movie, and episode',
+                'Episode results use that episode’s image',
+                'Shows, movies, and episodes each sit in their own row',
+            ],
+        },
+    ],
+    '1.0.262': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'The search box and keyboard are a little smaller, so more of the rows fit',
+                'Search rows stay fully on screen, and recent searches keep the finished word',
+                'What’s New lists the last 10 versions',
+            ],
+        },
+    ],
+    '1.0.261': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'Search shows Movies under TV Shows',
+                'The first row title and the first poster stay fully on screen',
+            ],
+        },
+    ],
+    '1.0.260': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'The search bar stays on screen while you type',
+                'Down from the keyboard moves through the rows, and back up again',
+            ],
+        },
+    ],
+    '1.0.259': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'Search opens an on-screen keyboard you can move with the remote',
+                'Screensaver slides are shuffled, whichever art source you picked',
+                'Screensaver backgrounds are sharper, and the clock shifts a little each slide',
+            ],
+        },
+    ],
+    '1.0.258': [
+        {
+            title: 'Home (TV)',
+            items: [
+                'A show with no network logo uses its studio logo, then a streaming logo',
+                'The screensaver uses the show’s current background after you change it in Plex',
+            ],
+        },
+    ],
     '1.0.257': [
         {
             title: 'Player (TV)',
@@ -1281,12 +1648,12 @@ export const ApkWhatsNew: React.FC = () => {
     const version = useMemo(() => getPlexClientAppVersion() || '', []);
     const [open, setOpen] = useState(false);
     const buttonRef = useRef<HTMLButtonElement>(null);
-    const releases = useMemo(() => recentWhatsNewReleases(version, 3), [version]);
+    const releases = useMemo(() => recentWhatsNewReleases(version, 10), [version]);
     const seenKey = useMemo(() => currentNotesSeenKey(version), [version]);
 
     useEffect(() => {
         if (!version || !releases.length) return;
-        // Fingerprint of the last-3 note cards — reappears when they change, not on every APK bump.
+        // Fingerprint of the note cards — reappears when they change, not on every APK bump.
         if (readApkWhatsNewSeen() === seenKey) return;
         setOpen(true);
     }, [releases.length, seenKey, version]);

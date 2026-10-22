@@ -3,6 +3,7 @@ import { readDocumentZoom } from '../shared/ui';
 import { isAndroidTvUi } from './config';
 import { PLAYER_APP_BASE, PLAYER_NAVIGATE_EVENT, PLAYER_SCROLL_ID, PLAYER_TV_NAV_EVENT } from '../media-player/paths';
 import {
+    PLAYER_SEARCH_CLEAR_EVENT,
     PLAYER_SEARCH_INPUT_ID,
     readPersistedTvFocus,
     requestPlayerHomeReset,
@@ -46,6 +47,7 @@ const focusableTvItems = (root: ParentNode = document) => (
     Array.from(root.querySelectorAll<HTMLElement>(TV_ITEM)).filter((el) => {
         if (el.hasAttribute('disabled')) return false;
         if (el.getAttribute('aria-hidden') === 'true') return false;
+        if (el.closest('[inert]')) return false;
         if (el.closest(TV_NAV_ROOT)) return false;
         if (!hasLayout(el)) return false;
         return el.tabIndex !== -1;
@@ -677,6 +679,56 @@ const scrollHomeRowWithPeek = (row: HTMLElement, _dir: 'up' | 'down') => {
     });
 };
 
+/**
+ * Search list only. scrollIntoView on the whole results section overshoots
+ * under CSS zoom and parks the list in the empty gap under the keyboard.
+ * Move the search scroller by the card's overflow, and skip it when the
+ * card is already on screen.
+ */
+const scrollSearchBodyTo = (el: HTMLElement, body: HTMLElement) => {
+    const card = (el.closest('[data-tv-poster-card="1"], [data-tv-poster-btn="1"]') as HTMLElement | null) || el;
+    const pad = 16;
+    const fits = () => {
+        const bodyBox = body.getBoundingClientRect();
+        const cardBox = card.getBoundingClientRect();
+        if (cardBox.height < 2 && cardBox.width < 2) return true;
+        return cardBox.top >= bodyBox.top + 2 && cardBox.bottom <= bodyBox.bottom - 2;
+    };
+    if (fits()) return;
+    const bodyBox = body.getBoundingClientRect();
+    const cardBox = card.getBoundingClientRect();
+    const delta = cardBox.top < bodyBox.top + pad
+        ? cardBox.top - (bodyBox.top + pad)
+        : cardBox.bottom - (bodyBox.bottom - pad);
+    const zoom = Math.max(0.01, readDocumentZoom());
+    const max = Math.max(0, body.scrollHeight - body.clientHeight);
+    const next = Math.max(0, Math.min(max, body.scrollTop + delta / zoom));
+    const before = body.scrollTop;
+    body.scrollTop = next;
+    if (Math.abs(body.scrollTop - before) > 1 || fits()) return;
+
+    const page = document.getElementById(PLAYER_SCROLL_ID);
+    const prevY = page?.style.overflowY ?? '';
+    const prevMargin = card.style.scrollMargin;
+    if (page) page.style.overflowY = 'hidden';
+    card.style.scrollMargin = '12px';
+    try {
+        card.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'auto' });
+    } catch {
+        try { card.scrollIntoView(false); } catch { /* ignore */ }
+    }
+    card.style.scrollMargin = prevMargin;
+    if (page) page.style.overflowY = prevY;
+    if (fits()) return;
+    const again = body.getBoundingClientRect();
+    const cardAgain = card.getBoundingClientRect();
+    const fix = cardAgain.top < again.top + pad
+        ? cardAgain.top - (again.top + pad)
+        : cardAgain.bottom - (again.bottom - pad);
+    const fixed = Math.max(0, Math.min(max, body.scrollTop + fix / zoom));
+    body.scrollTop = fixed;
+};
+
 const focusItem = (el: HTMLElement, block: ScrollLogicalPosition = 'nearest', dir?: SpatialDir) => {
     try {
         el.focus({ preventScroll: true });
@@ -684,6 +736,23 @@ const focusItem = (el: HTMLElement, block: ScrollLogicalPosition = 'nearest', di
         el.focus();
     }
     syncPosterFocusAttr();
+    if (el.closest('[data-tv-search="1"]')) {
+        const body = el.closest<HTMLElement>('[data-tv-search-body="1"]');
+        // Query and keyboard stay pinned. Vertical moves scroll the list only —
+        // panning the row here shoves the first poster under the left edge.
+        if (!body) return;
+        const rail = el.closest<HTMLElement>('[data-tv-poster-rail="1"]');
+        if (rail && (dir === 'left' || dir === 'right')) {
+            revealNeighbor(el, dir);
+            return;
+        }
+        if (rail) {
+            const first = rail.querySelector<HTMLElement>(TV_ITEM);
+            if (first && (first === el || first.contains(el) || el.contains(first))) rail.scrollLeft = 0;
+        }
+        scrollSearchBodyTo(el, body);
+        return;
+    }
     const alphaBar = el.closest<HTMLElement>('[data-tv-alpha="1"]');
     if (alphaBar) {
         const barRect = alphaBar.getBoundingClientRect();
@@ -863,6 +932,27 @@ export const peekRememberedTvFocusKey = (path = currentPath()) => (
 export const peekRememberedRowFocusKey = (rowId: string) => (
     String(tvRowFocusById.get(String(rowId || '').trim())?.key || '').trim()
 );
+
+/** Drop Home's remembered poster so the next visit starts on the first card of each row. */
+export const forgetHomePosterFocus = (rowIds: string[] = []) => {
+    let changed = false;
+    [PLAYER_APP_BASE, '/', ''].forEach((path) => {
+        const id = String(path || '').replace(/\/+$/, '') || '/';
+        if (tvFocusByPath.delete(id)) changed = true;
+        if (path && path !== id && tvFocusByPath.delete(path)) changed = true;
+    });
+    const here = currentPath();
+    if ((here === PLAYER_APP_BASE || here === '/' || here === '') && tvFocusByPath.delete(here)) {
+        changed = true;
+    }
+    rowIds.forEach((rowId) => {
+        const id = String(rowId || '').trim();
+        if (!id) return;
+        if (tvRowFocusById.delete(id)) changed = true;
+        if (!id.startsWith('hub:') && tvRowFocusById.delete(`hub:${id}`)) changed = true;
+    });
+    if (changed) persistTvFocusMaps();
+};
 
 export const rememberTvFocusKey = (key: string, path = currentPath(), railScroll?: number) => {
     const id = String(key || '').trim();
@@ -1176,6 +1266,117 @@ const browsePosterAt = (grid: HTMLElement, abs: number) => {
     return button && hasLayout(button) ? button : null;
 };
 
+const searchKeyAt = (row: number, col: number): HTMLElement | null => {
+    const el = document.querySelector<HTMLElement>(
+        `[data-tv-search-pad="1"] [data-search-row="${row}"][data-search-col="${col}"]`,
+    );
+    return el && hasLayout(el) ? el : null;
+};
+
+const searchRowLength = (row: number) => (
+    Array.from(document.querySelectorAll<HTMLElement>(`[data-tv-search-pad="1"] [data-search-row="${row}"]`))
+        .filter(hasLayout).length
+);
+
+const nearestSearchKey = (row: number, col: number): HTMLElement | null => {
+    const count = searchRowLength(row);
+    if (!count) return null;
+    return searchKeyAt(row, Math.max(0, Math.min(col, count - 1)));
+};
+
+const searchChipItems = (attr: 'recent' | 'popular') => {
+    const root = document.querySelector<HTMLElement>(`[data-tv-search-${attr}="1"]`);
+    return root ? focusableTvItems(root) : [];
+};
+
+const searchRecentItems = () => searchChipItems('recent');
+
+const searchPopularItems = () => searchChipItems('popular');
+
+const firstSearchResult = (): HTMLElement | null => {
+    const root = document.querySelector<HTMLElement>('[data-tv-search-body="1"]')
+        || document.querySelector<HTMLElement>('[data-tv-search-results="1"]');
+    if (!root) return null;
+    return focusableTvItems(root).find((el) => !el.closest('[data-tv-search-recent="1"], [data-tv-search-popular="1"]')) || null;
+};
+
+/**
+ * On-screen search keyboard, recent chips, then results.
+ * undefined = focus is not in TV search.
+ */
+const searchKeyboardStep = (current: HTMLElement, dir: SpatialDir): HTMLElement | null | undefined => {
+    const screen = current.closest<HTMLElement>('[data-tv-search="1"]')
+        || document.querySelector<HTMLElement>('[data-tv-search="1"]');
+    if (!screen || !hasLayout(screen) || !current.closest('[data-tv-search="1"]')) return undefined;
+
+    const key = current.closest<HTMLElement>('[data-tv-search-key]');
+    if (key) {
+        const row = Number(key.getAttribute('data-search-row') || '0');
+        const col = Number(key.getAttribute('data-search-col') || '0');
+        if (dir === 'left') return col > 0 ? searchKeyAt(row, col - 1) : null;
+        if (dir === 'right') return searchKeyAt(row, col + 1) || key;
+        if (dir === 'up') return row > 0 ? (nearestSearchKey(row - 1, col) || key) : key;
+        const below = nearestSearchKey(row + 1, col);
+        if (below) return below;
+        const recents = searchRecentItems();
+        if (recents.length) return recents[Math.min(col, recents.length - 1)];
+        const popular = searchPopularItems();
+        if (popular.length) return popular[Math.min(col, popular.length - 1)];
+        return firstSearchResult() || key;
+    }
+
+    if (current.closest('[data-tv-search-recent="1"]')) {
+        const items = searchRecentItems();
+        const idx = items.findIndex((el) => el === current || el.contains(current));
+        if (dir === 'left') return idx > 0 ? items[idx - 1] : null;
+        if (dir === 'right') return (idx >= 0 ? items[idx + 1] : null) || current;
+        if (dir === 'up') return nearestSearchKey(3, Math.max(0, idx)) || searchKeyAt(0, 0) || current;
+        const popular = searchPopularItems();
+        if (popular.length) return popular[Math.min(Math.max(0, idx), popular.length - 1)];
+        return firstSearchResult() || current;
+    }
+
+    if (current.closest('[data-tv-search-popular="1"]')) {
+        const items = searchPopularItems();
+        const idx = items.findIndex((el) => el === current || el.contains(current));
+        if (dir === 'left') return idx > 0 ? items[idx - 1] : null;
+        if (dir === 'right') return (idx >= 0 ? items[idx + 1] : null) || current;
+        if (dir === 'up') {
+            const recents = searchRecentItems();
+            if (recents.length) return recents[Math.min(Math.max(0, idx), recents.length - 1)];
+            return nearestSearchKey(3, Math.max(0, idx)) || searchKeyAt(0, 0) || current;
+        }
+        return firstSearchResult() || current;
+    }
+
+    const body = current.closest<HTMLElement>('[data-tv-search-body="1"]')
+        || current.closest<HTMLElement>('[data-tv-search-results="1"]');
+    if (body) {
+        const grid = current.closest<HTMLElement>('[data-tv-poster-grid="1"]');
+        if (grid && (dir === 'left' || dir === 'right')) {
+            const items = focusableTvItems(grid);
+            const idx = items.findIndex((el) => el === current || el.contains(current));
+            if (idx >= 0) {
+                if (dir === 'right') return items[idx + 1] || current;
+                return idx > 0 ? items[idx - 1] : null;
+            }
+        }
+        if (dir === 'up') {
+            const above = findSpatialTarget(current, 'up', body);
+            if (above) return above;
+            const popular = searchPopularItems();
+            if (popular[0]) return popular[0];
+            const recents = searchRecentItems();
+            if (recents[0]) return recents[0];
+            return nearestSearchKey(3, 0) || searchKeyAt(0, 0) || current;
+        }
+        const next = findSpatialTarget(current, dir, body);
+        if (dir === 'left' && !next) return null;
+        return next || current;
+    }
+    return undefined;
+};
+
 /** Browse up/down stays inside the poster window. The letter bar is its own column. */
 const browseGridStep = (current: HTMLElement, dir: SpatialDir): HTMLElement | null | undefined => {
     const alpha = current.closest<HTMLElement>('[data-tv-alpha="1"]');
@@ -1425,7 +1626,7 @@ const visibleStagePoster = (): HTMLElement | null => {
     const rail = visibleStageRail();
     if (!rail) return null;
     return Array.from(rail.querySelectorAll<HTMLElement>('[data-tv-poster-btn="1"]'))
-        .find((el) => hasLayout(el))
+        .find((el) => hasLayout(el) && !el.closest('[inert]'))
         || null;
 };
 
@@ -1800,8 +2001,32 @@ const handleTvBack = (): boolean => {
         }, 80);
         return true;
     }
-    // Home search: results → field → clear → side nav (phone already cleared search).
-    // After IME blur, focus often lands on body — treat that as “clear”, not “refocus field”.
+    // Home search: results → keyboard. Back on the keyboard clears the query, then leaves search.
+    const searchScreen = document.querySelector<HTMLElement>('[data-tv-search="1"]');
+    if (searchScreen && hasLayout(searchScreen)) {
+        const active = document.activeElement as HTMLElement | null;
+        const onPad = Boolean(active?.closest?.('[data-tv-search-pad="1"]'));
+        const onRecent = Boolean(active?.closest?.('[data-tv-search-recent="1"]'));
+        const onResults = Boolean(active?.closest?.('[data-tv-search-body="1"], [data-tv-search-results="1"]'));
+        if (onResults || onRecent) {
+            const key = document.querySelector<HTMLElement>('[data-tv-search-key="q"]');
+            if (key && hasLayout(key)) {
+                focusItem(key, 'start');
+                return true;
+            }
+        }
+        if (onPad || !active || active === document.body || active === document.documentElement) {
+            const queryEl = searchScreen.querySelector<HTMLElement>('[data-tv-search-query="1"]');
+            if (queryEl?.getAttribute('data-empty') !== '1') {
+                window.dispatchEvent(new Event(PLAYER_SEARCH_CLEAR_EVENT));
+                return true;
+            }
+            requestPlayerHomeReset();
+            window.setTimeout(() => restoreTvFocusWhenReady(), 40);
+            return true;
+        }
+    }
+    // Phone search field, or a TV build that still focuses the input.
     const searchInput = document.getElementById(PLAYER_SEARCH_INPUT_ID) as HTMLElement | null;
     if (searchInput && hasLayout(searchInput)) {
         const active = document.activeElement as HTMLElement | null;
@@ -1897,6 +2122,8 @@ declare global {
         __SMP_HANDLE_BACK__?: () => boolean;
         __SMP_CLOSE_PLAYBACK__?: () => boolean;
         __SMP_OPEN_SEARCH__?: () => void;
+        __SMP_SEARCH_FOR__?: (query: string) => void;
+        __SMP_OPEN_ITEM__?: (ratingKey: string, serverId?: string) => void;
     }
 }
 
@@ -2251,6 +2478,15 @@ export const useTvRemote = (enabled = true) => {
                         if (episode && hasLayout(episode)) target = episode;
                     }
                 }
+            }
+            const inSearch = Boolean(current.closest('[data-tv-search="1"]'));
+            if (!target && !menuRoot && inSearch) {
+                const stepped = searchKeyboardStep(current, dir);
+                if (stepped) {
+                    focusItem(stepped, 'nearest', dir);
+                    return;
+                }
+                if (dir !== 'left') return;
             }
             const inBrowseChrome = Boolean(current.closest('[data-tv-browse-grid="1"], [data-tv-alpha="1"]'));
             if (!target && !menuRoot && (dir === 'left' || dir === 'right') && !inBrowseChrome) {

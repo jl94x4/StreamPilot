@@ -5,7 +5,7 @@ import { DiscoveryFactWidget } from '../discovery/DiscoveryFactWidget';
 import { apiFetch } from '../shared/api';
 import { DISCOVER_NETWORKS, DISCOVER_STUDIOS } from '../discovery/discoverConstants';
 import { shouldPreserveColorLogo } from '../discovery/discoveryLogoUtils';
-import { plexImageUrl, formatEpisodeCode, formatPlayerDate, formatPlayerDuration, progressPercent } from './playerUtils';
+import { plexImageUrl, PLAYER_POSTER_QUALITY, formatEpisodeCode, formatPlayerDate, formatPlayerDuration, progressPercent } from './playerUtils';
 import {
     isStreamingBrandLabel,
     pickWatchProvidersForRegion,
@@ -384,9 +384,11 @@ export const OverviewFactsSpotlight: React.FC<{
     const { t } = useDiscoverI18n();
     const { preferences } = useDiscoveryPreferences();
     const [settings] = usePlayerSettings();
-    const { studio, network } = useOverviewServiceLogos(item, preferences.discoverRegion || 'US');
-    // Match billboard: movies → studio only; TV → network only (never watch-provider streaming).
-    const brandRows = item.type === 'movie' ? studio : network;
+    const { studio, network, streaming } = useOverviewServiceLogos(item, preferences.discoverRegion || 'US');
+    // One tier: movies → studio, then streaming. Shows → network, then studio, then streaming.
+    const brandRows = item.type === 'movie'
+        ? (studio.length ? studio : streaming)
+        : (network.length ? network : (studio.length ? studio : streaming));
     const marks = settings.showServiceBrandLogos === false
         ? []
         : brandRows.filter((row) => row.logoPath).filter((row, index, rows) => (
@@ -754,7 +756,7 @@ const EpisodeNeighborCard: React.FC<{
             >
                 <div className="player-episode-neighbor-thumb relative h-[3.85rem] w-[6.6rem] shrink-0 overflow-hidden rounded-lg bg-black/40">
                     {item.thumb ? (
-                        <img src={plexImageUrl(item.thumb, 426, 240, { quality: 60 })} alt="" className="h-full w-full object-cover" />
+                        <img src={plexImageUrl(item.thumb, 426, 240, { quality: PLAYER_POSTER_QUALITY })} alt="" className="h-full w-full object-cover" />
                     ) : (
                         <div className="flex h-full items-center justify-center text-muted">{icon}</div>
                     )}

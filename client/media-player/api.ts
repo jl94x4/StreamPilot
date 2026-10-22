@@ -22,7 +22,7 @@ import {
     playerHomeHasRows,
     playerHomeNeedsFull,
 } from './playerMemory';
-import { applyRememberedProgress, browserPlaybackCaps, forgetPlayerPoster, noteItemWatched, plexBackdropPreviewUrl, plexBackdropUrl, prefetchPlayerImages, withWatchedProgress } from './playerUtils';
+import { applyRememberedProgress, browserPlaybackCaps, forgetPlayerPoster, noteItemWatched, pausePlayerWarming, plexBackdropUrl, plexLogoUrl, prefetchPlayerImages, resumePlayerWarming, warmPlayerBackdrop, warmPlayerPoster, withWatchedProgress } from './playerUtils';
 import { matchDiscoverCompanyByName } from './studioLogo.js';
 import type {
     PlayerHome,
@@ -42,20 +42,19 @@ import type {
     PlayerStudioBrowseCard,
 } from './types';
 
-const prefetchItemBackdrop = (item?: { art?: string | null } | null) => {
-    const art = item?.art;
-    if (!art) return;
-    prefetchPlayerImages([plexBackdropPreviewUrl(art), plexBackdropUrl(art)], 2);
+const prefetchItemBackdrop = (item?: { art?: string | null; backdropArt?: string | null; thumb?: string | null; logo?: string | null } | null) => {
+    const art = item?.backdropArt || item?.art || item?.thumb;
+    if (art) warmPlayerBackdrop(plexBackdropUrl(art));
+    if (item?.logo) warmPlayerPoster(plexLogoUrl(item.logo));
 };
 
 const prefetchHeroBackdrops = (items?: Array<{ art?: string | null } | null>) => {
     const list = (items || []).filter((item) => item?.art).slice(0, 3);
     const urls: string[] = [];
-    list.forEach((item, index) => {
-        urls.push(plexBackdropPreviewUrl(item.art));
-        if (index === 0) urls.push(plexBackdropUrl(item.art));
+    list.forEach((item) => {
+        urls.push(plexBackdropUrl(item.art));
     });
-    prefetchPlayerImages(urls, 4);
+    prefetchPlayerImages(urls, 3);
 };
 
 let meInflight: Promise<PlayerProfile> | null = null;
@@ -109,15 +108,18 @@ export const prefetchMediaPlayerHome = () => {
     void fetchMediaPlayerHome()
         .then((data) => {
             if (data && playerHomeHasRows(data)) writePlayerHomeCache(data);
-            if (data && playerHomeNeedsFull(data)) {
-                void fetchMediaPlayerHomeFull()
-                    .then((full) => {
-                        if (full && playerHomeHasRows(full)) writePlayerHomeCache(full);
-                    })
-                    .catch(() => undefined);
-            }
         })
         .catch(() => undefined);
+    void fetchMediaPlayerHomeFull()
+        .then((full) => {
+            if (full && playerHomeHasRows(full)) writePlayerHomeCache(full);
+        })
+        .catch(() => undefined);
+    const tvBoot = typeof document !== 'undefined' && (
+        document.documentElement?.dataset?.tv === '1'
+        || (typeof window !== 'undefined' && window.__PLEX_CLIENT__?.isTv === true)
+    );
+    if (tvBoot) return;
     void fetchMediaPlayerHomeHero()
         .then((data) => {
             const items = data?.enabled && Array.isArray(data.items) ? data.items : [];
@@ -668,14 +670,53 @@ export const fetchMediaPlayerItem = (ratingKey: string, opts: { core?: boolean; 
 
 /** Warm overview cache while a poster is focused (TV leanback). */
 const prefetchQueue: string[] = [];
+/** Rating keys for the TV row on screen, focused poster first. */
+let prefetchRow: string[] = [];
+let prefetchRowEpoch = 0;
 let prefetchRunning = 0;
+let prefetchPaused = false;
+let prefetchPauseDepth = 0;
 const PREFETCH_CONCURRENCY = 2;
+const PREFETCH_CAP = 24;
+
+const itemRequestInflight = (ratingKey: string) => {
+    const core = `|${ratingKey}|1`;
+    const full = `|${ratingKey}|0`;
+    for (const id of itemInflight.keys()) {
+        if (id.endsWith(core) || id.endsWith(full)) return true;
+    }
+    return false;
+};
+
+const uniquePrefetchKeys = (ratingKeys: string[]) => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const raw of ratingKeys) {
+        const key = String(raw || '').trim();
+        if (!key || !/^\d+$/.test(key) || seen.has(key)) continue;
+        seen.add(key);
+        out.push(key);
+        if (out.length >= PREFETCH_CAP) break;
+    }
+    return out;
+};
+
+const rebuildPrefetchQueue = () => {
+    prefetchQueue.length = 0;
+    for (const key of prefetchRow) {
+        const cached = readPlayerItemCache(key);
+        if (cached?.item) continue;
+        if (itemRequestInflight(key)) continue;
+        prefetchQueue.push(key);
+    }
+};
 
 const runPrefetchQueue = () => {
+    if (prefetchPaused) return;
     while (prefetchRunning < PREFETCH_CONCURRENCY && prefetchQueue.length) {
         const key = prefetchQueue.shift();
         if (!key) break;
-        if (itemInflight.has(`${key}|1`) || itemInflight.has(`${key}|0`)) continue;
+        if (itemRequestInflight(key)) continue;
         const cached = readPlayerItemCache(key);
         if (cached?.item) {
             prefetchItemBackdrop(cached.item);
@@ -691,19 +732,84 @@ const runPrefetchQueue = () => {
     }
 };
 
-export const prefetchMediaPlayerItem = (ratingKey: string) => {
+const prioritizeTvRowItem = (ratingKey: string) => {
     const key = String(ratingKey || '').trim();
     if (!key || !/^\d+$/.test(key)) return;
+    const index = prefetchRow.indexOf(key);
+    if (index > 0) {
+        prefetchRow = prefetchRow.slice(index).concat(prefetchRow.slice(0, index));
+    } else if (index < 0) {
+        prefetchRow = uniquePrefetchKeys([key, ...prefetchRow]);
+    }
+    rebuildPrefetchQueue();
+    runPrefetchQueue();
+};
+
+/** Load logos and descriptions for the whole TV row. The next row replaces this queue. */
+export const prefetchTvRowItems = (ratingKeys: string[]) => {
+    const epoch = ++prefetchRowEpoch;
+    prefetchRow = uniquePrefetchKeys(ratingKeys);
+    rebuildPrefetchQueue();
+    runPrefetchQueue();
+    return () => {
+        if (prefetchRowEpoch !== epoch) return;
+        prefetchRowEpoch += 1;
+        prefetchRow = [];
+        prefetchQueue.length = 0;
+    };
+};
+
+export const pausePlayerBackgroundLoads = () => {
+    prefetchPauseDepth += 1;
+    prefetchPaused = true;
+    prefetchQueue.length = 0;
+    pausePlayerWarming();
+};
+
+export const resumePlayerBackgroundLoads = () => {
+    prefetchPauseDepth = Math.max(0, prefetchPauseDepth - 1);
+    resumePlayerWarming();
+    if (prefetchPauseDepth > 0) return;
+    prefetchPaused = false;
+    runPrefetchQueue();
+};
+
+export const PLAYER_HOME_ROWS_IDLE_EVENT = 'smp-player-home-rows-idle';
+let homeRowsBusy = 0;
+
+export const isHomeRowsBusy = () => homeRowsBusy > 0;
+
+/** Home pin rows own Plex until they are on screen. */
+export const beginHomeRowPriority = () => {
+    homeRowsBusy += 1;
+    pausePlayerBackgroundLoads();
+};
+
+export const endHomeRowPriority = () => {
+    homeRowsBusy = Math.max(0, homeRowsBusy - 1);
+    resumePlayerBackgroundLoads();
+    if (homeRowsBusy > 0 || typeof window === 'undefined') return;
+    window.dispatchEvent(new Event(PLAYER_HOME_ROWS_IDLE_EVENT));
+};
+
+export const prefetchMediaPlayerItem = (ratingKey: string) => {
+    if (prefetchPaused) return;
+    const key = String(ratingKey || '').trim();
+    if (!key || !/^\d+$/.test(key)) return;
+    if (prefetchRow.length) {
+        prioritizeTvRowItem(key);
+        return;
+    }
     const cached = readPlayerItemCache(key);
     if (cached?.item) {
         prefetchItemBackdrop(cached.item);
         return;
     }
-    if (itemInflight.has(`${key}|1`) || itemInflight.has(`${key}|0`)) return;
-    if (prefetchQueue.includes(key)) return;
-    prefetchQueue.push(key);
-    // Prefer the latest focus: keep queue short.
-    while (prefetchQueue.length > 4) prefetchQueue.shift();
+    if (itemRequestInflight(key)) return;
+    const existing = prefetchQueue.indexOf(key);
+    if (existing >= 0) prefetchQueue.splice(existing, 1);
+    prefetchQueue.unshift(key);
+    while (prefetchQueue.length > 4) prefetchQueue.pop();
     runPrefetchQueue();
 };
 
@@ -837,6 +943,17 @@ export const fetchPlayerPersonBundle = async (
 
 export const searchMediaPlayer = (query: string) => (
     apiFetch(`${PLAYER_API_ROOT}/search?q=${encodeURIComponent(query)}`) as Promise<{ results: PlayerItemPage['item'][] }>
+);
+
+export const fetchPopularSearches = () => (
+    apiFetch(`${PLAYER_API_ROOT}/search/popular`) as Promise<{ queries: string[] }>
+);
+
+export const recordPopularSearch = (query: string) => (
+    apiFetch(`${PLAYER_API_ROOT}/search/popular`, {
+        method: 'POST',
+        body: JSON.stringify({ q: query }),
+    }) as Promise<{ queries: string[] }>
 );
 
 /** Resolve a local library copy for Watch Together join (guid / tmdb / title match). */
@@ -1004,6 +1121,55 @@ export const startMediaPlayerPlayback = (ratingKey: string, opts: {
     if (caps.ac3) qs.set('canPlayAc3', '1');
     if (caps.hls) qs.set('canPlayNativeHls', '1');
     return apiFetch(`${PLAYER_API_ROOT}/play/${encodeURIComponent(ratingKey)}?${qs}`) as Promise<PlayerPlaySession>;
+};
+
+type PlaybackRequest = NonNullable<Parameters<typeof startMediaPlayerPlayback>[1]>;
+
+const preparedPlaybackKey = (ratingKey: string, opts: PlaybackRequest = {}) => JSON.stringify({
+    ratingKey: String(ratingKey || ''),
+    offsetMs: opts.offsetMs == null ? null : Math.floor(Number(opts.offsetMs) || 0),
+    qualityId: String(opts.qualityId || ''),
+    mediaIndex: opts.mediaIndex == null ? null : Math.floor(Number(opts.mediaIndex) || 0),
+    audioLanguage: String(opts.audioLanguage || ''),
+    subtitleMode: String(opts.subtitleMode || ''),
+    audioStreamId: opts.audioStreamId == null ? null : String(opts.audioStreamId),
+    subtitleStreamId: opts.subtitleStreamId == null ? null : String(opts.subtitleStreamId),
+    serverId: String(opts.serverId || ''),
+    delivery: String(opts.delivery || ''),
+});
+
+const preparedPlayback = new Map<string, { at: number; promise: Promise<PlayerPlaySession> }>();
+const PREPARED_PLAYBACK_TTL_MS = 3 * 60_000;
+
+/**
+ * Play decision for a title that is about to start. Do not call this while
+ * another file is still open — a second /play mints another PMS session and,
+ * when Direct Play is refused, a transcode URL. Opening that on top of the
+ * current stream is what crashes the server.
+ */
+export const prepareMediaPlayerPlayback = (ratingKey: string, opts: PlaybackRequest = {}) => {
+    const key = preparedPlaybackKey(ratingKey, opts);
+    const existing = preparedPlayback.get(key);
+    if (existing && Date.now() - existing.at < PREPARED_PLAYBACK_TTL_MS) return existing.promise;
+    const promise = startMediaPlayerPlayback(ratingKey, opts).catch((error) => {
+        const current = preparedPlayback.get(key);
+        if (current?.promise === promise) preparedPlayback.delete(key);
+        throw error;
+    });
+    preparedPlayback.set(key, { at: Date.now(), promise });
+    return promise;
+};
+
+/** Hand a prepared play decision to the real start, once. */
+export const takePreparedMediaPlayerPlayback = (ratingKey: string, opts: PlaybackRequest = {}) => {
+    const key = preparedPlaybackKey(ratingKey, opts);
+    const existing = preparedPlayback.get(key);
+    if (!existing || Date.now() - existing.at > PREPARED_PLAYBACK_TTL_MS) {
+        preparedPlayback.delete(key);
+        return null;
+    }
+    preparedPlayback.delete(key);
+    return existing.promise;
 };
 
 export const reportMediaPlayerTimeline = (payload: {

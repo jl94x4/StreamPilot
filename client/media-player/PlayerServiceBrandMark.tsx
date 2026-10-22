@@ -19,7 +19,7 @@ type Props = {
 
 /**
  * One brand mark for TV billboards / home spot.
- * Movies → TMDB studio (then streaming); TV → Plex Network / TMDB network (then streaming).
+ * Movies → studio, then streaming. Shows → network, then studio, then streaming.
  * Discovery+ keeps coloured D + white wordmark.
  */
 export const PlayerServiceBrandMark: React.FC<Props> = ({ item, className = '' }) => {
@@ -53,10 +53,9 @@ export const PlayerServiceBrandMark: React.FC<Props> = ({ item, className = '' }
             networks: DISCOVER_NETWORKS,
             studios: DISCOVER_STUDIOS,
         }));
-        // Movies: TMDB production company / streaming first.
-        // TV: Plex Network sync first, then TMDB network / streaming.
-        if (mediaType === 'movie') return fromTmdb || sync;
-        return sync || fromTmdb;
+        // Ordered tiers (network, then studio, then streaming) win once they exist.
+        // Sync covers the same Plex tags before the TMDB request returns.
+        return fromTmdb || sync;
     })();
 
     // Hub rows often omit Guids — enrich so TMDB studio/network/streaming can load.

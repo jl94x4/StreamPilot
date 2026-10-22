@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import { PLAYER_SCROLL_ID } from './paths';
+import { pushRecentSearch } from './recentSearch.js';
 import type { PlayerHome, PlayerItem, PlayerItemPage, PlayerSection } from './types';
+
+export { pushRecentSearch };
 
 export const PLAYER_SEARCH_INPUT_ID = 'media-player-search';
 export const PLAYER_FOCUS_SEARCH_KEY = 'portal-media-player-focus-search';
@@ -8,6 +11,8 @@ export const PLAYER_HOME_SCROLL_KEY = 'portal-media-player-home-scroll';
 export const PLAYER_LIBRARY_SCROLL_KEY = 'portal-media-player-library-scroll';
 export const PLAYER_LAST_LIBRARY_PATH_KEY = 'portal-media-player-last-library-path';
 export const PLAYER_VOICE_RESULT_EVENT = 'smp-player-voice-result';
+export const PLAYER_SEARCH_CLEAR_EVENT = 'smp-player-search-clear';
+export const PLAYER_RECENT_SEARCHES_KEY = 'portal-media-player-recent-searches-v1';
 export const PLAYER_LOCAL_PLAYBACK_KEY = 'portal-media-player-local-playback';
 export const PLAYER_LIBRARY_STATE_KEY = 'portal-media-player-library-state-v2';
 export const PLAYER_MINI_WIDTH_KEY = 'portal-media-player-mini-width';
@@ -91,6 +96,17 @@ const writeJson = (storage: Storage, key: string, value: unknown) => {
     } catch {
         /* quota / private mode */
     }
+};
+
+export const readRecentSearches = (): string[] => {
+    const raw = readJson(PLAYER_RECENT_SEARCHES_KEY);
+    return pushRecentSearch(Array.isArray(raw) ? raw as string[] : [], '');
+};
+
+export const rememberRecentSearch = (query: string): string[] => {
+    const next = pushRecentSearch(readRecentSearches(), query);
+    if (typeof window !== 'undefined') writeJson(window.localStorage, PLAYER_RECENT_SEARCHES_KEY, next);
+    return next;
 };
 
 export const readLocalPlaybackPrefs = (): LocalPlaybackPrefs => {
@@ -565,6 +581,35 @@ export const consumePlayerSearchFocus = () => {
     }
 };
 
+const PLAYER_SEARCH_QUERY_KEY = 'portal-media-player-search-query';
+
+/**
+ * Run a search from outside the page (Assistant "search for X", system search).
+ * Home may not be mounted yet, so the query waits in sessionStorage too.
+ */
+export const requestPlayerSearchQuery = (query: string) => {
+    if (typeof window === 'undefined') return;
+    const text = String(query || '').trim();
+    if (!text) return;
+    try {
+        window.sessionStorage.setItem(PLAYER_SEARCH_QUERY_KEY, text);
+    } catch {
+        /* ignore */
+    }
+    window.dispatchEvent(new CustomEvent(PLAYER_VOICE_RESULT_EVENT, { detail: text }));
+};
+
+export const consumePlayerSearchQuery = () => {
+    if (typeof window === 'undefined') return '';
+    try {
+        const text = window.sessionStorage.getItem(PLAYER_SEARCH_QUERY_KEY) || '';
+        if (text) window.sessionStorage.removeItem(PLAYER_SEARCH_QUERY_KEY);
+        return text;
+    } catch {
+        return '';
+    }
+};
+
 export const focusPlayerSearchInput = () => {
     const input = document.getElementById(PLAYER_SEARCH_INPUT_ID) as HTMLInputElement | null;
     if (!input) return false;
@@ -594,7 +639,7 @@ export const requestPlayerHomeReset = () => {
 
 const PLAYER_HOME_CACHE_TTL_MS = 90_000;
 /** Still paint from disk after a cold TV launch — refresh in background. */
-const PLAYER_HOME_CACHE_MAX_AGE_MS = 30 * 60_000;
+const PLAYER_HOME_CACHE_MAX_AGE_MS = 24 * 60 * 60_000;
 const PLAYER_HOME_CACHE_KEY = 'portal-media-player-home-cache-v10';
 let playerHomeCache: { at: number; data: PlayerHome } | null = null;
 
@@ -678,6 +723,11 @@ const isBecauseHomeHub = (hub: { identifier?: string; title?: string }) => (
     || /because you watched/i.test(String(hub.title || ''))
 );
 
+/** Per-library Recently Added invented when the pin list failed. Not a Plex pin. */
+const isSyntheticRecentHomeHub = (hub: { identifier?: string }) => (
+    /^recentlyadded\./i.test(String(hub.identifier || ''))
+);
+
 const isContinueHomeHub = (hub: { identifier?: string; title?: string }) => (
     /continue\s*watch|ondeck|on[.\s_-]?deck|in[.\s_-]?progress/i.test(`${hub.identifier || ''} ${hub.title || ''}`)
 );
@@ -704,6 +754,10 @@ export const playerHomeNeedsFull = (data: PlayerHome | null | undefined) => (
     || !playerHomeHasContentHubs(data)
     // Because rows are only filled on full=1 — keep asking until that pass lands.
     || data.becauseAttached !== true
+    // A Heros row painted from cache still has the backdrop until coverArt is attached.
+    || (data.hubs || []).some((hub) => (
+        hub.heroRow && (hub.items || []).some((item) => !String(item.heroArt || '').trim())
+    ))
 );
 
 const mergePlayerItemsPreserveOrder = <T extends { ratingKey?: string | number | null }>(
@@ -755,12 +809,21 @@ export const mergePlayerHomePayloads = (full: PlayerHome, partial: PlayerHome): 
         const nextN = hub.items?.length || 0;
         if (replaceIfRicher ? nextN >= prevN : nextN > prevN) byKey.set(key, hub);
     };
-    const fullCore = (full.hubs || []).filter((hub) => !isBecauseHomeHub(hub));
-    const partialCore = (partial.hubs || []).filter((hub) => !isBecauseHomeHub(hub));
+    const countable = (hubs: NonNullable<PlayerHome['hubs']>) => (
+        hubs.filter((hub) => !isBecauseHomeHub(hub) && !isSyntheticRecentHomeHub(hub))
+    );
+    const fullCore = countable(full.hubs || []);
+    const partialCore = countable(partial.hubs || []);
+    const hasRealPins = fullCore.concat(partialCore).some((hub) => (
+        !!hub.items?.length && !isContinueHomeHub(hub) && !isPlaylistHomeHub(hub)
+    ));
+    const keepHub = (hub: NonNullable<PlayerHome['hubs']>[number]) => (
+        !hasRealPins || !isSyntheticRecentHomeHub(hub)
+    );
     const primary = partialCore.length > fullCore.length ? partial : full;
     const extra = primary === full ? partial : full;
-    (primary.hubs || []).forEach((hub) => add(hub, primary === full));
-    (extra.hubs || []).forEach((hub) => add(hub, extra === full));
+    (primary.hubs || []).filter(keepHub).forEach((hub) => add(hub, primary === full));
+    (extra.hubs || []).filter(keepHub).forEach((hub) => add(hub, extra === full));
     (full.hubs || []).filter(isBecauseHomeHub).forEach((hub) => add(hub, true));
     const hubs = order.map((key) => byKey.get(key)!);
     const shownCw = (partial.hubs || []).find((hub) => isContinueHomeHub(hub));
@@ -828,6 +891,19 @@ export const coalescePlayerHomeWithCache = (
     }
     if (!playerHomeHasContentHubs(next) && playerHomeHasContentHubs(cached)) {
         next = { ...mergePlayerHomePayloads(cached!, next), partial: true };
+    }
+    const hasRealPinHubs = (data: PlayerHome | null | undefined) => (
+        (data?.hubs || []).some((hub) => (
+            !!hub.items?.length
+            && !isContinueHomeHub(hub)
+            && !isBecauseHomeHub(hub)
+            && !isPlaylistHomeHub(hub)
+            && !isSyntheticRecentHomeHub(hub)
+        ))
+    );
+    // A Recently Added fallback must not replace the last home that had real pins.
+    if (!hasRealPinHubs(next) && hasRealPinHubs(cached)) {
+        next = { ...mergePlayerHomePayloads(cached!, next), partial: next.partial !== false };
     }
     // Soft/partial responses omit Because rows — keep the last attached ones.
     const liveBecause = (next.hubs || []).filter(isBecauseHomeHub);

@@ -185,10 +185,13 @@ export const stabilizeContinueWatchingOrder = <T extends {
     type?: string | null;
 }>(items: T[] | null | undefined, sort: unknown, previousKeys?: string[] | null): { items: T[]; keys: string[] } => {
     const sorted = sortContinueWatchingItems(items, sort);
+    const mode = isPlayerContinueWatchingSort(sort) ? sort : 'releaseDate';
     const prior = Array.isArray(previousKeys)
         ? previousKeys.map((key) => String(key || '').trim()).filter(Boolean)
         : [];
-    if (!prior.length) {
+    // Recently watched must follow last view time. Freezing the first key list
+    // appends the next episode (a new rating key) at the end of the row.
+    if (!prior.length || mode === 'recentlyWatched') {
         return { items: sorted, keys: sorted.map(continueWatchingItemKey).filter(Boolean) };
     }
     const byKey = new Map<string, T>();
@@ -294,8 +297,12 @@ export type PlayerSettings = {
     recentlyAddedSeasonPoster: boolean;
     /** TV screensaver: which library pool to cycle as ambient art. */
     screensaverSource: PlayerScreensaverSource;
+    /** TV screensaver: nudge the clock each slide so it does not burn into OLED panels. */
+    screensaverShiftClock: boolean;
     /** TV: skip focus zoom and screen-enter motion. */
     reduceMotion: boolean;
+    /** TV corner clock. On uses 15:36. Off uses 3:36 PM. */
+    clock24Hour: boolean;
     nightMode: boolean;
     matchFrameRate: boolean;
     /** HDMI bitstream of DD/DTS/TrueHD when the sink supports it. */
@@ -631,7 +638,9 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
     hideWatchedFromRecents: false,
     recentlyAddedSeasonPoster: false,
     screensaverSource: 'continue_watching',
+    screensaverShiftClock: false,
     reduceMotion: false,
+    clock24Hour: true,
     nightMode: false,
     matchFrameRate: true,
     audioPassthrough: false,
@@ -712,7 +721,9 @@ export const normalizePlayerSettings = (raw: Partial<PlayerSettings> | Record<st
         screensaverSource: isPlayerScreensaverSource(raw?.screensaverSource)
             ? raw.screensaverSource
             : 'continue_watching',
+        screensaverShiftClock: raw?.screensaverShiftClock === true,
         reduceMotion: raw?.reduceMotion === true,
+        clock24Hour: raw?.clock24Hour !== false,
         nightMode: raw?.nightMode === true,
         matchFrameRate: raw?.matchFrameRate !== false,
         audioPassthrough: raw?.audioPassthrough === true,
@@ -773,7 +784,9 @@ export const playerSettingsEqual = (a: PlayerSettings, b: PlayerSettings) => (
     && a.hideWatchedFromRecents === b.hideWatchedFromRecents
     && a.recentlyAddedSeasonPoster === b.recentlyAddedSeasonPoster
     && a.screensaverSource === b.screensaverSource
+    && a.screensaverShiftClock === b.screensaverShiftClock
     && a.reduceMotion === b.reduceMotion
+    && a.clock24Hour === b.clock24Hour
     && a.nightMode === b.nightMode
     && a.matchFrameRate === b.matchFrameRate
     && a.audioPassthrough === b.audioPassthrough

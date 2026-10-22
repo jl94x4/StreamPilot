@@ -107,5 +107,9 @@ plex-client/android/app/build/
 plex-client/android/build/
 plex-client/android/captures/
 plex-client/android/local.properties
+# Release signing key and its passwords: never commit.
+plex-client/android/keystore.properties
+*.jks
+*.keystore
 plex-client/android/**/capacitor-cordova-android-plugins/build/
 

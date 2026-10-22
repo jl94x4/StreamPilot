@@ -42,6 +42,7 @@ import {
     isMusicPlayerItem,
     MUSIC_NOW_PLAYING_EVENT,
     plexImageUrl,
+    PLAYER_POSTER_QUALITY,
     plexLogoUrl,
     resizePlexArtUrl,
     isPlaybackFinished,
@@ -50,7 +51,7 @@ import {
     audioStreamIdFromSrc,
     subtitleStreamIdFromSrc,
 } from './playerUtils';
-import { fetchMediaPlayerItemMore, fetchMediaPlayerNeighbors, fetchMediaPlayerSubtitleSearch, fetchMediaPlayerVoiceActivity, reportMediaPlayerTimeline, saveMediaPlayerSettings, setMediaPlayerWatched, startMediaPlayerPlayback, stopMediaPlayerTranscode } from './api';
+import { fetchMediaPlayerItem, fetchMediaPlayerItemMore, fetchMediaPlayerNeighbors, fetchMediaPlayerSubtitleSearch, fetchMediaPlayerVoiceActivity, pausePlayerBackgroundLoads, reportMediaPlayerTimeline, resumePlayerBackgroundLoads, saveMediaPlayerSettings, setMediaPlayerWatched, startMediaPlayerPlayback, stopMediaPlayerTranscode } from './api';
 import { usePlayerSettings } from './usePlayerSettings';
 import { normalizePlayerSettings, readPlayerSettings, writePlayerSettings } from './playerSettings';
 import { computeSubtitleSyncOffsetMs, parseSrtCueStartsMs } from './subtitleAutoSync.js';
@@ -361,7 +362,7 @@ const skipChapter = (
 const nativeNextItemPayload = (item?: PlayerItem | null) => {
     if (!item?.ratingKey) return { ratingKey: '', title: '' as string | undefined, thumb: '' };
     const thumb = item.thumb
-        ? portalUrl(resizePlexArtUrl(plexImageUrl(item.thumb, 480, 270, { quality: 60 }), 480, 270))
+        ? portalUrl(resizePlexArtUrl(plexImageUrl(item.thumb, 480, 270, { quality: PLAYER_POSTER_QUALITY }), 480, 270))
         : '';
     return { ratingKey: item.ratingKey, title: item.title, thumb };
 };
@@ -393,6 +394,10 @@ export const MediaPlayerVideo: React.FC<Props> = ({
 }) => {
     const { t } = useDiscoverI18n();
     const [playerSettings] = usePlayerSettings();
+    useEffect(() => {
+        pausePlayerBackgroundLoads();
+        return () => resumePlayerBackgroundLoads();
+    }, []);
     const videoRef = useRef<HTMLVideoElement>(null);
     const overlayRef = useRef<HTMLDivElement>(null);
     const hlsRef = useRef<Hls | null>(null);
@@ -799,6 +804,24 @@ export const MediaPlayerVideo: React.FC<Props> = ({
         const logoAuthUrl = logoSrc ? absoluteWithAuth(logoSrc).url : '';
         const sidecarSubs: NativePlayerTrackOption[] = [];
 
+        const nativeWatchNextPayload = (item: PlayerItem): NativePlayerSessionPayload['watchNext'] => {
+            if (item.type !== 'movie' && item.type !== 'episode') return null;
+            const episode = item.type === 'episode';
+            // Launcher cards are 16:9: the episode still, or the movie backdrop.
+            const artPath = episode ? (item.episodeThumb || item.thumb) : (item.art || item.thumb);
+            const art = artPath ? absoluteWithAuth(plexImageUrl(artPath, 640, 360, { quality: 75 })) : null;
+            return {
+                serverId: item.serverId || undefined,
+                type: episode ? 'episode' : 'movie',
+                title: episode ? (item.showTitle || item.title) : item.title,
+                episodeTitle: episode ? item.title : undefined,
+                seasonNumber: episode && item.parentIndex ? item.parentIndex : undefined,
+                episodeNumber: episode && item.index ? item.index : undefined,
+                artUrl: art?.url || undefined,
+                artHeaders: art?.headers,
+            };
+        };
+
         const timelineFromPlaybackUrl = (src: string, fallbackSessionId: string) => {
             try {
                 const parsed = new URL(src, window.location.href);
@@ -906,6 +929,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
             posterUrl: isMusicPlayerItem(session.item) && session.item.thumb
                 ? absoluteWithAuth(resizePlexArtUrl(plexImageUrl(session.item.thumb, 600, 600, { quality: 70 }), 600, 600)).url
                 : '',
+            watchNext: isMusicPlayerItem(session.item) ? null : nativeWatchNextPayload(session.item),
             music: isMusicPlayerItem(session.item),
             chapters: (session.item.chapters || []).map((row) => ({ startMs: row.startMs, title: row.title })),
             previewThumbTemplate: session.previewThumbTemplate || null,
@@ -994,24 +1018,22 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                 const queued = playNextQueueRef.current[0];
                 const neighbor = nextItemRef.current;
                 const previous = previousItemRef.current;
-                // Only chain when native explicitly asked for play-next and we
-                // still have that item. A blind JS fallback kept the black cover
-                // up after movies / last episodes with no next.
+                // Only chain when native explicitly asked. A blind JS fallback
+                // kept the black cover up after movies / last episodes with no next.
+                // The episode object can still be missing — fetch it, don't drop.
                 const nextKey = (
                     !result?.error
                     && result?.playNext
                     && result.nextRatingKey
                 ) ? String(result.nextRatingKey) : '';
-                const willPlayNext = Boolean(nextKey) && (
-                    queued?.ratingKey === nextKey || neighbor?.ratingKey === nextKey
-                );
                 const previousKey = (
                     !result?.error
-                    && !willPlayNext
+                    && !nextKey
                     && result?.playPrevious
                     && result.previousRatingKey
                 ) ? String(result.previousRatingKey) : '';
-                const willPlayPrevious = Boolean(previousKey) && previous?.ratingKey === previousKey;
+                const willPlayNext = Boolean(nextKey);
+                const willPlayPrevious = Boolean(previousKey);
                 const willChain = willPlayNext || willPlayPrevious;
                 if (result?.error) {
                     onPlaybackErrorRef.current?.('Playback failed. Check your connection and try again.');
@@ -1020,15 +1042,11 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                 nativeMinimizedRef.current = false;
                 setNativeMinimized(false);
                 publishMusicNowPlayingRef.current(false);
-                // Keep a black cover only while chaining to the next title; otherwise
-                // drop it immediately so the overview can paint without a blank pause.
-                if (willChain) {
-                    setNativeCover(true);
-                    setNativeExclusive(true);
-                } else {
-                    setNativeCover(false);
-                    setNativeExclusive(false);
-                }
+                // Unmount via onClose. Do not flip nativeExclusive off first — that
+                // paints the web theater (full-screen black) for a frame before the
+                // parent drops the session.
+                if (willChain) setNativeCover(true);
+                else setNativeCover(false);
                 onCloseRef.current({
                     playNext: willChain,
                     ended: !!result?.ended,
@@ -1036,18 +1054,44 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                 });
                 sendStopped('stopped', reportMs, { ended: !!result?.ended });
                 if (!willChain) return;
-                window.setTimeout(() => {
-                    if (willPlayPrevious && previous) {
-                        onPlayItemRef.current?.(previous, { offsetMs: 0, skipResume: true });
+                const chainKey = willPlayPrevious ? previousKey : nextKey;
+                const known = willPlayPrevious
+                    ? (previous?.ratingKey === chainKey ? previous : null)
+                    : (queued?.ratingKey === chainKey
+                        ? queued
+                        : (neighbor?.ratingKey === chainKey ? neighbor : null));
+                const fromQueue = !willPlayPrevious && queued?.ratingKey === chainKey;
+                const playChain = onPlayItemRef.current;
+                const consumeChain = onConsumePlayNextRef.current;
+                const chainServerId = session.item.serverId;
+                void (async () => {
+                    let item = known;
+                    if (!item && chainKey) {
+                        try {
+                            const page = await fetchMediaPlayerItem(chainKey, { core: true, serverId: chainServerId });
+                            item = page?.item?.ratingKey ? page.item : null;
+                        } catch {
+                            item = null;
+                        }
+                    }
+                    if (!item) {
+                        onPlaybackErrorRef.current?.('Could not start the next episode.');
+                        onCloseRef.current?.({ playNext: false, ended: !!result?.ended, item: session.item });
                         return;
                     }
-                    if (queued?.ratingKey === nextKey) {
-                        onConsumePlayNextRef.current?.();
-                        onPlayItemRef.current?.(queued, { offsetMs: 0, skipResume: true, fromAutoplay: true });
-                    } else if (neighbor?.ratingKey === nextKey) {
-                        onPlayItemRef.current?.(neighbor, { offsetMs: 0, skipResume: true, fromAutoplay: true });
-                    }
-                }, 80);
+                    const resolved = item;
+                    const go = () => {
+                        if (fromQueue) consumeChain?.();
+                        playChain?.(resolved, {
+                            offsetMs: 0,
+                            skipResume: true,
+                            fromAutoplay: !willPlayPrevious,
+                        });
+                    };
+                    // Let the current player finish closing when the episode is already known.
+                    if (known) window.setTimeout(go, 80);
+                    else go();
+                })();
             };
             try {
                 try {
@@ -1112,16 +1156,29 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                         if (cancelled || gen !== nativeOpenGenRef.current) return;
                         const queued = playNextQueueRef.current[0];
                         const neighbor = nextItemRef.current;
-                        const next = (queued && queued.ratingKey === ratingKey)
+                        const matched = (queued && queued.ratingKey === ratingKey)
                             ? queued
                             : (neighbor && neighbor.ratingKey === ratingKey)
                                 ? neighbor
-                                : (queued || neighbor);
-                        if (!next) return;
-                        if (queued && queued.ratingKey === next.ratingKey) {
-                            onConsumePlayNextRef.current?.();
+                                : null;
+                        const start = (next: PlayerItem) => {
+                            if (queued && queued.ratingKey === next.ratingKey) {
+                                onConsumePlayNextRef.current?.();
+                            }
+                            onPlayItemRef.current?.(next, { offsetMs: 0, skipResume: true, fromAutoplay: true });
+                        };
+                        if (matched) {
+                            start(matched);
+                            return;
                         }
-                        onPlayItemRef.current?.(next, { offsetMs: 0, skipResume: true, fromAutoplay: true });
+                        const key = String(ratingKey || '').trim();
+                        if (!key) return;
+                        void fetchMediaPlayerItem(key, { core: true, serverId: session.item.serverId })
+                            .then((page) => {
+                                if (cancelled || gen !== nativeOpenGenRef.current) return;
+                                if (page?.item?.ratingKey) start(page.item);
+                            })
+                            .catch(() => undefined);
                     },
                     onPlayRelated: ({ ratingKey }) => {
                         if (cancelled || gen !== nativeOpenGenRef.current) return;
@@ -1562,13 +1619,18 @@ export const MediaPlayerVideo: React.FC<Props> = ({
     useEffect(() => {
         if (!nativeExclusive) return undefined;
         let leftForNative = false;
+        const dropCover = () => setNativeCover(false);
         const onVisibility = () => {
             if (document.visibilityState === 'hidden') leftForNative = true;
             if (document.visibilityState !== 'visible' || !leftForNative) return;
-            setNativeCover(false);
+            dropCover();
         };
         document.addEventListener('visibilitychange', onVisibility);
-        return () => document.removeEventListener('visibilitychange', onVisibility);
+        window.addEventListener('smp-native-player-returned', dropCover);
+        return () => {
+            document.removeEventListener('visibilitychange', onVisibility);
+            window.removeEventListener('smp-native-player-returned', dropCover);
+        };
     }, [nativeExclusive, session.sessionId]);
 
     useEffect(() => {
@@ -1613,8 +1675,12 @@ export const MediaPlayerVideo: React.FC<Props> = ({
         fetchMediaPlayerNeighbors(session.item.ratingKey, session.item.serverId)
             .then((data) => {
                 if (cancelled) return;
-                setPreviousItem(data.previous || null);
-                setNextItem(data.next || null);
+                const previous = data.previous || null;
+                const next = data.next || null;
+                previousItemRef.current = previous;
+                nextItemRef.current = next;
+                setPreviousItem(previous);
+                setNextItem(next);
                 if (nativeExclusiveRef.current) {
                     void updateNativePlayerSession({
                         nextItem: nativeNextItemPayload(data.next),
@@ -1624,6 +1690,8 @@ export const MediaPlayerVideo: React.FC<Props> = ({
             })
             .catch(() => {
                 if (!cancelled) {
+                    previousItemRef.current = null;
+                    nextItemRef.current = null;
                     setPreviousItem(null);
                     setNextItem(null);
                 }
@@ -1897,7 +1965,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
 
     useEffect(() => {
         if (!('mediaSession' in navigator)) return undefined;
-        const thumb = session.item.thumb ? plexImageUrl(session.item.thumb, 300, 450, { quality: 60 }) : '';
+        const thumb = session.item.thumb ? plexImageUrl(session.item.thumb, 300, 450, { quality: PLAYER_POSTER_QUALITY }) : '';
         navigator.mediaSession.metadata = new MediaMetadata({
             title: session.item.title,
             artist: session.item.showTitle || 'Media Player',
@@ -2732,7 +2800,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                 {showUpNext && upNextItem && theater ? (
                     <div className="absolute right-4 bottom-28 z-20 w-72 overflow-hidden rounded-2xl border border-white/15 bg-black/90 shadow-2xl">
                         {upNextItem.thumb ? (
-                            <img src={plexImageUrl(upNextItem.thumb, 426, 240, { quality: 60 })} alt="" className="aspect-video w-full object-cover" />
+                            <img src={plexImageUrl(upNextItem.thumb, 426, 240, { quality: PLAYER_POSTER_QUALITY })} alt="" className="aspect-video w-full object-cover" />
                         ) : null}
                         <div className="p-3">
                             <p className="text-[10px] font-black uppercase tracking-widest text-white/50">{t('mediaPlayerPage.upNext')}</p>

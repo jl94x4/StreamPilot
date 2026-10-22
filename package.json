@@ -13,6 +13,7 @@
     "build:plex-client": "node scripts/build-plex-client.mjs",
     "bump:plex-client-version": "node scripts/bump-plex-client-version.mjs",
     "build:apk": "node scripts/build-plex-client-apk.mjs",
+    "build:apk:release": "node scripts/build-plex-client-apk.mjs --release",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs",

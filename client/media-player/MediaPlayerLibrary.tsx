@@ -49,6 +49,7 @@ import {
     prefetchPlayerImages,
     replaceFamilyContinueSlot,
     restoreContinueSlot,
+    stampFamilyLastViewed,
     watchTargetTouches,
     withShowPoster,
 } from './playerUtils';
@@ -197,7 +198,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                 cwOrderSortRef.current = settings.continueWatchingSort;
             }
             const frozen = stabilizeContinueWatchingOrder(
-                items,
+                items.map(stampFamilyLastViewed),
                 settings.continueWatchingSort,
                 cwOrderKeysRef.current,
             );
@@ -318,7 +319,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
             cwOrderSortRef.current = settings.continueWatchingSort;
         }
         const next = stabilizeContinueWatchingOrder(
-            items,
+            items.map(stampFamilyLastViewed),
             settings.continueWatchingSort,
             cwOrderKeysRef.current,
         );
@@ -474,7 +475,10 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
             }
         }
         const gen = browseGenRef.current;
-        const pageSize = browsePageSize();
+        const fullPage = browsePageSize();
+        const pageSize = !append && !prepend
+            ? Math.min(fullPage, Math.max(8, (browseColumnsRef.current || 4) * 2))
+            : fullPage;
         const jumpLetter = !append && !prepend && sort === 'titleSort' ? letter : '';
         const fetchStart = prepend
             ? Math.max(0, browseAbsStartRef.current - pageSize)

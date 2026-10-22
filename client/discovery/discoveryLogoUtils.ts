@@ -56,6 +56,8 @@ const NEVER_INVERT_LOGO_PATHS = new Set([
     '/static/logos/discovery-plus.svg',
     '/static/logos/netflix.svg',
     '/static/logos/prime-video.svg',
+    // Authored for dark billboards: white wordmarks, blue DC bullet.
+    // Inverting these turns Apple TV / HBO black and DC yellow.
     '/static/logos/apple-tv.svg',
     '/static/logos/hbo.svg',
     '/static/logos/itv.svg',

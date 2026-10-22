@@ -19,12 +19,14 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Log;
 import android.util.Rational;
+import android.view.Display;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.Surface;
 import android.view.SurfaceView;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.Window;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.ImageButton;
@@ -44,8 +46,10 @@ import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
+import androidx.media3.common.ForwardingPlayer;
 import androidx.media3.common.Format;
 import androidx.media3.common.MediaItem;
+import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.VideoSize;
 import androidx.media3.common.audio.AudioProcessor;
 import androidx.media3.common.MimeTypes;
@@ -71,6 +75,7 @@ import androidx.media3.exoplayer.text.TextRenderer;
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
 import androidx.media3.exoplayer.trackselection.TrackSelector;
 import androidx.media3.extractor.DefaultExtractorsFactory;
+import androidx.media3.session.MediaSession;
 import androidx.media3.ui.CaptionStyleCompat;
 import androidx.media3.ui.PlayerView;
 import androidx.media3.ui.SubtitleView;
@@ -246,6 +251,15 @@ public class PlayerActivity extends AppCompatActivity {
         skipCreditsChipActive = false;
         applySkipChipVisibility(skipIntroChipActive, false);
     };
+    @Nullable
+    private WatchNext.Entry watchNextEntry;
+    private long lastWatchNextAtMs;
+    private long lastWatchNextPosMs = -1;
+    private boolean watchNextRemoved;
+    private static final long SESSION_SEEK_STEP_MS = 10_000;
+    private static int mediaSessionSeq;
+    @Nullable
+    private MediaSession mediaSession;
     private boolean userPaused;
     /** Ignore the OK press that opened the player so it cannot pause the start. */
     private long suppressPauseUntilElapsed;
@@ -383,6 +397,8 @@ public class PlayerActivity extends AppCompatActivity {
      */
     private long playThenSeekMs = -1;
     private boolean playThenSeekArmed;
+    /** True once this open has produced a picture, even if isPlaying never flips. */
+    private boolean resumeFrameSeen;
     private final Runnable playThenSeekRunnable = () -> {
         if (player == null || finishing || playThenSeekMs <= 0) return;
         if (userPaused) {
@@ -405,7 +421,24 @@ public class PlayerActivity extends AppCompatActivity {
     private long resumeKickArmPosMs = -1;
     /** After resume/seek, some SoCs show a still frame with playWhenReady stuck ineffective. */
     private final Runnable resumePlayKickRunnable = () -> {
-        if (player == null || userPaused || finishing || playThenSeekMs > 0) {
+        // A short focus loss (Assistant, notification) holds playback on purpose.
+        // The frozen clock is not a stuck decoder, so do not kick or remux.
+        if (player == null || userPaused || finishing || focusSuppressed()) {
+            resumeKickArmPosMs = -1;
+            return;
+        }
+        // isPlaying never arrived. The opening frame is enough — seek to the
+        // resume point on the file already open. Do not start another session.
+        if (playThenSeekMs > 0) {
+            player.setPlayWhenReady(true);
+            try {
+                player.play();
+            } catch (Throwable ignored) {
+                /* ignore */
+            }
+            if (!playThenSeekArmed && (resumeFrameSeen || player.getPlaybackState() == Player.STATE_READY)) {
+                armPlayThenSeek();
+            }
             resumeKickArmPosMs = -1;
             return;
         }
@@ -549,10 +582,19 @@ public class PlayerActivity extends AppCompatActivity {
             DefaultDataSource.Factory dataSourceFactory = new DefaultDataSource.Factory(this, httpFactory);
             boolean localPlayback = isLocalPlaybackUrl(currentUrl);
 
+            // Direct Play of a 20–80 Mbps file only held ~1.5s / 4MB before, so a brief
+            // LAN hitch stalled playback for 2–3 seconds. Keep a real buffer on the
+            // network path; local files stay small. minBuffer must stay >= the
+            // playback / rebuffer start thresholds or LoadControl throws.
             DefaultLoadControl loadControl = new DefaultLoadControl.Builder()
-                .setBufferDurationsMs(1_500, 30_000, 250, 500)
-                .setTargetBufferBytes(4 * 1024 * 1024)
-                .setPrioritizeTimeOverSizeThresholds(true)
+                .setBufferDurationsMs(
+                    localPlayback ? 2_500 : 15_000,
+                    localPlayback ? 10_000 : 50_000,
+                    localPlayback ? 500 : 2_500,
+                    localPlayback ? 1_000 : 5_000
+                )
+                .setTargetBufferBytes(localPlayback ? 4 * 1024 * 1024 : 48 * 1024 * 1024)
+                .setPrioritizeTimeOverSizeThresholds(false)
                 .build();
 
             DefaultExtractorsFactory extractorsFactory = new DefaultExtractorsFactory();
@@ -590,10 +632,13 @@ public class PlayerActivity extends AppCompatActivity {
                 .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
                 .build();
 
+            // handleAudioFocus: pause for calls / other apps / Assistant and duck for
+            // short prompts. Becoming noisy: pause when headphones or BT audio drop.
             player = new ExoPlayer.Builder(this, renderersFactory)
                 .setMediaSourceFactory(new DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory))
                 .setLoadControl(loadControl)
-                .setAudioAttributes(audioAttributes, false)
+                .setAudioAttributes(audioAttributes, true)
+                .setHandleAudioBecomingNoisy(true)
                 .setWakeMode(localPlayback ? C.WAKE_MODE_LOCAL : C.WAKE_MODE_NETWORK)
                 .build();
             player.setVideoScalingMode(C.VIDEO_SCALING_MODE_SCALE_TO_FIT);
@@ -626,6 +671,7 @@ public class PlayerActivity extends AppCompatActivity {
             }
 
             wirePlayerListener();
+            startMediaSession();
             wireControls();
             updateActionVisibility();
             updateChipLabels();
@@ -898,7 +944,10 @@ public class PlayerActivity extends AppCompatActivity {
         player.addListener(new Player.Listener() {
             @Override
             public void onPlaybackStateChanged(int playbackState) {
-                setBufferingVisible(playbackState == Player.STATE_BUFFERING);
+                boolean waitingToPlay = playbackState == Player.STATE_BUFFERING
+                    || (playbackState == Player.STATE_READY && !player.isPlaying() && !userPaused
+                        && !focusSuppressed());
+                setBufferingVisible(waitingToPlay);
                 if (playbackState == Player.STATE_READY) {
                     playbackError = false;
                     hideError();
@@ -962,17 +1011,34 @@ public class PlayerActivity extends AppCompatActivity {
 
             @Override
             public void onRenderedFirstFrame() {
+                resumeFrameSeen = true;
                 View cover = findViewById(R.id.player_surface_cover);
                 if (cover != null) cover.setVisibility(View.GONE);
+                if (player != null && player.isPlaying()) setBufferingVisible(false);
+                // Some TVs paint the first frame and never report isPlaying.
+                // That used to leave resume stuck at the opening frame.
+                armPlayThenSeek();
+            }
+
+            @Override
+            public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
+                // Another app took audio focus for good, or headphones dropped. Treat it
+                // as a user pause, or the resume kicks would start playback again.
+                if (playWhenReady) return;
+                if (reason != Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS
+                    && reason != Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY) return;
+                pausePositionMs = contentPositionMs();
+                userPaused = true;
+                mainHandler.removeCallbacks(playThenSeekRunnable);
+                mainHandler.removeCallbacks(resumePlayKickRunnable);
+                setBufferingVisible(false);
+                updatePlayPauseLabel();
+                if (!minimized) bumpChrome();
             }
 
             @Override
             public void onIsPlayingChanged(boolean isPlaying) {
-                if (isPlaying && playThenSeekMs > 1500 && !playThenSeekArmed) {
-                    playThenSeekArmed = true;
-                    mainHandler.removeCallbacks(playThenSeekRunnable);
-                    mainHandler.postDelayed(playThenSeekRunnable, 350);
-                }
+                if (isPlaying) armPlayThenSeek();
                 updatePlayPauseLabel();
                 emitProgress(isPlaying ? "playing" : "paused");
             }
@@ -1024,6 +1090,7 @@ public class PlayerActivity extends AppCompatActivity {
         if (sessionJson == null || sessionJson.trim().isEmpty()) return;
         try {
             JSONObject root = new JSONObject(sessionJson);
+            String previousRatingKey = ratingKey;
             ratingKey = root.optString("ratingKey", ratingKey);
             showKey = root.optString("showKey", showKey);
             String nextRating = root.optString("ratingKey", ratingKey);
@@ -1090,6 +1157,12 @@ public class PlayerActivity extends AppCompatActivity {
             }
             if (root.has("posterUrl")) {
                 artUrl = root.optString("posterUrl", "").trim();
+            }
+            if (root.has("watchNext")) {
+                applyWatchNextJson(root.optJSONObject("watchNext"));
+            } else if (!String.valueOf(previousRatingKey).equals(String.valueOf(ratingKey))) {
+                // A music / src update for another item without Watch Next data.
+                applyWatchNextJson(null);
             }
             if (root.has("music")) {
                 musicMode = root.optBoolean("music", musicMode);
@@ -1710,19 +1783,206 @@ public class PlayerActivity extends AppCompatActivity {
 
     private void applyFrameRate(PlayerView playerView) {
         if (playerView == null) return;
-        if (Build.VERSION.SDK_INT < 30) return;
+        boolean match = matchFrameRate && videoFrameRate > 0;
+        if (Build.VERSION.SDK_INT < 31) {
+            // Android 6–11 (most Fire TV sticks run Fire OS 7 = Android 9): ask the
+            // window for a display mode instead. Surface.setFrameRate is 11+ only.
+            if (Build.VERSION.SDK_INT >= 23) applyDisplayModeForFrameRate(match ? videoFrameRate : 0f);
+            return;
+        }
         View surfaceView = playerView.getVideoSurfaceView();
         if (!(surfaceView instanceof SurfaceView)) return;
         Surface surface = ((SurfaceView) surfaceView).getHolder().getSurface();
         if (surface == null || !surface.isValid()) return;
         try {
-            if (matchFrameRate && videoFrameRate > 0) {
-                surface.setFrameRate(videoFrameRate, Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE);
+            if (match) {
+                // The 2-arg call only switches when seamless, and 60→24Hz never is on a
+                // TV — films kept juddering. ALWAYS allows the HDMI mode change.
+                surface.setFrameRate(videoFrameRate, Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE,
+                    Surface.CHANGE_FRAME_RATE_ALWAYS);
             } else {
-                surface.setFrameRate(0f, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT);
+                surface.setFrameRate(0f, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT,
+                    Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS);
             }
         } catch (Throwable ignored) {
             /* older devices */
+        }
+    }
+
+    /** Pick a mode at the current resolution whose refresh is a whole multiple of fps. 0 = system default. */
+    private void applyDisplayModeForFrameRate(float fps) {
+        if (Build.VERSION.SDK_INT < 23) return;
+        try {
+            Window window = getWindow();
+            Display display = getWindowManager().getDefaultDisplay();
+            if (window == null || display == null) return;
+            int wanted = 0;
+            if (fps > 0) {
+                Display.Mode current = display.getMode();
+                Display.Mode best = null;
+                double bestError = Double.MAX_VALUE;
+                int bestMultiple = Integer.MAX_VALUE;
+                for (Display.Mode mode : display.getSupportedModes()) {
+                    if (mode.getPhysicalWidth() != current.getPhysicalWidth()
+                        || mode.getPhysicalHeight() != current.getPhysicalHeight()) continue;
+                    float hz = mode.getRefreshRate();
+                    int multiple = Math.round(hz / fps);
+                    if (multiple < 1) continue;
+                    // 0.2% lets a 24.000Hz mode take 23.976 content when no 23.976 mode exists.
+                    double error = Math.abs(hz - multiple * fps) / (multiple * fps);
+                    if (error > 0.002) continue;
+                    if (mode.getModeId() == current.getModeId()) {
+                        best = mode;
+                        break;
+                    }
+                    if (error < bestError - 0.0001 || (Math.abs(error - bestError) <= 0.0001 && multiple < bestMultiple)) {
+                        best = mode;
+                        bestError = error;
+                        bestMultiple = multiple;
+                    }
+                }
+                if (best != null) wanted = best.getModeId();
+            }
+            WindowManager.LayoutParams params = window.getAttributes();
+            if (params.preferredDisplayModeId == wanted) return;
+            params.preferredDisplayModeId = wanted;
+            window.setAttributes(params);
+        } catch (Throwable ignored) {
+            /* display mode switching is best-effort */
+        }
+    }
+
+    /** Playback is held by a short audio focus loss (Assistant, notification), not stuck. */
+    private boolean focusSuppressed() {
+        return player != null
+            && player.getPlaybackSuppressionReason() == Player.PLAYBACK_SUPPRESSION_REASON_TRANSIENT_AUDIO_FOCUS_LOSS;
+    }
+
+    /**
+     * Expose playback to the system: Assistant ("pause", "skip back"), the TV's
+     * now-playing card and phone remotes. Commands go through the same paths as
+     * the on-screen controls so userPaused and transcode seeks stay correct.
+     */
+    private void startMediaSession() {
+        if (player == null || mediaSession != null) return;
+        try {
+            Player.Commands commands = new Player.Commands.Builder()
+                .addAll(
+                    Player.COMMAND_PLAY_PAUSE,
+                    Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
+                    Player.COMMAND_SEEK_BACK,
+                    Player.COMMAND_SEEK_FORWARD,
+                    Player.COMMAND_GET_CURRENT_MEDIA_ITEM,
+                    Player.COMMAND_GET_TIMELINE,
+                    Player.COMMAND_GET_METADATA
+                )
+                .build();
+            mediaSession = new MediaSession.Builder(this, new SessionPlayer(player))
+                // singleTop can open the next title before this activity's onDestroy.
+                .setId("player-" + (++mediaSessionSeq))
+                .setCallback(new MediaSession.Callback() {
+                    @Override
+                    public MediaSession.ConnectionResult onConnect(
+                        MediaSession session,
+                        MediaSession.ControllerInfo controller
+                    ) {
+                        return new MediaSession.ConnectionResult.AcceptedResultBuilder(session)
+                            .setAvailablePlayerCommands(commands)
+                            .build();
+                    }
+                })
+                .build();
+        } catch (Throwable e) {
+            Log.w(TAG, "MediaSession unavailable", e);
+            mediaSession = null;
+        }
+    }
+
+    private void releaseMediaSession() {
+        if (mediaSession == null) return;
+        try {
+            mediaSession.release();
+        } catch (Throwable ignored) {
+            /* ignore */
+        }
+        mediaSession = null;
+    }
+
+    /** Session view of the player: content time (transcode offset included) and UI-path controls. */
+    private final class SessionPlayer extends ForwardingPlayer {
+        SessionPlayer(Player player) {
+            super(player);
+        }
+
+        @Override
+        public void play() {
+            applyPlayPause(true);
+        }
+
+        @Override
+        public void pause() {
+            applyPlayPause(false);
+        }
+
+        @Override
+        public void setPlayWhenReady(boolean playWhenReady) {
+            applyPlayPause(playWhenReady);
+        }
+
+        @Override
+        public void seekTo(long positionMs) {
+            seekToContent(positionMs, true);
+        }
+
+        @Override
+        public void seekBack() {
+            seekByWithFlash(-SESSION_SEEK_STEP_MS);
+        }
+
+        @Override
+        public void seekForward() {
+            seekByWithFlash(SESSION_SEEK_STEP_MS);
+        }
+
+        @Override
+        public long getSeekBackIncrement() {
+            return SESSION_SEEK_STEP_MS;
+        }
+
+        @Override
+        public long getSeekForwardIncrement() {
+            return SESSION_SEEK_STEP_MS;
+        }
+
+        @Override
+        public long getCurrentPosition() {
+            return contentPositionMs();
+        }
+
+        @Override
+        public long getContentPosition() {
+            return contentPositionMs();
+        }
+
+        @Override
+        public long getBufferedPosition() {
+            return timelineOriginMs + Math.max(0, super.getBufferedPosition());
+        }
+
+        @Override
+        public long getContentBufferedPosition() {
+            return getBufferedPosition();
+        }
+
+        @Override
+        public long getDuration() {
+            long duration = contentDurationMs();
+            return duration > 0 ? duration : C.TIME_UNSET;
+        }
+
+        @Override
+        public long getContentDuration() {
+            return getDuration();
         }
     }
 
@@ -3900,6 +4160,69 @@ public class PlayerActivity extends AppCompatActivity {
         data.put("durationMs", Math.max(0, duration));
         data.put("ratingKey", ratingKey);
         PlayerBridge.get().emit("progress", data);
+        maybeUpdateWatchNext(state);
+    }
+
+    private void applyWatchNextJson(@Nullable JSONObject json) {
+        lastWatchNextAtMs = 0;
+        lastWatchNextPosMs = -1;
+        watchNextRemoved = false;
+        if (json == null) {
+            watchNextEntry = null;
+            return;
+        }
+        WatchNext.Entry entry = new WatchNext.Entry();
+        entry.ratingKey = ratingKey == null ? "" : ratingKey;
+        entry.serverId = json.optString("serverId", "").trim();
+        entry.episode = "episode".equals(json.optString("type", ""));
+        entry.title = json.optString("title", "").trim();
+        entry.episodeTitle = json.optString("episodeTitle", "").trim();
+        entry.seasonNumber = json.optInt("seasonNumber", 0);
+        entry.episodeNumber = json.optInt("episodeNumber", 0);
+        entry.artUrl = json.optString("artUrl", "").trim();
+        JSONObject headers = json.optJSONObject("artHeaders");
+        if (headers != null) {
+            Map<String, String> map = new HashMap<>();
+            Iterator<String> keys = headers.keys();
+            while (keys.hasNext()) {
+                String key = keys.next();
+                map.put(key, headers.optString(key, ""));
+            }
+            entry.artHeaders = map;
+        }
+        watchNextEntry = entry.title.isEmpty() || entry.ratingKey.isEmpty() ? null : entry;
+    }
+
+    /**
+     * Keep the TV home "Continue Watching" row in step: write on pause / stop and
+     * once a minute while playing; drop the title once it counts as watched (90%,
+     * the same line Plex uses).
+     */
+    private void maybeUpdateWatchNext(String state) {
+        WatchNext.Entry entry = watchNextEntry;
+        if (entry == null || musicMode || player == null) return;
+        long duration = contentDurationMs();
+        if (duration <= 0) return;
+        long position = contentPositionMs();
+        if (playbackEnded || position >= duration * 9 / 10) {
+            if (!watchNextRemoved) {
+                watchNextRemoved = true;
+                WatchNext.remove(this, entry.serverId, entry.ratingKey);
+            }
+            return;
+        }
+        if (position < 30_000) return;
+        boolean settled = "paused".equals(state) || "stopped".equals(state);
+        long now = android.os.SystemClock.elapsedRealtime();
+        // The 1s tick re-sends "paused" while paused. Only write when the spot moved.
+        if (Math.abs(position - lastWatchNextPosMs) < 5_000) return;
+        if (!settled && lastWatchNextAtMs > 0 && now - lastWatchNextAtMs < 60_000) return;
+        lastWatchNextAtMs = now;
+        lastWatchNextPosMs = position;
+        watchNextRemoved = false;
+        entry.positionMs = position;
+        entry.durationMs = duration;
+        WatchNext.publish(this, entry);
     }
 
     private static String queryParam(Uri uri, String key) {
@@ -4545,11 +4868,24 @@ public class PlayerActivity extends AppCompatActivity {
         else mainHandler.postDelayed(directSeekRunnable, 200);
     }
 
+    /** Seek the already-open file to the resume point. One arm only. */
+    private void armPlayThenSeek() {
+        if (player == null || finishing || userPaused) return;
+        if (playThenSeekMs <= 1500 || playThenSeekArmed) return;
+        playThenSeekArmed = true;
+        mainHandler.removeCallbacks(playThenSeekRunnable);
+        mainHandler.postDelayed(playThenSeekRunnable, 350);
+    }
+
     private void queueStartPosition(String url, long offsetMs) {
         if (player == null) return;
         MediaItem item = buildMediaItem(url);
         long start = Math.max(0, offsetMs);
         if (isTranscodeUrl(url)) {
+            playThenSeekMs = -1;
+            playThenSeekArmed = false;
+            resumeFrameSeen = false;
+            mainHandler.removeCallbacks(playThenSeekRunnable);
             timelineOriginMs = start;
             transcodeAnchorMs = start;
             player.setMediaItem(item);
@@ -4557,17 +4893,14 @@ public class PlayerActivity extends AppCompatActivity {
         }
         timelineOriginMs = 0;
         transcodeAnchorMs = 0;
-        // A start position on the media item decodes one frame and then sticks.
-        // Play from the beginning, then seek once the picture is actually moving.
-        if (start > 1500) {
-            playThenSeekMs = start;
-            playThenSeekArmed = false;
-            mainHandler.removeCallbacks(playThenSeekRunnable);
-            player.setMediaItem(item);
-            return;
-        }
         playThenSeekMs = -1;
         playThenSeekArmed = false;
+        resumeFrameSeen = false;
+        mainHandler.removeCallbacks(playThenSeekRunnable);
+        // One range, at the resume offset. Opening at 0 and then seeking aborts
+        // that read and starts another; the player then treats the glitch as a
+        // failed Direct Play and opens a transcode on top of it. That second
+        // session is what crashes PMS.
         if (start > 0) player.setMediaItem(item, start);
         else player.setMediaItem(item);
     }
@@ -4579,7 +4912,9 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private MediaItem buildMediaItem(String url) {
-        MediaItem.Builder builder = new MediaItem.Builder().setUri(Uri.parse(url));
+        MediaItem.Builder builder = new MediaItem.Builder()
+            .setUri(Uri.parse(url))
+            .setMediaMetadata(sessionMetadata());
         String lower = url.toLowerCase(Locale.US);
         if (lower.contains(".m3u8") || lower.contains("/hls/")) {
             builder.setMimeType(MimeTypes.APPLICATION_M3U8);
@@ -4598,6 +4933,22 @@ public class PlayerActivity extends AppCompatActivity {
         return builder.build();
     }
 
+    /** Title / episode line / poster for the TV now-playing card and Assistant. */
+    private MediaMetadata sessionMetadata() {
+        MediaMetadata.Builder meta = new MediaMetadata.Builder();
+        if (titleText != null && !titleText.isEmpty()) meta.setTitle(titleText).setDisplayTitle(titleText);
+        if (subtitleText != null && !subtitleText.isEmpty()) meta.setSubtitle(subtitleText);
+        String art = artUrl == null ? "" : artUrl.trim();
+        // Session metadata is readable by any media controller. Never hand out a URL
+        // that carries the portal / Plex token.
+        String lowerArt = art.toLowerCase(Locale.US);
+        boolean tokenInUrl = lowerArt.contains("access_token=") || lowerArt.contains("x-plex-token=");
+        if ((art.startsWith("http://") || art.startsWith("https://")) && !tokenInUrl) {
+            meta.setArtworkUri(Uri.parse(art));
+        }
+        return meta.build();
+    }
+
     /**
      * ExoPlayer reports ERROR_CODE_IO_BAD_HTTP_STATUS when the portal returns JSON
      * (409 Direct Play refused, 502 transcode). Switch file→HLS, then Original→1080p.
@@ -4613,9 +4964,11 @@ public class PlayerActivity extends AppCompatActivity {
             || code == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED
             || code == PlaybackException.ERROR_CODE_DECODING_FAILED;
         if (!io || currentUrl == null || currentUrl.isEmpty()) return false;
-        // A seek glitch on Direct Play must not be upgraded into a transcode.
-        if (!isTranscodeUrl(currentUrl) && lastSeekTargetMs >= 0
-            && android.os.SystemClock.elapsedRealtime() - lastSeekAtMs < 12_000) {
+        // Direct Play stays on the open file. A decoder or seek glitch must not
+        // open /video/:/transcode/universal/start.m3u8 — that second session
+        // crashes PMS. Only an HTTP refusal (the server rejected the file) may
+        // move to HLS, and applyUpdateSrc stops the file read first.
+        if (!isTranscodeUrl(currentUrl) && code != PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS) {
             return false;
         }
         String next = null;
@@ -5274,6 +5627,7 @@ public class PlayerActivity extends AppCompatActivity {
             /* ignore */
         }
         mainHandler.removeCallbacksAndMessages(null);
+        releaseMediaSession();
         PlayerView playerView = findViewById(R.id.player_view);
         if (playerView != null) playerView.setPlayer(null);
         if (menuScrim != null) menuScrim.setVisibility(View.GONE);

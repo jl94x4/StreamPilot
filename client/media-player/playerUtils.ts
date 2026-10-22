@@ -13,7 +13,7 @@ import type { PlayerItem } from './types';
 /** Shared rail size so home, library, and season grids hit the same cached JPEG. */
 export const PLAYER_POSTER_WIDTH = 300;
 export const PLAYER_POSTER_HEIGHT = 450;
-export const PLAYER_POSTER_QUALITY = 60;
+export const PLAYER_POSTER_QUALITY = 90;
 
 export const warmPlayerPoster = warmPosterUrl;
 export const isPlayerPosterWarm = isPosterUrlWarm;
@@ -33,10 +33,268 @@ export const prefetchPlayerImages = (urls: Array<string | null | undefined>, lim
             warmPosterUrl(key);
             continue;
         }
-        warmPosterUrl(key);
+        warmPosterUrl(key, started < 16);
         started += 1;
         if (started >= limit) return;
     }
+};
+
+export const playerRailPosterUrl = (
+    item: { thumb?: string | null; type?: string | null; cardAspect?: string | null } | null | undefined,
+    aspect?: '2/3' | 'square' | '16/9',
+) => {
+    if (!item) return '';
+    const cardAspect = resolvePlayerCardAspect(item as PlayerItem, aspect);
+    const raw = playerCardImageUrl(item.thumb, cardAspect);
+    if (cardAspect === 'square') return resizePlexArtUrl(raw, 300, 300, PLAYER_POSTER_QUALITY) || '';
+    if (cardAspect === '16/9') return resizePlexArtUrl(raw, 426, 240, PLAYER_POSTER_QUALITY) || '';
+    return resizePlexArtUrl(raw, 300, 450, PLAYER_POSTER_QUALITY) || raw || '';
+};
+
+/** Download every Home/library row poster. Current + next row go first. */
+export const prefetchHomeRowPosters = (
+    rows: Array<{ items?: Array<PlayerItem | null | undefined> | null; aspect?: '2/3' | 'square' | '16/9' }>,
+    startIndex = 0,
+) => {
+    if (typeof window === 'undefined' || !rows?.length) return;
+    const urls: string[] = [];
+    const pushRow = (row?: { items?: Array<PlayerItem | null | undefined> | null; aspect?: '2/3' | 'square' | '16/9' }) => {
+        for (const item of row?.items || []) {
+            const url = playerRailPosterUrl(item, row?.aspect);
+            if (url) urls.push(url);
+        }
+    };
+    const start = Math.max(0, Math.min(startIndex, rows.length - 1));
+    pushRow(rows[start]);
+    pushRow(rows[start + 1]);
+    rows.forEach((row, index) => {
+        if (index === start || index === start + 1) return;
+        pushRow(row);
+    });
+    prefetchPlayerImages(urls, urls.length);
+};
+
+const readyBackdrops = new Map<string, HTMLImageElement>();
+const backdropWait: string[] = [];
+const backdropInflight = new Set<string>();
+/** Finished full-quality downloads. Far posters stay listed so a focus move does not fetch them again. */
+const backdropLoaded = new Set<string>();
+/** Full-quality URLs for the row on screen, focused poster first. */
+let backdropRow: string[] = [];
+let backdropEpoch = 0;
+let backdropBusy = 0;
+const BACKDROP_SLOTS = 2;
+const BACKDROP_HOLD = 8;
+const BACKDROP_QUEUE_CAP = 24;
+let warmingPaused = false;
+let warmingPauseDepth = 0;
+/** First cards of the previous/next Home row — keep these decoded across a row change. */
+const backdropPinned = new Set<string>();
+
+const uniqueBackdropUrls = (urls: string[]) => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const raw of urls) {
+        const key = String(raw || '').trim();
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        out.push(key);
+        if (out.length >= BACKDROP_QUEUE_CAP) break;
+    }
+    return out;
+};
+
+const rotateBackdropRow = (urls: string[], focusIndex: number) => {
+    const start = Math.max(0, Math.min(focusIndex, Math.max(0, urls.length - 1)));
+    return uniqueBackdropUrls(urls.slice(start).concat(urls.slice(0, start)));
+};
+
+const shouldHoldBackdrop = (key: string) => {
+    if (backdropPinned.has(key)) return true;
+    if (!backdropRow.length) return true;
+    const pos = backdropRow.indexOf(key);
+    return pos >= 0 && pos < BACKDROP_HOLD;
+};
+
+const trimReadyBackdrops = () => {
+    while (readyBackdrops.size > BACKDROP_HOLD) {
+        let victim = '';
+        let rank = -1;
+        for (const readyKey of readyBackdrops.keys()) {
+            if (backdropPinned.has(readyKey)) continue;
+            const pos = backdropRow.indexOf(readyKey);
+            const score = pos < 0 ? -1 : pos;
+            if (!victim || score > rank) {
+                rank = score;
+                victim = readyKey;
+            }
+        }
+        if (!victim) break;
+        readyBackdrops.delete(victim);
+    }
+};
+
+const rememberBackdrop = (key: string, img: HTMLImageElement) => {
+    if (!key || !img.complete || img.naturalWidth <= 0) return;
+    if (!shouldHoldBackdrop(key)) return;
+    readyBackdrops.delete(key);
+    readyBackdrops.set(key, img);
+    trimReadyBackdrops();
+};
+
+const startBackdrop = (key: string) => {
+    if (!key || readyBackdrops.has(key) || backdropInflight.has(key)) return;
+    const epoch = backdropEpoch;
+    backdropBusy += 1;
+    backdropInflight.add(key);
+    const img = new Image();
+    img.decoding = 'async';
+    const finish = () => {
+        backdropInflight.delete(key);
+        backdropBusy = Math.max(0, backdropBusy - 1);
+        pumpBackdrops();
+    };
+    img.onload = () => {
+        if (epoch === backdropEpoch || backdropRow.includes(key)) {
+            backdropLoaded.add(key);
+            rememberBackdrop(key, img);
+        }
+        finish();
+    };
+    img.onerror = finish;
+    img.src = key;
+};
+
+const rebuildBackdropWait = () => {
+    backdropWait.length = 0;
+    backdropRow.forEach((url, pos) => {
+        if (readyBackdrops.has(url) || backdropInflight.has(url)) return;
+        if (backdropLoaded.has(url) && pos >= BACKDROP_HOLD) return;
+        backdropWait.push(url);
+    });
+};
+
+const pumpBackdrops = () => {
+    if (warmingPaused) return;
+    while (backdropBusy < BACKDROP_SLOTS && backdropWait.length) {
+        const key = backdropWait.shift();
+        if (!key || readyBackdrops.has(key) || backdropInflight.has(key)) continue;
+        startBackdrop(key);
+    }
+};
+
+/** Stop row warming so a show page or playback can use the network. */
+export const pausePlayerWarming = () => {
+    warmingPauseDepth += 1;
+    warmingPaused = true;
+    backdropWait.length = 0;
+};
+
+export const resumePlayerWarming = () => {
+    warmingPauseDepth = Math.max(0, warmingPauseDepth - 1);
+    if (warmingPauseDepth > 0) return;
+    warmingPaused = false;
+    pumpBackdrops();
+};
+
+/** Decode a full backdrop ahead of focus so the billboard can swap without waiting on Plex. */
+export const warmPlayerBackdrop = (url?: string | null, priority = false) => {
+    const key = String(url || '').trim();
+    if (!key || typeof window === 'undefined') return;
+    if (warmingPaused && !priority) return;
+    if (readyBackdrops.has(key)) {
+        const img = readyBackdrops.get(key);
+        if (img) {
+            readyBackdrops.delete(key);
+            readyBackdrops.set(key, img);
+        }
+        return;
+    }
+    if (backdropInflight.has(key)) return;
+    if (priority) {
+        startBackdrop(key);
+        return;
+    }
+    if (backdropRow.includes(key)) return;
+    const existing = backdropWait.indexOf(key);
+    if (existing >= 0) backdropWait.splice(existing, 1);
+    backdropWait.push(key);
+    while (backdropWait.length > BACKDROP_QUEUE_CAP) backdropWait.pop();
+    pumpBackdrops();
+};
+
+/**
+ * Walk every backdrop on the current TV row, focused poster first, a few at a
+ * time. The next row replaces this queue.
+ */
+export const beginTvRowBackdropPreload = (urls: string[], focusIndex = 0) => {
+    const epoch = ++backdropEpoch;
+    const ordered = rotateBackdropRow(urls, focusIndex);
+    backdropRow = ordered;
+    rebuildBackdropWait();
+    pumpBackdrops();
+    return () => {
+        if (backdropEpoch !== epoch) return;
+        // The next row replaces this queue. Do not drop decoded art here —
+        // changing rows would otherwise refetch the billboard from scratch.
+    };
+};
+
+/** Pull the focused poster to the front of the current row without dropping the rest. */
+export const prioritizeTvRowBackdrop = (url?: string | null) => {
+    const key = String(url || '').trim();
+    if (!key || typeof window === 'undefined') return;
+    if (!backdropRow.length) {
+        warmPlayerBackdrop(key, true);
+        return;
+    }
+    const index = backdropRow.indexOf(key);
+    if (index > 0) {
+        backdropRow = backdropRow.slice(index).concat(backdropRow.slice(0, index));
+    } else if (index < 0) {
+        backdropRow = uniqueBackdropUrls([key, ...backdropRow]);
+    }
+    rebuildBackdropWait();
+    trimReadyBackdrops();
+    if (warmingPaused) {
+        warmPlayerBackdrop(key, true);
+        return;
+    }
+    pumpBackdrops();
+};
+
+export const pinTvNeighborBackdrops = (urls: Array<string | null | undefined>) => {
+    backdropPinned.clear();
+    uniqueBackdropUrls(urls.map((url) => String(url || '').trim()).filter(Boolean)).slice(0, 6)
+        .forEach((url) => backdropPinned.add(url));
+};
+
+export const playerItemBackdropUrl = (
+    item?: { backdropArt?: string | null; art?: string | null; thumb?: string | null } | null,
+) => plexBackdropUrl(item?.backdropArt || item?.art || item?.thumb);
+
+export const isPlayerBackdropReady = (url?: string | null) => {
+    const key = String(url || '').trim();
+    if (!key) return false;
+    const held = readyBackdrops.get(key);
+    if (held?.complete && held.naturalWidth > 0) return true;
+    return Array.from(document.images).some((node) => (
+        (node.currentSrc === key || node.src === key) && node.complete && node.naturalWidth > 0
+    ));
+};
+
+/** Keep the focused poster at the front of the row that is already preloading. */
+export const primeNearbyTvBillboard = (
+    target: EventTarget | null,
+    prefetchItem?: (ratingKey: string) => void,
+) => {
+    const el = target as HTMLElement | null;
+    const btn = el?.closest?.('[data-tv-poster-btn="1"]') as HTMLElement | null;
+    if (!btn) return;
+    const art = btn.closest('[data-tv-backdrop]')?.getAttribute('data-tv-backdrop') || '';
+    if (art) prioritizeTvRowBackdrop(art);
+    const key = String(btn.getAttribute('data-tv-key') || '').trim();
+    if (key && !key.startsWith('view-more:')) prefetchItem?.(key);
 };
 
 const MUSIC_ITEM_TYPES = new Set(['artist', 'album', 'track', 'audio', 'music']);
@@ -104,7 +362,7 @@ export const plexImageUrl = (path?: string | null, width = PLAYER_POSTER_WIDTH, 
         height: String(height),
     });
     if (opts?.fit === 'contain') params.set('fit', 'contain');
-    if (opts?.quality) params.set('quality', String(opts.quality));
+    params.set('quality', String(opts?.quality ?? PLAYER_POSTER_QUALITY));
     return portalUrl(`${PLAYER_IMAGE_PATH}?${params.toString()}`);
 };
 
@@ -135,15 +393,12 @@ export const pickRicherSummary = (...parts: Array<string | null | undefined>) =>
 };
 
 /**
- * Full hero art. TV stays at 1920×1080 (layout width) but JPEG quality is maxed.
- * Desktop may request 4K when the source has it.
+ * Full hero art. 1920×1080 at quality 90 — sharp on TV without 4K transcodes
+ * that stall logos, episodes, and Plex itself.
  */
-export const PLAYER_BACKDROP_WIDTH = 3840;
-export const PLAYER_BACKDROP_HEIGHT = 2160;
-export const PLAYER_BACKDROP_QUALITY = 100;
-export const PLAYER_BACKDROP_PREVIEW_WIDTH = 640;
-export const PLAYER_BACKDROP_PREVIEW_HEIGHT = 360;
-export const PLAYER_BACKDROP_PREVIEW_QUALITY = 40;
+export const PLAYER_BACKDROP_WIDTH = 1920;
+export const PLAYER_BACKDROP_HEIGHT = 1080;
+export const PLAYER_BACKDROP_QUALITY = 90;
 
 const tmdbBackdropSize = (url: string, size: 'w300' | 'w1280' | 'w1920' | 'original') => (
     url.replace(/\/\/image\.tmdb\.org\/t\/p\/(?:original|w\d+)/, `//image.tmdb.org/t/p/${size}`)
@@ -166,40 +421,25 @@ const withPlexImageSize = (url: string, width: number, height: number, quality: 
     return portalUrl(`${base}?${params.toString()}`);
 };
 
-const isTvShellDocument = () => (
-    typeof document !== 'undefined'
-    && (
-        document.documentElement?.dataset?.tv === '1'
-        || (typeof window !== 'undefined' && window.__PLEX_CLIENT__?.isTv === true)
-    )
-);
-
-export const plexBackdropUrl = (path?: string | null) => {
-    if (!path) return '';
-    const tv = isTvShellDocument();
-    // TV WebView: stay at 1080p canvas (matches layout) but never soft-compress.
-    const width = tv ? 1920 : PLAYER_BACKDROP_WIDTH;
-    const height = tv ? 1080 : PLAYER_BACKDROP_HEIGHT;
-    const quality = PLAYER_BACKDROP_QUALITY;
+const backdropRequestUrl = (path: string, width: number, height: number, quality: number) => {
+    if (/\/photo\/:\/transcode|\/api\/plex\/image/i.test(path)) {
+        return resizePlexArtUrl(path, width, height, quality);
+    }
     if (path.startsWith('http://') || path.startsWith('https://') || path.startsWith('/api/')) {
         return withPlexImageSize(path, width, height, quality);
     }
     return plexImageUrl(path, width, height, { quality });
 };
 
-export const plexBackdropPreviewUrl = (path?: string | null) => {
+export const plexBackdropUrl = (path?: string | null) => {
     if (!path) return '';
-    if (path.startsWith('http://') || path.startsWith('https://') || path.startsWith('/api/')) {
-        return withPlexImageSize(
-            path,
-            PLAYER_BACKDROP_PREVIEW_WIDTH,
-            PLAYER_BACKDROP_PREVIEW_HEIGHT,
-            PLAYER_BACKDROP_PREVIEW_QUALITY,
-        );
-    }
-    return plexImageUrl(path, PLAYER_BACKDROP_PREVIEW_WIDTH, PLAYER_BACKDROP_PREVIEW_HEIGHT, {
-        quality: PLAYER_BACKDROP_PREVIEW_QUALITY,
-    });
+    return backdropRequestUrl(path, PLAYER_BACKDROP_WIDTH, PLAYER_BACKDROP_HEIGHT, PLAYER_BACKDROP_QUALITY);
+};
+
+/** Idle fullscreen art. One image at a time, so ask for the 4K source even on TV. */
+export const plexScreensaverBackdropUrl = (path?: string | null) => {
+    if (!path) return '';
+    return backdropRequestUrl(path, PLAYER_BACKDROP_WIDTH, PLAYER_BACKDROP_HEIGHT, PLAYER_BACKDROP_QUALITY);
 };
 
 export const plexThemeUrl = (ratingKey?: string | null) => {
@@ -549,6 +789,46 @@ type SavedPlaybackProgress = {
 
 const savedPlaybackProgress = new Map<string, SavedPlaybackProgress>();
 const PLAYBACK_PROGRESS_TTL_MS = 3 * 60_000;
+/** Show/season just played, so the next On Deck episode still sorts as recently watched. */
+const familyLastViewedAt = new Map<string, { at: number; unix: number }>();
+
+const familyKeysOf = (item?: {
+    grandparentRatingKey?: string | null;
+    parentRatingKey?: string | null;
+    ratingKey?: string | null;
+} | null) => [item?.grandparentRatingKey, item?.parentRatingKey, item?.ratingKey]
+    .map((key) => String(key || '').trim())
+    .filter(Boolean);
+
+export const noteFamilyLastViewed = (
+    item?: {
+        grandparentRatingKey?: string | null;
+        parentRatingKey?: string | null;
+        ratingKey?: string | null;
+    } | null,
+    atMs = Date.now(),
+) => {
+    const unix = Math.floor(atMs / 1000);
+    if (unix <= 0) return;
+    for (const key of familyKeysOf(item)) {
+        familyLastViewedAt.set(key, { at: atMs, unix });
+    }
+};
+
+/** The next episode often has no view time of its own. Keep the show's. */
+export const stampFamilyLastViewed = <T extends PlayerItem>(item: T): T => {
+    let best = 0;
+    for (const key of familyKeysOf(item)) {
+        const row = familyLastViewedAt.get(key);
+        if (!row || Date.now() - row.at > PLAYBACK_PROGRESS_TTL_MS) continue;
+        if (row.unix > best) best = row.unix;
+    }
+    if (!best) return item;
+    const current = Number(item.lastViewedAt) || 0;
+    const currentSec = current > 1e12 ? Math.floor(current / 1000) : current;
+    if (currentSec >= best) return item;
+    return { ...item, lastViewedAt: best };
+};
 
 /** Keep the exit position so posters can show Resume before Plex sends the list back. */
 export const rememberPlaybackProgress = (
@@ -576,6 +856,8 @@ export const rememberPlaybackProgress = (
         item: item ? { ...item, viewOffsetMs: finished ? 0 : offset, durationMs: duration || item.durationMs, watched: finished ? true : item.watched } : undefined,
     };
     savedPlaybackProgress.set(ratingKey, saved);
+    noteFamilyLastViewed(item);
+    if (next) noteFamilyLastViewed(next);
     notePlayerItemProgress(ratingKey, saved.viewOffsetMs, saved.durationMs, saved.watched);
     window.dispatchEvent(new CustomEvent(PLAYER_PROGRESS_EVENT, {
         detail: finished
@@ -612,6 +894,8 @@ export const noteItemWatched = (
     };
     savedPlaybackProgress.set(key, saved);
     clearedWatchParents.set(key, { watched, at: saved.at });
+    if (continueWith) noteFamilyLastViewed(continueWith, saved.at);
+    if (restoreContinue) noteFamilyLastViewed(restoreContinue, saved.at);
     notePlayerItemProgress(key, 0, 0, watched);
     window.dispatchEvent(new CustomEvent(PLAYER_PROGRESS_EVENT, {
         detail: {
@@ -660,7 +944,9 @@ export const replaceFamilyContinueSlot = (list: PlayerItem[], ratingKey: string,
         ...nextItem,
         viewOffsetMs: Number(nextItem.viewOffsetMs || 0),
         watched: false,
+        lastViewedAt: Math.floor(Date.now() / 1000),
     }, current);
+    noteFamilyLastViewed(card);
     if (index < 0) return [card, ...without].slice(0, 20);
     const copy = without.slice();
     copy.splice(Math.min(index, copy.length), 0, card);
@@ -864,7 +1150,6 @@ export const continueWatchingImageUrls = (item: PlayerItem): string[] => {
         push(plexImageUrl(episodeStill, 426, 240, { quality: PLAYER_POSTER_QUALITY }));
     }
     const art = item.art || item.thumb || episodeStill;
-    push(plexBackdropPreviewUrl(art));
     push(plexBackdropUrl(art));
     return urls;
 };
@@ -918,11 +1203,8 @@ export const asRecentlyAddedPlayerItem = (
         episodeTitle: episodeTitle || item.episodeTitle || null,
         title: showName || item.title,
         showTitle: showName || item.showTitle || null,
-        dedupeKey: item.dedupeKey
-            || item.grandparentRatingKey
-            || item.parentRatingKey
-            || item.ratingKey
-            || null,
+        // One card per episode. A show key here collapsed a 278-episode add into one poster.
+        dedupeKey: item.ratingKey || null,
     };
 };
 
@@ -1045,10 +1327,11 @@ export const heroCardImageUrl = (source?: string | null) => {
     return directPlexTranscodeUrl(value, 1920, 1080, -1, { upscale: false }) || value;
 };
 
-/** Rail-sized coverArt — same art type as Replex, not a 1920 still on every card. */
+/** Rail-sized coverArt. A published Plex hero file is already the 16:9 poster — do not transcode it into a backdrop. */
 export const heroRailCardImageUrl = (source?: string | null) => {
     const value = String(source || '').trim();
     if (!value) return '';
+    if (/^https?:\/\//i.test(value) && !/\/photo\/:\/transcode/i.test(value)) return value;
     return directPlexTranscodeUrl(value, 854, 480, 72, { upscale: false }) || value;
 };
 
@@ -1083,8 +1366,14 @@ export const toPosterCardItem = (item: PlayerItem) => {
         && !!posterThumb;
     // HEAD order: keep a working absolute item.thumb — never strip it via libraryThumbPathFrom.
     let thumb = (preferShowPoster ? posterThumb : '') || item.thumb || leafThumb || undefined;
+    // Landscape episode cards size the still themselves. A portrait transcode here
+    // crops the frame before the 16:9 card ever sees it.
+    const keepEpisodeStill = item.cardAspect === '16/9'
+        && item.type === 'episode'
+        && String(thumb || '').startsWith('/library/');
     if (
         thumb
+        && !keepEpisodeStill
         && !/^https?:\/\//i.test(thumb)
         && !String(thumb).startsWith('/api/')
     ) {

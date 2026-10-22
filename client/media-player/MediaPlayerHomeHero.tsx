@@ -9,7 +9,7 @@ import {
 import { useDiscoverI18n } from './host';
 import { PlayerClearLogo } from './PlayerClearLogo';
 import { PlayerBackdropImage } from './PlayerBackdropImage';
-import { plexBackdropPreviewUrl, plexBackdropUrl, plexLogoUrl, prefetchPlayerImages } from './playerUtils';
+import { plexBackdropUrl, plexLogoUrl, prefetchPlayerImages } from './playerUtils';
 import type { PlayerItem, PlayerPlayOptions } from './types';
 
 export type HomeHeroSlide = {
@@ -54,13 +54,6 @@ const heroBackdropSrc = (slide: HomeHeroSlide): string => {
     if (slide.backdropUrl) return plexBackdropUrl(slide.backdropUrl);
     if (slide.thumb) return plexBackdropUrl(slide.thumb);
     if (slide.posterUrl) return plexBackdropUrl(slide.posterUrl) || resolvePortalAssetUrl(slide.posterUrl);
-    return '';
-};
-
-const heroBackdropPreviewSrc = (slide: HomeHeroSlide): string => {
-    if (slide.art) return plexBackdropPreviewUrl(slide.art);
-    if (slide.backdropUrl) return plexBackdropPreviewUrl(slide.backdropUrl);
-    if (slide.thumb) return plexBackdropPreviewUrl(slide.thumb);
     return '';
 };
 
@@ -215,17 +208,13 @@ export const MediaPlayerHomeHero: React.FC<Props> = ({ items, effectiveMode, act
 
     useEffect(() => {
         if (!pageActive || !slides.length) return undefined;
-        const previewUrls = slides
-            .filter((_, slideIndex) => slideDistance(index, slideIndex, slides.length) <= 2)
-            .map((slide) => heroBackdropPreviewSrc(slide) || heroBackdropSrc(slide))
-            .filter(Boolean);
         const fullUrls = slides
-            .filter((_, slideIndex) => slideDistance(index, slideIndex, slides.length) === 0)
+            .filter((_, slideIndex) => slideDistance(index, slideIndex, slides.length) <= 1)
             .map((slide) => heroBackdropSrc(slide))
             .filter(Boolean);
 
-        prefetchPlayerImages([...previewUrls, ...fullUrls], 4);
-        prefetchHeroFocalPoints([...previewUrls, ...fullUrls]);
+        prefetchPlayerImages(fullUrls, 3);
+        prefetchHeroFocalPoints(fullUrls);
         // eslint-disable-next-line react-hooks/exhaustive-deps -- slides rebuilt each render
     }, [backdropKey, index, pageActive, slides.length]);
 
@@ -257,9 +246,7 @@ export const MediaPlayerHomeHero: React.FC<Props> = ({ items, effectiveMode, act
         let cancelled = false;
         near.forEach((slide) => {
             if (focalPos[slide.ratingKey]) return;
-            const url = tvShell
-                ? (heroBackdropPreviewSrc(slide) || heroBackdropSrc(slide))
-                : (heroBackdropSrc(slide) || heroBackdropPreviewSrc(slide));
+            const url = heroBackdropSrc(slide);
             if (!url) return;
             void resolveHeroFocalPoint(url).then((focal) => {
                 if (cancelled) return;
@@ -268,7 +255,7 @@ export const MediaPlayerHomeHero: React.FC<Props> = ({ items, effectiveMode, act
             });
         });
         return () => { cancelled = true; };
-    }, [focalPos, index, pageActive, slides, tvShell]);
+    }, [focalPos, index, pageActive, slides]);
 
     if (!slides.length) return null;
 
@@ -377,11 +364,9 @@ export const MediaPlayerHomeHero: React.FC<Props> = ({ items, effectiveMode, act
                 {slides.map((slide, slideIndex) => {
                     const visible = slideIndex === index;
                     const dist = slideDistance(index, slideIndex, slides.length);
-                    const loadPreview = dist <= 2;
                     const loadFull = dist <= 1;
                     const backdropSrc = loadFull ? heroBackdropSrc(slide) : '';
-                    const previewSrc = loadPreview ? heroBackdropPreviewSrc(slide) : '';
-                    const showArt = Boolean(backdropSrc || previewSrc);
+                    const showArt = Boolean(backdropSrc);
                     const objectPosition = focalPos[slide.ratingKey] || '62% 32%';
                     return (
                         <div
@@ -392,8 +377,7 @@ export const MediaPlayerHomeHero: React.FC<Props> = ({ items, effectiveMode, act
                             {showArt ? (
                                 <div className={`player-hero-art ${visible ? 'is-active' : ''}`}>
                                     <PlayerBackdropImage
-                                        src={backdropSrc || previewSrc}
-                                        previewSrc={backdropSrc ? previewSrc : ''}
+                                        src={backdropSrc}
                                         className="player-hero-intact h-full w-full object-cover"
                                         style={{ objectPosition }}
                                         fetchPriority={visible ? 'high' : 'low'}

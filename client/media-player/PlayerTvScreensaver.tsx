@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { fetchMediaPlayerScreensaver, fetchMediaPlayerWatchlist } from './api';
-import { plexBackdropUrl, plexLogoUrl } from './playerUtils';
+import { buildPlayDeck } from './screensaverDeck.js';
+import { plexLogoUrl, plexScreensaverBackdropUrl } from './playerUtils';
 import { PlayerClearLogo } from './PlayerClearLogo';
 import type { PlayerScreensaverSource } from './playerSettings';
 import type { PlayerItem } from './types';
@@ -15,15 +16,17 @@ const formatClock = (date: Date) => {
     return `${hours}:${minutes}`;
 };
 
-const shuffleInPlace = <T,>(list: T[]): T[] => {
-    for (let i = list.length - 1; i > 0; i -= 1) {
-        const j = Math.floor(Math.random() * (i + 1));
-        const tmp = list[i];
-        list[i] = list[j];
-        list[j] = tmp;
-    }
-    return list;
-};
+/** A few pixels each slide so the clock does not sit on the same OLED pixels. */
+const CLOCK_NUDGES = [
+    { x: 0, y: 0 },
+    { x: 16, y: -10 },
+    { x: -12, y: 14 },
+    { x: 20, y: 8 },
+    { x: -18, y: -8 },
+    { x: 10, y: 16 },
+    { x: -8, y: 6 },
+    { x: 14, y: -14 },
+];
 
 type Slide = {
     key: string;
@@ -37,10 +40,15 @@ const slidesFromItems = (items: PlayerItem[]): Slide[] => {
     const out: Slide[] = [];
     for (const item of items) {
         const art = String(
-            item.art || item.heroArt || (item as { backdropUrl?: string }).backdropUrl || item.thumb || '',
+            (item as { backdropArt?: string | null }).backdropArt
+            || item.heroArt
+            || (item as { backdropUrl?: string }).backdropUrl
+            || item.art
+            || item.thumb
+            || '',
         ).trim();
         if (!art) continue;
-        const artUrl = plexBackdropUrl(art);
+        const artUrl = plexScreensaverBackdropUrl(art);
         if (!artUrl) continue;
         const dedupe = String(
             item.grandparentRatingKey
@@ -58,7 +66,7 @@ const slidesFromItems = (items: PlayerItem[]): Slide[] => {
         });
         if (out.length >= 24) break;
     }
-    return shuffleInPlace(out);
+    return out;
 };
 
 const poolFingerprint = (items: PlayerItem[]) => (
@@ -78,12 +86,15 @@ type Props = {
     source: PlayerScreensaverSource;
     /** Localized label shown as a watermark above the clock. */
     sourceLabel: string;
+    /** Nudge the clock on each slide. Off leaves it stationary. */
+    shiftClock?: boolean;
 };
 
 /**
  * TV Home idle ambient: cycles art from the chosen screensaver pool with a large
  * bottom-left clock. Any remote key / pointer dismisses and resets the idle timer.
- * Advances crossfade from the real previous slide to a random other slide.
+ * Play order is always a shuffled deck, for every screensaver source.
+ * Each new pass is shuffled again and does not open on the slide that just played.
  */
 export const PlayerTvScreensaver: React.FC<Props> = ({
     enabled,
@@ -91,9 +102,14 @@ export const PlayerTvScreensaver: React.FC<Props> = ({
     recommendedItems = [],
     source,
     sourceLabel,
+    shiftClock = false,
 }) => {
     const [remoteItems, setRemoteItems] = useState<PlayerItem[]>([]);
     const fetchGen = useRef(0);
+    const continueWatchingRef = useRef(continueWatchingItems);
+    continueWatchingRef.current = continueWatchingItems;
+    const recommendedRef = useRef(recommendedItems);
+    recommendedRef.current = recommendedItems;
 
     useEffect(() => {
         if (!enabled) return undefined;
@@ -107,44 +123,45 @@ export const PlayerTvScreensaver: React.FC<Props> = ({
         };
 
         if (source === 'continue_watching') {
-            apply(continueWatchingItems);
+            // The Home row is the user's Continue Watching. The screensaver endpoint
+            // can substitute another library when On Deck is slow.
+            apply(continueWatchingRef.current);
             return () => { cancelled = true; };
         }
-        if (source === 'recommended' && recommendedItems.length) {
-            apply(recommendedItems);
-            return () => { cancelled = true; };
-        }
-        if (source === 'watchlist') {
-            void fetchMediaPlayerWatchlist(true)
-                .then((data) => apply(data?.items || []))
-                .catch(() => apply(continueWatchingItems));
-            return () => { cancelled = true; };
-        }
+        if (source === 'recommended' && recommendedRef.current.length) apply(recommendedRef.current);
 
-        void fetchMediaPlayerScreensaver(source)
-            .then((data) => {
-                const items = data?.items || [];
-                apply(items.length ? items : continueWatchingItems);
+        const load = source === 'watchlist'
+            ? fetchMediaPlayerWatchlist(true).then((data) => data?.items || [])
+            : fetchMediaPlayerScreensaver(source).then((data) => data?.items || []);
+        void load
+            .then((items) => {
+                if (items.length) apply(items);
+                else apply(continueWatchingRef.current);
             })
-            .catch(() => apply(continueWatchingItems));
+            .catch(() => {
+                apply(continueWatchingRef.current);
+            });
 
         return () => { cancelled = true; };
-    }, [continueWatchingItems, enabled, recommendedItems, source]);
+    }, [
+        enabled,
+        source,
+        source === 'continue_watching'
+            ? continueWatchingItems.map((item) => item.ratingKey || '').join('|')
+            : '',
+    ]);
 
     const poolItems = useMemo(() => {
-        if (source === 'continue_watching') return continueWatchingItems;
-        if (source === 'recommended' && recommendedItems.length && !remoteItems.length) {
-            return recommendedItems;
-        }
-        return remoteItems.length ? remoteItems : continueWatchingItems;
+        if (remoteItems.length) return remoteItems;
+        if (source === 'recommended' && recommendedItems.length) return recommendedItems;
+        return continueWatchingItems;
     }, [continueWatchingItems, recommendedItems, remoteItems, source]);
 
     const poolKey = useMemo(() => poolFingerprint(poolItems), [poolItems]);
     const poolItemsRef = useRef(poolItems);
     poolItemsRef.current = poolItems;
 
-    // Only reshuffle when the underlying titles/art actually change — not on every
-    // Home re-render with a fresh array identity.
+    // Pool contents only. Play order is a fresh shuffle each time the screensaver starts.
     const slides = useMemo(
         () => slidesFromItems(poolItemsRef.current),
         [poolKey],
@@ -160,6 +177,20 @@ export const PlayerTvScreensaver: React.FC<Props> = ({
         gen: number;
     } | null>(null);
     const currentKeyRef = useRef('');
+    const deckRef = useRef<Slide[]>([]);
+    const deckIndexRef = useRef(0);
+
+    const freshSlide = (slide: Slide | null | undefined): Slide | null => {
+        if (!slide) return null;
+        return slidesRef.current.find((row) => row.key === slide.key) || slide;
+    };
+
+    const startDeck = (avoidKey = '') => {
+        const deck = buildPlayDeck(slidesRef.current, avoidKey) as Slide[];
+        deckRef.current = deck;
+        deckIndexRef.current = 0;
+        return deck[0] ? freshSlide(deck[0]) : null;
+    };
 
     useEffect(() => {
         if (!enabled || slides.length === 0) {
@@ -181,9 +212,8 @@ export const PlayerTvScreensaver: React.FC<Props> = ({
             clearIdle();
             idleTimer = window.setTimeout(() => {
                 if (cancelled) return;
-                const pool = slidesRef.current;
-                if (!pool.length) return;
-                const start = pool[Math.floor(Math.random() * pool.length)];
+                const start = startDeck('');
+                if (!start) return;
                 currentKeyRef.current = start.key;
                 setFrame({ current: start, outgoing: null, gen: 0 });
                 setActive(true);
@@ -229,21 +259,36 @@ export const PlayerTvScreensaver: React.FC<Props> = ({
         };
     }, [enabled, slides.length]);
 
-    // Advance: fade out the slide that is actually on screen, not array[index-1].
+    // Walk the shuffled deck. A finished pass is shuffled again and does not
+    // repeat the slide that just played. Source order is never the play order.
     useEffect(() => {
         if (!active || slides.length <= 1) return undefined;
         const id = window.setInterval(() => {
             const pool = slidesRef.current;
             if (pool.length <= 1) return;
             const currentKey = currentKeyRef.current;
-            const currentIdx = Math.max(0, pool.findIndex((row) => row.key === currentKey));
-            let nextIdx = Math.floor(Math.random() * (pool.length - 1));
-            if (nextIdx >= currentIdx) nextIdx += 1;
-            const next = pool[nextIdx];
-            const outgoing = pool[currentIdx] || pool.find((row) => row.key === currentKey) || null;
+            const outgoing = pool.find((row) => row.key === currentKey) || null;
+            const inPool = (slide: Slide | null | undefined) => (
+                slide ? pool.find((row) => row.key === slide.key) || null : null
+            );
+            let deck = deckRef.current;
+            let nextIndex = deckIndexRef.current + 1;
+            let next: Slide | null = null;
+            while (nextIndex < deck.length && !next) {
+                const candidate = inPool(deck[nextIndex]);
+                if (candidate && candidate.key !== currentKey) next = candidate;
+                else nextIndex += 1;
+            }
+            if (!next) {
+                next = startDeck(currentKey);
+                nextIndex = 0;
+                if (next && next.key === currentKey) return;
+            }
+            if (!next) return;
+            deckIndexRef.current = nextIndex;
             currentKeyRef.current = next.key;
             setFrame((prev) => ({
-                current: next,
+                current: next as Slide,
                 outgoing: outgoing || prev?.current || null,
                 gen: (prev?.gen || 0) + 1,
             }));
@@ -260,15 +305,39 @@ export const PlayerTvScreensaver: React.FC<Props> = ({
         return () => window.clearTimeout(timer);
     }, [frame?.gen, frame?.outgoing]);
 
-    // If the pool reshuffles while active, keep showing a valid current slide.
+    // If the pool reshuffles while active, keep the same title but pick up a new background.
     useEffect(() => {
         if (!active || !slides.length) return;
-        const stillThere = slides.some((row) => row.key === currentKeyRef.current);
-        if (stillThere) return;
-        const start = slides[Math.floor(Math.random() * slides.length)];
-        currentKeyRef.current = start.key;
-        setFrame({ current: start, outgoing: null, gen: 0 });
+        const match = slides.find((row) => row.key === currentKeyRef.current);
+        if (!match) {
+            const start = startDeck('');
+            if (!start) return;
+            currentKeyRef.current = start.key;
+            setFrame({ current: start, outgoing: null, gen: 0 });
+            return;
+        }
+        setFrame((prev) => {
+            if (prev?.current?.key === match.key && prev.current.artUrl === match.artUrl) return prev;
+            return {
+                current: match,
+                outgoing: prev?.current && prev.current.artUrl !== match.artUrl ? prev.current : null,
+                gen: (prev?.gen || 0) + 1,
+            };
+        });
     }, [active, slides]);
+
+    useEffect(() => {
+        if (!active || !frame?.current) return undefined;
+        const upcoming = deckRef.current[deckIndexRef.current + 1];
+        const url = upcoming
+            ? (slides.find((row) => row.key === upcoming.key)?.artUrl || upcoming.artUrl)
+            : '';
+        if (!url || url === frame.current.artUrl) return undefined;
+        const img = new Image();
+        img.decoding = 'async';
+        img.src = url;
+        return undefined;
+    }, [active, frame, slides]);
 
     useEffect(() => {
         if (!active) return undefined;
@@ -282,6 +351,7 @@ export const PlayerTvScreensaver: React.FC<Props> = ({
 
     const { current, outgoing, gen } = frame;
     const watermark = String(sourceLabel || '').trim();
+    const clockNudge = shiftClock ? CLOCK_NUDGES[Math.abs(gen) % CLOCK_NUDGES.length] : null;
 
     return (
         <div
@@ -290,23 +360,32 @@ export const PlayerTvScreensaver: React.FC<Props> = ({
             aria-hidden
         >
             {outgoing ? (
-                <div
+                <img
                     key={`out-${outgoing.key}-${gen}`}
+                    alt=""
                     className="player-tv-screensaver-slide player-tv-screensaver-slide--exit"
-                    style={{ backgroundImage: `url(${outgoing.artUrl})` }}
+                    src={outgoing.artUrl}
+                    draggable={false}
                 />
             ) : null}
-            <div
+            <img
                 key={`cur-${current.key}-${gen}`}
+                alt=""
                 className={`player-tv-screensaver-slide${outgoing ? ' player-tv-screensaver-slide--enter' : ''}`}
-                style={{ backgroundImage: `url(${current.artUrl})` }}
+                src={current.artUrl}
+                draggable={false}
             />
             <div className="player-tv-screensaver-scrim" />
             <div className="player-tv-screensaver-footer">
                 {watermark ? (
                     <p className="player-tv-screensaver-watermark">{watermark}</p>
                 ) : null}
-                <p className="player-tv-screensaver-clock">{clock}</p>
+                <p
+                    className="player-tv-screensaver-clock"
+                    style={clockNudge ? { transform: `translate(${clockNudge.x}px, ${clockNudge.y}px)` } : undefined}
+                >
+                    {clock}
+                </p>
                 {current.logoUrl ? (
                     <PlayerClearLogo
                         src={current.logoUrl}

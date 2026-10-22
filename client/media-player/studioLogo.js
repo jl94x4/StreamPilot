@@ -693,6 +693,14 @@ export const resolvePlayerBrandLogo = (item = {}, { networks = [], studios = [] 
         if (row) return row;
     }
 
+    // No broadcast network: production company, then a streaming brand in the studio field.
+    for (const name of [studio, ...studioLabels]) {
+        if (!name || isStreamingBrandLabel(name)) continue;
+        const hit = matchDiscoverCompanyByName(name, studios);
+        const row = toRow(hit);
+        if (row) return row;
+    }
+
     // Netflix originals: studio field is the streamer — never Kometa Labels alone.
     if (studio && isStreamingBrandLabel(studio)) {
         const hit = matchDiscoverCompanyByName(studio, networks);
@@ -727,13 +735,15 @@ export const itemHasBillboardBrandMeta = (item = {}) => {
 };
 
 /**
- * Ranked brand-mark candidates for TV billboards.
- * Movies → studio, then streaming providers.
- * TV → network, then streaming (only when no network — avoids Netflix-on-C4).
+ * Ranked brand-mark candidates for TV billboards. One tier only.
+ * Movies → studio, then streaming.
+ * Shows → network, then studio, then streaming (never Netflix-on-C4).
  */
 export const listPreferredServiceLogos = (groups = {}, mediaType = '') => {
     const { studio = [], network = [], streaming = [] } = groups || {};
-    const primary = mediaType === 'movie' ? studio : network;
+    const tiers = mediaType === 'movie'
+        ? [studio, streaming]
+        : [network, studio, streaming];
     const out = [];
     const seen = new Set();
     const push = (row) => {
@@ -745,10 +755,10 @@ export const listPreferredServiceLogos = (groups = {}, mediaType = '') => {
         seen.add(id);
         out.push(row);
     };
-    for (const row of Array.isArray(primary) ? primary : []) push(row);
-    // Last resort: TMDB watch-provider logos when studio/network are empty.
-    if (!out.length) {
-        for (const row of Array.isArray(streaming) ? streaming : []) push(row);
+    for (const tier of tiers) {
+        const before = out.length;
+        for (const row of Array.isArray(tier) ? tier : []) push(row);
+        if (out.length > before) break;
     }
     return out;
 };

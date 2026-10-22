@@ -957,6 +957,12 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         onChange={(checked) => updateSettings({ showBecauseYouWatched: checked })}
                     />
                     <TvToggleRow
+                        title={t('mediaPlayerPage.clock24Hour')}
+                        description={t('mediaPlayerPage.clock24HourHint')}
+                        checked={settings.clock24Hour}
+                        onChange={(checked) => updateSettings({ clock24Hour: checked })}
+                    />
+                    <TvToggleRow
                         title={t('mediaPlayerPage.hideWatchedFromRecents')}
                         description={t('mediaPlayerPage.hideWatchedFromRecentsHint')}
                         checked={settings.hideWatchedFromRecents}
@@ -982,6 +988,12 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         onChange={(value) => updateSettings({
                             screensaverSource: value as PlayerScreensaverSource,
                         })}
+                    />
+                    <TvToggleRow
+                        title={t('mediaPlayerPage.screensaverShiftClock')}
+                        description={t('mediaPlayerPage.screensaverShiftClockHint')}
+                        checked={settings.screensaverShiftClock}
+                        onChange={(checked) => updateSettings({ screensaverShiftClock: checked })}
                     />
                     <TvToggleRow
                         title={t('mediaPlayerPage.continueWatchingSeasonPoster')}
