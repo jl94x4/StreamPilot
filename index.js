@@ -164,6 +164,7 @@ import { applyShowEpisodeActivity, summarizeShowEpisodeActivity } from './lib/ma
 import {
     migrateLegacyBrandingAssets,
     parseBrandingPublicPath,
+    readBrandingAssetBuffer,
     readBrandingAssetByPublicPath,
     writeBrandingAsset,
 } from './lib/branding-storage.js';
@@ -2771,11 +2772,21 @@ const readFileUnlocked = async (path, defaultContent) => {
     }
 };
 
-const writeFileUnlocked = async (path, data) => {
-    const tempPath = `${path}.tmp`;
-    await fs.writeFile(tempPath, JSON.stringify(data, null, 2));
-    await fs.rename(tempPath, path);
-    invalidateHotFileCache(path);
+const writeFileUnlocked = async (filePath, data) => {
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    const serialized = JSON.stringify(data, null, 2);
+    if (typeof serialized !== 'string') {
+        throw new Error(`Cannot save ${path.basename(filePath)}: value is not JSON.`);
+    }
+    const tempPath = `${filePath}.${process.pid}.tmp`;
+    await fs.writeFile(tempPath, serialized);
+    try {
+        await fs.rename(tempPath, filePath);
+    } catch {
+        await fs.writeFile(filePath, serialized);
+        await fs.unlink(tempPath).catch(() => {});
+    }
+    invalidateHotFileCache(filePath);
 };
 
 const loadFile = async (path, defaultContent) => {
@@ -15707,11 +15718,43 @@ const decryptBackupObject = (payload) => {
         Buffer.from(String(payload.iv), 'base64'),
     );
     decipher.setAuthTag(Buffer.from(String(payload.tag), 'base64'));
-    const plain = Buffer.concat([
-        decipher.update(Buffer.from(String(payload.ciphertext), 'base64')),
-        decipher.final(),
-    ]);
-    return JSON.parse(plain.toString('utf8'));
+    let plain;
+    try {
+        plain = Buffer.concat([
+            decipher.update(Buffer.from(String(payload.ciphertext), 'base64')),
+            decipher.final(),
+        ]);
+    } catch (error) {
+        const failed = new Error('This backup cannot be opened. It was sealed with a different server secret (JWT_SECRET), or the file was cut off while saving.');
+        failed.status = 400;
+        failed.cause = error;
+        throw failed;
+    }
+    try {
+        return JSON.parse(plain.toString('utf8'));
+    } catch (error) {
+        const failed = new Error('This backup decrypted, but the saved data inside it is not valid JSON.');
+        failed.status = 400;
+        failed.cause = error;
+        throw failed;
+    }
+};
+
+const parseStoredBackup = (raw, label = 'Backup') => {
+    const text = String(raw ?? '');
+    if (!text.trim()) {
+        const error = new Error(`${label} is empty. It was cut off while saving. Use an older backup, or create a new one.`);
+        error.status = 400;
+        throw error;
+    }
+    try {
+        return JSON.parse(text);
+    } catch (error) {
+        const failed = new Error(`${label} is incomplete or not valid JSON (${error?.message || 'parse failed'}). It was cut off while saving. Use an older backup, or create a new one.`);
+        failed.status = 400;
+        failed.cause = error;
+        throw failed;
+    }
 };
 
 const readBackupPayload = async () => {
@@ -15720,8 +15763,9 @@ const readBackupPayload = async () => {
         payload[target.key] = await loadFile(target.path, null);
     }
     try {
-        const logoPath = path.join(process.cwd(), 'static', 'logo.png');
-        const logoBuffer = await fs.readFile(logoPath);
+        // Custom logos live in the config volume; /app/static only holds the bundled default.
+        const logoBuffer = await readBrandingAssetBuffer(BRANDING_DIR, 'logo')
+            || await fs.readFile(path.join(process.cwd(), 'static', 'logo.png'));
         payload.logoPngBase64 = logoBuffer.toString('base64');
     } catch (e) {
         payload.logoPngBase64 = null;
@@ -15777,16 +15821,27 @@ const enforceBackupRetention = async (keepCount) => {
 
 const applyBackupPayload = async (backup) => {
     if (!backup || backup.schemaVersion !== BACKUP_SCHEMA_VERSION || !backup.data) {
-        throw new Error('Unsupported backup schema.');
+        const error = new Error('Unsupported backup schema.');
+        error.status = 400;
+        throw error;
     }
     for (const target of BACKUP_TARGETS) {
         if (backup.data[target.key] !== undefined) {
-            await saveFile(target.path, backup.data[target.key]);
+            try {
+                await saveFile(target.path, backup.data[target.key]);
+            } catch (error) {
+                throw new Error(`Could not restore ${target.key}: ${error?.message || error}`);
+            }
         }
     }
     if (backup.data.logoPngBase64 && typeof backup.data.logoPngBase64 === 'string') {
-        const logoPath = path.join(process.cwd(), 'static', 'logo.png');
-        await fs.writeFile(logoPath, Buffer.from(backup.data.logoPngBase64, 'base64'));
+        try {
+            // Write to the config volume (owned by PUID:PGID), never /app/static, which is
+            // image-owned and read-only for non-default PUIDs (EACCES on Unraid 99:100 etc).
+            await writeBrandingAsset(BRANDING_DIR, 'logo', Buffer.from(backup.data.logoPngBase64, 'base64'));
+        } catch (error) {
+            log(`Backup logo restore skipped: ${error?.message || error}`);
+        }
     }
 };
 
@@ -15795,7 +15850,15 @@ const writeBackupToFolder = async (backup) => {
     const filename = getBackupFilename(backup);
     const filePath = path.join(BACKUP_DIR, filename);
     const sealed = encryptBackupObject(backup);
-    await fs.writeFile(filePath, JSON.stringify(sealed, null, 2), 'utf8');
+    const body = JSON.stringify(sealed);
+    const tempPath = `${filePath}.${process.pid}.tmp`;
+    await fs.writeFile(tempPath, body, 'utf8');
+    try {
+        await fs.rename(tempPath, filePath);
+    } catch {
+        await fs.writeFile(filePath, body, 'utf8');
+        await fs.unlink(tempPath).catch(() => {});
+    }
     return { filename, filePath };
 };
 
@@ -15841,9 +15904,9 @@ app.post('/api/admin/backup/restore', requireAdmin, express.text({ type: '*/*', 
 
         let backup;
         try {
-            backup = decryptBackupObject(JSON.parse(rawBody));
+            backup = decryptBackupObject(parseStoredBackup(rawBody, 'Pasted backup'));
         } catch (e) {
-            return res.status(400).json({ error: e.message || 'Backup payload is not valid JSON.' });
+            return res.status(e.status || 400).json({ error: e.message || 'Backup payload is not valid JSON.' });
         }
 
         const confirmRestore = req.query.confirm === 'true' || req.headers['x-confirm-restore'] === 'true';
@@ -15872,7 +15935,7 @@ app.post('/api/admin/backups/restore-file', requireAdmin, async (req, res) => {
         }
         const filePath = path.join(BACKUP_DIR, filename);
         const raw = await fs.readFile(filePath, 'utf8');
-        const backup = decryptBackupObject(JSON.parse(raw));
+        const backup = decryptBackupObject(parseStoredBackup(raw, filename));
         await applyBackupPayload(backup);
         await appendAuditLog('backup_restored_file', req.user, null, {
             filename,
@@ -15881,7 +15944,11 @@ app.post('/api/admin/backups/restore-file', requireAdmin, async (req, res) => {
         });
         res.json({ success: true, message: 'Backup restored from file successfully.' });
     } catch (e) {
-        res.status(500).json({ error: `Failed to restore backup file: ${e.message}` });
+        const status = Number(e.status) || 500;
+        const message = e.message || 'Failed to restore backup file';
+        res.status(status).json({
+            error: status === 400 ? message : `Failed to restore backup file: ${message}`,
+        });
     }
 });
 
