@@ -373,17 +373,7 @@ public class PlayerActivity extends AppCompatActivity {
     private boolean subtitleSearchPending;
     private boolean applyingTextTracks;
     private boolean applyingAudioTracks;
-    private String timelineOrigin = "";
-    private String timelineToken = "";
-    private String timelineClientId = "";
-    private String timelineProduct = "StreamPilot";
-    private String timelineVersion = "1.0.0";
-    private String timelinePlatform = "Android";
-    private String timelineDevice = "Android TV";
-    private String timelineDeviceName = "StreamPilot";
-    private String timelineSessionId = "";
-    private long lastTimelinePingElapsedMs;
-    private String lastTimelineState = "";
+    private final PlexTimelineReporter timelineReporter = new PlexTimelineReporter(USER_AGENT);
     private int timelineKeepAliveTicks;
 
     private final Runnable hideChromeRunnable = () -> {
@@ -1236,27 +1226,7 @@ public class PlayerActivity extends AppCompatActivity {
             if (root.has("sidecarSubtitleUrl")) sidecarSubtitleUrl = root.optString("sidecarSubtitleUrl", sidecarSubtitleUrl);
             if (root.has("frameRate")) videoFrameRate = (float) root.optDouble("frameRate", videoFrameRate);
             previewThumbTemplate = root.optString("previewThumbTemplate", previewThumbTemplate);
-            JSONObject timeline = root.optJSONObject("timeline");
-            if (timeline != null) {
-                String origin = timeline.optString("origin", "").trim().replaceAll("/+$", "");
-                if (!origin.isEmpty()) timelineOrigin = origin;
-                String token = timeline.optString("token", "").trim();
-                if (!token.isEmpty()) timelineToken = token;
-                String clientId = timeline.optString("clientId", "").trim();
-                if (!clientId.isEmpty()) timelineClientId = clientId;
-                String product = timeline.optString("product", "").trim();
-                if (!product.isEmpty()) timelineProduct = product;
-                String version = timeline.optString("version", "").trim();
-                if (!version.isEmpty()) timelineVersion = version;
-                String platform = timeline.optString("platform", "").trim();
-                if (!platform.isEmpty()) timelinePlatform = platform;
-                String device = timeline.optString("device", "").trim();
-                if (!device.isEmpty()) timelineDevice = device;
-                String deviceName = timeline.optString("deviceName", "").trim();
-                if (!deviceName.isEmpty()) timelineDeviceName = deviceName;
-                String sessionId = timeline.optString("sessionId", "").trim();
-                if (!sessionId.isEmpty()) timelineSessionId = sessionId;
-            }
+            timelineReporter.applySessionTimeline(root.optJSONObject("timeline"));
             JSONObject subtitleStyle = root.optJSONObject("subtitleStyle");
             if (subtitleStyle != null) {
                 subtitleSizePct = subtitleStyle.optInt("size", subtitleSizePct);
@@ -4150,35 +4120,7 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void absorbTimelineFromUrl(String url) {
-        if (url == null || url.isEmpty() || url.contains("/api/media-player/")) return;
-        try {
-            Uri parsed = Uri.parse(url);
-            String token = PlaybackUrls.queryParam(parsed, "X-Plex-Token");
-            if (token.isEmpty()) token = PlaybackUrls.queryParam(parsed, "access_token");
-            if (!token.isEmpty()) timelineToken = token;
-            String clientId = PlaybackUrls.queryParam(parsed, "X-Plex-Client-Identifier");
-            if (!clientId.isEmpty()) timelineClientId = clientId;
-            String session = PlaybackUrls.queryParam(parsed, "X-Plex-Session-Identifier");
-            if (session.isEmpty()) session = PlaybackUrls.queryParam(parsed, "session");
-            if (!session.isEmpty()) timelineSessionId = session;
-            String product = PlaybackUrls.queryParam(parsed, "X-Plex-Product");
-            if (!product.isEmpty()) timelineProduct = product;
-            String platform = PlaybackUrls.queryParam(parsed, "X-Plex-Platform");
-            if (!platform.isEmpty()) timelinePlatform = platform;
-            String device = PlaybackUrls.queryParam(parsed, "X-Plex-Device");
-            if (!device.isEmpty()) timelineDevice = device;
-            String deviceName = PlaybackUrls.queryParam(parsed, "X-Plex-Device-Name");
-            if (!deviceName.isEmpty()) timelineDeviceName = deviceName;
-            if ((timelineOrigin == null || timelineOrigin.isEmpty())
-                    && parsed.getScheme() != null
-                    && parsed.getHost() != null) {
-                String origin = parsed.getScheme() + "://" + parsed.getHost();
-                if (parsed.getPort() != -1) origin += ":" + parsed.getPort();
-                timelineOrigin = origin;
-            }
-        } catch (Throwable ignored) {
-            /* malformed playback url */
-        }
+        timelineReporter.absorbFromUrl(url);
     }
 
     private boolean shouldMarkWatched(long positionMs, boolean ended) {
@@ -4189,25 +4131,15 @@ public class PlayerActivity extends AppCompatActivity {
         } catch (Throwable ignored) {
             durationMs = Math.max(0L, durationHintMs);
         }
-        if (creditsStartMs >= 0 && positionMs >= creditsStartMs) return true;
-        if (durationMs <= 0) return false;
-        if (positionMs >= (long) (durationMs * 0.9d)) return true;
-        return positionMs > Math.max(0L, durationMs - 15_000L);
+        return PlexTimelineReporter.isWatchedPosition(positionMs, durationMs, creditsStartMs);
     }
 
     private void scrobbleWatched() {
         absorbTimelineFromUrl(currentUrl);
-        if (ratingKey == null || ratingKey.trim().isEmpty()) return;
-        if (timelineOrigin == null || timelineOrigin.isEmpty() || timelineToken == null || timelineToken.isEmpty()) {
-            return;
-        }
         try {
-            Uri.Builder builder = Uri.parse(timelineOrigin + "/:/scrobble").buildUpon();
-            builder.appendQueryParameter("identifier", "com.plexapp.plugins.library");
-            builder.appendQueryParameter("key", ratingKey);
-            builder.appendQueryParameter("X-Plex-Token", timelineToken);
-            final String pingUrl = builder.build().toString();
-            logoExecutor.execute(() -> httpPingTimeline(pingUrl, null, "GET"));
+            final String pingUrl = timelineReporter.buildScrobbleUrl(ratingKey);
+            if (pingUrl == null) return;
+            logoExecutor.execute(() -> timelineReporter.httpPing(pingUrl, null, "GET"));
         } catch (Throwable e) {
             Log.w(TAG, "Plex scrobble skipped", e);
         }
@@ -4218,15 +4150,8 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void pingPlexTimeline(String rawState, long positionOverrideMs) {
-        String state = "playing";
-        if ("paused".equals(rawState) || "stopped".equals(rawState) || "buffering".equals(rawState)) {
-            state = rawState;
-        }
-        long now = SystemClock.elapsedRealtime();
-        boolean important = "stopped".equals(state) || "paused".equals(state) || !state.equals(lastTimelineState);
-        if (!important && now - lastTimelinePingElapsedMs < 5_000) return;
-        lastTimelinePingElapsedMs = now;
-        lastTimelineState = state;
+        String state = PlexTimelineReporter.normalizeState(rawState);
+        if (!timelineReporter.shouldPing(state, SystemClock.elapsedRealtime())) return;
         absorbTimelineFromUrl(currentUrl);
         if (ratingKey == null || ratingKey.trim().isEmpty()) return;
         long positionMs = 0L;
@@ -4243,134 +4168,20 @@ public class PlayerActivity extends AppCompatActivity {
         final String pingState = state;
         final long pingPosition = positionMs;
         final long pingDuration = durationMs;
-        if (timelineOrigin != null && !timelineOrigin.isEmpty() && timelineToken != null && !timelineToken.isEmpty()) {
-            final String pingUrl = buildPmsTimelineUrl(pingState, pingPosition, pingDuration);
+        if (timelineReporter.hasPmsCredentials()) {
+            final String pingUrl = timelineReporter.buildPmsTimelineUrl(
+                ratingKey, pingState, pingPosition, pingDuration, musicMode, audioStreamId, subtitleStreamId);
             if (pingUrl != null) {
-                logoExecutor.execute(() -> httpPingTimeline(pingUrl, null, "GET"));
+                logoExecutor.execute(() -> timelineReporter.httpPing(pingUrl, null, "GET"));
                 return;
             }
         }
-        final String portalUrl = buildPortalTimelineUrl();
+        final String portalUrl = PlexTimelineReporter.buildPortalTimelineUrl(currentUrl);
         if (portalUrl == null) return;
-        final String body = buildPortalTimelineBody(pingState, pingPosition, pingDuration);
+        final String body = timelineReporter.buildPortalTimelineBody(
+            ratingKey, pingState, pingPosition, pingDuration, audioStreamId, subtitleStreamId);
         if (body == null) return;
-        logoExecutor.execute(() -> httpPingTimeline(portalUrl, body, "POST"));
-    }
-
-    private String buildPmsTimelineUrl(String state, long positionMs, long durationMs) {
-        if (timelineOrigin == null || timelineOrigin.isEmpty() || timelineToken == null || timelineToken.isEmpty()) {
-            return null;
-        }
-        try {
-            Uri.Builder builder = Uri.parse(timelineOrigin + "/:/timeline").buildUpon();
-            builder.appendQueryParameter("ratingKey", ratingKey);
-            builder.appendQueryParameter("key", "/library/metadata/" + ratingKey);
-            builder.appendQueryParameter("identifier", "com.plexapp.plugins.library");
-            builder.appendQueryParameter("state", state);
-            builder.appendQueryParameter("time", String.valueOf(positionMs));
-            builder.appendQueryParameter("playbackTime", String.valueOf(positionMs));
-            builder.appendQueryParameter("duration", String.valueOf(Math.max(0L, durationMs)));
-            builder.appendQueryParameter("type", musicMode ? "music" : "video");
-            builder.appendQueryParameter("hasMDE", "1");
-            builder.appendQueryParameter("X-Plex-Token", timelineToken);
-            builder.appendQueryParameter("X-Plex-Client-Identifier",
-                    timelineClientId == null || timelineClientId.isEmpty() ? "streampilot-android" : timelineClientId);
-            builder.appendQueryParameter("X-Plex-Product", timelineProduct);
-            builder.appendQueryParameter("X-Plex-Version", timelineVersion);
-            builder.appendQueryParameter("X-Plex-Platform", timelinePlatform);
-            builder.appendQueryParameter("X-Plex-Device", timelineDevice);
-            builder.appendQueryParameter("X-Plex-Device-Name", timelineDeviceName);
-            builder.appendQueryParameter("X-Plex-Provides", "player,controller");
-            if (timelineSessionId != null && !timelineSessionId.isEmpty()) {
-                builder.appendQueryParameter("X-Plex-Session-Identifier", timelineSessionId);
-            }
-            String audioId = audioStreamId == null ? "" : audioStreamId.replaceAll("\\D", "");
-            if (!audioId.isEmpty()) builder.appendQueryParameter("audioStreamID", audioId);
-            String subId = subtitleStreamId == null ? "" : subtitleStreamId.replaceAll("\\D", "");
-            builder.appendQueryParameter("subtitleStreamID", subId.isEmpty() ? "0" : subId);
-            return builder.build().toString();
-        } catch (Throwable e) {
-            Log.w(TAG, "Plex timeline URL skipped", e);
-            return null;
-        }
-    }
-
-    @Nullable
-    private String buildPortalTimelineUrl() {
-        if (currentUrl == null || !currentUrl.contains("/api/media-player/")) return null;
-        try {
-            Uri parsed = Uri.parse(currentUrl);
-            if (parsed.getScheme() == null || parsed.getHost() == null) return null;
-            String origin = parsed.getScheme() + "://" + parsed.getHost();
-            if (parsed.getPort() != -1) origin += ":" + parsed.getPort();
-            return origin + "/api/media-player/timeline";
-        } catch (Throwable ignored) {
-            return null;
-        }
-    }
-
-    @Nullable
-    private String buildPortalTimelineBody(String state, long positionMs, long durationMs) {
-        try {
-            JSONObject body = new JSONObject();
-            body.put("ratingKey", ratingKey);
-            body.put("state", state);
-            body.put("timeMs", positionMs);
-            body.put("durationMs", Math.max(0L, durationMs));
-            if (timelineSessionId != null && !timelineSessionId.isEmpty()) {
-                body.put("sessionId", timelineSessionId);
-            }
-            if (audioStreamId != null && !audioStreamId.isEmpty()) body.put("audioStreamId", audioStreamId);
-            if (subtitleStreamId != null) body.put("subtitleStreamId", subtitleStreamId);
-            return body.toString();
-        } catch (Throwable ignored) {
-            return null;
-        }
-    }
-
-    private void httpPingTimeline(String url, @Nullable String body, String method) {
-        HttpURLConnection conn = null;
-        try {
-            conn = (HttpURLConnection) new URL(url).openConnection();
-            conn.setConnectTimeout(4_000);
-            conn.setReadTimeout(4_000);
-            conn.setInstanceFollowRedirects(true);
-            conn.setRequestMethod(method);
-            conn.setRequestProperty("Accept", "application/json, text/plain, */*");
-            conn.setRequestProperty("User-Agent", USER_AGENT);
-            if (timelineToken != null && !timelineToken.isEmpty()) {
-                conn.setRequestProperty("X-Plex-Token", timelineToken);
-            }
-            if (timelineClientId != null && !timelineClientId.isEmpty()) {
-                conn.setRequestProperty("X-Plex-Client-Identifier", timelineClientId);
-            }
-            if (timelineSessionId != null && !timelineSessionId.isEmpty()) {
-                conn.setRequestProperty("X-Plex-Session-Identifier", timelineSessionId);
-            }
-            conn.setRequestProperty("X-Plex-Product", timelineProduct);
-            conn.setRequestProperty("X-Plex-Device-Name", timelineDeviceName);
-            conn.setRequestProperty("X-Plex-Provides", "player,controller");
-            try {
-                String cookie = CookieManager.getInstance().getCookie(url);
-                if (cookie != null && !cookie.isEmpty()) conn.setRequestProperty("Cookie", cookie);
-            } catch (Throwable ignored) {
-                /* cookies optional for direct PMS */
-            }
-            if (body != null) {
-                byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
-                conn.setDoOutput(true);
-                conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
-                conn.setRequestProperty("X-Requested-With", "ServerManagerPortal");
-                try (OutputStream out = conn.getOutputStream()) {
-                    out.write(bytes);
-                }
-            }
-            conn.getResponseCode();
-        } catch (Throwable e) {
-            Log.w(TAG, "Plex timeline ping failed", e);
-        } finally {
-            if (conn != null) conn.disconnect();
-        }
+        logoExecutor.execute(() -> timelineReporter.httpPing(portalUrl, body, "POST"));
     }
 
     private void toggleChrome() {
@@ -4883,7 +4694,8 @@ public class PlayerActivity extends AppCompatActivity {
     private String partsUrlToPmsHls(String partUrl, String key, int mediaIdx, long offsetMs) {
         return PlaybackUrls.partsUrlToPmsHls(
             partUrl, key, mediaIdx, offsetMs,
-            timelineOrigin, timelineToken, timelineClientId, timelineSessionId, audioStreamId
+            timelineReporter.origin, timelineReporter.token, timelineReporter.clientId,
+            timelineReporter.sessionId, audioStreamId
         );
     }
 
