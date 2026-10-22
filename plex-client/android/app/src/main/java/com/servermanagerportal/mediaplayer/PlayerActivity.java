@@ -159,7 +159,6 @@ public class PlayerActivity extends AppCompatActivity {
     private TextView statsView;
     private TextView modeChipView;
     private boolean statsVisible;
-    private boolean confirmLongPress;
     private TextView clockView;
     private String lastClockLabel = "";
     private Button skipCreditsBtn;
@@ -189,6 +188,162 @@ public class PlayerActivity extends AppCompatActivity {
     private ImageButton settingsBtn;
     private String metaText = "";
     private final PlayerMenuNav menuNav = new PlayerMenuNav();
+    private final PlayerKeyHandler keyHandler = new PlayerKeyHandler(new PlayerKeyHandler.Host() {
+        @Override
+        public boolean isOptionDialogShowing() {
+            return PlayerActivity.this.isOptionDialogShowing();
+        }
+
+        @Override
+        public void popMenuOrClose() {
+            PlayerActivity.this.popMenuOrClose();
+        }
+
+        @Override
+        public boolean isStatsKey(int keyCode) {
+            return PlayerActivity.this.isStatsKey(keyCode);
+        }
+
+        @Override
+        public boolean statsVisible() {
+            return statsVisible;
+        }
+
+        @Override
+        public void toggleStatsOverlay() {
+            PlayerActivity.this.toggleStatsOverlay();
+        }
+
+        @Override
+        public void hideStatsOverlay() {
+            PlayerActivity.this.hideStatsOverlay();
+        }
+
+        @Override
+        public boolean chromeVisible() {
+            return chromeVisible;
+        }
+
+        @Override
+        public void setChromeVisible(boolean visible) {
+            PlayerActivity.this.setChromeVisible(visible);
+        }
+
+        @Override
+        public void bumpChrome() {
+            PlayerActivity.this.bumpChrome();
+        }
+
+        @Override
+        public boolean seekHoldActive() {
+            return seekHoldDirection != 0;
+        }
+
+        @Override
+        public void startSeekHold(int direction) {
+            PlayerActivity.this.startSeekHold(direction);
+        }
+
+        @Override
+        public void stopSeekHold() {
+            PlayerActivity.this.stopSeekHold();
+        }
+
+        @Override
+        public boolean isUpNextVisible() {
+            return PlayerActivity.this.isUpNextVisible();
+        }
+
+        @Override
+        public boolean isUpNextFocused() {
+            return PlayerActivity.this.isUpNextFocused();
+        }
+
+        @Override
+        public void focusUpNextControls() {
+            PlayerActivity.this.focusUpNextControls();
+        }
+
+        @Override
+        public boolean playbackEndedNow() {
+            return playbackEnded || (player != null && player.getPlaybackState() == Player.STATE_ENDED);
+        }
+
+        @Override
+        public boolean musicMode() {
+            return musicMode;
+        }
+
+        @Override
+        public void finishWithResult(boolean ended, boolean playNext) {
+            PlayerActivity.this.finishWithResult(ended, playNext);
+        }
+
+        @Override
+        public void minimizeToBrowse() {
+            PlayerActivity.this.minimizeToBrowse();
+        }
+
+        @Override
+        public boolean isPlaybackConfirmTarget() {
+            return PlayerActivity.this.isPlaybackConfirmTarget();
+        }
+
+        @Override
+        public boolean hasChapters() {
+            return !chapters.isEmpty();
+        }
+
+        @Override
+        public void skipChapter(int direction) {
+            PlayerActivity.this.skipChapter(direction);
+        }
+
+        @Override
+        public void skipNextFromPlugin() {
+            PlayerActivity.this.skipNextFromPlugin();
+        }
+
+        @Override
+        public void finishForPlayPrevious() {
+            PlayerActivity.this.finishForPlayPrevious();
+        }
+
+        @Override
+        public void showSettingsRoot() {
+            PlayerActivity.this.showSettingsRoot();
+        }
+
+        @Override
+        public void applyPlayPause(boolean play) {
+            PlayerActivity.this.applyPlayPause(play);
+        }
+
+        @Override
+        public void togglePlayPause() {
+            PlayerActivity.this.togglePlayPause();
+        }
+
+        @Override
+        public void focusPlayPauseButton() {
+            if (playPauseBtn != null) playPauseBtn.requestFocus();
+        }
+
+        @Override
+        public boolean isSeekBarFocused() {
+            return getCurrentFocus() == seekBar;
+        }
+
+        @Override
+        public boolean hasSettingsButton() {
+            return settingsBtn != null;
+        }
+
+        @Override
+        public boolean trySkipFromRemote() {
+            return PlayerActivity.this.trySkipFromRemote();
+        }
+    });
     private int seekHoldDirection;
     private final Runnable seekHoldRunnable = new Runnable() {
         @Override
@@ -4696,206 +4851,23 @@ public class PlayerActivity extends AppCompatActivity {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
-        int keyCode = event.getKeyCode();
-        if (isOptionDialogShowing()) {
-            if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE) {
-                if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
-                    popMenuOrClose();
-                }
-                return true;
-            }
-            return super.dispatchKeyEvent(event);
-        }
-        boolean confirm = keyCode == KeyEvent.KEYCODE_DPAD_CENTER
-            || keyCode == KeyEvent.KEYCODE_ENTER
-            || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER;
-        boolean mediaToggle = keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE;
-        if ((confirm || mediaToggle)
-            && event.getAction() == KeyEvent.ACTION_DOWN
-            && event.getRepeatCount() == 0) {
-            event.startTracking();
-        }
-        if (event.getAction() == KeyEvent.ACTION_DOWN && isStatsKey(keyCode)) {
-            toggleStatsOverlay();
-            return true;
-        }
-        return super.dispatchKeyEvent(event);
+        PlayerKeyHandler.Result result = keyHandler.dispatchKeyEvent(event);
+        if (result == PlayerKeyHandler.Result.SUPER) return super.dispatchKeyEvent(event);
+        return result == PlayerKeyHandler.Result.HANDLED;
     }
 
     @Override
     public boolean onKeyLongPress(int keyCode, KeyEvent event) {
-        boolean confirm = keyCode == KeyEvent.KEYCODE_DPAD_CENTER
-            || keyCode == KeyEvent.KEYCODE_ENTER
-            || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER;
-        if (confirm || keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) {
-            confirmLongPress = true;
-            toggleStatsOverlay();
-            return true;
-        }
-        return super.onKeyLongPress(keyCode, event);
+        PlayerKeyHandler.Result result = keyHandler.onKeyLongPress(keyCode);
+        if (result == PlayerKeyHandler.Result.SUPER) return super.onKeyLongPress(keyCode, event);
+        return result == PlayerKeyHandler.Result.HANDLED;
     }
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
-        if (isOptionDialogShowing()) {
-            if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE) {
-                if (event.getRepeatCount() == 0) popMenuOrClose();
-                return true;
-            }
-            return super.onKeyDown(keyCode, event);
-        }
-        if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE) {
-            stopSeekHold();
-            if (chromeVisible) {
-                setChromeVisible(false);
-                if (isUpNextVisible()) focusUpNextControls();
-                return true;
-            }
-            boolean endedNow = playbackEnded
-                || (player != null && player.getPlaybackState() == Player.STATE_ENDED);
-            if (endedNow) {
-                finishWithResult(true, false);
-                return true;
-            }
-            if (statsVisible) {
-                hideStatsOverlay();
-                return true;
-            }
-            // Up next / More like this: Back leaves the player for the episode overview.
-            // "Watch credits" on the card is the path to keep playing through the end.
-            if (isUpNextVisible()) {
-                finishWithResult(true, false);
-                return true;
-            }
-            if (musicMode) {
-                minimizeToBrowse();
-                return true;
-            }
-            finishWithResult(false, false);
-            return true;
-        }
-
-        boolean mediaToggle = keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE;
-        boolean mediaPlay = keyCode == KeyEvent.KEYCODE_MEDIA_PLAY;
-        boolean mediaPause = keyCode == KeyEvent.KEYCODE_MEDIA_PAUSE;
-        boolean confirm = keyCode == KeyEvent.KEYCODE_DPAD_CENTER
-            || keyCode == KeyEvent.KEYCODE_ENTER
-            || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER;
-
-        if ((confirm || mediaToggle) && isPlaybackConfirmTarget()) {
-            event.startTracking();
-            return true;
-        }
-
-        if (keyCode == KeyEvent.KEYCODE_MEDIA_STOP) {
-            finishWithResult(false, false);
-            return true;
-        }
-        if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == KeyEvent.KEYCODE_CHANNEL_UP) {
-            if (!chapters.isEmpty()) skipChapter(1);
-            else skipNextFromPlugin();
-            return true;
-        }
-        if (keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == KeyEvent.KEYCODE_CHANNEL_DOWN) {
-            if (!chapters.isEmpty()) skipChapter(-1);
-            else finishForPlayPrevious();
-            return true;
-        }
-
-        boolean seekLeft = keyCode == KeyEvent.KEYCODE_MEDIA_REWIND || keyCode == KeyEvent.KEYCODE_DPAD_LEFT;
-        boolean seekRight = keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT;
-        // Hold already running: keep consuming left/right so chrome focus cannot swallow the repeat.
-        if (seekHoldDirection != 0 && (seekLeft || seekRight)) return true;
-
-        if (!chromeVisible) {
-            // Up-next card: D-pad must move between its buttons, not open the OSD / seek.
-            if (isUpNextVisible()) {
-                if (!isUpNextFocused()) focusUpNextControls();
-                if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT
-                    || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT
-                    || keyCode == KeyEvent.KEYCODE_DPAD_UP
-                    || keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
-                    if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
-                        return super.onKeyDown(keyCode, event);
-                    }
-                    return true;
-                }
-                if (confirm) {
-                    // Let onKeyUp / the focused button handle OK — do not toggle play/pause.
-                    return super.onKeyDown(keyCode, event);
-                }
-                if (keyCode == KeyEvent.KEYCODE_MENU) {
-                    bumpChrome();
-                    showSettingsRoot();
-                    return true;
-                }
-            }
-            if (mediaPause) {
-                applyPlayPause(false);
-                return true;
-            }
-            if (mediaPlay) {
-                applyPlayPause(true);
-                return true;
-            }
-            if (seekLeft || seekRight) {
-                if (event.getRepeatCount() == 0) startSeekHold(seekLeft ? -1 : 1);
-                return true;
-            }
-            if (keyCode == KeyEvent.KEYCODE_MENU) {
-                bumpChrome();
-                showSettingsRoot();
-                return true;
-            }
-            if (keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
-                bumpChrome();
-                if (playPauseBtn != null) playPauseBtn.requestFocus();
-                return true;
-            }
-            return super.onKeyDown(keyCode, event);
-        }
-
-        // Chrome visible but up-next is on screen — keep focus on the card, don't refill OSD timer onto Play.
-        if (isUpNextVisible() && isUpNextFocused()) {
-            if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT
-                || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT
-                || keyCode == KeyEvent.KEYCODE_DPAD_UP
-                || keyCode == KeyEvent.KEYCODE_DPAD_DOWN
-                || confirm) {
-                return super.onKeyDown(keyCode, event);
-            }
-        }
-
-        bumpChrome();
-        View focus = getCurrentFocus();
-        boolean seekFocused = focus == seekBar;
-        if (mediaPause) {
-            applyPlayPause(false);
-            return true;
-        }
-        if (mediaPlay) {
-            applyPlayPause(true);
-            return true;
-        }
-        if (mediaToggle) {
-            togglePlayPause();
-            return true;
-        }
-        if (seekFocused && (seekLeft || seekRight)) {
-            // SeekBar OnKeyListener handles hold; avoid double-seek here.
-            return false;
-        }
-        if (keyCode == KeyEvent.KEYCODE_MEDIA_REWIND || keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD) {
-            if (event.getRepeatCount() == 0) {
-                startSeekHold(keyCode == KeyEvent.KEYCODE_MEDIA_REWIND ? -1 : 1);
-            }
-            return true;
-        }
-        if (keyCode == KeyEvent.KEYCODE_MENU && settingsBtn != null) {
-            showSettingsRoot();
-            return true;
-        }
-        return super.onKeyDown(keyCode, event);
+        PlayerKeyHandler.Result result = keyHandler.onKeyDown(keyCode, event);
+        if (result == PlayerKeyHandler.Result.SUPER) return super.onKeyDown(keyCode, event);
+        return result == PlayerKeyHandler.Result.HANDLED;
     }
 
     private boolean isPlaybackConfirmTarget() {
@@ -4908,35 +4880,9 @@ public class PlayerActivity extends AppCompatActivity {
 
     @Override
     public boolean onKeyUp(int keyCode, KeyEvent event) {
-        if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT
-            || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT
-            || keyCode == KeyEvent.KEYCODE_MEDIA_REWIND
-            || keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD) {
-            stopSeekHold();
-        }
-        boolean mediaToggle = keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE;
-        boolean confirm = keyCode == KeyEvent.KEYCODE_DPAD_CENTER
-            || keyCode == KeyEvent.KEYCODE_ENTER
-            || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER;
-        if (confirm || mediaToggle) {
-            if (confirmLongPress) {
-                confirmLongPress = false;
-                return true;
-            }
-            if (isOptionDialogShowing()) return super.onKeyUp(keyCode, event);
-            // Up-next Play now / Watch credits must receive OK — never toggle the OSD.
-            if (isUpNextVisible()) {
-                if (!isUpNextFocused()) focusUpNextControls();
-                if (isUpNextFocused() || !isPlaybackConfirmTarget()) {
-                    return super.onKeyUp(keyCode, event);
-                }
-            }
-            if (!isPlaybackConfirmTarget()) return super.onKeyUp(keyCode, event);
-            if (!chromeVisible && confirm && trySkipFromRemote()) return true;
-            togglePlayPause();
-            return true;
-        }
-        return super.onKeyUp(keyCode, event);
+        PlayerKeyHandler.Result result = keyHandler.onKeyUp(keyCode);
+        if (result == PlayerKeyHandler.Result.SUPER) return super.onKeyUp(keyCode, event);
+        return result == PlayerKeyHandler.Result.HANDLED;
     }
 
     @Override
