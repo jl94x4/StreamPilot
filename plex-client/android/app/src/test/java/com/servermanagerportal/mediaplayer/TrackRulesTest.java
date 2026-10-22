@@ -54,10 +54,10 @@ public class TrackRulesTest {
     public void formatAudioCodecNamesTheCodecFromMimeOrCodecs() {
         assertEquals("eac3", TrackRules.formatAudioCodec(audio(MimeTypes.AUDIO_E_AC3, null)));
         assertEquals("ac3", TrackRules.formatAudioCodec(audio(MimeTypes.AUDIO_AC3, null)));
-        // Current behaviour: Media3's TrueHD mime is audio/true-hd, which none of the
-        // checks match, so it falls through to "true-hd" (not "truehd").
-        assertEquals("true-hd", TrackRules.formatAudioCodec(audio(MimeTypes.AUDIO_TRUEHD, null)));
+        // Media3's TrueHD mime is audio/true-hd; it must name the codec "truehd".
+        assertEquals("truehd", TrackRules.formatAudioCodec(audio(MimeTypes.AUDIO_TRUEHD, null)));
         assertEquals("truehd", TrackRules.formatAudioCodec(audio("audio/x-matroska", "truehd")));
+        assertEquals("eac3", TrackRules.formatAudioCodec(audio(MimeTypes.AUDIO_E_AC3_JOC, null)));
         assertEquals("dts", TrackRules.formatAudioCodec(audio(MimeTypes.AUDIO_DTS_HD, null)));
         assertEquals("aac", TrackRules.formatAudioCodec(audio(MimeTypes.AUDIO_AAC, "mp4a.40.2")));
         assertEquals("flac", TrackRules.formatAudioCodec(audio(MimeTypes.AUDIO_FLAC, null)));
@@ -78,12 +78,23 @@ public class TrackRulesTest {
     }
 
     @Test
-    public void audioCodecMatchesCurrentlyTreatsAc3AndEac3AsTheSame() {
-        // The final substring check ("eac3".contains("ac3")) overrides the ac3-only rule.
-        assertTrue(TrackRules.audioCodecMatches("eac3", "ac3"));
-        assertTrue(TrackRules.audioCodecMatches("ac3", "eac3"));
-        // And the "true-hd" name from formatAudioCodec does not match a "truehd" request.
-        assertFalse(TrackRules.audioCodecMatches("true-hd", "truehd"));
+    public void audioCodecMatchesKeepsAc3AndEac3Apart() {
+        assertFalse(TrackRules.audioCodecMatches("eac3", "ac3"));
+        assertFalse(TrackRules.audioCodecMatches("ac3", "eac3"));
+        assertFalse(TrackRules.audioCodecMatches("ac3", "EC-3"));
+        assertFalse(TrackRules.audioCodecMatches("eac3", "AC-3"));
+        // Atmos-in-EAC3 is still EAC3.
+        assertTrue(TrackRules.audioCodecMatches("eac3", "eac3_joc"));
+    }
+
+    @Test
+    public void trueHdTracksMatchATrueHdRequestAndCountAsBitstream() {
+        String fromMedia3 = TrackRules.formatAudioCodec(audio(MimeTypes.AUDIO_TRUEHD, null));
+        assertTrue(TrackRules.audioCodecMatches(fromMedia3, "truehd"));
+        assertTrue(TrackRules.audioCodecMatches(fromMedia3, "TRUE-HD"));
+        assertFalse(TrackRules.audioCodecMatches(fromMedia3, "ac3"));
+        // So asking for AC3 marks a TrueHD track down, as it already did for DTS.
+        assertTrue(TrackRules.isBitstreamAudioCodec(fromMedia3));
     }
 
     @Test

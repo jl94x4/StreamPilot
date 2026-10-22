@@ -42,7 +42,8 @@ final class TrackRules {
         String mime = format.sampleMimeType == null ? "" : format.sampleMimeType.toLowerCase(Locale.US);
         String codecs = format.codecs == null ? "" : format.codecs.toLowerCase(Locale.US);
         String blob = mime + " " + codecs;
-        if (blob.contains("truehd") || blob.contains("mlp")) return "truehd";
+        // Media3 names TrueHD audio/true-hd; Plex and MKV codec ids say truehd.
+        if (blob.contains("truehd") || blob.contains("true-hd") || blob.contains("mlp")) return "truehd";
         if (blob.contains("eac3") || blob.contains("ec-3") || blob.contains("ec+3")) return "eac3";
         if (blob.contains("ac3") || blob.contains("ac-3")) return "ac3";
         if (blob.contains("dts") || blob.contains("dca")) return "dts";
@@ -60,13 +61,17 @@ final class TrackRules {
             .replace("ec-3", "eac3")
             .replace("ec+3", "eac3")
             .replace("mp4a", "aac")
-            .replace("dca", "dts");
+            .replace("dca", "dts")
+            .replace("true-hd", "truehd");
         if (a.isEmpty() || b.isEmpty()) return false;
         if (a.equals(b)) return true;
         if (b.startsWith("eac3") && a.contains("eac3")) return true;
         if (b.startsWith("ac3") && a.contains("ac3") && !a.contains("eac3")) return true;
         if (b.startsWith("truehd") && (a.contains("truehd") || a.contains("mlp"))) return true;
         if (b.startsWith("dts") && (a.contains("dts") || a.contains("dca"))) return true;
+        // Dolby Digital (AC3) and Digital Plus (EAC3) are different tracks. Without this
+        // the substring check below matches them, since "eac3" contains "ac3".
+        if (a.contains("ac3") && b.contains("ac3") && a.contains("eac3") != b.contains("eac3")) return false;
         return a.contains(b) || b.contains(a);
     }
 
