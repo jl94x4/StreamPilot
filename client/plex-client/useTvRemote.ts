@@ -12,6 +12,14 @@ import {
 } from '../media-player/playerMemory';
 import { requestBrowseFocusAbs } from '../media-player/playerUtils';
 import { showNativePlayer } from './nativePlayer';
+import {
+    browseGridMove,
+    nearestByMiddleY,
+    pickSpatialIndex,
+    rankRowsInDirection,
+    SEARCH_PAD_LAST_ROW,
+    searchFocusPlan,
+} from './tvSpatial.js';
 
 const TV_ITEM = '[data-tv-item="1"]';
 const TV_RAIL = '[data-tv-rail="1"]';
@@ -1084,10 +1092,6 @@ const dirOfKey = (key: string): SpatialDir | null => {
     return null;
 };
 
-const spanOverlap = (a1: number, a2: number, b1: number, b2: number) => (
-    Math.max(0, Math.min(a2, b2) - Math.max(a1, b1))
-);
-
 /** When moving up/down into another poster row, restore that row's last poster. */
 const snapVerticalRowEntry = (from: HTMLElement, el: HTMLElement | null): HTMLElement | null => {
     if (!el) return el;
@@ -1139,70 +1143,20 @@ const spatialRootFor = (from: HTMLElement, root?: ParentNode): ParentNode => {
 const findSpatialTarget = (from: HTMLElement, dir: SpatialDir, root?: ParentNode): HTMLElement | null => {
     const fromRect = from.getBoundingClientRect();
     if (fromRect.width <= 0 && fromRect.height <= 0) return null;
-    const fcx = fromRect.left + fromRect.width / 2;
     const searchRoot = dir === 'left' || dir === 'right'
         ? spatialRootFor(from, root)
         : (root || document.getElementById(PLAYER_SCROLL_ID) || document);
 
-    if (dir === 'left' || dir === 'right') {
-        let best: HTMLElement | null = null;
-        let bestScore = Infinity;
-        for (const el of focusableTvItems(searchRoot)) {
-            if (el === from || el.contains(from) || from.contains(el)) continue;
-            const r = el.getBoundingClientRect();
-            if (r.width <= 0 || r.height <= 0) continue;
-            const cx = r.left + r.width / 2;
-            const primary = dir === 'left' ? fcx - cx : cx - fcx;
-            if (primary <= 2) continue;
-            if (spanOverlap(fromRect.top, fromRect.bottom, r.top, r.bottom) <= 0) continue;
-            if (primary < bestScore) {
-                bestScore = primary;
-                best = el;
-            }
-        }
-        return best;
-    }
-
-    type VertCand = { el: HTMLElement; r: DOMRect; primary: number };
-    const cands: VertCand[] = [];
+    const items: HTMLElement[] = [];
+    const rects: DOMRect[] = [];
     for (const el of focusableTvItems(searchRoot)) {
         if (el === from || el.contains(from) || from.contains(el)) continue;
-        const r = el.getBoundingClientRect();
-        if (r.width <= 0 || r.height <= 0) continue;
-        const overlapY = spanOverlap(fromRect.top, fromRect.bottom, r.top, r.bottom);
-        if (overlapY > Math.min(fromRect.height, r.height) * 0.35) continue;
-        if (dir === 'down' && r.top < fromRect.top + 8) continue;
-        if (dir === 'up' && r.bottom > fromRect.bottom - 8) continue;
-        const primary = dir === 'down' ? r.top - fromRect.bottom : fromRect.top - r.bottom;
-        if (primary < -12) continue;
-        cands.push({ el, r, primary });
+        items.push(el);
+        rects.push(el.getBoundingClientRect());
     }
-    if (!cands.length) return null;
-
-    const nearest = Math.min(...cands.map((c) => Math.max(0, c.primary)));
-    const nearestH = cands.find((c) => Math.max(0, c.primary) === nearest)?.r.height || 80;
-    const band = cands.filter((c) => Math.max(0, c.primary) <= nearest + Math.max(64, nearestH * 0.7));
-
-    const columnHit = band.some((c) => spanOverlap(fromRect.left, fromRect.right, c.r.left, c.r.right) > 0);
-    if (!columnHit) {
-        band.sort((a, b) => a.r.left - b.r.left);
-        return snapVerticalRowEntry(from, band[0].el);
-    }
-
-    let best: HTMLElement | null = null;
-    let bestScore = Infinity;
-    for (const c of band) {
-        const overlap = spanOverlap(fromRect.left, fromRect.right, c.r.left, c.r.right);
-        const orth = overlap > 0
-            ? 0
-            : Math.min(Math.abs(c.r.left - fromRect.right), Math.abs(fromRect.left - c.r.right));
-        const score = Math.max(0, c.primary) + orth * 2;
-        if (score < bestScore) {
-            bestScore = score;
-            best = c.el;
-        }
-    }
-    return snapVerticalRowEntry(from, best);
+    const index = pickSpatialIndex(fromRect, rects, dir);
+    if (index < 0) return null;
+    return dir === 'left' || dir === 'right' ? items[index] : snapVerticalRowEntry(from, items[index]);
 };
 
 /**
@@ -1213,21 +1167,11 @@ const nearestVerticalRow = (from: HTMLElement, dir: 'up' | 'down'): HTMLElement 
     const scroller = document.getElementById(PLAYER_SCROLL_ID);
     if (!scroller || !scroller.contains(from)) return null;
     const fromRect = from.getBoundingClientRect();
-    const rows = scroller.querySelectorAll<HTMLElement>('[data-tv-row="1"]');
-    const ranked: { row: HTMLElement; primary: number }[] = [];
-    for (const row of rows) {
-        if (row.contains(from)) continue;
-        const rect = row.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0) continue;
-        const primary = dir === 'down' ? rect.top - fromRect.bottom : fromRect.top - rect.bottom;
-        if (primary < -12) continue;
-        ranked.push({ row, primary: Math.max(0, primary) });
-    }
-    if (!ranked.length) return null;
-    ranked.sort((a, b) => a.primary - b.primary);
-    const limit = Math.min(ranked.length, 3);
-    for (let i = 0; i < limit; i += 1) {
-        const hit = findSpatialTarget(from, dir, ranked[i].row);
+    const rows = Array.from(scroller.querySelectorAll<HTMLElement>('[data-tv-row="1"]'))
+        .filter((row) => !row.contains(from));
+    const order = rankRowsInDirection(fromRect, rows.map((row) => row.getBoundingClientRect()), dir);
+    for (const i of order) {
+        const hit = findSpatialTarget(from, dir, rows[i]);
         if (hit) return hit;
     }
     return null;
@@ -1300,6 +1244,28 @@ const firstSearchResult = (): HTMLElement | null => {
     return focusableTvItems(root).find((el) => !el.closest('[data-tv-search-recent="1"], [data-tv-search-popular="1"]')) || null;
 };
 
+type SearchPlanStep = ReturnType<typeof searchFocusPlan>[number];
+
+/** First target in a tvSpatial search plan that is on screen. */
+const resolveSearchPlan = (plan: SearchPlanStep[], self: HTMLElement): HTMLElement | null => {
+    for (const step of plan) {
+        if (step.kind === 'none') return null;
+        if (step.kind === 'self') return self;
+        let hit: HTMLElement | null | undefined = null;
+        if (step.kind === 'key') hit = searchKeyAt(step.row, step.col);
+        else if (step.kind === 'nearestKey') hit = nearestSearchKey(step.row, step.col);
+        else if (step.kind === 'firstResult') hit = firstSearchResult();
+        else if (step.kind === 'recent' || step.kind === 'popular') {
+            const items = searchChipItems(step.kind);
+            hit = step.clamp
+                ? (items.length ? items[Math.min(step.index, items.length - 1)] : null)
+                : items[step.index];
+        }
+        if (hit) return hit;
+    }
+    return null;
+};
+
 /**
  * On-screen search keyboard, recent chips, then results.
  * undefined = focus is not in TV search.
@@ -1313,40 +1279,16 @@ const searchKeyboardStep = (current: HTMLElement, dir: SpatialDir): HTMLElement 
     if (key) {
         const row = Number(key.getAttribute('data-search-row') || '0');
         const col = Number(key.getAttribute('data-search-col') || '0');
-        if (dir === 'left') return col > 0 ? searchKeyAt(row, col - 1) : null;
-        if (dir === 'right') return searchKeyAt(row, col + 1) || key;
-        if (dir === 'up') return row > 0 ? (nearestSearchKey(row - 1, col) || key) : key;
-        const below = nearestSearchKey(row + 1, col);
-        if (below) return below;
-        const recents = searchRecentItems();
-        if (recents.length) return recents[Math.min(col, recents.length - 1)];
-        const popular = searchPopularItems();
-        if (popular.length) return popular[Math.min(col, popular.length - 1)];
-        return firstSearchResult() || key;
+        return resolveSearchPlan(searchFocusPlan({ area: 'key', row, col }, dir), key);
     }
 
-    if (current.closest('[data-tv-search-recent="1"]')) {
-        const items = searchRecentItems();
-        const idx = items.findIndex((el) => el === current || el.contains(current));
-        if (dir === 'left') return idx > 0 ? items[idx - 1] : null;
-        if (dir === 'right') return (idx >= 0 ? items[idx + 1] : null) || current;
-        if (dir === 'up') return nearestSearchKey(3, Math.max(0, idx)) || searchKeyAt(0, 0) || current;
-        const popular = searchPopularItems();
-        if (popular.length) return popular[Math.min(Math.max(0, idx), popular.length - 1)];
-        return firstSearchResult() || current;
-    }
-
-    if (current.closest('[data-tv-search-popular="1"]')) {
-        const items = searchPopularItems();
-        const idx = items.findIndex((el) => el === current || el.contains(current));
-        if (dir === 'left') return idx > 0 ? items[idx - 1] : null;
-        if (dir === 'right') return (idx >= 0 ? items[idx + 1] : null) || current;
-        if (dir === 'up') {
-            const recents = searchRecentItems();
-            if (recents.length) return recents[Math.min(Math.max(0, idx), recents.length - 1)];
-            return nearestSearchKey(3, Math.max(0, idx)) || searchKeyAt(0, 0) || current;
-        }
-        return firstSearchResult() || current;
+    const chipArea = current.closest('[data-tv-search-recent="1"]')
+        ? 'recent'
+        : current.closest('[data-tv-search-popular="1"]') ? 'popular' : null;
+    if (chipArea) {
+        const items = searchChipItems(chipArea);
+        const index = items.findIndex((el) => el === current || el.contains(current));
+        return resolveSearchPlan(searchFocusPlan({ area: chipArea, index }, dir), current);
     }
 
     const body = current.closest<HTMLElement>('[data-tv-search-body="1"]')
@@ -1368,7 +1310,7 @@ const searchKeyboardStep = (current: HTMLElement, dir: SpatialDir): HTMLElement 
             if (popular[0]) return popular[0];
             const recents = searchRecentItems();
             if (recents[0]) return recents[0];
-            return nearestSearchKey(3, 0) || searchKeyAt(0, 0) || current;
+            return nearestSearchKey(SEARCH_PAD_LAST_ROW, 0) || searchKeyAt(0, 0) || current;
         }
         const next = findSpatialTarget(current, dir, body);
         if (dir === 'left' && !next) return null;
@@ -1394,17 +1336,7 @@ const browseGridStep = (current: HTMLElement, dir: SpatialDir): HTMLElement | nu
         const letters = bar ? focusableTvItems(bar) : [];
         if (!letters.length) return null;
         const mid = from.getBoundingClientRect().top + from.getBoundingClientRect().height / 2;
-        let best = letters[0];
-        let bestDist = Infinity;
-        for (const el of letters) {
-            const rect = el.getBoundingClientRect();
-            const dist = Math.abs(rect.top + rect.height / 2 - mid);
-            if (dist < bestDist) {
-                bestDist = dist;
-                best = el;
-            }
-        }
-        return best;
+        return letters[nearestByMiddleY(mid, letters.map((el) => el.getBoundingClientRect()))];
     };
 
     if (alpha) {
@@ -1427,32 +1359,25 @@ const browseGridStep = (current: HTMLElement, dir: SpatialDir): HTMLElement | nu
     const absIndex = browseAbsIndex(current);
     const cols = browseColumnCount(grid);
     if (absIndex != null && cols > 0) {
-        const col = absIndex % cols;
-        if (dir === 'left') {
-            if (col === 0) return null;
-            return browsePosterAt(grid, absIndex - 1);
+        const absStart = Number(grid.getAttribute('data-browse-abs-start') || '0');
+        const move = browseGridMove(absIndex, cols, dir, absStart);
+        if (move.type === 'none') return null;
+        if (move.type === 'letter') return nearestLetter(current);
+        if (move.type === 'before') {
+            window.dispatchEvent(new Event('smp-browse-need-before'));
+            return current;
         }
-        if (dir === 'right') {
-            if (col >= cols - 1) return nearestLetter(current);
-            return browsePosterAt(grid, absIndex + 1) || nearestLetter(current);
+        if (move.type === 'above') return filterButton() || libraryTabForFocus() || null;
+        const poster = browsePosterAt(grid, move.index);
+        if (poster) return poster;
+        if (move.fallback === 'letter') return nearestLetter(current);
+        if (move.fallback === 'stay') return current;
+        if (move.fallback === 'load') {
+            // Next row is not mounted yet. Fetch it and stay put until it exists.
+            requestBrowseFocusAbs(move.index);
+            return current;
         }
-        if (dir === 'up') {
-            if (absIndex < cols) {
-                const absStart = Number(grid.getAttribute('data-browse-abs-start') || '0');
-                if (Number.isFinite(absStart) && absStart > 0) {
-                    window.dispatchEvent(new Event('smp-browse-need-before'));
-                    return current;
-                }
-                // Filters first, then library tabs — never dead-end on the top poster row.
-                return filterButton() || libraryTabForFocus() || null;
-            }
-            return browsePosterAt(grid, absIndex - cols) || current;
-        }
-        const below = browsePosterAt(grid, absIndex + cols);
-        if (below) return below;
-        // Next row is not mounted yet. Fetch it and stay put until it exists.
-        requestBrowseFocusAbs(absIndex + cols);
-        return current;
+        return null;
     }
     if (dir === 'up' || dir === 'down') {
         const next = findSpatialTarget(current, dir, grid);
