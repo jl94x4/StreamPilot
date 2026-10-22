@@ -3363,23 +3363,35 @@ const heroAssetsFromProvider = (data: any): HeroAssets | null => {
     return { still, logo: '' };
 };
 
-const fetchHeroCover = async (ref: { kind: string; id: string }, server: PlexServer) => {
-    loadHeroCoverCache();
-    const cached = heroCoverCache.get(ref.id);
-    if (cached) return cached;
+/** One metadata.provider.plex.tv call. A slow answer used to stall the whole lookup. */
+const HERO_PROVIDER_TIMEOUT_MS = 4000;
+/** Pinned rows wait at most this long for hero cover art; stragglers land in the cache. */
+const HERO_COVER_BUDGET_MS = 2500;
+/** Titles the provider had no cover for, this session. Each miss was up to 12 calls per Home load. */
+const heroCoverMisses = new Set<string>();
+const heroCoverInflight = new Map<string, Promise<HeroAssets | null>>();
+
+const providerFetch = (url: string, token: string) => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), HERO_PROVIDER_TIMEOUT_MS);
+    return plexFetch(url, token, { signal: controller.signal })
+        .finally(() => window.clearTimeout(timer));
+};
+
+const lookupHeroCover = async (ref: { kind: string; id: string }, server: PlexServer) => {
     const tokens = [...new Set([readOwnerToken(), accountToken(), server.accessToken]
         .map((value) => String(value || '').trim())
         .filter(Boolean))];
     const paths = [`${ref.kind}/${ref.id}`, ref.id];
     for (const token of tokens) {
         for (const path of paths) {
-            const data = await plexFetch(
+            const data = await providerFetch(
                 `https://metadata.provider.plex.tv/library/metadata/${path}?includeImages=1`,
                 token,
             ).catch(() => null);
             let assets = heroAssetsFromProvider(data);
             if (!assets) {
-                const images = await plexFetch(
+                const images = await providerFetch(
                     `https://metadata.provider.plex.tv/library/metadata/${path}/images`,
                     token,
                 ).catch(() => null);
@@ -3391,7 +3403,22 @@ const fetchHeroCover = async (ref: { kind: string; id: string }, server: PlexSer
             }
         }
     }
+    heroCoverMisses.add(ref.id);
     return null;
+};
+
+const fetchHeroCover = async (ref: { kind: string; id: string }, server: PlexServer) => {
+    loadHeroCoverCache();
+    const cached = heroCoverCache.get(ref.id);
+    if (cached) return cached;
+    if (heroCoverMisses.has(ref.id)) return null;
+    // A lookup still running from an earlier Home pass is reused, not restarted.
+    let pending = heroCoverInflight.get(ref.id);
+    if (!pending) {
+        pending = lookupHeroCover(ref, server).finally(() => heroCoverInflight.delete(ref.id));
+        heroCoverInflight.set(ref.id, pending);
+    }
+    return pending;
 };
 
 /** Replex hero: Plex coverArt on each title. */
@@ -3418,7 +3445,16 @@ const attachHeroCoverArt = async <T extends { heroRow?: boolean; items?: Array<{
         });
     }
     const refs = [...new Map([...refByKey.values()].map((ref) => [ref.id, ref])).values()];
-    await mapPool(refs, 6, (ref) => fetchHeroCover(ref, server));
+    // Home's pinned rows are held until this returns. Give cover art a short budget;
+    // lookups still running keep filling heroCoverCache for the next Home paint.
+    let budgetTimer = 0;
+    await Promise.race([
+        mapPool(refs, 6, (ref) => fetchHeroCover(ref, server)).catch(() => undefined),
+        new Promise<void>((resolve) => {
+            budgetTimer = window.setTimeout(resolve, HERO_COVER_BUDGET_MS);
+        }),
+    ]);
+    window.clearTimeout(budgetTimer);
     return hubs.map((hub) => {
         if (!hub.heroRow) return hub;
         return {
