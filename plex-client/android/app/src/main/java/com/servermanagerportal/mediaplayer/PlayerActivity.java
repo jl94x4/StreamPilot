@@ -1818,30 +1818,11 @@ public class PlayerActivity extends AppCompatActivity {
             if (window == null || display == null) return;
             int wanted = 0;
             if (fps > 0) {
-                Display.Mode current = display.getMode();
-                Display.Mode best = null;
-                double bestError = Double.MAX_VALUE;
-                int bestMultiple = Integer.MAX_VALUE;
-                for (Display.Mode mode : display.getSupportedModes()) {
-                    if (mode.getPhysicalWidth() != current.getPhysicalWidth()
-                        || mode.getPhysicalHeight() != current.getPhysicalHeight()) continue;
-                    float hz = mode.getRefreshRate();
-                    int multiple = Math.round(hz / fps);
-                    if (multiple < 1) continue;
-                    // 0.2% lets a 24.000Hz mode take 23.976 content when no 23.976 mode exists.
-                    double error = Math.abs(hz - multiple * fps) / (multiple * fps);
-                    if (error > 0.002) continue;
-                    if (mode.getModeId() == current.getModeId()) {
-                        best = mode;
-                        break;
-                    }
-                    if (error < bestError - 0.0001 || (Math.abs(error - bestError) <= 0.0001 && multiple < bestMultiple)) {
-                        best = mode;
-                        bestError = error;
-                        bestMultiple = multiple;
-                    }
-                }
-                if (best != null) wanted = best.getModeId();
+                wanted = DisplayModeMatcher.pickModeId(
+                    fps,
+                    DisplayModeMatcher.Mode.of(display.getMode()),
+                    DisplayModeMatcher.of(display.getSupportedModes())
+                );
             }
             WindowManager.LayoutParams params = window.getAttributes();
             if (params.preferredDisplayModeId == wanted) return;
