@@ -3273,60 +3273,7 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private boolean subtitleCodecNeedsBurn(@Nullable String codec) {
-        if (codec == null || codec.trim().isEmpty()) return false;
-        String policy = burnSubtitles == null ? "auto" : burnSubtitles;
-        if ("always".equals(policy)) return true;
-        boolean image = codec.matches("(?i)pgs|vobsub|dvd|dvdsub|image|bluray|dvbsub|xsub");
-        if ("image".equals(policy)) return image;
-        return image || codec.matches("(?i)ass|ssa");
-    }
-
-    private static boolean isBitstreamAudioCodec(@Nullable String codec) {
-        if (codec == null || codec.trim().isEmpty()) return false;
-        return codec.matches("(?i)truehd|mlp|dca|dts|dtsc|dtsh|dtshd|dtsma|dtsl");
-    }
-
-    private static String normalizeLangTag(@Nullable String raw) {
-        if (raw == null) return "";
-        String lang = raw.trim().toLowerCase(Locale.US);
-        if (lang.isEmpty()) return "";
-        int dash = lang.indexOf('-');
-        int under = lang.indexOf('_');
-        int cut = dash > 0 ? dash : (under > 0 ? under : -1);
-        return cut > 0 ? lang.substring(0, cut) : lang;
-    }
-
-    private static String formatAudioCodec(@Nullable Format format) {
-        if (format == null) return "";
-        String mime = format.sampleMimeType == null ? "" : format.sampleMimeType.toLowerCase(Locale.US);
-        String codecs = format.codecs == null ? "" : format.codecs.toLowerCase(Locale.US);
-        String blob = mime + " " + codecs;
-        if (blob.contains("truehd") || blob.contains("mlp")) return "truehd";
-        if (blob.contains("eac3") || blob.contains("ec-3") || blob.contains("ec+3")) return "eac3";
-        if (blob.contains("ac3") || blob.contains("ac-3")) return "ac3";
-        if (blob.contains("dts") || blob.contains("dca")) return "dts";
-        if (blob.contains("flac")) return "flac";
-        if (blob.contains("opus")) return "opus";
-        if (blob.contains("mp4a") || blob.contains("aac")) return "aac";
-        if (blob.contains("mp3") || blob.contains("mpeg")) return "mp3";
-        return codecs.isEmpty() ? mime.replace("audio/", "") : codecs.split("[.,\\s]")[0];
-    }
-
-    private static boolean audioCodecMatches(String formatCodec, String wantCodec) {
-        String a = (formatCodec == null ? "" : formatCodec).toLowerCase(Locale.US);
-        String b = (wantCodec == null ? "" : wantCodec).toLowerCase(Locale.US)
-            .replace("ac-3", "ac3")
-            .replace("ec-3", "eac3")
-            .replace("ec+3", "eac3")
-            .replace("mp4a", "aac")
-            .replace("dca", "dts");
-        if (a.isEmpty() || b.isEmpty()) return false;
-        if (a.equals(b)) return true;
-        if (b.startsWith("eac3") && a.contains("eac3")) return true;
-        if (b.startsWith("ac3") && a.contains("ac3") && !a.contains("eac3")) return true;
-        if (b.startsWith("truehd") && (a.contains("truehd") || a.contains("mlp"))) return true;
-        if (b.startsWith("dts") && (a.contains("dts") || a.contains("dca"))) return true;
-        return a.contains(b) || b.contains(a);
+        return TrackRules.subtitleCodecNeedsBurn(codec, burnSubtitles);
     }
 
     @Nullable
@@ -3360,7 +3307,7 @@ public class PlayerActivity extends AppCompatActivity {
         if (!(selector instanceof DefaultTrackSelector)) return;
         DefaultTrackSelector dts = (DefaultTrackSelector) selector;
         OptionItem want = findAudioOption(audioStreamId);
-        String wantLang = want != null ? normalizeLangTag(want.language) : "";
+        String wantLang = want != null ? TrackRules.normalizeLangTag(want.language) : "";
         String wantCodec = want != null && want.codec != null
             ? want.codec.trim().toLowerCase(Locale.US)
             : "";
@@ -3385,16 +3332,16 @@ public class PlayerActivity extends AppCompatActivity {
             for (int i = 0; i < group.length; i++) {
                 if (!group.isTrackSupported(i, false)) continue;
                 Format format = group.getTrackFormat(i);
-                String fmtCodec = formatAudioCodec(format);
-                String fmtLang = normalizeLangTag(format.language);
+                String fmtCodec = TrackRules.formatAudioCodec(format);
+                String fmtLang = TrackRules.normalizeLangTag(format.language);
                 int score = 0;
-                if (!wantCodec.isEmpty() && audioCodecMatches(fmtCodec, wantCodec)) score += 20;
+                if (!wantCodec.isEmpty() && TrackRules.audioCodecMatches(fmtCodec, wantCodec)) score += 20;
                 if (!wantLang.isEmpty() && !fmtLang.isEmpty() && fmtLang.equals(wantLang)) score += 10;
                 // Prefer decoded/compatible tracks over bitstream when we asked for AC3/AAC.
-                if (!wantCodec.isEmpty() && !isBitstreamAudioCodec(wantCodec) && isBitstreamAudioCodec(fmtCodec)) {
+                if (!wantCodec.isEmpty() && !TrackRules.isBitstreamAudioCodec(wantCodec) && TrackRules.isBitstreamAudioCodec(fmtCodec)) {
                     score -= 15;
                 }
-                if (wantCodec.isEmpty() && isBitstreamAudioCodec(fmtCodec)) score -= 5;
+                if (wantCodec.isEmpty() && TrackRules.isBitstreamAudioCodec(fmtCodec)) score -= 5;
                 if (score > bestScore) {
                     bestScore = score;
                     bestGroup = g;
@@ -4553,10 +4500,10 @@ public class PlayerActivity extends AppCompatActivity {
         prefs.edit()
             .putString(key + ":audio", audioStreamId == null ? "" : audioStreamId)
             .putString(key + ":sub", subtitleStreamId == null ? "" : subtitleStreamId)
-            .putString(key + ":audioLang", trackLangKey(labelFor(audioTracks, audioStreamId)))
+            .putString(key + ":audioLang", TrackRules.trackLangKey(labelFor(audioTracks, audioStreamId)))
             .putString(key + ":subLang", subtitleStreamId == null || subtitleStreamId.isEmpty()
                 ? "off"
-                : trackLangKey(labelFor(subtitles, subtitleStreamId)))
+                : TrackRules.trackLangKey(labelFor(subtitles, subtitleStreamId)))
             .putInt(key + ":delay", audioDelayMs)
             .apply();
     }
@@ -4690,26 +4637,11 @@ public class PlayerActivity extends AppCompatActivity {
         );
     }
 
-    private static String trackLangKey(String label) {
-        if (label == null) return "";
-        String text = label.trim().toLowerCase(Locale.US);
-        if (text.isEmpty()) return "";
-        int cut = text.length();
-        for (int i = 0; i < text.length(); i++) {
-            char ch = text.charAt(i);
-            if (ch == ' ' || ch == '·' || ch == '(' || ch == '|' || ch == '/') {
-                cut = i;
-                break;
-            }
-        }
-        return text.substring(0, cut).trim();
-    }
-
     private static String matchTrackIdByLang(List<OptionItem> tracks, String langKey) {
-        String want = trackLangKey(langKey);
+        String want = TrackRules.trackLangKey(langKey);
         if (want.isEmpty() || tracks == null || tracks.isEmpty()) return null;
         for (OptionItem track : tracks) {
-            if (want.equals(trackLangKey(track.label))) return track.id;
+            if (want.equals(TrackRules.trackLangKey(track.label))) return track.id;
         }
         return null;
     }
