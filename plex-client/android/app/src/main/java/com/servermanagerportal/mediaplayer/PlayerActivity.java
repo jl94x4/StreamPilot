@@ -1257,7 +1257,8 @@ public class PlayerActivity extends AppCompatActivity {
         if (sessionJson == null || sessionJson.trim().isEmpty()) return;
         try {
             JSONObject root = new JSONObject(sessionJson);
-            String previousRatingKey = ratingKey;
+            // Not "previousRatingKey": that field is the previous episode for the ⏮ button.
+            String ratingKeyBefore = ratingKey;
             ratingKey = root.optString("ratingKey", ratingKey);
             showKey = root.optString("showKey", showKey);
             String nextRating = root.optString("ratingKey", ratingKey);
@@ -1327,7 +1328,7 @@ public class PlayerActivity extends AppCompatActivity {
             }
             if (root.has("watchNext")) {
                 applyWatchNextJson(root.optJSONObject("watchNext"));
-            } else if (!String.valueOf(previousRatingKey).equals(String.valueOf(ratingKey))) {
+            } else if (!String.valueOf(ratingKeyBefore).equals(String.valueOf(ratingKey))) {
                 // A music / src update for another item without Watch Next data.
                 applyWatchNextJson(null);
             }
