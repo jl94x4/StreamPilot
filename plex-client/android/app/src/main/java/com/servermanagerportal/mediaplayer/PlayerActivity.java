@@ -188,8 +188,7 @@ public class PlayerActivity extends AppCompatActivity {
     private TextView seekFlashView;
     private ImageButton settingsBtn;
     private String metaText = "";
-    private final ArrayList<String> menuStack = new ArrayList<>();
-    private boolean settingsTreeActive;
+    private final PlayerMenuNav menuNav = new PlayerMenuNav();
     private int seekHoldDirection;
     private final Runnable seekHoldRunnable = new Runnable() {
         @Override
@@ -218,13 +217,6 @@ public class PlayerActivity extends AppCompatActivity {
                 .start();
         }
     };
-
-    private enum MenuReturn {
-        CLOSE,
-        SETTINGS_ROOT,
-        PLAYBACK,
-        SUBTITLES
-    }
 
     private boolean playbackEnded;
     private boolean playbackError;
@@ -1868,8 +1860,7 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void hideOptionSheet() {
-        menuStack.clear();
-        settingsTreeActive = false;
+        menuNav.reset();
         View focused = getCurrentFocus();
         if (focused != null && isDescendantOf(focused, menuScrim)) {
             focused.clearFocus();
@@ -1887,14 +1878,7 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private static boolean isDescendantOf(@Nullable View child, @Nullable View ancestor) {
-        if (child == null || ancestor == null) return false;
-        View walk = child;
-        while (walk != null) {
-            if (walk == ancestor) return true;
-            Object parent = walk.getParent();
-            walk = parent instanceof View ? (View) parent : null;
-        }
-        return false;
+        return PlayerMenuRows.isDescendantOf(child, ancestor);
     }
 
     private void restoreChromeFocusAfterMenu() {
@@ -1914,16 +1898,11 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void popMenuOrClose() {
-        if (menuStack.isEmpty()) {
+        String top = menuNav.pop();
+        if (top == null) {
             hideOptionSheet();
             return;
         }
-        menuStack.remove(menuStack.size() - 1);
-        if (menuStack.isEmpty()) {
-            hideOptionSheet();
-            return;
-        }
-        String top = menuStack.get(menuStack.size() - 1);
         if ("settings".equals(top)) {
             showSettingsRoot();
         } else if ("playback".equals(top)) {
@@ -1942,15 +1921,12 @@ public class PlayerActivity extends AppCompatActivity {
     private void showSettingsRoot() {
         // Keep focus/scroll when rebuilding after an in-place toggle (not a fresh open).
         final boolean retainPosition = isOptionDialogShowing()
-            && !menuStack.isEmpty()
-            && "settings".equals(menuStack.get(menuStack.size() - 1));
+            && menuNav.topIs(PlayerMenuNav.SETTINGS);
         final String retainFocusLabel = retainPosition ? currentMenuFocusLabel() : null;
         final int retainScrollY = retainPosition && menuScroll != null ? menuScroll.getScrollY() : 0;
 
         bumpChrome();
-        settingsTreeActive = true;
-        menuStack.clear();
-        menuStack.add("settings");
+        menuNav.openSettingsRoot();
         if (menuScrim == null || menuList == null) return;
         mainHandler.removeCallbacks(hideChromeRunnable);
         setChromeVisible(true);
@@ -1962,33 +1938,33 @@ public class PlayerActivity extends AppCompatActivity {
         addSettingsRow(inflater, getString(R.string.player_quality), currentQualityLabel(),
             qualities.size() > 1 || !currentQualityLabel().isEmpty(),
             () -> {
-                pushMenu("quality");
+                menuNav.push("quality");
                 showOptionMenu(R.string.player_quality, "quality", qualities, qualityId);
             });
         String subId = subtitleStreamId == null ? "" : subtitleStreamId;
         String subLabel = subId.isEmpty() ? getString(R.string.player_subs_off) : labelFor(subtitles, subId);
         addSettingsRow(inflater, getString(R.string.player_subs), subLabel, !musicMode, () -> {
-            pushMenu("subtitle");
+            menuNav.push("subtitle");
             showSubtitlesRoot();
         });
         addSettingsRow(inflater, getString(R.string.player_audio),
             labelFor(audioTracks, audioStreamId == null ? "" : audioStreamId),
             audioTracks.size() > 0,
             () -> {
-                pushMenu("audio");
+                menuNav.push("audio");
                 showOptionMenu(R.string.player_audio, "audio", audioTracks, audioStreamId == null ? "" : audioStreamId);
             });
         if (!musicMode && versions.size() > 1) {
             addSettingsRow(inflater, getString(R.string.player_version),
                 labelFor(versions, String.valueOf(mediaIndex)), true, () -> {
-                    pushMenu("version");
+                    menuNav.push("version");
                     showOptionMenu(R.string.player_version, "version", versions, String.valueOf(mediaIndex));
                 });
         }
 
         addSettingsRow(inflater, getString(R.string.player_speed),
             String.format(Locale.US, "%.2g×", playbackSpeed), true, () -> {
-                pushMenu("speed");
+                menuNav.push("speed");
                 showSpeedMenu();
             });
         if (!musicMode) {
@@ -1998,18 +1974,18 @@ public class PlayerActivity extends AppCompatActivity {
                     ? getString(R.string.player_zoom_fit)
                     : String.format(Locale.US, "%.2g×", videoZoom));
             addSettingsRow(inflater, getString(R.string.player_zoom), zoomLabel, true, () -> {
-                pushMenu("zoom");
+                menuNav.push("zoom");
                 showZoomMenu();
             });
             addSettingsRow(inflater, getString(R.string.player_delay),
                 audioDelayMs <= 0 ? getString(R.string.player_delay_off) : audioDelayMs + " ms",
                 true, () -> {
-                    pushMenu("delay");
+                    menuNav.push("delay");
                     showDelayMenu();
                 });
             addSettingsRow(inflater, getString(R.string.player_audio_boost),
                 audioBoost + "%", true, () -> {
-                    pushMenu("boost");
+                    menuNav.push("boost");
                     showAudioBoostMenu();
                 });
             addSettingsRow(inflater, getString(R.string.player_night_mode),
@@ -2039,19 +2015,19 @@ public class PlayerActivity extends AppCompatActivity {
                 });
             addSettingsRow(inflater, getString(R.string.player_skip_intro_mode),
                 skipModeLabel(skipIntroMode), true, () -> {
-                    pushMenu("skipIntro");
+                    menuNav.push("skipIntro");
                     showSkipModeMenu(true);
                 });
             addSettingsRow(inflater, getString(R.string.player_skip_credits_mode),
                 skipModeLabel(skipCreditsMode), true, () -> {
-                    pushMenu("skipCredits");
+                    menuNav.push("skipCredits");
                     showSkipModeMenu(false);
                 });
             String rewindLabel = rewindOnResumeSec <= 0
                 ? getString(R.string.player_rewind_off)
                 : rewindOnResumeSec + "s";
             addSettingsRow(inflater, getString(R.string.player_rewind_resume), rewindLabel, true, () -> {
-                pushMenu("rewind");
+                menuNav.push("rewind");
                 showRewindOnResumeMenu();
             });
             addSettingsRow(inflater, getString(R.string.player_autoplay_next),
@@ -2064,7 +2040,7 @@ public class PlayerActivity extends AppCompatActivity {
             addSettingsRow(inflater, getString(R.string.player_cinema_trailers),
                 cinemaTrailerCount <= 0 ? getString(R.string.player_off) : String.valueOf(cinemaTrailerCount),
                 true, () -> {
-                    pushMenu("cinema");
+                    menuNav.push("cinema");
                     showCinemaTrailersMenu();
                 });
         }
@@ -2072,17 +2048,17 @@ public class PlayerActivity extends AppCompatActivity {
             : repeatMode == Player.REPEAT_MODE_ALL ? R.string.player_repeat_all
             : R.string.player_repeat_off;
         addSettingsRow(inflater, getString(R.string.player_repeat), getString(repeatRes), true, () -> {
-            pushMenu("repeat");
+            menuNav.push("repeat");
             showRepeatMenu();
         });
         addSettingsRow(inflater, getString(R.string.player_sleep), currentSleepLabel(), true, () -> {
-            pushMenu("sleep");
+            menuNav.push("sleep");
             showSleepMenu();
         });
         if (!chapters.isEmpty()) {
             addSettingsRow(inflater, getString(R.string.player_chapters),
                 String.valueOf(chapters.size()), true, () -> {
-                    pushMenu("chapters");
+                    menuNav.push("chapters");
                     showChaptersMenu();
                 });
         }
@@ -2122,46 +2098,11 @@ public class PlayerActivity extends AppCompatActivity {
 
     @Nullable
     private String currentMenuFocusLabel() {
-        if (menuList == null) return null;
-        View focus = getCurrentFocus();
-        if (focus == null) return null;
-        View row = focus;
-        while (row != null && row.getParent() != menuList) {
-            Object parent = row.getParent();
-            row = parent instanceof View ? (View) parent : null;
-        }
-        if (row == null || row.getParent() != menuList) return null;
-        TextView labelView = row.findViewById(R.id.player_menu_row_label);
-        if (labelView == null) return null;
-        CharSequence text = labelView.getText();
-        return text == null ? null : text.toString();
+        return PlayerMenuRows.focusedRowLabel(menuList, getCurrentFocus());
     }
 
     private void focusMenuRow(@Nullable String label, int fallbackScrollY) {
-        if (menuList == null || menuList.getChildCount() == 0) return;
-        View target = null;
-        if (label != null && !label.isEmpty()) {
-            for (int i = 0; i < menuList.getChildCount(); i++) {
-                View child = menuList.getChildAt(i);
-                TextView labelView = child.findViewById(R.id.player_menu_row_label);
-                if (labelView != null && label.contentEquals(labelView.getText())) {
-                    target = child;
-                    break;
-                }
-            }
-        }
-        final View toFocus = target != null ? target : menuList.getChildAt(0);
-        final boolean foundLabel = target != null;
-        toFocus.post(() -> {
-            if (menuScroll != null) {
-                if (foundLabel) {
-                    menuScroll.scrollTo(0, Math.max(0, toFocus.getTop() - 24));
-                } else {
-                    menuScroll.scrollTo(0, Math.max(0, fallbackScrollY));
-                }
-            }
-            toFocus.requestFocus();
-        });
+        PlayerMenuRows.focusRow(menuList, menuScroll, label, fallbackScrollY);
     }
 
     private String currentSleepLabel() {
@@ -2178,12 +2119,6 @@ public class PlayerActivity extends AppCompatActivity {
         return getString(R.string.player_sleep_off);
     }
 
-    private void pushMenu(String id) {
-        if (menuStack.isEmpty() || !id.equals(menuStack.get(menuStack.size() - 1))) {
-            menuStack.add(id);
-        }
-    }
-
     private void addSettingsRow(LayoutInflater inflater, String label, String value, boolean enabled, Runnable onClick) {
         addSettingsRow(inflater, label, value, enabled, /* selectable= */ enabled, onClick);
     }
@@ -2196,79 +2131,40 @@ public class PlayerActivity extends AppCompatActivity {
         boolean selectable,
         Runnable onClick
     ) {
-        if (!visible || menuList == null) return;
-        View row = inflater.inflate(R.layout.player_menu_row_value, menuList, false);
-        TextView labelView = row.findViewById(R.id.player_menu_row_label);
-        TextView valueView = row.findViewById(R.id.player_menu_row_value);
-        if (labelView != null) labelView.setText(label);
-        if (valueView != null) {
-            String detail = value == null ? "" : value.trim();
-            if (detail.length() > 28) detail = detail.substring(0, 25) + "…";
-            valueView.setText(detail);
-            valueView.setVisibility(detail.isEmpty() ? View.GONE : View.VISIBLE);
-        }
-        if (Build.VERSION.SDK_INT >= 26) row.setDefaultFocusHighlightEnabled(false);
-        if (!selectable) {
-            row.setEnabled(false);
-            row.setFocusable(true);
-            row.setAlpha(0.45f);
-            row.setOnClickListener(v -> {
-                if (onClick != null) onClick.run();
-            });
-        } else {
-            row.setAlpha(1f);
-            row.setOnClickListener(v -> {
-                if (onClick != null) onClick.run();
-            });
-        }
-        menuList.addView(row);
+        PlayerMenuRows.addSettingsRow(menuList, inflater, label, value, visible, selectable, onClick);
     }
 
     private void focusFirstMenuRow() {
-        if (menuList == null || menuList.getChildCount() == 0) return;
-        final View toFocus = menuList.getChildAt(0);
-        toFocus.post(() -> {
-            if (menuScroll != null) menuScroll.scrollTo(0, 0);
-            toFocus.requestFocus();
-        });
+        PlayerMenuRows.focusFirstRow(menuList, menuScroll);
     }
 
-    private void afterMenuLeafPick(MenuReturn menuReturn) {
+    private void afterMenuLeafPick(PlayerMenuNav.Return menuReturn) {
         updateChipLabels();
-        if (menuReturn == MenuReturn.PLAYBACK) {
+        if (menuReturn == PlayerMenuNav.Return.PLAYBACK) {
             showSettingsRoot();
             return;
         }
-        if (menuReturn == MenuReturn.SUBTITLES) {
-            while (!menuStack.isEmpty() && !"subtitle".equals(menuStack.get(menuStack.size() - 1))) {
-                menuStack.remove(menuStack.size() - 1);
-            }
+        if (menuReturn == PlayerMenuNav.Return.SUBTITLES) {
+            menuNav.trimToSubtitles();
             showSubtitlesRoot();
             return;
         }
-        if (menuReturn == MenuReturn.SETTINGS_ROOT || (settingsTreeActive && menuReturn == MenuReturn.CLOSE)) {
+        if (menuReturn == PlayerMenuNav.Return.SETTINGS_ROOT || (menuNav.settingsTreeActive() && menuReturn == PlayerMenuNav.Return.CLOSE)) {
             showSettingsRoot();
             return;
         }
         hideOptionSheet();
     }
 
-    private MenuReturn leafReturnTarget() {
-        if (!settingsTreeActive) return MenuReturn.CLOSE;
-        if (menuStack.size() >= 2 && "playback".equals(menuStack.get(menuStack.size() - 2))) {
-            return MenuReturn.PLAYBACK;
-        }
-        if (menuStack.size() >= 2 && "subtitle".equals(menuStack.get(menuStack.size() - 2))) {
-            return MenuReturn.SUBTITLES;
-        }
-        return MenuReturn.SETTINGS_ROOT;
+    private PlayerMenuNav.Return leafReturnTarget() {
+        return menuNav.leafReturnTarget();
     }
 
     private void showOptionSheet(CharSequence title, String[] labels, int checkedIndex, OptionPick onPick) {
         showOptionSheet(title, labels, checkedIndex, onPick, leafReturnTarget());
     }
 
-    private void showOptionSheet(CharSequence title, String[] labels, int checkedIndex, OptionPick onPick, MenuReturn menuReturn) {
+    private void showOptionSheet(CharSequence title, String[] labels, int checkedIndex, OptionPick onPick, PlayerMenuNav.Return menuReturn) {
         if (menuScrim == null || menuList == null || labels == null || labels.length == 0) {
             toast(getString(R.string.player_no_options));
             return;
@@ -2315,9 +2211,7 @@ public class PlayerActivity extends AppCompatActivity {
     private void showChaptersMenu() {
         if (chapters.isEmpty()) {
             toast(getString(R.string.player_no_options));
-            if (settingsTreeActive && !menuStack.isEmpty()) {
-                menuStack.remove(menuStack.size() - 1);
-            }
+            menuNav.dropEmptyLeaf();
             return;
         }
         String[] labels = new String[chapters.size()];
@@ -2594,9 +2488,7 @@ public class PlayerActivity extends AppCompatActivity {
         bumpChrome();
         if (items.isEmpty()) {
             toast(getString(R.string.player_no_options));
-            if (settingsTreeActive && !menuStack.isEmpty()) {
-                menuStack.remove(menuStack.size() - 1);
-            }
+            menuNav.dropEmptyLeaf();
             return;
         }
         String currentLabel = labelFor(items, selectedId);
@@ -2665,13 +2557,7 @@ public class PlayerActivity extends AppCompatActivity {
 
     private void showSubtitlesRoot() {
         bumpChrome();
-        settingsTreeActive = true;
-        while (!menuStack.isEmpty() && !"subtitle".equals(menuStack.get(menuStack.size() - 1))
-            && !"settings".equals(menuStack.get(menuStack.size() - 1))) {
-            menuStack.remove(menuStack.size() - 1);
-        }
-        if (menuStack.isEmpty()) menuStack.add("settings");
-        if (!"subtitle".equals(menuStack.get(menuStack.size() - 1))) menuStack.add("subtitle");
+        menuNav.openSubtitlesRoot();
         if (menuScrim == null || menuList == null) return;
         mainHandler.removeCallbacks(hideChromeRunnable);
         setChromeVisible(true);
@@ -2682,18 +2568,18 @@ public class PlayerActivity extends AppCompatActivity {
         String subId = subtitleStreamId == null ? "" : subtitleStreamId;
         String subLabel = subId.isEmpty() ? getString(R.string.player_subs_off) : labelFor(subtitles, subId);
         addSettingsRow(inflater, getString(R.string.player_subs_tracks), subLabel, true, () -> {
-            pushMenu("subTracks");
+            menuNav.push("subTracks");
             showSubtitleMenu();
         });
         addSettingsRow(inflater, getString(R.string.player_subs_appearance), "", true, () -> {
-            pushMenu("subAppear");
+            menuNav.push("subAppear");
             showSubtitleAppearanceMenu();
         });
         String delayLabel = subtitlesCurrentlyBurned()
             ? getString(R.string.player_subs_delay_burned)
             : (subtitleDelayMs == 0 ? getString(R.string.player_delay_off) : subtitleDelayMs + " ms");
         addSettingsRow(inflater, getString(R.string.player_subs_sync), delayLabel, true, () -> {
-            pushMenu("subSync");
+            menuNav.push("subSync");
             showSubtitleSyncMenu();
         });
         String burnLabel = "always".equals(burnSubtitles)
@@ -2702,7 +2588,7 @@ public class PlayerActivity extends AppCompatActivity {
                 ? getString(R.string.player_burn_image)
                 : getString(R.string.player_burn_auto));
         addSettingsRow(inflater, getString(R.string.player_subs_burn), burnLabel, true, () -> {
-            pushMenu("subBurn");
+            menuNav.push("subBurn");
             showBurnSubtitlesMenu();
         });
         menuScrim.setVisibility(View.VISIBLE);
@@ -2727,11 +2613,11 @@ public class PlayerActivity extends AppCompatActivity {
         menuList.removeAllViews();
         LayoutInflater inflater = LayoutInflater.from(this);
         addSettingsRow(inflater, getString(R.string.player_subs_size), subtitleSizePct + "%", true, () -> {
-            pushMenu("subSize");
+            menuNav.push("subSize");
             showSubtitleSizeMenu();
         });
         addSettingsRow(inflater, getString(R.string.player_subs_color), subtitleColor, true, () -> {
-            pushMenu("subColor");
+            menuNav.push("subColor");
             showSubtitleColorMenu();
         });
         String bg = "dim".equals(subtitleBackground)
@@ -2740,7 +2626,7 @@ public class PlayerActivity extends AppCompatActivity {
                 ? getString(R.string.player_bg_solid)
                 : getString(R.string.player_bg_none));
         addSettingsRow(inflater, getString(R.string.player_subs_background), bg, true, () -> {
-            pushMenu("subBg");
+            menuNav.push("subBg");
             showSubtitleBackgroundMenu();
         });
         String pos = "top".equals(subtitlePosition)
@@ -2749,7 +2635,7 @@ public class PlayerActivity extends AppCompatActivity {
                 ? getString(R.string.player_pos_middle)
                 : getString(R.string.player_pos_bottom));
         addSettingsRow(inflater, getString(R.string.player_subs_position), pos, true, () -> {
-            pushMenu("subPos");
+            menuNav.push("subPos");
             showSubtitlePositionMenu();
         });
         menuScrim.setVisibility(View.VISIBLE);
@@ -2769,7 +2655,7 @@ public class PlayerActivity extends AppCompatActivity {
             PlayerView view = findViewById(R.id.player_view);
             if (view != null) applySubtitleLook(view);
             emitSettings();
-        }, MenuReturn.SUBTITLES);
+        }, PlayerMenuNav.Return.SUBTITLES);
     }
 
     private void showSubtitleColorMenu() {
@@ -2784,7 +2670,7 @@ public class PlayerActivity extends AppCompatActivity {
             PlayerView view = findViewById(R.id.player_view);
             if (view != null) applySubtitleLook(view);
             emitSettings();
-        }, MenuReturn.SUBTITLES);
+        }, PlayerMenuNav.Return.SUBTITLES);
     }
 
     private void showSubtitleBackgroundMenu() {
@@ -2803,7 +2689,7 @@ public class PlayerActivity extends AppCompatActivity {
             PlayerView view = findViewById(R.id.player_view);
             if (view != null) applySubtitleLook(view);
             emitSettings();
-        }, MenuReturn.SUBTITLES);
+        }, PlayerMenuNav.Return.SUBTITLES);
     }
 
     private void showSubtitlePositionMenu() {
@@ -2822,13 +2708,12 @@ public class PlayerActivity extends AppCompatActivity {
             PlayerView view = findViewById(R.id.player_view);
             if (view != null) applySubtitleLook(view);
             emitSettings();
-        }, MenuReturn.SUBTITLES);
+        }, PlayerMenuNav.Return.SUBTITLES);
     }
 
     private void showSubtitleSyncMenu() {
         final boolean retainPosition = isOptionDialogShowing()
-            && !menuStack.isEmpty()
-            && "subSync".equals(menuStack.get(menuStack.size() - 1));
+            && menuNav.topIs("subSync");
         final String retainFocusLabel = retainPosition ? currentMenuFocusLabel() : null;
         final int retainScrollY = retainPosition && menuScroll != null ? menuScroll.getScrollY() : 0;
 
@@ -2850,7 +2735,7 @@ public class PlayerActivity extends AppCompatActivity {
                 ? getString(R.string.player_delay_off)
                 : subtitleDelayMs + " ms";
             addSettingsRow(inflater, getString(R.string.player_subs_delay), delayLabel, true, () -> {
-                pushMenu("subDelay");
+                menuNav.push("subDelay");
                 showSubtitleDelayMenu();
             });
         }
@@ -2922,7 +2807,7 @@ public class PlayerActivity extends AppCompatActivity {
             subtitleDelayMs = delays[which];
             applySubtitleDelay();
             emitSettings();
-        }, MenuReturn.SUBTITLES);
+        }, PlayerMenuNav.Return.SUBTITLES);
     }
 
     private void showBurnSubtitlesMenu() {
@@ -2942,7 +2827,7 @@ public class PlayerActivity extends AppCompatActivity {
             if (subtitleStreamId != null && !subtitleStreamId.isEmpty()) {
                 rebuildStreamAfterSettings();
             }
-        }, MenuReturn.SUBTITLES);
+        }, PlayerMenuNav.Return.SUBTITLES);
     }
 
     private void showAudioBoostMenu() {

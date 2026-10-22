@@ -61,6 +61,10 @@ android {
             useLegacyPackaging true
         }
     }
+    testOptions {
+        // Robolectric tests inflate the player menu row layouts.
+        unitTests.includeAndroidResources = true
+    }
 }
 
 repositories {
