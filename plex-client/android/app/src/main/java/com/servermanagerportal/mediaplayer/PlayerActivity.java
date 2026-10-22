@@ -256,10 +256,40 @@ public class PlayerActivity extends AppCompatActivity {
     private long lastWatchNextAtMs;
     private long lastWatchNextPosMs = -1;
     private boolean watchNextRemoved;
-    private static final long SESSION_SEEK_STEP_MS = 10_000;
-    private static int mediaSessionSeq;
-    @Nullable
-    private MediaSession mediaSession;
+    private final PlayerSessionController sessionController = new PlayerSessionController(
+        this,
+        new PlayerSessionController.Host() {
+            @Override
+            public void applyPlayPause(boolean play) {
+                PlayerActivity.this.applyPlayPause(play);
+            }
+
+            @Override
+            public void seekToContent(long contentMs, boolean immediate) {
+                PlayerActivity.this.seekToContent(contentMs, immediate);
+            }
+
+            @Override
+            public void seekByWithFlash(long deltaMs) {
+                PlayerActivity.this.seekByWithFlash(deltaMs);
+            }
+
+            @Override
+            public long contentPositionMs() {
+                return PlayerActivity.this.contentPositionMs();
+            }
+
+            @Override
+            public long contentDurationMs() {
+                return PlayerActivity.this.contentDurationMs();
+            }
+
+            @Override
+            public long timelineOriginMs() {
+                return timelineOriginMs;
+            }
+        }
+    );
     private boolean userPaused;
     /** Ignore the OK press that opened the player so it cannot pause the start. */
     private long suppressPauseUntilElapsed;
@@ -661,7 +691,7 @@ public class PlayerActivity extends AppCompatActivity {
             }
 
             wirePlayerListener();
-            startMediaSession();
+            sessionController.start(player);
             wireControls();
             updateActionVisibility();
             updateChipLabels();
@@ -1807,134 +1837,6 @@ public class PlayerActivity extends AppCompatActivity {
     private boolean focusSuppressed() {
         return player != null
             && player.getPlaybackSuppressionReason() == Player.PLAYBACK_SUPPRESSION_REASON_TRANSIENT_AUDIO_FOCUS_LOSS;
-    }
-
-    /**
-     * Expose playback to the system: Assistant ("pause", "skip back"), the TV's
-     * now-playing card and phone remotes. Commands go through the same paths as
-     * the on-screen controls so userPaused and transcode seeks stay correct.
-     */
-    private void startMediaSession() {
-        if (player == null || mediaSession != null) return;
-        try {
-            Player.Commands commands = new Player.Commands.Builder()
-                .addAll(
-                    Player.COMMAND_PLAY_PAUSE,
-                    Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
-                    Player.COMMAND_SEEK_BACK,
-                    Player.COMMAND_SEEK_FORWARD,
-                    Player.COMMAND_GET_CURRENT_MEDIA_ITEM,
-                    Player.COMMAND_GET_TIMELINE,
-                    Player.COMMAND_GET_METADATA
-                )
-                .build();
-            mediaSession = new MediaSession.Builder(this, new SessionPlayer(player))
-                // singleTop can open the next title before this activity's onDestroy.
-                .setId("player-" + (++mediaSessionSeq))
-                .setCallback(new MediaSession.Callback() {
-                    @Override
-                    public MediaSession.ConnectionResult onConnect(
-                        MediaSession session,
-                        MediaSession.ControllerInfo controller
-                    ) {
-                        return new MediaSession.ConnectionResult.AcceptedResultBuilder(session)
-                            .setAvailablePlayerCommands(commands)
-                            .build();
-                    }
-                })
-                .build();
-        } catch (Throwable e) {
-            Log.w(TAG, "MediaSession unavailable", e);
-            mediaSession = null;
-        }
-    }
-
-    private void releaseMediaSession() {
-        if (mediaSession == null) return;
-        try {
-            mediaSession.release();
-        } catch (Throwable ignored) {
-            /* ignore */
-        }
-        mediaSession = null;
-    }
-
-    /** Session view of the player: content time (transcode offset included) and UI-path controls. */
-    private final class SessionPlayer extends ForwardingPlayer {
-        SessionPlayer(Player player) {
-            super(player);
-        }
-
-        @Override
-        public void play() {
-            applyPlayPause(true);
-        }
-
-        @Override
-        public void pause() {
-            applyPlayPause(false);
-        }
-
-        @Override
-        public void setPlayWhenReady(boolean playWhenReady) {
-            applyPlayPause(playWhenReady);
-        }
-
-        @Override
-        public void seekTo(long positionMs) {
-            seekToContent(positionMs, true);
-        }
-
-        @Override
-        public void seekBack() {
-            seekByWithFlash(-SESSION_SEEK_STEP_MS);
-        }
-
-        @Override
-        public void seekForward() {
-            seekByWithFlash(SESSION_SEEK_STEP_MS);
-        }
-
-        @Override
-        public long getSeekBackIncrement() {
-            return SESSION_SEEK_STEP_MS;
-        }
-
-        @Override
-        public long getSeekForwardIncrement() {
-            return SESSION_SEEK_STEP_MS;
-        }
-
-        @Override
-        public long getCurrentPosition() {
-            return contentPositionMs();
-        }
-
-        @Override
-        public long getContentPosition() {
-            return contentPositionMs();
-        }
-
-        @Override
-        public long getBufferedPosition() {
-            return timelineOriginMs + Math.max(0, super.getBufferedPosition());
-        }
-
-        @Override
-        public long getContentBufferedPosition() {
-            return getBufferedPosition();
-        }
-
-        @Override
-        public long getDuration() {
-            long duration = contentDurationMs();
-            return duration > 0 ? duration : C.TIME_UNSET;
-        }
-
-        @Override
-        public long getContentDuration() {
-            return getDuration();
-        }
     }
 
     private interface OptionPick {
@@ -4631,20 +4533,8 @@ public class PlayerActivity extends AppCompatActivity {
         return builder.build();
     }
 
-    /** Title / episode line / poster for the TV now-playing card and Assistant. */
     private MediaMetadata sessionMetadata() {
-        MediaMetadata.Builder meta = new MediaMetadata.Builder();
-        if (titleText != null && !titleText.isEmpty()) meta.setTitle(titleText).setDisplayTitle(titleText);
-        if (subtitleText != null && !subtitleText.isEmpty()) meta.setSubtitle(subtitleText);
-        String art = artUrl == null ? "" : artUrl.trim();
-        // Session metadata is readable by any media controller. Never hand out a URL
-        // that carries the portal / Plex token.
-        String lowerArt = art.toLowerCase(Locale.US);
-        boolean tokenInUrl = lowerArt.contains("access_token=") || lowerArt.contains("x-plex-token=");
-        if ((art.startsWith("http://") || art.startsWith("https://")) && !tokenInUrl) {
-            meta.setArtworkUri(Uri.parse(art));
-        }
-        return meta.build();
+        return PlayerSessionController.metadata(titleText, subtitleText, artUrl);
     }
 
     /**
@@ -5197,7 +5087,7 @@ public class PlayerActivity extends AppCompatActivity {
             /* ignore */
         }
         mainHandler.removeCallbacksAndMessages(null);
-        releaseMediaSession();
+        sessionController.release();
         PlayerView playerView = findViewById(R.id.player_view);
         if (playerView != null) playerView.setPlayer(null);
         if (menuScrim != null) menuScrim.setVisibility(View.GONE);
