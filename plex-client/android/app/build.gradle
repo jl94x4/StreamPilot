@@ -82,6 +82,8 @@ dependencies {
     implementation "androidx.tvprovider:tvprovider:1.1.0"
     implementation project(':capacitor-android')
     testImplementation "junit:junit:$junitVersion"
+    // Real android.net.Uri / org.json on the JVM for the player helper tests (.\gradlew.bat test).
+    testImplementation "org.robolectric:robolectric:4.16.1"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')

@@ -568,7 +568,7 @@ public class PlayerActivity extends AppCompatActivity {
             absorbTimelineFromUrl(currentUrl);
             applyTitleChrome();
 
-            Map<String, String> headers = headersWithCookies(currentUrl, parseHeaders(headersJson));
+            Map<String, String> headers = headersWithCookies(currentUrl, PlaybackUrls.parseHeaders(headersJson));
             headers.put("Accept-Encoding", "identity");
 
             httpFactory = new DefaultHttpDataSource.Factory()
@@ -580,7 +580,7 @@ public class PlayerActivity extends AppCompatActivity {
 
             // DefaultDataSource covers file:// (offline downloads) and http(s).
             DefaultDataSource.Factory dataSourceFactory = new DefaultDataSource.Factory(this, httpFactory);
-            boolean localPlayback = isLocalPlaybackUrl(currentUrl);
+            boolean localPlayback = PlaybackUrls.isLocalPlaybackUrl(currentUrl);
 
             // Direct Play of a 20–80 Mbps file only held ~1.5s / 4MB before, so a brief
             // LAN hitch stalled playback for 2–3 seconds. Keep a real buffer on the
@@ -667,7 +667,7 @@ public class PlayerActivity extends AppCompatActivity {
                 OptionItem restoredSub = findSubtitleOption(subtitleStreamId);
                 boolean burn = restoredSub != null && subtitleCodecNeedsBurn(restoredSub.codec);
                 // Text subs on Direct Play only need a track select — safe to prepare now.
-                needsAvRebuild = burn || !isDirectPlayUrl(currentUrl);
+                needsAvRebuild = burn || !PlaybackUrls.isDirectPlayUrl(currentUrl);
             }
 
             wirePlayerListener();
@@ -679,7 +679,7 @@ public class PlayerActivity extends AppCompatActivity {
             if (playPauseBtn != null) playPauseBtn.requestFocus();
 
             if (needsAvRebuild) {
-                Log.i(TAG, "Deferring prepare for AV rebuild url=" + summarizeUrl(currentUrl));
+                Log.i(TAG, "Deferring prepare for AV rebuild url=" + PlaybackUrls.summarizeUrl(currentUrl));
                 userPaused = false;
                 suppressPauseUntilElapsed = android.os.SystemClock.elapsedRealtime() + 1200;
                 player.setPlayWhenReady(true);
@@ -687,7 +687,7 @@ public class PlayerActivity extends AppCompatActivity {
                 long offset = pendingSeekMs;
                 requestStreamChange(qualityId, audioStreamId, subtitleStreamId, mediaIndex, offset);
             } else {
-                Log.i(TAG, "Starting ExoPlayer url=" + summarizeUrl(currentUrl));
+                Log.i(TAG, "Starting ExoPlayer url=" + PlaybackUrls.summarizeUrl(currentUrl));
                 userPaused = false;
                 suppressPauseUntilElapsed = android.os.SystemClock.elapsedRealtime() + 1200;
                 queueStartPosition(currentUrl, pendingSeekMs);
@@ -952,7 +952,7 @@ public class PlayerActivity extends AppCompatActivity {
                     playbackError = false;
                     hideError();
                     hideBurnInProgress();
-                    if (pendingSeekMs > 0 && !isTranscodeUrl(currentUrl)) {
+                    if (pendingSeekMs > 0 && !PlaybackUrls.isTranscodeUrl(currentUrl)) {
                         long seekTo = pendingSeekMs;
                         pendingSeekMs = 0;
                         player.seekTo(seekTo);
@@ -972,7 +972,7 @@ public class PlayerActivity extends AppCompatActivity {
                         } catch (Throwable ignored) {
                             /* ignore */
                         }
-                        if (isDirectPlayUrl(currentUrl)) applyAudioTrackPreference();
+                        if (PlaybackUrls.isDirectPlayUrl(currentUrl)) applyAudioTrackPreference();
                         mainHandler.removeCallbacks(resumePlayKickRunnable);
                         resumeKickArmPosMs = contentPositionMs();
                         mainHandler.postDelayed(resumePlayKickRunnable, 2500);
@@ -1056,7 +1056,7 @@ public class PlayerActivity extends AppCompatActivity {
                 if (!hasVideo && hasAudio) {
                     toast("Audio only — this file may need a transcode for this TV");
                 }
-                if (isDirectPlayUrl(currentUrl)) {
+                if (PlaybackUrls.isDirectPlayUrl(currentUrl)) {
                     applyAudioTrackPreference();
                     applyTextTrackPreference();
                 }
@@ -1479,12 +1479,12 @@ public class PlayerActivity extends AppCompatActivity {
 
     private String playbackModeLabel() {
         String mode = streamMode == null ? "" : streamMode.trim();
-        if (isTranscodeUrl(currentUrl) && !"directPlay".equalsIgnoreCase(mode)) {
+        if (PlaybackUrls.isTranscodeUrl(currentUrl) && !"directPlay".equalsIgnoreCase(mode)) {
             return getString(R.string.player_transcode);
         }
         if ("directPlay".equalsIgnoreCase(mode)) return getString(R.string.player_direct_play);
         if ("directStream".equalsIgnoreCase(mode)) return getString(R.string.player_direct_stream);
-        if ("transcode".equalsIgnoreCase(mode) || isTranscodeUrl(currentUrl)) {
+        if ("transcode".equalsIgnoreCase(mode) || PlaybackUrls.isTranscodeUrl(currentUrl)) {
             return getString(R.string.player_transcode);
         }
         if (currentUrl != null && (currentUrl.contains("/library/parts/") || currentUrl.contains("/file/"))) {
@@ -1629,7 +1629,7 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private Map<String, String> headersForImageUrl(String url) {
-        Map<String, String> headers = headersWithCookies(url, parseHeaders(headersJson));
+        Map<String, String> headers = headersWithCookies(url, PlaybackUrls.parseHeaders(headersJson));
         try {
             URI video = new URI(currentUrl);
             URI image = new URI(url);
@@ -2665,7 +2665,7 @@ public class PlayerActivity extends AppCompatActivity {
             headersJson = nextHeadersJson;
         }
         if (httpFactory != null) {
-            httpFactory.setDefaultRequestProperties(headersWithCookies(currentUrl, parseHeaders(headersJson)));
+            httpFactory.setDefaultRequestProperties(headersWithCookies(currentUrl, PlaybackUrls.parseHeaders(headersJson)));
         }
         pendingSeekMs = 0;
         scrubTargetMs = -1;
@@ -2687,7 +2687,7 @@ public class PlayerActivity extends AppCompatActivity {
         // HLS↔Direct Play needs a hard media reset — setMediaItem alone can leave Exo
         // buffering on the old HLS pipeline after Original is selected again.
         final boolean crossDelivery = (previousUrl != null && !previousUrl.isEmpty())
-            && (isTranscodeUrl(previousUrl) != isTranscodeUrl(currentUrl));
+            && (PlaybackUrls.isTranscodeUrl(previousUrl) != PlaybackUrls.isTranscodeUrl(currentUrl));
         // stop() only when something is loaded — idle+stop left some TVs unable to play().
         if (player.getPlaybackState() != Player.STATE_IDLE || player.getMediaItemCount() > 0) {
             try {
@@ -3104,7 +3104,7 @@ public class PlayerActivity extends AppCompatActivity {
             audioBoost = values[which];
             applyPlaybackVolume();
             emitSettings();
-            if (audioBoost != previous && isTranscodeUrl(currentUrl)) {
+            if (audioBoost != previous && PlaybackUrls.isTranscodeUrl(currentUrl)) {
                 rebuildStreamAfterSettings();
             }
         });
@@ -3212,7 +3212,7 @@ public class PlayerActivity extends AppCompatActivity {
         boolean off = subtitleStreamId.isEmpty();
         boolean burn = !off && subtitleCodecNeedsBurn(picked.codec);
         // Text / off on Direct Play: swap ExoPlayer text track — keep seekable bitstream.
-        if (!burn && isDirectPlayUrl(currentUrl)) {
+        if (!burn && PlaybackUrls.isDirectPlayUrl(currentUrl)) {
             hideBurnInProgress();
             applyTextTrackPreference();
             notifyTracksOnlyChange();
@@ -3329,10 +3329,6 @@ public class PlayerActivity extends AppCompatActivity {
         return a.contains(b) || b.contains(a);
     }
 
-    private boolean isDirectPlayUrl(@Nullable String url) {
-        return url != null && !url.isEmpty() && !isTranscodeUrl(url);
-    }
-
     @Nullable
     private String preferredTextLanguage() {
         OptionItem row = findSubtitleOption(subtitleStreamId);
@@ -3438,7 +3434,7 @@ public class PlayerActivity extends AppCompatActivity {
         OptionItem subRow = findSubtitleOption(subtitleStreamId);
         boolean burn = !off && subRow != null && subtitleCodecNeedsBurn(subRow.codec);
         // HLS / burn-in already paints captions in-frame — keep Exo text off or they stack.
-        if (isTranscodeUrl(currentUrl) || burn) {
+        if (PlaybackUrls.isTranscodeUrl(currentUrl) || burn) {
             builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true);
         } else if (off && !sidecar) {
             builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true);
@@ -3575,7 +3571,7 @@ public class PlayerActivity extends AppCompatActivity {
                 /* best-effort before replacing the item */
             }
         }
-        queueStartPosition(currentUrl, isTranscodeUrl(currentUrl) ? 0 : offset);
+        queueStartPosition(currentUrl, PlaybackUrls.isTranscodeUrl(currentUrl) ? 0 : offset);
         player.setPlayWhenReady(!userPaused);
         player.prepare();
     }
@@ -3644,7 +3640,7 @@ public class PlayerActivity extends AppCompatActivity {
     private void requestStreamChange(String q, String a, String s, int mi, long positionMs, @Nullable String reason) {
         // A Direct Play seek must not open a new PMS session. That rebuild is what
         // stacks transcodes until the server falls over.
-        if ("seek".equals(reason) && !isTranscodeUrl(currentUrl)) return;
+        if ("seek".equals(reason) && !PlaybackUrls.isTranscodeUrl(currentUrl)) return;
         // Coalesce with in-flight seek/quality rebuilds so PMS doesn't mint ghost sessions.
         markStreamSwap();
         JSObject data = new JSObject();
@@ -4225,35 +4221,25 @@ public class PlayerActivity extends AppCompatActivity {
         WatchNext.publish(this, entry);
     }
 
-    private static String queryParam(Uri uri, String key) {
-        if (uri == null || key == null) return "";
-        try {
-            String value = uri.getQueryParameter(key);
-            return value == null ? "" : value.trim();
-        } catch (Throwable ignored) {
-            return "";
-        }
-    }
-
     private void absorbTimelineFromUrl(String url) {
         if (url == null || url.isEmpty() || url.contains("/api/media-player/")) return;
         try {
             Uri parsed = Uri.parse(url);
-            String token = queryParam(parsed, "X-Plex-Token");
-            if (token.isEmpty()) token = queryParam(parsed, "access_token");
+            String token = PlaybackUrls.queryParam(parsed, "X-Plex-Token");
+            if (token.isEmpty()) token = PlaybackUrls.queryParam(parsed, "access_token");
             if (!token.isEmpty()) timelineToken = token;
-            String clientId = queryParam(parsed, "X-Plex-Client-Identifier");
+            String clientId = PlaybackUrls.queryParam(parsed, "X-Plex-Client-Identifier");
             if (!clientId.isEmpty()) timelineClientId = clientId;
-            String session = queryParam(parsed, "X-Plex-Session-Identifier");
-            if (session.isEmpty()) session = queryParam(parsed, "session");
+            String session = PlaybackUrls.queryParam(parsed, "X-Plex-Session-Identifier");
+            if (session.isEmpty()) session = PlaybackUrls.queryParam(parsed, "session");
             if (!session.isEmpty()) timelineSessionId = session;
-            String product = queryParam(parsed, "X-Plex-Product");
+            String product = PlaybackUrls.queryParam(parsed, "X-Plex-Product");
             if (!product.isEmpty()) timelineProduct = product;
-            String platform = queryParam(parsed, "X-Plex-Platform");
+            String platform = PlaybackUrls.queryParam(parsed, "X-Plex-Platform");
             if (!platform.isEmpty()) timelinePlatform = platform;
-            String device = queryParam(parsed, "X-Plex-Device");
+            String device = PlaybackUrls.queryParam(parsed, "X-Plex-Device");
             if (!device.isEmpty()) timelineDevice = device;
-            String deviceName = queryParam(parsed, "X-Plex-Device-Name");
+            String deviceName = PlaybackUrls.queryParam(parsed, "X-Plex-Device-Name");
             if (!deviceName.isEmpty()) timelineDeviceName = deviceName;
             if ((timelineOrigin == null || timelineOrigin.isEmpty())
                     && parsed.getScheme() != null
@@ -4732,12 +4718,6 @@ public class PlayerActivity extends AppCompatActivity {
         return (showKey != null && !showKey.isEmpty()) ? ("show:" + showKey) : ("item:" + ratingKey);
     }
 
-    private boolean isTranscodeUrl(String url) {
-        if (url == null) return false;
-        String lower = url.toLowerCase(Locale.US);
-        return lower.contains(".m3u8") || lower.contains("/transcode/") || lower.contains("/hls/");
-    }
-
     private long contentPositionMs() {
         if (scrubTargetMs >= 0) return scrubTargetMs;
         long pos = player != null ? Math.max(0, player.getCurrentPosition()) : 0;
@@ -4754,7 +4734,7 @@ public class PlayerActivity extends AppCompatActivity {
     private boolean shouldRestartForSeek() {
         // Direct Play seeks inside the open file. Rebuilding the session on each
         // scrub starts another transcode and is what takes the server down.
-        return isTranscodeUrl(currentUrl);
+        return PlaybackUrls.isTranscodeUrl(currentUrl);
     }
 
     /**
@@ -4762,7 +4742,7 @@ public class PlayerActivity extends AppCompatActivity {
      * Adding that same offset again shows 58:14 when the title was stopped at 29:07.
      */
     private void reconcileTranscodeOrigin() {
-        if (transcodeAnchorMs < 5000 || player == null || !isTranscodeUrl(currentUrl)) return;
+        if (transcodeAnchorMs < 5000 || player == null || !PlaybackUrls.isTranscodeUrl(currentUrl)) return;
         long playerPos = Math.max(0, player.getCurrentPosition());
         long anchor = transcodeAnchorMs;
         if (playerPos + 3000 < anchor) return;
@@ -4797,12 +4777,12 @@ public class PlayerActivity extends AppCompatActivity {
      */
     private boolean trySeekRecovery(PlaybackException error) {
         if (!isSeekIoError(error)) return false;
-        if (streamSwapInFlight && isTranscodeUrl(currentUrl)) return true;
+        if (streamSwapInFlight && PlaybackUrls.isTranscodeUrl(currentUrl)) return true;
         if (lastSeekTargetMs < 0 || player == null) return false;
         if (android.os.SystemClock.elapsedRealtime() - lastSeekAtMs > 12000) return false;
         playbackError = false;
         hideError();
-        if (!isTranscodeUrl(currentUrl)) {
+        if (!PlaybackUrls.isTranscodeUrl(currentUrl)) {
             // Stay on the file already open. A second session is what crashes PMS.
             if (!seekRecoveryUsed) {
                 seekRecoveryUsed = true;
@@ -4881,7 +4861,7 @@ public class PlayerActivity extends AppCompatActivity {
         if (player == null) return;
         MediaItem item = buildMediaItem(url);
         long start = Math.max(0, offsetMs);
-        if (isTranscodeUrl(url)) {
+        if (PlaybackUrls.isTranscodeUrl(url)) {
             playThenSeekMs = -1;
             playThenSeekArmed = false;
             resumeFrameSeen = false;
@@ -4903,12 +4883,6 @@ public class PlayerActivity extends AppCompatActivity {
         // session is what crashes PMS.
         if (start > 0) player.setMediaItem(item, start);
         else player.setMediaItem(item);
-    }
-
-    private static boolean isLocalPlaybackUrl(String url) {
-        if (url == null) return false;
-        String lower = url.trim().toLowerCase(Locale.US);
-        return lower.startsWith("file:") || lower.startsWith("content:") || lower.startsWith("/");
     }
 
     private MediaItem buildMediaItem(String url) {
@@ -4968,7 +4942,7 @@ public class PlayerActivity extends AppCompatActivity {
         // open /video/:/transcode/universal/start.m3u8 — that second session
         // crashes PMS. Only an HTTP refusal (the server rejected the file) may
         // move to HLS, and applyUpdateSrc stops the file read first.
-        if (!isTranscodeUrl(currentUrl) && code != PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS) {
+        if (!PlaybackUrls.isTranscodeUrl(currentUrl) && code != PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS) {
             return false;
         }
         String next = null;
@@ -4977,156 +4951,27 @@ public class PlayerActivity extends AppCompatActivity {
             next = partsUrlToPmsHls(currentUrl, ratingKey, mediaIndex, contentPositionMs());
         } else if (currentUrl.contains("/file/") && streamFallbackStage < 1) {
             streamFallbackStage = 1;
-            next = fileUrlToHls(currentUrl);
+            next = PlaybackUrls.fileUrlToHls(currentUrl);
         } else if ((currentUrl.contains("/hls/") || currentUrl.contains(".m3u8")) && streamFallbackStage < 2) {
             streamFallbackStage = 2;
-            next = withHlsQuality(currentUrl, "1080-12");
+            next = PlaybackUrls.withHlsQuality(currentUrl, "1080-12");
         }
         // Already on a PMS transcode playlist with nowhere left to go.
         if (next == null && currentUrl.contains("/video/:/transcode/")) return false;
         if (next == null || next.equals(currentUrl)) return false;
-        Log.w(TAG, "Stream fallback → " + summarizeUrl(next));
+        Log.w(TAG, "Stream fallback → " + PlaybackUrls.summarizeUrl(next));
         long offset = contentPositionMs();
         applyUpdateSrc(next, headersJson, offset, false);
         return true;
     }
 
-    /**
-     * Build a PMS universal HLS URL from a failed Direct Play /library/parts/ stream.
-     * Uses timeline credentials when present; otherwise pulls token/host from the part URL.
-     */
+    /** Direct Play fallback to PMS HLS with this session's timeline credentials. See PlaybackUrls. */
+    @Nullable
     private String partsUrlToPmsHls(String partUrl, String key, int mediaIdx, long offsetMs) {
-        if (key == null || key.trim().isEmpty()) return null;
-        try {
-            Uri part = Uri.parse(partUrl);
-            String origin = timelineOrigin != null ? timelineOrigin.trim().replaceAll("/+$", "") : "";
-            if (origin.isEmpty()) {
-                String scheme = part.getScheme();
-                String authority = part.getAuthority();
-                if (scheme == null || authority == null) return null;
-                origin = scheme + "://" + authority;
-            }
-            String token = timelineToken != null ? timelineToken.trim() : "";
-            if (token.isEmpty()) {
-                token = part.getQueryParameter("X-Plex-Token");
-                if (token == null || token.isEmpty()) token = part.getQueryParameter("access_token");
-            }
-            if (token == null || token.isEmpty()) return null;
-            String clientId = timelineClientId != null && !timelineClientId.isEmpty()
-                ? timelineClientId
-                : part.getQueryParameter("X-Plex-Client-Identifier");
-            if (clientId == null || clientId.isEmpty()) clientId = "streampilot-android";
-            String sessionId = timelineSessionId != null && !timelineSessionId.isEmpty()
-                ? timelineSessionId
-                : part.getQueryParameter("X-Plex-Session-Identifier");
-            if (sessionId == null || sessionId.isEmpty()) {
-                sessionId = part.getQueryParameter("session");
-            }
-            if (sessionId == null || sessionId.isEmpty()) sessionId = "smp-fb-" + System.currentTimeMillis();
-            Uri.Builder builder = Uri.parse(origin + "/video/:/transcode/universal/start.m3u8").buildUpon();
-            builder.appendQueryParameter("hasMDE", "1");
-            builder.appendQueryParameter("path", "/library/metadata/" + key.trim());
-            builder.appendQueryParameter("mediaIndex", String.valueOf(Math.max(0, mediaIdx)));
-            builder.appendQueryParameter("partIndex", "0");
-            builder.appendQueryParameter("protocol", "hls");
-            builder.appendQueryParameter("fastSeek", "1");
-            builder.appendQueryParameter("directPlay", "0");
-            builder.appendQueryParameter("directStream", "1");
-            builder.appendQueryParameter("directStreamAudio", "1");
-            // Accept EAC3/AC3 on remux like official Plex — do not force AAC convert.
-            builder.appendQueryParameter("audioCodec", "aac,mp3,ac3,eac3,eac3_joc,flac,opus,mp4a");
-            builder.appendQueryParameter("subtitleSize", "0");
-            builder.appendQueryParameter("subtitles", "none");
-            builder.appendQueryParameter("advancedSubtitles", "none");
-            builder.appendQueryParameter("subtitleStreamID", "0");
-            builder.appendQueryParameter("audioBoost", "100");
-            builder.appendQueryParameter("videoQuality", "100");
-            builder.appendQueryParameter("videoResolution", "3840x2160");
-            builder.appendQueryParameter("maxVideoBitrate", "200000");
-            builder.appendQueryParameter("session", sessionId);
-            builder.appendQueryParameter("X-Plex-Platform", "Android");
-            builder.appendQueryParameter("X-Plex-Product", "StreamPilot");
-            builder.appendQueryParameter("X-Plex-Device", "Android TV");
-            builder.appendQueryParameter("X-Plex-Client-Identifier", clientId);
-            builder.appendQueryParameter("X-Plex-Session-Identifier", sessionId);
-            builder.appendQueryParameter("X-Plex-Token", token);
-            builder.appendQueryParameter("access_token", token);
-            if (offsetMs > 0) {
-                builder.appendQueryParameter("offset", String.valueOf(Math.max(0, offsetMs / 1000L)));
-            }
-            if (audioStreamId != null && !audioStreamId.isEmpty() && audioStreamId.matches("\\d+")) {
-                builder.appendQueryParameter("audioStreamID", audioStreamId);
-            }
-            return builder.build().toString();
-        } catch (Throwable ignored) {
-            return null;
-        }
-    }
-
-    static String fileUrlToHls(String url) {
-        String next = url.replaceFirst("/file/(\\d+)", "/hls/$1/master.m3u8");
-        if (next.equals(url)) return url;
-        Uri uri = Uri.parse(next);
-        Uri.Builder builder = uri.buildUpon().clearQuery();
-        for (String key : uri.getQueryParameterNames()) {
-            if ("hevc".equals(key) || "ac3".equals(key) || "client".equals(key)
-                || "textSubs".equals(key) || "download".equals(key)) {
-                continue;
-            }
-            String value = uri.getQueryParameter(key);
-            if (value != null) builder.appendQueryParameter(key, value);
-        }
-        if (uri.getQueryParameter("quality") == null) {
-            builder.appendQueryParameter("quality", "original");
-        }
-        return builder.build().toString();
-    }
-
-    static String withHlsQuality(String url, String qualityId) {
-        Uri uri = Uri.parse(url);
-        Uri.Builder builder = uri.buildUpon().clearQuery();
-        boolean wroteQuality = false;
-        for (String key : uri.getQueryParameterNames()) {
-            if ("quality".equals(key)) {
-                builder.appendQueryParameter("quality", qualityId);
-                wroteQuality = true;
-                continue;
-            }
-            String value = uri.getQueryParameter(key);
-            if (value != null) builder.appendQueryParameter(key, value);
-        }
-        if (!wroteQuality) builder.appendQueryParameter("quality", qualityId);
-        String next = builder.build().toString();
-        if (qualityId.equals(uri.getQueryParameter("quality"))) return url;
-        return next;
-    }
-
-    private static String summarizeUrl(String url) {
-        try {
-            Uri uri = Uri.parse(url);
-            return uri.getScheme() + "://" + uri.getHost() + uri.getPath();
-        } catch (Throwable ignored) {
-            return "(invalid)";
-        }
-    }
-
-    private Map<String, String> parseHeaders(@Nullable String json) {
-        Map<String, String> headers = new HashMap<>();
-        if (json == null || json.trim().isEmpty()) return headers;
-        try {
-            JSONObject obj = new JSONObject(json);
-            Iterator<String> keys = obj.keys();
-            while (keys.hasNext()) {
-                String key = keys.next();
-                String value = obj.optString(key, "");
-                if (key != null && !key.isEmpty() && value != null && !value.isEmpty()) {
-                    headers.put(key, value);
-                }
-            }
-        } catch (Exception ignored) {
-            /* keep empty */
-        }
-        return headers;
+        return PlaybackUrls.partsUrlToPmsHls(
+            partUrl, key, mediaIdx, offsetMs,
+            timelineOrigin, timelineToken, timelineClientId, timelineSessionId, audioStreamId
+        );
     }
 
     private static String formatClock(long ms) {
