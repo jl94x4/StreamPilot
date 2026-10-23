@@ -3046,6 +3046,12 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                             {row.durationMs ? ` · ${formatPlayerDuration(row.durationMs)}` : ''}
                                         </div>
                                     ) : null}
+                                    {/* Own line: full-month dates got truncated when tacked onto the meta. */}
+                                    {row.originallyAvailableAt ? (
+                                        <div className="player-episode-meta mt-0.5 truncate text-xs font-semibold text-white/55">
+                                            {formatPlayerDate(row.originallyAvailableAt, locale)}
+                                        </div>
+                                    ) : null}
                                     {filePills.length ? (
                                         <div
                                             className="player-file-pills"
