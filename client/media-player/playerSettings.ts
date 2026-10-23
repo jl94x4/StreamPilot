@@ -57,6 +57,27 @@ export const isPlayerContinueWatchingSort = (value: unknown): value is PlayerCon
     PLAYER_CONTINUE_WATCHING_SORTS.includes(String(value || '') as PlayerContinueWatchingSort)
 );
 
+/** Accent shape before row titles ("▶ Continue Watching"). 'bar' is the original look. */
+export type PlayerRowMarker =
+    | 'play'
+    | 'bar'
+    | 'dot'
+    | 'ring'
+    | 'diamond'
+    | 'square'
+    | 'star'
+    | 'chevron'
+    | 'bolt'
+    | 'none';
+
+export const PLAYER_ROW_MARKERS: PlayerRowMarker[] = [
+    'play', 'bar', 'dot', 'ring', 'diamond', 'square', 'star', 'chevron', 'bolt', 'none',
+];
+
+export const isPlayerRowMarker = (value: unknown): value is PlayerRowMarker => (
+    PLAYER_ROW_MARKERS.includes(String(value || '') as PlayerRowMarker)
+);
+
 /** Subtitle size choices (%), shared by Settings and the native in-player menu. */
 export const PLAYER_SUBTITLE_SIZES = [50, 60, 75, 100, 125, 150, 200];
 
@@ -284,6 +305,8 @@ export type PlayerSettings = {
     continueWatchingSort: PlayerContinueWatchingSort;
     /** Airdate / date style, e.g. "October 21, 2026" or "21st October 2026". */
     dateFormat: PlayerDateFormat;
+    /** Shape before row titles; 'none' lets the title start where the mark was. */
+    rowMarker: PlayerRowMarker;
     showPlaylists: boolean;
     showBecauseYouWatched: boolean;
     /** Watchlist hub on Home, under Continue Watching. */
@@ -647,6 +670,7 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
     continueWatchingLayout: 'poster',
     continueWatchingSort: 'releaseDate',
     dateFormat: 'long',
+    rowMarker: 'play',
     showPlaylists: true,
     showBecauseYouWatched: true,
     showWatchlist: true,
@@ -711,6 +735,7 @@ export const normalizePlayerSettings = (raw: Partial<PlayerSettings> | Record<st
             ? raw.continueWatchingSort
             : 'releaseDate',
         dateFormat: isPlayerDateFormat(raw?.dateFormat) ? raw.dateFormat : 'long',
+        rowMarker: isPlayerRowMarker(raw?.rowMarker) ? raw.rowMarker : 'play',
         showPlaylists: raw?.showPlaylists !== false,
         showBecauseYouWatched: raw?.showBecauseYouWatched !== false,
         showWatchlist: raw?.showWatchlist !== false,
@@ -797,6 +822,7 @@ export const playerSettingsEqual = (a: PlayerSettings, b: PlayerSettings) => (
     && a.continueWatchingLayout === b.continueWatchingLayout
     && a.continueWatchingSort === b.continueWatchingSort
     && a.dateFormat === b.dateFormat
+    && a.rowMarker === b.rowMarker
     && a.showPlaylists === b.showPlaylists
     && a.showBecauseYouWatched === b.showBecauseYouWatched
     && a.showWatchlist === b.showWatchlist

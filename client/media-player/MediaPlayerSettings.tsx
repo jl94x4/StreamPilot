@@ -10,6 +10,7 @@ import {
     PLAYER_SCREENSAVER_SOURCE_LABEL_KEYS,
     PLAYER_SCREENSAVER_SOURCES,
     PLAYER_DATE_FORMATS,
+    PLAYER_ROW_MARKERS,
     PLAYER_SUBTITLE_SIZES,
     applyHomeRowOrder,
     applyLibraryNavOrder,
@@ -17,11 +18,13 @@ import {
     moveHomeRow,
     type PlayerContinueWatchingSort,
     type PlayerDateFormat,
+    type PlayerRowMarker,
     type PlayerScreensaverSource,
     type PlayerSubtitleMode,
 } from './playerSettings';
 import { usePlayerSettings } from './usePlayerSettings';
 import { formatPlayerDate } from './playerUtils';
+import { RowHeaderMark } from '../shared/RowHeaderMark';
 import type { PlayerSection } from './types';
 import {
     isPlexClientApp,
@@ -98,7 +101,7 @@ const TvToggleRow: React.FC<TvToggleRowProps> = ({ title, description, checked, 
     );
 };
 
-type TvChoice = { value: string; label: string };
+type TvChoice = { value: string; label: string; icon?: React.ReactNode };
 
 type TvChoiceRowProps = {
     title: string;
@@ -168,7 +171,10 @@ const TvChoiceRow: React.FC<TvChoiceRowProps> = ({ title, description, value, op
                     <span className="block text-base font-bold text-text">{title}</span>
                     {description ? <span className="mt-1 block text-sm leading-snug text-muted">{description}</span> : null}
                 </span>
-                <span className="shrink-0 text-base font-bold text-white/85">{selected?.label || '—'}</span>
+                <span className="inline-flex shrink-0 items-center gap-2 text-base font-bold text-white/85">
+                    {selected?.icon}
+                    {selected?.label || '—'}
+                </span>
             </button>
             {open && typeof document !== 'undefined' ? createPortal(
                 <div
@@ -220,7 +226,10 @@ const TvChoiceRow: React.FC<TvChoiceRowProps> = ({ title, description, value, op
                                             closePicker();
                                         }}
                                     >
-                                        <span className="min-w-0 truncate">{row.label}</span>
+                                        <span className="inline-flex min-w-0 items-center gap-2.5 truncate">
+                                            {row.icon}
+                                            {row.label}
+                                        </span>
                                         {isSelected ? (
                                             <Check className="h-5 w-5 shrink-0" strokeWidth={2.75} aria-hidden />
                                         ) : (
@@ -556,6 +565,14 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
     const hiddenRows = new Set<string>();
     if (!settings.showContinueWatching) hiddenRows.add('continueWatching');
 
+    // Each shape shows next to its name, drawn the way row headers will draw it.
+    const rowMarkerOptions = useMemo(() => PLAYER_ROW_MARKERS.map((marker) => ({
+        value: marker,
+        label: t(`mediaPlayerPage.rowMarker_${marker}`),
+        icon: marker === 'none' ? undefined : (
+            <span className="inline-flex items-center"><RowHeaderMark marker={marker} /></span>
+        ),
+    })), [t]);
     // Each option is labelled with a sample date written in that style.
     const dateFormatOptions = useMemo(() => PLAYER_DATE_FORMATS.map((format) => ({
         value: format,
@@ -1195,6 +1212,13 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         options={dateFormatOptions}
                         onChange={(value) => updateSettings({ dateFormat: value as PlayerDateFormat })}
                     />
+                    <TvChoiceRow
+                        title={t('mediaPlayerPage.rowMarker')}
+                        description={t('mediaPlayerPage.rowMarkerHint')}
+                        value={settings.rowMarker}
+                        options={rowMarkerOptions}
+                        onChange={(value) => updateSettings({ rowMarker: value as PlayerRowMarker })}
+                    />
                     <TvToggleRow
                         title={t('mediaPlayerPage.showServiceBrandLogos')}
                         description={t('mediaPlayerPage.showServiceBrandLogosHint')}
@@ -1621,6 +1645,19 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                                 onChange={(value) => updateSettings({ dateFormat: value as PlayerDateFormat })}
                                 className="max-w-xl"
                                 options={dateFormatOptions}
+                            />
+                        </div>
+                        <div className="py-4">
+                            <label className="mb-2 block text-sm font-bold text-text" htmlFor="media-player-row-marker">
+                                {t('mediaPlayerPage.rowMarker')}
+                            </label>
+                            <p className="mb-3 text-xs text-muted">{t('mediaPlayerPage.rowMarkerHint')}</p>
+                            <CustomSelect
+                                id="media-player-row-marker"
+                                value={settings.rowMarker}
+                                onChange={(value) => updateSettings({ rowMarker: value as PlayerRowMarker })}
+                                className="max-w-xl"
+                                options={rowMarkerOptions.map(({ value, label }) => ({ value, label }))}
                             />
                         </div>
                     </div>

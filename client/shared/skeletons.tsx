@@ -7,6 +7,7 @@ import {
     upgraderPosterGridStyle,
 } from './portalLayout';
 import { useSkeletonLayoutCounts } from './useSkeletonLayoutCounts';
+import { RowHeaderMark } from './RowHeaderMark';
 
 /** TV home stage rail must spill past the right edge after CSS zoom + 20px root font. */
 const tvHomeStageSkeletonCardCount = () => {
@@ -140,7 +141,7 @@ export const PlayerHomeRowSkeleton: React.FC<{ count?: number }> = ({ count }) =
     return (
         <div className="flex min-w-0 max-w-full flex-col gap-2" aria-hidden="true">
             <div className="player-row-header flex min-w-0 items-center gap-3">
-                <svg className="player-row-header-mark shrink-0" viewBox="0 0 24 24" aria-hidden="true"><polygon points="4,2 22,12 4,22" /></svg>
+                <RowHeaderMark />
                 <SkeletonBlock className="h-[1.05rem] w-36 max-w-[55%] rounded" />
             </div>
             <div className="flex w-full gap-3 overflow-hidden py-1 sm:gap-4 sm:py-2">
@@ -214,7 +215,7 @@ export const PlayerTvHomeStageSkeleton: React.FC = () => {
             <div className="player-home-stage-rail" aria-hidden>
                 <div className="flex min-w-0 w-full max-w-none flex-col gap-1">
                     <div className="player-row-header flex min-w-0 items-center gap-3 px-5">
-                        <svg className="player-row-header-mark shrink-0" viewBox="0 0 24 24" aria-hidden="true"><polygon points="4,2 22,12 4,22" /></svg>
+                        <RowHeaderMark />
                         <SkeletonBlock className="h-6 w-52 max-w-[55%] rounded" />
                     </div>
                     {/* Inline widths + dynamic count so CSS zoom / 20px root still spill past the right edge. */}
@@ -236,7 +237,7 @@ export const PlayerTvHomeStageSkeleton: React.FC = () => {
                     </div>
                     <div className="player-home-next-row mt-1 px-5">
                         <div className="player-row-header flex min-w-0 items-center gap-3 opacity-70">
-                            <svg className="player-row-header-mark shrink-0" viewBox="0 0 24 24" aria-hidden="true"><polygon points="4,2 22,12 4,22" /></svg>
+                            <RowHeaderMark />
                             <SkeletonBlock className="h-5 w-40 max-w-[45%] rounded" />
                         </div>
                     </div>

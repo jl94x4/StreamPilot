@@ -1,4 +1,5 @@
 import React from 'react';
+import { RowHeaderMark } from '../shared/RowHeaderMark';
 
 export const DiscoverSectionHeader: React.FC<{
     title: string;
@@ -7,9 +8,7 @@ export const DiscoverSectionHeader: React.FC<{
     className?: string;
 }> = ({ title, onViewAll, viewAllLabel, className = '' }) => (
     <div className={`player-row-header flex items-center gap-3 min-w-0 pr-16 max-md:pr-0 ${className}`.trim()}>
-        <svg className="player-row-header-mark shrink-0" viewBox="0 0 24 24" aria-hidden="true">
-            <polygon points="4,2 22,12 4,22" />
-        </svg>
+        <RowHeaderMark />
         {onViewAll ? (
             <button
                 type="button"
