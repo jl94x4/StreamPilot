@@ -493,6 +493,13 @@
       fill: #f59e0b;
       filter: drop-shadow(0 0 4px rgba(245, 158, 11, 0.4));
     }
+    @keyframes play-mark-pulse {
+      0%, 100% { opacity: 0.3; filter: drop-shadow(0 0 2px rgba(245, 158, 11, 0.2)); }
+      50%      { opacity: 1;   filter: drop-shadow(0 0 8px rgba(245, 158, 11, 0.7)); }
+    }
+    .player-row-header:has(.skeleton-base) .player-row-header-mark {
+      animation: play-mark-pulse 1.8s ease-in-out infinite;
+    }
     html[data-tv="1"] .player-home-rows .player-poster-caption,
     html[data-tv="1"] .player-home-rows [data-tv-poster-btn="1"] + div {
       margin-top: 0.55rem !important;
