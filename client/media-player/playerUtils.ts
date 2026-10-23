@@ -7,7 +7,7 @@ import {
 } from '../shared/posterWarmCache';
 import { notePlayerItemProgress } from './playerMemory';
 import { PLAYER_API_ROOT, PLAYER_IMAGE_PATH } from './paths';
-import { sortContinueWatchingItems, type PlayerContinueWatchingLayout, type PlayerContinueWatchingSort } from './playerSettings';
+import { PLAYER_SETTINGS_EVENT, readPlayerSettings, sortContinueWatchingItems, type PlayerContinueWatchingLayout, type PlayerContinueWatchingSort, type PlayerDateFormat } from './playerSettings';
 import type { PlayerItem } from './types';
 
 /** Shared rail size so home, library, and season grids hit the same cached JPEG. */
@@ -1024,21 +1024,64 @@ export const formatEpisodeCode = (item?: PlayerItem | null) => {
     return `S${season} · E${episode}`;
 };
 
-export const formatPlayerDate = (value?: string | number | null, locale = 'en') => {
-    if (value == null || value === '') return '';
+let cachedDateFormat: PlayerDateFormat | null = null;
+if (typeof window !== 'undefined') {
+    window.addEventListener(PLAYER_SETTINGS_EVENT, () => { cachedDateFormat = null; });
+    window.addEventListener('storage', () => { cachedDateFormat = null; });
+}
+
+const activeDateFormat = (): PlayerDateFormat => {
+    if (!cachedDateFormat) cachedDateFormat = readPlayerSettings().dateFormat;
+    return cachedDateFormat;
+};
+
+const ordinalDay = (day: number) => {
+    const tens = day % 100;
+    if (tens >= 11 && tens <= 13) return `${day}th`;
+    return `${day}${({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[day % 10] || 'th'}`;
+};
+
+const parsePlayerDate = (value: string | number) => {
     const raw = String(value);
-    let date: Date;
     if (typeof value === 'number' || /^\d+$/.test(raw)) {
         const stamp = Number(value);
-        date = new Date(stamp * (stamp > 1e12 ? 1 : 1000));
-    } else if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-        const [year, month, day] = raw.split('-').map(Number);
-        date = new Date(year, month - 1, day);
-    } else {
-        date = new Date(raw);
+        return new Date(stamp * (stamp > 1e12 ? 1 : 1000));
     }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+        const [year, month, day] = raw.split('-').map(Number);
+        return new Date(year, month - 1, day);
+    }
+    return new Date(raw);
+};
+
+/** Dates in the user's Settings → Titles → Date format (full month by default). */
+export const formatPlayerDate = (
+    value?: string | number | null,
+    locale = 'en',
+    format: PlayerDateFormat = activeDateFormat(),
+) => {
+    if (value == null || value === '') return '';
+    const date = parsePlayerDate(value);
     if (Number.isNaN(date.getTime())) return '';
-    return date.toLocaleDateString(locale || 'en', { day: 'numeric', month: 'short', year: 'numeric' });
+    const lang = locale || 'en';
+    const day = date.getDate();
+    const year = date.getFullYear();
+    const month = (style: 'long' | 'short') => date.toLocaleDateString(lang, { month: style });
+    const pad = (n: number) => String(n).padStart(2, '0');
+    switch (format) {
+        case 'longDayFirst': return `${day} ${month('long')} ${year}`;
+        // Ordinal suffixes are English; other languages get the plain day-first form.
+        case 'ordinal': return /^en\b/i.test(lang)
+            ? `${ordinalDay(day)} ${month('long')} ${year}`
+            : `${day} ${month('long')} ${year}`;
+        case 'weekday': return date.toLocaleDateString(lang, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+        case 'short': return date.toLocaleDateString(lang, { day: 'numeric', month: 'short', year: 'numeric' });
+        case 'shortDayFirst': return `${day} ${month('short')} ${year}`;
+        case 'numericDMY': return `${pad(day)}/${pad(date.getMonth() + 1)}/${year}`;
+        case 'numericMDY': return `${pad(date.getMonth() + 1)}/${pad(day)}/${year}`;
+        case 'iso': return `${year}-${pad(date.getMonth() + 1)}-${pad(day)}`;
+        default: return date.toLocaleDateString(lang, { day: 'numeric', month: 'long', year: 'numeric' });
+    }
 };
 
 /** Prefer the higher watched count when the show record is 0 but seasons or episodes already know. */

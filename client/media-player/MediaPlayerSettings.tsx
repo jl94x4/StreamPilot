@@ -9,15 +9,18 @@ import {
     PLAYER_QUALITY_CHOICES,
     PLAYER_SCREENSAVER_SOURCE_LABEL_KEYS,
     PLAYER_SCREENSAVER_SOURCES,
+    PLAYER_DATE_FORMATS,
     applyHomeRowOrder,
     applyLibraryNavOrder,
     defaultHomeRowIds,
     moveHomeRow,
     type PlayerContinueWatchingSort,
+    type PlayerDateFormat,
     type PlayerScreensaverSource,
     type PlayerSubtitleMode,
 } from './playerSettings';
 import { usePlayerSettings } from './usePlayerSettings';
+import { formatPlayerDate } from './playerUtils';
 import type { PlayerSection } from './types';
 import {
     isPlexClientApp,
@@ -361,7 +364,7 @@ const HERO_MODE_VALUES = [
 type HeroMode = typeof HERO_MODE_VALUES[number];
 
 export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }) => {
-    const { t } = useDiscoverI18n();
+    const { t, locale } = useDiscoverI18n();
     const tvShell = isTvShell();
     const [appVersion, setAppVersion] = useState(readAppVersion);
     const canEditHero = isAdmin || (typeof window !== 'undefined' && Boolean(window.__PLEX_CLIENT__));
@@ -544,6 +547,11 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
     const hiddenRows = new Set<string>();
     if (!settings.showContinueWatching) hiddenRows.add('continueWatching');
 
+    // Each option is labelled with a sample date written in that style.
+    const dateFormatOptions = useMemo(() => PLAYER_DATE_FORMATS.map((format) => ({
+        value: format,
+        label: formatPlayerDate('2026-10-21', locale, format),
+    })), [locale]);
     const settingsTabs = useMemo(() => {
         const rows: Array<{ id: SettingsTabId; label: string }> = [
             { id: 'home', label: t('mediaPlayerPage.settingsTabHome') },
@@ -1212,6 +1220,13 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                             watchedTickPosition: value as typeof settings.watchedTickPosition,
                         })}
                     />
+                    <TvChoiceRow
+                        title={t('mediaPlayerPage.dateFormat')}
+                        description={t('mediaPlayerPage.dateFormatHint')}
+                        value={settings.dateFormat}
+                        options={dateFormatOptions}
+                        onChange={(value) => updateSettings({ dateFormat: value as PlayerDateFormat })}
+                    />
                 </section>
                 ) : null}
 
@@ -1546,6 +1561,19 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                                     { value: 'bottom-right', label: t('mediaPlayerPage.watchedTickBottomRight') },
                                     { value: 'bottom-left', label: t('mediaPlayerPage.watchedTickBottomLeft') },
                                 ]}
+                            />
+                        </div>
+                        <div className="py-4">
+                            <label className="mb-2 block text-sm font-bold text-text" htmlFor="media-player-date-format">
+                                {t('mediaPlayerPage.dateFormat')}
+                            </label>
+                            <p className="mb-3 text-xs text-muted">{t('mediaPlayerPage.dateFormatHint')}</p>
+                            <CustomSelect
+                                id="media-player-date-format"
+                                value={settings.dateFormat}
+                                onChange={(value) => updateSettings({ dateFormat: value as PlayerDateFormat })}
+                                className="max-w-xl"
+                                options={dateFormatOptions}
                             />
                         </div>
                     </div>

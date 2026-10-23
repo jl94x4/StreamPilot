@@ -175,6 +175,8 @@ export const en = {
         skipSingleSeasonHint: 'When a show has only one season, open the episode list directly instead of the seasons page. Off by default.',
         showEpisodeFilePills: 'Episode file info',
         showEpisodeFilePillsHint: 'Show coloured resolution and codec pills on season episode cards, for example 1080p HEVC AAC.',
+        dateFormat: 'Date format',
+        dateFormatHint: 'How airdates and other dates are written, on title pages and in the player.',
         watchedTickPosition: 'Watched checkmark position',
         watchedTickPositionHint: 'Corner for the watched tick on movie, show, and season posters (shows on hover). Episode thumbs stay top-right and always visible.',
         watchedTickTopRight: 'Top right',

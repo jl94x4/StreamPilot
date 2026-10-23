@@ -57,6 +57,34 @@ export const isPlayerContinueWatchingSort = (value: unknown): value is PlayerCon
     PLAYER_CONTINUE_WATCHING_SORTS.includes(String(value || '') as PlayerContinueWatchingSort)
 );
 
+/** How airdates and other dates are written across the app. */
+export type PlayerDateFormat =
+    | 'long'
+    | 'longDayFirst'
+    | 'ordinal'
+    | 'weekday'
+    | 'short'
+    | 'shortDayFirst'
+    | 'numericDMY'
+    | 'numericMDY'
+    | 'iso';
+
+export const PLAYER_DATE_FORMATS: PlayerDateFormat[] = [
+    'long',
+    'longDayFirst',
+    'ordinal',
+    'weekday',
+    'short',
+    'shortDayFirst',
+    'numericDMY',
+    'numericMDY',
+    'iso',
+];
+
+export const isPlayerDateFormat = (value: unknown): value is PlayerDateFormat => (
+    PLAYER_DATE_FORMATS.includes(String(value || '') as PlayerDateFormat)
+);
+
 /** TV idle screensaver art pool. */
 export type PlayerScreensaverSource =
     | 'continue_watching'
@@ -251,6 +279,8 @@ export type PlayerSettings = {
     continueWatchingLayout: PlayerContinueWatchingLayout;
     /** How Continue Watching cards are ordered. */
     continueWatchingSort: PlayerContinueWatchingSort;
+    /** Airdate / date style, e.g. "October 21, 2026" or "21st October 2026". */
+    dateFormat: PlayerDateFormat;
     showPlaylists: boolean;
     showBecauseYouWatched: boolean;
     /** Watchlist hub on Home, under Continue Watching. */
@@ -613,6 +643,7 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
     showContinueWatching: true,
     continueWatchingLayout: 'poster',
     continueWatchingSort: 'releaseDate',
+    dateFormat: 'long',
     showPlaylists: true,
     showBecauseYouWatched: true,
     showWatchlist: true,
@@ -676,6 +707,7 @@ export const normalizePlayerSettings = (raw: Partial<PlayerSettings> | Record<st
         continueWatchingSort: isPlayerContinueWatchingSort(raw?.continueWatchingSort)
             ? raw.continueWatchingSort
             : 'releaseDate',
+        dateFormat: isPlayerDateFormat(raw?.dateFormat) ? raw.dateFormat : 'long',
         showPlaylists: raw?.showPlaylists !== false,
         showBecauseYouWatched: raw?.showBecauseYouWatched !== false,
         showWatchlist: raw?.showWatchlist !== false,
@@ -761,6 +793,7 @@ export const playerSettingsEqual = (a: PlayerSettings, b: PlayerSettings) => (
     && a.showContinueWatching === b.showContinueWatching
     && a.continueWatchingLayout === b.continueWatchingLayout
     && a.continueWatchingSort === b.continueWatchingSort
+    && a.dateFormat === b.dateFormat
     && a.showPlaylists === b.showPlaylists
     && a.showBecauseYouWatched === b.showBecauseYouWatched
     && a.showWatchlist === b.showWatchlist
