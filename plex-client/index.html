@@ -1901,6 +1901,8 @@
       padding: 0.32rem 0.62rem;
       letter-spacing: 0.03em;
       white-space: nowrap;
+      /* Same rounded-rectangle shape as the audio / subtitle chips; tone classes keep the colours. */
+      border-radius: 0.45rem;
     }
     /* Selected audio / subtitle beside the file pills, like Plex's track chips. */
     html[data-tv="1"] .media-details-episode-tech .player-track-chip {
@@ -1909,12 +1911,12 @@
       gap: 0.38rem;
       min-width: 0;
       max-width: 18rem;
-      padding: 0.3rem 0.62rem;
+      padding: 0.32rem 0.62rem;
       border-radius: 0.45rem;
       border: 1px solid rgba(255, 255, 255, 0.14);
       background: rgba(8, 12, 18, 0.55);
       color: #fff;
-      font-size: 0.8rem;
+      font-size: 0.78rem;
       font-weight: 600;
       line-height: 1.15;
       white-space: nowrap;
