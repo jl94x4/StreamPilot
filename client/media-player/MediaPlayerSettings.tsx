@@ -10,6 +10,7 @@ import {
     PLAYER_SCREENSAVER_SOURCE_LABEL_KEYS,
     PLAYER_SCREENSAVER_SOURCES,
     PLAYER_DATE_FORMATS,
+    PLAYER_SUBTITLE_SIZES,
     applyHomeRowOrder,
     applyLibraryNavOrder,
     defaultHomeRowIds,
@@ -1096,7 +1097,7 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                     <TvChoiceRow
                         title={t('mediaPlayerPage.subtitleSize')}
                         value={String(settings.subtitleSize)}
-                        options={[50, 75, 100, 125, 150, 200].map((value) => ({ value: String(value), label: `${value}%` }))}
+                        options={PLAYER_SUBTITLE_SIZES.map((value) => ({ value: String(value), label: `${value}%` }))}
                         onChange={(value) => updateSettings({ subtitleSize: Number(value) })}
                     />
                     <TvChoiceRow
@@ -1685,7 +1686,7 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                                 value={String(settings.subtitleSize)}
                                 onChange={(value) => updateSettings({ subtitleSize: Number(value) })}
                                 className="max-w-xl"
-                                options={[50, 75, 100, 125, 150, 200].map((value) => ({ value: String(value), label: `${value}%` }))}
+                                options={PLAYER_SUBTITLE_SIZES.map((value) => ({ value: String(value), label: `${value}%` }))}
                             />
                         </div>
                         <div className="border-b border-border/40 py-4">

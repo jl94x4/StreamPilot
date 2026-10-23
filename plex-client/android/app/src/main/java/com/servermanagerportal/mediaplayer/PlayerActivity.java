@@ -2838,9 +2838,10 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void showSubtitleSizeMenu() {
-        final int[] sizes = {75, 100, 125, 150, 200};
+        // Keep in sync with PLAYER_SUBTITLE_SIZES (client/media-player/playerSettings.ts).
+        final int[] sizes = {50, 60, 75, 100, 125, 150, 200};
         String[] labels = new String[sizes.length];
-        int checked = 1;
+        int checked = 3;
         for (int i = 0; i < sizes.length; i++) {
             labels[i] = sizes[i] + "%";
             if (sizes[i] == subtitleSizePct) checked = i;

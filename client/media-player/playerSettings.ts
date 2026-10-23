@@ -57,6 +57,9 @@ export const isPlayerContinueWatchingSort = (value: unknown): value is PlayerCon
     PLAYER_CONTINUE_WATCHING_SORTS.includes(String(value || '') as PlayerContinueWatchingSort)
 );
 
+/** Subtitle size choices (%), shared by Settings and the native in-player menu. */
+export const PLAYER_SUBTITLE_SIZES = [50, 60, 75, 100, 125, 150, 200];
+
 /** How airdates and other dates are written across the app. */
 export type PlayerDateFormat =
     | 'long'
