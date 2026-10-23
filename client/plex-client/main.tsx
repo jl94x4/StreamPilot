@@ -5,6 +5,7 @@ import { MediaPlayerDashboard } from '../media-player/MediaPlayerDashboard';
 import { prefetchMediaPlayerHome } from '../media-player/api';
 import { PLAYER_APP_BASE, PLAYER_LOGOUT_EVENT } from '../media-player/paths';
 import { apiFetch } from '../shared/api';
+import { PlexHomeSwitchModal, type PlexHomeProfile } from '../shared/PlexHomeSwitchModal';
 import { ApkWhatsNew } from './ApkWhatsNew';
 import { PlexClientAuthScreen, PlexClientBootSplash } from './AuthScreen';
 import { hydratePlexClientAuthStorage } from './authPersistence';
@@ -36,6 +37,11 @@ const PlexClientApp: React.FC = () => {
     const [authed, setAuthed] = useState(false);
     const [checking, setChecking] = useState(true);
     const [tvReady, setTvReady] = useState(false);
+    const [homePickerDone, setHomePickerDone] = useState(false);
+    const [homePickerUsers, setHomePickerUsers] = useState<PlexHomeProfile[]>([]);
+    const [homePickerCurrentId, setHomePickerCurrentId] = useState<string | null>(null);
+    const [homePickerBusy, setHomePickerBusy] = useState(false);
+    const [homePickerError, setHomePickerError] = useState('');
 
     useTvRemote(ready && tvReady);
 
@@ -94,10 +100,68 @@ const PlexClientApp: React.FC = () => {
     }, []);
 
     useEffect(() => {
+        if (!authed || homePickerDone) return;
+        const isTv = isAndroidTvUi() || document.documentElement?.dataset?.tv === '1';
+        if (!isTv) {
+            setHomePickerDone(true);
+            return;
+        }
+        let cancelled = false;
+        const check = async () => {
+            try {
+                const data = await apiFetch('/api/auth/plex/home-profiles');
+                if (cancelled) return;
+                const users: PlexHomeProfile[] = Array.isArray(data?.users)
+                    ? data.users.filter((u: any) => u?.id)
+                    : [];
+                if (!data?.available || users.length <= 1) {
+                    setHomePickerDone(true);
+                    return;
+                }
+                const currentId = data.currentUserId || null;
+                const rememberedId = data.rememberUserId || null;
+                if (rememberedId && users.some((u) => u.id === rememberedId || u.uuid === rememberedId)) {
+                    setHomePickerDone(true);
+                    return;
+                }
+                setHomePickerUsers(users);
+                setHomePickerCurrentId(currentId);
+            } catch {
+                if (!cancelled) setHomePickerDone(true);
+            }
+        };
+        void check();
+        return () => { cancelled = true; };
+    }, [authed, homePickerDone]);
+
+    const handleHomePickerSelect = useCallback(async (user: PlexHomeProfile, pin: string | undefined) => {
+        setHomePickerBusy(true);
+        setHomePickerError('');
+        try {
+            await apiFetch('/api/auth/plex/home-profiles/switch', {
+                method: 'POST',
+                body: JSON.stringify({
+                    userId: user.id,
+                    remember: true,
+                    ...(pin ? { pin } : {}),
+                }),
+            });
+            setHomePickerDone(true);
+            prefetchMediaPlayerHome();
+        } catch (err: any) {
+            setHomePickerError(err?.message || 'Could not switch profile');
+            setHomePickerBusy(false);
+        }
+    }, []);
+
+    useEffect(() => {
         const onLogout = () => {
             void apiFetch('/api/auth/logout', { method: 'POST' }).catch(() => null);
             clearPlexClientSession();
             setAuthed(false);
+            setHomePickerDone(false);
+            setHomePickerUsers([]);
+            setHomePickerError('');
         };
         window.addEventListener(PLAYER_LOGOUT_EVENT, onLogout);
         return () => window.removeEventListener(PLAYER_LOGOUT_EVENT, onLogout);
@@ -109,6 +173,27 @@ const PlexClientApp: React.FC = () => {
 
     if (!authed) {
         return <PlexClientAuthScreen onAuthenticated={onAuthenticated} />;
+    }
+
+    if (!homePickerDone && homePickerUsers.length > 1) {
+        return (
+            <div className="min-h-screen bg-[#07080c] text-zinc-100">
+                <PlexHomeSwitchModal
+                    open
+                    loginMode
+                    users={homePickerUsers}
+                    currentUserId={homePickerCurrentId}
+                    busy={homePickerBusy}
+                    error={homePickerError}
+                    onSelect={(user, pin) => void handleHomePickerSelect(user, pin)}
+                    onClose={() => setHomePickerDone(true)}
+                />
+            </div>
+        );
+    }
+
+    if (!homePickerDone) {
+        return <PlexClientBootSplash />;
     }
 
     return (
