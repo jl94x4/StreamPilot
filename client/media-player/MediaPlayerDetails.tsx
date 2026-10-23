@@ -701,8 +701,9 @@ export const MediaPlayerDetails: React.FC<Props> = ({
 
     useEffect(() => {
         let cancelled = false;
-        // Core first (title + seasons/episodes). Extras/related/on-deck land via /more.
-        const morePromise = fetchMediaPlayerItemMore(ratingKey, serverId || null).catch(() => null);
+        // Core first (title + seasons/episodes). Extras/related/on-deck land via /more,
+        // which starts once core is in — firing both at once made /more's Plex calls
+        // queue ahead of the episode list on the browser's few connections per server.
         fetchMediaPlayerItem(ratingKey, { core: true, serverId: serverId || null })
             .then((data) => {
                 if (cancelled) return false;
@@ -732,7 +733,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             })
             .then(async (ok) => {
                 if (!ok || cancelled) return;
-                const more = await morePromise;
+                const more = await fetchMediaPlayerItemMore(ratingKey, serverId || null).catch(() => null);
                 if (cancelled || !more) return;
                 if (more.extras?.length) setExtras(more.extras);
                 setRelated(more.related || []);

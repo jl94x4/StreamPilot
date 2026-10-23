@@ -5570,57 +5570,62 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
             const showKey = item.type === 'season'
                 ? item.parentRatingKey
                 : (item.type === 'episode' ? item.grandparentRatingKey : null);
-            if (showKey && (item.type === 'season' || item.type === 'episode')) {
-                const showMeta = await metadata(String(showKey), server).catch(() => null);
-                if (showMeta) {
-                    const showItem = mapItem(showMeta);
-                    if (!item.showTitle) item.showTitle = showItem.title || null;
-                    if (!item.logo && showItem.logo) item.logo = showItem.logo;
-                    if (!item.art && showItem.art) item.art = showItem.art;
-                    // Prefer the show network/studio for episode/season service logos.
-                    if (showItem.studio) item.studio = showItem.studio;
-                    if (Array.isArray(showItem.studioLabels) && showItem.studioLabels.length) {
-                        item.studioLabels = showItem.studioLabels;
-                    }
-                    if (Array.isArray(showItem.networkLabels) && showItem.networkLabels.length) {
-                        item.networkLabels = showItem.networkLabels;
-                    }
-                    if (!item.commonSenseMedia && showItem.commonSenseMedia) {
-                        item.commonSenseMedia = showItem.commonSenseMedia;
-                    }
-                    if (ratingsEmpty && showItem.ratings) item.ratings = showItem.ratings;
-                    // Always prefer the series TMDB id — episode Guid ids break /tv/{id} lookups.
-                    if (showItem.tmdbId) {
-                        item.showTmdbId = showItem.tmdbId;
-                        item.tmdbId = showItem.tmdbId;
-                        item.externalIds = {
-                            imdb: item.externalIds?.imdb || showItem.externalIds?.imdb || null,
-                            tmdb: showItem.tmdbId,
-                            tvdb: item.externalIds?.tvdb || showItem.externalIds?.tvdb || null,
-                        };
-                    } else if (!item.externalIds?.imdb && !item.externalIds?.tmdb && !item.externalIds?.tvdb) {
-                        item.externalIds = showItem.externalIds;
-                        item.tmdbId = showItem.tmdbId;
-                    }
-                }
-            }
-            let children: ReturnType<typeof mapItem>[] = [];
+            // Show art, the season's episodes, extras and "next up" don't depend on each other.
+            // Run them together — one after another made opening a season wait 4–5 round trips.
+            const showMetaPromise = showKey && (item.type === 'season' || item.type === 'episode')
+                ? metadata(String(showKey), server).catch(() => null)
+                : Promise.resolve(null);
+            const childrenPromise = item.type === 'show' || item.type === 'artist'
+                // Drop Plex’s synthetic “All episodes” season (leads nowhere in our UI).
+                ? childrenOf(key, server, { excludeAllLeaves: true })
+                : (item.type === 'season' || item.type === 'album'
+                    ? childrenOf(key, server)
+                    : (item.type === 'track' && item.parentRatingKey
+                        ? childrenOf(String(item.parentRatingKey), server)
+                        : Promise.resolve([] as ReturnType<typeof mapItem>[])));
             const extrasPromise = (item.type === 'movie' || item.type === 'show')
                 ? loadItemExtras(key, server, meta)
                 : Promise.resolve([] as ReturnType<typeof mapItem>[]);
-            if (item.type === 'show' || item.type === 'artist') {
-                // Drop Plex’s synthetic “All episodes” season (leads nowhere in our UI).
-                children = await childrenOf(key, server, { excludeAllLeaves: true });
-            } else if (item.type === 'season' || item.type === 'album') {
-                children = await childrenOf(key, server);
-            } else if (item.type === 'track' && item.parentRatingKey) {
-                children = await childrenOf(String(item.parentRatingKey), server);
+            const onDeckPromise = item.type === 'show' || item.type === 'season'
+                ? resolvePlayableEpisode(key, server, item.type)
+                : Promise.resolve(null);
+            const showMeta = await showMetaPromise;
+            if (showMeta) {
+                const showItem = mapItem(showMeta);
+                if (!item.showTitle) item.showTitle = showItem.title || null;
+                if (!item.logo && showItem.logo) item.logo = showItem.logo;
+                if (!item.art && showItem.art) item.art = showItem.art;
+                // Prefer the show network/studio for episode/season service logos.
+                if (showItem.studio) item.studio = showItem.studio;
+                if (Array.isArray(showItem.studioLabels) && showItem.studioLabels.length) {
+                    item.studioLabels = showItem.studioLabels;
+                }
+                if (Array.isArray(showItem.networkLabels) && showItem.networkLabels.length) {
+                    item.networkLabels = showItem.networkLabels;
+                }
+                if (!item.commonSenseMedia && showItem.commonSenseMedia) {
+                    item.commonSenseMedia = showItem.commonSenseMedia;
+                }
+                if (ratingsEmpty && showItem.ratings) item.ratings = showItem.ratings;
+                // Always prefer the series TMDB id — episode Guid ids break /tv/{id} lookups.
+                if (showItem.tmdbId) {
+                    item.showTmdbId = showItem.tmdbId;
+                    item.tmdbId = showItem.tmdbId;
+                    item.externalIds = {
+                        imdb: item.externalIds?.imdb || showItem.externalIds?.imdb || null,
+                        tmdb: showItem.tmdbId,
+                        tvdb: item.externalIds?.tvdb || showItem.externalIds?.tvdb || null,
+                    };
+                } else if (!item.externalIds?.imdb && !item.externalIds?.tmdb && !item.externalIds?.tvdb) {
+                    item.externalIds = showItem.externalIds;
+                    item.tmdbId = showItem.tmdbId;
+                }
             }
-            const extras = await extrasPromise.catch(() => [] as ReturnType<typeof mapItem>[]);
-            let onDeck: ReturnType<typeof mapItem> | null = null;
-            if (item.type === 'show' || item.type === 'season') {
-                onDeck = await resolvePlayableEpisode(key, server, item.type);
-            }
+            const [children, extras, onDeck] = await Promise.all([
+                childrenPromise,
+                extrasPromise.catch(() => [] as ReturnType<typeof mapItem>[]),
+                onDeckPromise,
+            ]);
             return { item, children, extras, related: [], onDeck };
         });
     }
