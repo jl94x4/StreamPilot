@@ -15,7 +15,7 @@ Do **not** bake `PLEX_CLIENT_PORTAL_URL` into Play Store binaries. That env var 
 
 ## Package identity
 
-- Application ID: `com.servermanagerportal.mediaplayer` (change before first Play upload if you prefer your publisher domain)
+- Application ID: `com.streampilot.mediaplayer` (permanent on Google Play). Java sources keep the `com.servermanagerportal.mediaplayer` package; that namespace is internal and does not need to match.
 - Store listing name: **StreamPilot** (or your brand)
 - One APK: phone + Android TV (`LEANBACK_LAUNCHER`)
 

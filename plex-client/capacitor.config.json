@@ -1,5 +1,5 @@
 {
-  "appId": "com.servermanagerportal.mediaplayer",
+  "appId": "com.streampilot.mediaplayer",
   "appName": "StreamPilot",
   "webDir": "dist",
   "server": {

@@ -12,7 +12,7 @@ android {
     namespace "com.servermanagerportal.mediaplayer"
     compileSdk rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.servermanagerportal.mediaplayer"
+        applicationId "com.streampilot.mediaplayer"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 308

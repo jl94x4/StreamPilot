@@ -2,8 +2,8 @@
 <resources>
     <string name="app_name">StreamPilot</string>
     <string name="title_activity_main">StreamPilot</string>
-    <string name="package_name">com.servermanagerportal.mediaplayer</string>
-    <string name="custom_url_scheme">com.servermanagerportal.mediaplayer</string>
+    <string name="package_name">com.streampilot.mediaplayer</string>
+    <string name="custom_url_scheme">com.streampilot.mediaplayer</string>
     <string name="player_close">Close player</string>
     <string name="player_pause">Pause</string>
     <string name="player_play">Play</string>
