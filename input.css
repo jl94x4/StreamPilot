@@ -2639,9 +2639,10 @@ html[data-tv="1"] .media-details-season-pill {
   border-radius: 999px;
   background: transparent;
   color: rgba(255, 255, 255, 0.78);
-  font-size: 1.02rem;
-  font-weight: 750;
-  letter-spacing: 0.01em;
+  font-family: "Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: 1.05rem;
+  font-weight: 500;
+  letter-spacing: 0;
   white-space: nowrap;
   outline: none;
 }
@@ -2904,6 +2905,24 @@ html[data-tv="1"] .media-details-episode-tech .player-file-pill {
   padding: 0.32rem 0.62rem;
   letter-spacing: 0.03em;
   white-space: nowrap;
+}
+html[data-tv="1"] .media-details-episode-tech .player-track-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  min-width: 0;
+  max-width: 18rem;
+  padding: 0.3rem 0.62rem;
+  border-radius: 0.45rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(8, 12, 18, 0.55);
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 html[data-tv="1"] .player-episode-index {
   position: absolute;

@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, Bookmark, BookmarkCheck, Calendar, Check, ChevronDown, Clock, Eye, EyeOff, Film, Info, ListPlus, Loader2, Play, RotateCcw, Shuffle, SkipForward, Star, Users } from 'lucide-react';
+import { ArrowLeft, Bookmark, BookmarkCheck, Calendar, Captions, Check, ChevronDown, Clock, Eye, EyeOff, Film, Info, ListPlus, Loader2, Play, RotateCcw, Shuffle, SkipForward, Star, Users, Volume2 } from 'lucide-react';
 import { isWatchTogetherAvailable } from './watchTogetherClient';
 import {
     Carousel,
@@ -89,7 +89,7 @@ import {
     writeAvChoiceFromTracks,
     writeMediaIndexChoice,
 } from './playerMemory';
-import type { PlayerItem, PlayerLibraryHub, PlayerMediaPartInfo, PlayerPlayOptions, PlayerRatings, PlayerVersion } from './types';
+import type { PlayerItem, PlayerLibraryHub, PlayerMediaPartInfo, PlayerMediaStreamInfo, PlayerPlayOptions, PlayerRatings, PlayerVersion } from './types';
 
 const softenSurfaceRgb = (rgb: string, cap = 86, sat = 0.48) => {
     const parts = rgb.trim().split(/\s+/).map((part) => Number(part));
@@ -172,18 +172,45 @@ const episodeHasMediaInfo = (ep?: PlayerItem | null) => Boolean(
     || ep?.mediaInfo?.[0]?.videoCodec,
 );
 
-const episodeTechPills = (ep?: PlayerItem | null): Array<FileInfoPill | { key: string; label: string; tone: FileInfoPill['tone'] }> => {
-    if (!ep) return [];
-    const pills: Array<FileInfoPill | { key: string; label: string; tone: FileInfoPill['tone'] }> = [...fileInfoPills(ep)];
-    const sub = (ep.mediaInfo?.[0]?.parts?.[0]?.subtitles || []).find((row) => row.selected)
-        || (ep.mediaInfo?.[0]?.parts?.[0]?.subtitles || [])[0];
-    const subLabel = String(sub?.codec || '').replace(/_/g, '-').toUpperCase();
-    if (subLabel && !pills.some((pill) => pill.label === subLabel)) {
-        pills.push({ key: 'sub', label: subLabel, tone: 'other' });
-    } else if (!subLabel) {
-        pills.push({ key: 'sub', label: 'Off', tone: 'other' });
-    }
-    return pills.filter((pill) => pill.label);
+const episodeTechPills = (ep?: PlayerItem | null): FileInfoPill[] => (
+    ep ? fileInfoPills(ep).filter((pill) => pill.label) : []
+);
+
+const channelLayoutLabel = (channels?: number | null) => {
+    const n = Number(channels || 0);
+    if (n === 1) return 'Mono';
+    if (n === 2) return '2.0';
+    if (n === 6) return '5.1';
+    if (n === 8) return '7.1';
+    return n > 0 ? `${n}ch` : '';
+};
+
+const trackLanguage = (stream?: PlayerMediaStreamInfo | null) => (
+    String(stream?.language || stream?.languageTag || '').trim()
+);
+
+const trackCodec = (stream?: PlayerMediaStreamInfo | null) => (
+    String(stream?.codec || '').replace(/_/g, '-').toUpperCase()
+);
+
+/**
+ * Plex-style "what will play" chips: the audio and subtitle tracks Plex has selected,
+ * e.g. "English (EAC3 5.1)" and "English (ASS)" / "Off".
+ */
+const episodeTrackChips = (ep?: PlayerItem | null) => {
+    const part = ep?.mediaInfo?.[0]?.parts?.[0];
+    // Season /children rows carry no streams until the spotlight fetch lands — don't claim "Off".
+    if (!part || !(part.audio || []).length) return null;
+    const audioRows = part.audio || [];
+    const audio = audioRows.find((row) => row.selected) || audioRows[0] || null;
+    const sub = (part.subtitles || []).find((row) => row.selected) || null;
+    const audioDetail = [trackCodec(audio), channelLayoutLabel(audio?.channels)].filter(Boolean).join(' ');
+    const audioLabel = audio
+        ? [trackLanguage(audio) || 'Unknown', audioDetail ? `(${audioDetail})` : ''].filter(Boolean).join(' ')
+        : '';
+    const subName = sub ? [trackLanguage(sub) || 'Unknown', sub.forced ? 'Forced' : ''].filter(Boolean).join(' ') : '';
+    const subLabel = sub ? [subName, trackCodec(sub) ? `(${trackCodec(sub)})` : ''].filter(Boolean).join(' ') : 'Off';
+    return { audio: audioLabel, subtitles: subLabel };
 };
 
 /** tvTint: TV "Match page colour to artwork" is on. Off keeps the black #060a10 floor. */
@@ -1636,6 +1663,9 @@ export const MediaPlayerDetails: React.FC<Props> = ({
     const hubTechPills = isTvShell && (item.type === 'episode' || item.type === 'season')
         ? episodeTechPills(hubItem)
         : [];
+    const hubTrackChips = isTvShell && (item.type === 'episode' || item.type === 'season')
+        ? episodeTrackChips(hubItem)
+        : null;
     const hubSummary = isTvShell && (item.type === 'episode' || item.type === 'season')
         ? (hubItem.type === 'episode' ? String(hubItem.summary || '') : '')
         : String(hubItem.summary || item.summary || '');
@@ -2998,6 +3028,18 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                         {pill.label}
                                     </span>
                                 ))}
+                                {hubTrackChips?.audio ? (
+                                    <span className="player-track-chip">
+                                        <Volume2 className="h-[1em] w-[1em] shrink-0" aria-hidden />
+                                        {hubTrackChips.audio}
+                                    </span>
+                                ) : null}
+                                {hubTrackChips ? (
+                                    <span className="player-track-chip">
+                                        <Captions className="h-[1em] w-[1em] shrink-0" aria-hidden />
+                                        {hubTrackChips.subtitles}
+                                    </span>
+                                ) : null}
                             </div>
                         ) : null}
                         <div className="media-details-episodes-rail">
