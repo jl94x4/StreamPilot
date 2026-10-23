@@ -73,6 +73,22 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.310': [
+        {
+            title: 'Home',
+            items: [
+                'Hub requests retry once on a slow server, with a longer timeout — fewer empty rows on startup',
+                'Play-button icon before each row title instead of the yellow bar',
+                'Play icon pulses while skeleton rows are loading',
+            ],
+        },
+        {
+            title: 'Libraries',
+            items: [
+                'Skeleton poster rows while the library home loads, instead of a spinning circle',
+            ],
+        },
+    ],
     '1.0.298': [
         {
             title: 'Home (TV)',
