@@ -3,7 +3,7 @@
  * Native CapacitorHttp patches fetch so the WebView is not blocked by CORS.
  */
 import { mirrorAuthToNativeStorage } from './authPersistence';
-import { getPortalBaseUrl, getSessionToken, readStoredPortalBaseUrl, writeStoredSessionToken } from './config';
+import { getPortalBaseUrl, getSessionToken, readHomeAutoSignIn, readStoredPortalBaseUrl, writeStoredSessionToken } from './config';
 import { STORAGE_PLEX_CLIENT_ID, STORAGE_PLEX_HOME_USER, STORAGE_PLEX_OWNER_TOKEN, STORAGE_PLEX_SERVER, STORAGE_PLEX_SERVERS } from './configStorageKeys';
 import { DEFAULT_PLAYER_SETTINGS, type PlayerSettings } from '../media-player/playerSettings';
 import { PLAYER_SERVERS_EVENT } from '../media-player/playerMemory';
@@ -2279,7 +2279,11 @@ const handleAuth = async (path: string, method: string, body: any) => {
             available: users.length > 1,
             users: users.map(publicHomeUser),
             currentUserId: readHomeUserId() || users.find((user) => user.admin)?.id || null,
-            rememberUserId: null,
+            // Auto sign-in: report the profile in use as remembered so the TV launch
+            // picker (and its PIN) is skipped. Switching profiles still asks for the PIN.
+            rememberUserId: readHomeAutoSignIn()
+                ? (readHomeUserId() || users.find((user) => user.admin)?.id || null)
+                : null,
         };
     }
     if ((path === '/api/auth/plex/home-profiles/switch' || path === '/api/auth/plex/home-switch') && method === 'POST') {

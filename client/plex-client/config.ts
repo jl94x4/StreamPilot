@@ -21,7 +21,7 @@ declare global {
 }
 
 import { mirrorAuthToNativeStorage } from './authPersistence';
-import { STORAGE_AUTH_MODE, STORAGE_PLEX_HOME_USER, STORAGE_PLEX_OWNER_TOKEN, STORAGE_PORTAL, STORAGE_TOKEN, STORAGE_WT_RELAY } from './configStorageKeys';
+import { STORAGE_AUTH_MODE, STORAGE_PLEX_HOME_AUTO_SIGNIN, STORAGE_PLEX_HOME_USER, STORAGE_PLEX_OWNER_TOKEN, STORAGE_PORTAL, STORAGE_TOKEN, STORAGE_WT_RELAY } from './configStorageKeys';
 
 /** Desktop-like CSS layout width used by native TV density (MainActivity). */
 export const TV_LAYOUT_WIDTH = 1920;
@@ -156,6 +156,25 @@ export const clearPlexClientPortal = () => {
         localStorage.removeItem(STORAGE_PLEX_HOME_USER);
         void mirrorAuthToNativeStorage(STORAGE_PLEX_OWNER_TOKEN, '');
         void mirrorAuthToNativeStorage(STORAGE_PLEX_HOME_USER, '');
+    } catch {
+        /* ignore */
+    }
+};
+
+/** Settings → "Sign in automatically": skip the launch profile PIN on this device. */
+export const readHomeAutoSignIn = (): boolean => {
+    try {
+        return localStorage.getItem(STORAGE_PLEX_HOME_AUTO_SIGNIN) === '1';
+    } catch {
+        return false;
+    }
+};
+
+export const writeHomeAutoSignIn = (on: boolean) => {
+    try {
+        if (on) localStorage.setItem(STORAGE_PLEX_HOME_AUTO_SIGNIN, '1');
+        else localStorage.removeItem(STORAGE_PLEX_HOME_AUTO_SIGNIN);
+        void mirrorAuthToNativeStorage(STORAGE_PLEX_HOME_AUTO_SIGNIN, on ? '1' : '');
     } catch {
         /* ignore */
     }

@@ -8,3 +8,5 @@ export const STORAGE_PLEX_SERVERS = 'plexClient.plexServers';
 export const STORAGE_PLEX_CLIENT_ID = 'plexClient.plexClientId';
 export const STORAGE_PLEX_OWNER_TOKEN = 'plexClient.plexOwnerToken';
 export const STORAGE_PLEX_HOME_USER = 'plexClient.plexHomeUserId';
+/** '1' = open straight into the last Plex Home profile (no launch PIN). */
+export const STORAGE_PLEX_HOME_AUTO_SIGNIN = 'plexClient.plexHomeAutoSignIn';

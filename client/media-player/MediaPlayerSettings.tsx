@@ -24,10 +24,13 @@ import { formatPlayerDate } from './playerUtils';
 import type { PlayerSection } from './types';
 import {
     isPlexClientApp,
+    isPlexDirectMode,
     normalizePortalBaseUrl,
+    readHomeAutoSignIn,
     readStoredPortalBaseUrl,
     readStoredWtRelayUrl,
     writeStoredPortalBaseUrl,
+    writeHomeAutoSignIn,
     writeStoredWtRelayUrl,
 } from '../plex-client/config';
 import { PLAYER_APP_BASE, PLAYER_NAVIGATE_EVENT } from './paths';
@@ -369,6 +372,9 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
     const [appVersion, setAppVersion] = useState(readAppVersion);
     const canEditHero = isAdmin || (typeof window !== 'undefined' && Boolean(window.__PLEX_CLIENT__));
     const [settings, updateSettings, { dirty: playerDirty, saving: playerSaving, saveSettings, discardSettings }] = usePlayerSettings();
+    // Device-only, saved straight away (not part of the synced player settings).
+    const [homeAutoSignIn, setHomeAutoSignIn] = useState(readHomeAutoSignIn);
+    const showHomeAutoSignIn = tvShell && isPlexDirectMode();
     const [libraries, setLibraries] = useState<PlayerSection[]>([]);
     const [servers, setServers] = useState<Array<{ id: string; name: string; enabled: boolean }>>([]);
     const [saveState, setSaveState] = useState<'idle' | 'saved' | 'error'>('idle');
@@ -931,6 +937,17 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                 <div className="flex flex-col gap-3" data-tv-settings-panel="1">
                 {settingsTab === 'home' ? (
                 <section className="flex flex-col gap-3">
+                    {showHomeAutoSignIn ? (
+                        <TvToggleRow
+                            title={t('mediaPlayerPage.homeAutoSignIn')}
+                            description={t('mediaPlayerPage.homeAutoSignInHint')}
+                            checked={homeAutoSignIn}
+                            onChange={(checked) => {
+                                writeHomeAutoSignIn(checked);
+                                setHomeAutoSignIn(checked);
+                            }}
+                        />
+                    ) : null}
                     <TvToggleRow
                         title={t('mediaPlayerPage.showContinueWatching')}
                         description={t('mediaPlayerPage.showContinueWatchingHint')}

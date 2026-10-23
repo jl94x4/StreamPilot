@@ -184,6 +184,8 @@ export const en = {
         watchedTickBottomRight: 'Bottom right',
         watchedTickBottomLeft: 'Bottom left',
         playTheme: 'Play theme',
+        homeAutoSignIn: 'Sign me in automatically',
+        homeAutoSignInHint: 'Open straight into this Plex Home profile without the PIN. Switching profiles still asks for it.',
         showContinueWatching: 'Show Continue Watching',
         showContinueWatchingHint: 'Keep the in-progress row on Media Player home.',
         continueWatchingLayout: 'Continue Watching layout',
