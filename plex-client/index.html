@@ -494,6 +494,21 @@
       0%, 100% { opacity: 0.3; filter: drop-shadow(0 0 2px rgba(245, 158, 11, 0.2)); }
       50%      { opacity: 1;   filter: drop-shadow(0 0 8px rgba(245, 158, 11, 0.7)); }
     }
+    /* Row marker "Bar (classic)": the original line, sized as it was before the play icon. */
+    .player-row-header-mark.player-row-header-mark--bar {
+      width: 0.18rem;
+      height: 1em;
+      border-radius: 999px;
+      background: linear-gradient(180deg, #fbbf24 0%, rgba(245, 158, 11, 0.4) 100%);
+      filter: none;
+    }
+    html[data-tv="1"] .player-row-header-mark.player-row-header-mark--bar {
+      width: 0.28rem;
+      height: 1.15em;
+      margin-right: -0.3rem;
+      background: linear-gradient(180deg, #fbbf24 0%, rgba(245, 158, 11, 0.45) 100%);
+      box-shadow: 0 0 12px rgba(251, 191, 36, 0.4);
+    }
     .player-row-header:has(.skeleton-base) .player-row-header-mark {
       animation: play-mark-pulse 1.8s ease-in-out infinite;
     }

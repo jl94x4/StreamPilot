@@ -1,22 +1,9 @@
-import React, { useEffect, useId, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { PLAYER_SETTINGS_EVENT, readPlayerSettings, type PlayerRowMarker } from '../media-player/playerSettings';
 
 /** Shapes on a 24×24 box; .player-row-header-mark sizes and fills them (amber + glow). */
-const MarkShape: React.FC<{ marker: PlayerRowMarker; gradientId: string }> = ({ marker, gradientId }) => {
+const MarkShape: React.FC<{ marker: PlayerRowMarker }> = ({ marker }) => {
     switch (marker) {
-        case 'bar':
-            // The original rounded amber bar, fading down like it used to.
-            return (
-                <>
-                    <defs>
-                        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor="#fbbf24" />
-                            <stop offset="100%" stopColor="#f59e0b" stopOpacity="0.45" />
-                        </linearGradient>
-                    </defs>
-                    <rect x="9.5" y="2" width="5" height="20" rx="2.5" fill={`url(#${gradientId})`} />
-                </>
-            );
         case 'dot':
             return <circle cx="12" cy="12" r="7" />;
         case 'ring':
@@ -41,7 +28,6 @@ const readMarker = (): PlayerRowMarker => readPlayerSettings().rowMarker;
 /** Row title accent from Settings → Row marker. 'none' renders nothing, so the title moves left. */
 export const RowHeaderMark: React.FC<{ marker?: PlayerRowMarker }> = ({ marker }) => {
     const [saved, setSaved] = useState<PlayerRowMarker>(readMarker);
-    const gradientId = `row-mark-${useId().replace(/:/g, '')}`;
     useEffect(() => {
         if (marker) return undefined;
         const sync = () => setSaved(readMarker());
@@ -54,9 +40,11 @@ export const RowHeaderMark: React.FC<{ marker?: PlayerRowMarker }> = ({ marker }
     }, [marker]);
     const shape = marker || saved;
     if (shape === 'none') return null;
+    // The original pre-play-button line: a slim gradient strip hugging the title (CSS-drawn).
+    if (shape === 'bar') return <span className="player-row-header-mark player-row-header-mark--bar shrink-0" aria-hidden="true" />;
     return (
         <svg className="player-row-header-mark shrink-0" viewBox="0 0 24 24" aria-hidden="true">
-            <MarkShape marker={shape} gradientId={gradientId} />
+            <MarkShape marker={shape} />
         </svg>
     );
 };
