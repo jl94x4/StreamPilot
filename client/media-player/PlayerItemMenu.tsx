@@ -1182,7 +1182,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
             >
                 {t('mediaPlayerPage.back')}
             </button>
-            <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar">
+            <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar" data-tv-overlay-scroll="1">
                 {playlists.map((playlist) => (
                     <button
                         key={playlist.ratingKey}
@@ -1344,12 +1344,17 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                                     ) : null}
                                 </div>
                             ) : null}
-                            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain hide-scrollbar">
+                            {/* TV remote scrolls the nearest overlay-scroll; the sheet itself is overflow-hidden. */}
+                            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain hide-scrollbar" data-tv-overlay-scroll="1">
                                 {actionRows}
                                 {showSeasonLinks}
                             </div>
                         </>
-                    ) : actionRows}
+                    ) : (
+                        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain hide-scrollbar" data-tv-overlay-scroll="1">
+                            {actionRows}
+                        </div>
+                    )}
                 </div>
             </div>
         ) : useMobileModal ? (
