@@ -2367,8 +2367,8 @@ html[data-tv="1"] .media-details-page [data-tv-action-row="1"] .media-details-ac
 }
 html[data-tv="1"] .media-details-page:has(.media-details-billboard-identity) .media-details-synopsis {
   order: 3;
-  /* Wide enough that a long synopsis reads as a paragraph, not a narrow column. */
-  max-width: min(62rem, 72vw);
+  /* Same measure as the Home / library billboard (.player-home-spot-summary). */
+  max-width: 36rem;
   margin-top: 0.35rem;
 }
 html[data-tv="1"] .media-details-page:has(.media-details-billboard-identity) .media-details-seasons,
@@ -2517,7 +2517,13 @@ html[data-tv="1"] [data-tv-kind="movie"] .media-details-synopsis {
 }
 html[data-tv="1"] [data-tv-kind="show"] .media-overview-summary,
 html[data-tv="1"] [data-tv-kind="movie"] .media-overview-summary {
-  max-width: min(62rem, 72vw);
+  max-width: 36rem;
+}
+/* Match the Home / library billboard copy so a title reads the same on both screens. */
+html[data-tv="1"] [data-tv-kind="show"] .media-overview-summary p,
+html[data-tv="1"] [data-tv-kind="movie"] .media-overview-summary p {
+  font-size: 0.92rem !important;
+  line-height: 1.45 !important;
 }
 html[data-tv="1"] .media-overview-summary-full,
 html[data-tv="1"] [data-tv-kind="show"] .media-overview-summary p,
