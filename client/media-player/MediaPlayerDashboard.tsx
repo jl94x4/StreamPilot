@@ -600,8 +600,19 @@ export const MediaPlayerDashboard: React.FC = () => {
         window.dispatchEvent(new Event(PLAYER_NAVIGATE_EVENT));
     }, []);
 
-    const openItem = useCallback((item: PlayerItem, opts?: { replace?: boolean }) => {
+    const openItem = useCallback((item: PlayerItem, rawOpts?: { replace?: boolean }) => {
         if (!item?.ratingKey) return;
+        // TV / phone app: movie or show opened from another movie or show page (More like
+        // this, collections) replaces that page, so Back leaves to where the first title
+        // was opened from instead of walking every title. Show → season → episode still stacks.
+        const appShell = isAndroidTvUi() || document.documentElement?.dataset?.phoneNative === '1';
+        const fromKind = view.kind === 'item'
+            ? document.querySelector<HTMLElement>('[data-tv-details="1"]')?.dataset?.tvKind
+            : '';
+        const titleToTitle = appShell
+            && (fromKind === 'movie' || fromKind === 'show')
+            && (item.type === 'movie' || item.type === 'show');
+        const opts = titleToTitle ? { ...rawOpts, replace: true } : rawOpts;
         if (isAndroidTvUi()) {
             // Snapshot first. Do not replace a non-ratingKey focus target (e.g. view-more)
             // with the destination id — Back must return to the control that opened the title.

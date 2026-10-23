@@ -1304,6 +1304,19 @@
       max-width: 42rem;
       margin-top: 0.35rem;
     }
+    /* Movie / show: synopsis sits between the ratings and the Watch row, not under it. */
+    html[data-tv="1"] .media-details-page[data-tv-kind="movie"]:has(.media-details-billboard-identity) .media-details-synopsis,
+    html[data-tv="1"] .media-details-page[data-tv-kind="show"]:has(.media-details-billboard-identity) .media-details-synopsis {
+      order: 2;
+      margin-top: 0.55rem;
+    }
+    html[data-tv="1"] .media-details-page[data-tv-kind="movie"]:has(.media-details-billboard-identity) .media-details-actions,
+    html[data-tv="1"] .media-details-page[data-tv-kind="show"]:has(.media-details-billboard-identity) .media-details-actions {
+      order: 3;
+      margin-top: 0.85rem;
+      /* The synopsis used to give the cast heading its gap. */
+      margin-bottom: 0.9rem;
+    }
     html[data-tv="1"] .media-details-page:has(.media-details-billboard-identity) .media-details-seasons,
     html[data-tv="1"] .media-details-page:has(.media-details-billboard-identity) .media-details-episodes {
       order: 6;
