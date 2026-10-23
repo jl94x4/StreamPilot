@@ -24,7 +24,7 @@ import {
     rememberTvFocusKey,
     visibleHomeStage,
 } from '../plex-client/useTvRemote';
-import { PLAYER_APP_BASE, PLAYER_SCROLL_ID } from './paths';
+import { PLAYER_APP_BASE, PLAYER_HOME_LIVE_EVENT, PLAYER_SCROLL_ID } from './paths';
 import { MediaPlayerHomeHero, type HomeHeroSlide } from './MediaPlayerHomeHero';
 import { PlayerPosterCard } from './PlayerPosterCard';
 import { PlayerRail, PlayerTvRowStack } from './PlayerRail';
@@ -588,7 +588,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
     }, [settings.libraryNavOrder]);
 
     const homeRefreshGen = useRef(0);
-    const refreshHome = useCallback((opts?: { force?: boolean; quietRetry?: boolean }) => {
+    const refreshHome = useCallback((opts?: { force?: boolean; quietRetry?: boolean; fullOnly?: boolean }) => {
         const gen = ++homeRefreshGen.current;
         const current = () => gen === homeRefreshGen.current;
         const cachedHome = readPlayerHomeCache();
@@ -657,6 +657,17 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 })
                 .catch(() => retry());
         };
+        if (opts?.fullOnly && cachedHasRows) {
+            // Live update over rows already on screen: go straight to the full pass. The fast
+            // pass can briefly drop pins that need a fill, which made rows blink out and back.
+            return fetchMediaPlayerHomeFull()
+                .then((full) => applyFull(full, cachedHome, cachedHome))
+                .catch(() => undefined)
+                .finally(() => {
+                    if (current()) setLoading(false);
+                    endHomeRowPriority();
+                });
+        }
         if (isTvShell || (skipPartial && cachedNeedsFull)) {
             // Paint includeMeta pins as soon as they arrive. The full pass still
             // fills empty shells and replaces the list — it must not be the first
@@ -736,6 +747,15 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             .catch(() => undefined);
         return Promise.all([refreshHome({ force: true }), hero]);
     }, [refreshHome]);
+
+    // Live Home: Plex pushed an add / delete / stopped-playback change. Refetch the rows
+    // in place (cards keep their keys, so focus stays put and new items slide in).
+    useEffect(() => {
+        if (!active) return undefined;
+        const onLive = () => { void refreshHome({ force: true, quietRetry: true, fullOnly: true }); };
+        window.addEventListener(PLAYER_HOME_LIVE_EVENT, onLive);
+        return () => window.removeEventListener(PLAYER_HOME_LIVE_EVENT, onLive);
+    }, [active, refreshHome]);
 
     // Coming back online (or a flaky Android offline→online flip) should refetch quietly.
     useEffect(() => {

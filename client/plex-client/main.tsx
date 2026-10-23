@@ -16,6 +16,7 @@ import {
     detectAndApplyTvUi,
     getSessionToken,
     isAndroidTvUi,
+    isPlexDirectMode,
 } from './config';
 import { installMediaDownloadsBridge } from './mediaDownloads';
 import { installNativeMediaPlayerBridge } from './nativePlayer';
@@ -156,6 +157,22 @@ const PlexClientApp: React.FC = () => {
             setHomePickerBusy(false);
         }
     }, []);
+
+    // Live Home: listen to the Plex servers' change feed while signed in (direct mode only;
+    // a portal session gets its data through the portal).
+    useEffect(() => {
+        if (!authed || !homePickerDone || !isPlexDirectMode()) return undefined;
+        let stop: (() => void) | null = null;
+        let cancelled = false;
+        void import('./plexDirect').then(({ startPlexLiveUpdates }) => {
+            if (cancelled) return;
+            stop = startPlexLiveUpdates();
+        }).catch(() => undefined);
+        return () => {
+            cancelled = true;
+            stop?.();
+        };
+    }, [authed, homePickerDone]);
 
     useEffect(() => {
         const onLogout = () => {

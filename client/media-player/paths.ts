@@ -5,6 +5,8 @@ export const PLAYER_NAVIGATE_EVENT = 'portal-media-player-navigate';
 export const PLAYER_EXIT_EVENT = 'portal-media-player-exit';
 export const PLAYER_LOGOUT_EVENT = 'portal-media-player-logout';
 export const PLAYER_SCROLL_ID = 'media-player-scroll';
+/** Plex pushed a library / watch change (direct app): Home refetches its rows. */
+export const PLAYER_HOME_LIVE_EVENT = 'portal-media-player-home-live';
 /** Capacitor TV: open/close the left rail (detail: { action: 'open' | 'close' }). */
 export const PLAYER_TV_NAV_EVENT = 'portal-media-player-tv-nav';
 

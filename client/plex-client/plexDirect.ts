@@ -7,6 +7,7 @@ import { getPortalBaseUrl, getSessionToken, readHomeAutoSignIn, readStoredPortal
 import { STORAGE_PLEX_CLIENT_ID, STORAGE_PLEX_HOME_USER, STORAGE_PLEX_OWNER_TOKEN, STORAGE_PLEX_SERVER, STORAGE_PLEX_SERVERS } from './configStorageKeys';
 import { DEFAULT_PLAYER_SETTINGS, type PlayerSettings } from '../media-player/playerSettings';
 import { PLAYER_SERVERS_EVENT } from '../media-player/playerMemory';
+import { PLAYER_HOME_LIVE_EVENT } from '../media-player/paths';
 import {
     canHttpDirectPlay,
     isBitstreamAudioCodec,
@@ -3750,6 +3751,151 @@ const loadRecentFallbackHubs = async (server: PlexServer, many: boolean, section
 
 /** Fast-path pin rows. A full home always re-reads Plex so coming back shows the current pins. */
 const homePinCache = new Map<string, { at: number; hubs: Awaited<ReturnType<typeof pinnedHubs>> }>();
+
+/** Library item types Home shows: movie, show, season, episode. */
+const LIVE_LIBRARY_TYPES = new Set([1, 2, 3, 4]);
+/** Plex timeline states: 5 = finished processing (added / refreshed), 9 = deleted. */
+const LIVE_TIMELINE_STATES = new Set([5, 9]);
+const LIVE_REFRESH_DEBOUNCE_MS = 4000;
+const LIVE_RECONNECT_MS = [2000, 5000, 15000, 30000];
+const LIVE_SYNC_MS = 60_000;
+
+/** True when a Plex notification changes what Home shows. */
+const liveNotificationMatters = (raw: string) => {
+    let container: PlexMeta | null = null;
+    try {
+        container = JSON.parse(raw)?.NotificationContainer || null;
+    } catch {
+        return false;
+    }
+    if (!container) return false;
+    if (container.type === 'timeline') {
+        return asList<PlexMeta>(container.TimelineEntry).some((entry) => (
+            LIVE_LIBRARY_TYPES.has(Number(entry.type)) && LIVE_TIMELINE_STATES.has(Number(entry.state))
+        ));
+    }
+    // Watching elsewhere moves Continue Watching / watched state.
+    if (container.type === 'playing') {
+        return asList<PlexMeta>(container.PlaySessionStateNotification)
+            .some((entry) => String(entry.state || '') === 'stopped');
+    }
+    return false;
+};
+
+let liveStop: (() => void) | null = null;
+
+/**
+ * Live Home: one Plex notification WebSocket per enabled server. Library adds,
+ * refreshes, deletes and stopped playback clear the Home caches and fire
+ * PLAYER_HOME_LIVE_EVENT (debounced, so a scan refreshes once).
+ */
+export const startPlexLiveUpdates = () => {
+    if (liveStop) return liveStop;
+    if (typeof window === 'undefined' || typeof WebSocket === 'undefined') return () => undefined;
+    let stopped = false;
+    let debounce = 0;
+    const links = new Map<string, { ws: WebSocket | null; attempt: number; timer: number }>();
+
+    const announce = () => {
+        window.clearTimeout(debounce);
+        debounce = window.setTimeout(() => {
+            if (stopped) return;
+            clearPlayerGetCache();
+            homePinCache.clear();
+            window.dispatchEvent(new Event(PLAYER_HOME_LIVE_EVENT));
+        }, LIVE_REFRESH_DEBOUNCE_MS);
+    };
+
+    const linkKey = (server: PlexServer) => `${server.id}|${server.uri}|${server.accessToken}`;
+
+    const drop = (key: string) => {
+        const link = links.get(key);
+        if (!link) return;
+        window.clearTimeout(link.timer);
+        links.delete(key);
+        try {
+            if (link.ws) {
+                link.ws.onclose = null;
+                link.ws.close();
+            }
+        } catch {
+            /* ignore */
+        }
+    };
+
+    const open = (server: PlexServer, key: string) => {
+        if (stopped || document.visibilityState === 'hidden') return;
+        const link = links.get(key) || { ws: null, attempt: 0, timer: 0 };
+        links.set(key, link);
+        let url: URL;
+        try {
+            url = new URL('/:/websockets/notifications', server.uri.endsWith('/') ? server.uri : `${server.uri}/`);
+        } catch {
+            return;
+        }
+        url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+        url.searchParams.set('X-Plex-Token', server.accessToken);
+        let ws: WebSocket;
+        try {
+            ws = new WebSocket(url.toString());
+        } catch {
+            return;
+        }
+        link.ws = ws;
+        ws.onopen = () => { link.attempt = 0; };
+        ws.onmessage = (event) => {
+            if (typeof event.data === 'string' && liveNotificationMatters(event.data)) announce();
+        };
+        ws.onclose = () => {
+            if (stopped || links.get(key) !== link) return;
+            link.ws = null;
+            const wait = LIVE_RECONNECT_MS[Math.min(link.attempt, LIVE_RECONNECT_MS.length - 1)];
+            link.attempt += 1;
+            link.timer = window.setTimeout(() => open(server, key), wait);
+        };
+    };
+
+    // Profile switches swap tokens and server picks change the list — follow both.
+    const sync = () => {
+        if (stopped || document.visibilityState === 'hidden') return;
+        void ensureServers().then((servers) => {
+            if (stopped) return;
+            const want = new Map(servers.filter((server) => server.uri && server.accessToken)
+                .map((server) => [linkKey(server), server] as const));
+            for (const key of Array.from(links.keys())) {
+                if (!want.has(key)) drop(key);
+            }
+            want.forEach((server, key) => {
+                if (!links.has(key)) open(server, key);
+            });
+        }).catch(() => undefined);
+    };
+
+    const onVisibility = () => {
+        if (document.visibilityState === 'hidden') {
+            for (const key of Array.from(links.keys())) drop(key);
+            return;
+        }
+        // Anything Plex sent while we were away was missed — refresh once, then listen again.
+        announce();
+        sync();
+    };
+
+    sync();
+    const syncTimer = window.setInterval(sync, LIVE_SYNC_MS);
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener(PLAYER_SERVERS_EVENT, sync);
+    liveStop = () => {
+        stopped = true;
+        window.clearTimeout(debounce);
+        window.clearInterval(syncTimer);
+        document.removeEventListener('visibilitychange', onVisibility);
+        window.removeEventListener(PLAYER_SERVERS_EVENT, sync);
+        for (const key of Array.from(links.keys())) drop(key);
+        liveStop = null;
+    };
+    return liveStop;
+};
 const HOME_PIN_CACHE_MS = 3 * 60_000;
 
 const loadServerHome = async (server: PlexServer, many: boolean, full = false) => withMapServer(server, async () => {

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Carousel, DiscoverSectionHeader, discoverRowCardWidthClass, posterGridCardWidthStyle, posterGridScaleRem, useDiscoverI18n } from './host';
 import { PlayerPosterCard } from './PlayerPosterCard';
 import { PlayerViewMoreCard, type ViewMoreShelfSource } from './PlayerViewMoreCard';
@@ -104,6 +104,23 @@ export const PlayerRail: React.FC<{
             : items.length
     ));
     const armSentinelRef = useRef<HTMLDivElement | null>(null);
+
+    // Live Home: cards that weren't in this row on the last render slide in. The first
+    // paint and whole new rows don't animate. Layout effect so no frame shows them unstyled.
+    const [freshKeys, setFreshKeys] = useState<Set<string>>(() => new Set());
+    const seenKeysRef = useRef<Set<string> | null>(null);
+    const itemKeySig = items.map((item) => String(item.ratingKey || '')).join('|');
+    useLayoutEffect(() => {
+        const keys = itemKeySig ? itemKeySig.split('|') : [];
+        const seen = seenKeysRef.current;
+        seenKeysRef.current = new Set(keys);
+        if (!seen) return undefined;
+        const added = keys.filter((key) => key && !seen.has(key));
+        if (!added.length) return undefined;
+        setFreshKeys(new Set(added));
+        const timer = window.setTimeout(() => setFreshKeys(new Set()), 900);
+        return () => window.clearTimeout(timer);
+    }, [itemKeySig]);
 
     useEffect(() => {
         if (!lazyMount) {
@@ -213,7 +230,9 @@ export const PlayerRail: React.FC<{
                     return (
                         <div
                             key={item.ratingKey || `${title}-${idx}`}
-                            className={`${landscape ? 'player-rail-landscape' : square ? 'player-rail-square' : discoverRowCardWidthClass(density)} relative z-0 flex-shrink-0 snap-start group hover:z-20 focus-within:z-20`}
+                            className={`${landscape ? 'player-rail-landscape' : square ? 'player-rail-square' : discoverRowCardWidthClass(density)} relative z-0 flex-shrink-0 snap-start group hover:z-20 focus-within:z-20${
+                                freshKeys.has(String(item.ratingKey || '')) ? ' player-rail-card-new' : ''
+                            }`}
                             style={cardWidth}
                             onFocusCapture={() => {
                                 if (!tvShell && !phoneShell) return;
