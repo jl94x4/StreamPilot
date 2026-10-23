@@ -301,7 +301,7 @@ export type PlayerSettings = {
     screensaverShiftClock: boolean;
     /** TV: skip focus zoom and screen-enter motion. */
     reduceMotion: boolean;
-    /** TV movie / show pages: fade the page into the backdrop's bottom-edge colour. Off = black. */
+    /** TV details pages (movie, show, season, episode): fade into the backdrop's bottom-edge colour. Off = black. */
     detailsArtworkTint: boolean;
     /** TV corner clock. On uses 15:36. Off uses 3:36 PM. */
     clock24Hour: boolean;

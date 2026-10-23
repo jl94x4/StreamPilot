@@ -1385,7 +1385,8 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         if (!posterSampleUrl && !url) return undefined;
         let cancelled = false;
         let framed = false;
-        // Movie / show pages only: season and episode pages swap backdrops per episode.
+        // Movie / show pages tint here. Season and episode pages swap backdrops per
+        // episode, so their tint follows episodeHubBackdropUrl in its own effect.
         const tvTint = isTvShell
             && settings.detailsArtworkTint
             && (item.type === 'movie' || item.type === 'show');
@@ -1514,6 +1515,28 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         };
         img.src = episodeHubBackdropUrl;
     }, [episodeHubBackdropUrl]);
+
+    // Season / episode pages: the backdrop follows the spotlighted episode, so the
+    // artwork tint follows it too. Short delay so scrolling episodes does not resample each step.
+    useEffect(() => {
+        if (!isTvShell || !settings.detailsArtworkTint || !episodeHubBackdropUrl) return undefined;
+        let cancelled = false;
+        const timer = window.setTimeout(() => {
+            const node = document.querySelector<HTMLElement>('[data-tv-details="1"]');
+            const backdrop = node?.querySelector<HTMLElement>('.media-details-hero-backdrop');
+            const position = node?.style.getPropertyValue('--tv-backdrop-position') || undefined;
+            const frame = backdrop && backdrop.clientWidth > 2 && backdrop.clientHeight > 2
+                ? { width: backdrop.clientWidth, height: backdrop.clientHeight, position }
+                : undefined;
+            void sampleBackdropSurfaceColor(episodeHubBackdropUrl, frame).then((rgb) => {
+                if (!cancelled && rgb) applyTvDetailsSurface(rgb, true);
+            });
+        }, 350);
+        return () => {
+            cancelled = true;
+            window.clearTimeout(timer);
+        };
+    }, [isTvShell, settings.detailsArtworkTint, episodeHubBackdropUrl]);
 
     if (loading && !hasDetailsHero(item)) {
         if (isTvShell) {
