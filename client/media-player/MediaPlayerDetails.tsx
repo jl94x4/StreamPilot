@@ -3040,16 +3040,14 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                         </div>
                                     </button>
                                     <div className="player-episode-title mt-2 truncate text-sm font-bold text-text group-hover:text-plex group-focus-within:text-plex">{row.title}</div>
-                                    {(row.index != null || row.durationMs) ? (
-                                        <div className="player-episode-meta mt-0.5 truncate text-sm font-bold text-text">
-                                            {row.index != null ? `Episode ${row.index}` : ''}
-                                            {row.durationMs ? ` · ${formatPlayerDuration(row.durationMs)}` : ''}
-                                        </div>
-                                    ) : null}
-                                    {/* Own line: full-month dates got truncated when tacked onto the meta. */}
-                                    {row.originallyAvailableAt ? (
-                                        <div className="player-episode-meta mt-0.5 truncate text-xs font-semibold text-white/55">
-                                            {formatPlayerDate(row.originallyAvailableAt, locale)}
+                                    {(row.index != null || row.durationMs || row.originallyAvailableAt) ? (
+                                        // Wraps instead of truncating, so a full date in any format is never cut off.
+                                        <div className="player-episode-meta mt-0.5 text-sm font-bold leading-snug text-text">
+                                            {[
+                                                row.index != null ? `Episode ${row.index}` : '',
+                                                row.durationMs ? formatPlayerDuration(row.durationMs) : '',
+                                                formatPlayerDate(row.originallyAvailableAt, locale),
+                                            ].filter(Boolean).join(' · ')}
                                         </div>
                                     ) : null}
                                     {filePills.length ? (
