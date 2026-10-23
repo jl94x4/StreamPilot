@@ -206,6 +206,8 @@ export const en = {
         hideWatchedFromRecentsHint: 'Keep Recently Added rows to titles you have not finished yet.',
         reduceMotion: 'Reduce motion',
         reduceMotionHint: 'Skip poster zoom and screen-enter animations on TV. Focus rings stay.',
+        detailsArtworkTint: 'Match page colour to artwork',
+        detailsArtworkTintHint: 'Movie and show pages fade into the colour at the bottom of the backdrop. Off keeps the page black.',
         moreInfo: 'More info',
         watchCredits: 'Watch credits',
         chapterNext: 'Next chapter',

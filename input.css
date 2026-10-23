@@ -2182,7 +2182,7 @@ html[data-phone="1"] .tv-poster-rows .animate-pulse {
 /* TV: official Plex preplay (still + left logo + Play). Phone billboard is untouched. */
 html[data-tv="1"] .media-details-page {
   --tv-details-surface: 6 10 16;
-  background-color: #060a10 !important;
+  background-color: rgb(var(--tv-details-surface)) !important;
 }
 html[data-tv="1"] .media-details-page .media-details-hero-backdrop {
   position: absolute !important;
@@ -2195,7 +2195,7 @@ html[data-tv="1"] .media-details-page .media-details-hero-backdrop {
   max-height: calc(40rem / var(--tv-zoom, 1)) !important;
   z-index: 0 !important;
   overflow: hidden !important;
-  background: #060a10 !important;
+  background: rgb(var(--tv-details-surface)) !important;
 }
 html[data-tv="1"] .media-details-hero-backdrop img {
   position: absolute !important;
@@ -2407,8 +2407,8 @@ html[data-tv="1"] .media-details-hero-backdrop::after {
   z-index: 3 !important;
   pointer-events: none !important;
   background:
-    linear-gradient(90deg, rgba(6, 10, 16, 0.98) 0%, rgba(6, 10, 16, 0.94) 14%, rgba(6, 10, 16, 0.82) 26%, rgba(6, 10, 16, 0.48) 40%, rgba(6, 10, 16, 0.16) 54%, rgba(6, 10, 16, 0.04) 68%, transparent 82%),
-    linear-gradient(180deg, rgba(6, 10, 16, 0.14) 0%, transparent 12%, transparent 34%, rgba(6, 10, 16, 0.38) 50%, rgba(6, 10, 16, 0.72) 64%, rgba(6, 10, 16, 0.92) 78%, #060a10 100%) !important;
+    linear-gradient(90deg, rgb(var(--tv-details-surface) / 0.98) 0%, rgb(var(--tv-details-surface) / 0.94) 14%, rgb(var(--tv-details-surface) / 0.82) 26%, rgb(var(--tv-details-surface) / 0.48) 40%, rgb(var(--tv-details-surface) / 0.16) 54%, rgb(var(--tv-details-surface) / 0.04) 68%, transparent 82%),
+    linear-gradient(180deg, rgb(var(--tv-details-surface) / 0.14) 0%, transparent 12%, transparent 34%, rgb(var(--tv-details-surface) / 0.38) 50%, rgb(var(--tv-details-surface) / 0.72) 64%, rgb(var(--tv-details-surface) / 0.92) 78%, rgb(var(--tv-details-surface)) 100%) !important;
 }
 html[data-tv="1"] [data-tv-kind="movie"] .media-details-hero-content {
   padding-bottom: 0.15rem !important;

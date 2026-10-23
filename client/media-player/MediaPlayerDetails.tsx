@@ -90,7 +90,7 @@ import {
 } from './playerMemory';
 import type { PlayerItem, PlayerLibraryHub, PlayerMediaPartInfo, PlayerPlayOptions, PlayerRatings, PlayerVersion } from './types';
 
-const softenSurfaceRgb = (rgb: string) => {
+const softenSurfaceRgb = (rgb: string, cap = 86) => {
     const parts = rgb.trim().split(/\s+/).map((part) => Number(part));
     if (parts.length < 3 || parts.some((value) => !Number.isFinite(value))) return rgb;
     let [r, g, b] = parts;
@@ -102,7 +102,6 @@ const softenSurfaceRgb = (rgb: string) => {
     g = avg + (g - avg) * sat;
     b = avg + (b - avg) * sat;
     const luma = (0.2126 * r) + (0.7152 * g) + (0.0722 * b);
-    const cap = 86;
     if (luma > cap) {
         const scale = cap / luma;
         r *= scale;
@@ -122,6 +121,8 @@ const isPhoneDetailsUi = () => {
 };
 
 const TV_FLOOR_RGB = '6 10 16';
+/** TV artwork tint stays darker than web so white copy and focus rings keep their contrast. */
+const TV_TINT_LUMA_CAP = 52;
 
 /** Horizontal-only rail pan. scrollIntoView also moves the page under CSS zoom. */
 const panTvOverflowX = (scroller: HTMLElement, node: HTMLElement, mode: 'nearest' | 'center' = 'nearest') => {
@@ -164,13 +165,14 @@ const episodeTechPills = (ep?: PlayerItem | null): Array<FileInfoPill | { key: s
     return pills.filter((pill) => pill.label);
 };
 
-const applyTvDetailsSurface = (rgb: string) => {
+/** tvTint: TV "Match page colour to artwork" is on. Off keeps the black #060a10 floor. */
+const applyTvDetailsSurface = (rgb: string, tvTint = false) => {
     const tv = typeof document !== 'undefined' && (
         document.documentElement?.dataset?.tv === '1'
         || window.__PLEX_CLIENT__?.isTv === true
     );
-    // TV cinematic pages fade to #060a10; keep the floor the same so nothing hard-cuts.
-    const softened = isPhoneDetailsUi() ? rgb : (tv ? TV_FLOOR_RGB : softenSurfaceRgb(rgb));
+    const tvSurface = tvTint && rgb !== TV_FLOOR_RGB ? softenSurfaceRgb(rgb, TV_TINT_LUMA_CAP) : TV_FLOOR_RGB;
+    const softened = isPhoneDetailsUi() ? rgb : (tv ? tvSurface : softenSurfaceRgb(rgb));
     const paint = `rgb(${softened})`;
     const root = document.querySelector<HTMLElement>('[data-tv-details="1"]');
     root?.style.setProperty('--tv-details-surface', softened);
@@ -1380,7 +1382,11 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         if (!posterSampleUrl && !url) return undefined;
         let cancelled = false;
         let framed = false;
-        applyTvDetailsSurface(isTvShell ? TV_FLOOR_RGB : DEFAULT_BACKDROP_SURFACE_RGB);
+        // Movie / show pages only: season and episode pages swap backdrops per episode.
+        const tvTint = isTvShell
+            && settings.detailsArtworkTint
+            && (item.type === 'movie' || item.type === 'show');
+        applyTvDetailsSurface(isTvShell ? TV_FLOOR_RGB : DEFAULT_BACKDROP_SURFACE_RGB, tvTint);
         const artUrl = url;
         const frameArt = (position: string) => {
             if (cancelled || framed) return;
@@ -1399,16 +1405,17 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                 : undefined;
             const fromArt = await sampleBackdropSurfaceColor(sampleUrl, frame);
             if (!cancelled && fromArt) {
-                applyTvDetailsSurface(fromArt);
+                applyTvDetailsSurface(fromArt, tvTint);
                 return;
             }
             if (posterSampleUrl) {
                 const fromPoster = await samplePosterSurfaceColor(posterSampleUrl);
-                if (!cancelled && fromPoster) applyTvDetailsSurface(fromPoster);
+                if (!cancelled && fromPoster) applyTvDetailsSurface(fromPoster, tvTint);
             }
         };
         const sampleWhenFramed = (position: string) => {
-            if (isTvShell) return;
+            // TV with the artwork tint off stays on the black floor: nothing to sample.
+            if (isTvShell && !tvTint) return;
             let tries = 16;
             const tick = () => {
                 if (cancelled) return;
@@ -1446,7 +1453,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             cancelled = true;
             window.clearTimeout(timer);
         };
-    }, [isTvShell, item?.ratingKey, item?.art, item?.thumb]);
+    }, [isTvShell, item?.ratingKey, item?.type, item?.art, item?.thumb, settings.detailsArtworkTint]);
 
     useEffect(() => () => {
         clearTvDetailsSurface();

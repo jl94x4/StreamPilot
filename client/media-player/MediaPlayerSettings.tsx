@@ -980,6 +980,12 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         checked={settings.reduceMotion}
                         onChange={(checked) => updateSettings({ reduceMotion: checked })}
                     />
+                    <TvToggleRow
+                        title={t('mediaPlayerPage.detailsArtworkTint')}
+                        description={t('mediaPlayerPage.detailsArtworkTintHint')}
+                        checked={settings.detailsArtworkTint}
+                        onChange={(checked) => updateSettings({ detailsArtworkTint: checked })}
+                    />
                     <TvChoiceRow
                         title={t('mediaPlayerPage.screensaverSource')}
                         description={t('mediaPlayerPage.screensaverSourceHint')}
