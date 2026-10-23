@@ -308,7 +308,9 @@ const TvReorderList: React.FC<{
     );
 };
 
-type SettingsTabId = 'home' | 'player' | 'titles' | 'servers' | 'connection';
+// TV uses its own grouping (playback / audio / display / screensaver / account).
+type SettingsTabId = 'home' | 'player' | 'titles' | 'servers' | 'connection'
+    | 'playback' | 'audio' | 'display' | 'screensaver' | 'account';
 
 const SettingsTabBar: React.FC<{
     tabs: Array<{ id: SettingsTabId; label: string }>;
@@ -559,7 +561,19 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
         value: format,
         label: formatPlayerDate('2026-10-21', locale, format),
     })), [locale]);
+    const tvAccountTab = showHomeAutoSignIn || servers.length > 1 || showConnectionTab;
     const settingsTabs = useMemo(() => {
+        if (tvShell) {
+            const tvRows: Array<{ id: SettingsTabId; label: string }> = [
+                { id: 'home', label: t('mediaPlayerPage.settingsTabHome') },
+                { id: 'playback', label: t('mediaPlayerPage.settingsTabPlayback') },
+                { id: 'audio', label: t('mediaPlayerPage.settingsTabAudioSubtitles') },
+                { id: 'display', label: t('mediaPlayerPage.settingsTabDisplay') },
+                { id: 'screensaver', label: t('mediaPlayerPage.settingsTabScreensaver') },
+            ];
+            if (tvAccountTab) tvRows.push({ id: 'account', label: t('mediaPlayerPage.settingsTabAccount') });
+            return tvRows;
+        }
         const rows: Array<{ id: SettingsTabId; label: string }> = [
             { id: 'home', label: t('mediaPlayerPage.settingsTabHome') },
             { id: 'player', label: t('mediaPlayerPage.settingsTabPlayer') },
@@ -568,12 +582,13 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
         if (servers.length > 1) rows.push({ id: 'servers', label: t('mediaPlayerPage.settingsTabServers') });
         if (showConnectionTab) rows.push({ id: 'connection', label: t('mediaPlayerPage.settingsTabConnection') });
         return rows;
-    }, [servers.length, showConnectionTab, t]);
+    }, [servers.length, showConnectionTab, t, tvAccountTab, tvShell]);
 
     useEffect(() => {
         if (settingsTab === 'servers' && servers.length < 2) setSettingsTab('home');
         if (settingsTab === 'connection' && !showConnectionTab) setSettingsTab('home');
-    }, [servers.length, settingsTab, showConnectionTab]);
+        if (settingsTab === 'account' && !tvAccountTab) setSettingsTab('home');
+    }, [servers.length, settingsTab, showConnectionTab, tvAccountTab]);
 
     const heroDirty = !!heroBaseline && (
         heroMode !== heroBaseline.mode
@@ -938,17 +953,6 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                 <div className="flex flex-col gap-3" data-tv-settings-panel="1">
                 {settingsTab === 'home' ? (
                 <section className="flex flex-col gap-3">
-                    {showHomeAutoSignIn ? (
-                        <TvToggleRow
-                            title={t('mediaPlayerPage.homeAutoSignIn')}
-                            description={t('mediaPlayerPage.homeAutoSignInHint')}
-                            checked={homeAutoSignIn}
-                            onChange={(checked) => {
-                                writeHomeAutoSignIn(checked);
-                                setHomeAutoSignIn(checked);
-                            }}
-                        />
-                    ) : null}
                     <TvToggleRow
                         title={t('mediaPlayerPage.showContinueWatching')}
                         description={t('mediaPlayerPage.showContinueWatchingHint')}
@@ -965,10 +969,10 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         })}
                     />
                     <TvToggleRow
-                        title={t('mediaPlayerPage.showPlaylists')}
-                        description={t('mediaPlayerPage.showPlaylistsHint')}
-                        checked={settings.showPlaylists}
-                        onChange={(checked) => updateSettings({ showPlaylists: checked })}
+                        title={t('mediaPlayerPage.continueWatchingSeasonPoster')}
+                        description={t('mediaPlayerPage.continueWatchingSeasonPosterHint')}
+                        checked={cwSeasonPoster}
+                        onChange={setCwSeasonPoster}
                     />
                     <TvToggleRow
                         title={t('mediaPlayerPage.showWatchlist')}
@@ -977,16 +981,16 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         onChange={(checked) => updateSettings({ showWatchlist: checked })}
                     />
                     <TvToggleRow
+                        title={t('mediaPlayerPage.showPlaylists')}
+                        description={t('mediaPlayerPage.showPlaylistsHint')}
+                        checked={settings.showPlaylists}
+                        onChange={(checked) => updateSettings({ showPlaylists: checked })}
+                    />
+                    <TvToggleRow
                         title={t('mediaPlayerPage.showBecauseYouWatched')}
                         description={t('mediaPlayerPage.showBecauseYouWatchedHint')}
                         checked={settings.showBecauseYouWatched}
                         onChange={(checked) => updateSettings({ showBecauseYouWatched: checked })}
-                    />
-                    <TvToggleRow
-                        title={t('mediaPlayerPage.clock24Hour')}
-                        description={t('mediaPlayerPage.clock24HourHint')}
-                        checked={settings.clock24Hour}
-                        onChange={(checked) => updateSettings({ clock24Hour: checked })}
                     />
                     <TvToggleRow
                         title={t('mediaPlayerPage.hideWatchedFromRecents')}
@@ -999,39 +1003,6 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         description={t('mediaPlayerPage.recentlyAddedSeasonPosterHint')}
                         checked={settings.recentlyAddedSeasonPoster}
                         onChange={(checked) => updateSettings({ recentlyAddedSeasonPoster: checked })}
-                    />
-                    <TvToggleRow
-                        title={t('mediaPlayerPage.reduceMotion')}
-                        description={t('mediaPlayerPage.reduceMotionHint')}
-                        checked={settings.reduceMotion}
-                        onChange={(checked) => updateSettings({ reduceMotion: checked })}
-                    />
-                    <TvToggleRow
-                        title={t('mediaPlayerPage.detailsArtworkTint')}
-                        description={t('mediaPlayerPage.detailsArtworkTintHint')}
-                        checked={settings.detailsArtworkTint}
-                        onChange={(checked) => updateSettings({ detailsArtworkTint: checked })}
-                    />
-                    <TvChoiceRow
-                        title={t('mediaPlayerPage.screensaverSource')}
-                        description={t('mediaPlayerPage.screensaverSourceHint')}
-                        value={settings.screensaverSource}
-                        options={screensaverSourceOptions}
-                        onChange={(value) => updateSettings({
-                            screensaverSource: value as PlayerScreensaverSource,
-                        })}
-                    />
-                    <TvToggleRow
-                        title={t('mediaPlayerPage.screensaverShiftClock')}
-                        description={t('mediaPlayerPage.screensaverShiftClockHint')}
-                        checked={settings.screensaverShiftClock}
-                        onChange={(checked) => updateSettings({ screensaverShiftClock: checked })}
-                    />
-                    <TvToggleRow
-                        title={t('mediaPlayerPage.continueWatchingSeasonPoster')}
-                        description={t('mediaPlayerPage.continueWatchingSeasonPosterHint')}
-                        checked={cwSeasonPoster}
-                        onChange={setCwSeasonPoster}
                     />
                     {orderedLibraries.length ? (
                         <TvReorderList
@@ -1049,7 +1020,7 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                 </section>
                 ) : null}
 
-                {settingsTab === 'player' ? (
+                {settingsTab === 'playback' ? (
                 <section className="flex flex-col gap-3">
                     <TvToggleRow
                         title={t('mediaPlayerPage.autoplayNext')}
@@ -1078,6 +1049,58 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         onChange={(value) => updateSettings({ defaultQualityId: value })}
                     />
                     <TvChoiceRow
+                        title={t('mediaPlayerPage.autoSkipIntro')}
+                        description={t('mediaPlayerPage.autoSkipIntroHint')}
+                        value={settings.skipIntroMode}
+                        options={[
+                            { value: 'off', label: t('mediaPlayerPage.skipMarkerOff') },
+                            { value: 'manual', label: t('mediaPlayerPage.skipMarkerManual') },
+                            { value: 'auto', label: t('mediaPlayerPage.skipMarkerAuto') },
+                        ]}
+                        onChange={(value) => updateSettings({
+                            skipIntroMode: value as typeof settings.skipIntroMode,
+                            autoSkipIntro: value === 'auto',
+                        })}
+                    />
+                    <TvChoiceRow
+                        title={t('mediaPlayerPage.autoSkipCredits')}
+                        description={t('mediaPlayerPage.autoSkipCreditsHint')}
+                        value={settings.skipCreditsMode}
+                        options={[
+                            { value: 'off', label: t('mediaPlayerPage.skipMarkerOff') },
+                            { value: 'manual', label: t('mediaPlayerPage.skipMarkerManual') },
+                            { value: 'auto', label: t('mediaPlayerPage.skipMarkerAuto') },
+                        ]}
+                        onChange={(value) => updateSettings({
+                            skipCreditsMode: value as typeof settings.skipCreditsMode,
+                            autoSkipCredits: value === 'auto',
+                        })}
+                    />
+                    <TvChoiceRow
+                        title={t('mediaPlayerPage.cinemaTrailers')}
+                        description={t('mediaPlayerPage.cinemaTrailersHint')}
+                        value={String(settings.cinemaTrailerCount || 0)}
+                        options={[0, 1, 2, 3, 4, 5].map((n) => ({
+                            value: String(n),
+                            label: n === 0 ? t('mediaPlayerPage.skipMarkerOff') : String(n),
+                        }))}
+                        onChange={(value) => {
+                            const n = Math.min(5, Math.max(0, Number(value) || 0));
+                            updateSettings({ cinemaTrailerCount: n, cinemaTrailers: n > 0 });
+                        }}
+                    />
+                    <TvToggleRow
+                        title={t('mediaPlayerPage.matchFrameRate')}
+                        description={t('mediaPlayerPage.matchFrameRateHint')}
+                        checked={settings.matchFrameRate}
+                        onChange={(checked) => updateSettings({ matchFrameRate: checked })}
+                    />
+                </section>
+                ) : null}
+
+                {settingsTab === 'audio' ? (
+                <section className="flex flex-col gap-3">
+                    <TvChoiceRow
                         title={t('mediaPlayerPage.audioLanguage')}
                         description={t('mediaPlayerPage.audioLanguageHint')}
                         value={settings.audioLanguage}
@@ -1086,6 +1109,18 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                             ...PLAYER_AUDIO_LANGUAGES.map((row) => ({ value: row.id, label: row.label })),
                         ]}
                         onChange={(value) => updateSettings({ audioLanguage: value })}
+                    />
+                    <TvToggleRow
+                        title={t('mediaPlayerPage.audioPassthrough')}
+                        description={t('mediaPlayerPage.audioPassthroughHint')}
+                        checked={settings.audioPassthrough}
+                        onChange={(checked) => updateSettings({ audioPassthrough: checked })}
+                    />
+                    <TvToggleRow
+                        title={t('mediaPlayerPage.nightMode')}
+                        description={t('mediaPlayerPage.nightModeHint')}
+                        checked={settings.nightMode}
+                        onChange={(checked) => updateSettings({ nightMode: checked })}
                     />
                     <TvChoiceRow
                         title={t('mediaPlayerPage.subtitleMode')}
@@ -1130,75 +1165,35 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         ]}
                         onChange={(value) => updateSettings({ subtitlePosition: value as typeof settings.subtitlePosition })}
                     />
-                    <TvToggleRow
-                        title={t('mediaPlayerPage.nightMode')}
-                        description={t('mediaPlayerPage.nightModeHint')}
-                        checked={settings.nightMode}
-                        onChange={(checked) => updateSettings({ nightMode: checked })}
-                    />
-                    <TvToggleRow
-                        title={t('mediaPlayerPage.matchFrameRate')}
-                        description={t('mediaPlayerPage.matchFrameRateHint')}
-                        checked={settings.matchFrameRate}
-                        onChange={(checked) => updateSettings({ matchFrameRate: checked })}
-                    />
-                    <TvToggleRow
-                        title={t('mediaPlayerPage.audioPassthrough')}
-                        description={t('mediaPlayerPage.audioPassthroughHint')}
-                        checked={settings.audioPassthrough}
-                        onChange={(checked) => updateSettings({ audioPassthrough: checked })}
-                    />
-                    <TvChoiceRow
-                        title={t('mediaPlayerPage.cinemaTrailers')}
-                        description={t('mediaPlayerPage.cinemaTrailersHint')}
-                        value={String(settings.cinemaTrailerCount || 0)}
-                        options={[0, 1, 2, 3, 4, 5].map((n) => ({
-                            value: String(n),
-                            label: n === 0 ? t('mediaPlayerPage.skipMarkerOff') : String(n),
-                        }))}
-                        onChange={(value) => {
-                            const n = Math.min(5, Math.max(0, Number(value) || 0));
-                            updateSettings({ cinemaTrailerCount: n, cinemaTrailers: n > 0 });
-                        }}
-                    />
-                    <TvChoiceRow
-                        title={t('mediaPlayerPage.autoSkipIntro')}
-                        description={t('mediaPlayerPage.autoSkipIntroHint')}
-                        value={settings.skipIntroMode}
-                        options={[
-                            { value: 'off', label: t('mediaPlayerPage.skipMarkerOff') },
-                            { value: 'manual', label: t('mediaPlayerPage.skipMarkerManual') },
-                            { value: 'auto', label: t('mediaPlayerPage.skipMarkerAuto') },
-                        ]}
-                        onChange={(value) => updateSettings({
-                            skipIntroMode: value as typeof settings.skipIntroMode,
-                            autoSkipIntro: value === 'auto',
-                        })}
-                    />
-                    <TvChoiceRow
-                        title={t('mediaPlayerPage.autoSkipCredits')}
-                        description={t('mediaPlayerPage.autoSkipCreditsHint')}
-                        value={settings.skipCreditsMode}
-                        options={[
-                            { value: 'off', label: t('mediaPlayerPage.skipMarkerOff') },
-                            { value: 'manual', label: t('mediaPlayerPage.skipMarkerManual') },
-                            { value: 'auto', label: t('mediaPlayerPage.skipMarkerAuto') },
-                        ]}
-                        onChange={(value) => updateSettings({
-                            skipCreditsMode: value as typeof settings.skipCreditsMode,
-                            autoSkipCredits: value === 'auto',
-                        })}
-                    />
                 </section>
                 ) : null}
 
-                {settingsTab === 'titles' ? (
+                {settingsTab === 'display' ? (
                 <section className="flex flex-col gap-3">
                     <TvToggleRow
-                        title={t('mediaPlayerPage.playThemeTunes')}
-                        description={t('mediaPlayerPage.playThemeTunesHint')}
-                        checked={settings.playThemeTunes}
-                        onChange={(checked) => updateSettings({ playThemeTunes: checked })}
+                        title={t('mediaPlayerPage.reduceMotion')}
+                        description={t('mediaPlayerPage.reduceMotionHint')}
+                        checked={settings.reduceMotion}
+                        onChange={(checked) => updateSettings({ reduceMotion: checked })}
+                    />
+                    <TvToggleRow
+                        title={t('mediaPlayerPage.detailsArtworkTint')}
+                        description={t('mediaPlayerPage.detailsArtworkTintHint')}
+                        checked={settings.detailsArtworkTint}
+                        onChange={(checked) => updateSettings({ detailsArtworkTint: checked })}
+                    />
+                    <TvToggleRow
+                        title={t('mediaPlayerPage.clock24Hour')}
+                        description={t('mediaPlayerPage.clock24HourHint')}
+                        checked={settings.clock24Hour}
+                        onChange={(checked) => updateSettings({ clock24Hour: checked })}
+                    />
+                    <TvChoiceRow
+                        title={t('mediaPlayerPage.dateFormat')}
+                        description={t('mediaPlayerPage.dateFormatHint')}
+                        value={settings.dateFormat}
+                        options={dateFormatOptions}
+                        onChange={(value) => updateSettings({ dateFormat: value as PlayerDateFormat })}
                     />
                     <TvToggleRow
                         title={t('mediaPlayerPage.showServiceBrandLogos')}
@@ -1218,12 +1213,6 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         checked={settings.showEpisodeFilePills}
                         onChange={(checked) => updateSettings({ showEpisodeFilePills: checked })}
                     />
-                    <TvToggleRow
-                        title={t('mediaPlayerPage.skipSingleSeason')}
-                        description={t('mediaPlayerPage.skipSingleSeasonHint')}
-                        checked={settings.skipSingleSeason}
-                        onChange={(checked) => updateSettings({ skipSingleSeason: checked })}
-                    />
                     <TvChoiceRow
                         title={t('mediaPlayerPage.watchedTickPosition')}
                         description={t('mediaPlayerPage.watchedTickPositionHint')}
@@ -1238,18 +1227,58 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                             watchedTickPosition: value as typeof settings.watchedTickPosition,
                         })}
                     />
-                    <TvChoiceRow
-                        title={t('mediaPlayerPage.dateFormat')}
-                        description={t('mediaPlayerPage.dateFormatHint')}
-                        value={settings.dateFormat}
-                        options={dateFormatOptions}
-                        onChange={(value) => updateSettings({ dateFormat: value as PlayerDateFormat })}
+                    <TvToggleRow
+                        title={t('mediaPlayerPage.playThemeTunes')}
+                        description={t('mediaPlayerPage.playThemeTunesHint')}
+                        checked={settings.playThemeTunes}
+                        onChange={(checked) => updateSettings({ playThemeTunes: checked })}
+                    />
+                    <TvToggleRow
+                        title={t('mediaPlayerPage.skipSingleSeason')}
+                        description={t('mediaPlayerPage.skipSingleSeasonHint')}
+                        checked={settings.skipSingleSeason}
+                        onChange={(checked) => updateSettings({ skipSingleSeason: checked })}
                     />
                 </section>
                 ) : null}
 
-                {settingsTab === 'servers' ? serverSettings : null}
-                {settingsTab === 'connection' ? connectionSettings : null}
+                {settingsTab === 'screensaver' ? (
+                <section className="flex flex-col gap-3">
+                    <TvChoiceRow
+                        title={t('mediaPlayerPage.screensaverSource')}
+                        description={t('mediaPlayerPage.screensaverSourceHint')}
+                        value={settings.screensaverSource}
+                        options={screensaverSourceOptions}
+                        onChange={(value) => updateSettings({
+                            screensaverSource: value as PlayerScreensaverSource,
+                        })}
+                    />
+                    <TvToggleRow
+                        title={t('mediaPlayerPage.screensaverShiftClock')}
+                        description={t('mediaPlayerPage.screensaverShiftClockHint')}
+                        checked={settings.screensaverShiftClock}
+                        onChange={(checked) => updateSettings({ screensaverShiftClock: checked })}
+                    />
+                </section>
+                ) : null}
+
+                {settingsTab === 'account' ? (
+                <section className="flex flex-col gap-3">
+                    {showHomeAutoSignIn ? (
+                        <TvToggleRow
+                            title={t('mediaPlayerPage.homeAutoSignIn')}
+                            description={t('mediaPlayerPage.homeAutoSignInHint')}
+                            checked={homeAutoSignIn}
+                            onChange={(checked) => {
+                                writeHomeAutoSignIn(checked);
+                                setHomeAutoSignIn(checked);
+                            }}
+                        />
+                    ) : null}
+                    {servers.length > 1 ? serverSettings : null}
+                    {showConnectionTab ? connectionSettings : null}
+                </section>
+                ) : null}
                 </div>
                 {saveActions}
                 {versionLabel}
