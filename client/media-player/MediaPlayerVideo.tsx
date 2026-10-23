@@ -1018,14 +1018,14 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                 const queued = playNextQueueRef.current[0];
                 const neighbor = nextItemRef.current;
                 const previous = previousItemRef.current;
-                // Only chain when native explicitly asked. A blind JS fallback
-                // kept the black cover up after movies / last episodes with no next.
-                // The episode object can still be missing — fetch it, don't drop.
+                // Chain when native asked. If the native side says playNext but
+                // didn't have the ratingKey (session update arrived too late),
+                // fall back to the JS-side queue or neighbor.
+                const nativeNextKey = result?.nextRatingKey ? String(result.nextRatingKey) : '';
+                const jsNextKey = queued?.ratingKey || neighbor?.ratingKey || '';
                 const nextKey = (
-                    !result?.error
-                    && result?.playNext
-                    && result.nextRatingKey
-                ) ? String(result.nextRatingKey) : '';
+                    !result?.error && result?.playNext
+                ) ? (nativeNextKey || jsNextKey) : '';
                 const previousKey = (
                     !result?.error
                     && !nextKey

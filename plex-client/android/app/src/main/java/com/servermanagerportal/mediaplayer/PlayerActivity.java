@@ -4811,9 +4811,16 @@ public class PlayerActivity extends AppCompatActivity {
             pingPlexTimeline("stopped");
         }
 
-        // Do not detach PlayerView here. Clearing the surface while this activity
-        // is still foreground flashes a black frame on TV before the overview
-        // returns. onDestroy detaches/releases the player.
+        // Hide the surface immediately so the WebView behind is visible while
+        // Android tears this activity down — otherwise the user sees a lingering
+        // black screen for up to a second on TV.
+        PlayerView playerView = findViewById(R.id.player_view);
+        if (playerView != null) playerView.setVisibility(View.GONE);
+        View root = findViewById(android.R.id.content);
+        if (root != null) root.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+        try {
+            getWindow().getDecorView().setBackgroundColor(android.graphics.Color.TRANSPARENT);
+        } catch (Throwable ignored) { /* ignore */ }
 
         Intent data = new Intent();
         data.putExtra(EXTRA_ENDED, endedOut);
