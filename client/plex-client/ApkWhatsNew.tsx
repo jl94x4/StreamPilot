@@ -73,6 +73,62 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.335': [
+        {
+            title: 'Playback',
+            items: [
+                'ASS and other in-file text subtitles show on Direct Play again, on the exact track you picked',
+                'OpenSubtitles results show the file name, and picking one downloads it and plays it',
+                'Subtitles use the same regular-weight font as Plex',
+                'Subtitle size now goes down to 50%',
+                'The airdate (or a movie\'s year) shows on its own line under the title in the player',
+                'Up Next and Skip Intro / Skip Credits match the player settings style',
+                'Moving to the next episode updates the details under the title',
+            ],
+        },
+        {
+            title: 'TV',
+            items: [
+                'Settings reorganised into Home, Playback, Audio & Subtitles, Display, Screensaver and Account',
+                'New "Sign me in automatically" (Settings → Account) skips the PIN when the app opens',
+                'Episode pages show the selected audio (e.g. English EAC3 5.1) and subtitles next to the file info',
+                'Season tabs and the clock use a lighter, Plex-style font',
+                'The long-press menu scrolls as you move down it',
+                'Slightly bigger cast photos',
+            ],
+        },
+        {
+            title: 'Dates & rows',
+            items: [
+                'Dates use the full month, e.g. October 21, 2026',
+                'New Date format setting with 9 styles, including 21st October 2026',
+                'Episode cards show their airdate, and upcoming dates are orange',
+                'New Row marker setting: 10 shapes before row titles, including the classic bar, or none',
+            ],
+        },
+        {
+            title: 'Sign-in',
+            items: [
+                'Phones sign in with one tap on Plex\'s own page, with no code to type',
+                'A wrong Plex Home PIN now says so and clears the entry',
+                'No more entering your PIN twice on first sign-in',
+            ],
+        },
+        {
+            title: 'Phone',
+            items: [
+                'Home layout fixed: the top bar no longer shows content behind it, and rows don\'t scroll up and down',
+                'Rows below Continue Watching load reliably on slower connections, and the hero loads faster',
+                'Pull down on Home to refresh',
+            ],
+        },
+        {
+            title: 'Speed',
+            items: [
+                'Seasons open faster',
+            ],
+        },
+    ],
     '1.0.310': [
         {
             title: 'Home',
