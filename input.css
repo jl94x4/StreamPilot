@@ -3211,13 +3211,10 @@ html[data-tv="1"] .player-row-header {
   padding-left: 0;
 }
 html[data-tv="1"] .player-row-header-mark {
-  position: absolute;
-  left: -0.55rem;
-  top: 50%;
   display: inline-block !important;
   width: 1.15em;
   height: 1.15em;
-  transform: translateY(-50%);
+  flex-shrink: 0;
   fill: #f59e0b;
   filter: drop-shadow(0 0 6px rgba(245, 158, 11, 0.5));
 }
