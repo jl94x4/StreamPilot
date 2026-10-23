@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Loader2 } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import {
     Carousel,
     CustomSelect,
@@ -7,6 +7,7 @@ import {
     DiscoverSectionHeader,
     DiscoveryLogo,
     discoveryTheme,
+    PlayerHomeRowSkeleton,
     PosterGridSkeleton,
     homeRailPosterDensity,
     posterGridScaleRem,
@@ -1528,9 +1529,10 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
             ) : null}
 
             {loading && tab === 'home' && !homeHubs.length ? (
-                <div className="flex min-h-[40vh] w-full flex-col items-center justify-center gap-3">
-                    <Loader2 className="h-10 w-10 animate-spin text-white/70" aria-hidden />
-                    <p className="text-sm font-semibold text-muted">{t('mediaPlayerPage.loading')}</p>
+                <div className="flex w-full flex-col gap-6 py-2">
+                    <PlayerHomeRowSkeleton />
+                    <PlayerHomeRowSkeleton />
+                    <PlayerHomeRowSkeleton />
                 </div>
             ) : loading && tab === 'collections' && !collections.length && !tvShell ? (
                 <PosterGridSkeleton
@@ -1539,9 +1541,9 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                 />
             ) : loading && tab === 'studios' && !studioNetworks.length && !studioStudios.length ? (
                 tvShell ? (
-                    <div className="flex min-h-[40vh] w-full flex-col items-center justify-center gap-3">
-                        <Loader2 className="h-10 w-10 animate-spin text-white/70" aria-hidden />
-                        <p className="text-sm font-semibold text-muted">{t('mediaPlayerPage.loading')}</p>
+                    <div className="flex w-full flex-col gap-6 py-2">
+                        <PlayerHomeRowSkeleton />
+                        <PlayerHomeRowSkeleton />
                     </div>
                 ) : (
                     <div className="flex flex-col gap-8">

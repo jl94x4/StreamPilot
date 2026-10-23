@@ -20,6 +20,7 @@ export {
     DiscoverHomeSkeleton,
     DiscoverHomeRowSkeleton,
     PlayerHomeHeroSkeleton,
+    PlayerHomeRowSkeleton,
     PlayerHomeSkeleton,
     PlayerTvHomeStageSkeleton,
     PosterGridSkeleton,
