@@ -9,7 +9,7 @@ import { PlayerTvRowStack } from './PlayerRail';
 import type { ViewMoreShelfSource } from './PlayerViewMoreCard';
 import { readPlayerItemCache } from './playerMemory';
 import { itemHasBillboardBrandMeta } from './studioLogo.js';
-import { formatPlayerDate, formatPlayerDuration, isPlayerBackdropReady, pickRicherSummary, pinTvNeighborBackdrops, playerItemBackdropUrl, plexBackdropUrl, plexLogoUrl, prefetchHomeRowPosters, primeNearbyTvBillboard, warmPlayerBackdrop } from './playerUtils';
+import { formatPlayerDate, formatPlayerDuration, isFuturePlayerDate, isPlayerBackdropReady, pickRicherSummary, pinTvNeighborBackdrops, playerItemBackdropUrl, plexBackdropUrl, plexLogoUrl, prefetchHomeRowPosters, primeNearbyTvBillboard, warmPlayerBackdrop } from './playerUtils';
 import { PlayerTvStatusPanel } from './PlayerTvStatusPanel';
 import type { PlayerItem, PlayerPlayOptions } from './types';
 
@@ -198,6 +198,7 @@ export const PlayerTvSpot: React.FC<{ item: PlayerItem | null }> = ({ item }) =>
         : '';
     const epLine = [epCode, episodeTitle].filter(Boolean).join(' · ');
     const date = formatPlayerDate(item.originallyAvailableAt);
+    const dateIsFuture = isFuturePlayerDate(item.originallyAvailableAt);
     const duration = formatPlayerDuration(item.durationMs);
     const rating = String(item.contentRating || '').trim();
     const year = item.type === 'episode' ? '' : (item.year ? String(item.year) : '');
@@ -231,7 +232,7 @@ export const PlayerTvSpot: React.FC<{ item: PlayerItem | null }> = ({ item }) =>
                             </span>
                         ) : null}
                         {meta.map((part) => (
-                            <span key={part}>{part}</span>
+                            <span key={part} className={dateIsFuture && part === date ? 'text-plex' : undefined}>{part}</span>
                         ))}
                     </p>
                 ) : null}

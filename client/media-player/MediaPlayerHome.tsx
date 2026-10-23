@@ -73,7 +73,7 @@ import { PlayerServiceBrandMark } from './PlayerServiceBrandMark';
 import { PlayerTvScreensaver } from './PlayerTvScreensaver';
 import { PlayerTvSearch, PlayerTvSearchRecents } from './PlayerTvSearch';
 import { itemHasBillboardBrandMeta } from './studioLogo.js';
-import { applyRememberedProgress, asRecentlyAddedPlayerItem, formatPlayerDate, formatPlayerDuration, heroRowCardItem, hideWatchedPlayerItems, isMusicPlayerItem, isPlayerBackdropReady, keepContinueWatchingPoster, mapContinueWatchingItemsForLayout, pickRicherSummary, pinTvNeighborBackdrops, playerItemBackdropUrl, plexBackdropUrl, plexLogoUrl, PLAYER_PROGRESS_EVENT, prefetchContinueWatchingImages, prefetchHomeRowPosters, primeNearbyTvBillboard, replaceFamilyContinueSlot, restoreContinueSlot, stampFamilyLastViewed, warmPlayerBackdrop, watchTargetTouches, withShowPoster } from './playerUtils';
+import { applyRememberedProgress, asRecentlyAddedPlayerItem, formatPlayerDate, formatPlayerDuration, isFuturePlayerDate, heroRowCardItem, hideWatchedPlayerItems, isMusicPlayerItem, isPlayerBackdropReady, keepContinueWatchingPoster, mapContinueWatchingItemsForLayout, pickRicherSummary, pinTvNeighborBackdrops, playerItemBackdropUrl, plexBackdropUrl, plexLogoUrl, PLAYER_PROGRESS_EVENT, prefetchContinueWatchingImages, prefetchHomeRowPosters, primeNearbyTvBillboard, replaceFamilyContinueSlot, restoreContinueSlot, stampFamilyLastViewed, warmPlayerBackdrop, watchTargetTouches, withShowPoster } from './playerUtils';
 import { usePlayerSettings } from './usePlayerSettings';
 import type { PlayerHome, PlayerItem, PlayerLibraryHub, PlayerPlayOptions, PlayerSection } from './types';
 
@@ -269,6 +269,7 @@ const HomeSpotBody: React.FC<{ item: PlayerItem }> = ({ item }) => {
         : '';
     const epLine = [epCode, episodeTitle].filter(Boolean).join(' · ');
     const date = formatPlayerDate(item.originallyAvailableAt);
+    const dateIsFuture = isFuturePlayerDate(item.originallyAvailableAt);
     const duration = formatPlayerDuration(item.durationMs);
     const rating = String(item.contentRating || '').trim();
     const year = item.type === 'episode' ? '' : (item.year ? String(item.year) : '');
@@ -302,7 +303,7 @@ const HomeSpotBody: React.FC<{ item: PlayerItem }> = ({ item }) => {
                         </span>
                     ) : null}
                     {meta.map((part) => (
-                        <span key={part}>{part}</span>
+                        <span key={part} className={dateIsFuture && part === date ? 'text-plex' : undefined}>{part}</span>
                     ))}
                 </p>
             ) : null}

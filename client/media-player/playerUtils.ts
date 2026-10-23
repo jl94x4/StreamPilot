@@ -1054,6 +1054,16 @@ const parsePlayerDate = (value: string | number) => {
     return new Date(raw);
 };
 
+/** True when the date falls after today (an episode that hasn't aired yet). */
+export const isFuturePlayerDate = (value?: string | number | null) => {
+    if (value == null || value === '') return false;
+    const date = parsePlayerDate(value);
+    if (Number.isNaN(date.getTime())) return false;
+    const endOfToday = new Date();
+    endOfToday.setHours(23, 59, 59, 999);
+    return date.getTime() > endOfToday.getTime();
+};
+
 /** Dates in the user's Settings → Titles → Date format (full month by default). */
 export const formatPlayerDate = (
     value?: string | number | null,

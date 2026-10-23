@@ -45,6 +45,7 @@ import {
     formatPlayerDate,
     formatPlayerDuration,
     formatPlayerResolution,
+    isFuturePlayerDate,
     playerHdrBadgeTitle,
     remainingWatchMs,
     type FileInfoPill,
@@ -110,6 +111,25 @@ const softenSurfaceRgb = (rgb: string, cap = 86, sat = 0.48) => {
     const channel = (value: number) => Math.round(Math.min(255, Math.max(0, value)));
     return `${channel(r)} ${channel(g)} ${channel(b)}`;
 };
+
+/** Airdate text, orange when the episode hasn't aired yet. */
+const airdateNode = (value: string | number | null | undefined, locale: string) => {
+    const text = formatPlayerDate(value, locale);
+    if (!text) return null;
+    return isFuturePlayerDate(value)
+        ? <span key="airdate" className="text-plex">{text}</span>
+        : text;
+};
+
+/** Join meta bits (strings or nodes) with a separator, dropping empty ones. */
+const joinMeta = (parts: React.ReactNode[], separator: string) => parts
+    .filter((part) => part !== null && part !== undefined && part !== false && part !== '')
+    .map((part, index) => (
+        <React.Fragment key={index}>
+            {index ? separator : null}
+            {part}
+        </React.Fragment>
+    ));
 
 const isPhoneDetailsUi = () => {
     try {
@@ -263,7 +283,7 @@ const PhoneEpisodeList: React.FC<{
         <div className="flex flex-col gap-3.5">
             {rows.map((raw) => {
                 const row = applyRememberedProgress(raw);
-                const aired = formatPlayerDate(row.originallyAvailableAt, locale);
+                const aired = airdateNode(row.originallyAvailableAt, locale);
                 const code = row.index != null ? `E${row.index}` : '';
                 const action = shouldOfferResume(row) ? resumeLabel : playLabel;
                 return (
@@ -2012,13 +2032,13 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         : item.title;
     const phoneShowClickable = preplayUi && (item.type === 'episode' || item.type === 'season') && !!showKey;
     const phoneSeasonClickable = preplayUi && item.type === 'episode' && !!seasonKey;
-    const phoneBillboardMeta = preplayUi ? [
+    const phoneBillboardMeta = preplayUi ? joinMeta([
         item.type === 'episode' && item.index != null ? `E${item.index}` : '',
-        item.type === 'episode' ? formatPlayerDate(item.originallyAvailableAt, locale) : String(item.year || ''),
+        item.type === 'episode' ? airdateNode(item.originallyAvailableAt, locale) : String(item.year || ''),
         formatPlayerDuration(item.durationMs),
         item.type !== 'episode' ? genres.slice(0, 3).join(', ') : '',
         item.contentRating ? String(item.contentRating) : '',
-    ].filter(Boolean).join('  ·  ') : '';
+    ], '  ·  ') : [];
     const phonePosterPath = item.type === 'episode' && item.grandparentRatingKey
         ? `/library/metadata/${item.grandparentRatingKey}/thumb`
         : item.type === 'season' && item.parentRatingKey
@@ -2089,11 +2109,11 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                         <p className="media-details-episode-heading">{hubItem.title}</p>
                         {hubItem.type === 'episode' ? (
                             <p className="media-details-billboard-line mt-1.5 max-w-[22rem] text-center text-[12px] font-semibold tracking-wide text-white/75 drop-shadow-[0_4px_12px_rgba(0,0,0,0.7)]">
-                                {[
+                                {joinMeta([
                                     formatEpisodeCode(hubItem) || (hubItem.index != null ? `E${hubItem.index}` : ''),
-                                    formatPlayerDate(hubItem.originallyAvailableAt, locale),
+                                    airdateNode(hubItem.originallyAvailableAt, locale),
                                     formatPlayerDuration(hubItem.durationMs),
-                                ].filter(Boolean).join('  •  ')}
+                                ], '  •  ')}
                             </p>
                         ) : null}
                         {hubSummary ? (
@@ -2114,7 +2134,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                     <p className="mt-1 text-[1.05rem] font-bold text-white/90">{item.title}</p>
                 )
             ) : null}
-            {!isTvShell && phoneBillboardMeta ? (
+            {!isTvShell && phoneBillboardMeta.length ? (
                 <p className="media-details-billboard-line mt-1.5 max-w-[22rem] text-center text-[12px] font-semibold tracking-wide text-white/75 drop-shadow-[0_4px_12px_rgba(0,0,0,0.7)]">
                     {phoneBillboardMeta}
                 </p>
@@ -3043,11 +3063,11 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                     {(row.index != null || row.durationMs || row.originallyAvailableAt) ? (
                                         // Wraps instead of truncating, so a full date in any format is never cut off.
                                         <div className="player-episode-meta mt-0.5 text-sm font-bold leading-snug text-text">
-                                            {[
+                                            {joinMeta([
                                                 row.index != null ? `Episode ${row.index}` : '',
                                                 row.durationMs ? formatPlayerDuration(row.durationMs) : '',
-                                                formatPlayerDate(row.originallyAvailableAt, locale),
-                                            ].filter(Boolean).join(' · ')}
+                                                airdateNode(row.originallyAvailableAt, locale),
+                                            ], ' · ')}
                                         </div>
                                     ) : null}
                                     {filePills.length ? (
