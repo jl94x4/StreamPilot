@@ -177,7 +177,7 @@
                 android:ellipsize="end"
                 android:gravity="center_horizontal"
                 android:maxWidth="468dp"
-                android:maxLines="1"
+                android:maxLines="3"
                 android:shadowColor="#80000000"
                 android:shadowRadius="4"
                 android:textAlignment="center"

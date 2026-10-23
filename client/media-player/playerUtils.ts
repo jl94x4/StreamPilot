@@ -718,12 +718,14 @@ export const formatNativePlayerMeta = (item?: PlayerItem | null) => {
     }
     const runtime = formatPlayerDurationLong(item.durationMs);
     if (runtime) parts.push(runtime);
-    // Episodes show the airdate (as Details does), movies the year — both beside the runtime.
+    // Episodes show the airdate (as Details does), movies the year — on their own line
+    // (player_meta allows up to three, so a long title line can wrap).
     const when = item.type === 'episode'
         ? formatPlayerDate(item.originallyAvailableAt)
         : (item.type === 'movie' ? String(item.year || '').trim() : '');
-    if (when) parts.push(when);
-    return parts.join(' · ');
+    const line = parts.join(' · ');
+    if (!when) return line;
+    return line ? `${line}\n${when}` : when;
 };
 
 /** Continue Watching overlay — “42 min left”. */
