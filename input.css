@@ -963,12 +963,12 @@ html[data-phone="1"] .media-details-hero {
     display: none !important;
   }
   html[data-phone="1"] .media-details-page [data-tv-cast="1"] {
-    width: 6.85rem;
+    width: 7.5rem;
     gap: 0.28rem;
   }
   html[data-phone="1"] .media-details-page [data-tv-cast-avatar="1"] {
-    width: 6.85rem;
-    height: 6.85rem;
+    width: 7.5rem;
+    height: 7.5rem;
   }
   html[data-phone="1"] .media-details-page [data-tv-cast="1"] .text-sm {
     font-size: 0.65rem;
@@ -2856,7 +2856,7 @@ html[data-tv="1"] .media-details-episode-cast-person {
   display: flex;
   flex-direction: column;
   align-items: center;
-  width: 8.15rem;
+  width: 8.9rem;
   gap: 0.4rem;
   padding: 0.2rem;
   border: 0;
@@ -2865,8 +2865,8 @@ html[data-tv="1"] .media-details-episode-cast-person {
   outline: none;
 }
 html[data-tv="1"] .media-details-episode-cast-person [data-tv-cast-avatar="1"] {
-  width: 7.65rem;
-  height: 7.65rem;
+  width: 8.4rem;
+  height: 8.4rem;
   border-width: 2px;
 }
 html[data-tv="1"] .media-details-episode-cast-name {

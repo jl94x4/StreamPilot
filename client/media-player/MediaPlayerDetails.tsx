@@ -251,7 +251,7 @@ const CastAvatar: React.FC<{ name: string; thumb?: string | null }> = ({ name, t
     return (
         <div
             data-tv-cast-avatar="1"
-            className="relative w-36 h-36 rounded-full bg-white/5 border-2 border-border overflow-hidden transition-transform group-hover:scale-[1.03] group-hover:border-plex"
+            className="relative w-40 h-40 rounded-full bg-white/5 border-2 border-border overflow-hidden transition-transform group-hover:scale-[1.03] group-hover:border-plex"
         >
             {src ? (
                 <img
@@ -3146,7 +3146,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                         name: actor.name,
                                         thumb: actor.thumb,
                                     })}
-                                    className="group flex flex-col items-center gap-3 w-40 flex-shrink-0 snap-start text-center outline-none"
+                                    className="group flex flex-col items-center gap-3 w-44 flex-shrink-0 snap-start text-center outline-none"
                                 >
                                     <CastAvatar name={actor.name} thumb={actor.thumb} />
                                     <div className="w-full px-1">
@@ -3176,7 +3176,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                         name: actor.name,
                                         thumb: actor.thumb,
                                     })}
-                                    className="group flex flex-col items-center gap-3 w-40 flex-shrink-0 snap-start text-center outline-none"
+                                    className="group flex flex-col items-center gap-3 w-44 flex-shrink-0 snap-start text-center outline-none"
                                 >
                                     <CastAvatar name={actor.name} thumb={actor.thumb} />
                                     <div className="w-full px-1">
