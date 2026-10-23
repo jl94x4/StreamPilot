@@ -11,6 +11,7 @@ import {
     writePersistedTvFocus,
 } from '../media-player/playerMemory';
 import { requestBrowseFocusAbs } from '../media-player/playerUtils';
+import { TV_SCREENSAVER_DISMISS_EVENT } from '../media-player/PlayerTvScreensaver';
 import { showNativePlayer } from './nativePlayer';
 import {
     browseGridMove,
@@ -1804,8 +1805,19 @@ const visibleLibraryTab = (): HTMLElement | null => {
 /** Browse: Up from the top poster / letter row should reach Recommended/Browse/Collections. */
 const libraryTabForFocus = (): HTMLElement | null => visibleLibraryTab();
 
+/** A Back this soon after the screensaver closed is the same press arriving twice. */
+const SCREENSAVER_BACK_GRACE_MS = 600;
+
 const handleTvBack = (): boolean => {
     const now = Date.now();
+    // Back only wakes the screensaver; the page you were on stays as it was.
+    if (document.querySelector('[data-tv-screensaver="1"]')) {
+        tvBackLockUntil = now + TV_BACK_DEBOUNCE_MS;
+        window.dispatchEvent(new Event(TV_SCREENSAVER_DISMISS_EVENT));
+        return true;
+    }
+    const closedAt = Number(document.documentElement?.dataset?.tvScreensaverClosedAt || 0);
+    if (closedAt && now - closedAt < SCREENSAVER_BACK_GRACE_MS) return true;
     if (now < tvBackLockUntil) return true;
     tvBackLockUntil = now + TV_BACK_DEBOUNCE_MS;
 
@@ -2187,6 +2199,11 @@ export const useTvRemote = (enabled = true) => {
         );
 
         const onKeyDown = (event: KeyboardEvent) => {
+            // A key while the screensaver is up only wakes it (PlayerTvScreensaver closes it).
+            if (document.querySelector('[data-tv-screensaver="1"]')) {
+                event.preventDefault();
+                return;
+            }
             const editable = isEditableTarget(event.target);
             const auth = isAuthScreen();
 
@@ -2554,6 +2571,13 @@ export const useTvRemote = (enabled = true) => {
         };
 
         const onKeyUp = (event: KeyboardEvent) => {
+            // The release of the key that woke the screensaver must not press the focused item.
+            const closedAt = Number(document.documentElement?.dataset?.tvScreensaverClosedAt || 0);
+            if (document.querySelector('[data-tv-screensaver="1"]')
+                || (closedAt && Date.now() - closedAt < SCREENSAVER_BACK_GRACE_MS)) {
+                event.preventDefault();
+                return;
+            }
             const released = dirOfKey(event.key);
             if (released && released === browseHoldDir) stopBrowseHold();
             if (released && released === episodeHoldDir) stopEpisodeHold();

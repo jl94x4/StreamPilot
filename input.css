@@ -3295,6 +3295,7 @@ html[data-tv="1"] .player-tv-clock {
 /* Options sheet sits under the clock corner — tuck it away while the menu is open. */
 html[data-tv="1"]:has([data-tv-item-menu="1"]) .player-tv-clock,
 html[data-tv="1"]:has([data-tv-context-sheet="1"]) .player-tv-clock,
+html[data-tv="1"]:has([data-tv-screensaver="1"]) .player-desktop-nav,
 html[data-tv="1"]:has([data-tv-screensaver="1"]) .player-tv-clock {
   display: none !important;
 }

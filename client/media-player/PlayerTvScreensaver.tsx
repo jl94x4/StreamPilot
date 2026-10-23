@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { fetchMediaPlayerScreensaver, fetchMediaPlayerWatchlist } from './api';
 import { buildPlayDeck } from './screensaverDeck.js';
 import { plexLogoUrl, plexScreensaverBackdropUrl } from './playerUtils';
@@ -90,6 +91,9 @@ type Props = {
     shiftClock?: boolean;
 };
 
+/** useTvRemote fires this when the native Back arrives while the screensaver is up. */
+export const TV_SCREENSAVER_DISMISS_EVENT = 'smp-tv-screensaver-dismiss';
+
 /**
  * TV Home idle ambient: cycles art from the chosen screensaver pool with a large
  * bottom-left clock. Any remote key / pointer dismisses and resets the idle timer.
@@ -170,6 +174,8 @@ export const PlayerTvScreensaver: React.FC<Props> = ({
     slidesRef.current = slides;
 
     const [active, setActive] = useState(false);
+    const activeRef = useRef(false);
+    activeRef.current = active;
     const [clock, setClock] = useState(() => formatClock(new Date()));
     const [frame, setFrame] = useState<{
         current: Slide;
@@ -227,14 +233,50 @@ export const PlayerTvScreensaver: React.FC<Props> = ({
             armIdle();
         };
 
+        // Native Back can follow the WebView keydown; useTvRemote treats a Back this
+        // soon after closing as part of the same press (see SCREENSAVER_BACK_GRACE_MS).
+        const markClosed = () => {
+            try {
+                document.documentElement.dataset.tvScreensaverClosedAt = String(Date.now());
+            } catch {
+                /* ignore */
+            }
+        };
+
+        // Any key leaves the screensaver, but only closes it: the press (Back, Select, arrows)
+        // must not also navigate or press whatever was focused on the page underneath.
+        let swallowKeyUp = '';
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (cancelled || document.visibilityState === 'hidden') return;
+            if (activeRef.current) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                swallowKeyUp = event.key || String(event.keyCode);
+                markClosed();
+            }
+            dismiss();
+        };
+        const onKeyUp = (event: KeyboardEvent) => {
+            if (!swallowKeyUp || (event.key || String(event.keyCode)) !== swallowKeyUp) return;
+            swallowKeyUp = '';
+            event.preventDefault();
+            event.stopImmediatePropagation();
+        };
         const onActivity = () => {
             if (cancelled) return;
             if (document.visibilityState === 'hidden') return;
             dismiss();
         };
+        const onBackDismiss = () => {
+            if (cancelled || !activeRef.current) return;
+            markClosed();
+            dismiss();
+        };
 
         armIdle();
-        window.addEventListener('keydown', onActivity, true);
+        window.addEventListener('keydown', onKeyDown, true);
+        window.addEventListener('keyup', onKeyUp, true);
+        window.addEventListener(TV_SCREENSAVER_DISMISS_EVENT, onBackDismiss);
         window.addEventListener('pointerdown', onActivity, true);
         window.addEventListener('wheel', onActivity, { capture: true, passive: true });
         const onVisibility = () => {
@@ -252,7 +294,9 @@ export const PlayerTvScreensaver: React.FC<Props> = ({
         return () => {
             cancelled = true;
             clearIdle();
-            window.removeEventListener('keydown', onActivity, true);
+            window.removeEventListener('keydown', onKeyDown, true);
+            window.removeEventListener('keyup', onKeyUp, true);
+            window.removeEventListener(TV_SCREENSAVER_DISMISS_EVENT, onBackDismiss);
             window.removeEventListener('pointerdown', onActivity, true);
             window.removeEventListener('wheel', onActivity, true);
             document.removeEventListener('visibilitychange', onVisibility);
@@ -353,7 +397,8 @@ export const PlayerTvScreensaver: React.FC<Props> = ({
     const watermark = String(sourceLabel || '').trim();
     const clockNudge = shiftClock ? CLOCK_NUDGES[Math.abs(gen) % CLOCK_NUDGES.length] : null;
 
-    return (
+    // Portal to <body>: inside Home a parent stacking context let the nav rail draw on top.
+    return createPortal((
         <div
             className="player-tv-screensaver"
             data-tv-screensaver="1"
@@ -397,5 +442,5 @@ export const PlayerTvScreensaver: React.FC<Props> = ({
                 ) : null}
             </div>
         </div>
-    );
+    ), document.body);
 };
