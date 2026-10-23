@@ -73,6 +73,22 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.336': [
+        {
+            title: 'Home',
+            items: [
+                'Home is live: new episodes and movies slide into the rows as soon as Plex adds them, without reloading',
+                'Continue Watching and watched ticks update when you stop watching on another device',
+            ],
+        },
+        {
+            title: 'TV',
+            items: [
+                'The screensaver hides the side menu',
+                'Back, Select or any button closes the screensaver and leaves you exactly where you were',
+            ],
+        },
+    ],
     '1.0.335': [
         {
             title: 'Playback',
