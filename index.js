@@ -5396,7 +5396,7 @@ app.post('/api/auth/plex/home-switch', authRateLimit, async (req, res) => {
             pin,
         });
         if (resolved.needsPin) {
-            return res.status(401).json({ error: 'Enter the PIN for this profile.' });
+            return res.status(401).json({ error: pin ? 'Incorrect PIN. Try again.' : 'Enter the PIN for this profile.' });
         }
         if (!resolved.ok || !resolved.authToken || !resolved.userData) {
             return res.status(401).json({ error: 'Could not switch to that Plex Home profile.' });
@@ -5527,7 +5527,7 @@ app.post('/api/auth/plex/home-profiles/switch', authRateLimit, requireAuth, requ
             pin,
         });
         if (resolved.needsPin) {
-            return res.status(401).json({ error: 'Enter the PIN for this profile.' });
+            return res.status(401).json({ error: pin ? 'Incorrect PIN. Try again.' : 'Enter the PIN for this profile.' });
         }
         if (!resolved.ok || !resolved.authToken || !resolved.userData) {
             return res.status(401).json({ error: 'Could not switch to that Plex Home profile.' });

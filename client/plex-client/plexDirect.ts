@@ -2144,7 +2144,13 @@ const switchHomeProfile = async (userId: string, pin?: string) => {
     const target = users.find((user) => sameHomeUser(user, userId));
     if (!target) throw new Error('That Plex Home profile is no longer available.');
     const applyProfile = async (authToken: string) => {
-        await selectPlexServer(authToken, { force: true });
+        try {
+            await selectPlexServer(authToken, { force: true });
+        } catch {
+            // Cold first login: discovery can miss every connection before they warm up.
+            // The PIN was right, so retry here instead of making the user enter it again.
+            await selectPlexServer(authToken, { force: true });
+        }
         writeHomeUserId(target.id);
         writeStoredSessionToken(authToken);
         return authToken;
@@ -2181,6 +2187,7 @@ const switchHomeProfile = async (userId: string, pin?: string) => {
         const authToken = extractSwitchToken(raw);
         if (authToken) return applyProfile(authToken);
     }
+    if (pinRejected && pinValue) throw new Error('Incorrect PIN. Try again.');
     throw new Error(pinRejected || target.protected
         ? 'Enter the PIN for this profile.'
         : 'Could not switch to that Plex Home profile.');

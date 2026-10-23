@@ -95,6 +95,22 @@ export const PlexHomeSwitchModal: React.FC<{
     const [remember, setRemember] = useState(rememberDefault);
     const onCloseRef = useRef(onClose);
     onCloseRef.current = onClose;
+    const pinSubmittedRef = useRef(false);
+
+    // A rejected PIN used to leave all four dots filled with the error below the fold,
+    // so it looked like nothing happened. Clear it and put focus back on the pad.
+    useEffect(() => {
+        if (busy || !pinSubmittedRef.current) return;
+        pinSubmittedRef.current = false;
+        if (!error) return;
+        setPin('');
+        window.requestAnimationFrame(() => {
+            const root = document.querySelector<HTMLElement>('[data-tv-home-switch="1"]');
+            const target = root?.querySelector<HTMLElement>('[data-tv-key="home-switch-pin-1"]')
+                || root?.querySelector<HTMLElement>('[data-tv-key="home-switch-pin"]');
+            target?.focus({ preventScroll: true });
+        });
+    }, [busy, error]);
 
     useEffect(() => {
         if (open) {
@@ -164,6 +180,7 @@ export const PlexHomeSwitchModal: React.FC<{
         if (!pinUser || busy) return;
         const value = pin.trim();
         if (!value) return;
+        pinSubmittedRef.current = true;
         onSelect(pinUser, value, remember);
     };
 
@@ -244,6 +261,10 @@ export const PlexHomeSwitchModal: React.FC<{
                             ))}
                         </div>
 
+                        {error ? (
+                            <p className="-mt-3 mb-4 text-center text-base font-semibold text-red-300" role="alert">{error}</p>
+                        ) : null}
+
                         <div className="player-tv-home-pin-grid" data-tv-rail="1">
                             {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'back', '0', 'go'].map((key) => {
                                 const isGo = key === 'go';
@@ -269,6 +290,7 @@ export const PlexHomeSwitchModal: React.FC<{
                                             const next = `${pin}${key}`.replace(/\D/g, '').slice(0, 8);
                                             setPin(next);
                                             if (next.length >= 4 && pinUser && !busy) {
+                                                pinSubmittedRef.current = true;
                                                 onSelect(pinUser, next, remember);
                                             }
                                         }}
@@ -290,10 +312,6 @@ export const PlexHomeSwitchModal: React.FC<{
                         >
                             Back to profiles
                         </button>
-
-                        {error ? (
-                            <p className="mt-4 text-center text-base font-semibold text-red-300">{error}</p>
-                        ) : null}
                     </form>
                 </div>
             ) : (
@@ -413,6 +431,9 @@ export const PlexHomeSwitchModal: React.FC<{
                                 autoFocus
                                 disabled={busy}
                             />
+                            {error ? (
+                                <p className="mt-2 text-center text-sm font-semibold text-red-300" role="alert">{error}</p>
+                            ) : null}
                             {showRemember ? (
                                 <label className="mt-3 flex items-start gap-2.5 cursor-pointer">
                                     <input
@@ -454,7 +475,7 @@ export const PlexHomeSwitchModal: React.FC<{
                         </form>
                     ) : null}
 
-                    {error ? (
+                    {error && !pinUser ? (
                         <p className="mt-3 sm:mt-4 text-sm text-red-300">{error}</p>
                     ) : null}
 

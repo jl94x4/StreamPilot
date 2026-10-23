@@ -96,6 +96,9 @@ const PlexClientApp: React.FC = () => {
     const onAuthenticated = useCallback(() => {
         ensurePlayerRoute();
         prefetchMediaPlayerHome();
+        // Sign-in already picked (and PIN-checked) the profile. Without this the TV's
+        // launch picker opened straight after and asked for the same PIN again.
+        setHomePickerDone(true);
         setAuthed(true);
     }, []);
 
