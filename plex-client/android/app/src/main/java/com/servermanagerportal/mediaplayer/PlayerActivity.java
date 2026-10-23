@@ -106,6 +106,8 @@ import java.util.concurrent.Executors;
 @UnstableApi
 public class PlayerActivity extends AppCompatActivity {
     private static final String TAG = "SmpPlayerActivity";
+    /** Format id of the OpenSubtitles SubtitleConfiguration, so the selector can pin it. */
+    private static final String SIDECAR_TEXT_ID = "smp-sidecar";
     private static final String USER_AGENT = "StreamPilot-MediaPlayer/1.0 (Android TV; ExoPlayer)";
     private static final String PREFS = "smp_player_prefs";
 
@@ -547,6 +549,8 @@ public class PlayerActivity extends AppCompatActivity {
     private int audioDelayMs;
     private int repeatMode;
     private String sidecarSubtitleUrl = "";
+    private String sidecarSubtitleCodec = "";
+    @Nullable private String pendingSidecarDownloadId;
     private boolean subtitleSearchPending;
     private boolean applyingTextTracks;
     private boolean applyingAudioTracks;
@@ -668,6 +672,8 @@ public class PlayerActivity extends AppCompatActivity {
         final String codec;
         /** Index among subtitles muxed into the file; -1 for sidecars / unknown. */
         int embeddedOrdinal = -1;
+        /** OpenSubtitles hit PMS has yet to download; url is empty until JS resolves it. */
+        String downloadKey = "";
 
         OptionItem(String id, String label) {
             this(id, label, "", "", "");
@@ -1228,6 +1234,8 @@ public class PlayerActivity extends AppCompatActivity {
                 if (PlaybackUrls.isDirectPlayUrl(currentUrl)) {
                     applyAudioTrackPreference();
                     applyTextTrackPreference();
+                } else if (sidecarSubtitleUrl != null && !sidecarSubtitleUrl.isEmpty()) {
+                    applyTextTrackPreference();
                 }
             }
 
@@ -1445,7 +1453,18 @@ public class PlayerActivity extends AppCompatActivity {
                 versions.clear();
                 versions.addAll(parseOptions(root.optJSONArray("versions")));
             }
+            JSONObject sidecarResolved = root.optJSONObject("sidecarResolved");
             runOnUiThread(() -> {
+                if (sidecarResolved != null && pendingSidecarDownloadId != null
+                    && pendingSidecarDownloadId.equals(sidecarResolved.optString("id", ""))) {
+                    pendingSidecarDownloadId = null;
+                    OptionItem picked = findSubtitleOption(sidecarResolved.optString("id", ""));
+                    if (sidecarResolved.optBoolean("failed", false) || picked == null || picked.url.isEmpty()) {
+                        toast(getString(R.string.player_subs_download_failed));
+                    } else {
+                        applySubtitleChoice(picked);
+                    }
+                }
                 updateActionVisibility();
                 updateChipLabels();
                 applyTitleChrome();
@@ -2552,6 +2571,7 @@ public class PlayerActivity extends AppCompatActivity {
                 String codec = row.optString("codec", "");
                 OptionItem item = new OptionItem(id, label, row.optString("url", ""), language, codec);
                 item.embeddedOrdinal = row.optInt("embeddedOrdinal", -1);
+                item.downloadKey = row.optString("downloadKey", "");
                 out.add(item);
             }
         }
@@ -3093,11 +3113,24 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void applySubtitleChoice(OptionItem picked) {
+        if (picked.id != null && picked.id.startsWith("os:") && picked.url.isEmpty()) {
+            if (picked.downloadKey.isEmpty()) return;
+            // PMS downloads the hit first; JS answers with sessionJson.sidecarResolved.
+            pendingSidecarDownloadId = picked.id;
+            JSObject data = new JSObject();
+            data.put("ratingKey", ratingKey == null ? "" : ratingKey);
+            data.put("id", picked.id);
+            data.put("key", picked.downloadKey);
+            PlayerBridge.get().emit("subtitleDownload", data);
+            toast(getString(R.string.player_subs_downloading));
+            return;
+        }
         String previousSidecar = sidecarSubtitleUrl;
         String previousSubtitleId = subtitleStreamId == null ? "" : subtitleStreamId;
         subtitleStreamId = picked.id == null ? "" : picked.id;
         boolean sidecar = picked.id != null && picked.id.startsWith("os:") && !picked.url.isEmpty();
         sidecarSubtitleUrl = sidecar ? picked.url : "";
+        sidecarSubtitleCodec = sidecar ? picked.codec : "";
         saveAvPrefs();
         updateChipLabels();
         if (sidecar) {
@@ -3280,7 +3313,7 @@ public class PlayerActivity extends AppCompatActivity {
         OptionItem subRow = findSubtitleOption(subtitleStreamId);
         boolean burn = !off && subRow != null && subtitleCodecNeedsBurn(subRow.codec);
         // HLS / burn-in already paints captions in-frame — keep Exo text off or they stack.
-        if (PlaybackUrls.isTranscodeUrl(currentUrl) || burn) {
+        if ((PlaybackUrls.isTranscodeUrl(currentUrl) && !sidecar) || burn) {
             builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true);
         } else if (off && !sidecar) {
             builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true);
@@ -3296,8 +3329,10 @@ public class PlayerActivity extends AppCompatActivity {
             TrackSelectionOverride exact = embeddedTextOverride(subRow);
             if (exact != null) builder.setOverrideForType(exact);
         } else {
-            // Sidecar SubtitleConfiguration owns captions — disable embedded text.
-            builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true);
+            // Sidecar SubtitleConfiguration owns captions — pin it over any embedded text.
+            builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false);
+            TrackSelectionOverride side = sidecarTextOverride();
+            if (side != null) builder.setOverrideForType(side);
         }
         applyingTextTracks = true;
         try {
@@ -3305,6 +3340,21 @@ public class PlayerActivity extends AppCompatActivity {
         } finally {
             applyingTextTracks = false;
         }
+    }
+
+    @Nullable
+    private TrackSelectionOverride sidecarTextOverride() {
+        if (player == null) return null;
+        for (Tracks.Group group : player.getCurrentTracks().getGroups()) {
+            if (group.getType() != C.TRACK_TYPE_TEXT) continue;
+            for (int i = 0; i < group.length; i++) {
+                String id = group.getTrackFormat(i).id;
+                if (id != null && id.endsWith(SIDECAR_TEXT_ID) && group.isTrackSupported(i, false)) {
+                    return new TrackSelectionOverride(group.getMediaTrackGroup(), i);
+                }
+            }
+        }
+        return null;
     }
 
     /** Exo text track at the Plex row's in-file position, or null when it can't be trusted. */
@@ -4590,11 +4640,13 @@ public class PlayerActivity extends AppCompatActivity {
             builder.setMimeType(MimeTypes.APPLICATION_M3U8);
         }
         if (sidecarSubtitleUrl != null && !sidecarSubtitleUrl.trim().isEmpty()) {
-            String mime = sidecarSubtitleUrl.toLowerCase(Locale.US).contains(".vtt")
+            String codec = sidecarSubtitleCodec == null ? "" : sidecarSubtitleCodec.toLowerCase(Locale.US);
+            String mime = sidecarSubtitleUrl.toLowerCase(Locale.US).contains(".vtt") || codec.equals("vtt") || codec.equals("webvtt")
                 ? MimeTypes.TEXT_VTT
-                : MimeTypes.APPLICATION_SUBRIP;
+                : (codec.equals("ass") || codec.equals("ssa") ? MimeTypes.TEXT_SSA : MimeTypes.APPLICATION_SUBRIP);
             builder.setSubtitleConfigurations(Collections.singletonList(
                 new MediaItem.SubtitleConfiguration.Builder(Uri.parse(sidecarSubtitleUrl))
+                    .setId(SIDECAR_TEXT_ID)
                     .setMimeType(mime)
                     .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
                     .build()

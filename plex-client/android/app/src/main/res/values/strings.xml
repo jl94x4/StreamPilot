@@ -48,6 +48,8 @@
     <string name="player_repeat_one">One</string>
     <string name="player_repeat_all">All</string>
     <string name="player_subs_search">Search OpenSubtitles</string>
+    <string name="player_subs_downloading">Downloading subtitle…</string>
+    <string name="player_subs_download_failed">Couldn\'t download that subtitle</string>
     <string name="player_sleep_off">Off</string>
     <string name="player_sleep_15">15 min</string>
     <string name="player_sleep_30">30 min</string>

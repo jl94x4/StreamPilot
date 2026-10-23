@@ -12,6 +12,8 @@ export type NativePlayerTrackOption = {
     languageTag?: string | null;
     codec?: string | null;
     embeddedOrdinal?: number | null;
+    /** OpenSubtitles hit PMS still has to download (url is empty until then). */
+    downloadKey?: string;
 };
 export type NativePlayerVersionOption = { id: string; label: string; mediaIndex?: number };
 
@@ -57,6 +59,8 @@ export type NativePlayerSessionPayload = {
     burnSubtitles?: 'auto' | 'always' | 'image';
     subtitleDelayMs?: number;
     subtitleAutoSync?: boolean;
+    /** Reply to onSubtitleDownload: the picked hit's playable URL, or failed. */
+    sidecarResolved?: { id: string; url: string; failed?: boolean } | null;
     /** Server has voice-activity data for this title (auto-sync usable). */
     subtitleAutoSyncAvailable?: boolean;
     /** Computed auto-sync offset applied on top of manual subtitleDelayMs. */
@@ -127,6 +131,7 @@ export type NativePlayerOpenOptions = {
     onMinimized?: (event: NativePlayerProgressEvent) => void;
     onRestored?: (event: { state?: string }) => void;
     onSubtitleSearch?: (event: { ratingKey?: string }) => void;
+    onSubtitleDownload?: (event: { ratingKey?: string; id?: string; key?: string }) => void;
     /** In-player Settings cog changed a persisted preference. */
     onSettings?: (patch: Record<string, unknown>) => void;
     /** Native asked JS to compute voice-activity subtitle auto-sync offset. */
@@ -423,6 +428,15 @@ const attachTransientListeners = async (opts: NativePlayerOpenOptions) => {
     if (opts.onSubtitleSearch) {
         await add('subtitleSearch', (data) => {
             opts.onSubtitleSearch?.({ ratingKey: data.ratingKey ? String(data.ratingKey) : undefined });
+        });
+    }
+    if (opts.onSubtitleDownload) {
+        await add('subtitleDownload', (data) => {
+            opts.onSubtitleDownload?.({
+                ratingKey: data.ratingKey ? String(data.ratingKey) : undefined,
+                id: data.id ? String(data.id) : undefined,
+                key: data.key ? String(data.key) : undefined,
+            });
         });
     }
     if (opts.onSettings) {

@@ -4443,8 +4443,10 @@ const watchlistAction = async (method: 'add' | 'remove', ratingKey: string, guid
     return { ok: true };
 };
 
+type SubtitleSearchItem = { id: string; label: string; url: string; downloadKey: string; codec: string | null };
+
 const loadSubtitleSearch = async (ratingKey: string, server: PlexServer | null, language = 'en') => {
-    if (!server || !ratingKey) return { items: [] as Array<{ id: string; label: string; url: string }> };
+    if (!server || !ratingKey) return { items: [] as SubtitleSearchItem[] };
     return withMapServer(server, async () => {
         const lang = String(language || 'en').trim() || 'en';
         const data = await pms(
@@ -4454,37 +4456,65 @@ const loadSubtitleSearch = async (ratingKey: string, server: PlexServer | null, 
         ).catch(() => null);
         const streams = asList<PlexMeta>(containerOf(data).Stream)
             .concat(asList<PlexMeta>(containerOf(data).Metadata).flatMap((row) => asList<PlexMeta>(row.Stream)));
-        const items: Array<{ id: string; label: string; url: string }> = [];
+        const items: SubtitleSearchItem[] = [];
         const seen = new Set<string>();
         for (const stream of streams) {
             const keyPath = String(stream.key || '').trim();
-            if (!keyPath || keyPath.startsWith('http') === false && !keyPath.startsWith('/')) continue;
+            if (!keyPath) continue;
             const id = String(stream.id || keyPath);
             if (seen.has(id)) continue;
             seen.add(id);
-            let url = keyPath;
-            if (!/^https?:\/\//i.test(url)) {
-                const base = server.uri.endsWith('/') ? server.uri.slice(0, -1) : server.uri;
-                url = `${base}${keyPath.startsWith('/') ? '' : '/'}${keyPath}`;
-            }
-            try {
-                const parsed = new URL(url);
-                if (!parsed.searchParams.get('X-Plex-Token')) {
-                    parsed.searchParams.set('X-Plex-Token', server.accessToken);
-                }
-                url = parsed.toString();
-            } catch {
-                /* keep raw */
-            }
             const langName = String(stream.languageCode || stream.languageTag || stream.language || '').trim();
-            const title = String(stream.displayTitle || stream.title || langName || 'Subtitle').trim();
+            // title is the release filename; displayTitle is just "English (SRT)".
+            const title = String(stream.title || stream.displayTitle || langName || 'Subtitle').trim();
             items.push({
                 id: `os:${id}`,
                 label: `${title}${langName && !title.toLowerCase().includes(langName.toLowerCase()) ? ` · ${langName}` : ''} · OpenSubtitles`,
-                url,
+                // Search hits aren't subtitle files — PMS has to download one first (downloadSubtitle).
+                url: '',
+                downloadKey: keyPath,
+                codec: stream.codec ? String(stream.codec) : null,
             });
         }
         return { items };
+    });
+};
+
+const externalSubtitleStreams = async (ratingKey: string, server: PlexServer) => {
+    const data = await pms(`/library/metadata/${encodeURIComponent(ratingKey)}`, server, 12000).catch(() => null);
+    const meta = asList<PlexMeta>(containerOf(data).Metadata)[0] || {};
+    return asList<PlexMeta>(meta.Media)
+        .flatMap((media) => asList<PlexMeta>(media.Part))
+        .flatMap((part) => asList<PlexMeta>(part.Stream))
+        .filter((stream) => Number(stream.streamType) === 3 && /^\/library\/streams\//.test(String(stream.key || '')));
+};
+
+/** Have PMS download an OpenSubtitles hit, then return the new sidecar stream's URL. */
+const downloadSubtitle = async (ratingKey: string, server: PlexServer | null, downloadKey: string) => {
+    if (!server || !ratingKey || !downloadKey) throw new Error('Subtitle not available.');
+    return withMapServer(server, async () => {
+        const before = new Set((await externalSubtitleStreams(ratingKey, server)).map((stream) => String(stream.id)));
+        const put = new URL(
+            `/library/metadata/${encodeURIComponent(ratingKey)}/subtitles`,
+            server.uri.endsWith('/') ? server.uri : `${server.uri}/`,
+        );
+        put.searchParams.set('key', downloadKey);
+        put.searchParams.set('X-Plex-Token', server.accessToken);
+        await plexFetch(put.toString(), server.accessToken, { method: 'PUT' });
+        // PMS attaches the file a moment after the PUT returns.
+        for (let attempt = 0; attempt < 8; attempt += 1) {
+            const added = (await externalSubtitleStreams(ratingKey, server))
+                .filter((stream) => !before.has(String(stream.id)))
+                .sort((a, b) => Number(b.id || 0) - Number(a.id || 0))[0];
+            if (added) {
+                clearPlayerGetCache();
+                const url = new URL(String(added.key), server.uri.endsWith('/') ? server.uri : `${server.uri}/`);
+                url.searchParams.set('X-Plex-Token', server.accessToken);
+                return { url: url.toString(), codec: added.codec ? String(added.codec) : null };
+            }
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+        }
+        throw new Error('Plex did not add the subtitle.');
     });
 };
 
@@ -5346,6 +5376,12 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
         const key = decodeURIComponent(itemSubtitles[1]);
         const server = resolveServer(query.get('server'), key);
         return loadSubtitleSearch(key, server, query.get('language') || 'en');
+    }
+    const itemSubtitleDownload = path.match(/^\/api\/media-player\/item\/([^/]+)\/subtitles\/download$/);
+    if (itemSubtitleDownload && method === 'POST') {
+        const key = decodeURIComponent(itemSubtitleDownload[1]);
+        const server = resolveServer(query.get('server') || body?.serverId, key);
+        return downloadSubtitle(key, server, String(body?.key || ''));
     }
     const itemVoiceActivity = path.match(/^\/api\/media-player\/item\/([^/]+)\/voice-activity$/);
     if (itemVoiceActivity && method === 'GET') {

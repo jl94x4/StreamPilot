@@ -1011,9 +1011,17 @@ export const fetchMediaPlayerSubtitleSearch = (ratingKey: string, opts: { langua
     if (opts.serverId) params.set('server', opts.serverId);
     const qs = params.toString() ? `?${params}` : '';
     return apiFetch(`${PLAYER_API_ROOT}/item/${encodeURIComponent(ratingKey)}/subtitles${qs}`) as Promise<{
-        items: Array<{ id: string; label: string; url: string }>;
+        items: Array<{ id: string; label: string; url: string; downloadKey?: string; codec?: string | null }>;
     }>;
 };
+
+/** Have PMS fetch an OpenSubtitles hit; resolves to the attached sidecar's URL. */
+export const downloadMediaPlayerSubtitle = (ratingKey: string, key: string, opts: { serverId?: string | null } = {}) => (
+    apiFetch(`${PLAYER_API_ROOT}/item/${encodeURIComponent(ratingKey)}/subtitles/download`, {
+        method: 'POST',
+        body: JSON.stringify({ key, serverId: opts.serverId || undefined }),
+    }) as Promise<{ url: string; codec?: string | null }>
+);
 
 /** Probe whether PMS has voice-activity data for subtitle auto-sync. */
 export const fetchMediaPlayerVoiceActivity = (ratingKey: string, opts: { serverId?: string | null } = {}) => {

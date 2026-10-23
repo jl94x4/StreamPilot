@@ -51,7 +51,7 @@ import {
     audioStreamIdFromSrc,
     subtitleStreamIdFromSrc,
 } from './playerUtils';
-import { fetchMediaPlayerItem, fetchMediaPlayerItemMore, fetchMediaPlayerNeighbors, fetchMediaPlayerSubtitleSearch, fetchMediaPlayerVoiceActivity, pausePlayerBackgroundLoads, reportMediaPlayerTimeline, resumePlayerBackgroundLoads, saveMediaPlayerSettings, setMediaPlayerWatched, startMediaPlayerPlayback, stopMediaPlayerTranscode } from './api';
+import { downloadMediaPlayerSubtitle, fetchMediaPlayerItem, fetchMediaPlayerItemMore,fetchMediaPlayerNeighbors, fetchMediaPlayerSubtitleSearch, fetchMediaPlayerVoiceActivity, pausePlayerBackgroundLoads, reportMediaPlayerTimeline, resumePlayerBackgroundLoads, saveMediaPlayerSettings, setMediaPlayerWatched, startMediaPlayerPlayback, stopMediaPlayerTranscode } from './api';
 import { usePlayerSettings } from './usePlayerSettings';
 import { normalizePlayerSettings, readPlayerSettings, writePlayerSettings } from './playerSettings';
 import { computeSubtitleSyncOffsetMs, parseSrtCueStartsMs } from './subtitleAutoSync.js';
@@ -1467,6 +1467,28 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                             sidecarSubs.splice(0, sidecarSubs.length);
                             void updateNativePlayerSession(buildNativeSession(nextItemRef.current || upNextItem));
                         });
+                    },
+                    onSubtitleDownload: ({ ratingKey, id, key: downloadKey }) => {
+                        if (cancelled || gen !== nativeOpenGen || !id || !downloadKey) return;
+                        const key = String(ratingKey || session.item.ratingKey || '');
+                        const reply = (sidecarResolved: NativePlayerSessionPayload['sidecarResolved']) => {
+                            if (cancelled || gen !== nativeOpenGen) return;
+                            void updateNativePlayerSession({
+                                ...buildNativeSession(nextItemRef.current || upNextItem),
+                                sidecarResolved,
+                            });
+                        };
+                        void downloadMediaPlayerSubtitle(key, downloadKey, { serverId: session.item.serverId })
+                            .then((data) => {
+                                const row = sidecarSubs.find((sub) => sub.id === id);
+                                if (row) {
+                                    row.url = data.url;
+                                    row.codec = data.codec || row.codec || null;
+                                    row.downloadKey = '';
+                                }
+                                reply({ id, url: data.url });
+                            })
+                            .catch(() => reply({ id, url: '', failed: true }));
                     },
                     onSpeed: ({ speed: nextSpeed }) => {
                         speedRef.current = nextSpeed;
