@@ -505,7 +505,7 @@
 
         <Button
             android:id="@+id/player_skip_intro"
-            style="@style/PlayerChipButton"
+            style="@style/PlayerContextButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginEnd="8dp"
@@ -516,7 +516,7 @@
 
         <Button
             android:id="@+id/player_skip_credits"
-            style="@style/PlayerChipButton"
+            style="@style/PlayerContextButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:focusable="true"
@@ -532,9 +532,9 @@
         android:layout_gravity="bottom|end"
         android:layout_marginEnd="25dp"
         android:layout_marginBottom="32dp"
-        android:background="@drawable/player_menu_sheet"
+        android:background="@drawable/player_context_sheet"
         android:orientation="vertical"
-        android:padding="4dp"
+        android:padding="6dp"
         android:visibility="gone">
 
         <ImageView
@@ -562,7 +562,7 @@
                 android:letterSpacing="0.12"
                 android:text="@string/player_up_next"
                 android:textAllCaps="true"
-                android:textColor="#B3FFFFFF"
+                android:textColor="@color/player_text_secondary"
                 android:textSize="11sp"
                 android:textStyle="bold" />
 
@@ -595,7 +595,7 @@
 
                 <Button
                     android:id="@+id/player_up_next_credits"
-                    style="@style/PlayerChipButton"
+                    style="@style/PlayerContextButton"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginEnd="7dp"
@@ -608,7 +608,7 @@
 
                 <Button
                     android:id="@+id/player_up_next_play"
-                    style="@style/PlayerChipButton"
+                    style="@style/PlayerContextButton"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:focusable="true"

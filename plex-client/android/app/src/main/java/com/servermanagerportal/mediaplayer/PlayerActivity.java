@@ -10,6 +10,7 @@ import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
+import android.graphics.Outline;
 import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.Build;
@@ -25,6 +26,7 @@ import android.view.LayoutInflater;
 import android.view.Surface;
 import android.view.SurfaceView;
 import android.view.View;
+import android.view.ViewOutlineProvider;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
@@ -954,6 +956,17 @@ public class PlayerActivity extends AppCompatActivity {
         externalBtn = findViewById(R.id.player_external);
         upNextRow = findViewById(R.id.player_up_next);
         upNextArt = findViewById(R.id.player_up_next_art);
+        if (upNextArt != null) {
+            // Card is player_context_sheet (18dp, 6dp inset) — art follows its inner curve.
+            final float artRadius = 12f * getResources().getDisplayMetrics().density;
+            upNextArt.setOutlineProvider(new ViewOutlineProvider() {
+                @Override
+                public void getOutline(View view, Outline outline) {
+                    outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), artRadius);
+                }
+            });
+            upNextArt.setClipToOutline(true);
+        }
         upNextKicker = findViewById(R.id.player_up_next_kicker);
         upNextLabel = findViewById(R.id.player_up_next_label);
         upNextCountdown = findViewById(R.id.player_up_next_countdown);
