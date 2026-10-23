@@ -292,12 +292,33 @@ export const useOverviewServiceLogos = (item: PlayerItem, region: string) => {
             return () => { cancelled = true; };
         }
 
+        // TVDB fallback — many Plex TV libraries use thetvdb:// Guids with no IMDB or TMDB.
+        const tvdbId = String(item.externalIds?.tvdb || '').trim();
+        if ((!Number.isFinite(tmdbId) || tmdbId <= 0) && /^\d+$/.test(tvdbId)) {
+            void apiFetch(
+                `/api/discovery/proxy/find/${encodeURIComponent(tvdbId)}?external_source=tvdb_id`,
+            )
+                .then((found: any) => {
+                    if (cancelled) return null;
+                    const bucket = mediaType === 'tv'
+                        ? [].concat(found?.tv_results || found?.tvResults || [])
+                        : [].concat(found?.movie_results || found?.movieResults || []);
+                    const resolved = Number(bucket[0]?.id || found?.tmdbId || 0);
+                    if (!Number.isFinite(resolved) || resolved <= 0) return null;
+                    tmdbId = resolved;
+                    return loadByTmdb(resolved);
+                })
+                .catch(() => undefined);
+            return () => { cancelled = true; };
+        }
+
         if (!Number.isFinite(tmdbId) || tmdbId <= 0) return undefined;
         void loadByTmdb(tmdbId);
         return () => { cancelled = true; };
     }, [
         item.externalIds?.tmdb,
         item.externalIds?.imdb,
+        item.externalIds?.tvdb,
         item.tmdbId,
         item.showTmdbId,
         item.type,
