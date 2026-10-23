@@ -90,14 +90,13 @@ import {
 } from './playerMemory';
 import type { PlayerItem, PlayerLibraryHub, PlayerMediaPartInfo, PlayerPlayOptions, PlayerRatings, PlayerVersion } from './types';
 
-const softenSurfaceRgb = (rgb: string, cap = 86) => {
+const softenSurfaceRgb = (rgb: string, cap = 86, sat = 0.48) => {
     const parts = rgb.trim().split(/\s+/).map((part) => Number(part));
     if (parts.length < 3 || parts.some((value) => !Number.isFinite(value))) return rgb;
     let [r, g, b] = parts;
     // Keep the poster hue, but drop most of the saturation and cap brightness
     // so a red or yellow still does not flood the whole page.
     const avg = (r + g + b) / 3;
-    const sat = 0.48;
     r = avg + (r - avg) * sat;
     g = avg + (g - avg) * sat;
     b = avg + (b - avg) * sat;
@@ -122,7 +121,9 @@ const isPhoneDetailsUi = () => {
 
 const TV_FLOOR_RGB = '6 10 16';
 /** TV artwork tint stays darker than web so white copy and focus rings keep their contrast. */
-const TV_TINT_LUMA_CAP = 52;
+const TV_TINT_LUMA_CAP = 60;
+/** Keep most of the edge's hue on TV; the web 0.48 read as plain grey on a dark screen. */
+const TV_TINT_SATURATION = 0.8;
 
 /** Horizontal-only rail pan. scrollIntoView also moves the page under CSS zoom. */
 const panTvOverflowX = (scroller: HTMLElement, node: HTMLElement, mode: 'nearest' | 'center' = 'nearest') => {
@@ -171,7 +172,9 @@ const applyTvDetailsSurface = (rgb: string, tvTint = false) => {
         document.documentElement?.dataset?.tv === '1'
         || window.__PLEX_CLIENT__?.isTv === true
     );
-    const tvSurface = tvTint && rgb !== TV_FLOOR_RGB ? softenSurfaceRgb(rgb, TV_TINT_LUMA_CAP) : TV_FLOOR_RGB;
+    const tvSurface = tvTint && rgb !== TV_FLOOR_RGB
+        ? softenSurfaceRgb(rgb, TV_TINT_LUMA_CAP, TV_TINT_SATURATION)
+        : TV_FLOOR_RGB;
     const softened = isPhoneDetailsUi() ? rgb : (tv ? tvSurface : softenSurfaceRgb(rgb));
     const paint = `rgb(${softened})`;
     const root = document.querySelector<HTMLElement>('[data-tv-details="1"]');

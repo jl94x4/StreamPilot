@@ -1163,7 +1163,7 @@
     html[data-tv="1"] .media-details-page {
       --tv-details-surface: 6 10 16;
       min-height: calc(100vh / var(--tv-zoom, 1)) !important;
-      background-color: #060a10 !important;
+      background-color: rgb(var(--tv-details-surface)) !important;
     }
     html[data-tv="1"] .media-details-page .media-details-hero-backdrop {
       --tv-backdrop-fade-end: calc(58vh / var(--tv-zoom, 1));
@@ -1179,7 +1179,7 @@
       border-radius: 0 !important;
       overflow: hidden !important;
       z-index: 0 !important;
-      background: #060a10 !important;
+      background: rgb(var(--tv-details-surface)) !important;
     }
     html[data-tv="1"] .media-details-hero-backdrop {
       height: calc(70vh / var(--tv-zoom, 1)) !important;
@@ -1214,8 +1214,8 @@
       z-index: 3 !important;
       pointer-events: none !important;
       background:
-        linear-gradient(90deg, rgba(6, 10, 16, 0.98) 0%, rgba(6, 10, 16, 0.94) 14%, rgba(6, 10, 16, 0.82) 26%, rgba(6, 10, 16, 0.48) 40%, rgba(6, 10, 16, 0.16) 54%, rgba(6, 10, 16, 0.04) 68%, transparent 82%),
-        linear-gradient(180deg, rgba(6, 10, 16, 0.14) 0%, transparent 12%, transparent 34%, rgba(6, 10, 16, 0.38) 50%, rgba(6, 10, 16, 0.72) 64%, rgba(6, 10, 16, 0.92) 78%, #060a10 100%) !important;
+        linear-gradient(90deg, rgb(var(--tv-details-surface) / 0.98) 0%, rgb(var(--tv-details-surface) / 0.94) 14%, rgb(var(--tv-details-surface) / 0.82) 26%, rgb(var(--tv-details-surface) / 0.48) 40%, rgb(var(--tv-details-surface) / 0.16) 54%, rgb(var(--tv-details-surface) / 0.04) 68%, transparent 82%),
+        linear-gradient(180deg, rgb(var(--tv-details-surface) / 0.14) 0%, transparent 12%, transparent 34%, rgb(var(--tv-details-surface) / 0.38) 50%, rgb(var(--tv-details-surface) / 0.72) 64%, rgb(var(--tv-details-surface) / 0.92) 78%, rgb(var(--tv-details-surface)) 100%) !important;
     }
     html[data-tv="1"] .media-details-hero-scrim-bottom,
     html[data-tv="1"] .media-details-hero-scrim-left {
