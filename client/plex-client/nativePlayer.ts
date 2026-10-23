@@ -66,6 +66,8 @@ export type NativePlayerSessionPayload = {
     /** Computed auto-sync offset applied on top of manual subtitleDelayMs. */
     subtitleAutoSyncOffsetMs?: number;
     audioPassthrough?: boolean;
+    /** Step quality down automatically when buffering (Settings → Playback). */
+    autoQuality?: boolean;
     cinemaTrailerCount?: number;
     title?: string;
     subtitle?: string;

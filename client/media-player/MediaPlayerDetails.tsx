@@ -90,6 +90,8 @@ import {
     writeMediaIndexChoice,
 } from './playerMemory';
 import type { PlayerItem, PlayerLibraryHub, PlayerMediaPartInfo, PlayerMediaStreamInfo, PlayerPlayOptions, PlayerRatings, PlayerVersion } from './types';
+import { hideEpisodeSpoilers } from './spoilers';
+import { TrailerPreview } from './TrailerPreview';
 
 const softenSurfaceRgb = (rgb: string, cap = 86, sat = 0.48) => {
     const parts = rgb.trim().split(/\s+/).map((part) => Number(part));
@@ -304,7 +306,9 @@ const PhoneEpisodeList: React.FC<{
     playLabel: string;
     resumeLabel: string;
     onPlayEpisode: (row: PlayerItem) => void;
-}> = ({ rows, heading, locale, playLabel, resumeLabel, onPlayEpisode }) => (
+    /** Per-show spoiler hiding: blur this episode's still. */
+    hideSpoiler?: (row: PlayerItem) => boolean;
+}> = ({ rows, heading, locale, playLabel, resumeLabel, onPlayEpisode, hideSpoiler }) => (
     <section className="media-details-episodes media-details-episode-list mt-2">
         <h3 className="mb-3 text-[1.05rem] font-black tracking-tight text-text">{heading}</h3>
         <div className="flex flex-col gap-3.5">
@@ -326,7 +330,7 @@ const PhoneEpisodeList: React.FC<{
                                 <img
                                     src={plexImageUrl(row.thumb, 320, 180, { quality: PLAYER_POSTER_QUALITY })}
                                     alt=""
-                                    className="aspect-video w-full object-cover"
+                                    className={`aspect-video w-full object-cover${hideSpoiler?.(row) ? ' player-spoiler-img' : ''}`}
                                 />
                             ) : (
                                 <div className="aspect-video w-full bg-white/5" />
@@ -1036,6 +1040,9 @@ export const MediaPlayerDetails: React.FC<Props> = ({
     }, [ratingKey, item?.ratingKey, item?.logo]);
 
     const trailer = useMemo(() => extras.find(isPlayerTrailer) || extras[0] || null, [extras]);
+    // Trailer preview plays a real trailer only, never a featurette standing in for one.
+    const previewTrailer = useMemo(() => extras.find(isPlayerTrailer) || null, [extras]);
+    const [trailerPreviewPlaying, setTrailerPreviewPlaying] = useState(false);
     useEffect(() => {
         if (!item?.ratingKey) return undefined;
         let cancelled = false;
@@ -1666,9 +1673,12 @@ export const MediaPlayerDetails: React.FC<Props> = ({
     const hubTrackChips = isTvShell && (item.type === 'episode' || item.type === 'season')
         ? episodeTrackChips(hubItem)
         : null;
-    const hubSummary = isTvShell && (item.type === 'episode' || item.type === 'season')
-        ? (hubItem.type === 'episode' ? String(hubItem.summary || '') : '')
-        : String(hubItem.summary || item.summary || '');
+    const hubSpoilerHidden = hideEpisodeSpoilers(settings, hubItem.type === 'episode' ? hubItem : null);
+    const hubSummary = hubSpoilerHidden
+        ? t('mediaPlayerPage.spoilerSummaryHidden')
+        : (isTvShell && (item.type === 'episode' || item.type === 'season')
+            ? (hubItem.type === 'episode' ? String(hubItem.summary || '') : '')
+            : String(hubItem.summary || item.summary || ''));
     const hubGuestStars = (isTvShell && (item.type === 'episode' || item.type === 'season')
         ? hubItem.guestStars
         : item.guestStars) || [];
@@ -2257,6 +2267,16 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                     ) : (
                         <div className="absolute inset-0 bg-black" />
                     )}
+                    {/* After the art, before the scrims: the text gradients stay on top. */}
+                    {item.type === 'movie' || item.type === 'show' ? (
+                        <TrailerPreview
+                            trailer={previewTrailer}
+                            enabled={settings.trailerPreview}
+                            paused={playing || playbackActive}
+                            serverId={item.serverId || serverId || null}
+                            onPlayingChange={setTrailerPreviewPlaying}
+                        />
+                    ) : null}
                     <div className="media-details-hero-scrim-mobile absolute inset-0 md:hidden" />
                 </div>
                 {isBillboardTitle ? (
@@ -2427,7 +2447,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                             <MediaPlayerThemeTune
                                                 themeKey={item.themeKey}
                                                 enabled
-                                                paused={playing || playbackActive}
+                                                paused={playing || playbackActive || trailerPreviewPlaying}
                                                 playLabel={t('mediaPlayerPage.playTheme')}
                                                 muteLabel={t('mediaPlayerPage.mute')}
                                                 unmuteLabel={t('mediaPlayerPage.unmute')}
@@ -3008,6 +3028,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                         playLabel={startLabel}
                         resumeLabel={t('mediaPlayerPage.resume')}
                         onPlayEpisode={playEpisodeTile}
+                        hideSpoiler={(row) => hideEpisodeSpoilers(settings, row)}
                     />
                     ) : tvEpisodeRows.length ? (
                     <section className="media-details-episodes mt-6" data-tv-row="1" data-tv-row-id={`episodes:${item.ratingKey}`}>
@@ -3077,7 +3098,9 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                                 <img
                                                     src={plexImageUrl(row.thumb, 720, 405, { quality: PLAYER_POSTER_QUALITY })}
                                                     alt=""
-                                                    className="aspect-video w-full object-cover transition-transform group-hover:scale-[1.03]"
+                                                    className={`aspect-video w-full object-cover transition-transform group-hover:scale-[1.03]${
+                                                        hideEpisodeSpoilers(settings, row) ? ' player-spoiler-img' : ''
+                                                    }`}
                                                 />
                                             ) : (
                                                 <div className="flex aspect-video items-center justify-center text-[10px] font-bold uppercase tracking-widest text-muted">

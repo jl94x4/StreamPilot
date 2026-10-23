@@ -19,6 +19,8 @@ import {
     Music,
     Play,
     RefreshCw,
+    Shield,
+    ShieldCheck,
     Shuffle,
     Star,
     Trash2,
@@ -49,6 +51,8 @@ import { PlayerClearLogo } from './PlayerClearLogo';
 import { PlayerFileInfo } from './PlayerFileInfo';
 import { PlayerSeasonWatchDialog } from './PlayerSeasonWatchDialog';
 import { readPlayerItemCache } from './playerMemory';
+import { readPlayerSettings } from './playerSettings';
+import { isSpoilerShow, spoilerShowKey, toggleSpoilerShow } from './spoilers';
 import { applyRememberedProgress, isMusicPlayerItem, plexLogoUrl, shouldOfferResume } from './playerUtils';
 import {
     cancelMediaDownload,
@@ -622,6 +626,26 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
         )
     ) : null;
 
+    // Per show: blur unwatched episode stills and hide their summaries.
+    const spoilerKey = spoilerShowKey(item);
+    const spoilersHidden = isSpoilerShow(readPlayerSettings(), spoilerKey);
+    const spoilerBtn = spoilerKey ? (
+        <button
+            type="button"
+            role="menuitem"
+            data-tv-item="1"
+            data-tv-menu-item="1"
+            className={itemClass}
+            onClick={() => choose(() => {
+                const on = toggleSpoilerShow(spoilerKey);
+                toast(on ? t('mediaPlayerPage.spoilerHidden') : t('mediaPlayerPage.spoilersShow'), 'info');
+            })}
+        >
+            {spoilersHidden ? <ShieldCheck className={iconClass} /> : <Shield className={iconClass} />}
+            {spoilersHidden ? t('mediaPlayerPage.spoilersShow') : t('mediaPlayerPage.spoilersHide')}
+        </button>
+    ) : null;
+
     const watchlistBtn = canWatchlist && watchlistTarget ? (
         <button
             type="button"
@@ -716,6 +740,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
         <>
             {!useContextSheet && isTv ? watchToggle : null}
             {useContextSheet ? watchlistBtn : null}
+            {spoilerBtn}
             {canPlayNext ? (
                 <button
                     type="button"

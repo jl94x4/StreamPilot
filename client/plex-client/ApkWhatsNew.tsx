@@ -73,6 +73,27 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.337': [
+        {
+            title: 'Playback',
+            items: [
+                'New Away quality: a separate quality for when you\'re away from home or on mobile data',
+                'New Auto-lower quality when buffering (off by default): steps the quality down by itself instead of asking',
+            ],
+        },
+        {
+            title: 'Shows',
+            items: [
+                'Hide spoilers per show from the long-press menu: unwatched episodes get a blurred image and no summary',
+            ],
+        },
+        {
+            title: 'Movies & shows',
+            items: [
+                'New Trailer preview (off by default): the trailer quietly plays behind the artwork after a few seconds',
+            ],
+        },
+    ],
     '1.0.336': [
         {
             title: 'Home',

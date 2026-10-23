@@ -477,6 +477,10 @@ public class PlayerActivity extends AppCompatActivity {
     private boolean subtitleAutoSync;
     private boolean subtitleAutoSyncAvailable;
     private boolean audioPassthrough;
+    /** Settings → Auto-lower quality: step down by itself instead of asking once. */
+    private boolean autoQuality;
+    private long lastAutoQualityDropAt;
+    private static final long AUTO_QUALITY_COOLDOWN_MS = 20_000;
     private int cinemaTrailerCount;
     private final OffsettingSubtitleDecoderFactory subtitleDecoderFactory = new OffsettingSubtitleDecoderFactory();
     private long sleepUntilElapsedRealtime;
@@ -1330,6 +1334,7 @@ public class PlayerActivity extends AppCompatActivity {
                     root.optInt("subtitleAutoSyncOffsetMs", subtitleAutoSyncOffsetMs)));
             }
             if (root.has("audioPassthrough")) audioPassthrough = root.optBoolean("audioPassthrough", audioPassthrough);
+            if (root.has("autoQuality")) autoQuality = root.optBoolean("autoQuality", autoQuality);
             if (root.has("cinemaTrailerCount")) {
                 cinemaTrailerCount = Math.max(0, Math.min(5, root.optInt("cinemaTrailerCount", cinemaTrailerCount)));
             }
@@ -4426,7 +4431,8 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void maybeQualityNudge() {
-        if (musicMode || qualityNudgeOffered || player == null) return;
+        if (musicMode || player == null) return;
+        if (qualityNudgeOffered && !autoQuality) return;
         // A seek buffer is not a reason to drop quality or start a transcode.
         if (seekingUi || android.os.SystemClock.elapsedRealtime() - lastSeekAtMs < 12_000) {
             bufferingStreakSec = 0;
@@ -4438,6 +4444,10 @@ public class PlayerActivity extends AppCompatActivity {
             return;
         }
         bufferingStreakSec += 1;
+        if (autoQuality) {
+            maybeAutoLowerQuality();
+            return;
+        }
         if (bufferingStreakSec < 10) return;
         String next = nextLowerQualityId();
         if (next == null || next.equalsIgnoreCase(qualityId)) {
@@ -4465,6 +4475,25 @@ public class PlayerActivity extends AppCompatActivity {
                 requestStreamChange(dropTo, audioStreamId, subtitleStreamId, mediaIndex);
             }
         );
+    }
+
+    /**
+     * Auto-lower quality: after ~6s stuck buffering, drop one step on the ladder without
+     * asking. A cooldown lets the new stream settle before it can step down again.
+     */
+    private void maybeAutoLowerQuality() {
+        if (bufferingStreakSec < 6) return;
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (lastAutoQualityDropAt > 0 && now - lastAutoQualityDropAt < AUTO_QUALITY_COOLDOWN_MS) return;
+        String next = nextLowerQualityId();
+        if (next == null || next.equalsIgnoreCase(qualityId)) return;
+        lastAutoQualityDropAt = now;
+        bufferingStreakSec = 0;
+        qualityId = next;
+        updateChipLabels();
+        flashModeChip();
+        toast(getString(R.string.player_quality_auto_lowered, qualityLadderLabel(next)));
+        requestStreamChange(next, audioStreamId, subtitleStreamId, mediaIndex);
     }
 
     private static String matchTrackIdByLang(List<OptionItem> tracks, String langKey) {

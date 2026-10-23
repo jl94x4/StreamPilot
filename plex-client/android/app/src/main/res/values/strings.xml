@@ -62,6 +62,7 @@
     <string name="player_more_like_this">More like this</string>
     <string name="player_quality_nudge_title">Buffering</string>
     <string name="player_quality_nudge_body">Lower quality to %1$s?</string>
+    <string name="player_quality_auto_lowered">Buffering — lowered quality to %1$s</string>
     <string name="player_quality_nudge_yes">Lower quality</string>
     <string name="player_quality_nudge_no">Keep current</string>
     <string name="player_no_options">No options for this title</string>

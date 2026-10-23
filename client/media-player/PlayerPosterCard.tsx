@@ -6,6 +6,7 @@ import { PlayerItemMenu, type PlayerItemMenuHandle } from './PlayerItemMenu';
 import { watchedTickPositionClass } from './playerSettings';
 import { applyRememberedProgress, formatEpisodeCode, formatRemainingWatchTime, heroRailCardImageUrl, heroRowSubtitle, PLAYER_PROGRESS_EVENT, plexBackdropUrl, PLAYER_POSTER_QUALITY, prefetchPlayerImages, progressPercent, remainingWatchMs, resizePlexArtUrl, resolvePlayerCardAspect, toPosterCardItem } from './playerUtils';
 import { usePlayerSettings } from './usePlayerSettings';
+import { hideEpisodeSpoilers } from './spoilers';
 import type { PlayerItem, PlayerPlayOptions } from './types';
 
 type Props = {
@@ -199,7 +200,9 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
             data-tv-backdrop={isTvShell ? (plexBackdropUrl(
                 (item as { backdropArt?: string | null }).backdropArt || item.art || item.thumb,
             ) || undefined) : undefined}
-            className="player-poster-hold relative touch-manipulation select-none [-webkit-touch-callout:none] [-webkit-user-select:none] [user-select:none]"
+            className={`player-poster-hold relative touch-manipulation select-none [-webkit-touch-callout:none] [-webkit-user-select:none] [user-select:none]${
+                hideEpisodeSpoilers(settings, item) ? ' player-spoiler-blur' : ''
+            }`}
             onFocusCapture={schedulePrefetch}
             onBlurCapture={cancelPrefetch}
             onPointerEnter={schedulePrefetch}

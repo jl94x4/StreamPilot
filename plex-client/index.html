@@ -509,6 +509,26 @@
       background: linear-gradient(180deg, #fbbf24 0%, rgba(245, 158, 11, 0.45) 100%);
       box-shadow: 0 0 12px rgba(251, 191, 36, 0.4);
     }
+    /* Trailer preview: fades in over the details backdrop art (DOM order keeps it under the scrims). */
+    .media-details-trailer-preview {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      opacity: 0;
+      transition: opacity 1.2s ease;
+      pointer-events: none;
+    }
+    .media-details-trailer-preview.is-visible {
+      opacity: 1;
+    }
+    /* Per-show spoiler hiding: an unwatched episode's still is blurred (frame clips the edges). */
+    .player-spoiler-img,
+    .player-spoiler-blur img {
+      filter: blur(18px) saturate(0.6) brightness(0.8);
+      transform: scale(1.12);
+    }
     /* Live Home: a card Plex just added slides in from the left of its row. */
     @keyframes player-rail-card-in {
       from { opacity: 0; transform: translateX(-1.25rem) scale(0.94); }

@@ -27,6 +27,8 @@ type PlexServer = {
     name: string;
     uri: string;
     accessToken: string;
+    /** On the home network (Plex "local", not relay). Missing on servers saved before this. */
+    local?: boolean;
 };
 
 type PlexMeta = Record<string, any>;
@@ -1439,7 +1441,34 @@ const isHttpsConnection = (connection: PlexMeta) => (
 const connectionTarget = (connection: PlexMeta, id: string, name: string, accessToken: string): PlexServer | null => {
     const uri = String(connection.uri || '').replace(/\/+$/, '');
     if (!uri) return null;
-    return { id, name, uri, accessToken };
+    return { id, name, uri, accessToken, local: isLocalConnection(connection) };
+};
+
+const PRIVATE_IPV4 = /^(10\.|127\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.)/;
+
+/** Home network? Uses the saved Plex flag, else reads the IP out of the address. */
+const serverIsLocal = (server: PlexServer | null) => {
+    if (!server) return false;
+    if (typeof server.local === 'boolean') return server.local;
+    try {
+        const host = new URL(server.uri).hostname.toLowerCase();
+        // 192-168-1-6.<hash>.plex.direct → 192.168.1.6
+        const plexDirect = host.match(/^(\d+-\d+-\d+-\d+)\.[a-f0-9]+\.plex\.direct$/);
+        const ip = plexDirect ? plexDirect[1].replace(/-/g, '.') : host;
+        return ip === 'localhost' || PRIVATE_IPV4.test(ip);
+    } catch {
+        return false;
+    }
+};
+
+/** Phone on mobile data counts as away even when the server address looks local. */
+const onMobileData = () => {
+    try {
+        const type = String((navigator as Navigator & { connection?: { type?: string } }).connection?.type || '');
+        return type === 'cellular';
+    } catch {
+        return false;
+    }
 };
 
 const firstOf = (connections: PlexMeta[], id: string, name: string, accessToken: string) => new Promise<PlexServer | null>((resolve) => {
@@ -1521,7 +1550,7 @@ const discoverServers = async (token: string) => {
             if (!id || !uri) return null;
             const accessToken = String(resource.accessToken || token);
             if (!await probe(uri, accessToken)) return null;
-            return { id, name: String(resource.name || 'Plex'), uri, accessToken };
+            return { id, name: String(resource.name || 'Plex'), uri, accessToken, local: false };
         }));
         found.push(...relays.filter((server): server is PlexServer => !!server));
     }
@@ -5848,7 +5877,12 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
             }
             const settings = readSettings();
             const mediaIndex = Number(query.get('mediaIndex') || 0);
-            const qualityId = String(query.get('qualityId') || settings.defaultQualityId || 'original');
+            // Away (not on the server's network, or on mobile data) uses the Away quality.
+            const away = !serverIsLocal(server) || onMobileData();
+            const preferredQuality = away && settings.remoteQualityId
+                ? settings.remoteQualityId
+                : settings.defaultQualityId;
+            const qualityId = String(query.get('qualityId') || preferredQuality || 'original');
             const medias = asList<PlexMeta>(meta.Media);
             const media = medias[mediaIndex] || medias[0];
             const part = asList<PlexMeta>(media?.Part)[0] || {};

@@ -937,6 +937,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
             subtitleAutoSync: playerSettings.subtitleAutoSync,
             subtitleAutoSyncAvailable: voiceActivityAvailableRef.current,
             audioPassthrough: playerSettings.audioPassthrough,
+            autoQuality: playerSettings.autoQuality,
             cinemaTrailerCount: playerSettings.cinemaTrailerCount,
             title: session.item.title,
             subtitle: session.item.showTitle || session.item.seasonTitle || '',

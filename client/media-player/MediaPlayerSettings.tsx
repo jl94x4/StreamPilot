@@ -565,6 +565,11 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
     const hiddenRows = new Set<string>();
     if (!settings.showContinueWatching) hiddenRows.add('continueWatching');
 
+    // Away quality: "Same as home" keeps one quality everywhere (the old behaviour).
+    const remoteQualityOptions = [
+        { value: '', label: t('mediaPlayerPage.remoteQualitySame') },
+        ...qualityOptions.map((row) => ({ value: row.id, label: row.label })),
+    ];
     // Each shape shows next to its name, drawn the way row headers will draw it.
     const rowMarkerOptions = useMemo(() => PLAYER_ROW_MARKERS.map((marker) => ({
         value: marker,
@@ -1065,6 +1070,21 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         options={qualityOptions.map((row) => ({ value: row.id, label: row.label }))}
                         onChange={(value) => updateSettings({ defaultQualityId: value })}
                     />
+                    {isPlexDirectMode() ? (
+                        <TvChoiceRow
+                            title={t('mediaPlayerPage.remoteQuality')}
+                            description={t('mediaPlayerPage.remoteQualityHint')}
+                            value={settings.remoteQualityId}
+                            options={remoteQualityOptions}
+                            onChange={(value) => updateSettings({ remoteQualityId: value })}
+                        />
+                    ) : null}
+                    <TvToggleRow
+                        title={t('mediaPlayerPage.autoQuality')}
+                        description={t('mediaPlayerPage.autoQualityHint')}
+                        checked={settings.autoQuality}
+                        onChange={(checked) => updateSettings({ autoQuality: checked })}
+                    />
                     <TvChoiceRow
                         title={t('mediaPlayerPage.autoSkipIntro')}
                         description={t('mediaPlayerPage.autoSkipIntroHint')}
@@ -1256,6 +1276,12 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         description={t('mediaPlayerPage.playThemeTunesHint')}
                         checked={settings.playThemeTunes}
                         onChange={(checked) => updateSettings({ playThemeTunes: checked })}
+                    />
+                    <TvToggleRow
+                        title={t('mediaPlayerPage.trailerPreview')}
+                        description={t('mediaPlayerPage.trailerPreviewHint')}
+                        checked={settings.trailerPreview}
+                        onChange={(checked) => updateSettings({ trailerPreview: checked })}
                     />
                     <TvToggleRow
                         title={t('mediaPlayerPage.skipSingleSeason')}
@@ -1582,6 +1608,12 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                             checked={settings.playThemeTunes}
                             onChange={(checked) => updateSettings({ playThemeTunes: checked })}
                         />
+                        <SettingsToggleRow
+                            title={t('mediaPlayerPage.trailerPreview')}
+                            description={t('mediaPlayerPage.trailerPreviewHint')}
+                            checked={settings.trailerPreview}
+                            onChange={(checked) => updateSettings({ trailerPreview: checked })}
+                        />
                         {typeof document !== 'undefined' && document.documentElement?.dataset?.phone === '1' ? (
                         <SettingsToggleRow
                             title={t('mediaPlayerPage.phoneOverviewPoster')}
@@ -1706,6 +1738,29 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                             options={qualityOptions.map((row) => ({ value: row.id, label: row.label }))}
                         />
                     </div>
+                    {isPlexDirectMode() ? (
+                        <div className="py-4">
+                            <label className="mb-2 block text-sm font-bold text-text" htmlFor="media-player-remote-quality">
+                                {t('mediaPlayerPage.remoteQuality')}
+                            </label>
+                            <p className="mb-3 text-xs text-muted">{t('mediaPlayerPage.remoteQualityHint')}</p>
+                            <CustomSelect
+                                id="media-player-remote-quality"
+                                value={settings.remoteQualityId}
+                                onChange={(value) => updateSettings({ remoteQualityId: value })}
+                                className="max-w-xl"
+                                options={remoteQualityOptions}
+                            />
+                        </div>
+                    ) : null}
+                    {isPlexClientApp() ? (
+                        <SettingsToggleRow
+                            title={t('mediaPlayerPage.autoQuality')}
+                            description={t('mediaPlayerPage.autoQualityHint')}
+                            checked={settings.autoQuality}
+                            onChange={(checked) => updateSettings({ autoQuality: checked })}
+                        />
+                    ) : null}
                 </div>
             </section>
             <div className="grid w-full grid-cols-1 gap-6 xl:grid-cols-2">

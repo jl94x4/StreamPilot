@@ -312,6 +312,8 @@ export type PlayerSettings = {
     /** Watchlist hub on Home, under Continue Watching. */
     showWatchlist: boolean;
     defaultQualityId: string;
+    /** Quality away from home / on mobile data. '' = same as home. Direct app only. */
+    remoteQualityId: string;
     audioLanguage: string;
     subtitleMode: PlayerSubtitleMode;
     /** @deprecated Prefer skipIntroMode; kept for older saves / server payloads. */
@@ -365,6 +367,12 @@ export type PlayerSettings = {
     matchFrameRate: boolean;
     /** HDMI bitstream of DD/DTS/TrueHD when the sink supports it. */
     audioPassthrough: boolean;
+    /** Native player steps quality down by itself when it keeps buffering (off = ask once). */
+    autoQuality: boolean;
+    /** Movie / show pages quietly play the trailer behind the artwork after a few seconds. */
+    trailerPreview: boolean;
+    /** Show rating keys with spoiler hiding on: unwatched episodes get blurred stills, no summary. */
+    spoilerShows: string[];
     /** @deprecated Prefer cinemaTrailerCount. */
     cinemaTrailers: boolean;
     /** How many trailers to play before a movie (0–5). */
@@ -675,6 +683,7 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
     showBecauseYouWatched: true,
     showWatchlist: true,
     defaultQualityId: 'auto',
+    remoteQualityId: '',
     audioLanguage: '',
     subtitleMode: 'forced',
     autoSkipIntro: false,
@@ -705,6 +714,9 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
     nightMode: false,
     matchFrameRate: true,
     audioPassthrough: false,
+    autoQuality: false,
+    trailerPreview: false,
+    spoilerShows: [],
     cinemaTrailers: false,
     cinemaTrailerCount: 0,
     subtitleSize: 100,
@@ -740,6 +752,7 @@ export const normalizePlayerSettings = (raw: Partial<PlayerSettings> | Record<st
         showBecauseYouWatched: raw?.showBecauseYouWatched !== false,
         showWatchlist: raw?.showWatchlist !== false,
         defaultQualityId: QUALITY_IDS.has(quality) ? quality : 'auto',
+        remoteQualityId: QUALITY_IDS.has(String(raw?.remoteQualityId || '')) ? String(raw?.remoteQualityId) : '',
         audioLanguage: /^[a-z]{2}(?:-[a-z]{2})?$/.test(audioLanguage) ? audioLanguage : '',
         subtitleMode: SUBTITLE_MODES.has(subtitleMode) ? subtitleMode : 'forced',
         autoSkipIntro: raw?.autoSkipIntro === true || String(raw?.skipIntroMode || '') === 'auto',
@@ -791,6 +804,11 @@ export const normalizePlayerSettings = (raw: Partial<PlayerSettings> | Record<st
         nightMode: raw?.nightMode === true,
         matchFrameRate: raw?.matchFrameRate !== false,
         audioPassthrough: raw?.audioPassthrough === true,
+        autoQuality: raw?.autoQuality === true,
+        trailerPreview: raw?.trailerPreview === true,
+        spoilerShows: Array.isArray(raw?.spoilerShows)
+            ? Array.from(new Set((raw.spoilerShows as unknown[]).map((key) => String(key || '').trim()).filter(Boolean))).slice(0, 500)
+            : [],
         cinemaTrailers: (() => {
             const count = Number(raw?.cinemaTrailerCount);
             if (Number.isFinite(count)) return count > 0;
@@ -827,6 +845,7 @@ export const playerSettingsEqual = (a: PlayerSettings, b: PlayerSettings) => (
     && a.showBecauseYouWatched === b.showBecauseYouWatched
     && a.showWatchlist === b.showWatchlist
     && a.defaultQualityId === b.defaultQualityId
+    && a.remoteQualityId === b.remoteQualityId
     && a.audioLanguage === b.audioLanguage
     && a.subtitleMode === b.subtitleMode
     && a.autoSkipIntro === b.autoSkipIntro
@@ -857,6 +876,9 @@ export const playerSettingsEqual = (a: PlayerSettings, b: PlayerSettings) => (
     && a.nightMode === b.nightMode
     && a.matchFrameRate === b.matchFrameRate
     && a.audioPassthrough === b.audioPassthrough
+    && a.autoQuality === b.autoQuality
+    && a.trailerPreview === b.trailerPreview
+    && a.spoilerShows.join('|') === b.spoilerShows.join('|')
     && a.cinemaTrailers === b.cinemaTrailers
     && a.cinemaTrailerCount === b.cinemaTrailerCount
     && a.subtitleSize === b.subtitleSize
