@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.1.0](https://github.com/jl94x4/StreamPilot/compare/v2.0.0...v2.1.0) (2026-10-23)
+
+
+### Features
+
+* **plex-client:** redesign boot splash with crash-bounce logo animation, ambient glow and floating particles
+* **plex-client:** add TVDB fallback for studio/network logo resolution — improves logo hit rate for TV libraries using TheTVDB agent
+* **plex-client:** replace row title bar with play-button icon matching StreamPilot branding
+* **plex-client:** pulse-glow play icon animation during skeleton loading
+* **plex-client:** replace library loading spinner with skeleton poster rows
+* **plex-client:** show Who's Watching profile picker on TV app launch
+
+
+### Bug Fixes
+
+* **plex-client:** fix black screen after playback end and inconsistent play-next behaviour
+* **plex-client:** increase home hub timeout from 8s to 12s and retry on timeout — content rows no longer silently vanish on slow Plex servers
+
+
+### Chores
+
+* **plex-client:** raise targetSdkVersion to 35 for Play Store compliance
+
 ## [2.0.0](https://github.com/jl94x4/StreamPilot/compare/v1.9.3...v2.0.0) (2026-10-16)
 
 
