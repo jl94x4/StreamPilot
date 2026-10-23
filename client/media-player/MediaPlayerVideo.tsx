@@ -24,7 +24,10 @@ import {
 } from './host';
 import {
     formatClock,
+    formatEpisodeCode,
     formatNativePlayerMeta,
+    formatPlayerDate,
+    isFuturePlayerDate,
     formatPlayerResolution,
     newPlaySessionId,
     playSessionIdFromSrc,
@@ -536,6 +539,16 @@ export const MediaPlayerVideo: React.FC<Props> = ({
     const mediaIndex = String(session.mediaIndex || 0);
     const chromeLogoUrl = plexLogoUrl(session.item.logo);
     const showChromeLogo = Boolean(chromeLogoUrl) && !chromeLogoFailed && chromeLogoReady;
+    // Top-left details under the title: "S1 · E1 · July 26, 2026" (year for movies).
+    const chromeDetails = (isMusicPlayerItem(session.item) ? [] : [
+        { text: session.item.type === 'episode' ? formatEpisodeCode(session.item) : '', future: false },
+        session.item.type === 'episode'
+            ? {
+                text: formatPlayerDate(session.item.originallyAvailableAt),
+                future: isFuturePlayerDate(session.item.originallyAvailableAt),
+            }
+            : { text: session.item.type === 'movie' ? String(session.item.year || '').trim() : '', future: false },
+    ]).filter((part) => part.text);
 
     useEffect(() => {
         onPlayItemRef.current = onPlayItem;
@@ -1628,6 +1641,8 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                     ratingKey: live.item.ratingKey,
                     title: live.item.title,
                     subtitle: live.item.showTitle || live.item.seasonTitle || '',
+                    // Without this the next item kept the previous one's line (and airdate).
+                    meta: isMusicPlayerItem(live.item) ? '' : formatNativePlayerMeta(live.item),
                     music: isMusicPlayerItem(live.item),
                     posterUrl: poster ? nativePlaybackAuth(poster).url : '',
                     durationMs: live.item.durationMs || 0,
@@ -2677,6 +2692,16 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                             ) : null}
                         </>
                     )}
+                    {chromeDetails.length ? (
+                        <p className="truncate text-xs font-semibold text-white/70">
+                            {chromeDetails.map((part, index) => (
+                                <React.Fragment key={part.text}>
+                                    {index ? ' · ' : null}
+                                    <span className={part.future ? 'text-plex' : undefined}>{part.text}</span>
+                                </React.Fragment>
+                            ))}
+                        </p>
+                    ) : null}
                     {theater ? (
                         <p className="mt-1 inline-flex max-w-full items-center truncate rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-white/80">
                             {[modeLabel, sourceRes, sourceCodec].filter(Boolean).join(' · ')}
