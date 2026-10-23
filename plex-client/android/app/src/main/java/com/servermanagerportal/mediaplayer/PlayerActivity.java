@@ -1950,7 +1950,9 @@ public class PlayerActivity extends AppCompatActivity {
             windowColor,
             CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW,
             Color.BLACK,
-            Typeface.DEFAULT_BOLD
+            // System sans-serif (Roboto) at regular weight, like Plex's player. Bold read
+            // heavier than people were used to. ASS/SSA styling and <b> tags still apply.
+            Typeface.create("sans-serif", Typeface.NORMAL)
         );
         subtitleView.setStyle(style);
         subtitleView.setFractionalTextSize(0.0533f * (Math.max(50, Math.min(200, subtitleSizePct)) / 100f));
