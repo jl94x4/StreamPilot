@@ -3846,8 +3846,27 @@
     }
 
     /* Phone shell. data-phone (native/touch), not max-width 767. */
+      /* #media-player-scroll is the only scroller. A min-h-screen shell let the whole
+         document scroll instead, so its scroll/lazy-load hooks never fired. */
+      /* :has — sign-in still scrolls the page (keyboard up on a small phone). */
+      html[data-phone="1"]:has(.plex-client-shell),
+      html[data-phone="1"]:has(.plex-client-shell) body {
+        overflow: hidden;
+        overscroll-behavior: none;
+      }
+      html[data-phone="1"] .plex-client-shell {
+        height: 100%;
+        min-height: 0;
+      }
       html[data-phone="1"] #media-player-scroll {
         padding-bottom: max(1.5rem, env(safe-area-inset-bottom, 0px));
+        overscroll-behavior-y: contain;
+        -webkit-overflow-scrolling: touch;
+      }
+      /* overflow-x: auto turns y to auto too — rows dragged posters up inside themselves. */
+      html[data-phone="1"] [data-tv-rail="1"] {
+        overflow-y: hidden;
+        overscroll-behavior-x: contain;
       }
       html[data-phone="1"] #media-player-scroll:not(.player-scroll-details) {
         padding-left: max(1rem, env(safe-area-inset-left, 0px)) !important;
@@ -4138,17 +4157,18 @@
       .player-phone-nav-toggle {
         display: none;
       }
+      /* Bar owns the status-bar strip too, opaque — rows scrolled under it must not show through. */
       html[data-phone="1"] .player-phone-topbar {
         position: fixed;
-        top: env(safe-area-inset-top, 0px);
+        top: 0;
         right: 0;
         left: 0;
         z-index: 50;
         display: flex;
         align-items: center;
         min-height: 0;
-        padding: 0.2rem 0.65rem;
-        background: rgba(11, 16, 24, 0.9);
+        padding: calc(0.2rem + env(safe-area-inset-top, 0px)) 0.65rem 0.2rem;
+        background: rgb(11, 16, 24);
         border-bottom: 1px solid rgba(255, 255, 255, 0.06);
       }
       html[data-phone="1"] .player-phone-nav-toggle {

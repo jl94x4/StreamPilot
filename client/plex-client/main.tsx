@@ -197,7 +197,7 @@ const PlexClientApp: React.FC = () => {
     }
 
     return (
-        <div className="min-h-screen bg-zinc-950 text-zinc-100">
+        <div className="plex-client-shell min-h-screen bg-zinc-950 text-zinc-100">
             <MediaPlayerDashboard />
             <ApkWhatsNew />
         </div>

@@ -3752,7 +3752,10 @@ const loadServerHome = async (server: PlexServer, many: boolean, full = false) =
             .then((data) => ({ data, answered: true as const }))
             .catch(() => ({ data: null, answered: false as const }))
     );
-    const ask = answered(full ? 5000 : 3500);
+    // Timeouts count time queued behind poster loads on the browser's ~6 sockets per
+    // server. On a phone link that queue alone blew 5s, so pinned rows came back empty.
+    const phone = typeof document !== 'undefined' && document.documentElement?.dataset?.phone === '1';
+    const ask = answered(full ? (phone ? 15000 : 5000) : (phone ? 8000 : 3500));
     // User pins can live in either endpoint. In particular, /hubs/home commonly
     // carries the current Plex Home pin order while /hubs/promoted does not.
     const allHubsPromise = ask(`/hubs?${shellQuery}`);

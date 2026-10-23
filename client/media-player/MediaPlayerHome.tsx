@@ -15,7 +15,8 @@ import {
     upgraderPosterGridStyle,
 } from './host';
 import { beginHomeRowPriority, endHomeRowPriority, fetchMediaPlayerHome, fetchMediaPlayerHomeFull, fetchMediaPlayerHomeHero, fetchMediaPlayerHomeHeroRefresh, fetchMediaPlayerItem, fetchMediaPlayerLibrary, fetchMediaPlayerWatchlist, fetchPopularSearches, prefetchMediaPlayerItem, recordPopularSearch, searchMediaPlayer, setMediaPlayerWatched } from './api';
-import { isPlexDirectMode } from '../plex-client/config';
+import { isPhoneUi, isPlexDirectMode } from '../plex-client/config';
+import { PlayerPullToRefresh } from './PlayerPullToRefresh';
 import {
     forgetHomePosterFocus,
     peekRememberedTvFocusKey,
@@ -607,7 +608,10 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             setHome(cachedHome);
             setLoading(false);
         }
-        const applyFull = (full: PlayerHome, base: PlayerHome | null) => {
+        const hubIdentity = (hub: { identifier?: string; title?: string }) => (
+            String(hub.identifier || hub.title || '').trim().toLowerCase()
+        );
+        const applyFull = (full: PlayerHome, base: PlayerHome | null, live?: PlayerHome | null) => {
             if (!current()) return;
             const livePins = (full.hubs || []).some((hub) => (
                 !!hub.items?.length
@@ -615,10 +619,18 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 && !isBecauseYouWatchedHub(hub)
                 && !/^recentlyadded\./i.test(String(hub.identifier || ''))
             ));
+            // The full pass drops pins whose fill timed out. Rows this session's fast pass
+            // just got from Plex are still pinned, so keep them rather than blank them.
+            const fullKeys = new Set((full.hubs || []).map(hubIdentity));
+            const keptLive = livePins && live
+                ? (live.hubs || []).filter((hub) => (
+                    !!hub.items?.length && !isContinueWatchingHub(hub) && !fullKeys.has(hubIdentity(hub))
+                ))
+                : [];
             // A successful pin list replaces what was on screen, including rows
             // Collexions has since removed. Merge only when this pass found no pins.
             const mergedRaw = livePins
-                ? full
+                ? (keptLive.length ? { ...full, hubs: [...(full.hubs || []), ...keptLive] } : full)
                 : (playerHomeHasRows(full)
                     ? mergePlayerHomePayloads(full, base || full)
                     : { ...(base || full), partial: true });
@@ -629,11 +641,21 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             if (playerHomeHasRows(merged)) writePlayerHomeCache(merged);
             setHome(merged);
         };
-        const followFull = (base: PlayerHome | null) => (
-            fetchMediaPlayerHomeFull()
-                .then((full) => applyFull(full, base))
-                .catch(() => undefined)
-        );
+        const followFull = (base: PlayerHome | null, live?: PlayerHome | null, attempt = 0): Promise<void> => {
+            // Phone links drop the full pass often enough that one try left rows missing
+            // until the app restarted. Retry a couple of times while it lacks pinned rows.
+            const retry = () => {
+                if (isTvShell || attempt >= 2 || !current()) return undefined;
+                return new Promise<void>((resolve) => { window.setTimeout(resolve, attempt ? 8000 : 3000); })
+                    .then(() => (current() ? followFull(base, live, attempt + 1) : undefined));
+            };
+            return fetchMediaPlayerHomeFull()
+                .then((full) => {
+                    applyFull(full, base, live);
+                    return playerHomeHasContentHubs(full) ? undefined : retry();
+                })
+                .catch(() => retry());
+        };
         if (isTvShell || (skipPartial && cachedNeedsFull)) {
             // Paint includeMeta pins as soon as they arrive. The full pass still
             // fills empty shells and replaces the list — it must not be the first
@@ -677,7 +699,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 setError(null);
                 setLoading(false);
                 if (!playerHomeNeedsFull(next) && !data?.partial) return undefined;
-                return followFull(next);
+                return followFull(next, data);
             })
             .catch((err) => {
                 if (!current()) return;
@@ -700,6 +722,19 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 endHomeRowPriority();
             });
     }, [isTvShell, t]);
+
+    const pullToRefresh = useCallback(() => {
+        const hero = fetchMediaPlayerHomeHeroRefresh()
+            .then((data) => {
+                if (data?.effectiveMode) setHeroEffectiveMode(String(data.effectiveMode));
+                const items = Array.isArray(data?.items) ? data.items.filter((row) => row?.ratingKey && row?.title) : [];
+                if (!items.length) return;
+                writeHeroSlidesCache(items);
+                setHeroSlides(items);
+            })
+            .catch(() => undefined);
+        return Promise.all([refreshHome({ force: true }), hero]);
+    }, [refreshHome]);
 
     // Coming back online (or a flaky Android offline→online flip) should refetch quietly.
     useEffect(() => {
@@ -2114,6 +2149,10 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             ? 'tv-poster-rows player-home-page player-home-stage'
             : 'tv-poster-rows player-home-page flex flex-col gap-6 pb-8'
         }>
+            <PlayerPullToRefresh
+                enabled={!isTvShell && active && !searchActive && isPhoneUi()}
+                onRefresh={pullToRefresh}
+            />
             <HomeFocusStill
                 enabled={tvStage && active && !searchActive}
                 seed={tvStage ? tvStageStillSeed : ''}

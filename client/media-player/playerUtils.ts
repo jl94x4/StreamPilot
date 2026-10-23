@@ -431,8 +431,18 @@ const backdropRequestUrl = (path: string, width: number, height: number, quality
     return plexImageUrl(path, width, height, { quality });
 };
 
+const phoneShellActive = () => {
+    try {
+        return document.documentElement?.dataset?.phone === '1';
+    } catch {
+        return false;
+    }
+};
+
 export const plexBackdropUrl = (path?: string | null) => {
     if (!path) return '';
+    // A 1080p q90 transcode per hero slide took ages over mobile data; 720p is still sharp on a phone.
+    if (phoneShellActive()) return backdropRequestUrl(path, 1280, 720, 80);
     return backdropRequestUrl(path, PLAYER_BACKDROP_WIDTH, PLAYER_BACKDROP_HEIGHT, PLAYER_BACKDROP_QUALITY);
 };
 
