@@ -23,6 +23,8 @@ type PinSession = {
     code: string;
     oauthState: string;
     clientId: string;
+    /** Phone one-tap: app.plex.tv/auth with the long code prefilled, nothing to type. */
+    authUrl?: string;
 };
 
 type HomeUser = {
@@ -36,6 +38,20 @@ type HomeUser = {
 };
 
 const LINK_URL = 'https://plex.tv/link';
+
+/** Plex's hosted sign-in for a strong PIN. Only the client that made the PIN can claim it. */
+const plexWebAuthUrl = (clientId: string, code: string) => {
+    const params = new URLSearchParams({
+        clientID: clientId,
+        code,
+        'context[device][product]': 'StreamPilot',
+    });
+    return `https://app.plex.tv/auth#?${params.toString()}`;
+};
+
+const openExternal = (url: string) => {
+    try { window.open(url, '_blank', 'noopener,noreferrer'); } catch { /* restricted WebView */ }
+};
 const POSTER_HUES = [24, 32, 18, 38, 28, 14, 42, 22, 35, 16, 30, 40, 20, 26, 12, 36, 19, 33];
 
 const displayHost = (raw: string) => {
@@ -191,42 +207,56 @@ export const PlexClientAuthScreen: React.FC<Props> = ({ onAuthenticated }) => {
         return normalized.url;
     };
 
-    const startDirectLogin = async () => {
+    /** TV (or "Use a code instead") gets the short plex.tv/link PIN; phones sign in on Plex's page. */
+    const pinRequest = (linkCode: boolean, extra: Record<string, unknown> = {}) => (
+        linkCode ? { ...extra, linkCode: true } : { ...extra, strong: true }
+    );
+
+    const beginPin = (session: PinSession) => {
+        setPin(session);
+        if (!isTv) openExternal(session.authUrl || LINK_URL);
+        pollRef.current = window.setInterval(() => { void pollCallback(session); }, 2000);
+        void pollCallback(session);
+    };
+
+    const startDirectLogin = async (forceLinkCode = false) => {
         setError('');
         setBusy(true);
         stopPoll();
         setPin(null);
         setHomeUsers(null);
         writeAuthMode('plex');
+        const linkCode = isTv || forceLinkCode;
         // Keep any stored portalBaseUrl / wtRelayUrl — optional; WT prefers Settings → relay URL.
         try {
             const data = await apiFetch('/api/auth/plex/login', {
                 method: 'POST',
-                body: JSON.stringify({ linkCode: true }),
+                body: JSON.stringify(pinRequest(linkCode)),
             });
             const session: PinSession = {
                 pinId: String(data.id),
-                code: String(data.code || '').trim().toUpperCase(),
+                code: String(data.code || '').trim(),
                 oauthState: String(data.oauthState || 'direct'),
                 clientId: String(data.clientIdentifier || ''),
             };
             if (!session.pinId || !session.code) throw new Error('Plex did not return a link code');
-            if (session.code.length > 6) {
-                throw new Error('Plex returned a code that plex.tv/link will not accept. Try again.');
+            if (linkCode) {
+                session.code = session.code.toUpperCase();
+                if (session.code.length > 6) {
+                    throw new Error('Plex returned a code that plex.tv/link will not accept. Try again.');
+                }
+            } else {
+                if (!session.clientId) throw new Error('Plex sign-in is missing a client id. Try again.');
+                session.authUrl = plexWebAuthUrl(session.clientId, session.code);
             }
-            setPin(session);
-            if (!isTv) {
-                try { window.open(LINK_URL, '_blank', 'noopener,noreferrer'); } catch { /* tv */ }
-            }
-            pollRef.current = window.setInterval(() => { void pollCallback(session); }, 2000);
-            void pollCallback(session);
+            beginPin(session);
         } catch (err: any) {
             setError(err?.message || 'Failed to start Plex login');
             setBusy(false);
         }
     };
 
-    const startPinLogin = async () => {
+    const startPinLogin = async (forceLinkCode = false) => {
         setError('');
         setBusy(true);
         stopPoll();
@@ -257,38 +287,33 @@ export const PlexClientAuthScreen: React.FC<Props> = ({ onAuthenticated }) => {
             setCheckingPortal(false);
         }
 
+        const linkCode = isTv || forceLinkCode;
         try {
             const data = await apiFetch('/api/auth/plex/login', {
                 method: 'POST',
-                body: JSON.stringify({ skipHomeRemember: true, linkCode: true }),
+                body: JSON.stringify(pinRequest(linkCode, { skipHomeRemember: true })),
             });
             const rawCode = String(data.code || '').trim();
             const session: PinSession = {
                 pinId: String(data.id),
-                code: rawCode.toUpperCase(),
+                code: linkCode ? rawCode.toUpperCase() : rawCode,
                 oauthState: String(data.oauthState || ''),
                 clientId: String(data.clientIdentifier || data.clientId || ''),
             };
             if (!session.pinId || !session.oauthState) {
                 throw new Error('Portal did not return a PIN session (update StreamPilot if this persists).');
             }
-            if (session.code.length > 6) {
+            if (linkCode && session.code.length > 6) {
                 throw new Error('Portal returned a long auth code. Update StreamPilot to a build that supports linkCode PINs.');
             }
-            setPin(session);
-
-            if (!isTv) {
-                try {
-                    window.open(LINK_URL, '_blank', 'noopener,noreferrer');
-                } catch {
-                    /* restricted WebView */
+            if (!linkCode) {
+                // The portal polls plex.tv as its own client id, so the page must name that id.
+                if (!session.clientId || !session.code) {
+                    throw new Error('Portal did not return a Plex sign-in code (update StreamPilot if this persists).');
                 }
+                session.authUrl = plexWebAuthUrl(session.clientId, session.code);
             }
-
-            pollRef.current = window.setInterval(() => {
-                void pollCallback(session);
-            }, 2000);
-            void pollCallback(session);
+            beginPin(session);
         } catch (err: any) {
             setError(err?.message || 'Failed to start Plex login');
             setBusy(false);
@@ -342,6 +367,22 @@ export const PlexClientAuthScreen: React.FC<Props> = ({ onAuthenticated }) => {
 
     const hostLabel = displayHost(portalUrl);
     const stage = homeUsers ? 'home' : pin ? 'pin' : 'connect';
+    const webAuth = Boolean(pin?.authUrl);
+
+    // Android throttles the WebView while Plex's page is in front. Check the
+    // moment the user comes back instead of waiting for the next 2s tick.
+    useEffect(() => {
+        if (!pin) return undefined;
+        const onVisible = () => {
+            if (document.visibilityState === 'visible') void pollCallback(pin);
+        };
+        document.addEventListener('visibilitychange', onVisible);
+        window.addEventListener('focus', onVisible);
+        return () => {
+            document.removeEventListener('visibilitychange', onVisible);
+            window.removeEventListener('focus', onVisible);
+        };
+    }, [pin, pollCallback]);
 
     useEffect(() => {
         if (!isTv) return;
@@ -364,12 +405,14 @@ export const PlexClientAuthScreen: React.FC<Props> = ({ onAuthenticated }) => {
     const title = stage === 'home'
         ? 'Who’s watching?'
         : stage === 'pin'
-            ? 'Link this device'
+            ? (webAuth ? 'Finish on Plex' : 'Link this device')
             : 'Start watching';
     const subtitle = stage === 'home'
         ? 'Choose a Plex Home profile to continue.'
         : stage === 'pin'
-            ? 'On any phone or computer, open plex.tv/link and enter the code below.'
+            ? (webAuth
+                ? 'Sign in on the Plex page that opened, then come back here.'
+                : 'On any phone or computer, open plex.tv/link and enter the code below.')
             : usePortal
                 ? 'Connect once to your StreamPilot, then sign in with Plex.'
                 : 'Sign in with your Plex account. This device talks to your Plex server directly.';
@@ -536,6 +579,33 @@ export const PlexClientAuthScreen: React.FC<Props> = ({ onAuthenticated }) => {
                                         Connected to {hostLabel}
                                     </div>
                                 ) : null}
+                                {webAuth ? (
+                                    <div className="space-y-4 text-center">
+                                        <button
+                                            type="button"
+                                            data-tv-item="1"
+                                            data-tv-action="1"
+                                            tabIndex={0}
+                                            className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-plex to-amber-400 px-5 py-3.5 text-base font-black text-zinc-950 shadow-[0_10px_30px_rgba(229,160,13,0.28)] transition hover:brightness-110"
+                                            onClick={() => openExternal(pin.authUrl || LINK_URL)}
+                                        >
+                                            Open Plex sign-in
+                                        </button>
+                                        <p className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                                            <Loader2 className="h-3.5 w-3.5 animate-spin text-plex" />
+                                            Waiting for Plex
+                                        </p>
+                                        <button
+                                            type="button"
+                                            data-tv-item="1"
+                                            tabIndex={0}
+                                            className="block w-full text-sm font-semibold text-zinc-400 transition hover:text-white"
+                                            onClick={() => void (usePortal ? startPinLogin(true) : startDirectLogin(true))}
+                                        >
+                                            Use a code instead
+                                        </button>
+                                    </div>
+                                ) : (
                                 <div className="space-y-4 text-center">
                                     <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-zinc-500">Your code</p>
                                     <div className="flex justify-center gap-2.5">
@@ -557,6 +627,7 @@ export const PlexClientAuthScreen: React.FC<Props> = ({ onAuthenticated }) => {
                                         Waiting for Plex
                                     </p>
                                 </div>
+                                )}
                                 <button
                                     type="button"
                                     data-tv-item="1"
