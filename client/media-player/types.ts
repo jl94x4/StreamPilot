@@ -391,6 +391,8 @@ export type PlayerSubtitleTrack = {
     codec?: string | null;
     forced?: boolean;
     selected?: boolean;
+    /** Index among subtitles muxed into the file (null for sidecar files). */
+    embeddedOrdinal?: number | null;
 };
 
 export type PlayerPlaybackMode = 'directPlay' | 'directStream' | 'transcode';

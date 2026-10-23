@@ -666,6 +666,8 @@ public class PlayerActivity extends AppCompatActivity {
         final String url;
         final String language;
         final String codec;
+        /** Index among subtitles muxed into the file; -1 for sidecars / unknown. */
+        int embeddedOrdinal = -1;
 
         OptionItem(String id, String label) {
             this(id, label, "", "", "");
@@ -2548,7 +2550,9 @@ public class PlayerActivity extends AppCompatActivity {
                 String language = row.optString("languageTag", "");
                 if (language.isEmpty()) language = row.optString("language", "");
                 String codec = row.optString("codec", "");
-                out.add(new OptionItem(id, label, row.optString("url", ""), language, codec));
+                OptionItem item = new OptionItem(id, label, row.optString("url", ""), language, codec);
+                item.embeddedOrdinal = row.optInt("embeddedOrdinal", -1);
+                out.add(item);
             }
         }
         return out;
@@ -3270,6 +3274,7 @@ public class PlayerActivity extends AppCompatActivity {
         if (!(selector instanceof DefaultTrackSelector)) return;
         DefaultTrackSelector dts = (DefaultTrackSelector) selector;
         TrackSelectionParameters.Builder builder = dts.getParameters().buildUpon();
+        builder.clearOverridesOfType(C.TRACK_TYPE_TEXT);
         boolean sidecar = sidecarSubtitleUrl != null && !sidecarSubtitleUrl.trim().isEmpty();
         boolean off = subtitleStreamId == null || subtitleStreamId.isEmpty() || subtitleStreamId.startsWith("os:");
         OptionItem subRow = findSubtitleOption(subtitleStreamId);
@@ -3286,6 +3291,10 @@ public class PlayerActivity extends AppCompatActivity {
             if (lang != null && !lang.isEmpty()) {
                 builder.setPreferredTextLanguage(lang);
             }
+            // Language alone can't tell "Signs & Songs" from "Full" (common with ASS) and
+            // skips non-default tracks — pin the exact in-file track like audio does.
+            TrackSelectionOverride exact = embeddedTextOverride(subRow);
+            if (exact != null) builder.setOverrideForType(exact);
         } else {
             // Sidecar SubtitleConfiguration owns captions — disable embedded text.
             builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true);
@@ -3296,6 +3305,26 @@ public class PlayerActivity extends AppCompatActivity {
         } finally {
             applyingTextTracks = false;
         }
+    }
+
+    /** Exo text track at the Plex row's in-file position, or null when it can't be trusted. */
+    @Nullable
+    private TrackSelectionOverride embeddedTextOverride(@Nullable OptionItem row) {
+        if (player == null || row == null || row.embeddedOrdinal < 0) return null;
+        int seen = 0;
+        for (Tracks.Group group : player.getCurrentTracks().getGroups()) {
+            if (group.getType() != C.TRACK_TYPE_TEXT) continue;
+            for (int i = 0; i < group.length; i++) {
+                if (seen++ != row.embeddedOrdinal) continue;
+                if (!group.isTrackSupported(i, false)) return null;
+                String want = TrackRules.normalizeLangTag(row.language);
+                String have = TrackRules.normalizeLangTag(group.getTrackFormat(i).language);
+                boolean langClash = !want.isEmpty() && !have.isEmpty() && !"und".equals(have)
+                    && !want.startsWith(have) && !have.startsWith(want);
+                return langClash ? null : new TrackSelectionOverride(group.getMediaTrackGroup(), i);
+            }
+        }
+        return null;
     }
 
     private void notifyTracksOnlyChange() {

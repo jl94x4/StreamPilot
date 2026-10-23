@@ -11,6 +11,7 @@ export type NativePlayerTrackOption = {
     language?: string | null;
     languageTag?: string | null;
     codec?: string | null;
+    embeddedOrdinal?: number | null;
 };
 export type NativePlayerVersionOption = { id: string; label: string; mediaIndex?: number };
 

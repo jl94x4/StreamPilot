@@ -5703,6 +5703,8 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                     codec: stream.codec || null,
                     forced: stream.forced === 1 || stream.forced === true,
                     selected: String(stream.id || '') === subtitleStreamId,
+                    // Position among in-file subs (sidecars carry a key) — matches ExoPlayer's text track order.
+                    embeddedOrdinal: stream.key ? null : streams.subtitles.filter((row) => !row.key).indexOf(stream),
                 })),
                 subtitleStreamId: subtitleStreamId || null,
                 mediaIndex,

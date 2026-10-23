@@ -882,7 +882,10 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                     id: row.id,
                     label: row.label,
                     language: row.language || row.languageTag || null,
+                    // Native matches Exo tracks on this ("en"); language is Plex's display name ("English").
+                    languageTag: row.languageTag || row.language || null,
                     codec: row.codec || null,
+                    embeddedOrdinal: row.embeddedOrdinal ?? null,
                 })),
                 ...sidecarSubs,
             ],
