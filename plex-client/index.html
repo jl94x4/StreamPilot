@@ -183,29 +183,49 @@
     html, body, button, input, select, textarea {
       font-family: "Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif;
     }
-    @keyframes boot-splash-enter {
-      0% {
-        opacity: 0;
-        transform: translate3d(-46vw, 0, 0) scale(1.55) rotate(-8deg);
-        filter: blur(10px);
-      }
-      58% {
-        opacity: 1;
-        transform: translate3d(2.8vw, 0, 0) scale(0.94) rotate(2deg);
-        filter: blur(0);
-      }
-      78% {
-        transform: translate3d(-0.8vw, 0, 0) scale(1.05) rotate(-0.8deg);
-      }
-      100% {
-        opacity: 1;
-        transform: translate3d(0, 0, 0) scale(1) rotate(0deg);
-        filter: blur(0);
-      }
+    /* ── Boot splash: cinematic reveal ── */
+    @keyframes boot-splash-glow-orbit {
+      0%   { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
     }
-    @keyframes boot-splash-sweep {
-      0% { transform: translateX(-120%); }
-      100% { transform: translateX(280%); }
+    @keyframes boot-splash-logo-in {
+      0%   { opacity: 0; transform: translate3d(-120vw, 0, 0) scale(1.3); filter: blur(6px); }
+      28%  { opacity: 1; transform: translate3d(0, 0, 0) scale(1); filter: blur(0); }
+      /* IMPACT — overshot, squash */
+      34%  { opacity: 1; transform: translate3d(4vw, 0, 0) scale(0.92, 1.06); filter: blur(0) brightness(1.8); }
+      /* Recoil back */
+      46%  { transform: translate3d(-3vw, 0, 0) scale(1.07, 0.96); filter: blur(0) brightness(1.2); }
+      /* Second bounce */
+      58%  { transform: translate3d(1.2vw, 0, 0) scale(0.97, 1.02); filter: blur(0) brightness(1); }
+      /* Micro settle */
+      72%  { transform: translate3d(-0.4vw, 0, 0) scale(1.01, 0.995); }
+      100% { opacity: 1; transform: translate3d(0, 0, 0) scale(1); filter: blur(0) brightness(1); }
+    }
+    /* shimmer removed */
+    @keyframes boot-splash-bar-fill {
+      0%   { width: 0; }
+      20%  { width: 24%; }
+      55%  { width: 58%; }
+      80%  { width: 82%; }
+      100% { width: 100%; }
+    }
+    @keyframes boot-splash-bar-glow {
+      0%, 100% { box-shadow: 0 0 8px rgba(245, 158, 11, 0.3), 0 0 18px rgba(245, 158, 11, 0.1); }
+      50%      { box-shadow: 0 0 14px rgba(245, 158, 11, 0.55), 0 0 32px rgba(245, 158, 11, 0.2); }
+    }
+    @keyframes boot-splash-pulse-ring {
+      0%   { transform: translate(-50%, -50%) scale(0.85); opacity: 0.5; }
+      50%  { transform: translate(-50%, -50%) scale(1.15); opacity: 0; }
+      100% { transform: translate(-50%, -50%) scale(0.85); opacity: 0; }
+    }
+    @keyframes boot-splash-particle {
+      0%   { opacity: 0; transform: translateY(0) scale(0); }
+      15%  { opacity: 1; transform: translateY(-8px) scale(1); }
+      100% { opacity: 0; transform: translateY(-60px) scale(0.3); }
+    }
+    @keyframes boot-splash-version-in {
+      0%   { opacity: 0; transform: translateY(6px); }
+      100% { opacity: 1; transform: translateY(0); }
     }
     #boot-splash {
       position: relative;
@@ -220,32 +240,123 @@
       overflow: hidden;
       background: #07080c;
     }
+    /* Ambient radial glow behind the logo */
+    #boot-splash::before {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: min(110vw, 52rem);
+      height: min(110vw, 52rem);
+      transform: translate(-50%, -50%);
+      border-radius: 50%;
+      background: radial-gradient(
+        circle,
+        rgba(245, 158, 11, 0.1) 0%,
+        rgba(245, 158, 11, 0.04) 30%,
+        transparent 65%
+      );
+      pointer-events: none;
+      z-index: 0;
+    }
+    /* Orbiting glow ring */
+    #boot-splash::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: min(46vw, 22rem);
+      height: min(46vw, 22rem);
+      transform-origin: center center;
+      border-radius: 50%;
+      border: 1px solid transparent;
+      border-top-color: rgba(245, 158, 11, 0.25);
+      border-right-color: rgba(245, 158, 11, 0.08);
+      animation: boot-splash-glow-orbit 4s linear infinite;
+      margin-top: calc(min(46vw, 22rem) / -2);
+      margin-left: calc(min(46vw, 22rem) / -2);
+      pointer-events: none;
+      z-index: 0;
+    }
     #boot-splash .boot-splash-mark {
       position: relative;
       z-index: 1;
       display: flex;
       flex-direction: column;
       align-items: center;
-      animation: boot-splash-enter 0.95s cubic-bezier(0.16, 1.05, 0.3, 1) both;
+      animation: boot-splash-logo-in 1.05s cubic-bezier(0.22, 0.6, 0.35, 1) 0.1s both;
     }
+    /* shimmer removed */
     #boot-splash img {
       width: min(78vw, 36rem);
       height: auto;
       max-height: 22vh;
       object-fit: contain;
-      filter: drop-shadow(0 12px 28px rgba(0, 0, 0, 0.55));
+      filter: drop-shadow(0 0 40px rgba(245, 158, 11, 0.25))
+              drop-shadow(0 16px 32px rgba(0, 0, 0, 0.6));
     }
+    /* Pulse ring behind logo */
+    #boot-splash .boot-splash-ring {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: min(88vw, 42rem);
+      height: min(22vh, 12rem);
+      border: 1px solid rgba(245, 158, 11, 0.15);
+      border-radius: 50%;
+      transform: translate(-50%, -50%) scale(0.85);
+      animation: boot-splash-pulse-ring 2.8s ease-in-out 0.6s infinite;
+      pointer-events: none;
+      z-index: 0;
+    }
+    /* Floating particles */
+    #boot-splash .boot-splash-particles {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: min(70vw, 32rem);
+      height: 6rem;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      z-index: 0;
+    }
+    #boot-splash .boot-splash-particles span {
+      position: absolute;
+      width: 3px;
+      height: 3px;
+      border-radius: 50%;
+      background: rgba(245, 158, 11, 0.6);
+      box-shadow: 0 0 6px rgba(245, 158, 11, 0.4);
+      animation: boot-splash-particle 2.6s ease-out infinite;
+    }
+    #boot-splash .boot-splash-particles span:nth-child(1) { left: 12%; animation-delay: 0.4s; }
+    #boot-splash .boot-splash-particles span:nth-child(2) { left: 28%; animation-delay: 1.1s; }
+    #boot-splash .boot-splash-particles span:nth-child(3) { left: 44%; animation-delay: 0.7s; }
+    #boot-splash .boot-splash-particles span:nth-child(4) { left: 60%; animation-delay: 1.6s; }
+    #boot-splash .boot-splash-particles span:nth-child(5) { left: 76%; animation-delay: 0.2s; }
+    #boot-splash .boot-splash-particles span:nth-child(6) { left: 88%; animation-delay: 1.3s; }
+    /* Progress bar: determinate fill with glow */
     #boot-splash .boot-splash-progress {
       position: absolute;
       left: 50%;
       bottom: max(12%, 3.75rem);
       z-index: 1;
       width: min(14rem, 38vw);
-      height: 3px;
+      height: 2px;
       overflow: hidden;
       border-radius: 999px;
-      background: rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.06);
       transform: translateX(-50%);
+    }
+    #boot-splash .boot-splash-progress > span {
+      display: block;
+      width: 0;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #b45309, #f59e0b, #fde68a);
+      animation:
+        boot-splash-bar-fill 2.8s cubic-bezier(0.25, 0.46, 0.45, 0.94) 0.3s forwards,
+        boot-splash-bar-glow 1.4s ease-in-out 0.3s infinite;
     }
     #boot-splash .boot-splash-version {
       position: absolute;
@@ -256,21 +367,15 @@
       margin: 0;
       text-align: center;
       font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-      font-size: 0.75rem;
-      font-weight: 600;
-      letter-spacing: 0.06em;
-      color: rgba(255, 255, 255, 0.42);
+      font-size: 0.7rem;
+      font-weight: 500;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.32);
+      animation: boot-splash-version-in 0.6s ease-out 0.8s both;
     }
     #boot-splash .boot-splash-version:empty {
       display: none;
-    }
-    #boot-splash .boot-splash-progress > span {
-      display: block;
-      width: 38%;
-      height: 100%;
-      border-radius: inherit;
-      background: linear-gradient(90deg, #b45309, #f59e0b, #fde68a);
-      animation: boot-splash-sweep 1.35s ease-in-out infinite;
     }
     /* CSS zoom on html shrinks 100vh to a slice of the TV. Size the splash
        in layout px so after zoom it still covers the physical screen. */
@@ -291,8 +396,15 @@
     }
     @media (prefers-reduced-motion: reduce) {
       #boot-splash .boot-splash-mark,
-      #boot-splash .boot-splash-progress > span {
+      /* shimmer removed */
+      #boot-splash .boot-splash-progress > span,
+      #boot-splash::after,
+      #boot-splash .boot-splash-ring,
+      #boot-splash .boot-splash-particles span {
         animation: none !important;
+      }
+      #boot-splash .boot-splash-progress > span {
+        width: 100% !important;
       }
     }
     html[data-tv="1"] {
@@ -4265,6 +4377,8 @@
 <body>
   <div id="root">
     <div id="boot-splash">
+      <div class="boot-splash-ring" aria-hidden="true"></div>
+      <div class="boot-splash-particles" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span></div>
       <div class="boot-splash-mark">
         <img src="./logo.png" alt="StreamPilot" />
       </div>
