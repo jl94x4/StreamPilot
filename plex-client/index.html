@@ -2530,11 +2530,10 @@
       margin-top: 0.05rem;
       pointer-events: none;
     }
-    /* The peek keeps a fixed slot (so the active row never moves) but its posters run on
-       past it to the bottom of the screen; the stage clips them at the edge, not short of it. */
+    /* Same slot as before (max-height, free to shrink, so nothing above moves); only the
+       posters draw on past it to the bottom of the screen, where the stage clips them. */
     html[data-tv="1"] .player-home-next-row {
-      height: 5.85rem;
-      max-height: none !important;
+      min-height: 0;
       overflow: visible !important;
     }
     html[data-tv="1"] .player-home-next-row .player-row-header {
