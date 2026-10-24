@@ -187,6 +187,27 @@ const continueWatchingTitleKey = (item: { showTitle?: string | null; title?: str
     String(item?.showTitle || item?.title || '').trim()
 );
 
+type ContinueWatchingSortable = {
+    originallyAvailableAt?: string | number | null;
+    year?: number | string | null;
+    addedAt?: number | null;
+    lastViewedAt?: number | null;
+    showTitle?: string | null;
+    title?: string | null;
+    type?: string | null;
+};
+
+/** Negative when `a` comes first. 0 for `plex` (server order) and ties. */
+const compareContinueWatching = (a: ContinueWatchingSortable, b: ContinueWatchingSortable, mode: PlayerContinueWatchingSort): number => {
+    if (mode === 'plex') return 0;
+    if (mode === 'title') {
+        return continueWatchingTitleKey(a).localeCompare(continueWatchingTitleKey(b), undefined, { sensitivity: 'base' });
+    }
+    const av = mode === 'recentlyWatched' ? continueWatchingViewedMs(a) : continueWatchingReleaseMs(a);
+    const bv = mode === 'recentlyWatched' ? continueWatchingViewedMs(b) : continueWatchingReleaseMs(b);
+    return bv - av;
+};
+
 /** Reorder Continue Watching. `plex` keeps the server/On Deck order. */
 export const sortContinueWatchingItems = <T extends {
     originallyAvailableAt?: string | number | null;
@@ -201,23 +222,7 @@ export const sortContinueWatchingItems = <T extends {
     const mode = isPlayerContinueWatchingSort(sort) ? sort : 'releaseDate';
     if (mode === 'plex' || list.length < 2) return list.slice();
     const ranked = list.map((item, index) => ({ item, index }));
-    ranked.sort((a, b) => {
-        if (mode === 'title') {
-            const cmp = continueWatchingTitleKey(a.item).localeCompare(
-                continueWatchingTitleKey(b.item),
-                undefined,
-                { sensitivity: 'base' },
-            );
-            return cmp || a.index - b.index;
-        }
-        const av = mode === 'recentlyWatched'
-            ? continueWatchingViewedMs(a.item)
-            : continueWatchingReleaseMs(a.item);
-        const bv = mode === 'recentlyWatched'
-            ? continueWatchingViewedMs(b.item)
-            : continueWatchingReleaseMs(b.item);
-        return (bv - av) || a.index - b.index;
-    });
+    ranked.sort((a, b) => compareContinueWatching(a.item, b.item, mode) || a.index - b.index);
     return ranked.map((row) => row.item);
 };
 
@@ -263,7 +268,19 @@ export const stabilizeContinueWatchingOrder = <T extends {
         const key = continueWatchingItemKey(item);
         return !!key && !seen.has(key);
     });
-    const next = kept.concat(extras);
+    // Cards already on screen keep their places. A title that just arrived (a new show,
+    // or the next / newly aired episode under a new key) goes where the sort puts it —
+    // appending it left a release from yesterday at the back of "Latest release".
+    const next = kept.slice();
+    for (const item of extras) {
+        if (mode === 'plex') {
+            next.push(item);
+            continue;
+        }
+        const at = next.findIndex((row) => compareContinueWatching(item, row, mode) < 0);
+        if (at < 0) next.push(item);
+        else next.splice(at, 0, item);
+    }
     return { items: next, keys: next.map(continueWatchingItemKey).filter(Boolean) };
 };
 
