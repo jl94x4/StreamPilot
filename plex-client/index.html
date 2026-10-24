@@ -2129,7 +2129,8 @@
       position: absolute;
       left: 6.9rem;
       top: auto;
-      bottom: 23.5rem;
+      /* 23.5rem above the old stage bottom, which sat 0.35rem up. */
+      bottom: 23.85rem;
       z-index: 2;
       width: min(38rem, 44%);
       /* Tall enough for logo + tagline + meta + 3-line synopsis + cast. */
@@ -2411,7 +2412,7 @@
       position: absolute;
       left: 0;
       right: 0;
-      bottom: 0.35rem;
+      bottom: 0;
       z-index: 2;
       padding-left: 6.75rem;
     }

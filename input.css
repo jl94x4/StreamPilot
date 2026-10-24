@@ -3053,7 +3053,8 @@ html[data-tv="1"] .player-home-stage-copy {
   left: 0;
   right: 0;
   top: 4.25rem;
-  bottom: 0.35rem;
+  /* Down to the screen edge, so the peek row is not cut short of it. */
+  bottom: 0;
   z-index: 2;
   display: flex;
   flex-direction: column;
@@ -3944,7 +3945,8 @@ html[data-tv="1"] .player-home-next-row {
   padding-left: 0;
   pointer-events: none;
   margin-top: 0.05rem;
-  max-height: 5.5rem;
+  /* 5.5rem plus the 0.7rem the stage used to leave below it: same top, reaches the edge. */
+  max-height: 6.2rem;
   overflow: hidden;
 }
 html[data-tv="1"] .player-home-next-row .player-row-header {
