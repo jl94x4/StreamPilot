@@ -509,6 +509,41 @@
       background: linear-gradient(180deg, #fbbf24 0%, rgba(245, 158, 11, 0.45) 100%);
       box-shadow: 0 0 12px rgba(251, 191, 36, 0.4);
     }
+    /* Title pages: an image still loading fades in; a cached one is shown at once (FadeImg). */
+    .player-fade-img {
+      opacity: 0;
+      transition: opacity 0.35s ease;
+    }
+    .player-fade-img.is-loaded {
+      opacity: 1;
+    }
+    html[data-reduce-motion="1"] .player-fade-img {
+      transition: none;
+    }
+    /* Page colour from the artwork blends in instead of snapping when it is sampled. */
+    [data-tv-details="1"],
+    #media-player-scroll.player-scroll-details {
+      transition: background-color 0.45s ease;
+    }
+    /* TV cast / guest rows run on to the screen edge: they reach into the right padding the
+       rest of the page keeps. --details-pr mirrors pr-6 / xl:pr-10 on hero-content and lower. */
+    html[data-tv="1"] .media-details-hero-content,
+    html[data-tv="1"] .media-details-lower {
+      --details-pr: 1.5rem;
+    }
+    @media (min-width: 1280px) {
+      html[data-tv="1"] .media-details-hero-content,
+      html[data-tv="1"] .media-details-lower {
+        --details-pr: 2.5rem;
+      }
+    }
+    html[data-tv="1"] .media-details-cast [data-tv-rail="1"],
+    html[data-tv="1"] .media-details-episode-cast,
+    html[data-tv="1"] [data-tv-row-id^="guests:"] [data-tv-rail="1"] {
+      width: calc(100% + var(--details-pr, 0px)) !important;
+      max-width: none !important;
+      margin-right: calc(-1 * var(--details-pr, 0px)) !important;
+    }
     /* Trailer preview: fades in over the details backdrop art (DOM order keeps it under the scrims). */
     .media-details-trailer-preview {
       position: absolute;

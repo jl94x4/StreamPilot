@@ -22,7 +22,7 @@ import {
     playerHomeHasRows,
     playerHomeNeedsFull,
 } from './playerMemory';
-import { applyRememberedProgress, browserPlaybackCaps, forgetPlayerPoster, noteItemWatched, pausePlayerWarming, plexBackdropUrl, plexLogoUrl, prefetchPlayerImages, resumePlayerWarming, warmPlayerBackdrop, warmPlayerPoster, withWatchedProgress } from './playerUtils';
+import { applyRememberedProgress, browserPlaybackCaps, forgetPlayerPoster, noteItemWatched, pausePlayerWarming, plexBackdropUrl, plexImageUrl, plexLogoUrl, PLAYER_POSTER_QUALITY, prefetchPlayerImages, resumePlayerWarming, warmPlayerBackdrop, warmPlayerPoster, withWatchedProgress } from './playerUtils';
 import { matchDiscoverCompanyByName } from './studioLogo.js';
 import type {
     PlayerHome,
@@ -46,6 +46,33 @@ const prefetchItemBackdrop = (item?: { art?: string | null; backdropArt?: string
     const art = item?.backdropArt || item?.art || item?.thumb;
     if (art) warmPlayerBackdrop(plexBackdropUrl(art));
     if (item?.logo) warmPlayerPoster(plexLogoUrl(item.logo));
+};
+
+/**
+ * Warm what a title page shows first — season posters / episode stills and cast photos —
+ * at the exact URLs MediaPlayerDetails requests, so they're cached when the page opens
+ * instead of popping in one by one.
+ */
+const prefetchItemPageImages = (
+    item?: { type?: string | null; thumb?: string | null; cast?: Array<{ thumb?: string | null }> | null } | null,
+    children: Array<{ type?: string | null; thumb?: string | null }> = [],
+) => {
+    if (!item) return;
+    const phone = typeof document !== 'undefined' && document.documentElement?.dataset?.phone === '1';
+    const urls: string[] = [];
+    for (const row of children.slice(0, 12)) {
+        if (row.type === 'season') {
+            urls.push(plexImageUrl(row.thumb || item.thumb, 300, 450, { quality: PLAYER_POSTER_QUALITY }));
+        } else if (row.type === 'episode' && row.thumb) {
+            urls.push(phone
+                ? plexImageUrl(row.thumb, 320, 180, { quality: PLAYER_POSTER_QUALITY })
+                : plexImageUrl(row.thumb, 720, 405, { quality: PLAYER_POSTER_QUALITY }));
+        }
+    }
+    for (const person of (item.cast || []).slice(0, 12)) {
+        if (person?.thumb) urls.push(plexImageUrl(person.thumb, 240, 240, { quality: 60 }));
+    }
+    prefetchPlayerImages(urls, 24);
 };
 
 const prefetchHeroBackdrops = (items?: Array<{ art?: string | null } | null>) => {
@@ -659,6 +686,7 @@ export const fetchMediaPlayerItem = (ratingKey: string, opts: { core?: boolean; 
                 onDeck: data.onDeck !== undefined ? data.onDeck : (prev?.onDeck ?? null),
             });
             prefetchItemBackdrop(item);
+            prefetchItemPageImages(item, children);
             return page;
         })
         .finally(() => {
@@ -803,6 +831,7 @@ export const prefetchMediaPlayerItem = (ratingKey: string) => {
     const cached = readPlayerItemCache(key);
     if (cached?.item) {
         prefetchItemBackdrop(cached.item);
+        prefetchItemPageImages(cached.item, cached.children || []);
         return;
     }
     if (itemRequestInflight(key)) return;

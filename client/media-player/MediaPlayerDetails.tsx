@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowLeft, Bookmark, BookmarkCheck, Calendar, Captions, Check, ChevronDown, Clock, Eye, EyeOff, Film, Info, ListPlus, Loader2, Play, RotateCcw, Shuffle, SkipForward, Star, Users, Volume2 } from 'lucide-react';
 import { isWatchTogetherAvailable } from './watchTogetherClient';
@@ -73,6 +73,8 @@ import {
     DEFAULT_BACKDROP_SURFACE_RGB,
     formatTvDetailsBackdropPosition,
     formatWebDetailsBackdropPosition,
+    peekImageFocalPoint,
+    peekSurfaceColor,
     resolveImageFocalPoint,
     sampleBackdropSurfaceColor,
     samplePosterSurfaceColor,
@@ -271,6 +273,31 @@ const SectionHeading: React.FC<{ children: React.ReactNode }> = ({ children }) =
     </div>
 );
 
+/**
+ * <img> that fades in once loaded — unless it is already in the cache, in which case it
+ * shows on the first paint (the ref sees `complete` during commit), so nothing flashes.
+ */
+const FadeImg: React.FC<React.ImgHTMLAttributes<HTMLImageElement>> = ({ className = '', onLoad, src, ...rest }) => {
+    const [loadedSrc, setLoadedSrc] = useState('');
+    const key = String(src || '');
+    const ref = useCallback((node: HTMLImageElement | null) => {
+        if (node?.complete && node.naturalWidth > 0) setLoadedSrc(key);
+    }, [key]);
+    return (
+        <img
+            {...rest}
+            ref={ref}
+            src={src}
+            decoding="async"
+            className={`${className} player-fade-img${loadedSrc === key ? ' is-loaded' : ''}`}
+            onLoad={(event) => {
+                setLoadedSrc(key);
+                onLoad?.(event);
+            }}
+        />
+    );
+};
+
 const CastAvatar: React.FC<{ name: string; thumb?: string | null }> = ({ name, thumb }) => {
     const [failed, setFailed] = useState(false);
     useEffect(() => {
@@ -283,7 +310,7 @@ const CastAvatar: React.FC<{ name: string; thumb?: string | null }> = ({ name, t
             className="relative w-40 h-40 rounded-full bg-white/5 border-2 border-border overflow-hidden transition-transform group-hover:scale-[1.03] group-hover:border-plex"
         >
             {src ? (
-                <img
+                <FadeImg
                     src={src}
                     alt=""
                     className="w-full h-full object-cover"
@@ -327,7 +354,7 @@ const PhoneEpisodeList: React.FC<{
                     >
                         <div className="relative w-[7.4rem] shrink-0 overflow-hidden rounded-lg bg-black/40">
                             {row.thumb ? (
-                                <img
+                                <FadeImg
                                     src={plexImageUrl(row.thumb, 320, 180, { quality: PLAYER_POSTER_QUALITY })}
                                     alt=""
                                     className={`aspect-video w-full object-cover${hideSpoiler?.(row) ? ' player-spoiler-img' : ''}`}
@@ -1445,7 +1472,9 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         const tvTint = isTvShell
             && settings.detailsArtworkTint
             && (item.type === 'movie' || item.type === 'show');
-        applyTvDetailsSurface(isTvShell ? TV_FLOOR_RGB : DEFAULT_BACKDROP_SURFACE_RGB, tvTint);
+        // A colour sampled on an earlier visit paints now; the floor only when there is none.
+        const knownSurface = (tvTint || !isTvShell) ? peekSurfaceColor(url || posterSampleUrl) : null;
+        applyTvDetailsSurface(knownSurface || (isTvShell ? TV_FLOOR_RGB : DEFAULT_BACKDROP_SURFACE_RGB), tvTint);
         const artUrl = url;
         const frameArt = (position: string) => {
             if (cancelled || framed) return;
@@ -1512,6 +1541,30 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             cancelled = true;
             window.clearTimeout(timer);
         };
+    }, [isTvShell, item?.ratingKey, item?.type, item?.art, item?.thumb, settings.detailsArtworkTint]);
+
+    // Before the first paint: frame the art and paint any known page colour, so neither
+    // shifts in after the images load (the async effect above only refines them).
+    useLayoutEffect(() => {
+        if (!item?.ratingKey) return;
+        const artUrl = plexBackdropUrl(item.art || item.thumb);
+        const focal = peekImageFocalPoint(artUrl);
+        const node = document.querySelector<HTMLElement>('[data-tv-details="1"]');
+        if (focal && node) {
+            const phone = isPhoneDetailsUi();
+            const position = isTvShell
+                ? formatTvDetailsBackdropPosition(focal)
+                : phone
+                    ? `${Math.min(60, Math.max(40, focal.x))}% 18%`
+                    : formatWebDetailsBackdropPosition(focal);
+            node.style.setProperty('--tv-backdrop-position', position);
+            node.querySelector('.media-details-hero-backdrop')?.classList.add('is-framed');
+        }
+        const tvTint = isTvShell && settings.detailsArtworkTint && (item.type === 'movie' || item.type === 'show');
+        const known = (tvTint || !isTvShell)
+            ? peekSurfaceColor(artUrl || plexImageUrl(item.thumb, 160, 240, { quality: 40 }))
+            : null;
+        if (known) applyTvDetailsSurface(known, tvTint);
     }, [isTvShell, item?.ratingKey, item?.type, item?.art, item?.thumb, settings.detailsArtworkTint]);
 
     useEffect(() => () => {
@@ -2992,7 +3045,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                             className="player-poster-frame relative overflow-hidden rounded-[12px] border border-white/10 bg-black/30"
                                         >
                                             {row.thumb || item.thumb ? (
-                                                <img
+                                                <FadeImg
                                                     src={plexImageUrl(row.thumb || item.thumb, 300, 450, { quality: PLAYER_POSTER_QUALITY })}
                                                     alt=""
                                                     className="aspect-[2/3] w-full object-cover transition-transform group-hover:scale-[1.03]"
@@ -3096,7 +3149,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                             className="player-poster-frame relative overflow-hidden rounded-[12px] border border-white/10 bg-black/30"
                                         >
                                             {row.thumb ? (
-                                                <img
+                                                <FadeImg
                                                     src={plexImageUrl(row.thumb, 720, 405, { quality: PLAYER_POSTER_QUALITY })}
                                                     alt=""
                                                     className={`aspect-video w-full object-cover transition-transform group-hover:scale-[1.03]${
@@ -3277,7 +3330,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                             className="player-poster-frame relative overflow-hidden rounded-[12px] border border-white/10 bg-black/30"
                                         >
                                             {extra.thumb ? (
-                                                <img
+                                                <FadeImg
                                                     src={plexImageUrl(extra.thumb, 426, 240, { quality: PLAYER_POSTER_QUALITY })}
                                                     alt=""
                                                     className="aspect-video w-full object-cover transition-transform group-hover:scale-[1.03]"

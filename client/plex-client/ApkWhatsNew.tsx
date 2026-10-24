@@ -73,6 +73,16 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.339': [
+        {
+            title: 'Movies & shows',
+            items: [
+                'Title pages load much more smoothly: posters, episode images and cast photos are fetched ahead of time and fade in instead of popping',
+                'The artwork and page colour no longer jump into place after the page opens',
+                'Cast rows run all the way to the edge of the screen',
+            ],
+        },
+    ],
     '1.0.338': [
         {
             title: 'Movies & shows',

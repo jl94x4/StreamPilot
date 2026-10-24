@@ -388,6 +388,19 @@ export const formatWebDetailsBackdropPosition = (focal: FocalPoint = DEFAULT_FOC
 };
 
 /**
+ * Synchronous focal point: cached, or the default when this device has no FaceDetector
+ * (the async lookup would return the default anyway). Undefined = must wait for detection.
+ * Lets title pages frame the art before the first paint instead of shifting it after.
+ */
+export const peekImageFocalPoint = (url?: string | null): FocalPoint | undefined => {
+    const key = String(url || '').trim();
+    if (!key) return DEFAULT_FOCAL;
+    const cached = focalCache.get(key);
+    if (cached) return cached;
+    return getFaceDetector() ? undefined : DEFAULT_FOCAL;
+};
+
+/**
  * Resolve a background-position focal point for an image URL.
  * Uses FaceDetector when available; otherwise biases toward the upper third
  * (typical for cinematic backdrops).
@@ -433,6 +446,16 @@ export const prefetchImageFocalPoints = (urls: string[]) => {
 };
 
 const surfaceCache = new Map<string, string>();
+/** Latest page colour per image URL (any frame) — lets a revisit paint it before sampling. */
+const surfaceByUrl = new Map<string, string>();
+const rememberSurface = (key: string, rgb: string) => {
+    surfaceCache.set(key, rgb);
+    const url = key.split('|')[0];
+    if (url) surfaceByUrl.set(url, rgb);
+};
+
+/** Synchronous: the colour last sampled for this image, if any. */
+export const peekSurfaceColor = (url?: string | null) => surfaceByUrl.get(String(url || '').trim()) || null;
 const surfaceInflight = new Map<string, Promise<string | null>>();
 
 /** Space-separated R G B for CSS `rgb(var(--token))` (e.g. `38 41 48`). */
@@ -586,7 +609,7 @@ export const sampleBackdropSurfaceColor = async (
         }
         if (!count) return null;
         const rgb = surfaceFromAverage(r / count, g / count, b / count);
-        surfaceCache.set(key, rgb);
+        rememberSurface(key, rgb);
         return rgb;
     } catch {
         return null;
@@ -694,7 +717,7 @@ export const sampleBackdropLeftEdgeFill = async (
             const bottom = band(24, 36);
             if (!top || !mid || !bottom) return null;
             const fill = `linear-gradient(to bottom, ${top} 0%, ${mid} 48%, ${bottom} 100%)`;
-            surfaceCache.set(key, fill);
+            rememberSurface(key, fill);
             return fill;
         } catch {
             return null;
@@ -730,7 +753,7 @@ export const samplePosterSurfaceColor = async (url: string): Promise<string | nu
         ctx.drawImage(img, 0, 0, tw, th);
         const rgb = posterSurfaceFromRgba(ctx.getImageData(0, 0, tw, th).data);
         if (!rgb) return null;
-        surfaceCache.set(key, rgb);
+        rememberSurface(key, rgb);
         return rgb;
     } catch {
         return null;
