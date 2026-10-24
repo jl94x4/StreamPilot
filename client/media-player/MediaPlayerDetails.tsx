@@ -56,6 +56,7 @@ import {
     plexImageUrl,
     PLAYER_POSTER_QUALITY,
     resizePlexArtUrl,
+    billboardBackdropFor,
     plexBackdropUrl,
     plexLogoUrl,
     applyRememberedProgress,
@@ -94,27 +95,7 @@ import {
 import type { PlayerItem, PlayerLibraryHub, PlayerMediaPartInfo, PlayerMediaStreamInfo, PlayerPlayOptions, PlayerRatings, PlayerVersion } from './types';
 import { hideEpisodeSpoilers } from './spoilers';
 import { TrailerPreview } from './TrailerPreview';
-
-const softenSurfaceRgb = (rgb: string, cap = 86, sat = 0.48) => {
-    const parts = rgb.trim().split(/\s+/).map((part) => Number(part));
-    if (parts.length < 3 || parts.some((value) => !Number.isFinite(value))) return rgb;
-    let [r, g, b] = parts;
-    // Keep the poster hue, but drop most of the saturation and cap brightness
-    // so a red or yellow still does not flood the whole page.
-    const avg = (r + g + b) / 3;
-    r = avg + (r - avg) * sat;
-    g = avg + (g - avg) * sat;
-    b = avg + (b - avg) * sat;
-    const luma = (0.2126 * r) + (0.7152 * g) + (0.0722 * b);
-    if (luma > cap) {
-        const scale = cap / luma;
-        r *= scale;
-        g *= scale;
-        b *= scale;
-    }
-    const channel = (value: number) => Math.round(Math.min(255, Math.max(0, value)));
-    return `${channel(r)} ${channel(g)} ${channel(b)}`;
-};
+import { softenSurfaceRgb, TV_FLOOR_RGB, tvTintSurfaceRgb } from './tvSurface';
 
 /** Airdate text, orange when the episode hasn't aired yet. */
 const airdateNode = (value: string | number | null | undefined, locale: string) => {
@@ -143,11 +124,6 @@ const isPhoneDetailsUi = () => {
     }
 };
 
-const TV_FLOOR_RGB = '6 10 16';
-/** TV artwork tint stays darker than web so white copy and focus rings keep their contrast. */
-const TV_TINT_LUMA_CAP = 60;
-/** Keep most of the edge's hue on TV; the web 0.48 read as plain grey on a dark screen. */
-const TV_TINT_SATURATION = 0.8;
 
 /** Horizontal-only rail pan. scrollIntoView also moves the page under CSS zoom. */
 const panTvOverflowX = (scroller: HTMLElement, node: HTMLElement, mode: 'nearest' | 'center' = 'nearest') => {
@@ -223,9 +199,7 @@ const applyTvDetailsSurface = (rgb: string, tvTint = false) => {
         document.documentElement?.dataset?.tv === '1'
         || window.__PLEX_CLIENT__?.isTv === true
     );
-    const tvSurface = tvTint && rgb !== TV_FLOOR_RGB
-        ? softenSurfaceRgb(rgb, TV_TINT_LUMA_CAP, TV_TINT_SATURATION)
-        : TV_FLOOR_RGB;
+    const tvSurface = tvTint ? tvTintSurfaceRgb(rgb) : TV_FLOOR_RGB;
     const softened = isPhoneDetailsUi() ? rgb : (tv ? tvSurface : softenSurfaceRgb(rgb));
     const paint = `rgb(${softened})`;
     const root = document.querySelector<HTMLElement>('[data-tv-details="1"]');
@@ -530,6 +504,14 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         document.documentElement?.dataset?.tv === '1'
         || window.__PLEX_CLIENT__?.isTv === true
     );
+    // Opened from TV Home: the billboard art (and colour) already on screen for this title.
+    // Same picture, so keep it instead of fetching Plex's other URL for it.
+    const homeHandoff = useMemo(
+        () => (isTvShell ? billboardBackdropFor(item?.ratingKey) : null),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [isTvShell, item?.ratingKey],
+    );
+    const handoffSurface = isTvShell && settings.detailsArtworkTint ? homeHandoff?.surface || null : null;
     const phoneUi = !isTvShell && isPhoneDetailsUi();
 
     useEffect(() => {
@@ -1479,7 +1461,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
     useEffect(() => {
         if (!item?.ratingKey) return undefined;
         const posterSampleUrl = plexImageUrl(item.thumb, 160, 240, { quality: 40 });
-        const url = plexBackdropUrl(item.art || item.thumb);
+        const url = homeHandoff?.url || plexBackdropUrl(item.art || item.thumb);
         if (!posterSampleUrl && !url) return undefined;
         let cancelled = false;
         let framed = false;
@@ -1494,7 +1476,11 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         const knownSurface = (tvTint || !isTvShell) ? peekSurfaceColor(url || posterSampleUrl) : null;
         const sameTitle = surfaceTitleRef.current === String(item.ratingKey);
         surfaceTitleRef.current = String(item.ratingKey);
-        if (knownSurface || !sameTitle) {
+        if (handoffSurface) {
+            // Home's fade was already this colour: carry it over rather than re-sample a
+            // slightly different one a moment after the page opens.
+            applyTvDetailsSurface(handoffSurface, true);
+        } else if (knownSurface || !sameTitle) {
             applyTvDetailsSurface(knownSurface || (isTvShell ? TV_FLOOR_RGB : DEFAULT_BACKDROP_SURFACE_RGB), tvTint);
         }
         const artUrl = url;
@@ -1525,7 +1511,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         };
         const sampleWhenFramed = (position: string) => {
             // TV with the artwork tint off stays on the black floor: nothing to sample.
-            if (isTvShell && !tvTint) return;
+            if (isTvShell && (!tvTint || handoffSurface)) return;
             let tries = 16;
             const tick = () => {
                 if (cancelled) return;
@@ -1563,13 +1549,13 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             cancelled = true;
             window.clearTimeout(timer);
         };
-    }, [isTvShell, item?.ratingKey, item?.type, item?.art, item?.thumb, settings.detailsArtworkTint]);
+    }, [isTvShell, item?.ratingKey, item?.type, item?.art, item?.thumb, settings.detailsArtworkTint, homeHandoff, handoffSurface]);
 
     // Before the first paint: frame the art and paint any known page colour, so neither
     // shifts in after the images load (the async effect above only refines them).
     useLayoutEffect(() => {
         if (!item?.ratingKey) return;
-        const artUrl = plexBackdropUrl(item.art || item.thumb);
+        const artUrl = homeHandoff?.url || plexBackdropUrl(item.art || item.thumb);
         const focal = peekImageFocalPoint(artUrl);
         const node = document.querySelector<HTMLElement>('[data-tv-details="1"]');
         if (focal && node) {
@@ -1586,8 +1572,9 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         const known = (tvTint || !isTvShell)
             ? peekSurfaceColor(artUrl || plexImageUrl(item.thumb, 160, 240, { quality: 40 }))
             : null;
-        if (known) applyTvDetailsSurface(known, tvTint);
-    }, [isTvShell, item?.ratingKey, item?.type, item?.art, item?.thumb, settings.detailsArtworkTint]);
+        if (handoffSurface) applyTvDetailsSurface(handoffSurface, true);
+        else if (known) applyTvDetailsSurface(known, tvTint);
+    }, [isTvShell, item?.ratingKey, item?.type, item?.art, item?.thumb, settings.detailsArtworkTint, homeHandoff, handoffSurface]);
 
     useEffect(() => () => {
         clearTvDetailsSurface();
@@ -1604,8 +1591,9 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             || spotlightRow
             || (item.type === 'episode' ? item : null)
         ) || item;
+        if (homeHandoff && String(hub.ratingKey) === String(item.ratingKey)) return homeHandoff.url;
         return plexBackdropUrl(hub.art || hub.thumb || item.art || item.thumb) || '';
-    }, [isTvShell, item, seasonEpisodes, children, spotlightKey, spotlightDetail]);
+    }, [isTvShell, item, seasonEpisodes, children, spotlightKey, spotlightDetail, homeHandoff]);
 
     useEffect(() => {
         if (!episodeHubBackdropUrl) return;
@@ -1650,6 +1638,10 @@ export const MediaPlayerDetails: React.FC<Props> = ({
     // artwork tint follows it too. Short delay so scrolling episodes does not resample each step.
     useEffect(() => {
         if (!isTvShell || !settings.detailsArtworkTint || !episodeHubBackdropUrl) return undefined;
+        if (handoffSurface && episodeHubBackdropUrl === homeHandoff?.url) {
+            applyTvDetailsSurface(handoffSurface, true);
+            return undefined;
+        }
         let cancelled = false;
         const timer = window.setTimeout(() => {
             const node = document.querySelector<HTMLElement>('[data-tv-details="1"]');
@@ -1666,7 +1658,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             cancelled = true;
             window.clearTimeout(timer);
         };
-    }, [isTvShell, settings.detailsArtworkTint, episodeHubBackdropUrl]);
+    }, [isTvShell, settings.detailsArtworkTint, episodeHubBackdropUrl, homeHandoff, handoffSurface]);
 
     if (loading && !hasDetailsHero(item)) {
         if (isTvShell) {
@@ -1741,7 +1733,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             : item
     ) || item;
     const isEpisodeHub = isTvShell && (item.type === 'episode' || item.type === 'season');
-    const backdropUrl = episodeHubBackdropUrl || plexBackdropUrl(item.art || item.thumb);
+    const backdropUrl = episodeHubBackdropUrl || homeHandoff?.url || plexBackdropUrl(item.art || item.thumb);
     const hubTechPills = isTvShell && (item.type === 'episode' || item.type === 'season')
         ? episodeTechPills(hubItem)
         : [];

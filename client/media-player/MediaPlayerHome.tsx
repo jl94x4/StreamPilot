@@ -73,8 +73,10 @@ import { PlayerServiceBrandMark } from './PlayerServiceBrandMark';
 import { PlayerTvScreensaver } from './PlayerTvScreensaver';
 import { PlayerTvSearch, PlayerTvSearchRecents } from './PlayerTvSearch';
 import { itemHasBillboardBrandMeta } from './studioLogo.js';
-import { applyRememberedProgress, asRecentlyAddedPlayerItem, formatPlayerDate, formatPlayerDuration, isFuturePlayerDate, heroRowCardItem, hideWatchedPlayerItems, isMusicPlayerItem, isPlayerBackdropReady, keepContinueWatchingPoster, mapContinueWatchingItemsForLayout, pickRicherSummary, pinTvNeighborBackdrops, playerItemBackdropUrl, plexBackdropUrl, plexLogoUrl, PLAYER_PROGRESS_EVENT, prefetchContinueWatchingImages, prefetchHomeRowPosters, primeNearbyTvBillboard, replaceFamilyContinueSlot, restoreContinueSlot, stampFamilyLastViewed, warmPlayerBackdrop, watchTargetTouches, withShowPoster } from './playerUtils';
+import { applyRememberedProgress, asRecentlyAddedPlayerItem, rememberBillboardBackdrop, formatPlayerDate, formatPlayerDuration, isFuturePlayerDate, heroRowCardItem, hideWatchedPlayerItems, isMusicPlayerItem, isPlayerBackdropReady, keepContinueWatchingPoster, mapContinueWatchingItemsForLayout, pickRicherSummary, pinTvNeighborBackdrops, playerItemBackdropUrl, plexBackdropUrl, plexLogoUrl, PLAYER_PROGRESS_EVENT, prefetchContinueWatchingImages, prefetchHomeRowPosters, primeNearbyTvBillboard, replaceFamilyContinueSlot, restoreContinueSlot, stampFamilyLastViewed, warmPlayerBackdrop, watchTargetTouches, withShowPoster } from './playerUtils';
 import { usePlayerSettings } from './usePlayerSettings';
+import { peekSurfaceColor, sampleBackdropSurfaceColor } from '../shared/imageFocalPoint';
+import { TV_FLOOR_RGB, tvTintSurfaceRgb } from './tvSurface';
 import type { PlayerHome, PlayerItem, PlayerLibraryHub, PlayerPlayOptions, PlayerSection } from './types';
 
 type Props = {
@@ -140,6 +142,16 @@ const itemKeyFromFocusTarget = (target: EventTarget | null) => {
     const key = String(btn?.getAttribute('data-tv-key') || '').trim();
     if (!key || key.startsWith('view-more:')) return '';
     return key;
+};
+
+/** Paint the billboard fade colour straight onto the still, so a colour change never re-renders Home. */
+const paintHomeSurface = (rgb: string) => {
+    const still = document.querySelector<HTMLElement>('.player-home-stage .player-home-focus-still');
+    if (!still) return;
+    const [r, g, b] = rgb.split(/\s+/);
+    still.style.setProperty('--tv-home-r', r);
+    still.style.setProperty('--tv-home-g', g);
+    still.style.setProperty('--tv-home-b', b);
 };
 
 /** Focus moves closer together than this count as holding the button. */
@@ -237,6 +249,7 @@ const HomeFocusStill: React.FC<{
             }
             const key = itemKeyFromFocusTarget(target);
             if (key) keySoon(key, delay);
+            if (key && next) rememberBillboardBackdrop(key, next);
         };
         document.addEventListener('focusin', onFocus, true);
         const focused = document.activeElement;
@@ -1570,6 +1583,42 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         }, 450);
         return () => window.clearTimeout(timer);
     }, [active, tvRowSafeIndex, tvActiveRow?.id, tvStage, tvStageStillSeed, tvHomeRows]);
+
+    // The billboard fade takes the colour the title page will open with (Artwork tint), and
+    // Home hands the title page its exact art and colour, so opening a title changes nothing.
+    const tvSpotKey = tvSpotItem?.ratingKey ? String(tvSpotItem.ratingKey) : '';
+    useEffect(() => {
+        if (!tvStage || !active || !tvSpotKey || !tvStageStillSeed) return undefined;
+        if (!settings.detailsArtworkTint) {
+            rememberBillboardBackdrop(tvSpotKey, tvStageStillSeed, null);
+            paintHomeSurface(TV_FLOOR_RGB);
+            return undefined;
+        }
+        const known = peekSurfaceColor(tvStageStillSeed);
+        if (known) {
+            rememberBillboardBackdrop(tvSpotKey, tvStageStillSeed, known);
+            paintHomeSurface(tvTintSurfaceRgb(known));
+            return undefined;
+        }
+        rememberBillboardBackdrop(tvSpotKey, tvStageStillSeed);
+        let cancelled = false;
+        // Sample once focus settles, not on every step while the remote is held.
+        const timer = window.setTimeout(() => {
+            const still = document.querySelector<HTMLElement>('.player-home-stage .player-home-focus-still');
+            const frame = still && still.clientWidth > 2 && still.clientHeight > 2
+                ? { width: still.clientWidth, height: still.clientHeight, position: '82% 8%' }
+                : undefined;
+            void sampleBackdropSurfaceColor(tvStageStillSeed, frame).then((rgb) => {
+                if (cancelled) return;
+                rememberBillboardBackdrop(tvSpotKey, tvStageStillSeed, rgb || null);
+                paintHomeSurface(rgb ? tvTintSurfaceRgb(rgb) : TV_FLOOR_RGB);
+            });
+        }, BILLBOARD_HOLD_MS);
+        return () => {
+            cancelled = true;
+            window.clearTimeout(timer);
+        };
+    }, [active, settings.detailsArtworkTint, tvSpotKey, tvStage, tvStageStillSeed]);
 
     useEffect(() => {
         if (tvRowIndex >= tvHomeRows.length && tvHomeRows.length) setTvRowIndex(0);

@@ -73,6 +73,16 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.346': [
+        {
+            title: 'TV',
+            items: [
+                'Opening a title from Home keeps the backdrop already on screen — no reload',
+                "Home's billboard fade takes each title's colour (Artwork tint), so the title page opens in the same colour",
+                'The backdrop stays exactly in place as the title page opens',
+            ],
+        },
+    ],
     '1.0.345': [
         {
             title: 'Playback',

@@ -276,6 +276,32 @@ export const playerItemBackdropUrl = (
     item?: { backdropArt?: string | null; art?: string | null; thumb?: string | null } | null,
 ) => plexBackdropUrl(item?.backdropArt || item?.art || item?.thumb);
 
+/**
+ * TV Home → title page handoff: the exact billboard art URL (and the page colour sampled
+ * from it) Home showed per title. Home and title pages build their art URLs differently,
+ * so without this the title page fetched and decoded the same picture again.
+ */
+const billboardHandoff = new Map<string, { url: string; surface: string | null }>();
+const BILLBOARD_HANDOFF_MAX = 300;
+
+export const rememberBillboardBackdrop = (key?: string | null, url?: string | null, surface?: string | null) => {
+    const id = String(key || '').trim();
+    const src = String(url || '').trim();
+    if (!id || !src) return;
+    const prev = billboardHandoff.get(id);
+    billboardHandoff.delete(id);
+    billboardHandoff.set(id, {
+        url: src,
+        surface: surface !== undefined ? surface : (prev && prev.url === src ? prev.surface : null),
+    });
+    if (billboardHandoff.size > BILLBOARD_HANDOFF_MAX) {
+        const oldest = billboardHandoff.keys().next().value;
+        if (oldest !== undefined) billboardHandoff.delete(oldest);
+    }
+};
+
+export const billboardBackdropFor = (key?: string | null) => billboardHandoff.get(String(key || '').trim()) || null;
+
 export const isPlayerBackdropReady = (url?: string | null) => {
     const key = String(url || '').trim();
     if (!key) return false;
