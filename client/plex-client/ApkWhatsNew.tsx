@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.359': [
+        {
+            title: 'TV',
+            items: [
+                'A simpler Plex Home PIN pad: round number keys, four dots, no border — it signs in on the 4th digit',
+            ],
+        },
+    ],
     '1.0.358': [
         {
             title: 'Sign in',

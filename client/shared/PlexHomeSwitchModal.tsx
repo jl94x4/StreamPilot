@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import ReactDOM from 'react-dom';
-import { Lock, User, X } from 'lucide-react';
+import { Delete, Lock, User, X } from 'lucide-react';
 import { lockBackgroundScroll } from './lockBackgroundScroll';
 
 export type PlexHomeProfile = {
@@ -218,41 +218,16 @@ export const PlexHomeSwitchModal: React.FC<{
                 <div
                     data-tv-home-switch="1"
                     data-tv-home-switch-pin="1"
-                    className="player-tv-home-pin relative flex w-full max-w-[42rem] flex-col items-center rounded-[1.75rem] border border-white/12 shadow-[0_40px_120px_rgba(0,0,0,0.65)] animate-fade-in"
+                    className="player-tv-home-pin relative flex w-full flex-col items-center animate-fade-in"
                 >
-                    <div className="player-tv-home-pin-header flex w-full items-start justify-between gap-4 px-8 pt-7 pb-2">
-                        <div className="min-w-0">
-                            <p className="mb-1 text-sm font-bold uppercase tracking-[0.22em] text-plex">Plex Home</p>
-                            <h2 id="plex-home-switch-title" className="text-3xl font-black tracking-tight text-white">
-                                Enter PIN
-                            </h2>
-                        </div>
-                        <button
-                            type="button"
-                            data-tv-item="1"
-                            data-tv-key="home-switch-close"
-                            tabIndex={0}
-                            onClick={dismiss}
-                            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/12 bg-white/5 text-white/70 transition-colors hover:bg-white/10 hover:text-white"
-                            aria-label={loginMode ? 'Use a different Plex account' : 'Close profile switcher'}
-                        >
-                            <X className="h-6 w-6" />
-                        </button>
-                    </div>
+                    {/* Simple, Plex-style: who it is, four dots, round keys. A 4-digit PIN signs in
+                        on its own, so there is no OK key; Back (remote) or the link leaves. */}
+                    <ProfileAvatar user={pinUser} current />
+                    <h2 id="plex-home-switch-title" className="player-tv-home-pin-name">{pinUser.title}</h2>
+                    <p className="player-tv-home-pin-hint">Enter your PIN</p>
 
-                    <div className="player-tv-home-pin-profile flex w-full items-center gap-4 px-8 pb-5 pt-3">
-                        <ProfileAvatar user={pinUser} current />
-                        <div className="min-w-0">
-                            <p className="truncate text-xl font-bold text-white">{pinUser.title}</p>
-                            <p className="mt-1 text-base text-white/55">Home PIN for this profile</p>
-                        </div>
-                    </div>
-
-                    <form
-                        onSubmit={submitPin}
-                        className="player-tv-home-pin-pad flex w-full flex-col items-center px-8 pb-8 pt-1"
-                    >
-                        <div className="player-tv-home-pin-dots mb-6 flex items-center justify-center gap-3.5" aria-hidden>
+                    <form onSubmit={submitPin} className="flex w-full flex-col items-center">
+                        <div className="player-tv-home-pin-dots" aria-hidden>
                             {[0, 1, 2, 3].map((i) => (
                                 <span
                                     key={i}
@@ -261,13 +236,11 @@ export const PlexHomeSwitchModal: React.FC<{
                             ))}
                         </div>
 
-                        {error ? (
-                            <p className="-mt-3 mb-4 text-center text-base font-semibold text-red-300" role="alert">{error}</p>
-                        ) : null}
+                        <p className="player-tv-home-pin-error" role="alert">{error || ''}</p>
 
                         <div className="player-tv-home-pin-grid" data-tv-rail="1">
-                            {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'back', '0', 'go'].map((key) => {
-                                const isGo = key === 'go';
+                            {['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'back'].map((key, index) => {
+                                if (!key) return <span key={`gap-${index}`} aria-hidden />;
                                 const isDel = key === 'back';
                                 return (
                                     <button
@@ -276,15 +249,12 @@ export const PlexHomeSwitchModal: React.FC<{
                                         data-tv-item="1"
                                         data-tv-key={`home-switch-pin-${key}`}
                                         tabIndex={0}
-                                        disabled={busy || (isGo && pin.trim().length < 4)}
-                                        className={`player-tv-home-pin-key ${isGo ? 'is-go' : ''} ${isDel ? 'is-del' : ''}`}
+                                        disabled={busy || (isDel && !pin.length)}
+                                        aria-label={isDel ? 'Delete' : key}
+                                        className={`player-tv-home-pin-key ${isDel ? 'is-del' : ''}`}
                                         onClick={() => {
                                             if (isDel) {
                                                 setPin((current) => current.slice(0, -1));
-                                                return;
-                                            }
-                                            if (isGo) {
-                                                submitPin();
                                                 return;
                                             }
                                             const next = `${pin}${key}`.replace(/\D/g, '').slice(0, 8);
@@ -295,7 +265,7 @@ export const PlexHomeSwitchModal: React.FC<{
                                             }
                                         }}
                                     >
-                                        {isDel ? 'Del' : isGo ? 'OK' : key}
+                                        {isDel ? <Delete className="h-7 w-7" strokeWidth={2} /> : key}
                                     </button>
                                 );
                             })}
@@ -306,7 +276,7 @@ export const PlexHomeSwitchModal: React.FC<{
                             data-tv-item="1"
                             data-tv-key="home-switch-pin-back"
                             tabIndex={0}
-                            className="player-tv-home-pin-back mt-5"
+                            className="player-tv-home-pin-back"
                             onClick={() => { setPinUser(null); setPin(''); }}
                             disabled={busy}
                         >

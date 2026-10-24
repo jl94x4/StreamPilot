@@ -2613,99 +2613,114 @@
       background: rgb(var(--tv-page-surface, 36 40 48)) !important;
       background-image: none !important;
     }
-    /* TV Plex Home PIN — leanback keypad, no clipping. */
+    /* TV Plex Home PIN: simple and centred. No border, round keys, four dots. */
     html[data-tv="1"] .player-tv-home-pin,
     html[data-tv="1"] [data-tv-home-switch="1"][data-tv-home-switch-pin="1"] {
-      max-width: min(42rem, 92vw) !important;
+      max-width: min(30rem, 92vw) !important;
       max-height: none !important;
       overflow: visible !important;
-      background: rgb(var(--tv-page-surface, 36 40 48)) !important;
+      padding: 2.4rem 2.5rem 1.8rem;
+      border: 0 !important;
+      border-radius: 2rem;
+      background: rgba(14, 16, 22, 0.94) !important;
       background-image: none !important;
+      box-shadow: 0 40px 120px rgba(0, 0, 0, 0.6);
+    }
+    html[data-tv="1"] .player-tv-home-pin-name {
+      margin-top: 1rem;
+      font-size: 1.6rem;
+      font-weight: 800;
+      color: #fff;
+      letter-spacing: -0.01em;
+    }
+    html[data-tv="1"] .player-tv-home-pin-hint {
+      margin-top: 0.2rem;
+      font-size: 1rem;
+      color: rgba(255, 255, 255, 0.5);
+    }
+    html[data-tv="1"] .player-tv-home-pin-dots {
+      display: flex;
+      justify-content: center;
+      gap: 1rem;
+      margin-top: 1.6rem;
+    }
+    html[data-tv="1"] .player-tv-home-pin-dot {
+      width: 0.9rem;
+      height: 0.9rem;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.18);
+      transition: background-color 0.15s ease, transform 0.15s ease;
+    }
+    html[data-tv="1"] .player-tv-home-pin-dot.is-filled {
+      background: #fff;
+      transform: scale(1.1);
+    }
+    html[data-tv="1"] .player-tv-home-pin-error {
+      min-height: 1.4rem;
+      margin: 0.7rem 0 0.5rem;
+      text-align: center;
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: #fca5a5;
     }
     html[data-tv="1"] .player-tv-home-pin-grid {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 0.85rem;
-      width: min(100%, 26rem);
+      grid-template-columns: repeat(3, 4.6rem);
+      gap: 1rem 1.6rem;
+      justify-content: center;
     }
     html[data-tv="1"] .player-tv-home-pin-key {
       display: flex;
       align-items: center;
       justify-content: center;
-      min-height: 4.35rem;
-      border-radius: 1.15rem;
-      border: 2px solid rgba(255, 255, 255, 0.14);
-      background: rgba(0, 0, 0, 0.38);
+      width: 4.6rem;
+      height: 4.6rem;
+      border-radius: 999px;
+      border: 0;
+      background: rgba(255, 255, 255, 0.07);
       color: #fff;
-      font-size: 1.65rem;
-      font-weight: 800;
-      letter-spacing: 0.02em;
+      font-family: "Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif;
+      font-size: 1.75rem;
+      font-weight: 500;
       line-height: 1;
+      font-variant-numeric: tabular-nums;
+      transition: background-color 0.12s ease, color 0.12s ease, transform 0.12s ease;
     }
     html[data-tv="1"] .player-tv-home-pin-key.is-del {
-      font-size: 1.15rem;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      color: rgba(255, 255, 255, 0.78);
-    }
-    html[data-tv="1"] .player-tv-home-pin-key.is-go {
-      font-size: 1.2rem;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      background: rgba(229, 160, 13, 0.92);
-      border-color: rgba(229, 160, 13, 1);
-      color: #111;
+      background: transparent;
+      color: rgba(255, 255, 255, 0.7);
     }
     html[data-tv="1"] .player-tv-home-pin-key:focus,
     html[data-tv="1"] .player-tv-home-pin-key:focus-visible {
       outline: none !important;
-      border-color: #e5a00d !important;
-      background: rgba(229, 160, 13, 0.18) !important;
-      color: #fff !important;
-      box-shadow: 0 0 0 3px rgba(229, 160, 13, 0.28);
-    }
-    html[data-tv="1"] .player-tv-home-pin-key.is-go:focus,
-    html[data-tv="1"] .player-tv-home-pin-key.is-go:focus-visible {
-      background: #fff !important;
-      border-color: #fff !important;
+      background: #e5a00d !important;
       color: #111 !important;
+      box-shadow: 0 0 0 4px rgba(229, 160, 13, 0.25) !important;
+      transform: scale(1.06);
     }
     html[data-tv="1"] .player-tv-home-pin-key:disabled {
-      opacity: 0.35;
-    }
-    html[data-tv="1"] .player-tv-home-pin-dot {
-      width: 1.15rem;
-      height: 1.15rem;
-      border-radius: 999px;
-      border: 2px solid rgba(255, 255, 255, 0.35);
-      background: transparent;
-    }
-    html[data-tv="1"] .player-tv-home-pin-dot.is-filled {
-      background: #fff;
-      border-color: #fff;
-      box-shadow: 0 0 18px rgba(255, 255, 255, 0.28);
+      opacity: 0.3;
     }
     html[data-tv="1"] .player-tv-home-pin-back {
-      min-height: 3.1rem;
-      padding: 0 1.5rem;
+      margin-top: 1.4rem;
+      padding: 0.55rem 1.2rem;
       border-radius: 999px;
-      border: 2px solid rgba(255, 255, 255, 0.14);
+      border: 0;
       background: transparent;
-      color: rgba(255, 255, 255, 0.78);
-      font-size: 1.05rem;
-      font-weight: 700;
+      color: rgba(255, 255, 255, 0.55);
+      font-size: 1rem;
+      font-weight: 600;
     }
     html[data-tv="1"] .player-tv-home-pin-back:focus,
     html[data-tv="1"] .player-tv-home-pin-back:focus-visible {
       outline: none !important;
-      border-color: #e5a00d !important;
-      color: #fff !important;
-      background: rgba(229, 160, 13, 0.14) !important;
+      color: #111 !important;
+      background: #e5a00d !important;
     }
-    html[data-tv="1"] .player-tv-home-pin-profile img,
-    html[data-tv="1"] .player-tv-home-pin-profile > span > span {
-      width: 4.5rem !important;
-      height: 4.5rem !important;
+    html[data-tv="1"] .player-tv-home-pin img,
+    html[data-tv="1"] .player-tv-home-pin > span > span {
+      width: 5.5rem !important;
+      height: 5.5rem !important;
     }
     html[data-tv="1"] .player-context-logo {
       display: flex !important;
