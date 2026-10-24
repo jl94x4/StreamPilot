@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.357': [
+        {
+            title: 'Sign in',
+            items: [
+                'Sign in is Plex only — the StreamPilot portal option is gone',
+                'The sign-in button uses the same font as the clock',
+            ],
+        },
+    ],
     '1.0.356': [
         {
             title: 'Home',
