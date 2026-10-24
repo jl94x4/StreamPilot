@@ -284,6 +284,59 @@ export const PlexHomeSwitchModal: React.FC<{
                         </button>
                     </form>
                 </div>
+            ) : !pinUser && isTvShell ? (
+                <div
+                    data-tv-home-switch="1"
+                    className="player-tv-home-who relative flex w-full flex-col items-center animate-fade-in"
+                >
+                    {/* Same family as the PIN pad and sign-in: borderless panel, big headline,
+                        round avatars. Back on the remote closes it. */}
+                    <span className="smp-auth-eyebrow">
+                        <span className="smp-auth-eyebrow-dot" />
+                        Plex Home
+                    </span>
+                    <h2 id="plex-home-switch-title" className="player-tv-home-who-title">Who&apos;s watching?</h2>
+                    <p className="player-tv-home-who-hint">
+                        {loginMode ? 'Pick a profile to continue.' : 'Pick a profile. Locked profiles ask for their PIN.'}
+                    </p>
+                    <div className="player-tv-home-who-row" data-tv-rail="1">
+                        {profiles.map((user) => {
+                            const current = isSameProfile(user, currentUserId);
+                            return (
+                                <button
+                                    key={user.id}
+                                    type="button"
+                                    data-tv-item="1"
+                                    data-tv-home-profile="1"
+                                    data-tv-key={`home-switch-${user.id}`}
+                                    tabIndex={0}
+                                    disabled={busy}
+                                    onClick={() => choose(user)}
+                                    className={`player-tv-home-who-profile ${current ? 'is-current' : ''}`}
+                                >
+                                    <span className="player-tv-home-who-avatar">
+                                        <ProfileAvatar user={user} current={current} />
+                                    </span>
+                                    <span className="player-tv-home-who-name">{user.title}</span>
+                                    <span className="player-tv-home-who-tag">{current ? 'Watching' : ''}</span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                    {error ? <p className="mt-4 text-center text-base font-semibold text-red-300" role="alert">{error}</p> : null}
+                    {loginMode && onUseDifferentAccount ? (
+                        <button
+                            type="button"
+                            data-tv-item="1"
+                            tabIndex={0}
+                            className="player-tv-home-pin-back"
+                            onClick={onUseDifferentAccount}
+                            disabled={busy}
+                        >
+                            Use a different Plex account
+                        </button>
+                    ) : null}
+                </div>
             ) : (
             <div
                 data-tv-home-switch="1"

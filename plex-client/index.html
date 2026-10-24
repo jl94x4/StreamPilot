@@ -2613,6 +2613,105 @@
       background: rgb(var(--tv-page-surface, 36 40 48)) !important;
       background-image: none !important;
     }
+    /* TV "Who's watching?": borderless panel, big headline, round avatars (matches the PIN pad). */
+    html[data-tv="1"] .player-tv-home-who,
+    html[data-tv="1"] [data-tv-home-switch="1"].player-tv-home-who {
+      width: auto !important;
+      max-width: min(64rem, 94vw) !important;
+      max-height: none !important;
+      overflow: visible !important;
+      padding: 2.6rem 3.5rem 2.2rem;
+      border: 0 !important;
+      border-radius: 2rem;
+      background: rgba(14, 16, 22, 0.94) !important;
+      background-image: none !important;
+      box-shadow: 0 40px 120px rgba(0, 0, 0, 0.6);
+    }
+    html[data-tv="1"] .player-tv-home-who-title {
+      margin-top: 1rem;
+      font-family: "Satoshi", "Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif;
+      font-size: 2.9rem;
+      font-weight: 900;
+      line-height: 1.05;
+      letter-spacing: -0.02em;
+      color: #fff;
+    }
+    html[data-tv="1"] .player-tv-home-who-hint {
+      margin-top: 0.45rem;
+      font-size: 1.05rem;
+      color: rgba(255, 255, 255, 0.5);
+    }
+    html[data-tv="1"] .player-tv-home-who-row {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 1.6rem 2.4rem;
+      margin-top: 2.2rem;
+    }
+    html[data-tv="1"] .player-tv-home-who-profile {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 9.5rem;
+      padding: 0.6rem 0.4rem 0.4rem;
+      border: 0;
+      border-radius: 1.4rem;
+      background: transparent;
+      outline: none;
+    }
+    html[data-tv="1"] .player-tv-home-who-avatar {
+      display: inline-flex;
+      border-radius: 999px;
+      transition: transform 0.18s ease, box-shadow 0.18s ease;
+    }
+    html[data-tv="1"] .player-tv-home-who-avatar img,
+    html[data-tv="1"] .player-tv-home-who-avatar > span > span:first-child {
+      width: 7.5rem !important;
+      height: 7.5rem !important;
+      border-width: 0 !important;
+      box-shadow: none !important;
+    }
+    html[data-tv="1"] .player-tv-home-who-avatar > span > span:last-child:not(:first-child) {
+      width: 2.1rem !important;
+      height: 2.1rem !important;
+      right: 0.1rem !important;
+      bottom: 0.1rem !important;
+    }
+    html[data-tv="1"] .player-tv-home-who-name {
+      margin-top: 0.85rem;
+      max-width: 100%;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: rgba(255, 255, 255, 0.72);
+      transition: color 0.18s ease;
+    }
+    html[data-tv="1"] .player-tv-home-who-tag {
+      min-height: 1.4rem;
+      margin-top: 0.35rem;
+      font-size: 0.7rem;
+      font-weight: 900;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: #e5a00d;
+    }
+    html[data-tv="1"] .player-tv-home-who-profile:focus .player-tv-home-who-avatar,
+    html[data-tv="1"] .player-tv-home-who-profile:focus-visible .player-tv-home-who-avatar {
+      transform: scale(1.08);
+      box-shadow: 0 0 0 4px #e5a00d, 0 0 0 9px rgba(229, 160, 13, 0.22), 0 18px 40px rgba(0, 0, 0, 0.5);
+    }
+    html[data-tv="1"] .player-tv-home-who-profile:focus .player-tv-home-who-name,
+    html[data-tv="1"] .player-tv-home-who-profile:focus-visible .player-tv-home-who-name {
+      color: #fff;
+    }
+    html[data-tv="1"] .player-tv-home-who-profile:disabled {
+      opacity: 0.5;
+    }
+    html[data-tv="1"] .player-tv-home-who .player-tv-home-pin-back {
+      margin-top: 1.6rem;
+    }
     /* TV Plex Home PIN: simple and centred. No border, round keys, four dots. */
     html[data-tv="1"] .player-tv-home-pin,
     html[data-tv="1"] [data-tv-home-switch="1"][data-tv-home-switch-pin="1"] {
