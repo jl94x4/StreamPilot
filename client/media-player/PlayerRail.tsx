@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Carousel, DiscoverSectionHeader, discoverRowCardWidthClass, posterGridCardWidthStyle, posterGridScaleRem, useDiscoverI18n } from './host';
 import { PlayerPosterCard } from './PlayerPosterCard';
 import { PlayerViewMoreCard, type ViewMoreShelfSource } from './PlayerViewMoreCard';
@@ -318,7 +318,15 @@ export type PlayerTvStackRow = {
 };
 
 /** Keep the previous, current, and next Home rows mounted so posters stay decoded. */
-export const PlayerTvRowStack: React.FC<{
+/** Memoised: Home re-renders on every focus move; the stack only needs to on a row change. */
+export const PlayerTvRowStack = memo(function PlayerTvRowStack({
+    rows,
+    activeIndex,
+    density,
+    restoreFocusById,
+    rowDir = null,
+    ...railProps
+}: {
     rows: PlayerTvStackRow[];
     activeIndex: number;
     density: number;
@@ -335,14 +343,7 @@ export const PlayerTvRowStack: React.FC<{
     onToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
     isAdmin?: boolean;
     playlistsEnabled?: boolean;
-}> = ({
-    rows,
-    activeIndex,
-    density,
-    restoreFocusById,
-    rowDir = null,
-    ...railProps
-}) => {
+}) {
     return (
         <div className="player-home-stage-rail">
             {rows.map((row, index) => {
@@ -380,4 +381,4 @@ export const PlayerTvRowStack: React.FC<{
             })}
         </div>
     );
-};
+});

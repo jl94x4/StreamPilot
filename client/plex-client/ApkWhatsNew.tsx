@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.341': [
+        {
+            title: 'Speed',
+            items: [
+                'Images are cached on your device like the official Plex app: anything you\'ve seen loads instantly, even after restarting',
+                'Up / down on TV Home reacts the moment you press, with less work on each move',
+            ],
+        },
+    ],
     '1.0.340': [
         {
             title: 'TV Home',

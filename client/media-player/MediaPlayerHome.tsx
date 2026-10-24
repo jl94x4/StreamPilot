@@ -1481,6 +1481,12 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
     }, []);
 
     const tvStage = isTvShell && !searchActive;
+    // Stable rows for the memoised stack: left/right focus moves (tvFocusKey) re-render Home,
+    // and a fresh array each time redrew all three mounted rows on every press.
+    const tvStackRows = useMemo(() => tvHomeRows.map((row) => ({
+        ...row,
+        viewAllLabel: row.onViewAll ? t('common.viewMore') : undefined,
+    })), [tvHomeRows, t]);
     const tvRowSafeIndex = Math.min(tvRowIndex, Math.max(0, tvHomeRows.length - 1));
     const tvActiveRow = tvHomeRows[tvRowSafeIndex] || null;
     const tvSpotItem = useMemo(() => {
@@ -1557,6 +1563,15 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             }
             landOnFirstRef.current = false;
             if (next !== current) {
+                // Instant feedback: start the outgoing row moving in this same frame. On slow
+                // TV sticks the re-render below can lag the press; React drops this class when
+                // that row re-renders as parked.
+                try {
+                    document.querySelector('.player-home-stage-rail .player-home-row-active')
+                        ?.classList.add(`player-home-row-leave-${dir}`);
+                } catch {
+                    /* ignore */
+                }
                 setTvRowDir(dir);
                 setTvRowIndex(next);
             }
@@ -2188,10 +2203,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                     />
                     {home && tvActiveRow ? (
                         <PlayerTvRowStack
-                            rows={tvHomeRows.map((row) => ({
-                                ...row,
-                                viewAllLabel: row.onViewAll ? t('common.viewMore') : undefined,
-                            }))}
+                            rows={tvStackRows}
                             activeIndex={tvRowSafeIndex}
                             rowDir={tvRowDir}
                             density={homePosterDensity}

@@ -16,6 +16,8 @@ import android.util.DisplayMetrics;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 
@@ -23,6 +25,7 @@ import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.Nullable;
 
 import com.getcapacitor.BridgeActivity;
+import com.getcapacitor.BridgeWebViewClient;
 
 import org.json.JSONObject;
 
@@ -49,6 +52,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(MediaDownloadsPlugin.class);
         registerPlugin(DeviceUiPlugin.class);
         super.onCreate(savedInstanceState);
+        installImageCache();
         applyWebViewDisplayFixes();
         scheduleAppVersion();
         scheduleTvMark();
@@ -56,6 +60,26 @@ public class MainActivity extends BridgeActivity {
         registerSpaBackHandler();
         // A recreated activity still holds the launch intent. Do not replay it.
         if (savedInstanceState == null) handleExternalIntent(getIntent());
+    }
+
+    /**
+     * Plex artwork goes through an on-device cache (see PlexImageCache), like the official
+     * app's, so images already seen on Home are instant on title pages and after restarts.
+     * Everything else still goes through Capacitor's own client.
+     */
+    private void installImageCache() {
+        if (bridge == null) return;
+        final PlexImageCache imageCache = new PlexImageCache(this);
+        bridge.setWebViewClient(new BridgeWebViewClient(bridge) {
+            @Override
+            public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                if (imageCache.handles(request)) {
+                    WebResourceResponse cached = imageCache.serve(request);
+                    if (cached != null) return cached;
+                }
+                return super.shouldInterceptRequest(view, request);
+            }
+        });
     }
 
     @Override

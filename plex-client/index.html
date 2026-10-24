@@ -2450,6 +2450,23 @@
     html[data-tv="1"] .player-home-next-row {
       animation: player-home-row-peek-in 0.35s ease-out both;
     }
+    /* Set on key press, before React re-renders, so the move starts immediately. */
+    html[data-tv="1"] .player-home-row-leave-down,
+    html[data-tv="1"] .player-home-row-leave-up {
+      transition: transform 0.16s ease-in, opacity 0.16s ease-in;
+      opacity: 0.25;
+    }
+    html[data-tv="1"] .player-home-row-leave-down {
+      transform: translate3d(0, -1.75rem, 0);
+    }
+    html[data-tv="1"] .player-home-row-leave-up {
+      transform: translate3d(0, 1.75rem, 0);
+    }
+    html[data-reduce-motion="1"] .player-home-row-leave-down,
+    html[data-reduce-motion="1"] .player-home-row-leave-up {
+      transition: none;
+      transform: none;
+    }
     @keyframes player-home-row-in-down {
       from { opacity: 0.35; transform: translate3d(0, 2.25rem, 0); }
       to { opacity: 1; transform: none; }
