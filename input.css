@@ -2488,12 +2488,15 @@ html[data-tv="1"] [data-tv-row-id^="guests:"] {
   min-width: 0 !important;
   max-width: 100% !important;
 }
+/* Still runs on into the right padding to the screen edge (--details-pr). This rule
+   comes later, so a plain width: 100% here used to undo that and cut the row short. */
 html[data-tv="1"] .media-details-cast [data-tv-rail="1"],
 html[data-tv="1"] .media-details-episode-cast,
 html[data-tv="1"] [data-tv-row-id^="guests:"] [data-tv-rail="1"] {
   min-width: 0 !important;
-  width: 100% !important;
-  max-width: 100% !important;
+  width: calc(100% + var(--details-pr, 0px)) !important;
+  max-width: none !important;
+  margin-right: calc(-1 * var(--details-pr, 0px)) !important;
   overflow-x: auto !important;
 }
 html[data-tv="1"] .media-details-billboard-summary {
