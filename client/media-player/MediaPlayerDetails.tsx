@@ -1343,7 +1343,21 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         };
     }, [versionPickerOpen]);
 
+    // A new title resets the image state. The same title re-rendering with full details
+    // (often a slightly different thumb / art URL) must not: hiding the poster and backdrop
+    // again is what made the page load, then visibly load a second time.
+    const imageStateKeyRef = useRef('');
+    const surfaceTitleRef = useRef('');
     useEffect(() => {
+        const key = String(item?.ratingKey || '');
+        const sameTitle = key && key === imageStateKeyRef.current;
+        imageStateKeyRef.current = key;
+        if (sameTitle) {
+            setPosterFailed(false);
+            setPhonePosterFailed(false);
+            setBackdropFailed(false);
+            return;
+        }
         setPosterReady(false);
         setPosterFailed(false);
         setPhonePosterFailed(false);
@@ -1473,8 +1487,14 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             && settings.detailsArtworkTint
             && (item.type === 'movie' || item.type === 'show');
         // A colour sampled on an earlier visit paints now; the floor only when there is none.
+        // Full details for the title already on screen keep its colour until re-sampled,
+        // instead of flashing back to the floor.
         const knownSurface = (tvTint || !isTvShell) ? peekSurfaceColor(url || posterSampleUrl) : null;
-        applyTvDetailsSurface(knownSurface || (isTvShell ? TV_FLOOR_RGB : DEFAULT_BACKDROP_SURFACE_RGB), tvTint);
+        const sameTitle = surfaceTitleRef.current === String(item.ratingKey);
+        surfaceTitleRef.current = String(item.ratingKey);
+        if (knownSurface || !sameTitle) {
+            applyTvDetailsSurface(knownSurface || (isTvShell ? TV_FLOOR_RGB : DEFAULT_BACKDROP_SURFACE_RGB), tvTint);
+        }
         const artUrl = url;
         const frameArt = (position: string) => {
             if (cancelled || framed) return;
@@ -2310,8 +2330,8 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                         </>
                     ) : backdropUrl && !backdropFailed ? (
                         <PlayerBackdropImage
-                            key={backdropUrl}
                             src={backdropUrl}
+                            holdPrevious
                             className="absolute inset-0 w-full h-full object-cover"
                             fetchPriority="high"
                             onLoad={() => setBackdropReady(true)}

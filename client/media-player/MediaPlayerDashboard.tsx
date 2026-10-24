@@ -1383,7 +1383,9 @@ export const MediaPlayerDashboard: React.FC = () => {
                 </div>
             ) : null}
             {view.kind === 'item' ? (
-                <div key={viewScreenMotionKey(view)} className={screenEnterClass(tvShell, tvScreenEnter)}>
+                // No whole-screen fade on TV: fading the page in from black is what made
+                // title pages start black. The backdrop and its gradient should just be there.
+                <div key={viewScreenMotionKey(view)} className={tvShell ? '' : screenEnterClass(tvShell, tvScreenEnter)}>
                 <MediaPlayerDetails
                     ratingKey={view.ratingKey}
                     serverId={view.serverId}
