@@ -94,7 +94,7 @@ import {
 } from './playerMemory';
 import type { PlayerItem, PlayerLibraryHub, PlayerMediaPartInfo, PlayerMediaStreamInfo, PlayerPlayOptions, PlayerRatings, PlayerVersion } from './types';
 import { hideEpisodeSpoilers } from './spoilers';
-import { TrailerPreview } from './TrailerPreview';
+import { TrailerPreview, type TrailerPreviewHandle } from './TrailerPreview';
 import { softenSurfaceRgb, TV_FLOOR_RGB, tvTintSurfaceRgb } from './tvSurface';
 
 /** Airdate text, orange when the episode hasn't aired yet. */
@@ -1051,6 +1051,20 @@ export const MediaPlayerDetails: React.FC<Props> = ({
     const trailer = useMemo(() => extras.find(isPlayerTrailer) || extras[0] || null, [extras]);
     // Trailer preview plays a real trailer only, never a featurette standing in for one.
     const previewTrailer = useMemo(() => extras.find(isPlayerTrailer) || null, [extras]);
+    const trailerPreviewRef = useRef<TrailerPreviewHandle | null>(null);
+    /**
+     * With Trailer preview on, Trailer carries on the one already playing behind the page,
+     * full screen from where it is. Otherwise (or before it has started) from the top.
+     */
+    const openTrailer = () => {
+        if (!trailer) return;
+        const carryOn = settings.trailerPreview
+            && previewTrailer
+            && String(previewTrailer.ratingKey) === String(trailer.ratingKey)
+            ? trailerPreviewRef.current?.positionMs() ?? null
+            : null;
+        onPlay(trailer, { offsetMs: carryOn ?? 0, skipResume: true });
+    };
     const [trailerPreviewPlaying, setTrailerPreviewPlaying] = useState(false);
     useEffect(() => {
         if (!item?.ratingKey) return undefined;
@@ -1288,7 +1302,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             data-tv-action="1"
             data-tv-trailer="1"
             data-tv-key={`trailer-label:${item.ratingKey}`}
-            onClick={() => onPlay(trailer, { offsetMs: 0, skipResume: true })}
+            onClick={openTrailer}
             disabled={playing || playbackActive}
             className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-white/25 bg-white/10 px-4 text-sm font-bold text-white transition-colors hover:bg-white/16 disabled:opacity-50"
         >
@@ -2337,6 +2351,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                     {/* After the art, before the scrims: the text gradients stay on top. */}
                     {item.type === 'movie' || item.type === 'show' ? (
                         <TrailerPreview
+                            ref={trailerPreviewRef}
                             trailer={previewTrailer}
                             enabled={settings.trailerPreview}
                             paused={playing || playbackActive}
@@ -2599,7 +2614,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                                     data-tv-item="1"
                                                     data-tv-action="1"
                                                     data-tv-key={`trailer:${item.ratingKey}`}
-                                                    onClick={() => onPlay(trailer, { offsetMs: 0, skipResume: true })}
+                                                    onClick={openTrailer}
                                                     disabled={playing || playbackActive}
                                                     title={t('mediaPlayerPage.trailer')}
                                                     aria-label={t('mediaPlayerPage.trailer')}
@@ -2806,7 +2821,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                             data-tv-item="1"
                                             data-tv-action="1"
                                             data-tv-key={`trailer:${item.ratingKey}`}
-                                            onClick={() => onPlay(trailer, { offsetMs: 0, skipResume: true })}
+                                            onClick={openTrailer}
                                             disabled={playing || playbackActive}
                                             title={t('mediaPlayerPage.trailer')}
                                             aria-label={t('mediaPlayerPage.trailer')}

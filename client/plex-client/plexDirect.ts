@@ -5917,10 +5917,16 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                 : null;
             const subtitleStreamId = pickSubtitleId(streams.subtitles, requestedSub, settings.subtitleMode || 'forced');
             const offsetQuery = query.get('offsetMs');
-            const offsetMs = clampPlayOffsetMs(
-                offsetQuery != null ? Number(offsetQuery) || 0 : plexViewOffsetMs(meta) || 0,
-                Number(meta.duration || 0),
-            );
+            const durationMs = Number(meta.duration || 0);
+            // Trailers (clips) opened mid-way from the background preview start exactly there:
+            // the resume rounding (first 5s / last 15s → from the top) is for episodes and films.
+            const exactClip = String(meta.type || '') === 'clip' && offsetQuery != null;
+            const offsetMs = exactClip
+                ? Math.max(0, Math.min(Number(offsetQuery) || 0, durationMs > 2000 ? durationMs - 2000 : Number(offsetQuery) || 0))
+                : clampPlayOffsetMs(
+                    offsetQuery != null ? Number(offsetQuery) || 0 : plexViewOffsetMs(meta) || 0,
+                    durationMs,
+                );
             const playKey = String(meta.ratingKey || key);
             const chosen = playSrc(
                 meta,

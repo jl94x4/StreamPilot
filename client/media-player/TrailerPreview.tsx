@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import Hls from 'hls.js';
 import { startMediaPlayerPlayback, stopMediaPlayerTranscode } from './api';
 import type { PlayerItem } from './types';
@@ -9,17 +9,22 @@ const TRAILER_PREVIEW_VOLUME = 0.6;
 
 const isHlsSrc = (src: string) => /\.m3u8(\?|$)|\/hls\//i.test(src);
 
+export type TrailerPreviewHandle = {
+    /** Where the background trailer is now (ms), or null when it isn't playing. */
+    positionMs: () => number | null;
+};
+
 /**
  * Movie / show details: after a few seconds, fade the trailer in over the backdrop art.
  * Fades back to the art when it ends or fails; stops when the page closes or `paused`.
  */
-export const TrailerPreview: React.FC<{
+export const TrailerPreview = forwardRef<TrailerPreviewHandle, {
     trailer: PlayerItem | null;
     enabled: boolean;
     paused: boolean;
     serverId?: string | null;
     onPlayingChange?: (playing: boolean) => void;
-}> = ({ trailer, enabled, paused, serverId, onPlayingChange }) => {
+}>(({ trailer, enabled, paused, serverId, onPlayingChange }, ref) => {
     const videoRef = useRef<HTMLVideoElement | null>(null);
     const [src, setSrc] = useState('');
     const [visible, setVisible] = useState(false);
@@ -36,6 +41,16 @@ export const TrailerPreview: React.FC<{
     const onPlayingRef = useRef(onPlayingChange);
     onPlayingRef.current = onPlayingChange;
     const trailerKey = String(trailer?.ratingKey || '');
+    const liveRef = useRef(false);
+    liveRef.current = visible && !done;
+
+    useImperativeHandle(ref, () => ({
+        positionMs: () => {
+            const video = videoRef.current;
+            if (!liveRef.current || !video || !Number.isFinite(video.currentTime)) return null;
+            return Math.max(0, Math.floor(video.currentTime * 1000));
+        },
+    }), []);
 
     // New title: start over.
     useEffect(() => {
@@ -133,4 +148,5 @@ export const TrailerPreview: React.FC<{
             onError={() => setDone(true)}
         />
     );
-};
+});
+TrailerPreview.displayName = 'TrailerPreview';
