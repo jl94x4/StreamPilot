@@ -2093,8 +2093,17 @@
       inset: 0;
       height: 100%;
       object-position: 82% 8%;
-      -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 40%, rgba(0, 0, 0, 0.7) 56%, rgba(0, 0, 0, 0.28) 70%, rgba(0, 0, 0, 0.06) 82%, transparent 100%);
-      mask-image: linear-gradient(180deg, #000 0%, #000 40%, rgba(0, 0, 0, 0.7) 56%, rgba(0, 0, 0, 0.28) 70%, rgba(0, 0, 0, 0.06) 82%, transparent 100%);
+    }
+    /* The billboard art used a gradient mask-image to fade into the page. Masks are very
+       costly on TV-stick GPUs while two full-screen images cross-fade, which made row changes
+       heavy. The same fade is now the bottom layer of the scrim (all one colour, so it
+       composites to the old look), with the left / bottom text scrims above it. */
+    html[data-tv="1"] .player-home-stage .player-home-focus-still::after {
+      z-index: 1;
+      background:
+        linear-gradient(90deg, rgba(6, 10, 16, 0.98) 0%, rgba(6, 10, 16, 0.94) 14%, rgba(6, 10, 16, 0.82) 26%, rgba(6, 10, 16, 0.48) 40%, rgba(6, 10, 16, 0.16) 54%, rgba(6, 10, 16, 0.04) 68%, transparent 82%),
+        linear-gradient(180deg, rgba(6, 10, 16, 0.14) 0%, transparent 12%, transparent 34%, rgba(6, 10, 16, 0.38) 50%, rgba(6, 10, 16, 0.72) 64%, rgba(6, 10, 16, 0.92) 78%, #060a10 100%),
+        linear-gradient(180deg, rgba(6, 10, 16, 0) 0%, rgba(6, 10, 16, 0) 40%, rgba(6, 10, 16, 0.3) 56%, rgba(6, 10, 16, 0.72) 70%, rgba(6, 10, 16, 0.94) 82%, #060a10 100%);
     }
     html[data-tv="1"] .player-home-stage .player-home-focus-still img.is-front {
       opacity: 1;

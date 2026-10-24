@@ -1526,20 +1526,25 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
     ) || tvFocusStillSeed;
 
     useEffect(() => {
-        if (!tvStage || !active) return;
-        const prev = tvHomeRows[tvRowSafeIndex - 1];
-        const next = tvHomeRows[tvRowSafeIndex + 1];
-        const neighbors = [
-            playerItemBackdropUrl(next?.items?.[0]),
-            playerItemBackdropUrl(next?.items?.[1]),
-            playerItemBackdropUrl(prev?.items?.[0]),
-            playerItemBackdropUrl(prev?.items?.[1]),
-        ];
-        pinTvNeighborBackdrops(neighbors);
+        if (!tvStage || !active) return undefined;
         if (tvStageStillSeed) warmPlayerBackdrop(tvStageStillSeed, true);
-        const nextFirst = playerItemBackdropUrl(next?.items?.[0]);
-        if (nextFirst) warmPlayerBackdrop(nextFirst, true);
-        if (tvHomeRows.length) prefetchHomeRowPosters(tvHomeRows, tvRowSafeIndex);
+        // Neighbour backdrops and poster warming decode big images. Wait until the row
+        // slide has finished so it isn't competing with them on a slow TV stick.
+        const timer = window.setTimeout(() => {
+            const prev = tvHomeRows[tvRowSafeIndex - 1];
+            const next = tvHomeRows[tvRowSafeIndex + 1];
+            const neighbors = [
+                playerItemBackdropUrl(next?.items?.[0]),
+                playerItemBackdropUrl(next?.items?.[1]),
+                playerItemBackdropUrl(prev?.items?.[0]),
+                playerItemBackdropUrl(prev?.items?.[1]),
+            ];
+            pinTvNeighborBackdrops(neighbors);
+            const nextFirst = playerItemBackdropUrl(next?.items?.[0]);
+            if (nextFirst) warmPlayerBackdrop(nextFirst, true);
+            if (tvHomeRows.length) prefetchHomeRowPosters(tvHomeRows, tvRowSafeIndex);
+        }, 450);
+        return () => window.clearTimeout(timer);
     }, [active, tvRowSafeIndex, tvActiveRow?.id, tvStage, tvStageStillSeed, tvHomeRows]);
 
     useEffect(() => {

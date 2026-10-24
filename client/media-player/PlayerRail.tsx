@@ -107,6 +107,8 @@ export const PlayerRail: React.FC<{
             : items.length
     ));
     const armSentinelRef = useRef<HTMLDivElement | null>(null);
+    const armedCountRef = useRef(armedCount);
+    armedCountRef.current = armedCount;
 
     // Live Home: cards that weren't in this row on the last render slide in. The first
     // paint and whole new rows don't animate. Layout effect so no frame shows them unstyled.
@@ -130,15 +132,25 @@ export const PlayerRail: React.FC<{
             setArmedCount(items.length);
             return undefined;
         }
+        const target = () => {
+            const restored = restoreIndex >= 0 ? restoreIndex + 6 : 0;
+            return Math.min(items.length, Math.max(armedFloor, restored));
+        };
         const grow = () => setArmedCount((current) => {
             if (!items.length) return 0;
-            const restored = restoreIndex >= 0 ? restoreIndex + 6 : 0;
-            return Math.min(items.length, Math.max(current, armedFloor, restored));
+            return Math.max(current, target());
         });
-        // A TV row that just became active fills in once its slide-in is done, so the new
-        // cards don't render in the middle of the animation and the key press stays snappy.
+        // A TV row that just became active fills in once its slide-in is done, and only a
+        // few cards per step — one big render of ~20 cards made the end of the slide hitch.
         if (tvShell && tvActive) {
-            const timer = window.setTimeout(grow, 360);
+            let shown = armedCountRef.current;
+            let timer = window.setTimeout(function step() {
+                const goal = target();
+                if (shown >= goal) return;
+                shown = Math.min(goal, shown + 6);
+                setArmedCount((current) => Math.max(current, shown));
+                if (shown < goal) timer = window.setTimeout(step, 90);
+            }, 360);
             return () => window.clearTimeout(timer);
         }
         grow();
@@ -169,9 +181,9 @@ export const PlayerRail: React.FC<{
             const key = String(item.ratingKey || '').trim();
             if (key && /^\d+$/.test(key) && item.type !== 'collection' && item.type !== 'playlist') keys.push(key);
         });
-        let stopArt = beginTvRowBackdropPreload(urls.slice(0, 2), 0);
+        // Only the focused card's backdrop is needed now; the rest wait (startExtras).
+        let stopArt = beginTvRowBackdropPreload(urls.slice(0, 1), 0);
         if (urls[0]) warmPlayerBackdrop(urls[0], true);
-        if (urls[1]) warmPlayerBackdrop(urls[1], true);
         let stopMeta = () => {};
         let timer = 0;
         const startExtras = () => {
