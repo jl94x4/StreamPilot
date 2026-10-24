@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.358': [
+        {
+            title: 'Sign in',
+            items: [
+                'A brand-new sign-in screen: a moving poster wall, a bold headline and a clear Sign in with Plex button',
+            ],
+        },
+    ],
     '1.0.357': [
         {
             title: 'Sign in',

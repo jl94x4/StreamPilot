@@ -3877,6 +3877,208 @@
       transition: opacity 0.45s cubic-bezier(0.22, 1, 0.36, 1) !important;
     }
     /* First-run setup — cinematic density on leanback. */
+    /* Sign-in: a slow, tilted poster wall behind left-aligned copy. Only transforms animate. */
+    .smp-wall {
+      position: absolute;
+      top: -30%;
+      bottom: -30%;
+      right: -8%;
+      width: 66%;
+      display: flex;
+      gap: 1.25rem;
+      transform: rotate(-10deg);
+    }
+    .smp-wall-col {
+      flex: 1 1 0;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+      /* One gap of padding so half the column (7 tiles + 7 gaps) loops seamlessly. */
+      padding-bottom: 1.25rem;
+      animation: smp-wall-up 70s linear infinite;
+      will-change: transform;
+    }
+    .smp-wall-col:nth-child(even) {
+      animation-name: smp-wall-down;
+    }
+    .smp-wall-tile {
+      position: relative;
+      flex: none;
+      aspect-ratio: 2 / 3;
+      border-radius: 1.1rem;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      box-shadow: 0 26px 60px rgba(0, 0, 0, 0.55);
+    }
+    .smp-wall-tile::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.1) 0%, transparent 30%, transparent 55%, rgba(0, 0, 0, 0.55) 100%);
+    }
+    .smp-wall-orb {
+      position: absolute;
+      width: 46%;
+      aspect-ratio: 1;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 35%, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0) 70%);
+      transform: translate(-50%, -50%);
+    }
+    .smp-wall-title,
+    .smp-wall-sub {
+      position: absolute;
+      left: 10%;
+      z-index: 1;
+      border-radius: 999px;
+    }
+    .smp-wall-title {
+      bottom: 16%;
+      width: 62%;
+      height: 0.55rem;
+      background: rgba(255, 255, 255, 0.55);
+    }
+    .smp-wall-sub {
+      bottom: 10%;
+      width: 38%;
+      height: 0.4rem;
+      background: rgba(255, 255, 255, 0.25);
+    }
+    @keyframes smp-wall-up {
+      from { transform: translate3d(0, 0, 0); }
+      to { transform: translate3d(0, -50%, 0); }
+    }
+    @keyframes smp-wall-down {
+      from { transform: translate3d(0, -50%, 0); }
+      to { transform: translate3d(0, 0, 0); }
+    }
+    .smp-auth-scrim {
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(90deg, #06070b 0%, #06070b 28%, rgba(6, 7, 11, 0.9) 40%, rgba(6, 7, 11, 0.45) 60%, rgba(6, 7, 11, 0.2) 78%, rgba(6, 7, 11, 0.6) 100%),
+        linear-gradient(180deg, rgba(6, 7, 11, 0.85) 0%, transparent 22%, transparent 70%, rgba(6, 7, 11, 0.95) 100%);
+    }
+    .smp-auth-glow {
+      position: absolute;
+      left: -12%;
+      top: 18%;
+      width: 62%;
+      height: 72%;
+      background: radial-gradient(ellipse at center, rgba(229, 160, 13, 0.16), transparent 65%);
+    }
+    .smp-auth-eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.55rem;
+      padding: 0.42rem 0.9rem;
+      border-radius: 999px;
+      border: 1px solid rgba(229, 160, 13, 0.35);
+      background: rgba(229, 160, 13, 0.1);
+      color: #f5c35a;
+      font-size: 0.72rem;
+      font-weight: 800;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+    .smp-auth-eyebrow-dot {
+      width: 0.45rem;
+      height: 0.45rem;
+      border-radius: 50%;
+      background: #e5a00d;
+      box-shadow: 0 0 10px rgba(229, 160, 13, 0.9);
+    }
+    .smp-auth-headline {
+      font-family: "Satoshi", "Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif;
+      font-weight: 900;
+      font-size: clamp(2.4rem, 6vw, 4.2rem);
+      line-height: 1.02;
+      letter-spacing: -0.02em;
+    }
+    .smp-auth-headline-accent {
+      display: block;
+      background: linear-gradient(90deg, #ffd27a 0%, #e5a00d 45%, #ff7a1a 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+    .smp-auth-features {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.6rem;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+    .smp-auth-features li {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 0.85rem;
+      border-radius: 0.8rem;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.05);
+      color: #d4d4d8;
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+    .smp-auth-features li svg {
+      color: #e5a00d;
+    }
+    .smp-auth-primary {
+      background: linear-gradient(100deg, #f7c548 0%, #e5a00d 55%, #f08a12 100%);
+      box-shadow: 0 14px 40px rgba(229, 160, 13, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.45);
+    }
+    .smp-auth-primary:hover {
+      filter: brightness(1.06);
+    }
+    .smp-auth-note {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      font-size: 0.8rem;
+      color: #71717a;
+    }
+    @media (max-width: 767px) {
+      .smp-wall {
+        width: 150%;
+        right: -25%;
+        opacity: 0.6;
+        transform: rotate(-12deg);
+      }
+      .smp-auth-scrim {
+        background: linear-gradient(180deg, rgba(6, 7, 11, 0.3) 0%, rgba(6, 7, 11, 0.6) 32%, #06070b 60%);
+      }
+      /* Phones: keep the button on the first screen. */
+      .smp-auth-bg {
+        position: fixed;
+      }
+      .smp-auth-headline {
+        font-size: 2.35rem;
+      }
+      .smp-auth-copy {
+        margin-bottom: 1.5rem;
+      }
+      .smp-auth-copy > * + * {
+        margin-top: 1rem !important;
+      }
+      .smp-auth-mark {
+        height: 2.5rem !important;
+      }
+      .smp-auth-features {
+        gap: 0.4rem;
+      }
+      .smp-auth-features li {
+        padding: 0.35rem 0.65rem;
+        font-size: 0.75rem;
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .smp-wall-col { animation: none; }
+    }
+    html[data-reduce-motion="1"] .smp-wall-col {
+      animation: none;
+    }
     html[data-tv="1"] [data-tv-auth="1"] {
       min-height: calc(100vh / var(--tv-zoom, 1)) !important;
       height: calc(100vh / var(--tv-zoom, 1)) !important;
@@ -3884,20 +4086,24 @@
     }
     html[data-tv="1"] .smp-auth-shell {
       min-height: calc(100vh / var(--tv-zoom, 1)) !important;
-      justify-content: center !important;
+      justify-content: flex-start !important;
       align-items: center !important;
-      padding: 3rem 4.5rem !important;
+      padding: 3rem 6rem !important;
     }
+    /* Copy sits left over the dark side of the poster wall. */
     html[data-tv="1"] .smp-auth-shell > div {
-      max-width: 36rem !important;
-      margin-left: auto;
+      max-width: 40rem !important;
+      margin-left: 0;
       margin-right: auto;
+    }
+    html[data-tv="1"] .smp-auth-headline {
+      font-size: 3.6rem !important;
     }
     html[data-tv="1"] .smp-auth-mark {
       height: 4.75rem !important;
       width: min(32rem, 70%) !important;
     }
-    html[data-tv="1"] .smp-auth-copy h1 {
+    html[data-tv="1"] .smp-auth-copy h1:not(.smp-auth-headline) {
       font-size: 3.1rem !important;
       line-height: 1.05 !important;
     }
