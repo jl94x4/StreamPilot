@@ -3947,12 +3947,6 @@ html[data-tv="1"] .player-home-next-row {
   max-height: 5.5rem;
   overflow: hidden;
 }
-/* Same slot as before (max-height, free to shrink, so nothing above moves); only the
-   posters draw on past it to the bottom of the screen, where the stage clips them. */
-html[data-tv="1"] .player-home-next-row {
-  min-height: 0;
-  overflow: visible !important;
-}
 html[data-tv="1"] .player-home-next-row .player-row-header {
   margin: 0;
   padding-left: 0;
