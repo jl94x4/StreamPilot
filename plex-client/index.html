@@ -4094,6 +4094,236 @@
     html[data-reduce-motion="1"] .smp-wall-col {
       animation: none;
     }
+    /* First-run setup: copy on the left, a grid of library cards on the right, over the
+       sign-in poster wall. Cards glow amber when hearted and dim when not. */
+    .smp-setup-shell {
+      display: grid;
+      grid-template-columns: minmax(0, 24rem) minmax(0, 1fr);
+      gap: clamp(1.5rem, 4vw, 3.5rem);
+      align-items: center;
+      min-height: 100vh;
+      padding: 3rem clamp(1.5rem, 5vw, 5rem);
+    }
+    .smp-setup-intro {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 1.2rem;
+    }
+    .smp-setup-headline {
+      font-size: clamp(2.6rem, 5vw, 4rem);
+    }
+    .smp-setup-lede {
+      max-width: 24rem;
+      color: #a1a1aa;
+      font-size: 1.05rem;
+      line-height: 1.55;
+    }
+    .smp-setup-count {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 0.9rem;
+      border-radius: 999px;
+      background: rgba(229, 160, 13, 0.12);
+      color: #f5c35a;
+      font-size: 0.9rem;
+      font-weight: 600;
+    }
+    .smp-setup-count strong {
+      color: #fff;
+      font-weight: 900;
+    }
+    .smp-setup-actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.75rem;
+      margin-top: 0.4rem;
+    }
+    .smp-setup-ghost {
+      padding: 0.85rem 1.3rem;
+      border-radius: 1rem;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(255, 255, 255, 0.04);
+      color: #d4d4d8;
+      font-size: 0.95rem;
+      font-weight: 700;
+      outline: none;
+    }
+    .smp-setup-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 0.9rem;
+      max-height: calc(100vh - 6rem);
+      padding: 1.6rem;
+      border-radius: 1.75rem;
+      background: rgba(10, 11, 16, 0.72);
+      box-shadow: 0 40px 120px rgba(0, 0, 0, 0.55);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      overflow-y: auto;
+    }
+    .smp-setup-label {
+      font-size: 0.72rem;
+      font-weight: 800;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #71717a;
+    }
+    .smp-setup-servers {
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+      margin-bottom: 0.6rem;
+    }
+    .smp-setup-server {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.55rem;
+      padding: 0.6rem 0.7rem 0.6rem 0.95rem;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.04);
+      color: #a1a1aa;
+      font-weight: 700;
+      font-size: 0.92rem;
+      outline: none;
+      transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+    }
+    .smp-setup-server.is-on {
+      border-color: rgba(229, 160, 13, 0.5);
+      background: rgba(229, 160, 13, 0.12);
+      color: #fff;
+    }
+    .smp-setup-server-tick {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.25rem;
+      height: 1.25rem;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.25);
+    }
+    .smp-setup-server.is-on .smp-setup-server-tick {
+      border-color: #e5a00d;
+      background: #e5a00d;
+      color: #111;
+    }
+    .smp-setup-grid {
+      display: grid;
+      /* As many columns as fit without cutting names short. */
+      grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+      gap: 0.85rem;
+    }
+    .smp-setup-card {
+      --tone-a: #f7c548;
+      --tone-b: #f08a12;
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 0.95rem;
+      min-height: 5.2rem;
+      padding: 0.95rem 1rem;
+      border-radius: 1.25rem;
+      border: 1px solid rgba(255, 255, 255, 0.07);
+      background: rgba(255, 255, 255, 0.03);
+      opacity: 0.55;
+      outline: none;
+      transition: opacity 0.18s ease, border-color 0.18s ease, background-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+    }
+    .smp-setup-card.is-show { --tone-a: #60a5fa; --tone-b: #8b5cf6; }
+    .smp-setup-card.is-artist { --tone-a: #f472b6; --tone-b: #e11d48; }
+    .smp-setup-card.is-on {
+      opacity: 1;
+      border-color: rgba(229, 160, 13, 0.45);
+      background: linear-gradient(135deg, rgba(229, 160, 13, 0.14), rgba(255, 255, 255, 0.03) 60%);
+      box-shadow: 0 12px 34px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    }
+    .smp-setup-card:focus,
+    .smp-setup-card:focus-visible {
+      opacity: 1;
+      border-color: #e5a00d !important;
+      box-shadow: 0 0 0 3px rgba(229, 160, 13, 0.35), 0 16px 40px rgba(0, 0, 0, 0.45) !important;
+      transform: scale(1.025);
+    }
+    .smp-setup-card-icon {
+      display: inline-flex;
+      flex: none;
+      align-items: center;
+      justify-content: center;
+      width: 3.1rem;
+      height: 3.1rem;
+      border-radius: 0.95rem;
+      background: linear-gradient(140deg, var(--tone-a), var(--tone-b));
+      color: #fff;
+      box-shadow: 0 8px 22px rgba(0, 0, 0, 0.35);
+    }
+    .smp-setup-card-title {
+      display: block;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      font-size: 1.02rem;
+      font-weight: 800;
+      color: #fff;
+    }
+    .smp-setup-card-sub {
+      display: block;
+      margin-top: 0.15rem;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      font-size: 0.8rem;
+      color: #a1a1aa;
+    }
+    .smp-setup-card-heart {
+      display: inline-flex;
+      flex: none;
+      align-items: center;
+      justify-content: center;
+      width: 2.4rem;
+      height: 2.4rem;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.06);
+      color: #71717a;
+      transition: background-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
+    }
+    .smp-setup-card.is-on .smp-setup-card-heart {
+      background: rgba(229, 160, 13, 0.18);
+      color: #f5b324;
+      transform: scale(1.05);
+    }
+    html[data-tv="1"] .smp-setup,
+    html[data-tv="1"] .smp-setup-shell {
+      min-height: calc(100vh / var(--tv-zoom, 1)) !important;
+      height: calc(100vh / var(--tv-zoom, 1)) !important;
+    }
+    html[data-tv="1"] .smp-setup-panel {
+      max-height: calc(100vh / var(--tv-zoom, 1) - 6rem);
+    }
+    html[data-tv="1"] .smp-setup-headline {
+      font-size: 3.4rem !important;
+    }
+    @media (max-width: 900px) {
+      .smp-setup-shell {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 1.75rem;
+        align-items: start;
+        padding: 2.5rem 1.25rem 2rem;
+      }
+      .smp-setup-panel {
+        max-height: none;
+        overflow: visible;
+        padding: 1.1rem;
+      }
+      .smp-setup-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .smp-setup-headline {
+        font-size: 2.4rem;
+      }
+    }
     html[data-tv="1"] [data-tv-auth="1"] {
       min-height: calc(100vh / var(--tv-zoom, 1)) !important;
       height: calc(100vh / var(--tv-zoom, 1)) !important;

@@ -62,7 +62,7 @@ const WALL_TILES = 7;
  * A slow, tilted wall of poster-shaped cards drifting up and down: reads as "media" at a
  * glance. Only transforms animate (one layer per column), so it stays light on TV sticks.
  */
-const AuthMediaWall: React.FC = () => (
+export const AuthMediaWall: React.FC = () => (
     <div className="smp-auth-bg pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
         <div className="smp-wall">
             {Array.from({ length: WALL_COLUMNS }, (_, col) => {
@@ -92,7 +92,7 @@ const AuthMediaWall: React.FC = () => (
 
 const LOGO_SRC = './logo.png';
 
-const AuthMark: React.FC<{ tv?: boolean }> = ({ tv }) => (
+export const AuthMark: React.FC<{ tv?: boolean }> = ({ tv }) => (
     <div className={`smp-auth-mark relative ${tv ? 'h-16 w-[min(100%,22rem)]' : 'h-12 w-[min(100%,18rem)] sm:h-14 sm:w-[22rem]'}`}>
         <img src={LOGO_SRC} alt="StreamPilot" className="relative h-full w-full object-contain object-left" />
     </div>
