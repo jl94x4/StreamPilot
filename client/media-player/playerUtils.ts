@@ -1429,11 +1429,15 @@ export const heroCardImageUrl = (source?: string | null) => {
 };
 
 /** Rail-sized coverArt. A published Plex hero file is already the 16:9 poster — do not transcode it into a backdrop. */
+/**
+ * 16:9 hero card art. Plex coverArt is a provider original (often 4K) on plex.tv's image
+ * hosts: loaded raw it was slow, skipped the on-device image cache (PMS transcodes only)
+ * and looked jagged shrunk onto a card. Let the Plex server size it like every poster.
+ */
 export const heroRailCardImageUrl = (source?: string | null) => {
     const value = String(source || '').trim();
     if (!value) return '';
-    if (/^https?:\/\//i.test(value) && !/\/photo\/:\/transcode/i.test(value)) return value;
-    return directPlexTranscodeUrl(value, 854, 480, 72, { upscale: false }) || value;
+    return directPlexTranscodeUrl(value, 960, 540, 85, { upscale: false }) || value;
 };
 
 export const heroRowCardItem = (item: PlayerItem): PlayerItem => ({
