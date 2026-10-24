@@ -284,8 +284,19 @@ export const playerItemBackdropUrl = (
 const billboardHandoff = new Map<string, { url: string; surface: string | null }>();
 const BILLBOARD_HANDOFF_MAX = 300;
 
-export const rememberBillboardBackdrop = (key?: string | null, url?: string | null, surface?: string | null) => {
+const billboardKey = (key?: string | null, serverId?: string | null) => {
     const id = String(key || '').trim();
+    const server = String(serverId || '').trim();
+    return id && server ? `${server}|${id}` : id;
+};
+
+export const rememberBillboardBackdrop = (
+    key?: string | null,
+    url?: string | null,
+    surface?: string | null,
+    serverId?: string | null,
+) => {
+    const id = billboardKey(key, serverId);
     const src = String(url || '').trim();
     if (!id || !src) return;
     const prev = billboardHandoff.get(id);
@@ -300,7 +311,10 @@ export const rememberBillboardBackdrop = (key?: string | null, url?: string | nu
     }
 };
 
-export const billboardBackdropFor = (key?: string | null) => billboardHandoff.get(String(key || '').trim()) || null;
+/** Rating keys repeat across Plex servers: with a server, only that server's art counts. */
+export const billboardBackdropFor = (key?: string | null, serverId?: string | null) => (
+    billboardHandoff.get(billboardKey(key, serverId)) || null
+);
 
 export const isPlayerBackdropReady = (url?: string | null) => {
     const key = String(url || '').trim();
@@ -902,7 +916,7 @@ export const rememberPlaybackProgress = (
         item: item ? { ...item, viewOffsetMs: finished ? 0 : offset, durationMs: duration || item.durationMs, watched: finished ? true : item.watched } : undefined,
     };
     savedPlaybackProgress.set(ratingKey, saved);
-    if (finished) noteFinishedPlayback(ratingKey);
+    if (finished) noteFinishedPlayback(ratingKey, item?.serverId);
     noteFamilyLastViewed(item);
     if (next) noteFamilyLastViewed(next);
     notePlayerItemProgress(ratingKey, saved.viewOffsetMs, saved.durationMs, saved.watched);

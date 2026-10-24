@@ -2,7 +2,7 @@ import React, { memo, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { Carousel, DiscoverSectionHeader, discoverRowCardWidthClass, posterGridCardWidthStyle, posterGridScaleRem, useDiscoverI18n } from './host';
 import { PlayerPosterCard } from './PlayerPosterCard';
 import { PlayerViewMoreCard, type ViewMoreShelfSource } from './PlayerViewMoreCard';
-import { isHomeRowsBusy, PLAYER_HOME_ROWS_IDLE_EVENT, prefetchTvRowItems } from './api';
+import { isHomeRowsBusy, playerItemRef, PLAYER_HOME_ROWS_IDLE_EVENT, prefetchTvRowItems } from './api';
 import { beginTvRowBackdropPreload, isMusicPlayerItem, playerRailPosterUrl, plexBackdropUrl, plexLogoUrl, prefetchPlayerImages, resolvePlayerCardAspect, warmPlayerBackdrop, warmPlayerPoster } from './playerUtils';
 import type { PlayerItem, PlayerPlayOptions } from './types';
 
@@ -179,7 +179,7 @@ export const PlayerRail: React.FC<{
             );
             if (url) urls.push(url);
             const key = String(item.ratingKey || '').trim();
-            if (key && /^\d+$/.test(key) && item.type !== 'collection' && item.type !== 'playlist') keys.push(key);
+            if (key && /^\d+$/.test(key) && item.type !== 'collection' && item.type !== 'playlist') keys.push(playerItemRef(item));
         });
         // Only the focused card's backdrop is needed now; the rest wait (startExtras).
         let stopArt = beginTvRowBackdropPreload(urls.slice(0, 1), 0);

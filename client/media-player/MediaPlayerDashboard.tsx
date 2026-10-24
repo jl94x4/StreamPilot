@@ -1112,7 +1112,7 @@ export const MediaPlayerDashboard: React.FC = () => {
             && !isPlayerTrailer(target)
             && target.ratingKey
         ) {
-            let extras = readPlayerItemCache(target.ratingKey)?.extras || [];
+            let extras = readPlayerItemCache(target.ratingKey, target.serverId)?.extras || [];
             if (!extras.length) {
                 const more = await fetchMediaPlayerItemMore(target.ratingKey, target.serverId).catch(() => null);
                 extras = more?.extras || [];

@@ -885,8 +885,8 @@ const finishedMap = () => {
  * A title was just watched to the end (or marked watched). A Home answer fetched
  * before that — during playback, or the saved copy — must not bring it back.
  */
-export const noteFinishedPlayback = (ratingKey?: string | null) => {
-    const key = String(ratingKey || '').trim();
+export const noteFinishedPlayback = (ratingKey?: string | null, serverId?: string | null) => {
+    const key = itemCacheKey(String(ratingKey || ''), serverId);
     if (!key || typeof window === 'undefined') return;
     const map = finishedMap();
     map.set(key, Date.now());
@@ -899,7 +899,10 @@ export const noteFinishedPlayback = (ratingKey?: string | null) => {
 
 /** Started again after it was finished (Plex saw it later), or never finished: keep it. */
 const continueCardIsCurrent = (row: PlayerItem) => {
-    const at = finishedMap().get(String(row?.ratingKey || ''));
+    const map = finishedMap();
+    const key = String(row?.ratingKey || '');
+    // Server-scoped when playback knew the server; bare when only the key was known.
+    const at = map.get(itemCacheKey(key, row?.serverId)) || map.get(key);
     if (!at) return true;
     const viewed = Number(row?.lastViewedAt) || 0;
     const viewedMs = viewed > 1e12 ? viewed : viewed * 1000;
@@ -1167,25 +1170,54 @@ export const takePlayerItemSeed = (ratingKey: string): PlayerItem | null => {
     return itemNavSeeds.get(key) || null;
 };
 
-export const readPlayerItemCache = (ratingKey: string): PlayerItemPage | null => {
-    const key = String(ratingKey || '');
-    if (!key) return null;
+/**
+ * Rating keys are only unique per Plex server: with several servers the same number is a
+ * different title on each. Pages are kept per server (`server|ratingKey`) plus a bare-key
+ * alias for callers that do not know the server; a read that names its server never takes
+ * another server's page (that showed someone else's show behind a Continue Watching poster).
+ */
+const itemCacheKey = (ratingKey: string, serverId?: string | null) => {
+    const key = String(ratingKey || '').trim();
+    const server = String(serverId || '').trim();
+    return server ? `${server}|${key}` : key;
+};
+
+const freshItemCacheRow = (key: string) => {
     const row = playerItemCache.get(key);
     if (!row) return null;
     if (Date.now() - row.at > PLAYER_ITEM_CACHE_TTL_MS) {
         playerItemCache.delete(key);
         return null;
     }
-    return row.data;
+    return row;
 };
 
-export const writePlayerItemCache = (ratingKey: string, data: PlayerItemPage) => {
-    const key = String(ratingKey || '');
+export const readPlayerItemCache = (ratingKey: string, serverId?: string | null): PlayerItemPage | null => {
+    const key = String(ratingKey || '').trim();
+    if (!key) return null;
+    const server = String(serverId || '').trim();
+    if (server) {
+        const own = freshItemCacheRow(itemCacheKey(key, server));
+        if (own) return own.data;
+        const alias = freshItemCacheRow(key);
+        const aliasServer = String(alias?.data?.item?.serverId || '').trim();
+        return alias && (!aliasServer || aliasServer === server) ? alias.data : null;
+    }
+    return freshItemCacheRow(key)?.data || null;
+};
+
+export const writePlayerItemCache = (ratingKey: string, data: PlayerItemPage, serverId?: string | null) => {
+    const key = String(ratingKey || '').trim();
     if (!key || !data?.item) return;
-    playerItemCache.set(key, { at: Date.now(), data });
-    if (playerItemCache.size <= 48) return;
-    const oldest = playerItemCache.keys().next().value;
-    if (oldest && oldest !== key) playerItemCache.delete(oldest);
+    const server = String(serverId || data.item.serverId || '').trim();
+    const at = Date.now();
+    playerItemCache.set(key, { at, data });
+    if (server) playerItemCache.set(itemCacheKey(key, server), { at, data });
+    while (playerItemCache.size > 96) {
+        const oldest = playerItemCache.keys().next().value;
+        if (!oldest || oldest === key) break;
+        playerItemCache.delete(oldest);
+    }
 };
 
 export const clearPlayerItemCache = (ratingKey?: string) => {
@@ -1194,7 +1226,9 @@ export const clearPlayerItemCache = (ratingKey?: string) => {
         playerItemCache.clear();
         return;
     }
-    playerItemCache.delete(key);
+    for (const cacheKey of [...playerItemCache.keys()]) {
+        if (cacheKey === key || cacheKey.endsWith(`|${key}`)) playerItemCache.delete(cacheKey);
+    }
 };
 
 /** Fired after Plex metadata refresh is detected (new thumb/title/etc). */

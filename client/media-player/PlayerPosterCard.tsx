@@ -168,11 +168,12 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
         if (!item?.ratingKey || item.type === 'collection' || item.type === 'playlist') return;
         if (prefetchTimerRef.current) window.clearTimeout(prefetchTimerRef.current);
         const key = item.ratingKey;
+        const serverId = item.serverId || null;
         const art = (item as { backdropArt?: string | null }).backdropArt || item.art;
         const delay = isTvShell ? 0 : 450;
         prefetchTimerRef.current = window.setTimeout(() => {
             prefetchTimerRef.current = null;
-            prefetchMediaPlayerItem(key);
+            prefetchMediaPlayerItem(key, serverId);
             if (art && !isTvShell) prefetchPlayerImages([plexBackdropUrl(art)], 1);
         }, delay);
     };

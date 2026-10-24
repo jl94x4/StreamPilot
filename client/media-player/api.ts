@@ -670,7 +670,7 @@ export const fetchMediaPlayerItem = (ratingKey: string, opts: { core?: boolean; 
     const qs = params.toString() ? `?${params}` : '';
     const promise = (apiFetch(`${PLAYER_API_ROOT}/item/${encodeURIComponent(ratingKey)}${qs}`) as Promise<PlayerItemPage>)
         .then((data) => {
-            const prev = readPlayerItemCache(ratingKey);
+            const prev = readPlayerItemCache(ratingKey, opts.serverId);
             const children = (data.children || []).map((row) => applyRememberedProgress(row));
             const item = applyRememberedProgress(withWatchedProgress(data.item, children));
             const page = {
@@ -684,7 +684,7 @@ export const fetchMediaPlayerItem = (ratingKey: string, opts: { core?: boolean; 
                 extras: data.extras?.length ? data.extras : (prev?.extras || []),
                 related: data.related?.length ? data.related : (prev?.related || []),
                 onDeck: data.onDeck !== undefined ? data.onDeck : (prev?.onDeck ?? null),
-            });
+            }, opts.serverId || item?.serverId);
             prefetchItemBackdrop(item);
             prefetchItemPageImages(item, children);
             return page;
@@ -696,9 +696,33 @@ export const fetchMediaPlayerItem = (ratingKey: string, opts: { core?: boolean; 
     return promise;
 };
 
+/**
+ * Prefetch entries are item refs: `serverId::ratingKey` (or a bare key). Rating keys repeat
+ * across Plex servers, so a bare key fetched and cached another server's title.
+ */
+export const playerItemRef = (item?: { ratingKey?: string | number | null; serverId?: string | null } | null) => {
+    const key = String(item?.ratingKey || '').trim();
+    const server = String(item?.serverId || '').trim();
+    return key && server ? `${server}::${key}` : key;
+};
+
+const parseItemRef = (ref: string) => {
+    const at = ref.lastIndexOf('::');
+    return at > 0
+        ? { serverId: ref.slice(0, at), ratingKey: ref.slice(at + 2) }
+        : { serverId: '', ratingKey: ref };
+};
+
+const validItemRef = (ref: string) => /^\d+$/.test(parseItemRef(ref).ratingKey);
+
+const cachedForRef = (ref: string) => {
+    const { serverId, ratingKey } = parseItemRef(ref);
+    return readPlayerItemCache(ratingKey, serverId || null);
+};
+
 /** Warm overview cache while a poster is focused (TV leanback). */
 const prefetchQueue: string[] = [];
-/** Rating keys for the TV row on screen, focused poster first. */
+/** Item refs for the TV row on screen, focused poster first. */
 let prefetchRow: string[] = [];
 let prefetchRowEpoch = 0;
 let prefetchRunning = 0;
@@ -707,11 +731,13 @@ let prefetchPauseDepth = 0;
 const PREFETCH_CONCURRENCY = 2;
 const PREFETCH_CAP = 24;
 
-const itemRequestInflight = (ratingKey: string) => {
+const itemRequestInflight = (ref: string) => {
+    const { serverId, ratingKey } = parseItemRef(ref);
     const core = `|${ratingKey}|1`;
     const full = `|${ratingKey}|0`;
     for (const id of itemInflight.keys()) {
-        if (id.endsWith(core) || id.endsWith(full)) return true;
+        if (!id.endsWith(core) && !id.endsWith(full)) continue;
+        if (!serverId || id.startsWith(`${serverId}|`)) return true;
     }
     return false;
 };
@@ -721,7 +747,7 @@ const uniquePrefetchKeys = (ratingKeys: string[]) => {
     const out: string[] = [];
     for (const raw of ratingKeys) {
         const key = String(raw || '').trim();
-        if (!key || !/^\d+$/.test(key) || seen.has(key)) continue;
+        if (!key || !validItemRef(key) || seen.has(key)) continue;
         seen.add(key);
         out.push(key);
         if (out.length >= PREFETCH_CAP) break;
@@ -732,7 +758,7 @@ const uniquePrefetchKeys = (ratingKeys: string[]) => {
 const rebuildPrefetchQueue = () => {
     prefetchQueue.length = 0;
     for (const key of prefetchRow) {
-        const cached = readPlayerItemCache(key);
+        const cached = cachedForRef(key);
         if (cached?.item) continue;
         if (itemRequestInflight(key)) continue;
         prefetchQueue.push(key);
@@ -745,13 +771,14 @@ const runPrefetchQueue = () => {
         const key = prefetchQueue.shift();
         if (!key) break;
         if (itemRequestInflight(key)) continue;
-        const cached = readPlayerItemCache(key);
+        const cached = cachedForRef(key);
         if (cached?.item) {
             prefetchItemBackdrop(cached.item);
             continue;
         }
         prefetchRunning += 1;
-        void fetchMediaPlayerItem(key, { core: true })
+        const ref = parseItemRef(key);
+        void fetchMediaPlayerItem(ref.ratingKey, { core: true, serverId: ref.serverId || null })
             .catch(() => undefined)
             .finally(() => {
                 prefetchRunning = Math.max(0, prefetchRunning - 1);
@@ -760,9 +787,9 @@ const runPrefetchQueue = () => {
     }
 };
 
-const prioritizeTvRowItem = (ratingKey: string) => {
-    const key = String(ratingKey || '').trim();
-    if (!key || !/^\d+$/.test(key)) return;
+const prioritizeTvRowItem = (ref: string) => {
+    const key = String(ref || '').trim();
+    if (!key || !validItemRef(key)) return;
     const index = prefetchRow.indexOf(key);
     if (index > 0) {
         prefetchRow = prefetchRow.slice(index).concat(prefetchRow.slice(0, index));
@@ -820,15 +847,15 @@ export const endHomeRowPriority = () => {
     window.dispatchEvent(new Event(PLAYER_HOME_ROWS_IDLE_EVENT));
 };
 
-export const prefetchMediaPlayerItem = (ratingKey: string) => {
+export const prefetchMediaPlayerItem = (ratingKey: string, serverId?: string | null) => {
     if (prefetchPaused) return;
-    const key = String(ratingKey || '').trim();
-    if (!key || !/^\d+$/.test(key)) return;
+    const key = playerItemRef({ ratingKey, serverId });
+    if (!key || !validItemRef(key)) return;
     if (prefetchRow.length) {
         prioritizeTvRowItem(key);
         return;
     }
-    const cached = readPlayerItemCache(key);
+    const cached = cachedForRef(key);
     if (cached?.item) {
         prefetchItemBackdrop(cached.item);
         prefetchItemPageImages(cached.item, cached.children || []);

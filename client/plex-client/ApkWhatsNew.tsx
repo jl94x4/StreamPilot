@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.355': [
+        {
+            title: 'Multiple servers',
+            items: [
+                'With more than one Plex server, a poster no longer shows or opens a different title from another server that happens to share its ID',
+            ],
+        },
+    ],
     '1.0.354': [
         {
             title: 'TV',

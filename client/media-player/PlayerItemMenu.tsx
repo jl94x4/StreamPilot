@@ -328,7 +328,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
             setSheetSeasons([]);
             return undefined;
         }
-        const cached = readPlayerItemCache(item.ratingKey);
+        const cached = readPlayerItemCache(item.ratingKey, item.serverId);
         const fromCache = (cached?.children || []).filter((row) => row.type === 'season');
         if (fromCache.length) setSheetSeasons(fromCache);
         let cancelled = false;

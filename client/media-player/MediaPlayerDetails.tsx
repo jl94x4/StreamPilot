@@ -490,15 +490,15 @@ export const MediaPlayerDetails: React.FC<Props> = ({
     const [settings] = usePlayerSettings();
     const [gridSize] = useDiscoverGridSize();
     const [item, setItem] = useState<PlayerItem | null>(() => {
-        const cached = readPlayerItemCache(ratingKey);
+        const cached = readPlayerItemCache(ratingKey, serverId);
         return cached?.item ? withWatchedProgress(cached.item, cached.children || []) : null;
     });
     const [children, setChildren] = useState<PlayerItem[]>(() => (
-        (readPlayerItemCache(ratingKey)?.children || []).map((row) => applyRememberedProgress(row))
+        (readPlayerItemCache(ratingKey, serverId)?.children || []).map((row) => applyRememberedProgress(row))
     ));
-    const [extras, setExtras] = useState<PlayerItem[]>(() => readPlayerItemCache(ratingKey)?.extras || []);
-    const [related, setRelated] = useState<PlayerLibraryHub[]>(() => readPlayerItemCache(ratingKey)?.related || []);
-    const [onDeck, setOnDeck] = useState<PlayerItem | null>(() => readPlayerItemCache(ratingKey)?.onDeck ?? null);
+    const [extras, setExtras] = useState<PlayerItem[]>(() => readPlayerItemCache(ratingKey, serverId)?.extras || []);
+    const [related, setRelated] = useState<PlayerLibraryHub[]>(() => readPlayerItemCache(ratingKey, serverId)?.related || []);
+    const [onDeck, setOnDeck] = useState<PlayerItem | null>(() => readPlayerItemCache(ratingKey, serverId)?.onDeck ?? null);
     const [phoneSeasonEpisodes, setPhoneSeasonEpisodes] = useState<PlayerItem[] | null>(null);
     const [neighbors, setNeighbors] = useState<{ previous: PlayerItem | null; next: PlayerItem | null }>({ previous: null, next: null });
     const [nowPlayingTrackKey, setNowPlayingTrackKey] = useState<string | null>(null);
@@ -508,7 +508,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
     const [spotlightDetail, setSpotlightDetail] = useState<PlayerItem | null>(null);
     const openingSeasonRef = useRef('');
     const episodeDetailCache = useRef(new Map<string, PlayerItem>());
-    const [loading, setLoading] = useState(() => !readPlayerItemCache(ratingKey)?.item);
+    const [loading, setLoading] = useState(() => !readPlayerItemCache(ratingKey, serverId)?.item);
     const [error, setError] = useState<string | null>(null);
     const [reloadToken, setReloadToken] = useState(0);
     const [posterFailed, setPosterFailed] = useState(false);
@@ -550,9 +550,9 @@ export const MediaPlayerDetails: React.FC<Props> = ({
     // Opened from TV Home: the billboard art (and colour) already on screen for this title.
     // Same picture, so keep it instead of fetching Plex's other URL for it.
     const homeHandoff = useMemo(
-        () => (isTvShell ? billboardBackdropFor(item?.ratingKey) : null),
+        () => (isTvShell ? billboardBackdropFor(item?.ratingKey, item?.serverId || serverId) : null),
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [isTvShell, item?.ratingKey],
+        [isTvShell, item?.ratingKey, item?.serverId, serverId],
     );
     const handoffSurface = isTvShell && settings.detailsArtworkTint ? homeHandoff?.surface || null : null;
     const phoneUi = !isTvShell && isPhoneDetailsUi();
@@ -648,7 +648,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
 
     useLayoutEffect(() => {
         writePlayerScrollTop(0);
-        const cached = readPlayerItemCache(ratingKey);
+        const cached = readPlayerItemCache(ratingKey, serverId);
         const seed = takePlayerItemSeed(ratingKey);
         if (cached?.item) {
             setItem(applyRememberedProgress(cached.item));
@@ -665,7 +665,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             setRelated([]);
             setOnDeck(null);
             setLoading(true);
-            writePlayerItemCache(ratingKey, { item: painted, children: [], extras: [], related: [], onDeck: null });
+            writePlayerItemCache(ratingKey, { item: painted, children: [], extras: [], related: [], onDeck: null }, serverId);
         } else {
             setItem(null);
             setChildren([]);
@@ -821,14 +821,14 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                 if (more.extras?.length) setExtras(more.extras);
                 setRelated(more.related || []);
                 if (more.onDeck !== undefined) setOnDeck(more.onDeck || null);
-                const prev = readPlayerItemCache(ratingKey);
+                const prev = readPlayerItemCache(ratingKey, serverId);
                 if (prev?.item) {
                     writePlayerItemCache(ratingKey, {
                         ...prev,
                         extras: more.extras?.length ? more.extras : (prev.extras || []),
                         related: more.related || [],
                         onDeck: more.onDeck !== undefined ? more.onDeck : prev.onDeck,
-                    });
+                    }, serverId);
                 }
             });
         return () => { cancelled = true; };

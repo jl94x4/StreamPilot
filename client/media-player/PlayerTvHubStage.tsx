@@ -53,6 +53,11 @@ type Props = {
     playlistsEnabled?: boolean;
 };
 
+/** tvSpotExtra key: rating keys are only unique per Plex server. */
+const spotExtraKey = (serverId: string | null | undefined, ratingKey: string) => (
+    serverId ? `${serverId}|${ratingKey}` : ratingKey
+);
+
 const posterButtonFromTarget = (target: EventTarget | null) => {
     const el = target as HTMLElement | null;
     return (el?.closest?.('[data-tv-poster-btn="1"]') as HTMLElement | null) || null;
@@ -292,7 +297,8 @@ export const PlayerTvHubStage: React.FC<Props> = ({
         if (!tvActiveRow) return null;
         const key = tvFocusKey || tvActiveRow.items[0]?.ratingKey || '';
         const base = tvActiveRow.items.find((row) => row.ratingKey === key) || tvActiveRow.items[0] || null;
-        const extra = key ? tvSpotExtra[key] : null;
+        // Rating keys repeat across servers: the fetched details are kept per server.
+        const extra = key && base ? tvSpotExtra[spotExtraKey(base.serverId, key)] : (key ? tvSpotExtra[key] : null);
         if (!base) return extra || null;
         if (!extra) return base;
         const episodeBase = base.type === 'episode' || extra.type === 'episode';
@@ -471,19 +477,20 @@ export const PlayerTvHubStage: React.FC<Props> = ({
         const key = String(tvSpotItem?.ratingKey || '');
         if (!active || !key) return undefined;
         const serverId = tvSpotItem?.serverId || null;
-        const cached = readPlayerItemCache(key);
+        const extraKey = spotExtraKey(serverId, key);
+        const cached = readPlayerItemCache(key, serverId);
         if (cached?.item) {
-            setTvSpotExtra((prev) => (prev[key] ? prev : { ...prev, [key]: cached.item }));
+            setTvSpotExtra((prev) => (prev[extraKey] ? prev : { ...prev, [extraKey]: cached.item }));
             if (cached.item.logo && itemHasBillboardBrandMeta(cached.item) && cached.item.summary) return undefined;
         }
         let cancelled = false;
         const timer = window.setTimeout(() => {
             if (cancelled) return;
-            prefetchMediaPlayerItem(key);
+            prefetchMediaPlayerItem(key, serverId);
             void fetchMediaPlayerItem(key, { core: true, serverId })
                 .then((page) => {
                     if (cancelled || !page?.item) return;
-                    setTvSpotExtra((prev) => ({ ...prev, [key]: page.item }));
+                    setTvSpotExtra((prev) => ({ ...prev, [extraKey]: page.item }));
                 })
                 .catch(() => undefined);
         }, 0);

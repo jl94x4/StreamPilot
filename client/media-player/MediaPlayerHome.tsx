@@ -92,6 +92,11 @@ type Props = {
     playlistsEnabled?: boolean;
 };
 
+/** tvSpotExtra key: rating keys are only unique per Plex server. */
+const spotExtraKey = (serverId: string | null | undefined, ratingKey: string) => (
+    serverId ? `${serverId}|${ratingKey}` : ratingKey
+);
+
 const libraryChipIcon = (type: string) => {
     if (type === 'show') return Tv;
     if (type === 'artist') return Music;
@@ -249,7 +254,6 @@ const HomeFocusStill: React.FC<{
             }
             const key = itemKeyFromFocusTarget(target);
             if (key) keySoon(key, delay);
-            if (key && next) rememberBillboardBackdrop(key, next);
         };
         document.addEventListener('focusin', onFocus, true);
         const focused = document.activeElement;
@@ -1551,7 +1555,8 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         if (!tvActiveRow) return null;
         const key = tvFocusKey || tvActiveRow.items[0]?.ratingKey || '';
         const base = tvActiveRow.items.find((row) => row.ratingKey === key) || tvActiveRow.items[0] || null;
-        const extra = key ? tvSpotExtra[key] : null;
+        // Rating keys repeat across servers: the fetched details are kept per server.
+        const extra = key && base ? tvSpotExtra[spotExtraKey(base.serverId, key)] : (key ? tvSpotExtra[key] : null);
         if (!base) return extra || null;
         if (!extra) return base;
         const episodeBase = base.type === 'episode' || extra.type === 'episode';
@@ -1608,20 +1613,21 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
     // The billboard fade takes the colour the title page will open with (Artwork tint), and
     // Home hands the title page its exact art and colour, so opening a title changes nothing.
     const tvSpotKey = tvSpotItem?.ratingKey ? String(tvSpotItem.ratingKey) : '';
+    const tvSpotServer = tvSpotItem?.serverId || null;
     useEffect(() => {
         if (!tvStage || !active || !tvSpotKey || !tvStageStillSeed) return undefined;
         if (!settings.detailsArtworkTint) {
-            rememberBillboardBackdrop(tvSpotKey, tvStageStillSeed, null);
+            rememberBillboardBackdrop(tvSpotKey, tvStageStillSeed, null, tvSpotServer);
             paintHomeSurface(TV_FLOOR_RGB);
             return undefined;
         }
         const known = peekSurfaceColor(tvStageStillSeed);
         if (known) {
-            rememberBillboardBackdrop(tvSpotKey, tvStageStillSeed, known);
+            rememberBillboardBackdrop(tvSpotKey, tvStageStillSeed, known, tvSpotServer);
             paintHomeSurface(tvTintSurfaceRgb(known));
             return undefined;
         }
-        rememberBillboardBackdrop(tvSpotKey, tvStageStillSeed);
+        rememberBillboardBackdrop(tvSpotKey, tvStageStillSeed, undefined, tvSpotServer);
         let cancelled = false;
         // Sample once focus settles, not on every step while the remote is held.
         const timer = window.setTimeout(() => {
@@ -1631,7 +1637,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 : undefined;
             void sampleBackdropSurfaceColor(tvStageStillSeed, frame).then((rgb) => {
                 if (cancelled) return;
-                rememberBillboardBackdrop(tvSpotKey, tvStageStillSeed, rgb || null);
+                rememberBillboardBackdrop(tvSpotKey, tvStageStillSeed, rgb || null, tvSpotServer);
                 paintHomeSurface(rgb ? tvTintSurfaceRgb(rgb) : TV_FLOOR_RGB);
             });
         }, BILLBOARD_HOLD_MS);
@@ -1639,7 +1645,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             cancelled = true;
             window.clearTimeout(timer);
         };
-    }, [active, settings.detailsArtworkTint, tvSpotKey, tvStage, tvStageStillSeed]);
+    }, [active, settings.detailsArtworkTint, tvSpotKey, tvSpotServer, tvStage, tvStageStillSeed]);
 
     // Rows are on screen: let the remote land the focus ring on the first card if nothing
     // has it yet. Next frame, so the cards exist when it looks for them.
@@ -1771,9 +1777,10 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         const key = String(tvSpotItem?.ratingKey || '');
         if (!tvStage || !key) return undefined;
         const serverId = tvSpotItem?.serverId || null;
-        const cached = readPlayerItemCache(key);
+        const extraKey = spotExtraKey(serverId, key);
+        const cached = readPlayerItemCache(key, serverId);
         if (cached?.item) {
-            setTvSpotExtra((prev) => (prev[key] ? prev : { ...prev, [key]: cached.item }));
+            setTvSpotExtra((prev) => (prev[extraKey] ? prev : { ...prev, [extraKey]: cached.item }));
             // Episodes need show studio / showTmdbId — leaf episode TMDB ids must not skip enrich.
             if (cached.item.logo && itemHasBillboardBrandMeta(cached.item) && cached.item.summary) return undefined;
         }
@@ -1781,11 +1788,11 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         // Wait until the remote settles so a fast scroll does not pile metadata requests.
         const timer = window.setTimeout(() => {
             if (cancelled) return;
-            prefetchMediaPlayerItem(key);
+            prefetchMediaPlayerItem(key, serverId);
             void fetchMediaPlayerItem(key, { core: true, serverId })
                 .then((page) => {
                     if (cancelled || !page?.item) return;
-                    setTvSpotExtra((prev) => ({ ...prev, [key]: page.item }));
+                    setTvSpotExtra((prev) => ({ ...prev, [extraKey]: page.item }));
                 })
                 .catch(() => undefined);
         }, 0);
