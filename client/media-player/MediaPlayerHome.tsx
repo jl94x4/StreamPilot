@@ -24,7 +24,7 @@ import {
     rememberTvFocusKey,
     visibleHomeStage,
 } from '../plex-client/useTvRemote';
-import { PLAYER_APP_BASE, PLAYER_HOME_LIVE_EVENT, PLAYER_SCROLL_ID } from './paths';
+import { PLAYER_APP_BASE, PLAYER_HOME_LIVE_EVENT, PLAYER_SCROLL_ID, PLAYER_TV_HOME_READY_EVENT } from './paths';
 import { MediaPlayerHomeHero, type HomeHeroSlide } from './MediaPlayerHomeHero';
 import { PlayerPosterCard } from './PlayerPosterCard';
 import { PlayerRail, PlayerTvRowStack } from './PlayerRail';
@@ -1619,6 +1619,15 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             window.clearTimeout(timer);
         };
     }, [active, settings.detailsArtworkTint, tvSpotKey, tvStage, tvStageStillSeed]);
+
+    // Rows are on screen: let the remote land the focus ring on the first card if nothing
+    // has it yet. Next frame, so the cards exist when it looks for them.
+    const tvHasRows = tvHomeRows.length > 0;
+    useEffect(() => {
+        if (!tvStage || !active || !tvHasRows) return undefined;
+        const raf = window.requestAnimationFrame(() => window.dispatchEvent(new Event(PLAYER_TV_HOME_READY_EVENT)));
+        return () => window.cancelAnimationFrame(raf);
+    }, [active, tvHasRows, tvStage]);
 
     useEffect(() => {
         if (tvRowIndex >= tvHomeRows.length && tvHomeRows.length) setTvRowIndex(0);

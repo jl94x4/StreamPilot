@@ -9,6 +9,8 @@ export const PLAYER_SCROLL_ID = 'media-player-scroll';
 export const PLAYER_HOME_LIVE_EVENT = 'portal-media-player-home-live';
 /** Capacitor TV: open/close the left rail (detail: { action: 'open' | 'close' }). */
 export const PLAYER_TV_NAV_EVENT = 'portal-media-player-tv-nav';
+/** TV Home painted its rows: land the focus ring if nothing has it yet (first open). */
+export const PLAYER_TV_HOME_READY_EVENT = 'portal-media-player-tv-home-ready';
 
 export const exitToPortal = () => {
     if (typeof window === 'undefined') return;

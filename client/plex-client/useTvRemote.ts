@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { readDocumentZoom } from '../shared/ui';
 import { isAndroidTvUi } from './config';
-import { PLAYER_APP_BASE, PLAYER_NAVIGATE_EVENT, PLAYER_SCROLL_ID, PLAYER_TV_NAV_EVENT } from '../media-player/paths';
+import { PLAYER_APP_BASE, PLAYER_NAVIGATE_EVENT, PLAYER_SCROLL_ID, PLAYER_TV_HOME_READY_EVENT, PLAYER_TV_NAV_EVENT } from '../media-player/paths';
 import {
     PLAYER_SEARCH_CLEAR_EVENT,
     PLAYER_SEARCH_INPUT_ID,
@@ -1790,7 +1790,8 @@ const refocusAfterOverlay = () => {
         if (document.querySelector('[data-tv-select-menu="1"], [data-tv-item-menu="1"], [data-tv-home-switch="1"], [data-tv-version-dialog="1"], [data-tv-track-dialog="1"], [data-tv-settings-dialog="1"], [data-tv-file-info="1"], [data-tv-resume-dialog="1"], [data-tv-season-watch-dialog="1"], [data-tv-still-watching-dialog="1"], [data-tv-whats-new="1"]')) return;
         const active = document.activeElement as HTMLElement | null;
         if (active && active !== document.body && active !== document.documentElement) return;
-        restoreTvFocus();
+        // Nothing remembered yet (e.g. What's New on first open): land on the first card.
+        if (!restoreTvFocus()) focusTvContent();
     }, 50);
 };
 
@@ -2565,6 +2566,16 @@ export const useTvRemote = (enabled = true) => {
 
         const onNavigate = () => restoreTvFocusWhenReady();
 
+        // First open: Home's rows can arrive long after the startup focus retries gave up
+        // (sign-in, Plex fetch on a TV stick), which left nothing highlighted.
+        const onHomeReady = () => {
+            if (!isPlayerHomePath() || isAuthScreen() || isNavOpen()) return;
+            if (document.querySelector(TV_OVERLAY) || document.querySelector('[data-tv-screensaver="1"]')) return;
+            const active = document.activeElement as HTMLElement | null;
+            if (active && active !== document.body && active !== document.documentElement && hasLayout(active)) return;
+            if (!restoreTvFocus()) focusTvHeroWhenReady();
+        };
+
         const onFocusPosters = () => {
             const root = document.querySelector('[data-tv-library="1"]') || document;
             focusFirstPoster(root);
@@ -2638,6 +2649,7 @@ export const useTvRemote = (enabled = true) => {
         window.addEventListener('keyup', onKeyUp, true);
         window.addEventListener('keydown', onKeyDownCancelHold, true);
         window.addEventListener('smp-tv-focus-posters', onFocusPosters);
+        window.addEventListener(PLAYER_TV_HOME_READY_EVENT, onHomeReady);
         document.addEventListener('focusin', onFocusIn, true);
         window.addEventListener('popstate', onNavigate);
         window.addEventListener(PLAYER_NAVIGATE_EVENT, onNavigate);
@@ -2654,6 +2666,7 @@ export const useTvRemote = (enabled = true) => {
             window.removeEventListener('keyup', onKeyUp, true);
             window.removeEventListener('keydown', onKeyDownCancelHold, true);
             window.removeEventListener('smp-tv-focus-posters', onFocusPosters);
+            window.removeEventListener(PLAYER_TV_HOME_READY_EVENT, onHomeReady);
             document.removeEventListener('focusin', onFocusIn, true);
             window.removeEventListener('popstate', onNavigate);
             window.removeEventListener(PLAYER_NAVIGATE_EVENT, onNavigate);
