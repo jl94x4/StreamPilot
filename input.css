@@ -3272,6 +3272,15 @@ html[data-tv="1"] .player-row-header-mark {
   fill: #f59e0b;
   filter: drop-shadow(0 0 6px rgba(245, 158, 11, 0.5));
 }
+/* Non-TV mark (portal / phone). Without it the SVG grew to fill the row on the web. */
+.player-row-header-mark {
+  display: inline-block;
+  width: 0.9em;
+  height: 0.9em;
+  flex-shrink: 0;
+  fill: #f59e0b;
+  filter: drop-shadow(0 0 4px rgba(245, 158, 11, 0.4));
+}
 @keyframes play-mark-pulse {
   0%, 100% { opacity: 0.3; filter: drop-shadow(0 0 2px rgba(245, 158, 11, 0.2)); }
   50%      { opacity: 1;   filter: drop-shadow(0 0 8px rgba(245, 158, 11, 0.7)); }

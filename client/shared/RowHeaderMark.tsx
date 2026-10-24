@@ -43,7 +43,9 @@ export const RowHeaderMark: React.FC<{ marker?: PlayerRowMarker }> = ({ marker }
     // The original pre-play-button line: a slim gradient strip hugging the title (CSS-drawn).
     if (shape === 'bar') return <span className="player-row-header-mark player-row-header-mark--bar shrink-0" aria-hidden="true" />;
     return (
-        <svg className="player-row-header-mark shrink-0" viewBox="0 0 24 24" aria-hidden="true">
+        // width/height: a text-sized fallback, so a page without the stylesheet rule
+        // never draws it as a full-width shape.
+        <svg className="player-row-header-mark shrink-0" viewBox="0 0 24 24" width="1em" height="1em" fill="#f59e0b" aria-hidden="true">
             <MarkShape marker={shape} />
         </svg>
     );
