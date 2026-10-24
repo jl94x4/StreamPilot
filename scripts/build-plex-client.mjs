@@ -7,11 +7,12 @@ import * as esbuild from 'esbuild';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { spawnSync } from 'child_process';
+import { createRequire } from 'module';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
 const outDir = path.join(root, 'plex-client', 'dist');
+const require = createRequire(import.meta.url);
 
 fs.mkdirSync(outDir, { recursive: true });
 
@@ -45,22 +46,6 @@ const injected = html
     .replace('./plex-client.js"', `./plex-client.js?v=${assetStamp}"`);
 fs.writeFileSync(path.join(outDir, 'index.html'), injected);
 
-// Reuse portal Tailwind build when present; otherwise leave a minimal fallback.
-const twSrc = path.join(root, 'static', 'tailwind.css');
-const twDest = path.join(outDir, 'tailwind.css');
-if (fs.existsSync(twSrc)) {
-    fs.copyFileSync(twSrc, twDest);
-} else {
-    const cssBuild = spawnSync(
-        process.platform === 'win32' ? 'npx.cmd' : 'npx',
-        ['tailwindcss', '-i', './input.css', '-o', twDest],
-        { cwd: root, stdio: 'inherit', shell: false },
-    );
-    if (cssBuild.status !== 0) {
-        fs.writeFileSync(twDest, '/* tailwind build skipped */\nbody{font-family:system-ui,sans-serif}\n');
-    }
-}
-
 const logoSrc = path.join(root, 'static', 'logo.png');
 if (fs.existsSync(logoSrc)) {
     fs.copyFileSync(logoSrc, path.join(outDir, 'logo.png'));
@@ -90,7 +75,7 @@ if (fs.existsSync(fontsSrc)) {
 // Code split: languages, hls.js and html2canvas load on demand, so a slow stick parses
 // far less before Home. Chunks are content-hashed; clear old ones first.
 fs.rmSync(path.join(outDir, 'chunks'), { recursive: true, force: true });
-await esbuild.build({
+const bundle = await esbuild.build({
     entryPoints: { 'plex-client': path.join(root, 'client', 'plex-client', 'main.tsx') },
     bundle: true,
     outdir: outDir,
@@ -103,6 +88,7 @@ await esbuild.build({
     jsx: 'automatic',
     minify: true,
     sourcemap: true,
+    metafile: true,
     define: {
         'process.env.PLEX_CLIENT_PORTAL_URL': JSON.stringify(injectPortal),
         'process.env.PLEX_CLIENT_APP_VERSION': JSON.stringify(appVersion),
@@ -119,6 +105,33 @@ await esbuild.build({
     },
     logLevel: 'info',
 });
+
+/**
+ * The app's own stylesheet: Tailwind scans only the files in the bundle above (not the whole
+ * portal), then it is minified. About a third smaller, with fewer rules for the browser to
+ * match on every change. Falls back to the portal build if this fails.
+ */
+const twDest = path.join(outDir, 'tailwind.css');
+try {
+    const loadConfig = require('tailwindcss/loadConfig');
+    const tailwindcss = require('tailwindcss');
+    const postcss = require('postcss');
+    const content = Object.keys(bundle.metafile.inputs)
+        .filter((file) => !file.includes('node_modules') && /\.(?:t|j)sx?$/.test(file))
+        .map((file) => path.join(root, file));
+    content.push(path.join(root, 'plex-client', 'index.html'));
+    const config = { ...loadConfig(path.join(root, 'tailwind.config.js')), content };
+    const inputCss = path.join(root, 'input.css');
+    const built = await postcss([tailwindcss(config)]).process(fs.readFileSync(inputCss, 'utf8'), { from: inputCss });
+    const { code } = await esbuild.transform(built.css, { loader: 'css', minify: true });
+    fs.writeFileSync(twDest, code);
+    console.log(`app stylesheet → ${Math.round(code.length / 1024)}KB from ${content.length} files`);
+} catch (err) {
+    const twSrc = path.join(root, 'static', 'tailwind.css');
+    console.warn(`app stylesheet failed (${err?.message || err}); using the portal build`);
+    if (fs.existsSync(twSrc)) fs.copyFileSync(twSrc, twDest);
+    else fs.writeFileSync(twDest, '/* tailwind build skipped */\nbody{font-family:system-ui,sans-serif}\n');
+}
 
 console.log(`plex-client built → ${outDir}`);
 if (appVersion) console.log(`appVersion = ${appVersion}${appVersionCode ? ` (${appVersionCode})` : ''}`);

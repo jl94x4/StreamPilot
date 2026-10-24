@@ -2062,14 +2062,26 @@
       gap: 0 !important;
       overflow: hidden;
     }
-    @property --tv-home-r { syntax: '<number>'; inherits: true; initial-value: 6; }
-    @property --tv-home-g { syntax: '<number>'; inherits: true; initial-value: 10; }
-    @property --tv-home-b { syntax: '<number>'; inherits: true; initial-value: 16; }
     /* Billboard fade takes the title's page colour (Artwork tint), so opening the title page
-       keeps the same colour. Registered channels let it ease between titles. */
+       keeps the same colour. The fade is two layers (.player-home-tint) that cross-fade their
+       opacity between titles: easing the colour itself repainted full-screen gradients on
+       every frame, which is heavy on TV sticks. */
     html[data-tv="1"] .player-home-stage .player-home-focus-still {
-      --tv-home-surface: var(--tv-home-r) var(--tv-home-g) var(--tv-home-b);
-      transition: --tv-home-r 0.45s ease, --tv-home-g 0.45s ease, --tv-home-b 0.45s ease;
+      --tv-home-surface: var(--tv-home-r, 6) var(--tv-home-g, 10) var(--tv-home-b, 16);
+    }
+    html[data-tv="1"] .player-home-stage .player-home-tint {
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.45s ease;
+    }
+    html[data-tv="1"] .player-home-stage .player-home-tint.is-on {
+      opacity: 1;
+    }
+    html[data-reduce-motion="1"] .player-home-stage .player-home-tint {
+      transition: none;
     }
     html[data-tv="1"] .player-home-stage .player-home-focus-still {
       position: absolute;
@@ -2081,7 +2093,7 @@
       z-index: 0;
       background: rgb(var(--tv-home-surface));
     }
-    html[data-tv="1"] .player-home-stage .player-home-focus-still::after {
+    html[data-tv="1"] .player-home-stage .player-home-tint {
       content: "";
       position: absolute;
       inset: 0;
@@ -2119,7 +2131,7 @@
        costly on TV-stick GPUs while two full-screen images cross-fade, which made row changes
        heavy. The same fade is now the bottom layer of the scrim (all one colour, so it
        composites to the old look), with the left / bottom text scrims above it. */
-    html[data-tv="1"] .player-home-stage .player-home-focus-still::after {
+    html[data-tv="1"] .player-home-stage .player-home-tint {
       z-index: 1;
       background:
         linear-gradient(90deg, rgb(var(--tv-home-surface) / 0.98) 0%, rgb(var(--tv-home-surface) / 0.95) 18%, rgb(var(--tv-home-surface) / 0.9) 30%, rgb(var(--tv-home-surface) / 0.76) 42%, rgb(var(--tv-home-surface) / 0.5) 52%, rgb(var(--tv-home-surface) / 0.24) 62%, rgb(var(--tv-home-surface) / 0.08) 72%, transparent 84%),
