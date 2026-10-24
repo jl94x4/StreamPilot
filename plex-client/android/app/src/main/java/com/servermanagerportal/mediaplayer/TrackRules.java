@@ -18,8 +18,8 @@ final class TrackRules {
         String policy = burnSubtitles == null ? "auto" : burnSubtitles;
         if ("always".equals(policy)) return true;
         boolean image = codec.matches("(?i)pgs|vobsub|dvd|dvdsub|image|bluray|dvbsub|xsub");
-        if ("image".equals(policy)) return image;
-        return image || codec.matches("(?i)ass|ssa");
+        // "auto" matches "image": ExoPlayer renders ASS/SSA itself, so those Direct Play.
+        return image;
     }
 
     static boolean isBitstreamAudioCodec(@Nullable String codec) {

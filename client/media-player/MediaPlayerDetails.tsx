@@ -1425,7 +1425,9 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             const key = String(detail.ratingKey || '');
             const root = document.querySelector('[data-tv-details="1"]');
             if (!poster || !key || !root?.contains(poster)) return;
-            const row = [...children, ...extras].find((entry) => String(entry.ratingKey) === key);
+            // Episode pages build their row from the season (seasonEpisodes), not `children`
+            // (an episode has none) — without them a long-press on an episode card did nothing.
+            const row = [...children, ...seasonEpisodes, ...extras].find((entry) => String(entry.ratingKey) === key);
             if (!row) return;
             detail.handled = true;
             setHeldMenuItem(applyRememberedProgress(row));
@@ -1433,7 +1435,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         };
         window.addEventListener('smp-tv-poster-menu', onOpen);
         return () => window.removeEventListener('smp-tv-poster-menu', onOpen);
-    }, [isTvShell, children, extras]);
+    }, [isTvShell, children, seasonEpisodes, extras]);
 
     useEffect(() => {
         if (!heldMenuToken || !heldMenuItem) return undefined;

@@ -73,6 +73,21 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.345': [
+        {
+            title: 'Playback',
+            items: [
+                'ASS/SSA subtitles Direct Play again and show on screen instead of playing without subs',
+                'When the next episode starts on its own, the finished one leaves Continue Watching straight away',
+            ],
+        },
+        {
+            title: 'TV',
+            items: [
+                'Press and hold on an episode opens its menu again',
+            ],
+        },
+    ],
     '1.0.344': [
         {
             title: 'Movies & shows',

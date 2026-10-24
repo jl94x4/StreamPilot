@@ -534,6 +534,13 @@ public class PlayerActivity extends AppCompatActivity {
     private String loadedArtUrl = "";
     private int logoLoadGeneration;
     private final ExecutorService logoExecutor = Executors.newSingleThreadExecutor();
+    /**
+     * Plex timeline / scrobble pings. App-wide, not shut down with the activity: the final
+     * "stopped" (and watched scrobble) is queued as the player closes for the next episode,
+     * and onDestroy's shutdownNow() on logoExecutor used to cancel it — so Plex kept showing
+     * the finished episode as playing until its session timed out.
+     */
+    private static final ExecutorService TIMELINE_EXECUTOR = Executors.newSingleThreadExecutor();
 
     private final List<OptionItem> qualities = new ArrayList<>();
     private final List<OptionItem> audioTracks = new ArrayList<>();
@@ -4182,7 +4189,7 @@ public class PlayerActivity extends AppCompatActivity {
         try {
             final String pingUrl = timelineReporter.buildScrobbleUrl(ratingKey);
             if (pingUrl == null) return;
-            logoExecutor.execute(() -> timelineReporter.httpPing(pingUrl, null, "GET"));
+            TIMELINE_EXECUTOR.execute(() -> timelineReporter.httpPing(pingUrl, null, "GET"));
         } catch (Throwable e) {
             Log.w(TAG, "Plex scrobble skipped", e);
         }
@@ -4215,7 +4222,7 @@ public class PlayerActivity extends AppCompatActivity {
             final String pingUrl = timelineReporter.buildPmsTimelineUrl(
                 ratingKey, pingState, pingPosition, pingDuration, musicMode, audioStreamId, subtitleStreamId);
             if (pingUrl != null) {
-                logoExecutor.execute(() -> timelineReporter.httpPing(pingUrl, null, "GET"));
+                TIMELINE_EXECUTOR.execute(() -> timelineReporter.httpPing(pingUrl, null, "GET"));
                 return;
             }
         }
@@ -4224,7 +4231,7 @@ public class PlayerActivity extends AppCompatActivity {
         final String body = timelineReporter.buildPortalTimelineBody(
             ratingKey, pingState, pingPosition, pingDuration, audioStreamId, subtitleStreamId);
         if (body == null) return;
-        logoExecutor.execute(() -> timelineReporter.httpPing(portalUrl, body, "POST"));
+        TIMELINE_EXECUTOR.execute(() -> timelineReporter.httpPing(portalUrl, body, "POST"));
     }
 
     private void toggleChrome() {

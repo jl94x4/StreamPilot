@@ -1595,8 +1595,6 @@ export const resolveStartPlaybackQualityId = (
 };
 
 const IMAGE_SUBTITLE_CODEC = /^(pgs|vobsub|dvd|dvdsub|image|bluray|dvbsub|xsub)$/i;
-const COMPLEX_TEXT_SUBTITLE_CODEC = /^(ass|ssa)$/i;
-
 export type SubtitleBurnMode = 'auto' | 'always' | 'image';
 
 export const subtitleCodecNeedsBurn = (
@@ -1607,9 +1605,9 @@ export const subtitleCodecNeedsBurn = (
     const raw = String(codec || '').trim();
     if (!raw) return false;
     if (policy === 'always') return true;
-    if (policy === 'image') return IMAGE_SUBTITLE_CODEC.test(raw);
-    // auto — image formats + complex ASS/SSA
-    return IMAGE_SUBTITLE_CODEC.test(raw) || COMPLEX_TEXT_SUBTITLE_CODEC.test(raw);
+    // auto — only image formats. Every caller is the native player, and ExoPlayer draws
+    // ASS/SSA itself (like official Plex on Android), so those Direct Play.
+    return IMAGE_SUBTITLE_CODEC.test(raw);
 };
 
 export const nativeDirectPlayEligible = (input: {
