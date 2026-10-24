@@ -146,11 +146,11 @@ export const PlexClientFirstRunSetup: React.FC<{ onDone: () => void }> = ({ onDo
                             <strong>{shownCount}</strong> of {choices.length} on Home
                         </div>
                     ) : null}
-                    <div className="smp-setup-actions">
+                    {/* One remote row: Left/Right search inside the focused data-tv-row only. */}
+                    <div className="smp-setup-actions" data-tv-row="1">
                         <button
                             type="button"
                             data-tv-item="1"
-                            data-tv-row="1"
                             disabled={loading || savingServers}
                             onClick={finish}
                             className="smp-auth-button smp-auth-primary inline-flex items-center justify-center gap-2.5 rounded-2xl px-7 py-4 text-lg text-zinc-950 disabled:opacity-50"
@@ -162,8 +162,7 @@ export const PlexClientFirstRunSetup: React.FC<{ onDone: () => void }> = ({ onDo
                             <button
                                 type="button"
                                 data-tv-item="1"
-                                data-tv-row="1"
-                                onClick={() => setAll(shownCount < choices.length)}
+                                    onClick={() => setAll(shownCount < choices.length)}
                                 className="smp-setup-ghost"
                             >
                                 {shownCount < choices.length ? 'Heart all' : 'Clear all'}

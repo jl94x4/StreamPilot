@@ -4146,6 +4146,20 @@
     .smp-auth-primary:hover {
       filter: brightness(1.06);
     }
+    /* Remote / keyboard focus: a white ring, so the amber button reads as selected. */
+    .smp-auth-primary:focus,
+    .smp-auth-primary:focus-visible {
+      outline: none !important;
+      box-shadow: 0 0 0 3px #fff, 0 0 0 7px rgba(255, 255, 255, 0.22), 0 14px 40px rgba(229, 160, 13, 0.35) !important;
+    }
+    .smp-setup-ghost:focus,
+    .smp-setup-ghost:focus-visible {
+      outline: none !important;
+      border-color: #fff !important;
+      background: rgba(255, 255, 255, 0.12) !important;
+      color: #fff !important;
+      box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.22) !important;
+    }
     .smp-auth-note {
       display: flex;
       align-items: center;
