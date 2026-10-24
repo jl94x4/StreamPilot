@@ -3828,6 +3828,39 @@ html[data-tv="1"] .player-home-row-park {
   pointer-events: none;
   z-index: 0;
 }
+/* TV Home row change: the row you move to slides in from the side you came from, and
+   the peek row below fades up behind it — instead of rows swapping in a single frame. */
+html[data-tv="1"] .player-home-row-enter-down {
+  animation: player-home-row-in-down 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+html[data-tv="1"] .player-home-row-enter-up {
+  animation: player-home-row-in-up 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+html[data-tv="1"] .player-home-next-row {
+  animation: player-home-row-peek-in 0.35s ease-out both;
+}
+@keyframes player-home-row-in-down {
+  from { opacity: 0.35; transform: translate3d(0, 2.25rem, 0); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes player-home-row-in-up {
+  from { opacity: 0.35; transform: translate3d(0, -2.25rem, 0); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes player-home-row-peek-in {
+  from { opacity: 0; transform: translate3d(0, 1rem, 0); }
+  to { opacity: 1; transform: none; }
+}
+html[data-reduce-motion="1"] .player-home-row-enter-down,
+html[data-reduce-motion="1"] .player-home-row-enter-up,
+html[data-reduce-motion="1"] .player-home-next-row {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  html[data-tv="1"] .player-home-row-enter-down,
+  html[data-tv="1"] .player-home-row-enter-up,
+  html[data-tv="1"] .player-home-next-row { animation: none; }
+}
 html[data-tv="1"] .player-home-next-row {
   padding-left: 0;
   pointer-events: none;

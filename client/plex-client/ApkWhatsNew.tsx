@@ -73,6 +73,16 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.340': [
+        {
+            title: 'TV Home',
+            items: [
+                'Moving up and down rows is quicker and more responsive',
+                'Rows now slide in from the direction you moved instead of swapping instantly',
+                'Home rows load sooner: posters are fetched for the rows near you first instead of every row at once',
+            ],
+        },
+    ],
     '1.0.339': [
         {
             title: 'Movies & shows',

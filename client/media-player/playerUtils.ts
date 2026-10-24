@@ -51,7 +51,12 @@ export const playerRailPosterUrl = (
     return resizePlexArtUrl(raw, 300, 450, PLAYER_POSTER_QUALITY) || raw || '';
 };
 
-/** Download every Home/library row poster. Current + next row go first. */
+/**
+ * Warm the posters near the row on screen: current, next two, previous. Queuing every
+ * row's posters (hundreds) at once tied up the server's few connections, so the Home
+ * hub fills and the rows you were looking at loaded last. Rows further away warm as you
+ * reach them (this runs on every row change).
+ */
 export const prefetchHomeRowPosters = (
     rows: Array<{ items?: Array<PlayerItem | null | undefined> | null; aspect?: '2/3' | 'square' | '16/9' }>,
     startIndex = 0,
@@ -67,10 +72,8 @@ export const prefetchHomeRowPosters = (
     const start = Math.max(0, Math.min(startIndex, rows.length - 1));
     pushRow(rows[start]);
     pushRow(rows[start + 1]);
-    rows.forEach((row, index) => {
-        if (index === start || index === start + 1) return;
-        pushRow(row);
-    });
+    pushRow(rows[start + 2]);
+    if (start > 0) pushRow(rows[start - 1]);
     prefetchPlayerImages(urls, urls.length);
 };
 

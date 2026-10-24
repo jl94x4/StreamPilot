@@ -90,8 +90,11 @@ export const PlayerRail: React.FC<{
         : phoneShell
             ? (staggerIndex === 0 ? 6 : staggerIndex <= 2 ? 4 : 2)
             : (staggerIndex === 0 ? 8 : 4);
+    // TV Home keeps the rows above/below mounted. They only show their first few cards, so
+    // mount 8 there; building every card of the new neighbour row on each up/down press was
+    // what made row changes lag. The active row fills in after its slide-in (below).
     const armedFloor = tvShell
-        ? Math.min(items.length, items.length <= 48 ? items.length : 28)
+        ? Math.min(items.length, !tvActive ? 8 : (items.length <= 48 ? items.length : 28))
         : phoneShell
             ? (staggerIndex === 0 ? 8 : 6)
             : items.length;
@@ -125,14 +128,22 @@ export const PlayerRail: React.FC<{
     useEffect(() => {
         if (!lazyMount) {
             setArmedCount(items.length);
-            return;
+            return undefined;
         }
-        setArmedCount((current) => {
+        const grow = () => setArmedCount((current) => {
             if (!items.length) return 0;
             const restored = restoreIndex >= 0 ? restoreIndex + 6 : 0;
             return Math.min(items.length, Math.max(current, armedFloor, restored));
         });
-    }, [armedFloor, items.length, lazyMount, restoreIndex]);
+        // A TV row that just became active fills in once its slide-in is done, so the new
+        // cards don't render in the middle of the animation and the key press stays snappy.
+        if (tvShell && tvActive) {
+            const timer = window.setTimeout(grow, 360);
+            return () => window.clearTimeout(timer);
+        }
+        grow();
+        return undefined;
+    }, [armedFloor, items.length, lazyMount, restoreIndex, tvActive, tvShell]);
 
     useEffect(() => {
         const take = tvShell ? items.length : eagerCount;
@@ -312,6 +323,8 @@ export const PlayerTvRowStack: React.FC<{
     activeIndex: number;
     density: number;
     restoreFocusById: Record<string, string>;
+    /** Last up/down move — the row that becomes active slides in from that side. */
+    rowDir?: 'up' | 'down' | null;
     onOpenItem: (item: PlayerItem) => void;
     onPlay: (item: PlayerItem, opts?: PlayerPlayOptions) => void;
     onToggleWatched?: (item: PlayerItem) => void;
@@ -327,6 +340,7 @@ export const PlayerTvRowStack: React.FC<{
     activeIndex,
     density,
     restoreFocusById,
+    rowDir = null,
     ...railProps
 }) => {
     return (
@@ -335,11 +349,13 @@ export const PlayerTvRowStack: React.FC<{
                 if (index < activeIndex - 1 || index > activeIndex + 1) return null;
                 const active = index === activeIndex;
                 const peek = index === activeIndex + 1;
+                // The row you move to slides in from the side you came from.
+                const enter = active && rowDir ? ` player-home-row-enter-${rowDir}` : '';
                 return (
                     <div
                         key={row.id}
                         data-tv-stack-index={index}
-                        className={peek ? 'player-home-next-row' : (active ? undefined : 'player-home-row-park')}
+                        className={peek ? 'player-home-next-row' : (active ? `player-home-row-active${enter}` : 'player-home-row-park')}
                         inert={!active ? true : undefined}
                         aria-hidden={!active}
                     >

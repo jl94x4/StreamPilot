@@ -2193,6 +2193,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                                 viewAllLabel: row.onViewAll ? t('common.viewMore') : undefined,
                             }))}
                             activeIndex={tvRowSafeIndex}
+                            rowDir={tvRowDir}
                             density={homePosterDensity}
                             restoreFocusById={tvRowFocusRef.current}
                             onOpenItem={onOpenItem}
