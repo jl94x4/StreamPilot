@@ -151,8 +151,9 @@ export const PlexClientFirstRunSetup: React.FC<{ onDone: () => void }> = ({ onDo
                         <button
                             type="button"
                             data-tv-item="1"
-                            disabled={loading || savingServers}
-                            onClick={finish}
+                            disabled={loading}
+                            aria-busy={savingServers}
+                            onClick={() => { if (!savingServers) finish(); }}
                             className="smp-auth-button smp-auth-primary inline-flex items-center justify-center gap-2.5 rounded-2xl px-7 py-4 text-lg text-zinc-950 disabled:opacity-50"
                         >
                             Continue to Home
@@ -189,7 +190,9 @@ export const PlexClientFirstRunSetup: React.FC<{ onDone: () => void }> = ({ onDo
                                                 type="button"
                                                 data-tv-item="1"
                                                 aria-pressed={server.enabled}
-                                                disabled={savingServers}
+                                                // Not disabled while saving: a disabled button drops focus and the
+                                                // remote then jumped back to Continue. toggleServer ignores repeats.
+                                                aria-busy={savingServers}
                                                 onClick={() => { void toggleServer(server.id); }}
                                                 className={`smp-setup-server ${server.enabled ? 'is-on' : ''}`}
                                             >
