@@ -196,8 +196,10 @@ Object.assign(ru, { maintenance: {
     errors: { ...ru.maintenance.errors, load: 'Не удалось загрузить модуль обслуживания', deleteFilter: 'Не удалось удалить фильтр', saveRules: 'Не удалось сохранить правила обслуживания', rebuildIndex: 'Не удалось перестроить индекс', preview: 'Не удалось создать предпросмотр', unsavedBeforeRun: 'Сохраните изменения фильтра перед запуском.', run: 'Не удалось выполнить правило', preflight: 'Предварительная проверка не пройдена.', resetGrace: 'Не удалось сбросить льготный период', toggleFilter: 'Не удалось обновить состояние фильтра' }
 } });
 
+// en.ts is `as const`, so its leaves are literal English strings: widen them to string,
+// or every translation fails to type-check against the English text.
 type DeepPartial<T> = {
-    [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K];
+    [K in keyof T]?: T[K] extends string ? string : T[K] extends object ? DeepPartial<T[K]> : T[K];
 };
 
 Object.assign(ru, { about: {

@@ -2262,8 +2262,10 @@ Object.assign(fr, { maintenance: {
     errors: { ...fr.maintenance.errors, load: 'Impossible de charger le module de maintenance', deleteFilter: 'Impossible de supprimer le filtre', saveRules: 'Impossible d’enregistrer les règles de maintenance', rebuildIndex: 'Impossible de reconstruire l’index de maintenance', preview: 'Impossible de générer la prévisualisation', unsavedBeforeRun: 'Enregistrez les modifications du filtre avant l’exécution.', run: 'Échec de l’exécution de la règle', preflight: 'Échec de la vérification préalable.', resetGrace: 'Impossible de réinitialiser le délai de grâce', toggleFilter: 'Impossible de modifier l’état du filtre' }
 } });
 
+// en.ts is `as const`, so its leaves are literal English strings: widen them to string,
+// or every translation fails to type-check against the English text.
 type DeepPartial<T> = {
-    [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K];
+    [K in keyof T]?: T[K] extends string ? string : T[K] extends object ? DeepPartial<T[K]> : T[K];
 };
 
 Object.assign(fr, { about: {

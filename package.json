@@ -18,6 +18,7 @@
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs",
     "test": "node --test",
+    "typecheck": "tsc --noEmit -p .",
     "test:media-automation": "node --test lib/media-automation/media-automation.test.js",
     "start": "npm run build && node --env-file=.env index.js",
     "start:prod": "node index.js",
@@ -55,6 +56,7 @@
     "autoprefixer": "^10.6.1",
     "postcss": "^8.5.15",
     "tailwindcss": "^3.4.19",
+    "typescript": "^5.6.3",
     "vitepress": "^1.6.4"
   },
   "overrides": {

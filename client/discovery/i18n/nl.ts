@@ -196,8 +196,10 @@ Object.assign(nl, { maintenance: {
     errors: { ...nl.maintenance.errors, load: 'Onderhoudsmodule kon niet worden geladen', deleteFilter: 'Filter kon niet worden verwijderd', saveRules: 'Onderhoudsregels konden niet worden opgeslagen', rebuildIndex: 'Index kon niet worden opgebouwd', preview: 'Voorbeeld kon niet worden gegenereerd', unsavedBeforeRun: 'Sla filterwijzigingen op voordat je uitvoert.', run: 'Uitvoeren van regel mislukt', preflight: 'Voorcontrole mislukt.', resetGrace: 'Respijtperiode kon niet worden gereset', toggleFilter: 'Filterstatus kon niet worden bijgewerkt' }
 } });
 
+// en.ts is `as const`, so its leaves are literal English strings: widen them to string,
+// or every translation fails to type-check against the English text.
 type DeepPartial<T> = {
-    [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K];
+    [K in keyof T]?: T[K] extends string ? string : T[K] extends object ? DeepPartial<T[K]> : T[K];
 };
 
 Object.assign(nl, { about: {

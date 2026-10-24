@@ -196,8 +196,10 @@ Object.assign(ja, { maintenance: {
     errors: { ...ja.maintenance.errors, load: 'メンテナンスモジュールを読み込めませんでした', deleteFilter: 'フィルターを削除できませんでした', saveRules: 'メンテナンスルールを保存できませんでした', rebuildIndex: 'インデックスを再構築できませんでした', preview: 'プレビューを生成できませんでした', unsavedBeforeRun: '実行する前にフィルターの変更を保存してください。', run: 'ルールの実行に失敗しました', preflight: '事前チェックに失敗しました。', resetGrace: '猶予期間をリセットできませんでした', toggleFilter: 'フィルターの状態を更新できませんでした' }
 } });
 
+// en.ts is `as const`, so its leaves are literal English strings: widen them to string,
+// or every translation fails to type-check against the English text.
 type DeepPartial<T> = {
-    [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K];
+    [K in keyof T]?: T[K] extends string ? string : T[K] extends object ? DeepPartial<T[K]> : T[K];
 };
 
 Object.assign(ja, { about: {

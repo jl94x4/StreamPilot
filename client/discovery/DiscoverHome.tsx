@@ -359,12 +359,14 @@ export const DiscoverHome: React.FC<{
             // Enrich after first paint so browse badges match the detail page without blocking skeletons.
             void (async () => {
                 try {
+                    // Own names: reusing popularMovies etc. here shadowed the fetched rows and
+                    // threw (read before declared), so this availability refresh never ran.
                     const [
                         trending,
-                        popularMovies,
-                        upcomingMovies,
-                        popularSeries,
-                        upcomingSeries,
+                        popularMoviesEnriched,
+                        upcomingMoviesEnriched,
+                        popularSeriesEnriched,
+                        upcomingSeriesEnriched,
                     ] = await Promise.all([
                         enrichDiscoverBrowseRows(trendingRes),
                         enrichDiscoverBrowseRows(popularMovies),
@@ -375,10 +377,10 @@ export const DiscoverHome: React.FC<{
                     if (gen !== loadGenRef.current) return;
                     const nextPrimary = {
                         trending: filterHiddenAvailableItems(trending, hideAvailable),
-                        popularMovies: filterHiddenAvailableItems(popularMovies, hideAvailable),
-                        upcomingMovies: filterHiddenAvailableItems(upcomingMovies, hideAvailable),
-                        popularSeries: filterHiddenAvailableItems(popularSeries, hideAvailable),
-                        upcomingSeries: filterHiddenAvailableItems(upcomingSeries, hideAvailable),
+                        popularMovies: filterHiddenAvailableItems(popularMoviesEnriched, hideAvailable),
+                        upcomingMovies: filterHiddenAvailableItems(upcomingMoviesEnriched, hideAvailable),
+                        popularSeries: filterHiddenAvailableItems(popularSeriesEnriched, hideAvailable),
+                        upcomingSeries: filterHiddenAvailableItems(upcomingSeriesEnriched, hideAvailable),
                     };
                     setRows((prev) => ({ ...prev, ...nextPrimary }));
 
