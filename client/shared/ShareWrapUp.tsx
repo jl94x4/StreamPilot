@@ -1,12 +1,14 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { X, Copy, Download, Share2 } from 'lucide-react';
-import html2canvas from 'html2canvas';
 import { WrapUpCardGrid, periodLabel, isYearInReviewPeriod, wrapUpPriorPeriodLabel, formatWrapUpDelta } from './WrapUpCards';
 import { formatStreamingHour } from './format';
 import { getPublicOrigin } from './basePath';
 import { createDiscoverTranslate, useDiscoverI18n } from '../discovery/i18n';
 import type { DiscoverTranslate } from '../discovery/i18n/types';
 import { lockBackgroundScroll } from './lockBackgroundScroll';
+
+// html2canvas (~200KB) loads only when an image is exported.
+const loadHtml2canvas = () => import('html2canvas').then((mod) => mod.default);
 
 const EXPORT_WIDTH_PX = 1080;
 
@@ -106,6 +108,7 @@ export const ShareWrapUpModal: React.FC<ShareWrapUpModalProps> = ({
             await waitForExportImages(node);
             await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
+            const html2canvas = await loadHtml2canvas();
             const canvas = await html2canvas(node, {
                 useCORS: true,
                 allowTaint: true,

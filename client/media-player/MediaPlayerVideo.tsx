@@ -14,7 +14,8 @@ import {
     VolumeX,
     X,
 } from 'lucide-react';
-import Hls from 'hls.js';
+import type Hls from 'hls.js';
+import { loadHls } from './loadHls';
 import {
     lockBackgroundScroll,
     PORTAL_CSRF_HEADER,
@@ -1868,8 +1869,23 @@ export const MediaPlayerVideo: React.FC<Props> = ({
             setError(message || t('mediaPlayerPage.playError'));
         };
 
-        const startHlsJs = () => {
-            const hls = new Hls({
+        const startPlain = () => {
+            video.src = src;
+            video.addEventListener('loadedmetadata', onReady, { once: true });
+            video.addEventListener('error', () => fail(), { once: true });
+        };
+
+        // hls.js loads on first use; a browser without MSE falls back to the plain element.
+        const startHlsJs = (unsupported: () => void) => {
+            void loadHls().then((HlsJs) => {
+                if (cancelled) return;
+                if (!HlsJs.isSupported()) { unsupported(); return; }
+                attachHlsJs(HlsJs);
+            }).catch(() => { if (!cancelled) fail(); });
+        };
+
+        const attachHlsJs = (HlsJs: typeof Hls) => {
+            const hls = new HlsJs({
                 enableWorker: false,
                 lowLatencyMode: false,
                 manifestLoadingTimeOut: 60_000,
@@ -1890,8 +1906,8 @@ export const MediaPlayerVideo: React.FC<Props> = ({
             hlsRef.current = hls;
             hls.loadSource(src);
             hls.attachMedia(video);
-            hls.on(Hls.Events.MANIFEST_PARSED, onReady);
-            hls.on(Hls.Events.ERROR, (_event, data) => {
+            hls.on(HlsJs.Events.MANIFEST_PARSED, onReady);
+            hls.on(HlsJs.Events.ERROR, (_event, data) => {
                 if (!data?.fatal) return;
                 try { hls.destroy(); } catch { /* ignore */ }
                 hlsRef.current = null;
@@ -1906,15 +1922,12 @@ export const MediaPlayerVideo: React.FC<Props> = ({
             video.addEventListener('error', () => {
                 if (cancelled) return;
                 video.removeAttribute('src');
-                if (Hls.isSupported()) startHlsJs();
-                else fail();
+                startHlsJs(() => fail());
             }, { once: true });
-        } else if (Hls.isSupported() && isHlsPlaybackSrc(playbackSrc)) {
-            startHlsJs();
+        } else if (isHlsPlaybackSrc(playbackSrc)) {
+            startHlsJs(startPlain);
         } else {
-            video.src = src;
-            video.addEventListener('loadedmetadata', onReady, { once: true });
-            video.addEventListener('error', () => fail(), { once: true });
+            startPlain();
         }
 
         return () => {

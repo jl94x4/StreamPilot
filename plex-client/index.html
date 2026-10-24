@@ -1399,13 +1399,26 @@
       opacity: 1 !important;
       filter: none !important;
       image-rendering: auto !important;
-      -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 40%, rgba(0, 0, 0, 0.7) 56%, rgba(0, 0, 0, 0.28) 70%, rgba(0, 0, 0, 0.06) 82%, transparent 100%) !important;
-      mask-image: linear-gradient(180deg, #000 0%, #000 40%, rgba(0, 0, 0, 0.7) 56%, rgba(0, 0, 0, 0.28) 70%, rgba(0, 0, 0, 0.06) 82%, transparent 100%) !important;
     }
+    /* The art fades into the page with a page-colour layer over it, not a mask-image: masks are
+       costly on TV-stick GPUs (Home dropped its mask the same way). It sits under the trailer
+       preview, which was never masked, and under the text scrims. */
     html[data-tv="1"] .media-details-hero-backdrop::before {
-      content: none !important;
-      display: none !important;
-      background: none !important;
+      content: "" !important;
+      display: block !important;
+      position: absolute !important;
+      inset: 0 !important;
+      z-index: 1 !important;
+      pointer-events: none !important;
+      background: linear-gradient(180deg, transparent 0%, transparent 40%, rgb(var(--tv-details-surface) / 0.3) 56%, rgb(var(--tv-details-surface) / 0.72) 70%, rgb(var(--tv-details-surface) / 0.94) 82%, rgb(var(--tv-details-surface)) 100%) !important;
+    }
+    html[data-tv="1"] [data-tv-kind="album"] .media-details-hero-backdrop::before,
+    html[data-tv="1"] [data-tv-kind="artist"] .media-details-hero-backdrop::before,
+    html[data-tv="1"] [data-tv-kind="track"] .media-details-hero-backdrop::before {
+      background: linear-gradient(180deg, transparent 0%, transparent 48%, rgb(var(--tv-details-surface) / 0.18) 64%, rgb(var(--tv-details-surface) / 0.65) 80%, rgb(var(--tv-details-surface)) 100%) !important;
+    }
+    html[data-tv="1"] .media-details-hero-backdrop .media-details-trailer-preview {
+      z-index: 2;
     }
     html[data-tv="1"] .media-details-hero-backdrop::after {
       content: "" !important;
@@ -1560,8 +1573,6 @@
     html[data-tv="1"] [data-tv-kind="artist"] .media-details-hero-backdrop img,
     html[data-tv="1"] [data-tv-kind="track"] .media-details-hero-backdrop img {
       object-position: 58% 12% !important;
-      -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 48%, rgba(0, 0, 0, 0.82) 64%, rgba(0, 0, 0, 0.35) 80%, transparent 100%) !important;
-      mask-image: linear-gradient(180deg, #000 0%, #000 48%, rgba(0, 0, 0, 0.82) 64%, rgba(0, 0, 0, 0.35) 80%, transparent 100%) !important;
     }
     html[data-tv="1"] [data-tv-kind="album"] .media-details-hero-backdrop::after,
     html[data-tv="1"] [data-tv-kind="artist"] .media-details-hero-backdrop::after,
@@ -1704,9 +1715,8 @@
       margin-bottom: 0;
       padding: 0.28rem 0.32rem;
       border-radius: 999px;
-      background: rgba(8, 12, 18, 0.55);
+      background: rgba(8, 12, 18, 0.8); /* solid in place of a backdrop blur, which is costly on sticks */
       border: 1px solid rgba(255, 255, 255, 0.14);
-      backdrop-filter: blur(18px);
       pointer-events: auto;
     }
     html[data-tv="1"] [data-tv-kind="episode"] .media-details-season-pills::-webkit-scrollbar,

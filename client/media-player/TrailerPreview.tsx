@@ -1,5 +1,6 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
-import Hls from 'hls.js';
+import type Hls from 'hls.js';
+import { loadHls } from './loadHls';
 import { startMediaPlayerPlayback, stopMediaPlayerTranscode } from './api';
 import type { PlayerItem } from './types';
 
@@ -97,23 +98,33 @@ export const TrailerPreview = forwardRef<TrailerPreviewHandle, {
         const video = videoRef.current;
         if (!video || !src) return undefined;
         let hls: Hls | null = null;
-        if (isHlsSrc(src) && !video.canPlayType('application/vnd.apple.mpegurl') && Hls.isSupported()) {
-            hls = new Hls({ enableWorker: false, xhrSetup: (xhr) => { xhr.withCredentials = true; } });
-            hls.loadSource(src);
-            hls.attachMedia(video);
-        } else {
-            video.src = src;
-        }
-        video.volume = TRAILER_PREVIEW_VOLUME;
+        let cancelled = false;
         const start = () => {
+            video.volume = TRAILER_PREVIEW_VOLUME;
             video.play().catch(() => {
                 // Autoplay with sound refused (browser policy): play muted instead.
                 video.muted = true;
                 video.play().catch(() => setDone(true));
             });
         };
-        start();
+        const playPlain = () => {
+            video.src = src;
+            start();
+        };
+        if (isHlsSrc(src) && !video.canPlayType('application/vnd.apple.mpegurl')) {
+            void loadHls().then((HlsJs) => {
+                if (cancelled) return;
+                if (!HlsJs.isSupported()) { playPlain(); return; }
+                hls = new HlsJs({ enableWorker: false, xhrSetup: (xhr) => { xhr.withCredentials = true; } });
+                hls.loadSource(src);
+                hls.attachMedia(video);
+                start();
+            }).catch(() => { if (!cancelled) playPlain(); });
+        } else {
+            playPlain();
+        }
         return () => {
+            cancelled = true;
             try { hls?.destroy(); } catch { /* ignore */ }
             video.removeAttribute('src');
             try { video.load(); } catch { /* ignore */ }

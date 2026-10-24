@@ -87,10 +87,16 @@ if (fs.existsSync(fontsSrc)) {
     }
 }
 
+// Code split: languages, hls.js and html2canvas load on demand, so a slow stick parses
+// far less before Home. Chunks are content-hashed; clear old ones first.
+fs.rmSync(path.join(outDir, 'chunks'), { recursive: true, force: true });
 await esbuild.build({
-    entryPoints: [path.join(root, 'client', 'plex-client', 'main.tsx')],
+    entryPoints: { 'plex-client': path.join(root, 'client', 'plex-client', 'main.tsx') },
     bundle: true,
-    outfile: path.join(outDir, 'plex-client.js'),
+    outdir: outDir,
+    splitting: true,
+    chunkNames: 'chunks/[name]-[hash]',
+    assetNames: '[name]-[hash]',
     format: 'esm',
     platform: 'browser',
     target: ['es2020'],
