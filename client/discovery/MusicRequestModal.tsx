@@ -218,7 +218,7 @@ export const MusicRequestModal: React.FC<Props> = ({
                                 {posterUrl ? (
                                     <img src={posterUrl} alt="" className="w-full h-full object-cover" />
                                 ) : (
-                                    <NoPosterPlaceholder className="w-full h-full" label={t('music.noArt')} />
+                                    <NoPosterPlaceholder className="w-full h-full" />
                                 )}
                             </div>
                             <div className="min-w-0">
@@ -271,40 +271,46 @@ export const MusicRequestModal: React.FC<Props> = ({
                                         ) : serviceOptions ? (
                                             <>
                                                 {musicServers.length > 1 && (
-                                                <CustomSelect
-                                                    label={t('music.lidarrServer')}
-                                                    value={serverId != null ? String(serverId) : ''}
-                                                    onChange={(v) => setServerId(Number(v) || null)}
-                                                    options={musicServers.map((s: any) => ({
-                                                        value: String(s.id),
-                                                        label: s.name,
-                                                    }))}
-                                                />
+                                                <div>
+                                                    <label className="block text-xs font-semibold text-muted mb-1.5">{t('music.lidarrServer')}</label>
+                                                    <CustomSelect
+                                                        value={serverId != null ? String(serverId) : ''}
+                                                        onChange={(v) => setServerId(Number(v) || null)}
+                                                        options={musicServers.map((s: any) => ({
+                                                            value: String(s.id),
+                                                            label: s.name,
+                                                        }))}
+                                                    />
+                                                </div>
                                                 )}
                                                 {(serviceOptions.profiles || []).length !== 1 && (
-                                                <CustomSelect
-                                                    label={t('request.qualityProfile')}
-                                                    value={profileId != null ? String(profileId) : ''}
-                                                    onChange={(v) => setProfileId(Number(v) || null)}
-                                                    options={(serviceOptions.profiles || []).map((p) => ({
-                                                        value: String(p.id),
-                                                        label: p.name,
-                                                    }))}
-                                                />
+                                                <div>
+                                                    <label className="block text-xs font-semibold text-muted mb-1.5">{t('request.qualityProfile')}</label>
+                                                    <CustomSelect
+                                                        value={profileId != null ? String(profileId) : ''}
+                                                        onChange={(v) => setProfileId(Number(v) || null)}
+                                                        options={(serviceOptions.profiles || []).map((p) => ({
+                                                            value: String(p.id),
+                                                            label: p.name,
+                                                        }))}
+                                                    />
+                                                </div>
                                                 )}
                                                 {(serviceOptions.rootFolders || []).length !== 1 && (
-                                                <CustomSelect
-                                                    label={t('request.rootFolder')}
-                                                    value={rootFolder}
-                                                    onChange={setRootFolder}
-                                                    options={(serviceOptions.rootFolders || []).map((f) => ({
-                                                        value: f.path,
-                                                        label: formatRootFolderLabel(f, {
-                                                            folders: serviceOptions.rootFolders,
-                                                            freeText: formatBytes(f.freeSpace, t('storage.free')),
-                                                        }),
-                                                    }))}
-                                                />
+                                                <div>
+                                                    <label className="block text-xs font-semibold text-muted mb-1.5">{t('request.rootFolder')}</label>
+                                                    <CustomSelect
+                                                        value={rootFolder}
+                                                        onChange={setRootFolder}
+                                                        options={(serviceOptions.rootFolders || []).map((f) => ({
+                                                            value: f.path,
+                                                            label: formatRootFolderLabel(f, {
+                                                                folders: serviceOptions.rootFolders,
+                                                                freeText: formatBytes(f.freeSpace, t('storage.free')),
+                                                            }),
+                                                        }))}
+                                                    />
+                                                </div>
                                                 )}
                                             </>
                                         ) : (

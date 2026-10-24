@@ -1,6 +1,6 @@
 export const SETTINGS_TABS = [
     'plex', 'notifications', 'newsletter', 'cleanup', 'cleaner', 'mediastack', 'request', 'branding', 'layout', 'applets',
-    'achievements', 'analytics', 'status', 'invites', 'tasks', 'upgrader', 'collexions', 'spotify-sync', 'metadata-fill', 'media-automation', 'poster-sets', 'overlays', 'editions', 'system', 'contact', 'broadcast', 'stream-rules', 'logs',
+    'achievements', 'analytics', 'status', 'invites', 'tasks', 'upgrader', 'collexions', 'spotify-sync', 'metadata-fill', 'scanner', 'media-automation', 'poster-sets', 'overlays', 'editions', 'watch-sync', 'system', 'contact', 'broadcast', 'stream-rules', 'logs',
 ] as const;
 
 export type SettingsTabId = typeof SETTINGS_TABS[number];

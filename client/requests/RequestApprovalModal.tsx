@@ -453,7 +453,6 @@ export const RequestApprovalModal: React.FC<Props> = ({
                                                 setServerId(Number(val));
                                                 setProfileId(null);
                                                 setRootFolder('');
-                                                setLanguageProfileId(null);
                                                 setSelectedTags([]);
                                             }}
                                             options={servers.map((s) => ({

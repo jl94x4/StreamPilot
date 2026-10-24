@@ -173,8 +173,9 @@ export const ChatRoom: React.FC<Props> = ({ sessionInfo, onCountsChange, initial
         goToProfile(undefined, userId);
     }, []);
 
-    const toast = useCallback((message: string, type: ToastMessage['type'] = 'info') => {
-        pushToast(setToasts, message, type);
+    const toast = useCallback((message: string, type: ToastMessage['type'] | 'info' = 'info') => {
+        // Toasts only come in green (success) and red (error): info reads as success.
+        setToasts((prev) => pushToast(prev, message, type === 'error' ? 'error' : 'success'));
     }, []);
 
     const openConfirm = useCallback((opts: ConfirmDialogState & { onConfirm: () => void | Promise<void> }) => {

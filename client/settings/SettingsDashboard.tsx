@@ -5465,10 +5465,10 @@ export const SettingsDashboard: React.FC = () => {
                                             try {
                                                 const data = await apiFetch('/api/spotify-to-plex/apply-portal-defaults', { method: 'POST' });
                                                 setSpotifyPortalImportMessage(data?.message || 'Portal defaults applied to the spotify-to-plex container.');
-                                                pushToast(data?.message || 'Applied portal defaults', 'success');
+                                                addToast(data?.message || 'Applied portal defaults', 'success');
                                             } catch (e: any) {
                                                 setSpotifyPortalImportMessage(e?.message || 'Import failed');
-                                                pushToast(e?.message || 'Import failed', 'error');
+                                                addToast(e?.message || 'Import failed', 'error');
                                             } finally {
                                                 setSpotifyPortalImporting(false);
                                             }
@@ -5487,9 +5487,9 @@ export const SettingsDashboard: React.FC = () => {
                                                     method: 'POST',
                                                     body: JSON.stringify({ type: 'all' }),
                                                 });
-                                                pushToast(data?.message || 'Sync started', 'success');
+                                                addToast(data?.message || 'Sync started', 'success');
                                             } catch (e: any) {
-                                                pushToast(e?.message || 'Sync failed', 'error');
+                                                addToast(e?.message || 'Sync failed', 'error');
                                             } finally {
                                                 setSpotifySyncStarting(false);
                                             }

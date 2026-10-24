@@ -152,7 +152,7 @@ export function PosterSetsLibraryBrowse({
                         options={sectionOptions.length ? sectionOptions : [{ value: '', label: 'No libraries' }]}
                         className="min-w-0 flex-1 basis-[10rem] sm:max-w-[14rem] sm:flex-none"
                         compact
-                        disabled={sectionsLoading || !sectionOptions.length}
+                        triggerProps={{ disabled: sectionsLoading || !sectionOptions.length }}
                     />
                     <div className="inline-flex shrink-0 rounded-xl border border-white/10 bg-black/20 p-0.5">
                         {([
