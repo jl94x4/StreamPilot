@@ -940,6 +940,28 @@ const extractExtraMetas = (data: any): PlexMeta[] => {
     return extras.length ? extras : [];
 };
 
+/**
+ * The title's theme song (its own, or its show's / season's). There is no portal theme
+ * route in the app, so build a direct, tokened PMS URL the <audio> element can load.
+ */
+const mapTheme = (meta: PlexMeta) => {
+    for (const value of [meta.theme, meta.grandparentTheme, meta.parentTheme]) {
+        const path = String(value || '').trim();
+        const match = path.match(/^\/library\/metadata\/(\d+)\/theme\b/i);
+        if (!match) continue;
+        const server = mapServer || readServer();
+        if (!server?.uri || !server.accessToken) return { themeKey: match[1], themeUrl: null };
+        try {
+            const url = new URL(path, server.uri.endsWith('/') ? server.uri : `${server.uri}/`);
+            url.searchParams.set('X-Plex-Token', server.accessToken);
+            return { themeKey: match[1], themeUrl: url.toString() };
+        } catch {
+            return { themeKey: match[1], themeUrl: null };
+        }
+    }
+    return { themeKey: null, themeUrl: null };
+};
+
 const mapItem = (meta: PlexMeta) => {
     const type = normalizeItemType(meta);
     const music = /^(artist|album|track|audio|music)$/i.test(String(meta.type || meta.librarySectionType || ''))
@@ -970,6 +992,7 @@ const mapItem = (meta: PlexMeta) => {
         heroArt: coverArtUrl(meta) || null,
         backdropArt: imageUrl(heroBackdropPath(meta, type), 1920, 1080, { crop: false }),
         logo: imageUrl(clearLogo(meta), 640, 240),
+        ...mapTheme(meta),
         // Keep stamped library paths so Continue Watching can remount show/season
         // posters after Plex art changes (imageUrl alone wraps the episode still).
         thumbPath: libraryImagePath(meta.thumb) || null,

@@ -111,6 +111,8 @@ export type PlayerItem = {
     art?: string | null;
     logo?: string | null;
     themeKey?: string | null;
+    /** Direct app: playable theme URL straight from PMS (the portal uses /theme/:key). */
+    themeUrl?: string | null;
     durationMs?: number | null;
     viewOffsetMs?: number;
     index?: number | null;

@@ -6,6 +6,8 @@ const THEME_VOLUME = 0.4;
 
 type Props = {
     themeKey: string;
+    /** Ready-made URL (direct app). Wins over the portal /theme/:key route. */
+    themeUrl?: string | null;
     enabled: boolean;
     paused?: boolean;
     playLabel: string;
@@ -15,6 +17,7 @@ type Props = {
 
 export const MediaPlayerThemeTune: React.FC<Props> = ({
     themeKey,
+    themeUrl,
     enabled,
     paused = false,
     playLabel,
@@ -26,7 +29,7 @@ export const MediaPlayerThemeTune: React.FC<Props> = ({
     const [blocked, setBlocked] = useState(false);
     const [failed, setFailed] = useState(false);
     const [hidden, setHidden] = useState(() => typeof document !== 'undefined' && document.hidden);
-    const src = enabled ? plexThemeUrl(themeKey) : '';
+    const src = enabled ? (themeUrl || plexThemeUrl(themeKey)) : '';
 
     useEffect(() => {
         setMuted(false);

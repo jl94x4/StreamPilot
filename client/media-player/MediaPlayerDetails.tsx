@@ -2442,10 +2442,11 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                             <div className="h-full bg-plex" style={{ width: `${progressPercent(playbackItem)}%` }} />
                                         </div>
                                     ) : null}
-                                    {item.themeKey && settings.playThemeTunes ? (
+                                    {(item.themeKey || item.themeUrl) && settings.playThemeTunes ? (
                                         <div className="relative z-10">
                                             <MediaPlayerThemeTune
-                                                themeKey={item.themeKey}
+                                                themeKey={item.themeKey || ''}
+                                                themeUrl={item.themeUrl}
                                                 enabled
                                                 paused={playing || playbackActive || trailerPreviewPlaying}
                                                 playLabel={t('mediaPlayerPage.playTheme')}
