@@ -63,6 +63,7 @@ import {
     PLAYER_PROGRESS_EVENT,
     progressPercent,
     shouldOfferResume,
+    subtitleCodecNeedsBurn,
     watchTargetTouches,
     titleCaseProfile,
     withWatchedProgress,
@@ -173,17 +174,59 @@ const trackCodec = (stream?: PlayerMediaStreamInfo | null) => (
     String(stream?.codec || '').replace(/_/g, '-').toUpperCase()
 );
 
+type TrackChipPrefs = {
+    audioLanguage?: string | null;
+    subtitleMode?: string | null;
+    burnSubtitles?: string | null;
+};
+
 /**
- * Plex-style "what will play" chips: the audio and subtitle tracks Plex has selected,
- * e.g. "English (EAC3 5.1)" and "English (ASS)" / "Off".
+ * Plex-style "what will play" chips, e.g. "English (EAC3 5.1)" and "English (ASS)" / "Off".
+ * They show what pressing the episode will actually play, picked the way playback picks:
+ * the track you chose for this show in the player (saved per show), then the audio
+ * language and subtitle mode settings, then Plex's own selection.
  */
-const episodeTrackChips = (ep?: PlayerItem | null) => {
+const episodeTrackChips = (ep?: PlayerItem | null, prefs: TrackChipPrefs = {}) => {
     const part = ep?.mediaInfo?.[0]?.parts?.[0];
     // Season /children rows carry no streams until the spotlight fetch lands — don't claim "Off".
     if (!part || !(part.audio || []).length) return null;
     const audioRows = part.audio || [];
-    const audio = audioRows.find((row) => row.selected) || audioRows[0] || null;
-    const sub = (part.subtitles || []).find((row) => row.selected) || null;
+    const subRows = part.subtitles || [];
+    const saved = readAvChoice(ep?.grandparentRatingKey || ep?.parentRatingKey, ep?.ratingKey);
+    const resolved = resolveAvChoiceForTracks(
+        saved,
+        audioRows.filter((row) => row.id) as Array<{ id?: string | null; language?: string | null; languageTag?: string | null }>,
+        subRows.filter((row) => row.id) as Array<{ id?: string | null; language?: string | null; languageTag?: string | null }>,
+    );
+    const byId = <T extends { id?: string | null }>(rows: T[], id?: string) => (
+        id ? rows.find((row) => String(row.id || '') === String(id)) || null : null
+    );
+    const lang = String(prefs.audioLanguage || '').toLowerCase().trim();
+    const langBase = lang.split(/[-_]/)[0];
+    const audioByLang = lang
+        ? audioRows.find((row) => {
+            const blob = String(row.languageTag || row.language || '').toLowerCase();
+            return blob === lang || (!!langBase && (blob.startsWith(langBase) || blob.includes(langBase)));
+        }) || null
+        : null;
+    const audio = byId(audioRows, resolved.audioStreamId)
+        || audioByLang
+        || audioRows.find((row) => row.selected)
+        || audioRows[0]
+        || null;
+    let sub: (typeof subRows)[number] | null = null;
+    if (resolved.subtitleStreamId === '0') {
+        sub = null;
+    } else if (resolved.subtitleStreamId) {
+        sub = byId(subRows, resolved.subtitleStreamId);
+    } else {
+        // Same default as starting playback: text tracks by Subtitles mode.
+        const text = subRows.filter((row) => !subtitleCodecNeedsBurn(row.codec, prefs.burnSubtitles || 'auto'));
+        const mode = String(prefs.subtitleMode || 'forced');
+        if (mode === 'off' || !text.length) sub = null;
+        else if (mode === 'forced') sub = text.find((row) => row.forced) || null;
+        else sub = text.find((row) => row.selected) || text[0] || null;
+    }
     const audioDetail = [trackCodec(audio), channelLayoutLabel(audio?.channels)].filter(Boolean).join(' ');
     const audioLabel = audio
         ? [trackLanguage(audio) || 'Unknown', audioDetail ? `(${audioDetail})` : ''].filter(Boolean).join(' ')
@@ -1752,7 +1795,11 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         ? episodeTechPills(hubItem)
         : [];
     const hubTrackChips = isTvShell && (item.type === 'episode' || item.type === 'season')
-        ? episodeTrackChips(hubItem)
+        ? episodeTrackChips(hubItem, {
+            audioLanguage: settings.audioLanguage,
+            subtitleMode: settings.subtitleMode,
+            burnSubtitles: settings.burnSubtitles,
+        })
         : null;
     const hubSpoilerHidden = hideEpisodeSpoilers(settings, hubItem.type === 'episode' ? hubItem : null);
     const hubSummary = hubSpoilerHidden

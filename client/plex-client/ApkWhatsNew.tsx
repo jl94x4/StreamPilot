@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.354': [
+        {
+            title: 'TV',
+            items: [
+                'The audio and subtitle chips on an episode show what will actually play — your choice for the show (e.g. subtitles Off), then your language and subtitle settings',
+            ],
+        },
+    ],
     '1.0.353': [
         {
             title: 'Movies & shows',
