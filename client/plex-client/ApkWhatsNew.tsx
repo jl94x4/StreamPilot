@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.356': [
+        {
+            title: 'Home',
+            items: [
+                'After signing in, choose which servers to use and heart the libraries you want on Home — like the Plex app',
+                'Settings → Home → Libraries on Home: an empty heart keeps that library’s pinned collections and Recently Added off Home (Home still follows what is pinned in Plex)',
+            ],
+        },
+    ],
     '1.0.355': [
         {
             title: 'Multiple servers',

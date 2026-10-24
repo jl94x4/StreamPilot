@@ -1,3 +1,5 @@
+import { homeLibraryPicksEqual, normalizeHomeLibraryPicks, type HomeLibraryPicks } from './homeLibraries';
+
 export type PlayerSubtitleMode = 'off' | 'forced' | 'always';
 
 /** Skip intro/credits marker behavior (Plex-style). */
@@ -404,6 +406,8 @@ export type PlayerSettings = {
     trailerPreview: boolean;
     /** Show rating keys with spoiler hiding on: unwatched episodes get blurred stills, no summary. */
     spoilerShows: string[];
+    /** Home libraries (hearts), `serverId::sectionId` → shown. Empty: not set up yet. */
+    homeLibraries: HomeLibraryPicks;
     /** @deprecated Prefer cinemaTrailerCount. */
     cinemaTrailers: boolean;
     /** How many trailers to play before a movie (0–5). */
@@ -748,6 +752,7 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
     autoQuality: false,
     trailerPreview: false,
     spoilerShows: [],
+    homeLibraries: {},
     cinemaTrailers: false,
     cinemaTrailerCount: 0,
     subtitleSize: 100,
@@ -840,6 +845,7 @@ export const normalizePlayerSettings = (raw: Partial<PlayerSettings> | Record<st
         spoilerShows: Array.isArray(raw?.spoilerShows)
             ? Array.from(new Set((raw.spoilerShows as unknown[]).map((key) => String(key || '').trim()).filter(Boolean))).slice(0, 500)
             : [],
+        homeLibraries: normalizeHomeLibraryPicks(raw?.homeLibraries),
         cinemaTrailers: (() => {
             const count = Number(raw?.cinemaTrailerCount);
             if (Number.isFinite(count)) return count > 0;
@@ -910,6 +916,7 @@ export const playerSettingsEqual = (a: PlayerSettings, b: PlayerSettings) => (
     && a.autoQuality === b.autoQuality
     && a.trailerPreview === b.trailerPreview
     && a.spoilerShows.join('|') === b.spoilerShows.join('|')
+    && homeLibraryPicksEqual(a.homeLibraries, b.homeLibraries)
     && a.cinemaTrailers === b.cinemaTrailers
     && a.cinemaTrailerCount === b.cinemaTrailerCount
     && a.subtitleSize === b.subtitleSize

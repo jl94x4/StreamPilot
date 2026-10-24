@@ -8,6 +8,7 @@ import { apiFetch } from '../shared/api';
 import { PlexHomeSwitchModal, type PlexHomeProfile } from '../shared/PlexHomeSwitchModal';
 import { ApkWhatsNew } from './ApkWhatsNew';
 import { PlexClientAuthScreen, PlexClientBootSplash } from './AuthScreen';
+import { firstRunSetupPending, markFirstRunSetup, PlexClientFirstRunSetup } from './FirstRunSetup';
 import { hydratePlexClientAuthStorage } from './authPersistence';
 import { withBootTimeout } from './bootTimeout';
 import {
@@ -39,6 +40,7 @@ const PlexClientApp: React.FC = () => {
     const [checking, setChecking] = useState(true);
     const [tvReady, setTvReady] = useState(false);
     const [homePickerDone, setHomePickerDone] = useState(false);
+    const [setupPending, setSetupPending] = useState(() => firstRunSetupPending());
     const [homePickerUsers, setHomePickerUsers] = useState<PlexHomeProfile[]>([]);
     const [homePickerCurrentId, setHomePickerCurrentId] = useState<string | null>(null);
     const [homePickerBusy, setHomePickerBusy] = useState(false);
@@ -96,6 +98,11 @@ const PlexClientApp: React.FC = () => {
 
     const onAuthenticated = useCallback(() => {
         ensurePlayerRoute();
+        // Fresh sign-in: choose servers and Home libraries before Home (direct Plex only).
+        if (isPlexDirectMode()) {
+            markFirstRunSetup(true);
+            setSetupPending(true);
+        }
         prefetchMediaPlayerHome();
         // Sign-in already picked (and PIN-checked) the profile. Without this the TV's
         // launch picker opened straight after and asked for the same PIN again.
@@ -214,6 +221,17 @@ const PlexClientApp: React.FC = () => {
 
     if (!homePickerDone) {
         return <PlexClientBootSplash />;
+    }
+
+    if (setupPending) {
+        return (
+            <PlexClientFirstRunSetup
+                onDone={() => {
+                    setSetupPending(false);
+                    prefetchMediaPlayerHome();
+                }}
+            />
+        );
     }
 
     return (

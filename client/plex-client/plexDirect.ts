@@ -8,6 +8,7 @@ import { STORAGE_PLEX_CLIENT_ID, STORAGE_PLEX_HOME_USER, STORAGE_PLEX_OWNER_TOKE
 import { DEFAULT_PLAYER_SETTINGS, type PlayerSettings } from '../media-player/playerSettings';
 import { PLAYER_SERVERS_EVENT } from '../media-player/playerMemory';
 import { PLAYER_HOME_LIVE_EVENT } from '../media-player/paths';
+import { homeHubHiddenByPicks, normalizeHomeLibraryPicks } from '../media-player/homeLibraries';
 import {
     canHttpDirectPlay,
     isBitstreamAudioCodec,
@@ -4044,6 +4045,20 @@ const stampShowLatestAired = async <T extends ReturnType<typeof mapItem>>(
     });
 };
 
+/**
+ * Home libraries (hearts, Settings → Home). Home stays exactly what is pinned on the Plex
+ * server; a library switched off just has its pinned rows (collections, Recently Added)
+ * left out. Not set up: everything Plex pins.
+ */
+const applyHomeLibraryPicks = <T extends { identifier: string; title: string; hubKey?: string | null; serverId?: string | null; items: Array<ReturnType<typeof mapItem>> }>(
+    hubs: T[],
+    server: PlexServer,
+): T[] => {
+    const picks = normalizeHomeLibraryPicks(readPlayerSetting('homeLibraries', {}));
+    if (!Object.keys(picks).length) return hubs;
+    return hubs.filter((hub) => !homeHubHiddenByPicks({ ...hub, serverId: hub.serverId || server.id }, picks));
+};
+
 const loadServerHome = async (server: PlexServer, many: boolean, full = false) => withMapServer(server, async () => {
     const seasonPoster = readHeroConfig().continueWatchingSeasonPoster;
     // Shell list (no includeMeta) is the pin directory and stays small enough to answer.
@@ -4120,6 +4135,7 @@ const loadServerHome = async (server: PlexServer, many: boolean, full = false) =
         hubs = mergeHomeHubs(hubs, recent);
     }
     hubs = uniquifyHubs(hubs);
+    hubs = applyHomeLibraryPicks(hubs, server);
     hubs = applyHeroRowFlags(hubs, server);
     const onDeck = mapList(onDeckData).map((item) => asContinueWatchingItem(item, null, seasonPoster));
     const watchingHubs = hubs.filter((hub) => continueHub(hub));

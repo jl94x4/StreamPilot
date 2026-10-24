@@ -77,6 +77,7 @@ import { applyRememberedProgress, asRecentlyAddedPlayerItem, rememberBillboardBa
 import { usePlayerSettings } from './usePlayerSettings';
 import { peekSurfaceColor, sampleBackdropSurfaceColor } from '../shared/imageFocalPoint';
 import { TV_FLOOR_RGB, tvTintSurfaceRgb } from './tvSurface';
+import { homeHubHiddenByPicks } from './homeLibraries';
 import type { PlayerHome, PlayerItem, PlayerLibraryHub, PlayerPlayOptions, PlayerSection } from './types';
 
 type Props = {
@@ -1115,6 +1116,9 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         const directHome = isPlexDirectMode();
         const filtered = (home?.hubs || []).filter((hub) => {
             if (!hub.items?.length) return false;
+            // Home libraries (hearts): a library switched off loses its rows at once, even
+            // ones the saved Home still holds.
+            if (homeHubHiddenByPicks(hub, settings.homeLibraries)) return false;
             // TV Home shows every pinned row, including playlist pins.
             if (directHome) return true;
             if (isPlaylistHub(hub)) return false;
@@ -1128,7 +1132,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         ));
         // Always regroup by Library order (incl. plex-direct / TV). Pins stay; only stack order changes.
         return applyLibraryNavOrderToHubs(filtered, orderedLibraries, libraryNavOrder);
-    }, [home, libraryNavOrder, mapRecentItem, orderedLibraries, showContinueWatchingRail, settings.showBecauseYouWatched]);
+    }, [home, libraryNavOrder, mapRecentItem, orderedLibraries, showContinueWatchingRail, settings.showBecauseYouWatched, settings.homeLibraries]);
 
     useEffect(() => {
         if (!active || !showWatchlistRail) {

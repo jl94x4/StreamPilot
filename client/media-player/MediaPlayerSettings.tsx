@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom';
 import { ArrowLeft, Check, ChevronDown, ChevronUp, Loader2, Save } from 'lucide-react';
 import { CustomSelect, discoveryTheme, MediaPlayerBetaBanner, SettingsToggleRow, StickySaveBar, useDiscoverI18n } from './host';
+import { HomeLibraryHearts } from './HomeLibraryHearts';
 import { fetchMediaPlayerHomeHeroConfig, fetchMediaPlayerLibraries, fetchMediaPlayerServers, saveMediaPlayerHomeHeroConfig, saveMediaPlayerServers } from './api';
 import { clearHeroSlidesCache, notifyPlayerServersChanged, PLAYER_SERVERS_EVENT } from './playerMemory';
 import {
@@ -1039,6 +1040,17 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                                 : undefined}
                         />
                     ) : null}
+                    <div className="mt-2 flex flex-col gap-2">
+                        <h2 className="text-xs font-black uppercase tracking-widest text-muted">{t('mediaPlayerPage.homeLibraries')}</h2>
+                        <p className="text-sm text-muted">{t('mediaPlayerPage.homeLibrariesHint')}</p>
+                        <HomeLibraryHearts
+                            tv
+                            libraries={libraries}
+                            servers={servers}
+                            picks={settings.homeLibraries}
+                            onChange={(next) => updateSettings({ homeLibraries: next })}
+                        />
+                    </div>
                 </section>
                 ) : null}
 
@@ -1411,6 +1423,16 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                     <p className="mt-1 text-xs text-muted">{t('mediaPlayerPage.homeFollowsPlexHint')}</p>
                 </div>
                 <div className="px-5 py-2 sm:px-6">
+                    <div className="border-b border-border/40 py-4">
+                        <p className="text-sm font-bold text-text">{t('mediaPlayerPage.homeLibraries')}</p>
+                        <p className="mb-3 mt-1 text-xs text-muted">{t('mediaPlayerPage.homeLibrariesHint')}</p>
+                        <HomeLibraryHearts
+                            libraries={libraries}
+                            servers={servers}
+                            picks={settings.homeLibraries}
+                            onChange={(next) => updateSettings({ homeLibraries: next })}
+                        />
+                    </div>
                     <div className="border-b border-border/40 py-4">
                         <div className="mb-3 flex items-start justify-between gap-3">
                             <div>
