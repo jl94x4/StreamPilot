@@ -202,7 +202,8 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
                 (item as { backdropArt?: string | null }).backdropArt || item.art || item.thumb,
             ) || undefined) : undefined}
             className={`player-poster-hold relative touch-manipulation select-none [-webkit-touch-callout:none] [-webkit-user-select:none] [user-select:none]${
-                hideEpisodeSpoilers(settings, item) ? ' player-spoiler-blur' : ''
+                // Only an episode's own still can spoil; posters and hero art never blur.
+                landscapeEpisode && !item.heroCard && hideEpisodeSpoilers(settings, item) ? ' player-spoiler-blur' : ''
             }`}
             onFocusCapture={schedulePrefetch}
             onBlurCapture={cancelPrefetch}
