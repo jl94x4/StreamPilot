@@ -150,7 +150,7 @@ export const PlayerRail: React.FC<{
                 shown = Math.min(goal, shown + 6);
                 setArmedCount((current) => Math.max(current, shown));
                 if (shown < goal) timer = window.setTimeout(step, 90);
-            }, 360);
+            }, 220);
             return () => window.clearTimeout(timer);
         }
         grow();

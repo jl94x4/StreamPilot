@@ -110,6 +110,8 @@ const isBecauseYouWatchedHub = (hub: PlayerLibraryHub) => (
 );
 
 const TV_HOME_ROW_EVENT = 'smp-tv-home-row';
+/** Fastest row change while Up/Down is held (~6–7 rows a second). */
+const TV_ROW_REPEAT_MS = 150;
 
 type TvHomeRow = {
     id: string;
@@ -139,6 +141,9 @@ const itemKeyFromFocusTarget = (target: EventTarget | null) => {
     if (!key || key.startsWith('view-more:')) return '';
     return key;
 };
+
+/** Focus moves closer together than this count as holding the button. */
+const BILLBOARD_HOLD_MS = 240;
 
 const HomeFocusStill: React.FC<{
     enabled: boolean;
@@ -179,23 +184,35 @@ const HomeFocusStill: React.FC<{
 
     const showTimerRef = useRef(0);
     const keyTimerRef = useRef(0);
-    const showSoon = useCallback((next: string) => {
+    const primeTimerRef = useRef(0);
+    const lastMoveRef = useRef(0);
+    /**
+     * Plex-style: a single press updates the billboard at once; while the remote repeats
+     * (moves closer than BILLBOARD_HOLD_MS) it waits until you stop, so holding a button
+     * never queues up artwork swaps, re-renders and fetches behind the focus ring.
+     */
+    const settleDelay = () => {
+        const now = performance.now();
+        const holding = now - lastMoveRef.current < BILLBOARD_HOLD_MS;
+        lastMoveRef.current = now;
+        return holding ? BILLBOARD_HOLD_MS : 0;
+    };
+    const showSoon = useCallback((next: string, delay: number) => {
         window.clearTimeout(showTimerRef.current);
         if (!next) return;
-        // Skip the in-between posters while the remote is repeating.
-        showTimerRef.current = window.setTimeout(() => show(next), 70);
+        showTimerRef.current = window.setTimeout(() => show(next), delay);
     }, [show]);
-    const keySoon = useCallback((key: string) => {
+    const keySoon = useCallback((key: string, delay: number) => {
         window.clearTimeout(keyTimerRef.current);
         if (!key) return;
-        // The focus ring moves immediately. The billboard waits until the
-        // remote pauses so a fast scroll doesn't rebuild Home on every poster.
-        keyTimerRef.current = window.setTimeout(() => onFocusKey?.(key), 90);
+        // The focus ring always moves immediately; only the billboard waits.
+        keyTimerRef.current = window.setTimeout(() => onFocusKey?.(key), delay);
     }, [onFocusKey]);
 
     useEffect(() => () => {
         window.clearTimeout(showTimerRef.current);
         window.clearTimeout(keyTimerRef.current);
+        window.clearTimeout(primeTimerRef.current);
     }, []);
 
     useEffect(() => {
@@ -205,21 +222,28 @@ const HomeFocusStill: React.FC<{
     useEffect(() => {
         if (!enabled) return undefined;
         const onFocus = (event: FocusEvent) => {
-            primeNearbyTvBillboard(event.target, prefetchMediaPlayerItem);
-            const next = backdropFromFocusTarget(event.target);
+            const target = event.target;
+            const delay = settleDelay();
+            // Neighbour prefetch fetches and decodes: also only once you settle.
+            window.clearTimeout(primeTimerRef.current);
+            primeTimerRef.current = window.setTimeout(
+                () => primeNearbyTvBillboard(target, prefetchMediaPlayerItem),
+                delay,
+            );
+            const next = backdropFromFocusTarget(target);
             if (next) {
-                if (isPlayerBackdropReady(next)) show(next);
-                else showSoon(next);
+                if (!delay && isPlayerBackdropReady(next)) show(next);
+                else showSoon(next, delay || 70);
             }
-            const key = itemKeyFromFocusTarget(event.target);
-            if (key) keySoon(key);
+            const key = itemKeyFromFocusTarget(target);
+            if (key) keySoon(key, delay);
         };
         document.addEventListener('focusin', onFocus, true);
         const focused = document.activeElement;
         const fromFocus = backdropFromFocusTarget(focused);
         if (fromFocus) show(fromFocus);
         const fromKey = itemKeyFromFocusTarget(focused);
-        if (fromKey) keySoon(fromKey);
+        if (fromKey) keySoon(fromKey, 0);
         return () => document.removeEventListener('focusin', onFocus, true);
     }, [enabled, keySoon, onFocusKey, show, showSoon]);
 
@@ -376,11 +400,11 @@ const HomeSpot: React.FC<{
         timersRef.current.out = window.setTimeout(() => {
             if (animGenRef.current !== gen) return;
             setOutgoing(null);
-        }, 430);
+        }, 220);
         timersRef.current.enter = window.setTimeout(() => {
             if (animGenRef.current !== gen) return;
             setEntering(false);
-        }, 500);
+        }, 300);
         return undefined;
     }, [rowId]);
 
@@ -1554,10 +1578,16 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
     useEffect(() => {
         // Keep-alive Home must not steal Library Recommended row events.
         if (!tvStage || !active) return undefined;
+        let lastRowMoveAt = 0;
         const onRow = (event: Event) => {
             const dir = (event as CustomEvent<{ dir?: 'up' | 'down' }>).detail?.dir;
             const rows = tvRowsRef.current;
             if (!rows.length || (dir !== 'down' && dir !== 'up')) return;
+            // Holding Up/Down: a steady pace (like Plex) instead of queuing every key repeat
+            // behind re-renders. Extra repeats inside the window are simply dropped.
+            const now = performance.now();
+            if (now - lastRowMoveAt < TV_ROW_REPEAT_MS) return;
+            lastRowMoveAt = now;
             const current = tvRowIndexRef.current;
             const next = dir === 'down'
                 ? Math.min(rows.length - 1, current + 1)

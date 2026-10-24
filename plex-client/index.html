@@ -2087,7 +2087,7 @@
       object-fit: cover;
       object-position: 80% 8%;
       opacity: 0;
-      transition: opacity 0.45s ease;
+      transition: opacity 0.3s ease;
     }
     html[data-tv="1"] .player-home-stage .player-home-focus-still img {
       inset: 0;
@@ -2155,34 +2155,34 @@
       z-index: 1;
     }
     html[data-tv="1"] .player-home-spot.is-exit-up {
-      animation: player-home-spot-exit-up 0.42s ease-out forwards;
+      animation: player-home-spot-exit-up 0.18s ease-out forwards;
     }
     html[data-tv="1"] .player-home-spot.is-exit-down {
-      animation: player-home-spot-exit-down 0.42s ease-out forwards;
+      animation: player-home-spot-exit-down 0.18s ease-out forwards;
     }
     html[data-tv="1"] .player-home-spot.is-enter-up {
-      animation: player-home-spot-enter-up 0.38s ease-out both;
-      animation-delay: 0.1s;
+      animation: player-home-spot-enter-up 0.22s ease-out both;
+      animation-delay: 0.04s;
     }
     html[data-tv="1"] .player-home-spot.is-enter-down {
-      animation: player-home-spot-enter-down 0.38s ease-out both;
-      animation-delay: 0.1s;
+      animation: player-home-spot-enter-down 0.22s ease-out both;
+      animation-delay: 0.04s;
     }
     @keyframes player-home-spot-exit-up {
-      0% { opacity: 1; transform: translate3d(0, 0, 0); }
-      100% { opacity: 0; transform: translate3d(0, -1.35rem, 0); }
+      0% { opacity: 1; }
+      100% { opacity: 0; }
     }
     @keyframes player-home-spot-exit-down {
-      0% { opacity: 1; transform: translate3d(0, 0, 0); }
-      100% { opacity: 0; transform: translate3d(0, 1.35rem, 0); }
+      0% { opacity: 1; }
+      100% { opacity: 0; }
     }
     @keyframes player-home-spot-enter-up {
-      0% { opacity: 0; transform: translate3d(0, -1.1rem, 0); }
-      100% { opacity: 1; transform: translate3d(0, 0, 0); }
+      0% { opacity: 0; }
+      100% { opacity: 1; }
     }
     @keyframes player-home-spot-enter-down {
-      0% { opacity: 0; transform: translate3d(0, 1.1rem, 0); }
-      100% { opacity: 1; transform: translate3d(0, 0, 0); }
+      0% { opacity: 0; }
+      100% { opacity: 1; }
     }
     @media (prefers-reduced-motion: reduce) {
       html[data-tv="1"] .player-home-spot.is-exit-up,
@@ -2451,18 +2451,18 @@
     /* TV Home row change: the row you move to slides in from the side you came from, and
        the peek row below fades up behind it — instead of rows swapping in a single frame. */
     html[data-tv="1"] .player-home-row-enter-down {
-      animation: player-home-row-in-down 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+      animation: player-home-row-in-down 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
     }
     html[data-tv="1"] .player-home-row-enter-up {
-      animation: player-home-row-in-up 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+      animation: player-home-row-in-up 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
     }
     html[data-tv="1"] .player-home-next-row {
-      animation: player-home-row-peek-in 0.35s ease-out both;
+      animation: player-home-row-peek-in 0.22s ease-out both;
     }
     /* Set on key press, before React re-renders, so the move starts immediately. */
     html[data-tv="1"] .player-home-row-leave-down,
     html[data-tv="1"] .player-home-row-leave-up {
-      transition: transform 0.16s ease-in, opacity 0.16s ease-in;
+      transition: transform 0.12s ease-in, opacity 0.12s ease-in;
       opacity: 0.25;
     }
     html[data-tv="1"] .player-home-row-leave-down {
