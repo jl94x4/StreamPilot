@@ -310,7 +310,8 @@ const HomeSpotBody: React.FC<{ item: PlayerItem }> = ({ item }) => {
     const duration = formatPlayerDuration(item.durationMs);
     const rating = String(item.contentRating || '').trim();
     const year = item.type === 'episode' ? '' : (item.year ? String(item.year) : '');
-    const meta = [epLine || null, date || year, duration, rating].filter(Boolean);
+    // Each its own part, so every one gets a separator (S17 E4 · Title · Date · 48m · TV-14).
+    const meta = [epCode, episodeTitle, date || year, duration, rating].filter(Boolean);
     const cast = (item.cast || []).slice(0, 4).map((row) => row.name).filter(Boolean).join(', ');
     return (
         <>
@@ -339,8 +340,11 @@ const HomeSpotBody: React.FC<{ item: PlayerItem }> = ({ item }) => {
                             Watched
                         </span>
                     ) : null}
-                    {meta.map((part) => (
-                        <span key={part} className={dateIsFuture && part === date ? 'text-plex' : undefined}>{part}</span>
+                    {meta.map((part, index) => (
+                        <React.Fragment key={`${index}:${part}`}>
+                            {index > 0 ? <span className="player-home-spot-meta-sep" aria-hidden="true">·</span> : null}
+                            <span className={dateIsFuture && part === date ? 'text-plex' : undefined}>{part}</span>
+                        </React.Fragment>
                     ))}
                 </p>
             ) : null}
