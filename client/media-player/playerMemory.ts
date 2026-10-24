@@ -760,15 +760,20 @@ export const playerHomeNeedsFull = (data: PlayerHome | null | undefined) => (
     ))
 );
 
+/**
+ * Continue Watching from a newer answer, in the order already on screen. The newer list
+ * decides what is in it: keeping shown-only cards brought back titles Plex had dropped
+ * (finished) with whatever progress they had when that older list was fetched.
+ */
 const mergePlayerItemsPreserveOrder = <T extends { ratingKey?: string | number | null }>(
     shown: T[] | null | undefined,
     incoming: T[] | null | undefined,
 ): T[] => {
     const shownItems = Array.isArray(shown) ? shown : [];
     const incomingItems = Array.isArray(incoming) ? incoming : [];
-    if (!shownItems.length) return incomingItems.slice();
+    if (!shownItems.length || !incomingItems.length) return incomingItems.length ? incomingItems.slice() : shownItems.slice();
     const byKey = new Map<string, T>();
-    for (const item of incomingItems.concat(shownItems)) {
+    for (const item of incomingItems) {
         const key = String(item?.ratingKey || '').trim();
         if (key && !byKey.has(key)) byKey.set(key, item);
     }
@@ -776,11 +781,9 @@ const mergePlayerItemsPreserveOrder = <T extends { ratingKey?: string | number |
     const items: T[] = [];
     for (const item of shownItems) {
         const key = String(item?.ratingKey || '').trim();
-        const next = (key && byKey.get(key)) || item;
-        if (key) {
-            if (seen.has(key)) continue;
-            seen.add(key);
-        }
+        const next = key ? byKey.get(key) : undefined;
+        if (!next || seen.has(key)) continue;
+        seen.add(key);
         items.push(next);
     }
     for (const item of incomingItems) {
@@ -858,7 +861,89 @@ const homeContinueItems = (data: PlayerHome | null | undefined): PlayerItem[] =>
  * Keep the last good Continue Watching (and missing content hubs) from cache
  * so TV Home does not drop CW or flash a false "saved library" banner.
  */
+const PLAYER_FINISHED_KEY = 'portal-media-player-finished';
+const FINISHED_KEEP_MS = 24 * 60 * 60 * 1000;
+let finishedPlayback: Map<string, number> | null = null;
+
+const finishedMap = () => {
+    if (finishedPlayback) return finishedPlayback;
+    finishedPlayback = new Map();
+    try {
+        const raw = window.localStorage.getItem(PLAYER_FINISHED_KEY);
+        const parsed = raw ? JSON.parse(raw) : null;
+        const now = Date.now();
+        if (parsed && typeof parsed === 'object') {
+            for (const [key, at] of Object.entries(parsed)) {
+                if (typeof at === 'number' && now - at < FINISHED_KEEP_MS) finishedPlayback.set(key, at);
+            }
+        }
+    } catch { /* storage unavailable */ }
+    return finishedPlayback;
+};
+
+/**
+ * A title was just watched to the end (or marked watched). A Home answer fetched
+ * before that — during playback, or the saved copy — must not bring it back.
+ */
+export const noteFinishedPlayback = (ratingKey?: string | null) => {
+    const key = String(ratingKey || '').trim();
+    if (!key || typeof window === 'undefined') return;
+    const map = finishedMap();
+    map.set(key, Date.now());
+    const now = Date.now();
+    for (const [k, at] of map) if (now - at >= FINISHED_KEEP_MS) map.delete(k);
+    try {
+        window.localStorage.setItem(PLAYER_FINISHED_KEY, JSON.stringify(Object.fromEntries(map)));
+    } catch { /* storage unavailable */ }
+};
+
+/** Started again after it was finished (Plex saw it later), or never finished: keep it. */
+const continueCardIsCurrent = (row: PlayerItem) => {
+    const at = finishedMap().get(String(row?.ratingKey || ''));
+    if (!at) return true;
+    const viewed = Number(row?.lastViewedAt) || 0;
+    const viewedMs = viewed > 1e12 ? viewed : viewed * 1000;
+    return viewedMs > at + 60_000;
+};
+
+const withoutFinishedContinue = (data: PlayerHome | null): PlayerHome | null => {
+    if (!data || typeof window === 'undefined' || !finishedMap().size) return data;
+    const keep = (list: PlayerItem[] | null | undefined) => (list || []).filter(continueCardIsCurrent);
+    return {
+        ...data,
+        continueWatching: keep(data.continueWatching),
+        hubs: (data.hubs || []).map((hub) => (isContinueHomeHub(hub) ? { ...hub, items: keep(hub.items) } : hub)),
+    };
+};
+
+/** Live Continue Watching wins over any row the cache merges carried in. */
+const withLiveContinue = (next: PlayerHome, live: PlayerHome): PlayerHome => {
+    const liveCwHub = (live.hubs || []).find((hub) => isContinueHomeHub(hub));
+    const liveCw = homeContinueItems(live);
+    if (!liveCw.length) return next;
+    return {
+        ...next,
+        continueWatching: Array.isArray(live.continueWatching) && live.continueWatching.length
+            ? live.continueWatching
+            : liveCw,
+        hubs: (next.hubs || []).map((hub) => (
+            isContinueHomeHub(hub) ? { ...hub, items: liveCwHub?.items?.length ? liveCwHub.items : liveCw } : hub
+        )),
+    };
+};
+
 export const coalescePlayerHomeWithCache = (
+    live: PlayerHome | null | undefined,
+    cached: PlayerHome | null | undefined,
+): PlayerHome | null => {
+    const next = coalescePlayerHomeRows(live, cached);
+    if (next && live && next !== live && playerHomeHasRows(live)) {
+        return withoutFinishedContinue(withLiveContinue(next, live));
+    }
+    return withoutFinishedContinue(next);
+};
+
+const coalescePlayerHomeRows = (
     live: PlayerHome | null | undefined,
     cached: PlayerHome | null | undefined,
 ): PlayerHome | null => {

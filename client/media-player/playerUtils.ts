@@ -5,7 +5,7 @@ import {
     isPosterUrlWarm,
     warmPosterUrl,
 } from '../shared/posterWarmCache';
-import { notePlayerItemProgress } from './playerMemory';
+import { noteFinishedPlayback, notePlayerItemProgress } from './playerMemory';
 import { PLAYER_API_ROOT, PLAYER_IMAGE_PATH } from './paths';
 import { PLAYER_SETTINGS_EVENT, readPlayerSettings, sortContinueWatchingItems, type PlayerContinueWatchingLayout, type PlayerContinueWatchingSort, type PlayerDateFormat } from './playerSettings';
 import type { PlayerItem } from './types';
@@ -902,6 +902,7 @@ export const rememberPlaybackProgress = (
         item: item ? { ...item, viewOffsetMs: finished ? 0 : offset, durationMs: duration || item.durationMs, watched: finished ? true : item.watched } : undefined,
     };
     savedPlaybackProgress.set(ratingKey, saved);
+    if (finished) noteFinishedPlayback(ratingKey);
     noteFamilyLastViewed(item);
     if (next) noteFamilyLastViewed(next);
     notePlayerItemProgress(ratingKey, saved.viewOffsetMs, saved.durationMs, saved.watched);
@@ -939,6 +940,7 @@ export const noteItemWatched = (
         watched,
     };
     savedPlaybackProgress.set(key, saved);
+    if (watched) noteFinishedPlayback(key);
     clearedWatchParents.set(key, { watched, at: saved.at });
     if (continueWith) noteFamilyLastViewed(continueWith, saved.at);
     if (restoreContinue) noteFamilyLastViewed(restoreContinue, saved.at);
