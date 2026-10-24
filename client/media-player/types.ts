@@ -134,6 +134,8 @@ export type PlayerItem = {
     /** Plex user rating 1–10 (UI shows 5 stars). */
     userRating?: number | null;
     originallyAvailableAt?: string | null;
+    /** Continue Watching (direct): air date (ms) of the show's newest episode, for Latest released. */
+    showLatestAiredAt?: number | null;
     tmdbId?: number | null;
     showTmdbId?: number | null;
     /** Plex Studio / Network / Label tags (search/filters). */

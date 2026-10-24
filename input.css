@@ -3199,7 +3199,9 @@ html[data-tv="1"] .player-home-spot-meta {
   margin: 0;
   flex-shrink: 0;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  min-width: 0;
+  white-space: nowrap;
   align-items: center;
   gap: 0.5rem;
   font-size: 0.88rem;
@@ -3209,6 +3211,16 @@ html[data-tv="1"] .player-home-spot-meta {
 html[data-tv="1"] .player-home-spot-meta-sep {
   color: rgba(255, 255, 255, 0.45);
   font-weight: 700;
+}
+/* One line: date, length and rating stay whole; a long episode title gives way (…). */
+html[data-tv="1"] .player-home-spot-meta > span {
+  flex-shrink: 0;
+}
+html[data-tv="1"] .player-home-spot-meta > .player-home-spot-meta-title {
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 html[data-tv="1"] .player-home-spot-watched {
   display: inline-flex;

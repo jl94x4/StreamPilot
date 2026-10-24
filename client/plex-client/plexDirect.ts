@@ -3950,6 +3950,100 @@ export const startPlexLiveUpdates = () => {
 };
 const HOME_PIN_CACHE_MS = 3 * 60_000;
 
+/**
+ * Newest aired episode per show, for Continue Watching "Latest released": a show that
+ * just aired something (a special, say) ranks by that even while its card is an older
+ * episode you are part-way through. Seasons list + the last few episodes of the newest
+ * season and of Specials — no full episode list on a TV stick.
+ */
+const showLatestAiredCache = new Map<string, { at: number; ms: number }>();
+const SHOW_LATEST_AIRED_TTL_MS = 30 * 60_000;
+const showLatestAiredInflight = new Map<string, Promise<number>>();
+
+const airedMs = (value: unknown) => {
+    const ms = Date.parse(String(value || ''));
+    return Number.isFinite(ms) ? ms : 0;
+};
+
+const fetchShowLatestAiredMs = (showKey: string, server: PlexServer): Promise<number> => {
+    const cacheKey = `${server.id}:${showKey}`;
+    const running = showLatestAiredInflight.get(cacheKey);
+    if (running) return running;
+    const work = (async () => {
+        const seasons = asList<PlexMeta>(containerOf(
+            await pms(`/library/metadata/${showKey}/children?excludeAllLeaves=1`, server, 8000),
+        ).Metadata);
+        const regular = seasons
+            .filter((season) => Number(season.index) > 0)
+            .sort((a, b) => Number(b.index) - Number(a.index))[0];
+        const specials = seasons.find((season) => Number(season.index) === 0);
+        // Allow a day of clock / time-zone slack; later dates are placeholders, not releases.
+        const latestAllowed = Date.now() + 36 * 60 * 60 * 1000;
+        const tail = async (season?: PlexMeta) => {
+            const key = String(season?.ratingKey || '').replace(/\D/g, '');
+            if (!key) return 0;
+            const count = Number(season?.leafCount) || 0;
+            const size = 4;
+            const start = Math.max(0, count - size);
+            const data = await pms(
+                `/library/metadata/${key}/children?X-Plex-Container-Start=${start}&X-Plex-Container-Size=${size}`,
+                server,
+                8000,
+            ).catch(() => null);
+            return asList<PlexMeta>(containerOf(data).Metadata).reduce((best, ep) => {
+                const ms = airedMs(ep.originallyAvailableAt);
+                return ms && ms <= latestAllowed && ms > best ? ms : best;
+            }, 0);
+        };
+        const [a, b] = await Promise.all([tail(regular), tail(specials)]);
+        return Math.max(a, b);
+    })()
+        .then((ms) => {
+            showLatestAiredCache.set(cacheKey, { at: Date.now(), ms });
+            return ms;
+        })
+        .catch(() => 0)
+        .finally(() => showLatestAiredInflight.delete(cacheKey));
+    showLatestAiredInflight.set(cacheKey, work);
+    return work;
+};
+
+/**
+ * Stamp `showLatestAiredAt` on Continue Watching episodes. Fast pass: cached values only
+ * (and warm the rest); full pass waits for them.
+ */
+const stampShowLatestAired = async <T extends ReturnType<typeof mapItem>>(
+    items: T[],
+    server: PlexServer,
+    wait: boolean,
+): Promise<T[]> => {
+    if (String(readPlayerSetting('continueWatchingSort', 'releaseDate')) !== 'releaseDate') return items;
+    const showOf = (item: T) => String(
+        item.type === 'episode' ? item.grandparentRatingKey || '' : (item.type === 'season' ? item.parentRatingKey || '' : ''),
+    ).replace(/\D/g, '');
+    const shows = [...new Set(items.map(showOf).filter(Boolean))].slice(0, 24);
+    if (!shows.length) return items;
+    const now = Date.now();
+    const known = new Map<string, number>();
+    const missing: string[] = [];
+    for (const show of shows) {
+        const hit = showLatestAiredCache.get(`${server.id}:${show}`);
+        if (hit && now - hit.at < SHOW_LATEST_AIRED_TTL_MS) known.set(show, hit.ms);
+        else missing.push(show);
+    }
+    if (missing.length) {
+        const fetching = Promise.all(missing.map(async (show) => {
+            known.set(show, await fetchShowLatestAiredMs(show, server));
+        }));
+        if (wait) await fetching;
+        else void fetching;
+    }
+    return items.map((item) => {
+        const ms = known.get(showOf(item)) || 0;
+        return ms ? { ...item, showLatestAiredAt: ms } : item;
+    });
+};
+
 const loadServerHome = async (server: PlexServer, many: boolean, full = false) => withMapServer(server, async () => {
     const seasonPoster = readHeroConfig().continueWatchingSeasonPoster;
     // Shell list (no includeMeta) is the pin directory and stays small enough to answer.
@@ -4053,7 +4147,7 @@ const loadServerHome = async (server: PlexServer, many: boolean, full = false) =
         seenWatching.add(key);
         return true;
     });
-    const merged = watchingList;
+    const merged = await stampShowLatestAired(watchingList, server, full);
     // Always keep On Deck. /hubs/promoted often has only collection rails (no continue
     // hub); the old ternary then discarded onDeck whenever any other hub had items,
     // which hid Continue Watching entirely on Android TV / direct home.

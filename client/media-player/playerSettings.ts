@@ -164,6 +164,19 @@ const continueWatchingReleaseMs = (item: {
     year?: number | string | null;
     addedAt?: number | null;
     type?: string | null;
+    showLatestAiredAt?: number | null;
+} | null | undefined): number => {
+    // A show ranks by its newest episode, not the older one its card may be on.
+    const own = continueWatchingOwnReleaseMs(item);
+    const show = Number(item?.showLatestAiredAt) || 0;
+    return show > own ? show : own;
+};
+
+const continueWatchingOwnReleaseMs = (item: {
+    originallyAvailableAt?: string | number | null;
+    year?: number | string | null;
+    addedAt?: number | null;
+    type?: string | null;
 } | null | undefined): number => {
     const raw = item?.originallyAvailableAt;
     if (raw != null && raw !== '') {
@@ -189,6 +202,7 @@ const continueWatchingTitleKey = (item: { showTitle?: string | null; title?: str
 
 type ContinueWatchingSortable = {
     originallyAvailableAt?: string | number | null;
+    showLatestAiredAt?: number | null;
     year?: number | string | null;
     addedAt?: number | null;
     lastViewedAt?: number | null;

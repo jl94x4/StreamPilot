@@ -235,7 +235,13 @@ export const PlayerTvSpot: React.FC<{ item: PlayerItem | null }> = ({ item }) =>
                         {meta.map((part, index) => (
                             <React.Fragment key={`${index}:${part}`}>
                                 {index > 0 ? <span className="player-home-spot-meta-sep" aria-hidden="true">·</span> : null}
-                                <span className={dateIsFuture && part === date ? 'text-plex' : undefined}>{part}</span>
+                                <span
+                                className={part === episodeTitle
+                                    ? 'player-home-spot-meta-title'
+                                    : (dateIsFuture && part === date ? 'text-plex' : undefined)}
+                            >
+                                {part}
+                            </span>
                             </React.Fragment>
                         ))}
                     </p>

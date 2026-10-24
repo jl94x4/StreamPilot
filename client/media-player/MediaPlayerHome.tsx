@@ -343,7 +343,13 @@ const HomeSpotBody: React.FC<{ item: PlayerItem }> = ({ item }) => {
                     {meta.map((part, index) => (
                         <React.Fragment key={`${index}:${part}`}>
                             {index > 0 ? <span className="player-home-spot-meta-sep" aria-hidden="true">·</span> : null}
-                            <span className={dateIsFuture && part === date ? 'text-plex' : undefined}>{part}</span>
+                            <span
+                            className={part === episodeTitle
+                                ? 'player-home-spot-meta-title'
+                                : (dateIsFuture && part === date ? 'text-plex' : undefined)}
+                        >
+                            {part}
+                        </span>
                         </React.Fragment>
                     ))}
                 </p>
@@ -1068,10 +1074,21 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
     }, [active, home, showContinueWatchingRail]);
     const cwOrderKeysRef = useRef<string[]>([]);
     const cwOrderSortRef = useRef(settings.continueWatchingSort);
+    const cwShowAiredRef = useRef('');
     const freezeContinueWatching = useCallback((items: PlayerItem[]) => {
         if (cwOrderSortRef.current !== settings.continueWatchingSort) {
             cwOrderKeysRef.current = [];
             cwOrderSortRef.current = settings.continueWatchingSort;
+        }
+        // Each show's newest-episode date lands with the full Home pass, after the first
+        // paint froze the order. Re-rank once when those dates arrive or change.
+        const aired = items
+            .map((row) => (row.showLatestAiredAt ? `${row.ratingKey}:${row.showLatestAiredAt}` : ''))
+            .filter(Boolean)
+            .join(',');
+        if (aired && aired !== cwShowAiredRef.current) {
+            cwShowAiredRef.current = aired;
+            cwOrderKeysRef.current = [];
         }
         const next = stabilizeContinueWatchingOrder(
             items.map(stampFamilyLastViewed),
