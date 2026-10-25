@@ -162,6 +162,7 @@ public class PlayerActivity extends AppCompatActivity {
     private boolean watchCreditsChosen;
     private TextView statsView;
     private TextView modeChipView;
+    private TextView resolutionChipView;
     private boolean statsVisible;
     private TextView clockView;
     private String lastClockLabel = "";
@@ -932,6 +933,7 @@ public class PlayerActivity extends AppCompatActivity {
         errorView = findViewById(R.id.player_error);
         titleView = findViewById(R.id.player_title);
         modeChipView = findViewById(R.id.player_mode_chip);
+        resolutionChipView = findViewById(R.id.player_resolution_chip);
         statsView = findViewById(R.id.player_stats);
         clockView = findViewById(R.id.player_clock);
         updateWallClock();
@@ -989,13 +991,13 @@ public class PlayerActivity extends AppCompatActivity {
         chaptersBtn = findViewById(R.id.player_chapters);
         pipBtn = findViewById(R.id.player_pip);
         seekPreview = findViewById(R.id.player_seek_preview);
+        // Top-left title / episode line and the delivery + resolution badges: the app's clock
+        // face (medium Switzer), as on the TV Home and title pages.
+        applyAssetTypeface("fonts/switzer_medium.ttf", titleView, metaView, modeChipView, resolutionChipView);
         applySatoshiTypeface(
-            titleView,
-            metaView,
             timeView,
             remainingView,
             endsAtView,
-            modeChipView,
             seekFlashView,
             clockView,
             menuTitle,
@@ -1033,9 +1035,13 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void applySatoshiTypeface(TextView... views) {
+        applyAssetTypeface("fonts/satoshi_bold.ttf", views);
+    }
+
+    private void applyAssetTypeface(String assetPath, TextView... views) {
         Typeface face;
         try {
-            face = Typeface.createFromAsset(getAssets(), "fonts/satoshi_bold.ttf");
+            face = Typeface.createFromAsset(getAssets(), assetPath);
         } catch (RuntimeException ignored) {
             return;
         }
@@ -1240,6 +1246,11 @@ public class PlayerActivity extends AppCompatActivity {
                 if (isPlaying) armPlayThenSeek();
                 updatePlayPauseLabel();
                 emitProgress(isPlaying ? "playing" : "paused");
+            }
+
+            @Override
+            public void onVideoSizeChanged(VideoSize videoSize) {
+                updateResolutionChip();
             }
 
             @Override
@@ -4408,6 +4419,40 @@ public class PlayerActivity extends AppCompatActivity {
         modeChipView.setText(label);
         modeChipView.setVisibility(View.VISIBLE);
         modeChipView.setContentDescription(quality.isEmpty() ? label : (label + " · " + quality));
+        updateResolutionChip();
+    }
+
+    /** Badge beside the delivery mode: resolution of the video actually playing (4K, 1080p, …). */
+    private void updateResolutionChip() {
+        if (resolutionChipView == null) return;
+        String label = musicMode || player == null ? "" : resolutionLabel(player.getVideoSize());
+        boolean modeShown = modeChipView != null && modeChipView.getVisibility() == View.VISIBLE;
+        if (label.isEmpty()) {
+            resolutionChipView.setVisibility(View.GONE);
+            return;
+        }
+        resolutionChipView.setText(label);
+        resolutionChipView.setVisibility(View.VISIBLE);
+        // No gap to the left when it is the only badge.
+        ViewGroup.LayoutParams params = resolutionChipView.getLayoutParams();
+        if (params instanceof ViewGroup.MarginLayoutParams) {
+            int start = modeShown ? Math.round(8 * getResources().getDisplayMetrics().density) : 0;
+            ((ViewGroup.MarginLayoutParams) params).setMarginStart(start);
+            resolutionChipView.setLayoutParams(params);
+        }
+    }
+
+    /** Wide frames (1920x800 scope) go by width, 4:3 HD (1440x1080) by height. */
+    static String resolutionLabel(@Nullable VideoSize size) {
+        if (size == null || size.width <= 0 || size.height <= 0) return "";
+        int w = size.width;
+        int h = size.height;
+        if (w >= 3200 || h >= 1800) return "4K";
+        if (w >= 2200 || h >= 1300) return "1440p";
+        if (w >= 1700 || h >= 900) return "1080p";
+        if (w >= 1100 || h >= 650) return "720p";
+        if (h >= 540) return "576p";
+        return "SD";
     }
 
     @Nullable

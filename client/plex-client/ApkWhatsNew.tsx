@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.384': [
+        {
+            title: 'Player',
+            items: [
+                'A resolution badge (4K, 1080p, 720p…) sits next to Direct Play, showing what is actually playing; both badges are centred at the bottom',
+                'The title and episode line in the top left use the same font as the clock on Home',
+            ],
+        },
+    ],
     '1.0.383': [
         {
             title: 'Look',
