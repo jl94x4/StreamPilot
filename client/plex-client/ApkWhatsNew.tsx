@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.391': [
+        {
+            title: 'Player',
+            items: [
+                'The selected play and settings buttons are no longer cut off at the edges when they grow',
+            ],
+        },
+    ],
     '1.0.390': [
         {
             title: 'Player',
