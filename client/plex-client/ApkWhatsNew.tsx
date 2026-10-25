@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.395': [
+        {
+            title: 'Playback',
+            items: [
+                'The "Select version" box matches the new Resume box: the title’s artwork and logo, and one row per file showing its resolution, video / HDR / audio formats and bitrate',
+            ],
+        },
+    ],
     '1.0.394': [
         {
             title: 'Playback',

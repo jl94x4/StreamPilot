@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, Bookmark, BookmarkCheck, Calendar, Captions, Check, ChevronDown, Clock, Eye, EyeOff, Film, Info, ListPlus, Loader2, Play, RotateCcw, Shuffle, SkipForward, Star, Users, Volume2 } from 'lucide-react';
+import { ArrowLeft, Bookmark, BookmarkCheck, Calendar, Captions, Check, ChevronDown, Clock, Eye, EyeOff, Film, Info, ListPlus, Loader2, Play, RotateCcw, Shuffle, SkipForward, Star, Users, Volume2, X } from 'lucide-react';
 import { isWatchTogetherAvailable } from './watchTogetherClient';
 import {
     Carousel,
@@ -1243,6 +1243,18 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         const resolution = row.resolution || formatPlayerResolution(row.height || media?.height, media?.videoResolution);
         const bitrate = formatBitrateMbps(row.bitrate || media?.bitrate);
         return [resolution, bitrate].filter(Boolean).join(' · ') || row.label;
+    };
+    /** Version picker row: resolution tile, codec / HDR / audio line, bitrate. */
+    const versionChoiceParts = (row: PlayerVersion) => {
+        const source = onDeck || item;
+        const media = (source?.mediaInfo || [])[row.mediaIndex];
+        const resolution = row.resolution || formatPlayerResolution(row.height || media?.height, media?.videoResolution) || row.label;
+        const hdr = detectPlayerHdrLabel({ mediaInfo: source?.mediaInfo, mediaIndex: row.mediaIndex });
+        const codec = (value?: string | null) => String(value || '').trim().toUpperCase();
+        const detail = [codec(row.videoCodec || media?.videoCodec), hdr, codec(row.audioCodec || media?.audioCodec), codec(row.container || media?.container)]
+            .filter(Boolean)
+            .join(' · ');
+        return { resolution, detail, bitrate: formatBitrateMbps(row.bitrate || media?.bitrate) };
     };
     const tvHubPlayTarget = (): PlayerItem => {
         let target = (playTarget || item) as PlayerItem;
@@ -3504,37 +3516,58 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             ) : null}
             {versionPickerOpen && typeof document !== 'undefined' ? createPortal(
                 <div
-                    className="fixed inset-0 z-[3600] flex items-center justify-center bg-black/85 p-4"
+                    className={`smp-resume smp-version-dialog${isTvShell ? ' is-tv' : ''}`}
                     role="dialog"
                     aria-modal="true"
+                    aria-labelledby="player-version-title"
                     data-tv-version-dialog="1"
                 >
-                    <div className="player-version-sheet player-popup-surface w-full max-w-md rounded-2xl border border-white/10 p-5 shadow-2xl">
-                        <p className="text-xs font-black uppercase tracking-widest text-muted">{t('mediaPlayerPage.selectVersion')}</p>
-                        <h2 className="mt-2 text-lg font-bold text-text">{item.title}</h2>
-                        <div className="mt-5 flex flex-col gap-3 py-1" data-tv-rail="1">
-                            {versionChoices.map((row, index) => (
+                    <div className="smp-resume-scrim" aria-hidden onClick={() => setVersionPickerOpen(false)} />
+                    {/* Same small billboard as the Resume prompt: art, logo, then one row per file. */}
+                    <div className="smp-resume-card player-resume-dialog-enter">
+                        {backdropUrl ? <img className="smp-resume-art" src={backdropUrl} alt="" aria-hidden /> : null}
+                        <div className="smp-resume-fade" aria-hidden />
+                        <div className="smp-resume-body smp-version-body">
+                            <p className="smp-resume-eyebrow">{t('mediaPlayerPage.selectVersion')}</p>
+                            {logoUrl && !logoFailed ? (
+                                <img className="smp-resume-logo" src={logoUrl} alt={item.title || ''} />
+                            ) : null}
+                            <h2 id="player-version-title" className={logoUrl && !logoFailed ? 'sr-only' : 'smp-resume-title'}>
+                                {item.title}
+                            </h2>
+                            <div className="smp-version-list" data-tv-rail="1">
+                                {versionChoices.map((row, index) => {
+                                    const parts = versionChoiceParts(row);
+                                    return (
+                                        <button
+                                            key={row.id || row.mediaIndex}
+                                            type="button"
+                                            data-tv-item="1"
+                                            data-tv-action="1"
+                                            data-tv-version-primary={index === 0 ? '1' : undefined}
+                                            onClick={() => startPlay(row.mediaIndex)}
+                                            className="smp-version-row"
+                                            aria-label={versionChoiceLabel(row)}
+                                        >
+                                            <span className="smp-version-res">{parts.resolution}</span>
+                                            <span className="smp-version-detail">{parts.detail || row.label}</span>
+                                            {parts.bitrate ? <span className="smp-version-rate">{parts.bitrate}</span> : null}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            <div className="smp-resume-actions">
                                 <button
-                                    key={row.id || row.mediaIndex}
                                     type="button"
                                     data-tv-item="1"
                                     data-tv-action="1"
-                                    data-tv-version-primary={index === 0 ? '1' : undefined}
-                                    onClick={() => startPlay(row.mediaIndex)}
-                                    className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-left text-sm font-bold text-text outline-none hover:border-plex/40 hover:bg-white/10"
+                                    onClick={() => setVersionPickerOpen(false)}
+                                    className="smp-resume-btn"
                                 >
-                                    {versionChoiceLabel(row)}
+                                    <X className="h-[18px] w-[18px] shrink-0" />
+                                    {t('common.close')}
                                 </button>
-                            ))}
-                            <button
-                                type="button"
-                                data-tv-item="1"
-                                data-tv-action="1"
-                                onClick={() => setVersionPickerOpen(false)}
-                                className="rounded-xl px-4 py-2.5 text-sm font-bold text-muted hover:text-text outline-none"
-                            >
-                                {t('common.close')}
-                            </button>
+                            </div>
                         </div>
                     </div>
                 </div>,

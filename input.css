@@ -1597,6 +1597,88 @@ html[data-tv="1"] .smp-resume .smp-resume-btn:focus-visible {
   box-shadow: 0 0 0 3px #e5a00d, 0 10px 26px rgba(0, 0, 0, 0.45) !important;
   transform: scale(1.05);
 }
+/* Version picker: the Resume card with one row per file. */
+.smp-version-body {
+  max-width: 32rem;
+}
+.smp-resume.is-tv .smp-version-body {
+  max-width: 36rem;
+}
+.smp-version-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  width: 100%;
+  margin-top: 1rem;
+}
+.smp-version-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  width: 100%;
+  min-height: 3.6rem;
+  padding: 0.55rem 1.1rem 0.55rem 0.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 1rem;
+  background: rgba(8, 11, 17, 0.55);
+  color: #fff;
+  font-family: "Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-weight: 500;
+  text-align: left;
+  outline: none;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+.smp-version-row:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+.smp-version-res {
+  flex: 0 0 auto;
+  min-width: 4.4rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 0.7rem;
+  background: rgba(229, 160, 13, 0.16);
+  color: #e5a00d;
+  font-size: 1.05rem;
+  font-weight: 700;
+  text-align: center;
+}
+.smp-version-detail {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 0.95rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.smp-version-rate {
+  flex: 0 0 auto;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.92rem;
+  font-variant-numeric: tabular-nums;
+}
+.smp-version-row:focus-visible,
+html[data-tv="1"] .smp-resume .smp-version-row:focus,
+html[data-tv="1"] .smp-resume .smp-version-row:focus-visible {
+  border-color: transparent !important;
+  background: #fff !important;
+  color: #0b0b0d !important;
+  outline: none !important;
+  box-shadow: 0 0 0 3px #e5a00d, 0 10px 26px rgba(0, 0, 0, 0.45) !important;
+  transform: scale(1.02);
+}
+.smp-version-row:focus-visible .smp-version-detail,
+.smp-version-row:focus-visible .smp-version-rate,
+html[data-tv="1"] .smp-resume .smp-version-row:focus .smp-version-detail,
+html[data-tv="1"] .smp-resume .smp-version-row:focus .smp-version-rate {
+  color: rgba(11, 11, 13, 0.75);
+}
+html[data-tv="1"] .smp-resume .smp-version-row:focus .smp-version-res,
+.smp-version-row:focus-visible .smp-version-res {
+  background: #0b0b0d;
+  color: #e5a00d;
+}
 @media (max-width: 640px) {
   .smp-resume-art { width: 100%; opacity: 0.45; }
   .smp-resume-body { max-width: none; padding: 1.6rem 1.4rem 1.5rem; }
