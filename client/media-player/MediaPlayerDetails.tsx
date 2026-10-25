@@ -3390,9 +3390,9 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                 >
                                     <CastAvatar name={actor.name} thumb={actor.thumb} />
                                     <div className="w-full px-1">
-                                        <div className="text-sm font-bold text-text leading-tight line-clamp-2 group-hover:text-plex">{actor.name}</div>
+                                        <div className="player-cast-name text-sm font-bold text-text leading-tight line-clamp-2 group-hover:text-plex">{actor.name}</div>
                                         {actor.role ? (
-                                            <div className="text-xs text-muted mt-1 leading-snug line-clamp-2">{actor.role}</div>
+                                            <div className="player-cast-role text-xs text-muted mt-1 leading-snug line-clamp-2">{actor.role}</div>
                                         ) : null}
                                     </div>
                                 </button>
@@ -3420,9 +3420,9 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                 >
                                     <CastAvatar name={actor.name} thumb={actor.thumb} />
                                     <div className="w-full px-1">
-                                        <div className="text-sm font-bold text-text leading-tight line-clamp-2 group-hover:text-plex">{actor.name}</div>
+                                        <div className="player-cast-name text-sm font-bold text-text leading-tight line-clamp-2 group-hover:text-plex">{actor.name}</div>
                                         {actor.role ? (
-                                            <div className="text-xs text-muted mt-1 leading-snug line-clamp-2">{actor.role}</div>
+                                            <div className="player-cast-role text-xs text-muted mt-1 leading-snug line-clamp-2">{actor.role}</div>
                                         ) : null}
                                     </div>
                                 </button>
