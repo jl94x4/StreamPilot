@@ -6,7 +6,7 @@ import { prefetchMediaPlayerHome } from '../media-player/api';
 import { PLAYER_APP_BASE, PLAYER_LOGOUT_EVENT } from '../media-player/paths';
 import { apiFetch } from '../shared/api';
 import { PlexHomeSwitchModal, type PlexHomeProfile } from '../shared/PlexHomeSwitchModal';
-import { ApkWhatsNew } from './ApkWhatsNew';
+import { lazyScreen } from '../media-player/lazyScreen';
 import { PlexClientAuthScreen, PlexClientBootSplash } from './AuthScreen';
 import { firstRunSetupPending, markFirstRunSetup, PlexClientFirstRunSetup } from './FirstRunSetup';
 import { hydratePlexClientAuthStorage } from './authPersistence';
@@ -22,6 +22,9 @@ import {
 import { installMediaDownloadsBridge } from './mediaDownloads';
 import { installNativeMediaPlayerBridge } from './nativePlayer';
 import { useTvRemote } from './useTvRemote';
+
+// Its notes are ~45KB; it decides to show after start-up, so it loads alongside, not before.
+const ApkWhatsNew = lazyScreen(() => import('./ApkWhatsNew').then((m) => m.ApkWhatsNew));
 
 const ensurePlayerRoute = () => {
     try {

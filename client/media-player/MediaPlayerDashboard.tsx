@@ -13,15 +13,12 @@ import { MediaPlayerDownloads } from './MediaPlayerDownloads';
 import { MediaPlayerPlaylists } from './MediaPlayerPlaylists';
 import { getMediaDownloadLocalUrl, isMediaDownloadsSupported } from '../plex-client/mediaDownloads';
 import { isPhoneUi } from '../plex-client/config';
-import { MediaPlayerLibrary } from './MediaPlayerLibrary';
 import { MediaPlayerCollection } from './MediaPlayerCollection';
 import { MediaPlayerHub } from './MediaPlayerHub';
 import { MediaPlayerPlaylist } from './MediaPlayerPlaylist';
 import { MediaPlayerDetails } from './MediaPlayerDetails';
-import { MediaPlayerPerson } from './MediaPlayerPerson';
 import { MediaPlayerStudio } from './MediaPlayerStudio';
-import { MediaPlayerSettings } from './MediaPlayerSettings';
-import { MediaPlayerVideo } from './MediaPlayerVideo';
+import { lazyScreen, preloadScreensWhenIdle } from './lazyScreen';
 import { MediaPlayerNav } from './MediaPlayerNav';
 import { MediaPlayerNowPlayingChip } from './MediaPlayerNowPlayingChip';
 import { WatchTogetherLobby } from './WatchTogetherLobby';
@@ -76,6 +73,12 @@ import {
 } from './playerMemory';
 import type { PlayerItem, PlayerLibraryHub, PlayerPlayOptions, PlayerPlaySession, PlayerSection } from './types';
 
+// Not needed for Home's first paint: loaded on first open, or at idle once Home has settled.
+const MediaPlayerLibrary = lazyScreen(() => import('./MediaPlayerLibrary').then((m) => m.MediaPlayerLibrary));
+const MediaPlayerPerson = lazyScreen(() => import('./MediaPlayerPerson').then((m) => m.MediaPlayerPerson));
+const MediaPlayerSettings = lazyScreen(() => import('./MediaPlayerSettings').then((m) => m.MediaPlayerSettings));
+const MediaPlayerVideo = lazyScreen(() => import('./MediaPlayerVideo').then((m) => m.MediaPlayerVideo));
+
 type PlayerPersonRef = { id: string; name: string; thumb?: string | null };
 type LibraryTab = 'home' | 'browse' | 'collections' | 'studios';
 
@@ -93,15 +96,21 @@ const PlayerTvClock: React.FC = () => {
     const [label, setLabel] = useState(() => formatTvClock(new Date(), hour24));
 
     useEffect(() => {
-        const tick = () => setLabel(formatTvClock(new Date(), hour24));
+        // Hours and minutes only: wake on the minute, not every second.
+        let id = 0;
+        const tick = () => {
+            const now = new Date();
+            setLabel(formatTvClock(now, hour24));
+            window.clearTimeout(id);
+            id = window.setTimeout(tick, 60000 - (now.getSeconds() * 1000 + now.getMilliseconds()) + 50);
+        };
         tick();
-        const id = window.setInterval(tick, 1000);
         const onVisibility = () => {
             if (document.visibilityState !== 'hidden') tick();
         };
         document.addEventListener('visibilitychange', onVisibility);
         return () => {
-            window.clearInterval(id);
+            window.clearTimeout(id);
             document.removeEventListener('visibilitychange', onVisibility);
         };
     }, [hour24]);
@@ -266,6 +275,7 @@ const screenEnterClass = (tvShell: boolean, animate = true) => (
 
 export const MediaPlayerDashboard: React.FC = () => {
     const { t } = useDiscoverI18n();
+    useEffect(() => preloadScreensWhenIdle([MediaPlayerLibrary, MediaPlayerSettings, MediaPlayerPerson, MediaPlayerVideo]), []);
     const [settings] = usePlayerSettings();
     const [view, setView] = useState<PlayerView>(() => readPlayerView());
     const [libraries, setLibraries] = useState<PlayerSection[]>(() => readPlayerLibrariesCache());

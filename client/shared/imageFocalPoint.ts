@@ -546,6 +546,36 @@ const surfaceFromAverage = (r: number, g: number, b: number) => {
  * Pass the on-screen frame to sample the pixels actually at the bottom of the crop.
  * Returns null when CORS or canvas read fails.
  */
+/** Width the colour sampler asks for: an edge average needs no more, and decodes ~30x cheaper. */
+const SURFACE_SAMPLE_WIDTH = 320;
+
+/**
+ * The same picture at SURFACE_SAMPLE_WIDTH when the URL can be resized (Plex transcode / portal
+ * image proxy width+height, TMDB size path). `scale` is small width / full width, so pixel caps
+ * measured on the full image keep covering the same part of it.
+ */
+const surfaceSampleSource = (url: string): { url: string; scale: number } => {
+    try {
+        const parsed = new URL(url, typeof window !== 'undefined' ? window.location.href : 'http://localhost/');
+        if (/(^|\.)tmdb\.org$/i.test(parsed.hostname)) {
+            const size = parsed.pathname.match(/\/t\/p\/(w(\d+)|original)\//);
+            if (!size) return { url, scale: 1 };
+            const full = size[2] ? Number(size[2]) : 1920;
+            if (full <= SURFACE_SAMPLE_WIDTH) return { url, scale: 1 };
+            parsed.pathname = parsed.pathname.replace(size[0], '/t/p/w300/');
+            return { url: parsed.toString(), scale: 300 / full };
+        }
+        const width = Number(parsed.searchParams.get('width'));
+        const height = Number(parsed.searchParams.get('height'));
+        if (!(width > SURFACE_SAMPLE_WIDTH) || !(height > 0)) return { url, scale: 1 };
+        parsed.searchParams.set('width', String(SURFACE_SAMPLE_WIDTH));
+        parsed.searchParams.set('height', String(Math.round((height * SURFACE_SAMPLE_WIDTH) / width)));
+        return { url: parsed.toString(), scale: SURFACE_SAMPLE_WIDTH / width };
+    } catch {
+        return { url, scale: 1 };
+    }
+};
+
 export const sampleBackdropSurfaceColor = async (
     url: string,
     frame?: { width: number; height: number; position?: string },
@@ -560,14 +590,17 @@ export const sampleBackdropSurfaceColor = async (
     if (cached) return cached;
 
     try {
-        const img = await loadImage(key.split('|')[0]);
+        // Cache keys stay on the full URL (Home hands that colour to the title page by URL).
+        const source = surfaceSampleSource(key.split('|')[0]);
+        const img = await loadImage(source.url);
         const sw = img.naturalWidth || img.width;
         const sh = img.naturalHeight || img.height;
         if (!sw || !sh) return null;
+        const px = source.scale;
 
         let sx = 0;
         let sWidth = sw;
-        let sHeight = Math.max(2, Math.min(18, Math.round(sh * 0.025)));
+        let sHeight = Math.max(2 * px, Math.min(18 * px, Math.round(sh * 0.025)));
         let sy = sh - sHeight;
         if (frame && frame.width > 2 && frame.height > 2) {
             const pos = parsePositionPercent(frame.position);
@@ -580,7 +613,7 @@ export const sampleBackdropSurfaceColor = async (
             const viewTop = Math.max(0, Math.min(sh - 1, -offsetY / scale));
             const viewWidth = Math.max(1, Math.min(sw - viewLeft, frame.width / scale));
             const viewHeight = Math.max(1, Math.min(sh - viewTop, frame.height / scale));
-            sHeight = Math.max(2, Math.min(16, viewHeight * 0.04));
+            sHeight = Math.max(2 * px, Math.min(16 * px, viewHeight * 0.04));
             sx = viewLeft;
             sWidth = viewWidth;
             sy = Math.max(0, Math.min(sh - sHeight, viewTop + viewHeight - sHeight));
