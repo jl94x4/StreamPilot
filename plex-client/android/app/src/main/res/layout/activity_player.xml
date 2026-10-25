@@ -433,6 +433,18 @@
                     android:textColor="@color/player_text_primary"
                     android:textSize="14sp" />
 
+                <!-- How far ahead playback is buffered ("42s buffered"); the seek bar's buffer band is
+                     too short to see on a long film (the player holds well under a minute). -->
+                <TextView
+                    android:id="@+id/player_buffer_label"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="10dp"
+                    android:fontFeatureSettings="tnum"
+                    android:textColor="@color/player_text_secondary"
+                    android:textSize="13sp"
+                    android:visibility="gone" />
+
                 <TextView
                     android:id="@+id/player_speed_label"
                     android:layout_width="wrap_content"

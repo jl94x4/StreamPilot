@@ -165,6 +165,7 @@ public class PlayerActivity extends AppCompatActivity {
     private TextView statsView;
     private TextView modeChipView;
     private TextView resolutionChipView;
+    private TextView bufferLabelView;
     private boolean statsVisible;
     private TextView clockView;
     private String lastClockLabel = "";
@@ -941,6 +942,7 @@ public class PlayerActivity extends AppCompatActivity {
         titleView = findViewById(R.id.player_title);
         modeChipView = findViewById(R.id.player_mode_chip);
         resolutionChipView = findViewById(R.id.player_resolution_chip);
+        bufferLabelView = findViewById(R.id.player_buffer_label);
         statsView = findViewById(R.id.player_stats);
         clockView = findViewById(R.id.player_clock);
         updateWallClock();
@@ -1010,7 +1012,7 @@ public class PlayerActivity extends AppCompatActivity {
         seekPreview = findViewById(R.id.player_seek_preview);
         // Top-left title / episode line and the delivery + resolution badges: the app's clock
         // face (medium Switzer), as on the TV Home and title pages.
-        applyAssetTypeface("fonts/switzer_medium.ttf", titleView, metaView, modeChipView, resolutionChipView);
+        applyAssetTypeface("fonts/switzer_medium.ttf", titleView, metaView, modeChipView, resolutionChipView, bufferLabelView);
         applySatoshiTypeface(
             timeView,
             remainingView,
@@ -4130,6 +4132,19 @@ public class PlayerActivity extends AppCompatActivity {
         }
         long buffered = Math.max(0, timelineOriginMs + Math.max(0, player.getBufferedPosition()));
         seekBar.setSecondaryProgress((int) Math.min(1000, Math.max(0, (buffered * 1000L) / duration)));
+        if (bufferLabelView == null) return;
+        long position = Math.max(0, timelineOriginMs + Math.max(0, player.getCurrentPosition()));
+        long aheadSec = Math.max(0, buffered - position) / 1000;
+        boolean show = !musicMode && aheadSec >= 1 && buffered < duration - 1000;
+        if (!show) {
+            bufferLabelView.setVisibility(View.GONE);
+            return;
+        }
+        String ahead = aheadSec >= 60
+            ? String.format(Locale.US, "%dm %02ds", aheadSec / 60, aheadSec % 60)
+            : aheadSec + "s";
+        bufferLabelView.setText(getString(R.string.player_buffered_ahead, ahead));
+        bufferLabelView.setVisibility(View.VISIBLE);
     }
 
     private void updatePlayPauseLabel() {

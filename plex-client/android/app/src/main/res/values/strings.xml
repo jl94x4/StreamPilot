@@ -37,6 +37,7 @@
     <string name="player_transcode_video">video</string>
     <string name="player_transcode_audio">audio</string>
     <string name="player_transcode_subs">subs</string>
+    <string name="player_buffered_ahead">· %1$s buffered</string>
     <string name="player_voice_search">Search your library</string>
     <string name="player_chapters">Chapters</string>
     <string name="player_chapter_next">Next chapter</string>
