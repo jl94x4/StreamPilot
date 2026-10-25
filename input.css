@@ -702,7 +702,7 @@ html[data-phone="1"] .media-details-hero {
     margin-left: auto;
     margin-right: auto;
     object-position: center;
-    filter: drop-shadow(0 8px 24px rgb(0 0 0 / 0.8));
+    filter: none;
   }
   html[data-phone="1"] .media-details-billboard-poster {
     width: 8.1rem;
@@ -2258,7 +2258,7 @@ html[data-tv="1"] .media-details-clearlogo {
   margin: 0;
   object-fit: contain;
   object-position: left center;
-  filter: drop-shadow(0 10px 28px rgb(0 0 0 / 0.75));
+  filter: none;
 }
 html[data-tv="1"] .media-details-title-text {
   text-align: left;
@@ -3222,7 +3222,7 @@ html[data-tv="1"] .player-home-spot-logo {
   object-position: left bottom;
   overflow: hidden;
   transform: none !important;
-  filter: drop-shadow(0 10px 28px rgba(0, 0, 0, 0.7));
+  filter: none;
 }
 html[data-tv="1"] .player-home-spot-title {
   margin: 0;
@@ -3558,7 +3558,7 @@ html[data-tv="1"] .player-tv-screensaver-logo {
   max-width: 100%;
   object-fit: contain;
   object-position: center center;
-  filter: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.65));
+  filter: none;
 }
 html[data-tv="1"] .player-tv-screensaver-title {
   margin: 0;

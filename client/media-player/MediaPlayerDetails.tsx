@@ -2261,7 +2261,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             src={logoUrl}
             alt={mobileBillboardTitle}
             fillSlot={isTvShell}
-            className="media-details-clearlogo h-[4.75rem] w-auto max-w-[min(92%,20rem)] object-contain object-center drop-shadow-[0_10px_28px_rgba(0,0,0,0.8)]"
+            className="media-details-clearlogo h-[4.75rem] w-auto max-w-[min(92%,20rem)] object-contain object-center"
         />
     ) : logoPending && !settings.phoneOverviewPoster ? (
         <div className="h-[4.75rem] w-[12rem]" aria-hidden />

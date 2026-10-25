@@ -138,7 +138,7 @@ const HeroTitle: React.FC<{ slide: HomeHeroSlide }> = ({ slide }) => {
             <PlayerClearLogo
                 src={logoUrl}
                 alt={slide.title}
-                className="player-home-hero-logo max-h-14 w-auto max-w-[min(100%,18rem)] object-contain object-left drop-shadow-[0_12px_36px_rgba(0,0,0,0.65)] max-md:max-h-11 max-md:max-w-[min(100%,14rem)] sm:max-h-24 sm:max-w-[min(100%,32rem)] lg:max-h-[6.5rem]"
+                className="player-home-hero-logo max-h-14 w-auto max-w-[min(100%,18rem)] object-contain object-left max-md:max-h-11 max-md:max-w-[min(100%,14rem)] sm:max-h-24 sm:max-w-[min(100%,32rem)] lg:max-h-[6.5rem]"
             />
         );
     }
