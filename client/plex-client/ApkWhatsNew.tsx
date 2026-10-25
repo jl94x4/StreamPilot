@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.390': [
+        {
+            title: 'Player',
+            items: [
+                'The seek bar shows how far ahead the video has buffered, as a lighter band past the playhead',
+            ],
+        },
+    ],
     '1.0.389': [
         {
             title: 'Look',

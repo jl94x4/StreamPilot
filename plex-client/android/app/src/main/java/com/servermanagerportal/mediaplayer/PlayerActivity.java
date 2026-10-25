@@ -4090,6 +4090,7 @@ public class PlayerActivity extends AppCompatActivity {
     private void updateProgressUi() {
         if (player == null) return;
         reconcileTranscodeOrigin();
+        updateBufferedProgress();
         if (scrubTargetMs >= 0) {
             long playerPos = Math.max(0, timelineOriginMs + Math.max(0, player.getCurrentPosition()));
             boolean caughtUp = Math.abs(playerPos - scrubTargetMs) < 1500;
@@ -4117,6 +4118,18 @@ public class PlayerActivity extends AppCompatActivity {
         }
         setTimeLabels(pos, Math.max(0, duration));
         updatePlayPauseLabel();
+    }
+
+    /** Lighter band on the seek bar: how far ahead of the playhead the player has buffered. */
+    private void updateBufferedProgress() {
+        if (player == null || seekBar == null) return;
+        long duration = contentDurationMs();
+        if (duration <= 0) {
+            seekBar.setSecondaryProgress(0);
+            return;
+        }
+        long buffered = Math.max(0, timelineOriginMs + Math.max(0, player.getBufferedPosition()));
+        seekBar.setSecondaryProgress((int) Math.min(1000, Math.max(0, (buffered * 1000L) / duration)));
     }
 
     private void updatePlayPauseLabel() {
