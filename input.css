@@ -2361,6 +2361,13 @@ html[data-tv="1"] .media-details-page [data-tv-start-over="1"] {
   font-size: 1.05rem;
   border-radius: 999px !important;
 }
+/* Play / Resume / Start / Start from beginning in the clock's face (medium Switzer). */
+html[data-tv="1"] .media-details-page [data-tv-play="1"],
+html[data-tv="1"] .media-details-page [data-tv-start-over="1"] {
+  font-family: "Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-weight: 500;
+  letter-spacing: 0;
+}
 html[data-tv="1"] .media-details-page [data-tv-trailer="1"]:focus,
 html[data-tv="1"] .media-details-page [data-tv-trailer="1"]:focus-visible,
 html[data-tv="1"] .media-details-page [data-tv-start-over="1"]:focus,
