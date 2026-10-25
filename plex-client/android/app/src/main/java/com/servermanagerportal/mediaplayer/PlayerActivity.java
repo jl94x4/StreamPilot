@@ -13,6 +13,7 @@ import android.graphics.Color;
 import android.graphics.Outline;
 import android.graphics.Typeface;
 import android.net.Uri;
+import android.text.TextUtils;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -499,6 +500,11 @@ public class PlayerActivity extends AppCompatActivity {
     };
 
     private String currentUrl = "";
+    /** What PMS reports this HLS session is doing ("Transcoding video, audio" / "Direct Stream"); empty until known. */
+    private String transcodeDetail = "";
+    /** The stream URL transcodeDetail belongs to; a new URL clears it and asks again. */
+    private String transcodeDetailUrl = "";
+    private int transcodeDetailGen = 0;
     private String headersJson = "";
     private String qualityId = "";
     private String audioStreamId = "";
@@ -1684,8 +1690,13 @@ public class PlayerActivity extends AppCompatActivity {
 
     private String playbackModeLabel() {
         String mode = streamMode == null ? "" : streamMode.trim();
-        if (PlaybackUrls.isTranscodeUrl(currentUrl) && !"directPlay".equalsIgnoreCase(mode)) {
-            return getString(R.string.player_transcode);
+        // The stream actually open decides: the JS mode stays "directPlay" when the player falls
+        // back to HLS or a lower quality itself, which left the badge stuck on Direct Play.
+        if (PlaybackUrls.isTranscodeUrl(currentUrl)) {
+            if (!transcodeDetail.isEmpty() && currentUrl.equals(transcodeDetailUrl)) return transcodeDetail;
+            return "directStream".equalsIgnoreCase(mode)
+                ? getString(R.string.player_direct_stream)
+                : getString(R.string.player_transcode);
         }
         if ("directPlay".equalsIgnoreCase(mode)) return getString(R.string.player_direct_play);
         if ("directStream".equalsIgnoreCase(mode)) return getString(R.string.player_direct_stream);
@@ -2626,6 +2637,8 @@ public class PlayerActivity extends AppCompatActivity {
         final String previousUrl = currentUrl;
         currentUrl = url.trim();
         absorbTimelineFromUrl(currentUrl);
+        // A new stream: the badge re-reads what it is (Direct Play / Direct Stream / Transcoding …).
+        updateModeChip();
         if (nextHeadersJson != null && !nextHeadersJson.isEmpty()) {
             headersJson = nextHeadersJson;
         }
@@ -4286,8 +4299,8 @@ public class PlayerActivity extends AppCompatActivity {
         errorView.setVisibility(View.VISIBLE);
         setBufferingVisible(false);
         setChromeVisible(true);
-        View close = findViewById(R.id.player_close);
-        if (close != null) close.requestFocus();
+        // No close button any more (Back closes the player); keep the remote on the controls.
+        if (playPauseBtn != null) playPauseBtn.requestFocus();
     }
 
     private void hideError() {
@@ -4402,9 +4415,99 @@ public class PlayerActivity extends AppCompatActivity {
         updateModeChip();
     }
 
+    /**
+     * Ask PMS what this HLS session transcodes (GET /transcode/sessions, JSON), then show it on
+     * the badge: "Transcoding video, audio, subs", or "Direct Stream" when everything is copied.
+     * A session can take a moment to appear, so it retries a few times.
+     */
+    private void refreshTranscodeDetail() {
+        final String url = currentUrl;
+        if (!PlaybackUrls.isTranscodeUrl(url) || url.equals(transcodeDetailUrl)) return;
+        transcodeDetailUrl = url;
+        transcodeDetail = "";
+        final int gen = ++transcodeDetailGen;
+        final Uri parsed;
+        try {
+            parsed = Uri.parse(url);
+        } catch (RuntimeException ignored) {
+            return;
+        }
+        final String token = firstNonEmpty(parsed.getQueryParameter("X-Plex-Token"), parsed.getQueryParameter("access_token"));
+        final String session = firstNonEmpty(parsed.getQueryParameter("session"), parsed.getQueryParameter("X-Plex-Session-Identifier"));
+        if (token.isEmpty() || session.isEmpty() || parsed.getScheme() == null || parsed.getAuthority() == null) return;
+        final String sessionsUrl = parsed.getScheme() + "://" + parsed.getAuthority()
+            + "/transcode/sessions?X-Plex-Token=" + Uri.encode(token);
+        fetchTranscodeDetail(sessionsUrl, session, gen, 0);
+    }
+
+    private void fetchTranscodeDetail(String sessionsUrl, String session, int gen, int attempt) {
+        TIMELINE_EXECUTOR.execute(() -> {
+            String label = null;
+            HttpURLConnection conn = null;
+            try {
+                conn = (HttpURLConnection) new URL(sessionsUrl).openConnection();
+                conn.setConnectTimeout(4000);
+                conn.setReadTimeout(4000);
+                conn.setRequestProperty("Accept", "application/json");
+                InputStream in = conn.getInputStream();
+                java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                in.close();
+                label = transcodeDetailLabel(new JSONObject(out.toString("UTF-8")), session);
+            } catch (Exception ignored) {
+                /* unknown: keep the generic badge */
+            } finally {
+                if (conn != null) conn.disconnect();
+            }
+            final String found = label;
+            mainHandler.post(() -> {
+                if (gen != transcodeDetailGen) return;
+                if (found != null) {
+                    transcodeDetail = found;
+                    updateModeChip();
+                } else if (attempt < 4) {
+                    mainHandler.postDelayed(() -> {
+                        if (gen == transcodeDetailGen) fetchTranscodeDetail(sessionsUrl, session, gen, attempt + 1);
+                    }, 2500);
+                }
+            });
+        });
+    }
+
+    /** Badge text for our session in a /transcode/sessions response, or null when it is not listed yet. */
+    @Nullable
+    private String transcodeDetailLabel(JSONObject root, String session) {
+        JSONObject container = root.optJSONObject("MediaContainer");
+        JSONArray rows = container == null ? null : container.optJSONArray("TranscodeSession");
+        if (rows == null) return null;
+        for (int i = 0; i < rows.length(); i++) {
+            JSONObject row = rows.optJSONObject(i);
+            if (row == null) continue;
+            String key = row.optString("key", "");
+            if (!key.endsWith("/" + session) && !key.equals(session)) continue;
+            List<String> parts = new ArrayList<>();
+            if ("transcode".equalsIgnoreCase(row.optString("videoDecision", ""))) parts.add(getString(R.string.player_transcode_video));
+            if ("transcode".equalsIgnoreCase(row.optString("audioDecision", ""))) parts.add(getString(R.string.player_transcode_audio));
+            String subs = row.optString("subtitleDecision", "");
+            if ("burn".equalsIgnoreCase(subs) || "transcode".equalsIgnoreCase(subs)) parts.add(getString(R.string.player_transcode_subs));
+            if (parts.isEmpty()) return getString(R.string.player_direct_stream);
+            return getString(R.string.player_transcoding_parts, TextUtils.join(", ", parts));
+        }
+        return null;
+    }
+
+    private static String firstNonEmpty(@Nullable String a, @Nullable String b) {
+        if (a != null && !a.trim().isEmpty()) return a.trim();
+        if (b != null && !b.trim().isEmpty()) return b.trim();
+        return "";
+    }
+
     /** Persistent OSD badge: Direct Play / Direct Stream / Transcode (+ quality). */
     private void updateModeChip() {
         if (modeChipView == null) return;
+        refreshTranscodeDetail();
         if (musicMode) {
             modeChipView.setVisibility(View.GONE);
             return;

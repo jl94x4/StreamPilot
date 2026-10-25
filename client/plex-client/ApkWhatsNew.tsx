@@ -73,6 +73,16 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.386': [
+        {
+            title: 'Player',
+            items: [
+                'The badge at the bottom now shows what is really happening: Direct Play, Direct Stream, or what Plex is transcoding (for example "Transcoding video, audio, subs")',
+                'It no longer says Direct Play when the player has switched to a transcode',
+                'The close button under the clock is gone; Back closes the player',
+            ],
+        },
+    ],
     '1.0.385': [
         {
             title: 'Episodes',

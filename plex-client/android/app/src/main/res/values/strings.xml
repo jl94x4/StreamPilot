@@ -33,6 +33,10 @@
     <string name="player_direct_play">Direct Play</string>
     <string name="player_direct_stream">Direct Stream</string>
     <string name="player_transcode">Transcode</string>
+    <string name="player_transcoding_parts">Transcoding %1$s</string>
+    <string name="player_transcode_video">video</string>
+    <string name="player_transcode_audio">audio</string>
+    <string name="player_transcode_subs">subs</string>
     <string name="player_voice_search">Search your library</string>
     <string name="player_chapters">Chapters</string>
     <string name="player_chapter_next">Next chapter</string>

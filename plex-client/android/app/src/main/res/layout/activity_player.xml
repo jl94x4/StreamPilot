@@ -221,6 +221,7 @@
             android:textSize="12sp"
             android:textStyle="bold" />
 
+        <!-- Hidden: Back closes the player. Kept for the click handler / older references. -->
         <ImageButton
             android:id="@+id/player_close"
             android:layout_width="30dp"
@@ -229,7 +230,8 @@
             android:background="@drawable/player_close_btn_bg"
             android:contentDescription="@string/player_close"
             android:defaultFocusHighlightEnabled="false"
-            android:focusable="true"
+            android:focusable="false"
+            android:visibility="gone"
             android:minWidth="30dp"
             android:minHeight="30dp"
             android:padding="7dp"
