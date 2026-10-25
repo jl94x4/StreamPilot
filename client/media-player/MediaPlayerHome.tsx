@@ -165,6 +165,8 @@ const paintHomeSurface = (rgb: string) => {
 
 /** Focus moves closer together than this count as holding the button. */
 const BILLBOARD_HOLD_MS = 240;
+/** Settle time before sampling a new backdrop's colour: past remote repeat, short enough to keep up. */
+const BILLBOARD_TINT_SAMPLE_MS = 120;
 
 const HomeFocusStill: React.FC<{
     enabled: boolean;
@@ -1647,7 +1649,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 rememberBillboardBackdrop(tvSpotKey, tvStageStillSeed, rgb || null, tvSpotServer);
                 paintHomeSurface(rgb ? tvTintSurfaceRgb(rgb) : TV_FLOOR_RGB);
             });
-        }, BILLBOARD_HOLD_MS);
+        }, BILLBOARD_TINT_SAMPLE_MS);
         return () => {
             cancelled = true;
             window.clearTimeout(timer);

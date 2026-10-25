@@ -3001,7 +3001,7 @@ html[data-tv="1"] .player-home-page.player-home-stage {
    fully on. */
 html[data-tv="1"] .player-home-stage .player-home-focus-still {
   --tv-home-surface: var(--tv-home-r) var(--tv-home-g) var(--tv-home-b);
-  transition: --tv-home-r 0.45s ease, --tv-home-g 0.45s ease, --tv-home-b 0.45s ease;
+  transition: --tv-home-r 0.25s ease-out, --tv-home-g 0.25s ease-out, --tv-home-b 0.25s ease-out;
 }
 html[data-reduce-motion="1"] .player-home-stage .player-home-focus-still {
   transition: none;
@@ -3055,7 +3055,7 @@ html[data-tv="1"] .player-home-focus-still img {
   object-position: 80% 12%;
   transform: translateY(-10%);
   opacity: 0;
-  transition: opacity 0.3s ease;
+  transition: opacity 0.22s ease-out;
 }
 html[data-tv="1"] .player-home-stage .player-home-focus-still img {
   inset: 0;
