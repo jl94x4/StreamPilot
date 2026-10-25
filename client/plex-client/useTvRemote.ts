@@ -18,7 +18,6 @@ import {
     nearestByMiddleY,
     pickSpatialIndex,
     rankRowsInDirection,
-    SEARCH_PAD_LAST_ROW,
     searchFocusPlan,
 } from './tvSpatial.js';
 
@@ -1229,20 +1228,21 @@ const nearestSearchKey = (row: number, col: number): HTMLElement | null => {
     return searchKeyAt(row, Math.max(0, Math.min(col, count - 1)));
 };
 
-const searchChipItems = (attr: 'recent' | 'popular') => {
-    const root = document.querySelector<HTMLElement>(`[data-tv-search-${attr}="1"]`);
-    return root ? focusableTvItems(root) : [];
+/** The key you left the keyboard from: Left / Back out of the right panel return to it. */
+let lastSearchKey: HTMLElement | null = null;
+
+const searchKeyToReturnTo = (): HTMLElement | null => {
+    if (lastSearchKey && lastSearchKey.isConnected && hasLayout(lastSearchKey)) return lastSearchKey;
+    return searchKeyAt(0, 0);
 };
 
-const searchRecentItems = () => searchChipItems('recent');
+const searchPanel = () => document.querySelector<HTMLElement>('[data-tv-search-body="1"]');
 
-const searchPopularItems = () => searchChipItems('popular');
-
-const firstSearchResult = (): HTMLElement | null => {
-    const root = document.querySelector<HTMLElement>('[data-tv-search-body="1"]')
-        || document.querySelector<HTMLElement>('[data-tv-search-results="1"]');
-    if (!root) return null;
-    return focusableTvItems(root).find((el) => !el.closest('[data-tv-search-recent="1"], [data-tv-search-popular="1"]')) || null;
+/** Right from the keyboard: the panel item level with the key, else the panel's first item. */
+const searchPanelEntry = (from: HTMLElement): HTMLElement | null => {
+    const panel = searchPanel();
+    if (!panel) return null;
+    return findSpatialTarget(from, 'right', panel) || focusableTvItems(panel)[0] || null;
 };
 
 type SearchPlanStep = ReturnType<typeof searchFocusPlan>[number];
@@ -1253,22 +1253,15 @@ const resolveSearchPlan = (plan: SearchPlanStep[], self: HTMLElement): HTMLEleme
         if (step.kind === 'none') return null;
         if (step.kind === 'self') return self;
         let hit: HTMLElement | null | undefined = null;
-        if (step.kind === 'key') hit = searchKeyAt(step.row, step.col);
-        else if (step.kind === 'nearestKey') hit = nearestSearchKey(step.row, step.col);
-        else if (step.kind === 'firstResult') hit = firstSearchResult();
-        else if (step.kind === 'recent' || step.kind === 'popular') {
-            const items = searchChipItems(step.kind);
-            hit = step.clamp
-                ? (items.length ? items[Math.min(step.index, items.length - 1)] : null)
-                : items[step.index];
-        }
+        if (step.kind === 'key') hit = searchKeyAt(step.row, step.col) || nearestSearchKey(step.row, step.col);
+        else if (step.kind === 'panel') hit = searchPanelEntry(self);
         if (hit) return hit;
     }
     return null;
 };
 
 /**
- * On-screen search keyboard, recent chips, then results.
+ * TV search: keyboard on the left, history / results panel on the right.
  * undefined = focus is not in TV search.
  */
 const searchKeyboardStep = (current: HTMLElement, dir: SpatialDir): HTMLElement | null | undefined => {
@@ -1278,18 +1271,10 @@ const searchKeyboardStep = (current: HTMLElement, dir: SpatialDir): HTMLElement 
 
     const key = current.closest<HTMLElement>('[data-tv-search-key]');
     if (key) {
+        lastSearchKey = key;
         const row = Number(key.getAttribute('data-search-row') || '0');
         const col = Number(key.getAttribute('data-search-col') || '0');
-        return resolveSearchPlan(searchFocusPlan({ area: 'key', row, col }, dir), key);
-    }
-
-    const chipArea = current.closest('[data-tv-search-recent="1"]')
-        ? 'recent'
-        : current.closest('[data-tv-search-popular="1"]') ? 'popular' : null;
-    if (chipArea) {
-        const items = searchChipItems(chipArea);
-        const index = items.findIndex((el) => el === current || el.contains(current));
-        return resolveSearchPlan(searchFocusPlan({ area: chipArea, index }, dir), current);
+        return resolveSearchPlan(searchFocusPlan({ row, col }, dir), key);
     }
 
     const body = current.closest<HTMLElement>('[data-tv-search-body="1"]')
@@ -1304,17 +1289,9 @@ const searchKeyboardStep = (current: HTMLElement, dir: SpatialDir): HTMLElement 
                 return idx > 0 ? items[idx - 1] : null;
             }
         }
-        if (dir === 'up') {
-            const above = findSpatialTarget(current, 'up', body);
-            if (above) return above;
-            const popular = searchPopularItems();
-            if (popular[0]) return popular[0];
-            const recents = searchRecentItems();
-            if (recents[0]) return recents[0];
-            return nearestSearchKey(SEARCH_PAD_LAST_ROW, 0) || searchKeyAt(0, 0) || current;
-        }
         const next = findSpatialTarget(current, dir, body);
-        if (dir === 'left' && !next) return null;
+        // Left off the panel's edge goes back to the keyboard, not the nav.
+        if (dir === 'left' && !next) return searchKeyToReturnTo() || current;
         return next || current;
     }
     return undefined;
@@ -1944,11 +1921,10 @@ const handleTvBack = (): boolean => {
     if (searchScreen && hasLayout(searchScreen)) {
         const active = document.activeElement as HTMLElement | null;
         const onPad = Boolean(active?.closest?.('[data-tv-search-pad="1"]'));
-        const onRecent = Boolean(active?.closest?.('[data-tv-search-recent="1"]'));
         const onResults = Boolean(active?.closest?.('[data-tv-search-body="1"], [data-tv-search-results="1"]'));
-        if (onResults || onRecent) {
-            const key = document.querySelector<HTMLElement>('[data-tv-search-key="q"]');
-            if (key && hasLayout(key)) {
+        if (onResults) {
+            const key = searchKeyToReturnTo();
+            if (key) {
                 focusItem(key, 'start');
                 return true;
             }

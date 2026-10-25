@@ -3693,15 +3693,19 @@ html[data-tv="1"] .player-home-now-playing [data-tv-item="1"]:focus-visible {
   background: #fff;
   box-shadow: none;
 }
+/* TV search: keyboard panel on the left, history / results panel on the right. */
 html[data-tv="1"] [data-tv-search="1"] {
   position: absolute;
   inset: 0;
   z-index: 5;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 25rem minmax(0, 1fr);
+  column-gap: 3.25rem;
   overflow: hidden;
-  background: #060a10;
-  padding: 0.95rem 7.5rem 0 6.75rem;
+  background:
+    radial-gradient(ellipse 70% 55% at 85% -10%, rgba(229, 160, 13, 0.07), transparent 70%),
+    #060a10;
+  padding: 2.35rem 3rem 0 6.75rem;
 }
 html[data-tv="1"][data-tv-nav-open="1"] [data-tv-search="1"] {
   padding-left: 18.5rem;
@@ -3709,20 +3713,30 @@ html[data-tv="1"][data-tv-nav-open="1"] [data-tv-search="1"] {
 html[data-tv="1"] .player-tv-search {
   position: relative;
   z-index: 2;
-  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
+  gap: 1.15rem;
+  min-width: 0;
+  min-height: 0;
+  padding: 0 0 2rem;
+}
+html[data-tv="1"] .player-tv-search-eyebrow {
+  display: inline-flex;
   align-items: center;
-  gap: 1.05rem;
-  padding: 0 0 0.55rem;
+  gap: 0.5rem;
+  color: #e5a00d;
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
 }
 html[data-tv="1"] .player-tv-search-body {
-  flex: 1 1 auto;
+  min-width: 0;
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
   overflow-anchor: none;
-  padding: 0.65rem 0 5rem;
+  padding: 0.2rem 0 5rem;
   scroll-padding-top: 0.65rem;
 }
 html[data-tv="1"] .player-tv-search-body .player-home-rows {
@@ -3750,102 +3764,187 @@ html[data-tv="1"] .player-tv-search-body [data-tv-poster-rail="1"] {
   scroll-padding-left: 0.9rem;
 }
 html[data-tv="1"] .player-tv-search-query {
-  min-height: 3.05rem;
-  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  min-width: 0;
+  min-height: 3.5rem;
   margin: 0;
-  padding: 0.6rem 1.1rem;
-  border-radius: 0.8rem;
-  background: rgba(0, 0, 0, 0.45);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  padding: 0 0 0.7rem;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.14);
   color: #fff;
-  font-size: 1.5rem;
-  font-weight: 650;
-  line-height: 1.3;
-  text-align: left;
+  font-family: var(--tv-display-font);
+  font-size: 2.1rem;
+  font-weight: 700;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+html[data-tv="1"] .player-tv-search-query-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 html[data-tv="1"] .player-tv-search-query.is-empty {
-  color: rgba(255, 255, 255, 0.45);
-  font-weight: 500;
+  color: rgba(255, 255, 255, 0.36);
+  font-weight: 600;
 }
 html[data-tv="1"] .player-tv-search-caret {
+  flex: 0 0 auto;
   display: inline-block;
-  width: 2px;
-  height: 1.15em;
-  margin-left: 2px;
-  vertical-align: text-bottom;
-  background: #fff;
+  width: 3px;
+  height: 1em;
+  margin: 0 0 0.12em 3px;
+  border-radius: 2px;
+  background: #e5a00d;
+  animation: player-tv-search-caret 1.05s steps(1) infinite;
+}
+@keyframes player-tv-search-caret {
+  50% { opacity: 0; }
+}
+html[data-reduce-motion="1"] .player-tv-search-caret {
+  animation: none;
 }
 html[data-tv="1"] .player-tv-search-pad {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.4rem;
-}
-html[data-tv="1"] .player-tv-search-row {
-  display: flex;
-  justify-content: center;
-  gap: 0.36rem;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.45rem;
 }
 html[data-tv="1"] .player-tv-search-key {
-  min-width: 2.84rem;
-  height: 2.84rem;
-  padding: 0 0.63rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 3.05rem;
+  padding: 0;
   border: 0;
-  border-radius: 0.63rem;
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
-  font-size: 1.125rem;
+  border-radius: 0.75rem;
+  background: rgba(255, 255, 255, 0.07);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 1.2rem;
   font-weight: 700;
   outline: none;
+  transition: background-color 0.12s ease, color 0.12s ease, transform 0.12s ease;
 }
-html[data-tv="1"] .player-tv-search-key.is-wide {
-  min-width: 6.75rem;
-  font-size: 0.9rem;
-  letter-spacing: 0.04em;
+html[data-tv="1"] .player-tv-search-key.is-action {
+  grid-column: span 2;
+  margin-top: 0.3rem;
+  background: rgba(255, 255, 255, 0.11);
+  font-size: 0.92rem;
+  letter-spacing: 0.03em;
 }
 html[data-tv="1"] .player-tv-search-key:focus,
 html[data-tv="1"] .player-tv-search-key:focus-visible {
   background: #fff;
-  color: #111;
-  transform: scale(1.06);
+  color: #0b0b0d;
+  transform: scale(1.07);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.45);
 }
-html[data-tv="1"] .player-tv-search-recent-chip:focus,
-html[data-tv="1"] .player-tv-search-recent-chip:focus-visible {
-  background: #fff;
-  color: #111;
+html[data-tv="1"] .player-tv-search-history {
+  display: flex;
+  flex-direction: column;
+  gap: 2.1rem;
 }
-html[data-tv="1"] .player-tv-search-recent {
-  box-sizing: border-box;
-  width: 100%;
-  margin: 0 0 1.35rem;
-  padding: 0.25rem 0.4rem 0.15rem 1rem;
-}
-html[data-tv="1"] .player-tv-search-recent-label {
-  margin: 0 0 0.55rem;
-  font-size: 0.78rem;
-  font-weight: 700;
+html[data-tv="1"] .player-tv-search-label {
+  margin: 0 0 0.75rem 0.2rem;
+  font-size: 0.82rem;
+  font-weight: 800;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.55);
+  color: rgba(255, 255, 255, 0.5);
 }
-html[data-tv="1"] .player-tv-search-recent-row {
+html[data-tv="1"] .player-tv-search-history-list {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.3rem;
+  max-width: 42rem;
 }
-html[data-tv="1"] .player-tv-search-recent-chip {
-  max-width: 16rem;
+html[data-tv="1"] .player-tv-search-history-item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  width: 100%;
+  min-width: 0;
+  padding: 0.78rem 1.15rem;
+  border: 0;
+  border-radius: 0.9rem;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 1.22rem;
+  font-weight: 650;
+  text-align: left;
+  outline: none;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+html[data-tv="1"] .player-tv-search-history-icon {
+  flex: 0 0 auto;
+  color: rgba(255, 255, 255, 0.38);
+}
+html[data-tv="1"] .player-tv-search-history-text {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  border: 0;
+}
+html[data-tv="1"] .player-tv-search-history-item:focus,
+html[data-tv="1"] .player-tv-search-history-item:focus-visible {
+  background: #fff;
+  color: #0b0b0d;
+}
+html[data-tv="1"] .player-tv-search-history-item:focus .player-tv-search-history-icon,
+html[data-tv="1"] .player-tv-search-history-item:focus-visible .player-tv-search-history-icon {
+  color: #b77d00;
+}
+html[data-tv="1"] .player-tv-search-history-clear {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0.75rem 0 0 0.2rem;
+  padding: 0.62rem 1.1rem;
+  border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
-  padding: 0.7rem 1.1rem;
-  font-size: 1.05rem;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.95rem;
   font-weight: 650;
   outline: none;
+}
+html[data-tv="1"] .player-tv-search-history-clear:focus,
+html[data-tv="1"] .player-tv-search-history-clear:focus-visible {
+  border-color: #fff;
+  background: #fff;
+  color: #0b0b0d;
+}
+html[data-tv="1"] .player-tv-search-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.65rem;
+  max-width: 30rem;
+  padding: 3.25rem 0 0 0.2rem;
+}
+html[data-tv="1"] .player-tv-search-empty-icon {
+  display: grid;
+  place-items: center;
+  width: 3.6rem;
+  height: 3.6rem;
+  margin-bottom: 0.4rem;
+  border-radius: 999px;
+  background: rgba(229, 160, 13, 0.12);
+  color: #e5a00d;
+}
+html[data-tv="1"] .player-tv-search-empty-title {
+  margin: 0;
+  color: #fff;
+  font-family: var(--tv-display-font);
+  font-size: 1.6rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+html[data-tv="1"] .player-tv-search-empty-hint {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 1.05rem;
+  line-height: 1.45;
 }
 html[data-tv="1"] .player-home-stage-rail {
   position: relative;

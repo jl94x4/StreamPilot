@@ -5,6 +5,7 @@ import {
     nearestByMiddleY,
     pickSpatialIndex,
     rankRowsInDirection,
+    SEARCH_PAD_LAST_ROW,
     searchFocusPlan,
     spanOverlap,
 } from './tvSpatial.js';
@@ -112,44 +113,27 @@ test('browse grid: down into a part-filled or unmounted row loads it', () => {
     assert.deepEqual(browseGridMove(9, 6, 'down'), { type: 'poster', index: 15, fallback: 'load' });
 });
 
-test('search keys: left at column 0 stops, right past the end stays', () => {
-    assert.deepEqual(searchFocusPlan({ area: 'key', row: 1, col: 0 }, 'left'), [{ kind: 'none' }]);
-    assert.deepEqual(searchFocusPlan({ area: 'key', row: 1, col: 4 }, 'right'), [
+test('search keys: left at column 0 stops, right moves along the row', () => {
+    assert.deepEqual(searchFocusPlan({ row: 1, col: 0 }, 'left'), [{ kind: 'none' }]);
+    assert.deepEqual(searchFocusPlan({ row: 1, col: 3 }, 'left'), [{ kind: 'key', row: 1, col: 2 }, { kind: 'none' }]);
+    assert.deepEqual(searchFocusPlan({ row: 1, col: 4 }, 'right'), [
         { kind: 'key', row: 1, col: 5 },
-        { kind: 'self' },
-    ]);
-    assert.deepEqual(searchFocusPlan({ area: 'key', row: 0, col: 2 }, 'up'), [{ kind: 'self' }]);
-});
-
-test('search keys: down from the last row falls through recents, popular, results', () => {
-    assert.deepEqual(searchFocusPlan({ area: 'key', row: 3, col: 4 }, 'down'), [
-        { kind: 'nearestKey', row: 4, col: 4 },
-        { kind: 'recent', index: 4, clamp: true },
-        { kind: 'popular', index: 4, clamp: true },
-        { kind: 'firstResult' },
+        { kind: 'panel' },
         { kind: 'self' },
     ]);
 });
 
-test('search chips: up from recents returns to the last keyboard row', () => {
-    assert.deepEqual(searchFocusPlan({ area: 'recent', index: 2 }, 'up'), [
-        { kind: 'nearestKey', row: 3, col: 2 },
-        { kind: 'key', row: 0, col: 0 },
-        { kind: 'self' },
-    ]);
-    assert.deepEqual(searchFocusPlan({ area: 'popular', index: 1 }, 'up')[0], { kind: 'recent', index: 1, clamp: true });
+test('search keys: right from the last column goes into the results panel', () => {
+    assert.deepEqual(searchFocusPlan({ row: 2, col: 5 }, 'right'), [{ kind: 'panel' }, { kind: 'self' }]);
+    assert.deepEqual(searchFocusPlan({ row: SEARCH_PAD_LAST_ROW, col: 2 }, 'right'), [{ kind: 'panel' }, { kind: 'self' }]);
 });
 
-test('search chips: left at the first chip stops, right past the last stays', () => {
-    assert.deepEqual(searchFocusPlan({ area: 'recent', index: 0 }, 'left'), [{ kind: 'none' }]);
-    assert.deepEqual(searchFocusPlan({ area: 'popular', index: 2 }, 'right'), [
-        { kind: 'popular', index: 3, clamp: false },
-        { kind: 'self' },
-    ]);
-    assert.deepEqual(searchFocusPlan({ area: 'popular', index: -1 }, 'right'), [{ kind: 'self' }]);
-    assert.deepEqual(searchFocusPlan({ area: 'recent', index: 1 }, 'down'), [
-        { kind: 'popular', index: 1, clamp: true },
-        { kind: 'firstResult' },
-        { kind: 'self' },
-    ]);
+test('search keys: up / down keep the column, and map onto the 3-key action row', () => {
+    assert.deepEqual(searchFocusPlan({ row: 0, col: 2 }, 'up'), [{ kind: 'self' }]);
+    assert.deepEqual(searchFocusPlan({ row: 2, col: 4 }, 'up'), [{ kind: 'key', row: 1, col: 4 }, { kind: 'self' }]);
+    assert.deepEqual(searchFocusPlan({ row: 5, col: 0 }, 'down')[0], { kind: 'key', row: 6, col: 0 });
+    assert.deepEqual(searchFocusPlan({ row: 5, col: 3 }, 'down')[0], { kind: 'key', row: 6, col: 1 });
+    assert.deepEqual(searchFocusPlan({ row: 5, col: 5 }, 'down')[0], { kind: 'key', row: 6, col: 2 });
+    assert.deepEqual(searchFocusPlan({ row: 6, col: 1 }, 'up')[0], { kind: 'key', row: 5, col: 2 });
+    assert.deepEqual(searchFocusPlan({ row: 6, col: 2 }, 'down'), [{ kind: 'self' }]);
 });

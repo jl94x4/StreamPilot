@@ -14,7 +14,7 @@ import {
     upgraderPosterGridClass,
     upgraderPosterGridStyle,
 } from './host';
-import { beginHomeRowPriority, endHomeRowPriority, fetchMediaPlayerHome, fetchMediaPlayerHomeFull, fetchMediaPlayerHomeHero, fetchMediaPlayerHomeHeroRefresh, fetchMediaPlayerItem, fetchMediaPlayerLibrary, fetchMediaPlayerWatchlist, fetchPopularSearches, prefetchMediaPlayerItem, recordPopularSearch, searchMediaPlayer, setMediaPlayerWatched } from './api';
+import { beginHomeRowPriority, endHomeRowPriority, fetchMediaPlayerHome, fetchMediaPlayerHomeFull, fetchMediaPlayerHomeHero, fetchMediaPlayerHomeHeroRefresh, fetchMediaPlayerItem, fetchMediaPlayerLibrary, fetchMediaPlayerWatchlist, prefetchMediaPlayerItem, recordPopularSearch, searchMediaPlayer, setMediaPlayerWatched } from './api';
 import { isPhoneUi, isPlexDirectMode } from '../plex-client/config';
 import { PlayerPullToRefresh } from './PlayerPullToRefresh';
 import {
@@ -54,6 +54,9 @@ import {
     PLAYER_VOICE_RESULT_EVENT,
     readRecentSearches,
     rememberRecentSearch,
+    clearRecentSearches,
+    readSearchOpened,
+    rememberSearchOpened,
     coalescePlayerHomeWithCache,
     playerHomeHasContentHubs,
     playerHomeHasRows,
@@ -71,7 +74,7 @@ import { PlayerTvStatusPanel } from './PlayerTvStatusPanel';
 import { PlayerClearLogo } from './PlayerClearLogo';
 import { PlayerServiceBrandMark } from './PlayerServiceBrandMark';
 import { PlayerTvScreensaver } from './PlayerTvScreensaver';
-import { PlayerTvSearch, PlayerTvSearchRecents } from './PlayerTvSearch';
+import { PlayerTvSearch, PlayerTvSearchHistory, PlayerTvSearchNotice, TV_SEARCH_FIRST_KEY } from './PlayerTvSearch';
 import { itemHasBillboardBrandMeta } from './studioLogo.js';
 import { applyRememberedProgress, asRecentlyAddedPlayerItem, rememberBillboardBackdrop, formatPlayerDate, formatPlayerDuration, isFuturePlayerDate, heroRowCardItem, hideWatchedPlayerItems, isMusicPlayerItem, isPlayerBackdropReady, keepContinueWatchingPoster, mapContinueWatchingItemsForLayout, pickRicherSummary, pinTvNeighborBackdrops, playerItemBackdropUrl, plexBackdropUrl, plexLogoUrl, PLAYER_PROGRESS_EVENT, prefetchContinueWatchingImages, prefetchHomeRowPosters, primeNearbyTvBillboard, replaceFamilyContinueSlot, restoreContinueSlot, stampFamilyLastViewed, warmPlayerBackdrop, watchTargetTouches, withShowPoster } from './playerUtils';
 import { usePlayerSettings } from './usePlayerSettings';
@@ -595,7 +598,9 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
     const networkOnline = usePlayerNetworkStatus();
     const [query, setQuery] = useState('');
     const [recentSearches, setRecentSearches] = useState<string[]>(() => readRecentSearches());
-    const [popularSearches, setPopularSearches] = useState<string[]>([]);
+    const [searchOpened, setSearchOpened] = useState<PlayerItem[]>(() => readSearchOpened());
+    /** Set when a past search is picked on TV: focus follows into its results once they land. */
+    const focusSearchResultsRef = useRef(false);
     const [results, setResults] = useState<PlayerItem[]>([]);
     const [searching, setSearching] = useState(false);
     const [searchActive, setSearchActive] = useState(false);
@@ -610,7 +615,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             setSearchActive(true);
             window.setTimeout(() => {
                 if (isTvShell) {
-                    const key = document.querySelector<HTMLElement>('[data-tv-search-key="q"]');
+                    const key = document.querySelector<HTMLElement>(`[data-tv-search-key="${TV_SEARCH_FIRST_KEY}"]`);
                     key?.focus();
                     return;
                 }
@@ -989,23 +994,21 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         if (trimmed.length < 2 || searching || !results.length) return undefined;
         const timer = window.setTimeout(() => {
             setRecentSearches(rememberRecentSearch(trimmed));
-            void recordPopularSearch(trimmed)
-                .then((data) => setPopularSearches(Array.isArray(data?.queries) ? data.queries : []))
-                .catch(() => {});
+            void recordPopularSearch(trimmed).catch(() => {});
         }, 900);
         return () => window.clearTimeout(timer);
     }, [query, results, searching]);
 
     useEffect(() => {
-        if (!isTvShell || !searchActive) return undefined;
-        let cancelled = false;
-        void fetchPopularSearches()
-            .then((data) => {
-                if (!cancelled) setPopularSearches(Array.isArray(data?.queries) ? data.queries : []);
-            })
-            .catch(() => {});
-        return () => { cancelled = true; };
-    }, [isTvShell, searchActive]);
+        if (!focusSearchResultsRef.current || searching || query.trim().length < 2) return undefined;
+        focusSearchResultsRef.current = false;
+        const timer = window.setTimeout(() => {
+            const first = document.querySelector<HTMLElement>('[data-tv-search-results="1"] [data-tv-item="1"]')
+                || document.querySelector<HTMLElement>(`[data-tv-search-key="${TV_SEARCH_FIRST_KEY}"]`);
+            first?.focus();
+        }, 60);
+        return () => window.clearTimeout(timer);
+    }, [query, results, searching]);
 
     useEffect(() => {
         const onClear = () => setQuery('');
@@ -2223,6 +2226,14 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         );
     }
 
+    // Opening a result keeps the search (even before the idle timer) and the title it found.
+    const openFromSearch = (item: PlayerItem) => {
+        const trimmed = query.trim();
+        if (trimmed.length >= 2) setRecentSearches(rememberRecentSearch(trimmed));
+        setSearchOpened(rememberSearchOpened(item));
+        onOpenItem(item);
+    };
+
     const searchResultsNode = query.trim().length >= 2 ? (
         <div
             className="flex flex-col gap-6"
@@ -2254,7 +2265,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                                     key={item.ratingKey}
                                     item={item}
                                     aspect={group.aspect}
-                                    onOpenItem={onOpenItem}
+                                    onOpenItem={openFromSearch}
                                     onPlay={onPlay}
                                     onToggleWatched={toggleWatched}
                                     onPlayNext={onPlayNext}
@@ -2276,7 +2287,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                         items={group.items}
                         density={homePosterDensity}
                         aspect={group.aspect}
-                        onOpenItem={onOpenItem}
+                        onOpenItem={openFromSearch}
                         onPlay={onPlay}
                         onToggleWatched={toggleWatched}
                         onPlayNext={onPlayNext}
@@ -2303,7 +2314,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                                 key={item.ratingKey}
                                 item={item}
                                 aspect={group.aspect}
-                                onOpenItem={onOpenItem}
+                                onOpenItem={openFromSearch}
                                 onPlay={onPlay}
                                 onToggleWatched={toggleWatched}
                                 onPlayNext={onPlayNext}
@@ -2319,9 +2330,11 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 </section>
             ))}
             {!searching && !results.length ? (
-                <div className={discoveryTheme.emptyState}>
-                    <p className={discoveryTheme.emptyTitle}>{t('mediaPlayerPage.emptySearch')}</p>
-                </div>
+                isTvShell ? <PlayerTvSearchNotice query={query} kind="none" /> : (
+                    <div className={discoveryTheme.emptyState}>
+                        <p className={discoveryTheme.emptyTitle}>{t('mediaPlayerPage.emptySearch')}</p>
+                    </div>
+                )
             ) : null}
         </div>
     ) : null;
@@ -2415,23 +2428,44 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                         onChange={setQuery}
                     />
                     <div data-tv-search-body="1" className="player-tv-search-body">
-                        <PlayerTvSearchRecents
-                            query={query}
-                            recent={recentSearches}
-                            popular={popularSearches}
-                            onPickRecent={(value) => {
-                                setQuery(value);
-                                window.setTimeout(() => {
-                                    document.querySelector<HTMLElement>('[data-tv-search-key="q"]')?.focus();
-                                }, 40);
-                            }}
-                        />
-                        {query.trim().length >= 2 ? searchResultsNode : (
-                            home ? (
-                                <div className="player-home-rows flex min-w-0 flex-col gap-6">
-                                    {homeSections}
-                                </div>
-                            ) : null
+                        {query.trim().length >= 2 ? searchResultsNode : query.trim() ? (
+                            <PlayerTvSearchNotice query={query} kind="short" />
+                        ) : (
+                            <PlayerTvSearchHistory
+                                recent={recentSearches}
+                                onPick={(value) => {
+                                    // Run it again; focus follows into the results when they land.
+                                    focusSearchResultsRef.current = true;
+                                    setSearching(true);
+                                    setQuery(value);
+                                }}
+                                onClear={() => {
+                                    setRecentSearches(clearRecentSearches());
+                                    setSearchOpened([]);
+                                    window.setTimeout(() => {
+                                        document.querySelector<HTMLElement>(`[data-tv-search-key="${TV_SEARCH_FIRST_KEY}"]`)?.focus();
+                                    }, 40);
+                                }}
+                                openedRow={searchOpened.length ? (
+                                    <PlayerRail
+                                        title={t('mediaPlayerPage.searchOpenedFrom')}
+                                        rowId="search:opened"
+                                        items={searchOpened}
+                                        density={homePosterDensity}
+                                        aspect="2/3"
+                                        onOpenItem={openFromSearch}
+                                        onPlay={onPlay}
+                                        onToggleWatched={toggleWatched}
+                                        onPlayNext={onPlayNext}
+                                        onWatchedChange={(row, watched) => patchWatched(row.ratingKey, watched)}
+                                        onRemovedFromContinueWatching={removeFromContinueWatching}
+                                        onDeleted={removeItemEverywhere}
+                                        onToast={onToast}
+                                        isAdmin={isAdmin}
+                                        playlistsEnabled={playlistsEnabled}
+                                    />
+                                ) : null}
+                            />
                         )}
                     </div>
                 </div>

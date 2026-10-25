@@ -12,7 +12,7 @@ const sameTyping = (a, b) => {
  * Newest first. A longer query replaces the shorter one it grew from,
  * so the chip row is not spiderman / spiderma / spiderm / spider.
  */
-export const pushRecentSearch = (existing, query, limit = 8) => {
+export const pushRecentSearch = (existing, query, limit = 20) => {
     const next = cleanQuery(query);
     const prior = (Array.isArray(existing) ? existing : [])
         .map(cleanQuery)

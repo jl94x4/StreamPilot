@@ -109,6 +109,39 @@ export const rememberRecentSearch = (query: string): string[] => {
     return next;
 };
 
+export const clearRecentSearches = (): string[] => {
+    if (typeof window !== 'undefined') {
+        writeJson(window.localStorage, PLAYER_RECENT_SEARCHES_KEY, []);
+        writeJson(window.localStorage, PLAYER_SEARCH_OPENED_KEY, []);
+    }
+    return [];
+};
+
+/** Titles opened from search results, newest first: the search screen's "Opened from search" row. */
+export const PLAYER_SEARCH_OPENED_KEY = 'portal-media-player-search-opened-v1';
+const SEARCH_OPENED_LIMIT = 12;
+
+export const readSearchOpened = (): PlayerItem[] => {
+    const raw = readJson(PLAYER_SEARCH_OPENED_KEY);
+    return Array.isArray(raw)
+        ? (raw as PlayerItem[]).filter((row) => row && typeof row === 'object' && row.ratingKey)
+        : [];
+};
+
+export const rememberSearchOpened = (item: PlayerItem): PlayerItem[] => {
+    if (!item?.ratingKey || item.type === 'person') return readSearchOpened();
+    // Shallow primitives only (title, art, ids): enough for a poster, small in storage.
+    const slim: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(item)) {
+        if (value == null || ['string', 'number', 'boolean'].includes(typeof value)) slim[key] = value;
+    }
+    const same = (row: PlayerItem) => String(row.ratingKey) === String(item.ratingKey)
+        && String(row.serverId || '') === String(item.serverId || '');
+    const next = [slim as PlayerItem, ...readSearchOpened().filter((row) => !same(row))].slice(0, SEARCH_OPENED_LIMIT);
+    if (typeof window !== 'undefined') writeJson(window.localStorage, PLAYER_SEARCH_OPENED_KEY, next);
+    return next;
+};
+
 export const readLocalPlaybackPrefs = (): LocalPlaybackPrefs => {
     const raw = readJson(PLAYER_LOCAL_PLAYBACK_KEY) as Partial<LocalPlaybackPrefs> | null;
     const volume = Number(raw?.volume);

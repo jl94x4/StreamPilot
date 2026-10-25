@@ -80,6 +80,14 @@ const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
                 'No more hard line under the first row while the billboard changes: the artwork now fades smoothly into the background',
             ],
         },
+        {
+            title: 'Search',
+            items: [
+                'Search is redesigned: a compact A–Z keyboard on the left, results on the right as you type',
+                'With nothing typed, search shows everything you have searched before, plus the titles you opened from search; pick one to search it again, or clear the history',
+                'Right from the keyboard goes straight into the results, and Left or Back returns to the key you were on',
+            ],
+        },
     ],
     '1.0.373': [
         {

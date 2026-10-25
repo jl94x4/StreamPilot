@@ -5,7 +5,7 @@ import { pushRecentSearch } from './recentSearch.js';
 test('pushRecentSearch keeps the newest query first and drops duplicates', () => {
     assert.deepEqual(pushRecentSearch(['The Office', 'Heat'], 'heat'), ['heat', 'The Office']);
     assert.deepEqual(pushRecentSearch(['Heat'], '  '), ['Heat']);
-    assert.equal(pushRecentSearch(Array.from({ length: 10 }, (_, i) => `Title ${i}`), 'New').length, 8);
+    assert.equal(pushRecentSearch(Array.from({ length: 30 }, (_, i) => `Title ${i}!`), 'New').length, 20);
     assert.equal(pushRecentSearch([], 'New')[0], 'New');
 });
 

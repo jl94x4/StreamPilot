@@ -14,13 +14,7 @@
  */
 /**
  * @typedef {{ kind: 'key', row: number, col: number }
- *   | { kind: 'nearestKey', row: number, col: number }
- *   | { kind: 'recent' | 'popular', index: number, clamp: boolean }
- *   | { kind: 'firstResult' } | { kind: 'self' } | { kind: 'none' }} SearchPlanStep
- */
-/**
- * @typedef {{ area: 'key', row: number, col: number }
- *   | { area: 'recent' | 'popular', index: number }} SearchFocusFrom
+ *   | { kind: 'panel' } | { kind: 'self' } | { kind: 'none' }} SearchPlanStep
  */
 
 /** @type {(a1: number, a2: number, b1: number, b2: number) => number} */
@@ -179,54 +173,47 @@ export const browseGridMove = (absIndex, cols, dir, absStart = 0) => {
     return { type: 'poster', index: absIndex + cols, fallback: 'load' };
 };
 
-/** Bottom row of the on-screen search keyboard. Chips and results sit below it. */
-export const SEARCH_PAD_LAST_ROW = 3;
+/**
+ * Keys per row of the on-screen search keyboard (PlayerTvSearch TV_SEARCH_KEY_ROWS):
+ * six rows of six letters / digits, then Space · Delete · Clear.
+ */
+export const SEARCH_PAD_ROW_LENGTHS = [6, 6, 6, 6, 6, 6, 3];
+
+/** Bottom row of the on-screen search keyboard. */
+export const SEARCH_PAD_LAST_ROW = SEARCH_PAD_ROW_LENGTHS.length - 1;
+
+/** Same horizontal position in a row of a different length (6 keys over the 3 action keys). */
+const searchPadColumn = (fromRow, toRow, col) => {
+    const from = SEARCH_PAD_ROW_LENGTHS[fromRow] || 1;
+    const to = SEARCH_PAD_ROW_LENGTHS[toRow] || 1;
+    return Math.min(to - 1, Math.floor((col * to) / from));
+};
 
 /**
- * TV search screen: targets to try in order for one press. The first that
- * exists wins. Steps:
- *   { kind: 'key', row, col }         that exact key
- *   { kind: 'nearestKey', row, col }  that row, column clamped to its length
- *   { kind: 'recent' | 'popular', index, clamp }  a chip; clamp picks the last
- *       chip when index is past the end, otherwise the index must exist
- *   { kind: 'firstResult' }           first result card
- *   { kind: 'self' }                  stay on the focused control
- *   { kind: 'none' }                  stop
+ * TV search screen, from a keyboard key: targets to try in order for one press. The first
+ * that exists wins. The keyboard is the left panel; results / history are the right panel.
+ *   { kind: 'key', row, col }   that exact key
+ *   { kind: 'panel' }           nearest item to the right in the results / history panel
+ *   { kind: 'self' }            stay on the focused key
+ *   { kind: 'none' }            stop (Left at the first column opens the nav)
  *
- * `from` is { area: 'key', row, col } or { area: 'recent' | 'popular', index }.
- * @param {SearchFocusFrom} from
+ * @param {{ row: number, col: number }} from
  * @param {SpatialDir} dir
  * @returns {SearchPlanStep[]}
  */
 export const searchFocusPlan = (from, dir) => {
-    if (from.area === 'key') {
-        const { row, col } = from;
-        if (dir === 'left') return col > 0 ? [{ kind: 'key', row, col: col - 1 }, { kind: 'none' }] : [{ kind: 'none' }];
-        if (dir === 'right') return [{ kind: 'key', row, col: col + 1 }, { kind: 'self' }];
-        if (dir === 'up') return row > 0 ? [{ kind: 'nearestKey', row: row - 1, col }, { kind: 'self' }] : [{ kind: 'self' }];
-        return [
-            { kind: 'nearestKey', row: row + 1, col },
-            { kind: 'recent', index: col, clamp: true },
-            { kind: 'popular', index: col, clamp: true },
-            { kind: 'firstResult' },
-            { kind: 'self' },
-        ];
+    const { row, col } = from;
+    const length = SEARCH_PAD_ROW_LENGTHS[row] || 1;
+    if (dir === 'left') return col > 0 ? [{ kind: 'key', row, col: col - 1 }, { kind: 'none' }] : [{ kind: 'none' }];
+    if (dir === 'right') {
+        return col < length - 1
+            ? [{ kind: 'key', row, col: col + 1 }, { kind: 'panel' }, { kind: 'self' }]
+            : [{ kind: 'panel' }, { kind: 'self' }];
     }
-
-    const { area, index } = from;
-    const at = Math.max(0, index);
-    if (dir === 'left') return index > 0 ? [{ kind: area, index: index - 1, clamp: false }, { kind: 'none' }] : [{ kind: 'none' }];
-    if (dir === 'right') return index >= 0 ? [{ kind: area, index: index + 1, clamp: false }, { kind: 'self' }] : [{ kind: 'self' }];
-
-    const backToKeys = [
-        { kind: 'nearestKey', row: SEARCH_PAD_LAST_ROW, col: at },
-        { kind: 'key', row: 0, col: 0 },
-        { kind: 'self' },
-    ];
-    if (area === 'recent') {
-        if (dir === 'up') return backToKeys;
-        return [{ kind: 'popular', index: at, clamp: true }, { kind: 'firstResult' }, { kind: 'self' }];
+    if (dir === 'up') {
+        return row > 0 ? [{ kind: 'key', row: row - 1, col: searchPadColumn(row, row - 1, col) }, { kind: 'self' }] : [{ kind: 'self' }];
     }
-    if (dir === 'up') return [{ kind: 'recent', index: at, clamp: true }, ...backToKeys];
-    return [{ kind: 'firstResult' }, { kind: 'self' }];
+    return row < SEARCH_PAD_LAST_ROW
+        ? [{ kind: 'key', row: row + 1, col: searchPadColumn(row, row + 1, col) }, { kind: 'self' }]
+        : [{ kind: 'self' }];
 };
