@@ -3202,14 +3202,14 @@ html[data-tv="1"] .media-details-service-logo {
   margin: 0 0 0.55rem;
   object-fit: contain;
   object-position: left center;
-  /* Must include invert here — a lone drop-shadow overrides Tailwind brightness-0 invert. */
-  filter: brightness(0) invert(1) drop-shadow(0 8px 18px rgb(0 0 0 / 0.55)) !important;
+  /* Must include invert here — a lone filter overrides Tailwind brightness-0 invert. No shadow. */
+  filter: brightness(0) invert(1) !important;
 }
 /* Peacock / Cinemax etc. — keep brand colours on the billboard. */
 html[data-tv="1"] .player-service-brand-mark.player-service-brand-mark--color,
 html[data-tv="1"] .player-home-spot-service-logo.player-service-brand-mark--color,
 html[data-tv="1"] .media-details-service-logo.player-service-brand-mark--color {
-  filter: drop-shadow(0 8px 18px rgb(0 0 0 / 0.55)) !important;
+  filter: none !important;
 }
 html[data-tv="1"] .player-home-spot-logo {
   display: block;

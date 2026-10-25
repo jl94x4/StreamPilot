@@ -98,7 +98,7 @@ const StudioPill: React.FC<{
     const logoClass = brandColor
         ? 'h-5 max-w-[110px] sm:max-w-[130px] w-auto object-contain'
         : size === 'hero'
-        ? 'h-12 sm:h-14 lg:h-[4.25rem] max-w-[16rem] sm:max-w-[20rem] w-auto object-contain object-left drop-shadow-[0_10px_24px_rgba(0,0,0,0.45)]'
+        ? 'h-12 sm:h-14 lg:h-[4.25rem] max-w-[16rem] sm:max-w-[20rem] w-auto object-contain object-left'
         : size === 'toolbar'
             ? 'h-5 max-w-[4.5rem] w-auto object-contain opacity-95'
             : size === 'lg'

@@ -2177,8 +2177,8 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                             alt={showName}
                             boostTopMark
                             className={item.type === 'season'
-                                ? 'h-14 sm:h-20 lg:h-[6.5rem] w-auto max-w-[min(100%,32rem)] self-start object-contain object-left-top drop-shadow-[0_12px_28px_rgba(0,0,0,0.75)]'
-                                : 'h-10 sm:h-12 lg:h-16 w-auto max-w-[min(100%,26rem)] self-start object-contain object-left-top drop-shadow-[0_10px_24px_rgba(0,0,0,0.7)]'}
+                                ? 'h-14 sm:h-20 lg:h-[6.5rem] w-auto max-w-[min(100%,32rem)] self-start object-contain object-left-top'
+                                : 'h-10 sm:h-12 lg:h-16 w-auto max-w-[min(100%,26rem)] self-start object-contain object-left-top'}
                         />
                     </button>
                 ) : (
@@ -2213,7 +2213,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                         src={logoUrl}
                         alt={item.title}
                         boostTopMark
-                        className="h-14 sm:h-20 lg:h-[6.5rem] w-auto max-w-[min(100%,32rem)] self-start object-contain object-left-top drop-shadow-[0_12px_28px_rgba(0,0,0,0.75)]"
+                        className="h-14 sm:h-20 lg:h-[6.5rem] w-auto max-w-[min(100%,32rem)] self-start object-contain object-left-top"
                     />
                     <h1 className="sr-only">{item.title}</h1>
                 </>
