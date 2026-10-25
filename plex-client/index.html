@@ -1775,6 +1775,18 @@
     html[data-reduce-motion="1"] .player-home-stage .player-home-tint {
       transition: none;
     }
+    /* The art is lifted 10% (translateY above), so it stops at 90% of the screen. This fixed
+       fade into the page colour hides that edge, under the two fade layers: while they
+       cross-fade between titles neither is fully on, and the hard line under the first row
+       used to show through. */
+    html[data-tv="1"] .player-home-stage .player-home-focus-still::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+      pointer-events: none;
+      background: linear-gradient(180deg, transparent 0%, transparent 74%, rgb(var(--tv-home-surface) / 0.55) 81%, rgb(var(--tv-home-surface) / 0.9) 86%, rgb(var(--tv-home-surface)) 89.5%, rgb(var(--tv-home-surface)) 100%);
+    }
     html[data-tv="1"] .player-home-stage .player-home-focus-still {
       height: auto;
       margin: 0;
