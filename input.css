@@ -2700,8 +2700,10 @@ html[data-tv="1"] .media-details-season-pill.is-active {
 html[data-tv="1"] .media-details-episode-heading {
   margin: 0.4rem 0 0;
   max-width: 36rem;
+  /* Episode name under the clear logo: the clock's face (medium Switzer). */
+  font-family: "Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif;
   font-size: 1.65rem;
-  font-weight: 800;
+  font-weight: 500;
   line-height: 1.15;
   color: #fff !important;
   text-align: left;
@@ -3269,9 +3271,11 @@ html[data-tv="1"] .player-home-spot-watched {
   border-radius: 999px;
   background: #e5a00d;
   color: #111111 !important;
+  /* The clock's face (medium Switzer), like the play buttons. */
+  font-family: "Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif;
   font-size: 0.78rem;
-  font-weight: 800;
-  letter-spacing: 0.02em;
+  font-weight: 500;
+  letter-spacing: 0;
   line-height: 1;
 }
 html[data-tv="1"] .player-home-spot-summary {
