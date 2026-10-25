@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.387': [
+        {
+            title: 'Profiles',
+            items: [
+                'Picking a profile gets you to Home much faster: the server that worked last time is checked first, and a slow or offline server no longer holds everything up (it joins when it answers)',
+            ],
+        },
+    ],
     '1.0.386': [
         {
             title: 'Player',

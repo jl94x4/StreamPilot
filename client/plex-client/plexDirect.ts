@@ -6,7 +6,7 @@ import { mirrorAuthToNativeStorage } from './authPersistence';
 import { getPortalBaseUrl, getSessionToken, readHomeAutoSignIn, readStoredPortalBaseUrl, writeStoredSessionToken } from './config';
 import { STORAGE_PLEX_CLIENT_ID, STORAGE_PLEX_HOME_USER, STORAGE_PLEX_OWNER_TOKEN, STORAGE_PLEX_SERVER, STORAGE_PLEX_SERVERS } from './configStorageKeys';
 import { DEFAULT_PLAYER_SETTINGS, type PlayerSettings } from '../media-player/playerSettings';
-import { PLAYER_SERVERS_EVENT } from '../media-player/playerMemory';
+import { notifyPlayerServersChanged, PLAYER_SERVERS_EVENT } from '../media-player/playerMemory';
 import { PLAYER_HOME_LIVE_EVENT } from '../media-player/paths';
 import { homeHubHiddenByPicks, normalizeHomeLibraryPicks } from '../media-player/homeLibraries';
 import {
@@ -1519,12 +1519,20 @@ const firstOf = (connections: PlexMeta[], id: string, name: string, accessToken:
     }
 });
 
-const firstReachable = async (resource: PlexMeta, token: string): Promise<PlexServer | null> => {
+const firstReachable = async (resource: PlexMeta, token: string, knownUri?: string | null): Promise<PlexServer | null> => {
     const id = String(resource.clientIdentifier || resource.machineIdentifier || resource.name || '').trim();
     if (!id) return null;
     const accessToken = String(resource.accessToken || token);
     const name = String(resource.name || 'Plex');
     const connections = asList<PlexMeta>(resource.connections);
+    // The address that worked last time (profiles share servers): one quick check, and if it
+    // answers there is no need to race every connection with the long wake-up timeouts.
+    const known = knownUri
+        ? connections.find((connection) => String(connection.uri || '').replace(/\/+$/, '') === knownUri)
+        : null;
+    if (known && knownUri && await probeOnce(knownUri, accessToken, 2500)) {
+        return connectionTarget(known, id, name, accessToken);
+    }
     const picked: PlexMeta[] = [];
     const take = (match: (connection: PlexMeta) => boolean) => {
         const hit = connections.find((connection) => match(connection) && !picked.includes(connection));
@@ -1565,7 +1573,53 @@ const discoverServers = async (token: string) => {
         String(resource.provides || '').includes('server')
         && String(resource.product || '') === 'Plex Media Server'
     ));
-    const found = (await Promise.all(resources.map((resource) => firstReachable(resource, token)))).filter((server): server is PlexServer => !!server);
+    const previous = readServerList();
+    const gen = ++discoveryGen;
+    const knownUri = (resource: PlexMeta) => {
+        const id = String(resource.clientIdentifier || resource.machineIdentifier || resource.name || '').trim();
+        return previous.servers.find((server) => server.id === id)?.uri || null;
+    };
+    // Results stay in plex.tv's order, so the primary server does not depend on who answers first.
+    const results: Array<PlexServer | null> = resources.map(() => null);
+    const jobs = resources.map((resource, index) => (
+        firstReachable(resource, token, knownUri(resource))
+            .catch(() => null)
+            .then((server) => {
+                results[index] = server;
+                return server;
+            })
+    ));
+    const allDone = Promise.all(jobs);
+    // An offline / slow server costs up to ~20s of probes. Go on once one server answered and
+    // the rest had a short grace; late ones join the list when they turn up.
+    const oneThenGrace = new Promise<void>((resolve) => {
+        let started = false;
+        jobs.forEach((job) => {
+            void job.then((server) => {
+                if (!server || started) return;
+                started = true;
+                window.setTimeout(resolve, 1500);
+            });
+        });
+    });
+    let settledAll = false;
+    await Promise.race([allDone.then(() => { settledAll = true; }), oneThenGrace]);
+    const reachable = () => results.filter((server): server is PlexServer => !!server);
+    const found = reachable();
+    if (!settledAll && found.length) {
+        void allDone.then(() => {
+            if (gen !== discoveryGen) return;
+            const late = reachable();
+            if (late.length <= found.length) return;
+            const enabled = previous.enabledIds.filter((id) => late.some((server) => server.id === id));
+            writeServerList(late, enabled);
+            notifyPlayerServersChanged();
+        });
+        // Keep the slow servers' enabled state until they answer (or not).
+        const resourceIds = resources.map((resource) => String(resource.clientIdentifier || resource.machineIdentifier || resource.name || '').trim());
+        writeServerList(found, previous.enabledIds.filter((id) => resourceIds.includes(id)));
+        return found;
+    }
     if (!found.length) {
         const relays = await Promise.all(resources.map(async (resource) => {
             const relay = asList<PlexMeta>(resource.connections).find((connection) => isRelayConnection(connection));
@@ -1579,11 +1633,13 @@ const discoverServers = async (token: string) => {
         found.push(...relays.filter((server): server is PlexServer => !!server));
     }
     if (!found.length) throw new Error('Signed in, but no Plex server was reachable from this device.');
-    const previous = readServerList();
     const enabledIds = previous.enabledIds.filter((id) => found.some((server) => server.id === id));
     writeServerList(found, enabledIds);
     return found;
 };
+
+/** Bumped per discovery run: a late server from an older run must not overwrite a newer list. */
+let discoveryGen = 0;
 
 beginServerDiscovery = (token: string) => {
     if (!serversPromise) {
@@ -2169,6 +2225,19 @@ const fetchHomeUsers = async (token: string): Promise<HomeUser[]> => {
     return load(`${PLEX_TV}/api/home/users`, false).catch(() => []);
 };
 
+/** The picker just listed the profiles: the switch reuses that list for a couple of minutes. */
+const HOME_USERS_TTL_MS = 2 * 60 * 1000;
+let homeUsersCache: { token: string; at: number; users: HomeUser[] } | null = null;
+
+const fetchHomeUsersCached = async (token: string, { fresh = false } = {}): Promise<HomeUser[]> => {
+    if (!fresh && homeUsersCache && homeUsersCache.token === token && Date.now() - homeUsersCache.at < HOME_USERS_TTL_MS) {
+        return homeUsersCache.users;
+    }
+    const users = await fetchHomeUsers(token);
+    if (users.length) homeUsersCache = { token, at: Date.now(), users };
+    return users;
+};
+
 const sameHomeUser = (user: HomeUser, targetId: string) => {
     const want = String(targetId || '').trim();
     return !!want && (user.id === want || user.uuid === want);
@@ -2194,8 +2263,8 @@ const extractSwitchToken = (raw: string) => {
 const switchHomeProfile = async (userId: string, pin?: string) => {
     const owner = readOwnerToken();
     if (!owner) throw new Error('Sign in with Plex again to switch profiles.');
-    const users = await fetchHomeUsers(owner);
-    const target = users.find((user) => sameHomeUser(user, userId));
+    let target = (await fetchHomeUsersCached(owner)).find((user) => sameHomeUser(user, userId));
+    if (!target) target = (await fetchHomeUsersCached(owner, { fresh: true })).find((user) => sameHomeUser(user, userId));
     if (!target) throw new Error('That Plex Home profile is no longer available.');
     const applyProfile = async (authToken: string) => {
         try {
@@ -2282,7 +2351,7 @@ const handleAuth = async (path: string, method: string, body: any) => {
         if (!token) return { pending: true };
         writeStoredSessionToken(token);
         writeOwnerToken(token);
-        const users = await fetchHomeUsers(token).catch(() => [] as HomeUser[]);
+        const users = await fetchHomeUsersCached(token, { fresh: true }).catch(() => [] as HomeUser[]);
         if (users.length > 1) {
             return {
                 needsHomeSelect: true,
@@ -2328,7 +2397,8 @@ const handleAuth = async (path: string, method: string, body: any) => {
         const owner = readOwnerToken();
         if (!owner) return { available: false, users: [], currentUserId: null };
         if (!storedValue(STORAGE_PLEX_OWNER_TOKEN)) writeOwnerToken(owner);
-        const users = await fetchHomeUsers(owner).catch(() => [] as HomeUser[]);
+        // Fresh for the picker; the switch that follows reuses this list.
+        const users = await fetchHomeUsersCached(owner, { fresh: true }).catch(() => [] as HomeUser[]);
         return {
             available: users.length > 1,
             users: users.map(publicHomeUser),
