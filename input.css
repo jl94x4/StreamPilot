@@ -1422,6 +1422,188 @@ html[data-theme="light"] .media-details-hero-scrim-left {
   animation: player-resume-dialog-enter 0.44s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+/* Resume prompt: a small billboard (art fading into the card, logo, progress) with the
+   title-page buttons in one row. */
+.smp-resume {
+  position: fixed;
+  inset: 0;
+  z-index: 3500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+}
+.smp-resume-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(3, 5, 9, 0.72);
+}
+.smp-resume-card {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 46rem);
+  min-height: 19rem;
+  overflow: hidden;
+  border-radius: 1.6rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: #080b11;
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.6);
+}
+.smp-resume.is-tv .smp-resume-card {
+  width: min(100%, 54rem);
+  min-height: 21rem;
+}
+.smp-resume-art {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 72%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 70% 20%;
+}
+/* Art fades into the card from the left (where the text sits) and at the bottom. */
+.smp-resume-fade {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, #080b11 0%, #080b11 30%, rgba(8, 11, 17, 0.86) 46%, rgba(8, 11, 17, 0.35) 70%, rgba(8, 11, 17, 0.1) 100%),
+    linear-gradient(0deg, #080b11 0%, rgba(8, 11, 17, 0) 45%);
+}
+.smp-resume-body {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.55rem;
+  max-width: 30rem;
+  padding: 2rem 2.1rem 1.9rem;
+}
+.smp-resume.is-tv .smp-resume-body {
+  max-width: 34rem;
+  padding: 2.4rem 2.6rem 2.2rem;
+}
+.smp-resume-eyebrow {
+  margin: 0 0 0.35rem;
+  color: #e5a00d;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+.smp-resume-logo {
+  display: block;
+  max-width: min(18rem, 100%);
+  max-height: 5rem;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  object-position: left center;
+}
+.smp-resume-title {
+  margin: 0;
+  color: #fff;
+  font-size: 1.85rem;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+}
+.smp-resume-episode {
+  margin: 0.1rem 0 0;
+  color: rgba(255, 255, 255, 0.72);
+  font-family: "Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: 1rem;
+  font-weight: 500;
+}
+.smp-resume-progress {
+  width: 100%;
+  margin-top: 0.9rem;
+}
+.smp-resume-bar {
+  height: 0.32rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+}
+.smp-resume-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #e5a00d;
+}
+.smp-resume-times {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 0.55rem;
+  color: rgba(255, 255, 255, 0.7);
+  font-family: "Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: 0.92rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.smp-resume-times span:first-child {
+  color: #fff;
+}
+.smp-resume-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.7rem;
+  margin-top: 1.4rem;
+}
+.smp-resume-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  height: 3.1rem;
+  padding: 0 1.4rem;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  font-family: "Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: 1.05rem;
+  font-weight: 500;
+  outline: none;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+.smp-resume-btn.is-primary {
+  min-width: 9.5rem;
+  border-color: transparent;
+  background: #fff;
+  color: #0b0b0d;
+}
+.smp-resume-btn.is-icon {
+  width: 3.1rem;
+  padding: 0;
+}
+.smp-resume-btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+.smp-resume-btn.is-primary:hover {
+  background: #f1f1f1;
+}
+/* Remote focus: white fill and a gold ring, a little larger (wins over the generic TV ring). */
+.smp-resume .smp-resume-btn:focus-visible,
+html[data-tv="1"] .smp-resume .smp-resume-btn:focus,
+html[data-tv="1"] .smp-resume .smp-resume-btn:focus-visible {
+  border-color: transparent !important;
+  background: #fff !important;
+  color: #0b0b0d !important;
+  outline: none !important;
+  box-shadow: 0 0 0 3px #e5a00d, 0 10px 26px rgba(0, 0, 0, 0.45) !important;
+  transform: scale(1.05);
+}
+@media (max-width: 640px) {
+  .smp-resume-art { width: 100%; opacity: 0.45; }
+  .smp-resume-body { max-width: none; padding: 1.6rem 1.4rem 1.5rem; }
+  .smp-resume-actions { width: 100%; }
+  .smp-resume-btn:not(.is-icon) { flex: 1 1 auto; }
+}
+
 @keyframes tv-rail-enter {
   from { opacity: 0; transform: translate3d(0, 22px, 0); }
   to { opacity: 1; transform: translate3d(0, 0, 0); }
