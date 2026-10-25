@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.373': [
+        {
+            title: 'Performance',
+            items: [
+                'Styles that were defined twice are now defined once, so the app has less to load and match on every screen, with no change to how anything looks',
+            ],
+        },
+    ],
     '1.0.372': [
         {
             title: 'Performance',
