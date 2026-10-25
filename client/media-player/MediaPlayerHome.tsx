@@ -153,32 +153,14 @@ const itemKeyFromFocusTarget = (target: EventTarget | null) => {
     return key;
 };
 
-/**
- * Paint the billboard fade colour straight onto the still, so a colour change never re-renders
- * Home. The new colour goes on the hidden fade layer, which then cross-fades in (opacity only).
- */
+/** Paint the billboard fade colour straight onto the still, so a colour change never re-renders Home. */
 const paintHomeSurface = (rgb: string) => {
     const still = document.querySelector<HTMLElement>('.player-home-stage .player-home-focus-still');
     if (!still) return;
-    const channel = (name: string, fallback: string) => still.style.getPropertyValue(name) || fallback;
-    const previous = `${channel('--tv-home-r', '6')} ${channel('--tv-home-g', '10')} ${channel('--tv-home-b', '16')}`;
     const [r, g, b] = rgb.split(/\s+/);
     still.style.setProperty('--tv-home-r', r);
     still.style.setProperty('--tv-home-g', g);
     still.style.setProperty('--tv-home-b', b);
-    const [first, second] = Array.from(still.querySelectorAll<HTMLElement>('.player-home-tint'));
-    if (!first || !second) return;
-    const showing = second.classList.contains('is-on') ? second : first;
-    // Pin the layer on screen to its colour first, so it does not follow the still's change.
-    if (!showing.style.getPropertyValue('--tv-home-surface')) {
-        showing.style.setProperty('--tv-home-surface', previous);
-    }
-    const surface = `${r} ${g} ${b}`;
-    if (showing.style.getPropertyValue('--tv-home-surface') === surface) return;
-    const next = showing === first ? second : first;
-    next.style.setProperty('--tv-home-surface', surface);
-    next.classList.add('is-on');
-    showing.classList.remove('is-on');
 };
 
 /** Focus moves closer together than this count as holding the button. */
@@ -305,9 +287,6 @@ const HomeFocusStill: React.FC<{
                     className={frontOn ? 'is-front' : 'is-behind'}
                 />
             ) : null}
-            {/* The fade, twice: paintHomeSurface swaps which one shows (class set on the DOM). */}
-            <div className="player-home-tint is-on" />
-            <div className="player-home-tint" />
         </div>
     );
 };

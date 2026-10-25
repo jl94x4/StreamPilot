@@ -1764,21 +1764,23 @@
       padding: 0;
       gap: 0 !important;
     }
+    @property --tv-home-r { syntax: '<number>'; inherits: true; initial-value: 6; }
+    @property --tv-home-g { syntax: '<number>'; inherits: true; initial-value: 10; }
+    @property --tv-home-b { syntax: '<number>'; inherits: true; initial-value: 16; }
     /* Billboard fade takes the title's page colour (Artwork tint), so opening the title page
-       keeps the same colour. The fade is two layers (.player-home-tint) that cross-fade their
-       opacity between titles: easing the colour itself repainted full-screen gradients on
-       every frame, which is heavy on TV sticks. */
-    html[data-tv="1"] .player-home-stage .player-home-tint {
-      z-index: 1;
-      transition: opacity 0.45s ease;
+       keeps the same colour. One fade layer whose colour eases (registered channels): two
+       layers cross-fading their opacity let the art flash brighter mid-way, as neither was
+       fully on. */
+    html[data-tv="1"] .player-home-stage .player-home-focus-still {
+      --tv-home-surface: var(--tv-home-r) var(--tv-home-g) var(--tv-home-b);
+      transition: --tv-home-r 0.45s ease, --tv-home-g 0.45s ease, --tv-home-b 0.45s ease;
     }
-    html[data-reduce-motion="1"] .player-home-stage .player-home-tint {
+    html[data-reduce-motion="1"] .player-home-stage .player-home-focus-still {
       transition: none;
     }
     /* The art is lifted 10% (translateY above), so it stops at 90% of the screen. This fixed
-       fade into the page colour hides that edge, under the two fade layers: while they
-       cross-fade between titles neither is fully on, and the hard line under the first row
-       used to show through. */
+       fade into the page colour hides that edge under the billboard fade, so no hard line
+       shows under the first row. */
     html[data-tv="1"] .player-home-stage .player-home-focus-still::before {
       content: "";
       position: absolute;
@@ -1792,7 +1794,7 @@
       margin: 0;
       z-index: 0;
     }
-    html[data-tv="1"] .player-home-stage .player-home-tint {
+    html[data-tv="1"] .player-home-stage .player-home-focus-still::after {
       background:
         linear-gradient(90deg, rgb(var(--tv-home-surface) / 0.98) 0%, rgb(var(--tv-home-surface) / 0.95) 18%, rgb(var(--tv-home-surface) / 0.9) 30%, rgb(var(--tv-home-surface) / 0.76) 42%, rgb(var(--tv-home-surface) / 0.5) 52%, rgb(var(--tv-home-surface) / 0.24) 62%, rgb(var(--tv-home-surface) / 0.08) 72%, transparent 84%),
         linear-gradient(180deg, rgb(var(--tv-home-surface) / 0.14) 0%, transparent 12%, transparent 34%, rgb(var(--tv-home-surface) / 0.38) 50%, rgb(var(--tv-home-surface) / 0.72) 64%, rgb(var(--tv-home-surface) / 0.92) 78%, rgb(var(--tv-home-surface)) 100%);
@@ -1816,7 +1818,7 @@
        costly on TV-stick GPUs while two full-screen images cross-fade, which made row changes
        heavy. The same fade is now the bottom layer of the scrim (all one colour, so it
        composites to the old look), with the left / bottom text scrims above it. */
-    html[data-tv="1"] .player-home-stage .player-home-tint {
+    html[data-tv="1"] .player-home-stage .player-home-focus-still::after {
       z-index: 1;
       background:
         linear-gradient(90deg, rgb(var(--tv-home-surface) / 0.98) 0%, rgb(var(--tv-home-surface) / 0.95) 18%, rgb(var(--tv-home-surface) / 0.9) 30%, rgb(var(--tv-home-surface) / 0.76) 42%, rgb(var(--tv-home-surface) / 0.5) 52%, rgb(var(--tv-home-surface) / 0.24) 62%, rgb(var(--tv-home-surface) / 0.08) 72%, transparent 84%),

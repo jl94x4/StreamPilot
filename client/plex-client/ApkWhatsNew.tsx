@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.379': [
+        {
+            title: 'Home',
+            items: [
+                'The billboard fade no longer flashes brighter for a moment when it changes colour between titles: it now eases straight to the new colour',
+            ],
+        },
+    ],
     '1.0.378': [
         {
             title: 'Look',
