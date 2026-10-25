@@ -4346,6 +4346,21 @@
         transition: none !important;
         transform: none !important;
       }
+    /* Info rows in the clock's face (medium Switzer): Home billboard line and Watched pill,
+       title-page info / score pills, episode tech and track pills, the episode Cast & Crew
+       heading. Last in the sheet so it wins over the older weights above. */
+    html[data-tv="1"] .player-home-spot-meta,
+    html[data-tv="1"] .player-home-spot-meta-sep,
+    html[data-tv="1"] .player-meta-chip,
+    html[data-tv="1"] .media-rating-pills > a,
+    html[data-tv="1"] .media-rating-pills > span,
+    html[data-tv="1"] .player-file-pill,
+    html[data-tv="1"] .player-track-chip,
+    html[data-tv="1"] .media-details-episode-cast-heading {
+      font-family: "Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif !important;
+      font-weight: 500 !important;
+      letter-spacing: 0 !important;
+    }
   </style>
 </head>
 <body>

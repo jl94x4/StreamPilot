@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.383': [
+        {
+            title: 'Look',
+            items: [
+                'The info line on Home, the info and score pills, the video / audio / subtitle pills and the Cast & Crew heading on episode pages all use the clock font',
+            ],
+        },
+    ],
     '1.0.382': [
         {
             title: 'Look',
