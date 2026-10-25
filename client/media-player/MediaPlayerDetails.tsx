@@ -602,6 +602,34 @@ export const MediaPlayerDetails: React.FC<Props> = ({
 
     const onWatchedPress = () => {
         if (!item) return;
+        // TV episode / season pages: the button marks only the episode you are on. Marking a
+        // whole season or show is in the season / show context menus.
+        if (watchedTarget.type === 'episode' && watchedTarget !== item) {
+            const episode = watchedTarget;
+            const next = !episode.watched;
+            const same = (row: PlayerItem) => String(row.ratingKey) === String(episode.ratingKey);
+            const paint = (watched: boolean) => {
+                const patch = (row: PlayerItem) => (same(row)
+                    ? { ...row, watched, viewOffsetMs: watched ? 0 : row.viewOffsetMs }
+                    : row);
+                setSeasonEpisodes((rows) => rows.map(patch));
+                setChildren((rows) => rows.map(patch));
+                setSpotlightDetail((prev) => (prev && same(prev) ? patch(prev) : prev));
+                setItem((prev) => {
+                    if (!prev) return prev;
+                    if (same(prev)) return patch(prev);
+                    if (prev.type !== 'season') return prev;
+                    const viewed = Math.max(0, Number(prev.viewedLeafCount || 0) + (watched ? 1 : -1));
+                    return { ...prev, viewedLeafCount: viewed, watched: viewed >= Number(prev.leafCount || 0) };
+                });
+            };
+            paint(next);
+            void setMediaPlayerWatched(episode.ratingKey, next, episode).catch(() => {
+                paint(!next);
+                onToast?.(t('mediaPlayerPage.actionError'), 'error');
+            });
+            return;
+        }
         if (item.type === 'season' && !item.watched) {
             setSeasonWatchOpen(true);
             return;
@@ -1790,6 +1818,8 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             : item
     ) || item;
     const isEpisodeHub = isTvShell && (item.type === 'episode' || item.type === 'season');
+    /** What the watched button marks: the focused episode on TV episode / season pages. */
+    const watchedTarget = isEpisodeHub && hubItem.type === 'episode' ? hubItem : item;
     const backdropUrl = episodeHubBackdropUrl || homeHandoff?.url || plexBackdropUrl(item.art || item.thumb);
     const hubTechPills = isTvShell && (item.type === 'episode' || item.type === 'season')
         ? episodeTechPills(hubItem)
@@ -2701,12 +2731,12 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                                     data-tv-action="1"
                                                     data-tv-key={`watched:${item.ratingKey}`}
                                                     onClick={onWatchedPress}
-                                                    title={item.watched ? t('mediaPlayerPage.markUnwatched') : t('mediaPlayerPage.markWatched')}
-                                                    aria-label={item.watched ? t('mediaPlayerPage.markUnwatched') : t('mediaPlayerPage.markWatched')}
+                                                    title={watchedTarget.watched ? t('mediaPlayerPage.markUnwatched') : t('mediaPlayerPage.markWatched')}
+                                                    aria-label={watchedTarget.watched ? t('mediaPlayerPage.markUnwatched') : t('mediaPlayerPage.markWatched')}
                                                     className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/15 bg-white/5 text-white transition-colors hover:border-plex/40 hover:bg-white/10"
                                                 >
-                                                    {item.watched ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                                                    <span className="media-details-action-label">{phoneUi ? actionWatchedLabel : (item.watched ? t('mediaPlayerPage.markUnwatched') : t('mediaPlayerPage.markWatched'))}</span>
+                                                    {watchedTarget.watched ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                                    <span className="media-details-action-label">{phoneUi ? actionWatchedLabel : (watchedTarget.watched ? t('mediaPlayerPage.markUnwatched') : t('mediaPlayerPage.markWatched'))}</span>
                                                 </button>
                                             ) : null}
                                             {watchlistChip}
@@ -2906,21 +2936,13 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                         data-tv-item="1"
                                         data-tv-action="1"
                                         data-tv-key={`watched:${item.ratingKey}`}
-                                        onClick={async () => {
-                                            const next = !item.watched;
-                                            setItem({ ...item, watched: next });
-                                            try {
-                                                await setMediaPlayerWatched(item.ratingKey, next, item);
-                                            } catch {
-                                                setItem({ ...item, watched: item.watched });
-                                            }
-                                        }}
-                                        title={item.watched ? t('mediaPlayerPage.markUnwatched') : t('mediaPlayerPage.markWatched')}
-                                        aria-label={item.watched ? t('mediaPlayerPage.markUnwatched') : t('mediaPlayerPage.markWatched')}
+                                        onClick={onWatchedPress}
+                                        title={watchedTarget.watched ? t('mediaPlayerPage.markUnwatched') : t('mediaPlayerPage.markWatched')}
+                                        aria-label={watchedTarget.watched ? t('mediaPlayerPage.markUnwatched') : t('mediaPlayerPage.markWatched')}
                                         className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/15 bg-white/5 text-white transition-colors hover:border-plex/40 hover:bg-white/10"
                                     >
-                                        {item.watched ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                                        <span className="media-details-action-label">{phoneUi ? actionWatchedLabel : (item.watched ? t('mediaPlayerPage.markUnwatched') : t('mediaPlayerPage.markWatched'))}</span>
+                                        {watchedTarget.watched ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                        <span className="media-details-action-label">{phoneUi ? actionWatchedLabel : (watchedTarget.watched ? t('mediaPlayerPage.markUnwatched') : t('mediaPlayerPage.markWatched'))}</span>
                                     </button>
                                     {watchlistChip}
                                     {watchTogetherChip}

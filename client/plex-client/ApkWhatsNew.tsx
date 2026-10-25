@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.385': [
+        {
+            title: 'Episodes',
+            items: [
+                'On an episode or season page, the watched button marks only the episode you are on. Marking a whole season or show is in the season and show menus',
+                'The E1, E2… badges on episode cards use the same font as the clock',
+            ],
+        },
+    ],
     '1.0.384': [
         {
             title: 'Player',
