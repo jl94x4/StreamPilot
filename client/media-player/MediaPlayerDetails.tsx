@@ -1921,6 +1921,47 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             };
         })(),
     ].filter(Boolean) as Array<{ icon: React.ReactNode; label: string; title?: string }>;
+    type MetaChip = { icon: React.ReactNode; label: string; title?: string };
+    // TV episode / season pages: the same pills as a show page, for the episode in focus.
+    const hubMetaChips: MetaChip[] = isTvShell && (item.type === 'episode' || item.type === 'season')
+        ? ([
+            hubItem.type === 'episode'
+                ? { icon: null, label: formatEpisodeCode(hubItem) || (hubItem.index != null ? `E${hubItem.index}` : '') }
+                : null,
+            (hubItem.contentRating || item.contentRating)
+                ? { icon: null, label: String(hubItem.contentRating || item.contentRating) }
+                : null,
+            hubItem.type === 'episode'
+                ? (formatPlayerDate(hubItem.originallyAvailableAt, locale)
+                    ? { icon: <Calendar className="h-3 w-3" />, label: formatPlayerDate(hubItem.originallyAvailableAt, locale) }
+                    : null)
+                : (hubItem.year ? { icon: <Calendar className="h-3 w-3" />, label: String(hubItem.year) } : null),
+            hubItem.durationMs ? { icon: <Clock className="h-3 w-3" />, label: formatPlayerDuration(hubItem.durationMs) } : null,
+            hubItem.type === 'season' && totalLeaves > 0
+                ? { icon: null, label: t('mediaPlayerPage.episodeProgressValue', { watched: watchedLeaves, total: totalLeaves }) }
+                : null,
+            hubItem.audienceRating ? { icon: <Star className="h-3.5 w-3.5 text-plex" />, label: String(hubItem.audienceRating) } : null,
+        ].filter((chip) => chip && chip.label) as MetaChip[])
+        : [];
+    const hubTmdbScore = hubItem.ratings?.tmdb?.percent != null ? `${hubItem.ratings.tmdb.percent}%` : null;
+    const hubTvdbValue = hubItem.ratings?.tvdb?.value;
+    const hubTvdbScore = hubTvdbValue == null
+        ? null
+        : (hubTvdbValue <= 10 ? hubTvdbValue.toFixed(1) : `${hubItem.ratings?.tvdb?.percent ?? Math.round(hubTvdbValue)}%`);
+    const metaChipRow = (chips: MetaChip[], className = '') => (
+        <div className={`player-meta-chips flex flex-wrap items-center gap-1.5${className ? ` ${className}` : ''}`}>
+            {chips.map((chip) => (
+                <div
+                    key={chip.label}
+                    title={chip.title}
+                    className="player-meta-chip inline-flex h-7 items-center gap-1 rounded-md border border-white/10 bg-black/45 px-2 text-[11px] font-semibold leading-none text-white/85 backdrop-blur-md"
+                >
+                    {chip.icon ? <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center [&_img]:h-3.5 [&_img]:w-3.5 [&_svg]:h-3.5 [&_svg]:w-3.5">{chip.icon}</span> : null}
+                    <span className="leading-none">{chip.label}</span>
+                </div>
+            ))}
+        </div>
+    );
     const streamRows = (() => {
         const media = (item.mediaInfo || [])[Math.min(Math.max(0, mediaIndex), Math.max(0, (item.mediaInfo || []).length - 1))] || item.mediaInfo?.[0];
         const part = media?.parts?.[0] || activeMediaPart;
@@ -2109,18 +2150,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             {item.tagline ? (
                 <p className="text-sm sm:text-base text-white/80 italic max-w-3xl drop-shadow-md">{item.tagline}</p>
             ) : null}
-            <div className="player-meta-chips flex flex-wrap items-center gap-1.5">
-                {metaChips.map((chip) => (
-                    <div
-                        key={chip.label}
-                        title={chip.title}
-                        className="player-meta-chip inline-flex h-7 items-center gap-1 rounded-md border border-white/10 bg-black/45 px-2 text-[11px] font-semibold leading-none text-white/85 backdrop-blur-md"
-                    >
-                        {chip.icon ? <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center [&_img]:h-3.5 [&_img]:w-3.5 [&_svg]:h-3.5 [&_svg]:w-3.5">{chip.icon}</span> : null}
-                        <span className="leading-none">{chip.label}</span>
-                    </div>
-                ))}
-            </div>
+            {metaChipRow(metaChips)}
             <MediaRatingPills
                 ratings={toCombinedRatings(item.ratings)}
                 tmdbScore={tmdbScore}
@@ -2276,14 +2306,18 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                         className="media-details-hub-meta-swap"
                     >
                         <p className="media-details-episode-heading">{hubItem.title}</p>
-                        {hubItem.type === 'episode' ? (
-                            <p className="media-details-billboard-line mt-1.5 max-w-[22rem] text-center text-[12px] font-semibold tracking-wide text-white/75 drop-shadow-[0_4px_12px_rgba(0,0,0,0.7)]">
-                                {joinMeta([
-                                    formatEpisodeCode(hubItem) || (hubItem.index != null ? `E${hubItem.index}` : ''),
-                                    airdateNode(hubItem.originallyAvailableAt, locale),
-                                    formatPlayerDuration(hubItem.durationMs),
-                                ], '  •  ')}
-                            </p>
+                        {hubMetaChips.length || hubItem.ratings ? (
+                            <div className="media-details-billboard-ratings media-details-hub-ratings pointer-events-auto mt-2.5 flex w-full flex-col gap-2">
+                                {hubMetaChips.length ? metaChipRow(hubMetaChips) : null}
+                                <MediaRatingPills
+                                    ratings={toCombinedRatings(hubItem.ratings)}
+                                    tmdbScore={hubTmdbScore}
+                                    tmdbUrl={hubItem.ratings?.tmdb?.url}
+                                    tvdbScore={hubTvdbScore}
+                                    tvdbUrl={hubItem.ratings?.tvdb?.url}
+                                    interactive={false}
+                                />
+                            </div>
                         ) : null}
                         {hubSummary ? (
                             <p className="media-details-billboard-summary">{hubSummary}</p>
@@ -2310,18 +2344,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             ) : null}
             {preplayUi && !(isTvShell && (item.type === 'episode' || item.type === 'season')) ? (
                 <div className="media-details-billboard-ratings pointer-events-auto mt-2.5 flex w-full flex-col items-center gap-2">
-                    <div className="player-meta-chips flex flex-wrap items-center justify-center gap-1.5">
-                        {metaChips.map((chip) => (
-                            <div
-                                key={chip.label}
-                                title={chip.title}
-                                className="player-meta-chip inline-flex h-7 items-center gap-1 rounded-md border border-white/10 bg-black/45 px-2 text-[11px] font-semibold leading-none text-white/85 backdrop-blur-md"
-                            >
-                                {chip.icon ? <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center [&_img]:h-3.5 [&_img]:w-3.5 [&_svg]:h-3.5 [&_svg]:w-3.5">{chip.icon}</span> : null}
-                                <span className="leading-none">{chip.label}</span>
-                            </div>
-                        ))}
-                    </div>
+                    {metaChipRow(metaChips, 'justify-center')}
                     <MediaRatingPills
                         ratings={toCombinedRatings(hubItem.ratings || item.ratings)}
                         tmdbScore={tmdbScore}
