@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Focused transport button grows a little, so the remote's position reads at a glance. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true">
+        <set>
+            <objectAnimator android:duration="120" android:propertyName="scaleX" android:valueTo="1.14" android:valueType="floatType" />
+            <objectAnimator android:duration="120" android:propertyName="scaleY" android:valueTo="1.14" android:valueType="floatType" />
+        </set>
+    </item>
+    <item>
+        <set>
+            <objectAnimator android:duration="120" android:propertyName="scaleX" android:valueTo="1.0" android:valueType="floatType" />
+            <objectAnimator android:duration="120" android:propertyName="scaleY" android:valueTo="1.0" android:valueType="floatType" />
+        </set>
+    </item>
+</selector>

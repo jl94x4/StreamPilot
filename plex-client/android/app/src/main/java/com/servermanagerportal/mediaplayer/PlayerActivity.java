@@ -43,6 +43,7 @@ import android.widget.Toast;
 import android.webkit.CookieManager;
 
 import androidx.annotation.Nullable;
+import androidx.core.content.ContextCompat;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
@@ -949,6 +950,16 @@ public class PlayerActivity extends AppCompatActivity {
         if (seekBar != null) {
             seekBar.setBackground(null);
             seekBar.setSplitTrack(false);
+            // Focused seek bar: thicker, brighter track (the thumb grows via its state drawable).
+            seekBar.setOnFocusChangeListener((v, hasFocus) -> {
+                int progress = seekBar.getProgress();
+                int secondary = seekBar.getSecondaryProgress();
+                seekBar.setProgressDrawable(ContextCompat.getDrawable(this, hasFocus
+                    ? R.drawable.player_seek_progress_focus
+                    : R.drawable.player_seek_progress));
+                seekBar.setProgress(progress);
+                seekBar.setSecondaryProgress(secondary);
+            });
             if (Build.VERSION.SDK_INT >= 26) {
                 seekBar.setDefaultFocusHighlightEnabled(false);
             }

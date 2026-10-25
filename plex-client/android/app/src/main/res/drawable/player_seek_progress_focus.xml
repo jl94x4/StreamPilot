@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Seek track while the seek bar has focus: thicker, slightly brighter rail. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@android:id/background"
+        android:gravity="center_vertical"
+        android:height="7dp">
+        <shape android:shape="rectangle">
+            <corners android:radius="3.5dp" />
+            <solid android:color="#59FFFFFF" />
+        </shape>
+    </item>
+    <item
+        android:id="@android:id/secondaryProgress"
+        android:gravity="center_vertical"
+        android:height="7dp">
+        <clip>
+            <shape android:shape="rectangle">
+                <corners android:radius="3.5dp" />
+                <solid android:color="#66FFFFFF" />
+            </shape>
+        </clip>
+    </item>
+    <item
+        android:id="@android:id/progress"
+        android:gravity="center_vertical"
+        android:height="7dp">
+        <clip>
+            <shape android:shape="rectangle">
+                <corners android:radius="3.5dp" />
+                <solid android:color="@color/player_accent" />
+            </shape>
+        </clip>
+    </item>
+</layer-list>
