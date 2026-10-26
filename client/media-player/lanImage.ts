@@ -8,6 +8,9 @@ const cache = new Map<string, Promise<string>>();
 
 export const isLanHttpImage = (src?: string | null) => /^http:\/\//i.test(String(src || ''));
 
+/** Already a displayable <img> src: do not wrap as /api/plex/image or a library thumb. */
+export const isDirectImageSrc = (src?: string | null) => /^(https?:|blob:|data:)/i.test(String(src || ''));
+
 export const loadLanImage = (src: string): Promise<string> => {
     let hit = cache.get(src);
     if (!hit) {
@@ -27,7 +30,9 @@ export const resolveLanImages = async <T extends { thumb?: string | null; art?: 
         for (const field of ['thumb', 'art'] as const) {
             const value = next[field];
             if (!isLanHttpImage(value)) continue;
-            next[field] = await loadLanImage(String(value)).catch(() => null) as T[typeof field];
+            // Keep the original URL if fetch is blocked (CORS / mixed content): Android
+            // WebView can still show http:// in <img>, and a null thumb became POSTER NOT FOUND.
+            next[field] = await loadLanImage(String(value)).catch(() => value) as T[typeof field];
         }
         return next;
     }))

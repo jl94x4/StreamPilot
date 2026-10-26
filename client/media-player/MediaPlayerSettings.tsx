@@ -579,6 +579,7 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
 
     const rowLabels = useMemo(() => ({
         continueWatching: t('mediaPlayerPage.continueWatching'),
+        onNow: t('mediaPlayerPage.liveTvOnNow'),
         recents: t('mediaPlayerPage.recents'),
     }), [t]);
     const continueWatchingSortOptions = useMemo(() => ([
@@ -608,6 +609,7 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
 
     const hiddenRows = new Set<string>();
     if (!settings.showContinueWatching) hiddenRows.add('continueWatching');
+    if (!settings.showOnNowHome) hiddenRows.add('onNow');
 
     // Away quality: "Same as home" keeps one quality everywhere (the old behaviour).
     const remoteQualityOptions = [
@@ -1089,6 +1091,17 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                                 : undefined}
                         />
                     ) : null}
+                    <TvReorderList
+                        title={t('mediaPlayerPage.homeRowOrder')}
+                        description={t('mediaPlayerPage.homeRowOrderHint')}
+                        items={orderedRowIds.map((id) => ({ id, label: rowLabels[id] || id }))}
+                        onMove={(index, delta) => updateSettings({
+                            homeRowOrder: moveHomeRow(orderedRowIds, index, delta),
+                        })}
+                        onReset={settings.homeRowOrder.length
+                            ? () => updateSettings({ homeRowOrder: [] })
+                            : undefined}
+                    />
                     <div className="mt-2 flex flex-col gap-2">
                         <h2 className="text-xs font-black uppercase tracking-widest text-muted">{t('mediaPlayerPage.homeLibraries')}</h2>
                         <p className="text-sm text-muted">{t('mediaPlayerPage.homeLibrariesHint')}</p>

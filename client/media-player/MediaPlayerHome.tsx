@@ -1278,13 +1278,15 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
 
     const tvHomeRows = useMemo((): TvHomeRow[] => {
         if (!isTvShell || !home) return [];
-        const rows: TvHomeRow[] = [];
+        const continueRows: TvHomeRow[] = [];
+        const onNowRows: TvHomeRow[] = [];
+        const recentRows: TvHomeRow[] = [];
         const cwHub = plexHubs.find(isContinueWatchingHub);
         const cwItems = freezeContinueWatching(
             (cwHub?.items?.length ? cwHub.items : home.continueWatching) || [],
         );
         if (showContinueWatchingRail && cwItems.length) {
-            rows.push({
+            continueRows.push({
                 id: cwHub?.identifier || 'home.continueWatching',
                 title: cwHub?.title || t('mediaPlayerPage.continueWatching'),
                 items: cwItems.map(withShowPoster),
@@ -1306,7 +1308,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             });
         }
         if (showWatchlistRail && watchlistItems.length) {
-            rows.push({
+            continueRows.push({
                 id: 'home.watchlist',
                 title: t('mediaPlayerPage.navWatchlist'),
                 items: watchlistItems,
@@ -1316,7 +1318,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             });
         }
         if (settings.showOnNowHome && onNowItems.length) {
-            rows.push({
+            onNowRows.push({
                 id: 'home.onnow',
                 title: t('mediaPlayerPage.liveTvOnNow'),
                 items: onNowItems,
@@ -1369,7 +1371,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                     const title = library
                         ? t('mediaPlayerPage.recentlyAddedIn', { name: library.title })
                         : hub.title;
-                    rows.push({
+                    recentRows.push({
                         id: `recent:${sectionId}`,
                         title,
                         items,
@@ -1402,7 +1404,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                     ? hideWatchedPlayerItems(recentFillBySection[fillSectionId])
                     : recentFillBySection[fillSectionId])
                 : undefined;
-            rows.push({
+            recentRows.push({
                 id: hub.identifier || `hub:${hub.title}`,
                 title: hub.title,
                 items: hero
@@ -1423,7 +1425,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         }
         if (!others.some(isRecentHub)) {
             for (const row of recentRails) {
-                rows.push({
+                recentRows.push({
                     id: row.id,
                     title: row.title,
                     items: row.items,
@@ -1444,7 +1446,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         }
         if (settings.showBecauseYouWatched) {
             for (const hub of becauseHubs) {
-                rows.push({
+                recentRows.push({
                     id: hub.identifier || `hub:${hub.title}`,
                     title: hub.title,
                     items: hub.items,
@@ -1456,7 +1458,14 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 });
             }
         }
-        return rows.filter((row) => row.items.length);
+        const buckets: Record<string, TvHomeRow[]> = {
+            continueWatching: continueRows,
+            onNow: onNowRows,
+            recents: recentRows,
+        };
+        return applyHomeRowOrder(['continueWatching', 'onNow', 'recents'], settings.homeRowOrder)
+            .flatMap((id) => buckets[id] || [])
+            .filter((row) => row.items.length);
     }, [
         home,
         isTvShell,
@@ -1478,6 +1487,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         watchlistItems,
         onNowItems,
         settings.showOnNowHome,
+        settings.homeRowOrder,
     ]);
 
     const tvFocusStillSeed = useMemo(() => {
@@ -2108,13 +2118,20 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             />
         );
 
+        const orderedHomeBuckets = (buckets: Record<string, React.ReactNode[]>) => (
+            applyHomeRowOrder(['continueWatching', 'onNow', 'recents'], settings.homeRowOrder)
+                .flatMap((id) => buckets[id] || [])
+        );
+
         if (isTvShell) {
-            const nodes: React.ReactNode[] = [];
+            const continueNodes: React.ReactNode[] = [];
+            const onNowNodes: React.ReactNode[] = [];
+            const recentNodes: React.ReactNode[] = [];
             let stagger = 0;
             const cwHub = plexHubs.find(isContinueWatchingHub);
             const cwItems = (cwHub?.items?.length ? cwHub.items : home.continueWatching) || [];
             if (showContinueWatchingRail && cwItems.length) {
-                nodes.push(hubRail(cwHub || {
+                continueNodes.push(hubRail(cwHub || {
                     title: t('mediaPlayerPage.continueWatching'),
                     identifier: 'home.continueWatching',
                     items: cwItems,
@@ -2124,63 +2141,76 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             }
             const watchlistNode = watchlistRail(stagger);
             if (watchlistNode) {
-                nodes.push(watchlistNode);
+                continueNodes.push(watchlistNode);
                 stagger += 1;
             }
             const onNowNode = onNowRail(stagger);
             if (onNowNode) {
-                nodes.push(onNowNode);
+                onNowNodes.push(onNowNode);
                 stagger += 1;
             }
             const becauseHubs = plexHubs.filter(isBecauseYouWatchedHub);
             const others = plexHubs.filter((hub) => !isContinueWatchingHub(hub) && !isBecauseYouWatchedHub(hub));
             for (const hub of others) {
-                nodes.push(hubRail(hub, stagger));
+                recentNodes.push(hubRail(hub, stagger));
                 stagger += 1;
             }
             if (!others.some(isRecentHub)) {
                 for (const row of recentRails) {
-                    nodes.push(recentRail(row, stagger));
+                    recentNodes.push(recentRail(row, stagger));
                     stagger += 1;
                 }
             }
             if (settings.showBecauseYouWatched) {
                 for (const hub of becauseHubs) {
-                    nodes.push(hubRail(hub, stagger));
+                    recentNodes.push(hubRail(hub, stagger));
                     stagger += 1;
                 }
             }
-            return nodes;
+            return orderedHomeBuckets({
+                continueWatching: continueNodes,
+                onNow: onNowNodes,
+                recents: recentNodes,
+            });
         }
 
         if (hasPlexContentHubs) {
             const becauseHubs = plexHubs.filter(isBecauseYouWatchedHub);
             const rest = plexHubs.filter((hub) => !isBecauseYouWatchedHub(hub));
             const hubs = [...rest, ...(settings.showBecauseYouWatched ? becauseHubs : [])];
-            const nodes: React.ReactNode[] = [];
+            const continueNodes: React.ReactNode[] = [];
+            const onNowNodes: React.ReactNode[] = [];
+            const recentNodes: React.ReactNode[] = [];
             let insertedWatchlist = false;
             hubs.forEach((hub, hubIndex) => {
-                nodes.push(hubRail(hub, hubIndex));
-                if (!insertedWatchlist && isContinueWatchingHub(hub)) {
+                if (isContinueWatchingHub(hub)) {
+                    continueNodes.push(hubRail(hub, hubIndex));
                     const watchlistNode = watchlistRail(hubIndex + 0.5);
-                    if (watchlistNode) nodes.push(watchlistNode);
+                    if (watchlistNode) continueNodes.push(watchlistNode);
                     insertedWatchlist = true;
-                    const onNowNode = onNowRail(hubIndex + 0.6);
-                    if (onNowNode) nodes.push(onNowNode);
+                } else {
+                    recentNodes.push(hubRail(hub, hubIndex));
                 }
             });
             if (!insertedWatchlist) {
                 const watchlistNode = watchlistRail(0);
-                if (watchlistNode) nodes.unshift(watchlistNode);
-                const onNowNode = onNowRail(0.1);
-                if (onNowNode) nodes.splice(watchlistNode ? 1 : 0, 0, onNowNode);
+                if (watchlistNode) continueNodes.unshift(watchlistNode);
             }
-            return nodes;
+            const onNowNode = onNowRail(0.6);
+            if (onNowNode) onNowNodes.push(onNowNode);
+            return orderedHomeBuckets({
+                continueWatching: continueNodes,
+                onNow: onNowNodes,
+                recents: recentNodes,
+            });
         }
         return applyHomeRowOrder(
-            ['continueWatching', 'recents'],
+            ['continueWatching', 'onNow', 'recents'],
             settings.homeRowOrder,
         ).map((id, rowIndex) => {
+            if (id === 'onNow') {
+                return <React.Fragment key="onNow">{onNowRail(rowIndex)}</React.Fragment>;
+            }
             if (id === 'continueWatching') {
                 return (
                     <React.Fragment key="continueWatching">
@@ -2208,7 +2238,6 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                             />
                         ) : null}
                         {watchlistRail(rowIndex + 0.5)}
-                        {onNowRail(rowIndex + 0.6)}
                     </React.Fragment>
                 );
             }

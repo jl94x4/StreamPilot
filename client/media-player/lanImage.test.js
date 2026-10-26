@@ -36,3 +36,14 @@ test('resolveLanImages swaps http thumbs for blob URLs and leaves https alone', 
         URL.createObjectURL = previousCreate;
     }
 });
+
+test('resolveLanImages keeps the http URL when the LAN fetch fails', async () => {
+    const previous = globalThis.fetch;
+    globalThis.fetch = async () => ({ ok: false, status: 404, blob: async () => new Blob([]) });
+    try {
+        const [row] = await resolveLanImages([{ thumb: 'http://tuner/missing.jpg', art: null }]);
+        assert.equal(row.thumb, 'http://tuner/missing.jpg');
+    } finally {
+        globalThis.fetch = previous;
+    }
+});

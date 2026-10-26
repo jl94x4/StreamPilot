@@ -7283,7 +7283,10 @@ export const DiscoverPosterCard: React.FC<{
         : 'player-poster-frame relative rounded-[12px] overflow-hidden border border-border group-hover:border-plex transition-colors bg-card'}${frameClassName ? ` ${frameClassName}` : ''}`;
 
     const remoteThumb = typeof item.thumb === 'string' && /^https?:\/\//i.test(item.thumb);
-    const primaryPosterSrc = item.thumbUrl
+    const readyThumb = String(item.thumbUrl || item.thumb || '');
+    const primaryPosterSrc = /^(blob|data):/i.test(readyThumb)
+        ? readyThumb
+        : item.thumbUrl
         ? resolvePortalAssetUrl(item.thumbUrl)
         : remoteThumb
             ? resolvePortalAssetUrl(item.thumb)

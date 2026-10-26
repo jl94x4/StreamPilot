@@ -525,12 +525,12 @@ export const PLAYER_AUDIO_LANGUAGES = [
     { id: 'tr', label: 'Turkish' },
 ];
 
-export const PLAYER_HOME_ROW_IDS = ['continueWatching', 'recents'] as const;
+export const PLAYER_HOME_ROW_IDS = ['continueWatching', 'onNow', 'recents'] as const;
 export const MIXED_RECENT_HOME_ROW_IDS = ['recent:movie', 'recent:show', 'recent:artist'] as const;
 
 export const isPlayerHomeRowId = (value: unknown): value is string => {
     const id = String(value || '').trim();
-    if (id === 'continueWatching' || id === 'recents' || id === 'playlists' || id === 'libraries') return true;
+    if (id === 'continueWatching' || id === 'onNow' || id === 'recents' || id === 'playlists' || id === 'libraries') return true;
     return /^recent:[A-Za-z0-9._-]{1,64}$/.test(id);
 };
 

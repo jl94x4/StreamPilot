@@ -6,6 +6,7 @@ const MAX_RETRIES = 4;
 
 const withRetryParam = (url: string, attempt: number) => {
     if (!url || attempt <= 0) return url;
+    if (/^(blob|data):/i.test(url)) return url;
     const join = url.includes('?') ? '&' : '?';
     return `${url}${join}retry=${attempt}`;
 };

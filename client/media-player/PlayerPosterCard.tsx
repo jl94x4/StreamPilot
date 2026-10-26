@@ -7,6 +7,7 @@ import { watchedTickPositionClass } from './playerSettings';
 import { applyRememberedProgress, formatEpisodeCode, formatRemainingWatchTime, heroRailCardImageUrl, heroRowSubtitle, PLAYER_PROGRESS_EVENT, plexBackdropUrl, PLAYER_POSTER_QUALITY, prefetchPlayerImages, progressPercent, remainingWatchMs, resizePlexArtUrl, resolvePlayerCardAspect, toPosterCardItem } from './playerUtils';
 import { usePlayerSettings } from './usePlayerSettings';
 import { hideEpisodeSpoilers } from './spoilers';
+import { isLanHttpImage, loadLanImage } from './lanImage';
 import type { PlayerItem, PlayerPlayOptions } from './types';
 
 type Props = {
@@ -69,6 +70,18 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
         || window.__PLEX_CLIENT__?.isTv === true
     );
     const [liveOffset, setLiveOffset] = useState<number | null>(null);
+    const [lanThumb, setLanThumb] = useState<string | null>(null);
+    useEffect(() => {
+        const raw = String(item.thumb || '').trim();
+        if (!isLanHttpImage(raw)) {
+            setLanThumb(null);
+            return undefined;
+        }
+        let live = true;
+        loadLanImage(raw).then((url) => { if (live) setLanThumb(url); }, () => { if (live) setLanThumb(null); });
+        return () => { live = false; };
+    }, [item.thumb]);
+    const posterItem = lanThumb ? { ...item, thumb: lanThumb } : item;
     useEffect(() => {
         setLiveOffset(null);
         const onProgress = (event: Event) => {
@@ -97,7 +110,7 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
     const artHeight = resolvedAspect === 'square' ? 300 : resolvedAspect === '16/9' ? 240 : 450;
     const landscapeEpisode = item.type === 'episode' && resolvedAspect === '16/9';
     const episodeKey = landscapeEpisode ? String(item.ratingKey || '').replace(/\D/g, '') : '';
-    const rawThumb = String(item.episodeThumb || item.thumb || '').trim();
+    const rawThumb = String(item.episodeThumb || posterItem.thumb || '').trim();
     const thumbOwner = rawThumb.match(/\/library\/metadata\/(\d+)\//)?.[1] || '';
     const episodeStill = episodeKey
         ? ((thumbOwner === episodeKey || (/^https?:\/\//i.test(rawThumb) && !/\/library\/metadata\//.test(rawThumb)))
@@ -105,11 +118,11 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
             : `/library/metadata/${episodeKey}/thumb`)
         : '';
     const cardSource = item.heroCard
-        ? (item.heroArt || item.art || item.thumb)
-        : (episodeStill || item.thumb);
+        ? (item.heroArt || item.art || posterItem.thumb)
+        : (episodeStill || posterItem.thumb);
     const sizedItem = cardSource
         ? {
-            ...item,
+            ...posterItem,
             cardAspect: landscapeEpisode ? '16/9' as const : item.cardAspect,
             thumb: item.heroCard
                 ? heroRailCardImageUrl(cardSource)
@@ -117,7 +130,7 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
                     ? episodeStill
                     : resizePlexArtUrl(cardSource, artWidth, artHeight, PLAYER_POSTER_QUALITY)),
         }
-        : item;
+        : posterItem;
     const heroLine = item.heroCard ? heroRowSubtitle(item) : '';
     const episodeCode = formatEpisodeCode(item);
     // Nested menu/play/watched controls inside the poster <button> break Android TV spatial nav.

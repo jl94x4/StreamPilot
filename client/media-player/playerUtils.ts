@@ -1,4 +1,5 @@
 import { directPlexTranscodeUrl, portalUrl, resolvePortalAssetUrl } from '../shared/basePath';
+import { isDirectImageSrc } from './lanImage';
 import {
     clearWarmPosterUrls,
     forgetWarmPosterUrl,
@@ -397,7 +398,7 @@ export const resizePlexArtUrl = (
 export const plexImageUrl = (path?: string | null, width = PLAYER_POSTER_WIDTH, height = PLAYER_POSTER_HEIGHT, opts?: { fit?: 'contain' | 'cover'; quality?: number }) => {
     if (!path) return '';
     // Already-loaded artwork (Live TV LAN images as blob URLs): nothing to resize.
-    if (/^(blob|data):/i.test(path)) return path;
+    if (isDirectImageSrc(path) && /^(blob|data):/i.test(path)) return path;
     if (path.startsWith('http://') || path.startsWith('https://') || path.startsWith('/api/')) {
         return resolvePortalAssetUrl(path);
     }
@@ -1490,7 +1491,9 @@ export const heroRowCardItem = (item: PlayerItem): PlayerItem => ({
 
 export const toPosterCardItem = (item: PlayerItem) => {
     const ratingKey = String(item.ratingKey || '').replace(/\D/g, '');
-    const leafThumb = ratingKey ? `/library/metadata/${ratingKey}/thumb` : '';
+    // Live airing keys are not PMS library metadata. Using them as /library/metadata/…/thumb
+    // 404s and Home shows POSTER NOT FOUND over the real Tunarr http:// artwork.
+    const leafThumb = item.type === 'liveAiring' ? '' : (ratingKey ? `/library/metadata/${ratingKey}/thumb` : '');
     const showKey = String(
         (item.type === 'season' ? item.parentRatingKey : item.grandparentRatingKey) || '',
     ).replace(/\D/g, '');
@@ -1521,7 +1524,7 @@ export const toPosterCardItem = (item: PlayerItem) => {
     if (
         thumb
         && !keepEpisodeStill
-        && !/^https?:\/\//i.test(thumb)
+        && !isDirectImageSrc(thumb)
         && !String(thumb).startsWith('/api/')
     ) {
         thumb = plexImageUrl(
@@ -1531,10 +1534,10 @@ export const toPosterCardItem = (item: PlayerItem) => {
             { quality: PLAYER_POSTER_QUALITY },
         ) || thumb;
     }
-    const remoteThumb = /^https?:\/\//i.test(String(thumb || ''))
+    const remoteThumb = isDirectImageSrc(thumb)
         || String(thumb || '').startsWith('/api/');
     // Episode stills are title cards. Never use them as a poster fallback.
-    const movieLeafFallback = item.type !== 'episode' && item.type !== 'season'
+    const movieLeafFallback = item.type !== 'episode' && item.type !== 'season' && item.type !== 'liveAiring'
         && leafThumb
         && (remoteThumb || (thumb && thumb !== leafThumb));
     const heroOriginal = item.heroCard ? String(item.heroArt || '').trim() : '';

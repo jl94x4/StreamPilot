@@ -257,7 +257,7 @@ export const en = {
         homeFollowsPlex: 'Home follows Plex pins',
         homeFollowsPlexHint: 'Home shows the same pinned rows as Plex Home on this server, including collections. Library order below also regroups those rows to match your sidebar (TV rows with TV libraries, movie rows with movie libraries, and so on). Change which rows appear in Plex under Manage Recommendations.',
         homeRowOrder: 'Home row order',
-        homeRowOrderHint: 'Used only if Plex Home hubs cannot be loaded. Move Continue Watching and Recently Added up or down.',
+        homeRowOrderHint: 'Move Continue Watching, On Now and Recently Added up or down. Plex pinned hubs stay together under Recently Added.',
         homeRowMoveUp: 'Move up',
         homeRowMoveDown: 'Move down',
         homeRowReset: 'Reset order',
