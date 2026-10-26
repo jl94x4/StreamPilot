@@ -73,6 +73,17 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.424': [
+        {
+            title: 'Live TV',
+            items: [
+                'New Live TV look: a big billboard for whatever you are on (live badge, minutes left, summary, progress, poster)',
+                'On Now shows a poster for every channel, then an Up next row; OK on an On Now poster starts the channel',
+                'Remote: Down from Guide / On Now goes straight to the first programme; Up and Down in the guide move to what is on at the same time on the next channel',
+                'Programme posters show properly (episodes showed the channel logo), and channel names no longer repeat the number',
+            ],
+        },
+    ],
     '1.0.423': [
         {
             title: 'Live TV',

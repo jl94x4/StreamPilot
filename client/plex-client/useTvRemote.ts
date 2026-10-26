@@ -865,6 +865,17 @@ const focusItem = (el: HTMLElement, block: ScrollLogicalPosition = 'nearest', di
             scrollEl(el, 'center', 'auto');
             return;
         }
+        // Live TV: the billboard stays on screen. Rows marked data-tv-scroll-top keep the page at
+        // the top; the rest scroll only as far as needed (centering made the guide jump).
+        if (el.closest('[data-tv-live="1"]')) {
+            if (el.closest('[data-tv-scroll-top="1"]')) {
+                document.getElementById(PLAYER_SCROLL_ID)?.scrollTo({ top: 0 });
+            } else if (row) {
+                scrollRowWithoutPanningRails(row, 'nearest', 'css');
+            }
+            revealTvRailItem(el);
+            return;
+        }
         scrollRowWithoutPanningRails(row, details ? 'end' : 'center', 'css');
         if (el.closest('[data-tv-poster-rail="1"]')) pinTvRailItemToSlot(el);
         else revealTvRailItem(el);
@@ -2337,6 +2348,31 @@ export const useTvRemote = (enabled = true) => {
             }
 
             const overlayOpen = Boolean(tvOverlayRoot());
+            // A page can name where Up / Down lands (data-tv-up-to / data-tv-down-to = selector
+            // on the focused item or an ancestor), e.g. Live TV tabs -> the first programme.
+            if (!overlayOpen && !inNav && (dir === 'up' || dir === 'down')) {
+                const from = document.activeElement as HTMLElement | null;
+                const attr = dir === 'down' ? 'data-tv-down-to' : 'data-tv-up-to';
+                const holder = from?.closest?.<HTMLElement>(`[${attr}]`);
+                const selector = holder?.getAttribute(attr) || '';
+                let target: HTMLElement | null = null;
+                try {
+                    target = selector ? document.querySelector<HTMLElement>(selector) : null;
+                } catch {
+                    target = null;
+                }
+                if (target && target !== from && hasLayout(target)) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    focusItem(target, 'nearest', dir);
+                    if (target.closest('[data-tv-scroll-top="1"]')) {
+                        document.getElementById(PLAYER_SCROLL_ID)?.scrollTo({ top: 0 });
+                    } else {
+                        target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+                    }
+                    return;
+                }
+            }
             if (inNav && !overlayOpen) {
                 if (dir === 'left') {
                     event.preventDefault();
