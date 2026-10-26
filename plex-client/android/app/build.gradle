@@ -15,9 +15,9 @@ android {
         applicationId "com.streampilot.mediaplayer"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 414
+        versionCode 415
         // Settings shows this versionName. `npm run build:apk` auto-bumps both.
-        versionName "1.0.414"
+        versionName "1.0.415"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
