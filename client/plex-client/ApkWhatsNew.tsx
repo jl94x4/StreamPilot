@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.423': [
+        {
+            title: 'Live TV',
+            items: [
+                'Live TV channels play again (they stopped with ERROR_CODE_IO_BAD_HTTP_STATUS): the stream now asks your server for the live feed under the same name the tune used',
+            ],
+        },
+    ],
     '1.0.422': [
         {
             title: 'Subtitles',

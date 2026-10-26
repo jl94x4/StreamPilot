@@ -1498,7 +1498,7 @@ const HLS_ACCEPT = 'application/vnd.apple.mpegurl, application/x-mpegURL, */*';
 const liveHlsSrc = (server: PlexServer, path: string, session: string) => {
     const url = new URL(path.startsWith('/') ? path : `/${path}`, `${server.uri.replace(/\/+$/, '')}/`);
     url.searchParams.set('X-Plex-Token', server.accessToken);
-    url.searchParams.set('X-Plex-Session-Identifier', session);
+    // No X-Plex-Session-Identifier on live: see liveSessionTranscodePath.
     url.searchParams.set('session', session);
     return url.toString();
 };
@@ -1527,7 +1527,10 @@ const liveSessionTranscodePath = (sessionFolder: string, session: string) => {
         'X-Plex-Product': 'StreamPilot',
         'X-Plex-Device': 'Android TV',
         'X-Plex-Client-Identifier': clientId(),
-        'X-Plex-Session-Identifier': session,
+        // No X-Plex-Session-Identifier: PMS reads the live feed as consumer
+        // `/livetv/sessions/<uuid>/<that id>/index.m3u8`, but the tune registered the
+        // consumer under the client id, so the transcoder's own read 404'd and it died
+        // (ERROR_CODE_IO_BAD_HTTP_STATUS on the TV). Without it PMS uses the client id.
     });
     return `/video/:/transcode/universal/start.m3u8?${qs}`;
 };
@@ -6559,11 +6562,16 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
         const sessionFolder = (String(parsed.path || parsed.partKey || '').match(/\/livetv\/sessions\/[^/?]+/) || [])[0]
             || (parsed.sessionId ? `/livetv/sessions/${parsed.sessionId}` : '');
         if (sessionFolder) {
-            // Our own transcode session id: stopping it ends the transcode and frees the tuner.
-            const rand = [...globalThis.crypto?.getRandomValues?.(new Uint8Array(4)) || []]
-                .map((b) => b.toString(16).padStart(2, '0')).join('');
-            const transcodeSession = `smp-live-${Date.now().toString(36)}${rand}`;
+            // The transcode session is named after this client. PMS reads the live feed as the
+            // consumer `/livetv/sessions/<uuid>/<id>/index.m3u8`, taking <id> from the session
+            // identifier the player sends when there is one, and the tune registered the
+            // consumer under the client id. Any other name and PMS's own read 404s, so the
+            // transcoder dies (ERROR_CODE_IO_BAD_HTTP_STATUS). Stopping it frees the tuner.
+            const transcodeSession = clientId();
             const startPath = liveSessionTranscodePath(sessionFolder, transcodeSession);
+            // Decision, then start, before the player asks: a start PMS hasn't decided on
+            // answers 400 (ERROR_CODE_IO_BAD_HTTP_STATUS on the TV).
+            await kickTranscodeStart(server, startPath);
             return {
                 sessionId: transcodeSession,
                 item: {
