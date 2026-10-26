@@ -4,18 +4,50 @@ import androidx.annotation.Nullable;
 import androidx.media3.common.Format;
 
 import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /** Audio / subtitle track rules for {@link PlayerActivity}: burn-in, codec and language matching. */
 final class TrackRules {
     private TrackRules() {}
 
-    /**
-     * Whether a subtitle codec has to be burned in by the server.
-     * burnSubtitles is the user policy: "always", "image" or "auto" (null = auto).
-     */
+    private static final Pattern LABEL_FORMAT = Pattern.compile("\\(([^)]+)\\)\\s*$");
+
+    /** Short OSD name for a Plex subtitle codec, matching the web subtitleFormatName list. */
+    static String subtitleFormatBadge(@Nullable String codec, @Nullable String label) {
+        String named = subtitleFormatName(codec);
+        if (!named.isEmpty()) return named;
+        if (label == null) return "";
+        Matcher match = LABEL_FORMAT.matcher(label.trim());
+        if (!match.find()) return "";
+        String inner = match.group(1).trim();
+        if (inner.isEmpty()) return "";
+        String first = inner.split("\\s+")[0];
+        named = subtitleFormatName(first);
+        if (!named.isEmpty()) return named;
+        return inner.length() <= 10 ? inner.toUpperCase(Locale.US) : "";
+    }
+
+    static String subtitleFormatName(@Nullable String codec) {
+        if (codec == null) return "";
+        String raw = codec.trim().toLowerCase(Locale.US).replace('-', '_');
+        if (raw.isEmpty()) return "";
+        if (raw.contains("pgs") || raw.equals("hdmv") || raw.equals("hdmv_pgs_subtitle")) return "PGS";
+        if (raw.equals("srt") || raw.equals("subrip") || raw.contains("utf8") || raw.contains("utf_8")) return "SRT";
+        if (raw.equals("ass")) return "ASS";
+        if (raw.equals("ssa")) return "SSA";
+        if (raw.contains("vobsub") || raw.equals("dvd") || raw.equals("dvdsub") || raw.equals("dvd_subtitle")) return "VOBSUB";
+        if (raw.equals("mov_text") || raw.equals("tx3g")) return "TX3G";
+        if (raw.equals("webvtt") || raw.equals("vtt")) return "VTT";
+        if (raw.equals("smi")) return "SMI";
+        if (raw.contains("eia_608") || raw.contains("eia_708") || raw.equals("eia608") || raw.equals("eia708")) return "CC";
+        if (raw.contains("dvb")) return "DVB";
+        return "";
+    }
+
     static boolean isImageSubtitle(@Nullable String codec) {
         if (codec == null) return false;
-        return codec.trim().matches("(?i)pgs|hdmv_pgs_subtitle|vobsub|dvd|dvdsub|dvd_subtitle|image|bluray|dvbsub|dvb_subtitle|xsub");
+        return codec.trim().matches("(?i)pgs|hdmv|hdmv_pgs_subtitle|vobsub|dvd|dvdsub|dvd_subtitle|image|bluray|dvbsub|dvb_subtitle|xsub");
     }
 
     /**
@@ -29,7 +61,7 @@ final class TrackRules {
         if ("always".equals(policy)) return true;
         boolean image = isImageSubtitle(codec);
         if ("image".equals(policy)) return image;
-        boolean exoDraws = codec.trim().matches("(?i)pgs|hdmv_pgs_subtitle|vobsub|dvd|dvdsub|dvd_subtitle|bluray|dvbsub|dvb_subtitle");
+        boolean exoDraws = codec.trim().matches("(?i)pgs|hdmv|hdmv_pgs_subtitle|vobsub|dvd|dvdsub|dvd_subtitle|bluray|dvbsub|dvb_subtitle");
         return image && !exoDraws;
     }
 

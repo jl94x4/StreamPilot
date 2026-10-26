@@ -43,7 +43,7 @@ public class PlaybackUrlsTest {
         String hls = PlaybackUrls.partsUrlToPmsHls(
             "https://pms.example:32400/library/parts/55/123/file.mkv?X-Plex-Token=abc&X-Plex-Client-Identifier=cid&session=s1",
             " 9876 ", 2, 125_500L,
-            null, null, null, null, "4242"
+            null, null, null, null, "4242", null, false
         );
         Uri uri = Uri.parse(hls);
         assertEquals("https", uri.getScheme());
@@ -58,6 +58,24 @@ public class PlaybackUrlsTest {
         assertEquals("125", uri.getQueryParameter("offset"));
         assertEquals("4242", uri.getQueryParameter("audioStreamID"));
         assertEquals("0", uri.getQueryParameter("directPlay"));
+        assertEquals("1", uri.getQueryParameter("directStream"));
+        assertEquals("none", uri.getQueryParameter("subtitles"));
+        assertEquals("0", uri.getQueryParameter("subtitleStreamID"));
+    }
+
+    @Test
+    public void partsUrlBurnsImageSubtitlesOnHlsFallback() {
+        String hls = PlaybackUrls.partsUrlToPmsHls(
+            "https://pms.example:32400/library/parts/55/file.mkv?X-Plex-Token=abc",
+            "99", 0, 0L,
+            null, null, null, null, "10", "77", true
+        );
+        Uri uri = Uri.parse(hls);
+        assertEquals("0", uri.getQueryParameter("directStream"));
+        assertEquals("burn", uri.getQueryParameter("subtitles"));
+        assertEquals("burn", uri.getQueryParameter("advancedSubtitles"));
+        assertEquals("77", uri.getQueryParameter("subtitleStreamID"));
+        assertEquals("100", uri.getQueryParameter("subtitleSize"));
     }
 
     @Test
@@ -65,7 +83,8 @@ public class PlaybackUrlsTest {
         String hls = PlaybackUrls.partsUrlToPmsHls(
             "https://other:32400/library/parts/1/file.mkv?X-Plex-Token=fromUrl",
             "10", -3, 0L,
-            "https://pms.local:32400///", "timelineToken", "timelineClient", "timelineSession", "eng"
+            "https://pms.local:32400///", "timelineToken", "timelineClient", "timelineSession", "eng",
+            null, false
         );
         Uri uri = Uri.parse(hls);
         assertEquals("pms.local:32400", uri.getAuthority());
@@ -80,9 +99,9 @@ public class PlaybackUrlsTest {
     @Test
     public void partsUrlNeedsAKeyAndAToken() {
         assertNull(PlaybackUrls.partsUrlToPmsHls(
-            "https://pms/library/parts/1/file.mkv?X-Plex-Token=abc", " ", 0, 0, null, null, null, null, null));
+            "https://pms/library/parts/1/file.mkv?X-Plex-Token=abc", " ", 0, 0, null, null, null, null, null, null, false));
         assertNull(PlaybackUrls.partsUrlToPmsHls(
-            "https://pms/library/parts/1/file.mkv", "10", 0, 0, null, null, null, null, null));
+            "https://pms/library/parts/1/file.mkv", "10", 0, 0, null, null, null, null, null, null, false));
     }
 
     @Test
@@ -144,5 +163,21 @@ public class PlaybackUrlsTest {
         assertEquals("abc", PlaybackUrls.queryParam(uri, "session"));
         assertEquals("", PlaybackUrls.queryParam(uri, "missing"));
         assertEquals("", PlaybackUrls.queryParam(null, "session"));
+    }
+
+    @Test
+    public void movesUniversalTranscodeToAnotherOffset() {
+        String start = "https://pms:32400/video/:/transcode/universal/start.m3u8?path=%2Flibrary%2Fmetadata%2F1&session=s1&offset=90&X-Plex-Token=t";
+        assertEquals(
+            "https://pms:32400/video/:/transcode/universal/start.m3u8?path=%2Flibrary%2Fmetadata%2F1&session=s1&offset=30&X-Plex-Token=t",
+            PlaybackUrls.withTranscodeOffset(start, 30));
+        assertEquals(
+            "https://pms:32400/video/:/transcode/universal/start.m3u8?session=s1&offset=420",
+            PlaybackUrls.withTranscodeOffset("https://pms:32400/video/:/transcode/universal/start.m3u8?session=s1", 420));
+        assertEquals(
+            "https://pms:32400/video/:/transcode/universal/decision?path=%2Flibrary%2Fmetadata%2F1&session=s1&offset=90&X-Plex-Token=t",
+            PlaybackUrls.transcodeDecisionUrl(start));
+        assertNull(PlaybackUrls.withTranscodeOffset("https://pms/library/parts/1/file.mkv", 30));
+        assertNull(PlaybackUrls.transcodeDecisionUrl("https://pms/livetv/sessions/x/index.m3u8"));
     }
 }

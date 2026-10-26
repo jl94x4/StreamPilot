@@ -900,6 +900,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                     languageTag: row.languageTag || row.language || null,
                     codec: row.codec || null,
                     embeddedOrdinal: row.embeddedOrdinal ?? null,
+                    url: row.url || undefined,
                 })),
                 ...sidecarSubs,
             ],
@@ -1314,7 +1315,10 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                                 });
                             }
                         };
-                        if (previous) {
+                        // Seek restarts the same transcode (decision + start at the new
+                        // offset). Stopping first kills that session; PMS then 400s the
+                        // reused start and Exo buffers forever.
+                        if (previous && event.reason !== 'seek') {
                             await stopPlaybackSession(previous, serverId, ratingKey, {
                                 timeMs: offset,
                                 durationMs: durationHint,
@@ -1327,12 +1331,12 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                         const safeQuality = nativeSafeQualityId(nextQuality);
                         let nextSrc = '';
                         let startedId = '';
+                        const currentSrc = String(playbackSrcRef.current || '');
+                        const currentlyHls = isHlsPlaybackSrc(currentSrc)
+                            || /\/hls\//i.test(currentSrc)
+                            || /\/video\/:\/transcode\//i.test(currentSrc)
+                            || /\/transcode\//i.test(currentSrc);
                         if (isPlexDirectMode()) {
-                            const currentSrc = String(playbackSrcRef.current || '');
-                            const currentlyHls = isHlsPlaybackSrc(currentSrc)
-                                || /\/hls\//i.test(currentSrc)
-                                || /\/video\/:\/transcode\//i.test(currentSrc)
-                                || /\/transcode\//i.test(currentSrc);
                             // Seek remux always needs HLS. Ladder quality switches stay on HLS.
                             // Returning to Original must NOT force HLS — that blocks Direct Play
                             // (Tautulli keeps showing Transcode after 720→Original).
@@ -1388,7 +1392,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                             if (changeGen === streamChangeGenRef.current) streamRebuildInFlightRef.current = false;
                             return;
                         }
-                        if (!nextSrc) {
+                        if (!nextSrc && !(isPlexDirectMode() && event.reason === 'seek' && currentlyHls)) {
                             nextSrc = buildNativePlaybackSrc(ratingKey, {
                                 ...session,
                                 src: playbackSrcRef.current || session.src,

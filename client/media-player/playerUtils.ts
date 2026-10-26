@@ -1665,9 +1665,9 @@ export const resolveStartPlaybackQualityId = (
     return def;
 };
 
-const IMAGE_SUBTITLE_CODEC = /^(pgs|hdmv_pgs_subtitle|vobsub|dvd|dvdsub|dvd_subtitle|image|bluray|dvbsub|dvb_subtitle|xsub)$/i;
+const IMAGE_SUBTITLE_CODEC = /^(pgs|hdmv|hdmv_pgs_subtitle|vobsub|dvd|dvdsub|dvd_subtitle|image|bluray|dvbsub|dvb_subtitle|xsub)$/i;
 /** Picture subtitles ExoPlayer draws itself from the file (PGS, VobSub, DVB), like Plex's apps. */
-const EXO_DRAWN_IMAGE_SUBTITLE = /^(pgs|hdmv_pgs_subtitle|vobsub|dvd|dvdsub|dvd_subtitle|bluray|dvbsub|dvb_subtitle)$/i;
+const EXO_DRAWN_IMAGE_SUBTITLE = /^(pgs|hdmv|hdmv_pgs_subtitle|vobsub|dvd|dvdsub|dvd_subtitle|bluray|dvbsub|dvb_subtitle)$/i;
 export type SubtitleBurnMode = 'auto' | 'always' | 'image';
 
 export const isImageSubtitleCodec = (codec?: string | null) => IMAGE_SUBTITLE_CODEC.test(String(codec || '').trim());
@@ -1708,7 +1708,7 @@ export const nativeDirectPlayEligible = (input: {
     const sub = String(opts?.subtitleStreamId ?? input.subtitleStreamId ?? '').replace(/\D/g, '');
     if (sub) {
         const track = (input.subtitles || []).find((row) => String(row.id || '') === sub);
-        // Image subs still need burn-in. Text / unknown ride with Direct Play.
+        // Only formats Exo cannot draw (xsub, or burn policy) force a transcode.
         if (track) {
             let burnMode: SubtitleBurnMode = 'auto';
             try {
@@ -1786,6 +1786,9 @@ export const buildNativePlaybackSrc = (
         if (transcode && eligible && qualityId === 'original') {
             return '';
         }
+        const subId = String(subtitleStreamId || '').replace(/\D/g, '');
+        const subCodec = (session.subtitles || []).find((row) => String(row.id || '') === subId)?.codec;
+        const burnImage = transcode && !!subId && isImageSubtitleCodec(subCodec);
         return withPlayerStreamQuery(src, {
             session: sessionId,
             'X-Plex-Session-Identifier': sessionId,
@@ -1794,7 +1797,13 @@ export const buildNativePlaybackSrc = (
                 : undefined,
             mediaIndex: mediaIndex > 0 ? mediaIndex : undefined,
             audioStreamID: String(audioStreamId || '').replace(/\D/g, '') || undefined,
-            subtitleStreamID: String(subtitleStreamId || '').replace(/\D/g, '') || undefined,
+            subtitleStreamID: subId || undefined,
+            ...(burnImage ? {
+                subtitles: 'burn',
+                advancedSubtitles: 'burn',
+                subtitleSize: '100',
+                directStream: '0',
+            } : {}),
         });
     }
 

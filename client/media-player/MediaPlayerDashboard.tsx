@@ -287,7 +287,7 @@ export const MediaPlayerDashboard: React.FC = () => {
     const [playSession, setPlaySession] = useState<PlayerPlaySession | null>(null);
     const playSessionRef = useRef<PlayerPlaySession | null>(null);
     playSessionRef.current = playSession;
-    /** Keep a black bridge while ExoPlayer closes and the next episode opens. */
+    /** Keep a black bridge while ExoPlayer closes and the next title opens. */
     const [playNextBridge, setPlayNextBridge] = useState(false);
     const playNextBridgeRef = useRef(false);
     playNextBridgeRef.current = playNextBridge;
@@ -1623,7 +1623,7 @@ export const MediaPlayerDashboard: React.FC = () => {
                 >
                     <div className="pointer-events-none flex flex-col items-center gap-4">
                         <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/25 border-t-white/80" />
-                        <p className="text-sm font-semibold text-white/80">{t('mediaPlayerPage.loadingNextEpisode')}</p>
+                        <p className="text-sm font-semibold text-white/80">{t('mediaPlayerPage.playbackStarting')}</p>
                     </div>
                 </div>
             ) : null}

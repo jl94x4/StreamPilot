@@ -21,6 +21,33 @@ final class PlaybackUrls {
         return lower.contains(".m3u8") || lower.contains("/transcode/") || lower.contains("/hls/");
     }
 
+    /** PMS universal transcode start (HLS), e.g. /video/:/transcode/universal/start.m3u8?… */
+    static boolean isUniversalStartUrl(@Nullable String url) {
+        return url != null && url.contains("/transcode/universal/start.m3u8");
+    }
+
+    /**
+     * The same transcode, started at another point (seconds). PMS restarts a running session
+     * at the new offset when the same session id asks again, so a seek needs nothing else.
+     * Null when the URL is not a universal start.
+     */
+    @Nullable
+    static String withTranscodeOffset(@Nullable String url, long offsetSec) {
+        if (!isUniversalStartUrl(url)) return null;
+        String value = String.valueOf(Math.max(0L, offsetSec));
+        if (url.matches("(?s).*[?&]offset=[^&#]*.*")) {
+            return url.replaceFirst("([?&])offset=[^&#]*", "$1offset=" + value);
+        }
+        return url + (url.contains("?") ? "&" : "?") + "offset=" + value;
+    }
+
+    /** The decision call PMS wants before a start (without it a fresh start can answer 400). */
+    @Nullable
+    static String transcodeDecisionUrl(@Nullable String startUrl) {
+        if (!isUniversalStartUrl(startUrl)) return null;
+        return startUrl.replaceFirst("/transcode/universal/start[.]m3u8", "/transcode/universal/decision");
+    }
+
     static boolean isDirectPlayUrl(@Nullable String url) {
         return url != null && !url.isEmpty() && !isTranscodeUrl(url);
     }
@@ -55,7 +82,9 @@ final class PlaybackUrls {
         @Nullable String timelineToken,
         @Nullable String timelineClientId,
         @Nullable String timelineSessionId,
-        @Nullable String audioStreamId
+        @Nullable String audioStreamId,
+        @Nullable String subtitleStreamId,
+        boolean burnImageSubtitles
     ) {
         if (key == null || key.trim().isEmpty()) return null;
         try {
@@ -92,14 +121,17 @@ final class PlaybackUrls {
             builder.appendQueryParameter("protocol", "hls");
             builder.appendQueryParameter("fastSeek", "1");
             builder.appendQueryParameter("directPlay", "0");
-            builder.appendQueryParameter("directStream", "1");
             builder.appendQueryParameter("directStreamAudio", "1");
             // Accept EAC3/AC3 on remux like official Plex — do not force AAC convert.
             builder.appendQueryParameter("audioCodec", "aac,mp3,ac3,eac3,eac3_joc,flac,opus,mp4a");
-            builder.appendQueryParameter("subtitleSize", "0");
-            builder.appendQueryParameter("subtitles", "none");
-            builder.appendQueryParameter("advancedSubtitles", "none");
-            builder.appendQueryParameter("subtitleStreamID", "0");
+            String subId = subtitleStreamId != null && subtitleStreamId.matches("\\d+")
+                ? subtitleStreamId : "";
+            boolean burn = burnImageSubtitles && !subId.isEmpty();
+            builder.appendQueryParameter("directStream", burn ? "0" : "1");
+            builder.appendQueryParameter("subtitleSize", burn ? "100" : "0");
+            builder.appendQueryParameter("subtitles", burn ? "burn" : "none");
+            builder.appendQueryParameter("advancedSubtitles", burn ? "burn" : "none");
+            builder.appendQueryParameter("subtitleStreamID", burn ? subId : "0");
             builder.appendQueryParameter("audioBoost", "100");
             builder.appendQueryParameter("videoQuality", "100");
             builder.appendQueryParameter("videoResolution", "3840x2160");

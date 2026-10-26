@@ -165,6 +165,7 @@ public class PlayerActivity extends AppCompatActivity {
     private TextView statsView;
     private TextView modeChipView;
     private TextView resolutionChipView;
+    private TextView subtitleChipView;
     private TextView bufferLabelView;
     private boolean statsVisible;
     private TextView clockView;
@@ -552,6 +553,8 @@ public class PlayerActivity extends AppCompatActivity {
      * the finished episode as playing until its session timed out.
      */
     private static final ExecutorService TIMELINE_EXECUTOR = Executors.newSingleThreadExecutor();
+    /** Transcode seek decision calls: kept off the timeline queue so a slow ping can't delay one. */
+    private static final ExecutorService SEEK_EXECUTOR = Executors.newSingleThreadExecutor();
 
     private final List<OptionItem> qualities = new ArrayList<>();
     private final List<OptionItem> audioTracks = new ArrayList<>();
@@ -650,13 +653,55 @@ public class PlayerActivity extends AppCompatActivity {
         player.seekTo(Math.max(0, scrubTargetMs - timelineOriginMs));
         emitProgress("playing");
     };
+    /** A transcode seek paused playback to wait for the restarted stream. */
+    private boolean transcodeSeekWaiting;
+    private final Runnable seekHoldSafetyRunnable = () -> {
+        if (!transcodeSeekWaiting || player == null) return;
+        transcodeSeekWaiting = false;
+        if (!userPaused) player.setPlayWhenReady(true);
+    };
     private final Runnable transcodeSeekRunnable = () -> {
         long target = pendingTranscodeSeekMs;
         pendingTranscodeSeekMs = -1;
         if (target < 0) return;
         markStreamSwap();
-        requestStreamChange(qualityId, audioStreamId, subtitleStreamId, mediaIndex, target, "seek");
+        // Pause only. stop()/clear here left Exo idle with a spinner and no playlist
+        // while JS restarted PMS; the new URL never started playing.
+        if (player != null && !userPaused) {
+            transcodeSeekWaiting = true;
+            player.setPlayWhenReady(false);
+            mainHandler.removeCallbacks(seekHoldSafetyRunnable);
+            mainHandler.postDelayed(seekHoldSafetyRunnable, 20000);
+        }
+        if (!nativeTranscodeSeek(target)) {
+            requestStreamChange(qualityId, audioStreamId, subtitleStreamId, mediaIndex, target, "seek");
+        }
     };
+    /** Bumped per native transcode seek, so only the latest one swaps the stream. */
+    private int nativeSeekGen;
+
+    /**
+     * Restart the open transcode at the seek target from here, without the WebView. Behind
+     * this activity the page is hidden and its timers don't run, so a seek routed through JS
+     * often never came back (the picture froze, then jumped back). Same session, new offset,
+     * after PMS's decision call.
+     */
+    private boolean nativeTranscodeSeek(long targetMs) {
+        final String next = PlaybackUrls.withTranscodeOffset(currentUrl, Math.max(0L, targetMs) / 1000L);
+        final String decision = PlaybackUrls.transcodeDecisionUrl(next);
+        if (next == null || decision == null) return false;
+        final int gen = ++nativeSeekGen;
+        final String headers = headersJson;
+        setBufferingVisible(true);
+        SEEK_EXECUTOR.execute(() -> {
+            timelineReporter.httpPing(decision, null, "GET");
+            mainHandler.post(() -> {
+                if (gen != nativeSeekGen || finishing || player == null) return;
+                applyUpdateSrc(next, headers, targetMs, true);
+            });
+        });
+        return true;
+    }
     private final Runnable tickRunnable = new Runnable() {
         @Override
         public void run() {
@@ -944,6 +989,7 @@ public class PlayerActivity extends AppCompatActivity {
         titleView = findViewById(R.id.player_title);
         modeChipView = findViewById(R.id.player_mode_chip);
         resolutionChipView = findViewById(R.id.player_resolution_chip);
+        subtitleChipView = findViewById(R.id.player_subtitle_chip);
         bufferLabelView = findViewById(R.id.player_buffer_label);
         statsView = findViewById(R.id.player_stats);
         clockView = findViewById(R.id.player_clock);
@@ -1014,7 +1060,7 @@ public class PlayerActivity extends AppCompatActivity {
         seekPreview = findViewById(R.id.player_seek_preview);
         // Top-left title / episode line and the delivery + resolution badges: the app's clock
         // face (medium Switzer), as on the TV Home and title pages.
-        applyAssetTypeface("fonts/switzer_medium.ttf", titleView, metaView, modeChipView, resolutionChipView, bufferLabelView);
+        applyAssetTypeface("fonts/switzer_medium.ttf", titleView, metaView, modeChipView, resolutionChipView, subtitleChipView, bufferLabelView);
         applySatoshiTypeface(
             timeView,
             remainingView,
@@ -1272,6 +1318,7 @@ public class PlayerActivity extends AppCompatActivity {
             @Override
             public void onVideoSizeChanged(VideoSize videoSize) {
                 updateResolutionChip();
+                updateSubtitleChip();
             }
 
             @Override
@@ -2634,19 +2681,21 @@ public class PlayerActivity extends AppCompatActivity {
             JSONObject row = arr.optJSONObject(i);
             if (row == null) continue;
             String id = row.optString("id", "");
+            String codec = row.optString("codec", "");
             String label = row.optString("label", id);
             if (id.isEmpty() && row.has("mediaIndex")) {
                 id = String.valueOf(row.optInt("mediaIndex", i));
             }
-            if (!label.isEmpty()) {
-                String language = row.optString("languageTag", "");
-                if (language.isEmpty()) language = row.optString("language", "");
-                String codec = row.optString("codec", "");
-                OptionItem item = new OptionItem(id, label, row.optString("url", ""), language, codec);
-                item.embeddedOrdinal = row.optInt("embeddedOrdinal", -1);
-                item.downloadKey = row.optString("downloadKey", "");
-                out.add(item);
-            }
+            if (label.isEmpty() && !codec.isEmpty()) label = codec.toUpperCase(Locale.US);
+            if (id.isEmpty() && label.isEmpty()) continue;
+            if (id.isEmpty()) id = String.valueOf(i);
+            if (label.isEmpty()) label = id;
+            String language = row.optString("languageTag", "");
+            if (language.isEmpty()) language = row.optString("language", "");
+            OptionItem item = new OptionItem(id, label, row.optString("url", ""), language, codec);
+            item.embeddedOrdinal = row.optInt("embeddedOrdinal", -1);
+            item.downloadKey = row.optString("downloadKey", "");
+            out.add(item);
         }
         return out;
     }
@@ -2686,10 +2735,11 @@ public class PlayerActivity extends AppCompatActivity {
         clearSubtitleCues();
         applyAudioTrackPreference();
         applyTextTrackPreference();
-        // HLS↔Direct Play needs a hard media reset — setMediaItem alone can leave Exo
-        // buffering on the old HLS pipeline after Original is selected again.
-        final boolean crossDelivery = (previousUrl != null && !previousUrl.isEmpty())
-            && (PlaybackUrls.isTranscodeUrl(previousUrl) != PlaybackUrls.isTranscodeUrl(currentUrl));
+        // HLS↔Direct Play and transcode→transcode both need a hard media reset.
+        // setMediaItem alone can leave Exo on the previous HLS period, so a seek
+        // keeps playing the old buffer instead of the restarted playlist.
+        final boolean hardReset = (previousUrl != null && !previousUrl.isEmpty())
+            && (PlaybackUrls.isTranscodeUrl(previousUrl) || PlaybackUrls.isTranscodeUrl(currentUrl));
         // stop() only when something is loaded — idle+stop left some TVs unable to play().
         if (player.getPlaybackState() != Player.STATE_IDLE || player.getMediaItemCount() > 0) {
             try {
@@ -2698,7 +2748,7 @@ public class PlayerActivity extends AppCompatActivity {
                 /* Media3 stop is best-effort before replacing the item. */
             }
         }
-        if (crossDelivery) {
+        if (hardReset) {
             try {
                 player.clearMediaItems();
             } catch (Throwable ignored) {
@@ -2706,6 +2756,8 @@ public class PlayerActivity extends AppCompatActivity {
             }
         }
         queueStartPosition(currentUrl, offsetMs);
+        transcodeSeekWaiting = false;
+        mainHandler.removeCallbacks(seekHoldSafetyRunnable);
         player.setPlayWhenReady(!userPaused);
         player.prepare();
         if (!userPaused && offsetMs >= 5000) {
@@ -3204,7 +3256,7 @@ public class PlayerActivity extends AppCompatActivity {
         String previousSidecar = sidecarSubtitleUrl;
         String previousSubtitleId = subtitleStreamId == null ? "" : subtitleStreamId;
         subtitleStreamId = picked.id == null ? "" : picked.id;
-        boolean sidecar = picked.id != null && picked.id.startsWith("os:") && !picked.url.isEmpty();
+        boolean sidecar = picked.url != null && !picked.url.trim().isEmpty();
         sidecarSubtitleUrl = sidecar ? picked.url : "";
         sidecarSubtitleCodec = sidecar ? picked.codec : "";
         saveAvPrefs();
@@ -3280,11 +3332,13 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     /**
-     * ExoPlayer draws in-file picture subs (PGS / VobSub) on Direct Play only: a picture sidecar,
-     * or a transcoded stream (which carries no subtitle track), still needs them burned in.
+     * ExoPlayer draws in-file PGS / VobSub / DVB on Direct Play, and overlays a sidecar
+     * file when we have a URL. Burn only when the codec cannot be drawn, the user asked
+     * to burn, or a picture track is on a transcode (HLS has no subtitle track).
      */
     private boolean subtitleNeedsBurn(@Nullable OptionItem row) {
         if (row == null) return false;
+        if (row.url != null && !row.url.trim().isEmpty()) return false;
         if (TrackRules.subtitleCodecNeedsBurn(row.codec, burnSubtitles)) return true;
         if (!TrackRules.isImageSubtitle(row.codec)) return false;
         return row.embeddedOrdinal < 0 || !PlaybackUrls.isDirectPlayUrl(currentUrl);
@@ -3395,8 +3449,9 @@ public class PlayerActivity extends AppCompatActivity {
         boolean off = subtitleStreamId == null || subtitleStreamId.isEmpty() || subtitleStreamId.startsWith("os:");
         OptionItem subRow = findSubtitleOption(subtitleStreamId);
         boolean burn = !off && subtitleNeedsBurn(subRow);
-        // HLS / burn-in already paints captions in-frame — keep Exo text off or they stack.
-        if ((PlaybackUrls.isTranscodeUrl(currentUrl) && !sidecar) || burn) {
+        // Burn-in paints captions in-frame. Keep Exo text off then so they do not stack.
+        // HLS WebVTT (SRT transcode) still uses Exo text tracks.
+        if (burn) {
             builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true);
         } else if (off && !sidecar) {
             builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true);
@@ -4567,11 +4622,15 @@ public class PlayerActivity extends AppCompatActivity {
         refreshTranscodeDetail();
         if (musicMode) {
             modeChipView.setVisibility(View.GONE);
+            updateResolutionChip();
+            updateSubtitleChip();
             return;
         }
         String label = playbackModeLabel();
         if (label == null || label.trim().isEmpty()) {
             modeChipView.setVisibility(View.GONE);
+            updateResolutionChip();
+            updateSubtitleChip();
             return;
         }
         String quality = currentQualityLabel();
@@ -4580,6 +4639,7 @@ public class PlayerActivity extends AppCompatActivity {
         modeChipView.setVisibility(View.VISIBLE);
         modeChipView.setContentDescription(quality.isEmpty() ? label : (label + " · " + quality));
         updateResolutionChip();
+        updateSubtitleChip();
     }
 
     /** Badge beside the delivery mode: resolution of the video actually playing (4K, 1080p, …). */
@@ -4593,13 +4653,42 @@ public class PlayerActivity extends AppCompatActivity {
         }
         resolutionChipView.setText(label);
         resolutionChipView.setVisibility(View.VISIBLE);
-        // No gap to the left when it is the only badge.
-        ViewGroup.LayoutParams params = resolutionChipView.getLayoutParams();
-        if (params instanceof ViewGroup.MarginLayoutParams) {
-            int start = modeShown ? Math.round(8 * getResources().getDisplayMetrics().density) : 0;
-            ((ViewGroup.MarginLayoutParams) params).setMarginStart(start);
-            resolutionChipView.setLayoutParams(params);
+        setChipStartMargin(resolutionChipView, modeShown);
+    }
+
+    /** Badge beside resolution: SRT / PGS / … for the subtitle currently in use. Hidden when Off. */
+    private void updateSubtitleChip() {
+        if (subtitleChipView == null) return;
+        boolean modeShown = modeChipView != null && modeChipView.getVisibility() == View.VISIBLE;
+        boolean resolutionShown = resolutionChipView != null && resolutionChipView.getVisibility() == View.VISIBLE;
+        String label = musicMode ? "" : currentSubtitleFormatBadge();
+        if (label.isEmpty()) {
+            subtitleChipView.setVisibility(View.GONE);
+            return;
         }
+        subtitleChipView.setText(label);
+        subtitleChipView.setVisibility(View.VISIBLE);
+        setChipStartMargin(subtitleChipView, modeShown || resolutionShown);
+    }
+
+    private String currentSubtitleFormatBadge() {
+        if (subtitleStreamId == null || subtitleStreamId.isEmpty() || "0".equals(subtitleStreamId)) return "";
+        OptionItem row = findSubtitleOption(subtitleStreamId);
+        String codec = row != null ? row.codec : "";
+        if ((codec == null || codec.isEmpty()) && sidecarSubtitleUrl != null && !sidecarSubtitleUrl.isEmpty()) {
+            codec = sidecarSubtitleCodec;
+        }
+        String trackLabel = row != null ? row.label : "";
+        return TrackRules.subtitleFormatBadge(codec, trackLabel);
+    }
+
+    private void setChipStartMargin(@Nullable View view, boolean afterPrevious) {
+        if (view == null) return;
+        ViewGroup.LayoutParams params = view.getLayoutParams();
+        if (!(params instanceof ViewGroup.MarginLayoutParams)) return;
+        int start = afterPrevious ? Math.round(8 * getResources().getDisplayMetrics().density) : 0;
+        ((ViewGroup.MarginLayoutParams) params).setMarginStart(start);
+        view.setLayoutParams(params);
     }
 
     /** Wide frames (1920x800 scope) go by width, 4:3 HD (1440x1080) by height. */
@@ -4888,9 +4977,21 @@ public class PlayerActivity extends AppCompatActivity {
         else player.setMediaItem(item);
     }
 
+    private static String sidecarSubtitleMime(String url, String codec) {
+        String lowerUrl = url == null ? "" : url.toLowerCase(Locale.US);
+        String c = codec == null ? "" : codec.toLowerCase(Locale.US);
+        if (lowerUrl.contains(".vtt") || c.equals("vtt") || c.equals("webvtt")) return MimeTypes.TEXT_VTT;
+        if (c.equals("ass") || c.equals("ssa")) return MimeTypes.TEXT_SSA;
+        if (c.contains("pgs") || lowerUrl.contains(".sup")) return MimeTypes.APPLICATION_PGS;
+        if (c.contains("vob") || c.contains("dvd")) return MimeTypes.APPLICATION_VOBSUB;
+        if (c.contains("dvb")) return MimeTypes.APPLICATION_DVBSUBS;
+        return MimeTypes.APPLICATION_SUBRIP;
+    }
+
     private MediaItem buildMediaItem(String url) {
         MediaItem.Builder builder = new MediaItem.Builder()
             .setUri(Uri.parse(url))
+            .setMediaId(url + "|" + System.nanoTime())
             .setMediaMetadata(sessionMetadata());
         String lower = url.toLowerCase(Locale.US);
         if (lower.contains(".m3u8") || lower.contains("/hls/")) {
@@ -4898,9 +4999,7 @@ public class PlayerActivity extends AppCompatActivity {
         }
         if (sidecarSubtitleUrl != null && !sidecarSubtitleUrl.trim().isEmpty()) {
             String codec = sidecarSubtitleCodec == null ? "" : sidecarSubtitleCodec.toLowerCase(Locale.US);
-            String mime = sidecarSubtitleUrl.toLowerCase(Locale.US).contains(".vtt") || codec.equals("vtt") || codec.equals("webvtt")
-                ? MimeTypes.TEXT_VTT
-                : (codec.equals("ass") || codec.equals("ssa") ? MimeTypes.TEXT_SSA : MimeTypes.APPLICATION_SUBRIP);
+            String mime = sidecarSubtitleMime(sidecarSubtitleUrl, codec);
             builder.setSubtitleConfigurations(Collections.singletonList(
                 new MediaItem.SubtitleConfiguration.Builder(Uri.parse(sidecarSubtitleUrl))
                     .setId(SIDECAR_TEXT_ID)
@@ -4962,10 +5061,13 @@ public class PlayerActivity extends AppCompatActivity {
     /** Direct Play fallback to PMS HLS with this session's timeline credentials. See PlaybackUrls. */
     @Nullable
     private String partsUrlToPmsHls(String partUrl, String key, int mediaIdx, long offsetMs) {
+        OptionItem sub = findSubtitleOption(subtitleStreamId);
+        boolean burnImage = sub != null && TrackRules.isImageSubtitle(sub.codec);
         return PlaybackUrls.partsUrlToPmsHls(
             partUrl, key, mediaIdx, offsetMs,
             timelineReporter.origin, timelineReporter.token, timelineReporter.clientId,
-            timelineReporter.sessionId, audioStreamId
+            timelineReporter.sessionId, audioStreamId,
+            subtitleStreamId, burnImage
         );
     }
 

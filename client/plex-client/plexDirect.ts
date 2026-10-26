@@ -13,11 +13,13 @@ import {
     canHttpDirectPlay,
     isBitstreamAudioCodec,
     isImageSubtitleCodec,
+    isSidecarSubtitleStream,
+    partStreamSelectionQuery,
     NATIVE_COPY_AUDIO_CODECS,
     subtitleCodecNeedsBurn,
 } from '../../lib/media-player/directPlayCaps.js';
 import { buildGenreRelatedHubs } from '../../lib/media-player/mapItem.js';
-import { subtitleTrackLabel } from '../../lib/media-player/subtitleLabel.js';
+import { isSubtitleStreamRow, subtitleCodecFromStream, subtitleTrackLabel } from '../../lib/media-player/subtitleLabel.js';
 import {
     fillStudioBrowseArt,
     mapStudioBrowseOptions,
@@ -494,6 +496,13 @@ const plexHeaders = (token?: string): Record<string, string> => {
         'X-Plex-Device': 'Android TV',
         'X-Plex-Device-Name': 'StreamPilot',
         'X-Plex-Provides': 'player,controller',
+        // PMS can hide PGS unless the client advertises a subtitle Direct Play profile.
+        'X-Plex-Client-Profile-Extra': [
+            'add-direct-play-profile(type=videoProfile&container=*&protocol=http&videoCodec=*&audioCodec=*&subtitleCodec=srt,ass,ssa,pgs,vobsub,dvbsub,mov_text,eia_608,webvtt,tx3g,subrip)',
+            'add-direct-play-profile(type=subtitleProfile&container=*&codec=pgs,vobsub,srt,ass,ssa,dvbsub,webvtt,mov_text,tx3g)',
+            // HLS cannot carry PGS/VobSub. Omit them so PMS burns those tracks instead of copying.
+            'add-transcode-target(type=videoProfile&context=streaming&protocol=hls&container=mpegts&videoCodec=h264,hevc&audioCodec=aac,ac3,eac3&subtitleCodec=srt,ass,ssa,webvtt)',
+        ].join('+'),
     };
     if (token) headers['X-Plex-Token'] = token;
     return headers;
@@ -763,10 +772,19 @@ const coverArtUrl = (meta: PlexMeta | null | undefined) => {
 };
 
 const mapStreams = (part: PlexMeta) => {
-    const streams = asList<PlexMeta>(part?.Stream);
+    const nested = asList<PlexMeta>(part?.Stream).concat(asList<PlexMeta>(part?.stream));
+    const streams = nested.flatMap((row) => {
+        if (row && row.streamType == null && row.codec == null && (row.Stream || row.stream)) {
+            return asList<PlexMeta>(row.Stream).concat(asList<PlexMeta>(row.stream));
+        }
+        return [row];
+    });
     const video = streams.find((stream) => Number(stream.streamType) === 1) || {};
     const audio = streams.filter((stream) => Number(stream.streamType) === 2);
-    const subtitles = streams.filter((stream) => Number(stream.streamType) === 3);
+    const subtitles = streams.filter(isSubtitleStreamRow).map((stream): PlexMeta => ({
+        ...stream,
+        codec: subtitleCodecFromStream(stream) || stream.codec,
+    }));
     return { video, audio, subtitles };
 };
 
@@ -1170,8 +1188,8 @@ const mapItem = (meta: PlexMeta) => {
                         languageTag: stream.languageTag || stream.languageCode || null,
                         selected: stream.selected === 1 || stream.selected === true,
                     })),
-                    subtitles: streams.subtitles.map((stream) => ({
-                        id: String(stream.id || ''),
+                    subtitles: streams.subtitles.map((stream, subIndex) => ({
+                        id: String(stream.id || stream.index || `sub-${subIndex}`),
                         codec: stream.codec || null,
                         displayTitle: subtitleTrackLabel(stream),
                         language: stream.language || stream.languageTag || null,
@@ -1595,6 +1613,7 @@ const waitLivePlaylist = async (
             String(harvested.ratingKey),
             String(harvested.sessionId || tune.sessionId || ''),
         );
+        await ensureTranscodeDecision(server, transcode);
         try {
             const hit = await tryProbe(transcode, 5000);
             if (hit) return hit;
@@ -1950,9 +1969,12 @@ const readSettings = (): PlayerSettings => {
 const QUALITIES = [
     { id: 'original', label: 'Original', videoResolution: 'original', maxVideoBitrate: 200000, videoQuality: 100 },
     { id: '1080-20', label: '1080p · 20 Mbps', videoResolution: '1080', maxVideoBitrate: 20000, videoQuality: 80 },
+    { id: '1080-12', label: '1080p · 12 Mbps', videoResolution: '1080', maxVideoBitrate: 12000, videoQuality: 70 },
     { id: '1080-8', label: '1080p · 8 Mbps', videoResolution: '1080', maxVideoBitrate: 8000, videoQuality: 60 },
     { id: '720-4', label: '720p · 4 Mbps', videoResolution: '720', maxVideoBitrate: 4000, videoQuality: 60 },
+    { id: '720-2', label: '720p · 2 Mbps', videoResolution: '720', maxVideoBitrate: 2000, videoQuality: 50 },
     { id: '480-1.5', label: '480p · 1.5 Mbps', videoResolution: '480', maxVideoBitrate: 1500, videoQuality: 40 },
+    { id: '360-0.7', label: '360p · 0.7 Mbps', videoResolution: '360', maxVideoBitrate: 720, videoQuality: 30 },
 ];
 
 const readPlayerSetting = <T,>(key: string, fallback: T): T => {
@@ -2040,8 +2062,7 @@ const pickSubtitleId = (subtitles: PlexMeta[], requested: string | null, mode: s
         if (!raw || raw === '0') return '';
         const want = raw.replace(/\D/g, '');
         if (!want || want === '0') return '';
-        // Any format the user picked: image subs (PGS / VobSub) are burned in by playSrc.
-        // Only accepting text subs here silently dropped every PGS choice.
+        // Keep PGS / VobSub / SRT — native Direct Play draws in-file picture subs.
         if (subtitles.some((stream) => String(stream.id || '') === want)) return want;
         return '';
     }
@@ -2051,7 +2072,7 @@ const pickSubtitleId = (subtitles: PlexMeta[], requested: string | null, mode: s
     if (plexPick?.id) return String(plexPick.id);
     const isForced = (stream: PlexMeta) => stream.forced === 1 || stream.forced === true;
     if (mode === 'forced') {
-        // Text first (Direct Play keeps going); an image-only forced track is still shown, burned in.
+        // Text first; in-file PGS forced tracks Direct Play on the TV.
         const forced = text.find(isForced) || subtitles.find(isForced);
         return forced?.id ? String(forced.id) : '';
     }
@@ -2098,19 +2119,16 @@ const playSrc = (
         })();
     const hasVideo = asList<PlexMeta>(part?.Stream).some((stream) => Number(stream.streamType) === 1);
     const audioOnly = !hasVideo;
-    // Text subs (SRT/ASS/…) can Direct Play — ExoPlayer selects the embedded track.
-    // Image subs (PGS/VobSub) still need a burn-in transcode.
+    const mappedSubs = mapStreams(part || {}).subtitles;
     const subStream = subtitleId
-        ? asList<PlexMeta>(part?.Stream).find((stream) => (
-            Number(stream.streamType) === 3 && String(stream.id || '') === subtitleId
-        ))
+        ? mappedSubs.find((stream) => String(stream.id || '') === subtitleId)
         : null;
-    // Only burn when we know the stream is image-based. Missing metadata must not
-    // force burn-in (that stacks under Exo text captions during quality swaps).
-    const imageSub = !!subStream && isImageSubtitleCodec(subStream.codec);
-    // ExoPlayer draws in-file PGS / VobSub on Direct Play; a picture sidecar must be burned.
+    const subCodec = subtitleCodecFromStream(subStream) || String(subStream?.codec || '');
+    const imageSub = !!subStream && isImageSubtitleCodec(subCodec);
+    // In-file PGS/VobSub/DVB Direct Play. Burn only formats Exo cannot draw or
+    // user policy "always"/"image". Sidecar files overlay without a transcode.
     let burnSubtitles = Boolean(subtitleId) && !!subStream
-        && (subtitleCodecNeedsBurn(subStream.codec, nativeBurnSubtitlesMode(), true) || (imageSub && !!subStream.key));
+        && subtitleCodecNeedsBurn(subCodec, nativeBurnSubtitlesMode(), true);
     const capsForAudio = (id: string) => canHttpDirectPlay(meta, {
         client: 'android',
         mediaIndex,
@@ -2210,13 +2228,14 @@ const playSrc = (
         // Tell PMS we accept EAC3/AC3 on remux — omitting this made some servers convert to AAC.
         audioCodec: audioOk ? NATIVE_COPY_AUDIO_CODECS : 'aac',
         ...(audioOk ? {} : { maxAudioChannels: '2' }),
-        subtitleSize: burnSubtitles ? '100' : '0',
-        subtitles: burnSubtitles ? 'burn' : 'none',
-        advancedSubtitles: burnSubtitles ? 'burn' : 'none',
+        subtitleSize: burnSubtitles ? '100' : (subtitleId ? '100' : '0'),
+        // HLS has no PGS track. Image subs must burn. Text subs use auto (WebVTT sidecar).
+        subtitles: burnSubtitles ? 'burn' : (subtitleId ? 'auto' : 'none'),
+        advancedSubtitles: burnSubtitles ? 'burn' : (subtitleId ? 'auto' : 'none'),
         session,
         ...(offsetSec > 0 ? { offset: String(offsetSec) } : {}),
         ...(audioId ? { audioStreamID: audioId } : {}),
-        subtitleStreamID: burnSubtitles ? subtitleId : '0',
+        subtitleStreamID: subtitleId || '0',
         audioBoost: String(nativeAudioBoost()),
         videoQuality: String(quality?.videoQuality || 100),
         videoResolution: quality?.videoResolution || '3840x2160',
@@ -2233,6 +2252,86 @@ const playSrc = (
     return { src: url.toString(), mode: 'transcode' as const, media, part: part || {}, sessionId: session };
 };
 
+/**
+ * Ask PMS for its transcode decision before the player loads `start.m3u8`, as Plex's own
+ * apps do. Without it, start answered 400; with it, start is 200, including after a seek.
+ */
+const isUniversalStartPath = (pathname: string) => {
+    let path = String(pathname || '');
+    try {
+        path = decodeURIComponent(path);
+    } catch {
+        /* keep the raw path */
+    }
+    return /\/transcode\/universal\/start\.m3u8$/i.test(path);
+};
+
+const ensureTranscodeDecision = async (server: PlexServer | null, src: string) => {
+    if (!server || !src) return;
+    try {
+        const url = new URL(src, `${String(server.uri || '').replace(/\/+$/, '')}/`);
+        if (!isUniversalStartPath(url.pathname)) return;
+        url.pathname = url.pathname.replace(/start\.m3u8$/i, 'decision');
+        url.searchParams.delete('X-Plex-Token');
+        url.searchParams.delete('access_token');
+        await pms(`${url.pathname}${url.search}`, server, 8000);
+    } catch {
+        /* PMS still needs the attempt; start may work even if this parse fails */
+    }
+};
+
+/** Decision, then actually start the HLS session so Exo is not the first start.m3u8 (400). */
+/**
+ * Save the audio / subtitle pick on the part, as Plex's own apps do. The transcoder burns the
+ * subtitle the part has selected on the server: without this a PGS track picked in this app
+ * played on Direct Play (Exo draws it) but vanished on a transcode.
+ */
+const selectPartStreams = async (
+    server: PlexServer | null,
+    part: PlexMeta | null | undefined,
+    audioStreamId: string,
+    subtitleStreamId: string,
+) => {
+    const partId = String(part?.id || '').replace(/\D/g, '');
+    if (!server || !partId) return;
+    try {
+        const url = new URL(`/library/parts/${partId}`, server.uri.endsWith('/') ? server.uri : `${server.uri}/`);
+        url.search = partStreamSelectionQuery(audioStreamId, subtitleStreamId);
+        url.searchParams.set('X-Plex-Token', server.accessToken);
+        const controller = new AbortController();
+        const timer = window.setTimeout(() => controller.abort(), 4000);
+        try {
+            await plexFetch(url.toString(), server.accessToken, { method: 'PUT', signal: controller.signal });
+        } finally {
+            window.clearTimeout(timer);
+        }
+    } catch {
+        /* Best effort: playback still starts with the URL's own stream ids. */
+    }
+};
+
+const kickTranscodeStart = async (server: PlexServer | null, src: string) => {
+    if (!server || !src) return;
+    await ensureTranscodeDecision(server, src);
+    try {
+        const url = new URL(src, `${String(server.uri || '').replace(/\/+$/, '')}/`);
+        if (!isUniversalStartPath(url.pathname)) return;
+        url.searchParams.delete('X-Plex-Token');
+        url.searchParams.delete('access_token');
+        const path = `${url.pathname}${url.search}`;
+        const load = () => pms(path, server, 15000, { Accept: HLS_ACCEPT });
+        try {
+            await load();
+        } catch (error: any) {
+            if (Number(error?.status) !== 400) return;
+            await ensureTranscodeDecision(server, src);
+            await load().catch(() => undefined);
+        }
+    } catch {
+        /* Exo still loads start.m3u8; this only warms PMS */
+    }
+};
+
 const withMapServer = async <T,>(server: PlexServer | null, run: () => Promise<T>) => {
     const previous = mapServer;
     mapServer = server;
@@ -2244,7 +2343,7 @@ const withMapServer = async <T,>(server: PlexServer | null, run: () => Promise<T
 };
 
 const metadata = async (ratingKey: string, server: PlexServer | null = resolveServer('', ratingKey)) => {
-    const data = await pms(`/library/metadata/${encodeURIComponent(ratingKey)}?includeGuids=1&includeImages=1&includeMarkers=1&includeChapters=1&includeOnDeck=1&includeUserState=1`, server);
+    const data = await pms(`/library/metadata/${encodeURIComponent(ratingKey)}?includeGuids=1&includeImages=1&includeMarkers=1&includeChapters=1&includeOnDeck=1&includeUserState=1&includeBandwidths=1`, server);
     const meta = asList<PlexMeta>(containerOf(data).Metadata)[0];
     if (!meta) throw new Error('Title not found');
     return meta;
@@ -6598,6 +6697,15 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                 query.get('delivery') === 'hls',
                 String(query.get('sessionId') || '').trim(),
             );
+            // Before the transcode starts, so PMS burns the subtitle picked here. Direct Play
+            // doesn't wait: it only keeps the server's pick in step for a later transcode.
+            if (chosen.mode === 'transcode') {
+                const sent = new URL(chosen.src).searchParams;
+                await selectPartStreams(server, chosen.part, sent.get('audioStreamID') || '', sent.get('subtitleStreamID') || '');
+                await kickTranscodeStart(server, chosen.src);
+            } else {
+                void selectPartStreams(server, chosen.part, audioStreamId, subtitleStreamId);
+            }
             const item = mapItem(meta);
             if (item.ratingKey) rememberItem(item.ratingKey, server);
             return {
@@ -6619,17 +6727,42 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                     selected: String(stream.id || '') === audioStreamId,
                 })),
                 audioStreamId: audioStreamId || null,
-                subtitles: streams.subtitles.map((stream) => ({
-                    id: String(stream.id || ''),
-                    label: subtitleTrackLabel(stream),
-                    language: stream.language || null,
-                    languageTag: stream.languageTag || stream.languageCode || null,
-                    codec: stream.codec || null,
-                    forced: stream.forced === 1 || stream.forced === true,
-                    selected: String(stream.id || '') === subtitleStreamId,
-                    // Position among in-file subs (sidecars carry a key) — matches ExoPlayer's text track order.
-                    embeddedOrdinal: stream.key ? null : streams.subtitles.filter((row) => !row.key).indexOf(stream),
-                })),
+                subtitles: (() => {
+                    const muxed = streams.subtitles.filter((row) => !isSidecarSubtitleStream(row));
+                    return streams.subtitles.map((stream, subIndex) => {
+                        const sidecar = isSidecarSubtitleStream(stream);
+                        let url = '';
+                        if (sidecar && server && stream.key) {
+                            try {
+                                const abs = new URL(
+                                    String(stream.key).startsWith('http')
+                                        ? String(stream.key)
+                                        : String(stream.key).startsWith('/')
+                                            ? String(stream.key)
+                                            : `/${stream.key}`,
+                                    `${server.uri.replace(/\/+$/, '')}/`,
+                                );
+                                if (!abs.searchParams.get('X-Plex-Token')) {
+                                    abs.searchParams.set('X-Plex-Token', server.accessToken);
+                                }
+                                url = abs.toString();
+                            } catch {
+                                url = '';
+                            }
+                        }
+                        return {
+                            id: String(stream.id || stream.index || `sub-${subIndex}`),
+                            label: subtitleTrackLabel(stream),
+                            language: stream.language || null,
+                            languageTag: stream.languageTag || stream.languageCode || null,
+                            codec: stream.codec || null,
+                            forced: stream.forced === 1 || stream.forced === true,
+                            selected: String(stream.id || '') === subtitleStreamId,
+                            embeddedOrdinal: sidecar ? null : muxed.indexOf(stream),
+                            url,
+                        };
+                    });
+                })(),
                 subtitleStreamId: subtitleStreamId || null,
                 mediaIndex,
                 versions: item.versions,

@@ -404,6 +404,8 @@ export type PlayerSubtitleTrack = {
     selected?: boolean;
     /** Index among subtitles muxed into the file (null for sidecar files). */
     embeddedOrdinal?: number | null;
+    /** Direct URL for a sidecar file so Exo can overlay it without a transcode. */
+    url?: string | null;
 };
 
 export type PlayerPlaybackMode = 'directPlay' | 'directStream' | 'transcode';

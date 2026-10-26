@@ -128,8 +128,14 @@ public class NativeMediaPlayerPlugin extends Plugin {
         }
         JSObject headers = call.getObject("headers");
         String headersJson = headers != null ? headers.toString() : null;
-        Integer offset = call.getInt("offsetMs", 0);
-        long offsetMs = offset == null ? 0L : offset.longValue();
+        long offsetMs = 0L;
+        Double offsetDouble = call.getDouble("offsetMs");
+        if (offsetDouble != null) {
+            offsetMs = Math.max(0L, offsetDouble.longValue());
+        } else {
+            Integer offset = call.getInt("offsetMs", 0);
+            if (offset != null) offsetMs = Math.max(0, offset.longValue());
+        }
         boolean ok = PlayerBridge.get().updateSrc(url.trim(), headersJson, offsetMs);
 
         String sessionJson = call.getString("sessionJson", null);

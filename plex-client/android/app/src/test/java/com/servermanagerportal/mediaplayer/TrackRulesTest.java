@@ -35,6 +35,17 @@ public class TrackRulesTest {
     }
 
     @Test
+    public void subtitleFormatBadgeUsesCodecOrTrailingLabel() {
+        assertEquals("PGS", TrackRules.subtitleFormatBadge("pgs", "English"));
+        assertEquals("PGS", TrackRules.subtitleFormatBadge("S_HDMV/PGS", "English"));
+        assertEquals("SRT", TrackRules.subtitleFormatBadge("subrip", "English"));
+        assertEquals("PGS", TrackRules.subtitleFormatBadge("", "English Forced (PGS)"));
+        assertEquals("SRT", TrackRules.subtitleFormatBadge(null, "English (SRT)"));
+        assertEquals("", TrackRules.subtitleFormatBadge("", "English"));
+        assertEquals("", TrackRules.subtitleFormatBadge(null, null));
+    }
+
+    @Test
     public void bitstreamAudioIsTrueHdAndDtsFamilies() {
         assertTrue(TrackRules.isBitstreamAudioCodec("truehd"));
         assertTrue(TrackRules.isBitstreamAudioCodec("DTSHD"));

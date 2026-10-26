@@ -73,6 +73,39 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.422': [
+        {
+            title: 'Subtitles',
+            items: [
+                'PGS subtitles stay on when the stream transcodes (for example 720p): they are burned into the picture, because HLS cannot carry PGS',
+            ],
+        },
+        {
+            title: 'Player',
+            items: [
+                'The black loading screen now says Playback is starting..., not Loading the next episode',
+                'Seeking while transcoding works again, forwards and backwards: the picture holds for a moment, then plays from where you seeked to instead of carrying on from before',
+            ],
+        },
+    ],
+    '1.0.421': [
+        {
+            title: 'Player',
+            items: [
+                'The bottom bar now shows three matching pills in the centre: Direct Play, resolution, and the subtitle format in use (PGS, SRT, and so on)',
+                'The subtitle pill hides when subtitles are Off',
+            ],
+        },
+    ],
+    '1.0.420': [
+        {
+            title: 'Subtitles',
+            items: [
+                'PGS tracks now show in Select Subtitles, labelled like English (PGS), including when Plex only tags them as S_HDMV/PGS',
+                'This app tells Plex it can Direct Play PGS and VobSub, so those tracks are no longer hidden from the list',
+            ],
+        },
+    ],
     '1.0.415': [
         {
             title: 'Subtitles',
