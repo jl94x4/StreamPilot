@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, Bookmark, BookmarkCheck, Calendar, Captions, Check, ChevronDown, Clock, Eye, EyeOff, Film, Info, ListPlus, Loader2, Play, RotateCcw, Shuffle, SkipForward, Star, Users, Volume2, X } from 'lucide-react';
+import { ArrowLeft, Bookmark, BookmarkCheck, Calendar, Captions, Check, ChevronDown, ChevronUp, Clock, Eye, EyeOff, Film, Info, ListPlus, Loader2, Play, RotateCcw, Shuffle, SkipForward, Star, Users, Volume2, X } from 'lucide-react';
 import { isWatchTogetherAvailable } from './watchTogetherClient';
 import {
     Carousel,
@@ -95,7 +95,13 @@ import {
 } from './playerMemory';
 import type { PlayerItem, PlayerLibraryHub, PlayerMediaPartInfo, PlayerMediaStreamInfo, PlayerPlayOptions, PlayerRatings, PlayerVersion } from './types';
 import { hideEpisodeSpoilers } from './spoilers';
-import { TrailerPreview, type TrailerPreviewHandle } from './TrailerPreview';
+import {
+    TrailerPreview,
+    TRAILER_COLLAPSE_EVENT,
+    TRAILER_EXPAND_EVENT,
+    TRAILER_TOGGLE_EVENT,
+    type TrailerPreviewHandle,
+} from './TrailerPreview';
 import { softenSurfaceRgb, TV_FLOOR_RGB, tvTintSurfaceRgb } from './tvSurface';
 
 /** Airdate text, orange when the episode hasn't aired yet. */
@@ -1137,6 +1143,31 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         onPlay(trailer, { offsetMs: carryOn ?? 0, skipResume: true });
     };
     const [trailerPreviewPlaying, setTrailerPreviewPlaying] = useState(false);
+    /** TV: Up from the Watch row takes the background trailer full screen, in place. */
+    const [trailerExpanded, setTrailerExpanded] = useState(false);
+    useEffect(() => {
+        if (!trailerPreviewPlaying) setTrailerExpanded(false);
+    }, [trailerPreviewPlaying]);
+    useEffect(() => {
+        if (!isTvShell) return undefined;
+        const expand = () => { if (trailerPreviewPlaying) setTrailerExpanded(true); };
+        const collapse = () => setTrailerExpanded(false);
+        const toggle = () => trailerPreviewRef.current?.togglePause();
+        window.addEventListener(TRAILER_EXPAND_EVENT, expand);
+        window.addEventListener(TRAILER_COLLAPSE_EVENT, collapse);
+        window.addEventListener(TRAILER_TOGGLE_EVENT, toggle);
+        return () => {
+            window.removeEventListener(TRAILER_EXPAND_EVENT, expand);
+            window.removeEventListener(TRAILER_COLLAPSE_EVENT, collapse);
+            window.removeEventListener(TRAILER_TOGGLE_EVENT, toggle);
+        };
+    }, [isTvShell, trailerPreviewPlaying]);
+    useEffect(() => {
+        const root = document.documentElement;
+        if (trailerExpanded) root.dataset.trailerExpanded = '1';
+        else delete root.dataset.trailerExpanded;
+        return () => { delete root.dataset.trailerExpanded; };
+    }, [trailerExpanded]);
     useEffect(() => {
         if (!item?.ratingKey) return undefined;
         let cancelled = false;
@@ -2476,9 +2507,16 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                             trailer={previewTrailer}
                             enabled={settings.trailerPreview}
                             paused={playing || playbackActive}
+                            expanded={trailerExpanded}
                             serverId={item.serverId || serverId || null}
                             onPlayingChange={setTrailerPreviewPlaying}
                         />
+                    ) : null}
+                    {isTvShell && trailerPreviewPlaying && !trailerExpanded ? (
+                        // Slow pulse: press Up to watch this trailer full screen.
+                        <div className="media-details-trailer-up" aria-hidden>
+                            <ChevronUp className="h-7 w-7" strokeWidth={2.5} />
+                        </div>
                     ) : null}
                     <div className="media-details-hero-scrim-mobile absolute inset-0 md:hidden" />
                 </div>

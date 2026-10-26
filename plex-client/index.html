@@ -4417,6 +4417,72 @@
       min-height: 3.1rem;
       font-size: 1rem;
     }
+    /* Background trailer: the video sits in a slot that takes no box of its own. */
+    .media-details-trailer-slot {
+      display: contents;
+    }
+    /* TV: a slow pulsing arrow while the trailer plays — Up watches it full screen. */
+    .media-details-trailer-up {
+      position: absolute;
+      top: 1.4rem;
+      left: 50%;
+      z-index: 6;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 3rem;
+      height: 3rem;
+      margin-left: -1.5rem;
+      border-radius: 999px;
+      background: rgba(0, 0, 0, 0.35);
+      color: #fff;
+      pointer-events: none;
+      animation: media-details-trailer-up-pulse 2.4s ease-in-out infinite;
+    }
+    @keyframes media-details-trailer-up-pulse {
+      0%, 100% { opacity: 0.25; transform: translateY(0.2rem); }
+      50% { opacity: 0.9; transform: translateY(-0.15rem); }
+    }
+    html[data-reduce-motion="1"] .media-details-trailer-up {
+      animation: none;
+      opacity: 0.7;
+    }
+    /* The same playing video, moved into a full-screen layer (no reload, so no buffering). */
+    .media-details-trailer-full {
+      position: fixed;
+      inset: 0;
+      z-index: 3500;
+      background: #000;
+      animation: media-details-trailer-full-in 0.35s ease-out both;
+    }
+    @keyframes media-details-trailer-full-in {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    .media-details-trailer-full > video {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      opacity: 1 !important;
+      transform: none !important;
+      transition: none;
+    }
+    .media-details-trailer-full.is-paused::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 4.5rem;
+      height: 4.5rem;
+      margin: -2.25rem 0 0 -2.25rem;
+      border-radius: 999px;
+      background:
+        linear-gradient(#fff, #fff) 1.6rem 1.35rem / 0.42rem 1.8rem no-repeat,
+        linear-gradient(#fff, #fff) 2.5rem 1.35rem / 0.42rem 1.8rem no-repeat,
+        rgba(0, 0, 0, 0.55);
+    }
     html[data-perf-no-focus-fx="1"] [data-tv-poster-btn="1"],
     html[data-perf-no-focus-fx="1"] [data-tv-poster-btn="1"]:focus,
     html[data-perf-no-focus-fx="1"] [data-tv-poster-btn="1"]:focus-visible {

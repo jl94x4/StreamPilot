@@ -32,3 +32,8 @@ export const logoutMediaPlayer = () => {
     if (typeof window === 'undefined') return;
     window.dispatchEvent(new Event(PLAYER_LOGOUT_EVENT));
 };
+
+/** TV: Up from the Watch row / Back / OK while a details page's background trailer plays. */
+export const TRAILER_EXPAND_EVENT = 'smp-trailer-expand';
+export const TRAILER_COLLAPSE_EVENT = 'smp-trailer-collapse';
+export const TRAILER_TOGGLE_EVENT = 'smp-trailer-toggle';

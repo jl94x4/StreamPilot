@@ -1,7 +1,16 @@
 import { useEffect } from 'react';
 import { readDocumentZoom } from '../shared/ui';
 import { isAndroidTvUi } from './config';
-import { PLAYER_APP_BASE, PLAYER_NAVIGATE_EVENT, PLAYER_SCROLL_ID, PLAYER_TV_HOME_READY_EVENT, PLAYER_TV_NAV_EVENT } from '../media-player/paths';
+import {
+    PLAYER_APP_BASE,
+    PLAYER_NAVIGATE_EVENT,
+    PLAYER_SCROLL_ID,
+    PLAYER_TV_HOME_READY_EVENT,
+    PLAYER_TV_NAV_EVENT,
+    TRAILER_COLLAPSE_EVENT,
+    TRAILER_EXPAND_EVENT,
+    TRAILER_TOGGLE_EVENT,
+} from '../media-player/paths';
 import {
     PLAYER_SEARCH_CLEAR_EVENT,
     PLAYER_SEARCH_INPUT_ID,
@@ -1799,6 +1808,13 @@ const handleTvBack = (): boolean => {
         window.dispatchEvent(new Event(TV_SCREENSAVER_DISMISS_EVENT));
         return true;
     }
+    // A full-screen background trailer shrinks back into the page; the page stays.
+    if (document.documentElement.dataset.trailerExpanded === '1') {
+        if (now < tvBackLockUntil) return true;
+        tvBackLockUntil = now + TV_BACK_DEBOUNCE_MS;
+        window.dispatchEvent(new Event(TRAILER_COLLAPSE_EVENT));
+        return true;
+    }
     const closedAt = Number(document.documentElement?.dataset?.tvScreensaverClosedAt || 0);
     if (closedAt && now - closedAt < SCREENSAVER_BACK_GRACE_MS) return true;
     if (now < tvBackLockUntil) return true;
@@ -2188,6 +2204,25 @@ export const useTvRemote = (enabled = true) => {
             }
             const editable = isEditableTarget(event.target);
             const auth = isAuthScreen();
+
+            // Full-screen trailer: OK pauses, Down shrinks it back (Back goes through handleTvBack).
+            if (document.documentElement.dataset.trailerExpanded === '1' && !isBackKey(event)) {
+                event.preventDefault();
+                event.stopPropagation();
+                if (event.repeat) return;
+                if (isConfirmKey(event)) window.dispatchEvent(new Event(TRAILER_TOGGLE_EVENT));
+                else if (event.key === 'ArrowDown') window.dispatchEvent(new Event(TRAILER_COLLAPSE_EVENT));
+                return;
+            }
+            // Up from a details page's Watch row while its trailer plays behind: full screen.
+            if (event.key === 'ArrowUp' && !editable && !event.repeat
+                && (document.activeElement as HTMLElement | null)?.closest?.('[data-tv-action-row="1"]')
+                && document.querySelector('[data-tv-trailer-expandable="1"]')) {
+                event.preventDefault();
+                event.stopPropagation();
+                window.dispatchEvent(new Event(TRAILER_EXPAND_EVENT));
+                return;
+            }
 
             if (editable && isBackKey(event)) {
                 const el = event.target as HTMLElement;

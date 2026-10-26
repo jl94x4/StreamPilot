@@ -218,6 +218,11 @@ export const PlayerTvScreensaver: React.FC<Props> = ({
             clearIdle();
             idleTimer = window.setTimeout(() => {
                 if (cancelled) return;
+                // Watching a trailer full screen is not idle.
+                if (document.documentElement.dataset.trailerExpanded === '1') {
+                    armIdle();
+                    return;
+                }
                 const start = startDeck('');
                 if (!start) return;
                 currentKeyRef.current = start.key;
