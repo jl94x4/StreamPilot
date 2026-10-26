@@ -590,7 +590,8 @@ export const PlayerLiveTv: React.FC<{
                                                     onFocus={() => showInHero(withChannel(airing, row))}
                                                     style={{
                                                         left: `${pct(from, startsAt, endsAt)}%`,
-                                                        width: `${Math.max(2, pct(to, startsAt, endsAt) - pct(from, startsAt, endsAt))}%`,
+                                                        // A small gap before the next show; the start edge stays on its time.
+                                                        width: `calc(${Math.max(2, pct(to, startsAt, endsAt) - pct(from, startsAt, endsAt))}% - 0.45rem)`,
                                                     }}
                                                     onClick={() => openAiring(airing, row)}
                                                 >

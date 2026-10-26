@@ -1821,9 +1821,6 @@ html[data-tv="1"] .smp-live-tabs button:focus {
   cursor: pointer;
   transition: background-color 0.12s ease, color 0.12s ease, box-shadow 0.12s ease;
 }
-.smp-live-cell + .smp-live-cell {
-  margin-left: 0.25rem;
-}
 .smp-live-cell.is-now {
   border-color: rgba(229, 160, 13, 0.35);
   background: rgba(229, 160, 13, 0.12);
