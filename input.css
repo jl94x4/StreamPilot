@@ -5639,3 +5639,10 @@ input[type="search"]::-webkit-search-decoration {
   background: rgba(79, 70, 229, 0.24);
   border-color: rgba(129, 140, 248, 0.5);
 }
+
+/* Settings → Lighter billboard: art swaps without a cross-fade (no two full-screen layers
+   blending) and the fade colour never animates. */
+html[data-lite-billboard="1"] .player-home-focus-still img,
+html[data-lite-billboard="1"] .player-home-stage .player-home-focus-still {
+  transition: none !important;
+}

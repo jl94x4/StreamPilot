@@ -394,6 +394,8 @@ export type PlayerSettings = {
     screensaverShiftClock: boolean;
     /** TV: skip focus zoom and screen-enter motion. */
     reduceMotion: boolean;
+    /** TV Home billboard: instant art swap, fixed fade colour, 720p art. For slower TV sticks. */
+    liteBillboard: boolean;
     /** TV details pages (movie, show, season, episode): fade into the backdrop's bottom-edge colour. Off = black. */
     detailsArtworkTint: boolean;
     /** TV corner clock. On uses 15:36. Off uses 3:36 PM. */
@@ -747,6 +749,7 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
     screensaverSource: 'continue_watching',
     screensaverShiftClock: false,
     reduceMotion: false,
+    liteBillboard: false,
     detailsArtworkTint: true,
     clock24Hour: true,
     nightMode: false,
@@ -839,6 +842,7 @@ export const normalizePlayerSettings = (raw: Partial<PlayerSettings> | Record<st
             : 'continue_watching',
         screensaverShiftClock: raw?.screensaverShiftClock === true,
         reduceMotion: raw?.reduceMotion === true,
+        liteBillboard: raw?.liteBillboard === true,
         detailsArtworkTint: raw?.detailsArtworkTint !== false,
         clock24Hour: raw?.clock24Hour !== false,
         nightMode: raw?.nightMode === true,
@@ -913,6 +917,7 @@ export const playerSettingsEqual = (a: PlayerSettings, b: PlayerSettings) => (
     && a.screensaverSource === b.screensaverSource
     && a.screensaverShiftClock === b.screensaverShiftClock
     && a.reduceMotion === b.reduceMotion
+    && a.liteBillboard === b.liteBillboard
     && a.detailsArtworkTint === b.detailsArtworkTint
     && a.clock24Hour === b.clock24Hour
     && a.nightMode === b.nightMode

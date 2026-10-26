@@ -207,8 +207,10 @@ const HomeFocusStill: React.FC<{
             return;
         }
         const img = new Image();
-        img.onload = commit;
         img.src = next;
+        // decode() finishes off the main thread, so the swap frame does not decode a full image.
+        if (typeof img.decode === 'function') img.decode().then(commit, commit);
+        else img.onload = commit;
     }, []);
 
     const showTimerRef = useRef(0);
@@ -1672,6 +1674,13 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             paintHomeSurface(TV_FLOOR_RGB);
             return undefined;
         }
+        if (settings.liteBillboard) {
+            // One fixed colour: no sampling and no full-screen gradient repaints per title.
+            // The title page still samples its own colour when it opens.
+            rememberBillboardBackdrop(tvSpotKey, tvStageStillSeed, undefined, tvSpotServer);
+            paintHomeSurface(TV_FLOOR_RGB);
+            return undefined;
+        }
         const known = peekSurfaceColor(tvStageStillSeed);
         if (known) {
             rememberBillboardBackdrop(tvSpotKey, tvStageStillSeed, known, tvSpotServer);
@@ -1696,7 +1705,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             cancelled = true;
             window.clearTimeout(timer);
         };
-    }, [active, settings.detailsArtworkTint, tvSpotKey, tvSpotServer, tvStage, tvStageStillSeed]);
+    }, [active, settings.detailsArtworkTint, settings.liteBillboard, tvSpotKey, tvSpotServer, tvStage, tvStageStillSeed]);
 
     // Rows are on screen: let the remote land the focus ring on the first card if nothing
     // has it yet. Next frame, so the cards exist when it looks for them.

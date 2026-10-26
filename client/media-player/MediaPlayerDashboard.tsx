@@ -374,6 +374,15 @@ export const MediaPlayerDashboard: React.FC = () => {
         }
     }, [settings.reduceMotion, tvShell]);
 
+    useEffect(() => {
+        try {
+            if (tvShell && settings.liteBillboard) document.documentElement.dataset.liteBillboard = '1';
+            else delete document.documentElement.dataset.liteBillboard;
+        } catch {
+            /* ignore */
+        }
+    }, [settings.liteBillboard, tvShell]);
+
     const syncFromLocation = useCallback(() => {
         setView(readPlayerView());
     }, []);

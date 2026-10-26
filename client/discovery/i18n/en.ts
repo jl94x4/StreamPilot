@@ -237,6 +237,8 @@ export const en = {
         hideWatchedFromRecentsHint: 'Keep Recently Added rows to titles you have not finished yet.',
         reduceMotion: 'Reduce motion',
         reduceMotionHint: 'Skip poster zoom and screen-enter animations on TV. Focus rings stay.',
+        liteBillboard: 'Lighter billboard',
+        liteBillboardHint: 'For slower TV sticks: Home art switches instantly instead of fading, uses one background colour and loads a smaller image. Takes full effect after a restart.',
         detailsArtworkTint: 'Match page colour to artwork',
         detailsArtworkTintHint: 'Movie, show, season and episode pages fade into the colour at the bottom of the backdrop. Off keeps the page black.',
         moreInfo: 'More info',

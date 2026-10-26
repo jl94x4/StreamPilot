@@ -482,10 +482,20 @@ const phoneShellActive = () => {
     }
 };
 
+/** TV Settings → Lighter billboard: 720p art decodes and uploads to the GPU in a quarter of the time. */
+const liteBillboardActive = () => {
+    try {
+        return document.documentElement?.dataset?.liteBillboard === '1';
+    } catch {
+        return false;
+    }
+};
+
 export const plexBackdropUrl = (path?: string | null) => {
     if (!path) return '';
     // A 1080p q90 transcode per hero slide took ages over mobile data; 720p is still sharp on a phone.
     if (phoneShellActive()) return backdropRequestUrl(path, 1280, 720, 80);
+    if (liteBillboardActive()) return backdropRequestUrl(path, 1280, 720, 75);
     return backdropRequestUrl(path, PLAYER_BACKDROP_WIDTH, PLAYER_BACKDROP_HEIGHT, PLAYER_BACKDROP_QUALITY);
 };
 

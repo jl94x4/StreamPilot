@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.408': [
+        {
+            title: 'Lighter billboard',
+            items: [
+                'Settings → Display → Lighter billboard: for slower TV sticks, the Home art switches instantly instead of fading, keeps one background colour and loads a smaller image',
+                'Home art now finishes decoding before it swaps in, so the swap frame is lighter on every device',
+            ],
+        },
+    ],
     '1.0.407': [
         {
             title: 'Smoother rows',
