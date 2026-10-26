@@ -6,7 +6,7 @@ import {
     useDiscoverI18n,
     type ToastMessage,
 } from './host';
-import { fetchMediaPlayerItem, fetchMediaPlayerItemMore, fetchMediaPlayerLibraries, fetchMediaPlayerMe, fetchMediaPlayerPlayFromQueue, fetchMediaPlayerServerStatus, fetchMediaPlayerShuffleQueue, resolveWatchTogetherLocalItem, startMediaPlayerPlayback, stopMediaPlayerTranscode, takePreparedMediaPlayerPlayback } from './api';
+import { fetchLiveTvSources, fetchMediaPlayerItem, fetchMediaPlayerItemMore, fetchMediaPlayerLibraries, fetchMediaPlayerMe, fetchMediaPlayerPlayFromQueue, fetchMediaPlayerServerStatus, fetchMediaPlayerShuffleQueue, resolveWatchTogetherLocalItem, startMediaPlayerPlayback, stopMediaPlayerTranscode, takePreparedMediaPlayerPlayback, tuneLiveTvChannel } from './api';
 import { MediaPlayerHome } from './MediaPlayerHome';
 import { MediaPlayerWatchlist } from './MediaPlayerWatchlist';
 import { MediaPlayerDownloads } from './MediaPlayerDownloads';
@@ -78,6 +78,7 @@ const MediaPlayerLibrary = lazyScreen(() => import('./MediaPlayerLibrary').then(
 const MediaPlayerPerson = lazyScreen(() => import('./MediaPlayerPerson').then((m) => m.MediaPlayerPerson));
 const MediaPlayerSettings = lazyScreen(() => import('./MediaPlayerSettings').then((m) => m.MediaPlayerSettings));
 const MediaPlayerVideo = lazyScreen(() => import('./MediaPlayerVideo').then((m) => m.MediaPlayerVideo));
+const PlayerLiveTv = lazyScreen(() => import('./PlayerLiveTv').then((m) => m.PlayerLiveTv));
 
 type PlayerPersonRef = { id: string; name: string; thumb?: string | null };
 type LibraryTab = 'home' | 'browse' | 'collections' | 'studios';
@@ -133,6 +134,7 @@ type PlayerView =
     | { kind: 'person'; actorId: string; name?: string; thumb?: string | null }
     | { kind: 'studio'; studioKey: string; name?: string; sectionKey?: string; mediaType?: 'movie' | 'show' }
     | { kind: 'watchlist' }
+    | { kind: 'livetv' }
     | { kind: 'downloads' }
     | { kind: 'settings' }
     | { kind: 'watchTogether'; mode: 'create'; ratingKey: string; serverId: string }
@@ -182,6 +184,7 @@ const readPlayerView = (): PlayerView => {
     }
     if (parts[1] === 'settings') return { kind: 'settings' };
     if (parts[1] === 'watchlist') return { kind: 'watchlist' };
+    if (parts[1] === 'livetv') return { kind: 'livetv' };
     if (parts[1] === 'downloads') return { kind: 'downloads' };
     if (parts[1] === 'watch-together') {
         if (parts[2] === 'create') {
@@ -275,7 +278,7 @@ const screenEnterClass = (tvShell: boolean, animate = true) => (
 
 export const MediaPlayerDashboard: React.FC = () => {
     const { t } = useDiscoverI18n();
-    useEffect(() => preloadScreensWhenIdle([MediaPlayerLibrary, MediaPlayerSettings, MediaPlayerPerson, MediaPlayerVideo]), []);
+    useEffect(() => preloadScreensWhenIdle([MediaPlayerLibrary, MediaPlayerSettings, MediaPlayerPerson, MediaPlayerVideo, PlayerLiveTv]), []);
     const [settings] = usePlayerSettings();
     const [view, setView] = useState<PlayerView>(() => readPlayerView());
     const [libraries, setLibraries] = useState<PlayerSection[]>(() => readPlayerLibrariesCache());
@@ -310,6 +313,7 @@ export const MediaPlayerDashboard: React.FC = () => {
         return readPlayerNavExpanded();
     });
     const [keepHome, setKeepHome] = useState(() => view.kind === 'home');
+    const [hasLiveTv, setHasLiveTv] = useState(false);
     const [keepLibrary, setKeepLibrary] = useState<{ sectionKey: string; tab: LibraryTab } | null>(
         () => (view.kind === 'library' ? { sectionKey: view.sectionKey, tab: view.tab } : null),
     );
@@ -584,6 +588,25 @@ export const MediaPlayerDashboard: React.FC = () => {
         };
     }, [refreshServerStatus]);
 
+    useEffect(() => {
+        let cancelled = false;
+        const refresh = () => {
+            void fetchLiveTvSources()
+                .then((data) => {
+                    if (!cancelled) setHasLiveTv(Boolean(data?.available));
+                })
+                .catch(() => {
+                    if (!cancelled) setHasLiveTv(false);
+                });
+        };
+        refresh();
+        window.addEventListener(PLAYER_SERVERS_EVENT, refresh);
+        return () => {
+            cancelled = true;
+            window.removeEventListener(PLAYER_SERVERS_EVENT, refresh);
+        };
+    }, []);
+
     const notify = useCallback((message: string, type: 'success' | 'error' | 'info' = 'success') => {
         setToasts((prev) => appendToast(prev, message, type));
     }, []);
@@ -735,6 +758,10 @@ export const MediaPlayerDashboard: React.FC = () => {
         navigate(`${PLAYER_APP_BASE}/watchlist`);
     }, [navigate]);
 
+    const goLiveTv = useCallback(() => {
+        navigate(`${PLAYER_APP_BASE}/livetv`);
+    }, [navigate]);
+
     const goDownloads = useCallback(() => {
         navigate(`${PLAYER_APP_BASE}/downloads`);
     }, [navigate]);
@@ -862,6 +889,24 @@ export const MediaPlayerDashboard: React.FC = () => {
             setPlayNextBridge(true);
         }
         try {
+            const liveTune = item.type === 'liveAiring' || Boolean(item.liveChannelId && item.liveDvrId);
+            if (liveTune) {
+                const dvrId = String(item.liveDvrId || '').trim();
+                const channelId = String(item.liveChannelId || '').trim();
+                if (!dvrId || !channelId) throw new Error(t('mediaPlayerPage.playError'));
+                const session = await tuneLiveTvChannel({
+                    serverId: item.serverId,
+                    dvrId,
+                    channelId,
+                    title: item.title,
+                    item,
+                });
+                if (gen !== startPlaybackGenRef.current) return;
+                setPlaySession(session);
+                playNextBridgeRef.current = false;
+                setPlayNextBridge(false);
+                return;
+            }
             const wantOffline = Boolean(
                 opts.offlineLocal
                 || (isPhoneUi() && isMediaDownloadsSupported() && !opts.watchTogether),
@@ -1097,6 +1142,10 @@ export const MediaPlayerDashboard: React.FC = () => {
             navigate(`${PLAYER_APP_BASE}/playlist/${encodeURIComponent(target.ratingKey)}`);
             return;
         }
+        if (target?.type === 'liveAiring' || (target?.liveChannelId && target?.liveDvrId)) {
+            await startPlayback(target, { ...nextOpts, skipResume: true, offsetMs: 0 });
+            return;
+        }
         const extraPlayable = target?.type === 'clip' || target?.type === 'trailer' || !!target?.extraType || !!target?.extraSubtype;
         if ((!target?.canPlay && !extraPlayable) || !target.ratingKey) {
             setToasts((prev) => appendToast(prev, t('mediaPlayerPage.notPlayable'), 'error'));
@@ -1213,6 +1262,8 @@ export const MediaPlayerDashboard: React.FC = () => {
         ? 'home'
         : view.kind === 'watchlist'
             ? 'watchlist'
+            : view.kind === 'livetv'
+                ? 'livetv'
             : view.kind === 'downloads'
                 ? 'downloads'
             : view.kind === 'playlists' || view.kind === 'playlist'
@@ -1241,6 +1292,7 @@ export const MediaPlayerDashboard: React.FC = () => {
                 onToggleExpanded={toggleNavExpanded}
                 onHome={goHome}
                 onWatchlist={goWatchlist}
+                onLiveTv={hasLiveTv ? goLiveTv : undefined}
                 onDownloads={!tvShell && isPhoneUi() && isMediaDownloadsSupported() ? goDownloads : undefined}
                 onSearch={openSearch}
                 onOpenLibrary={openLibrary}
@@ -1273,15 +1325,29 @@ export const MediaPlayerDashboard: React.FC = () => {
                 <div className={view.kind === 'home' ? '' : 'hidden'} hidden={view.kind !== 'home'}>
                     <MediaPlayerHome
                         active={view.kind === 'home'}
-                        onOpenItem={openItem}
+                        onOpenItem={(item) => (
+                            item.type === 'liveAiring'
+                                ? void playItem(item, { skipResume: true })
+                                : openItem(item)
+                        )}
                         onPlay={playItem}
                         onOpenLibrary={openLibrary}
                         onOpenHub={openHub}
                         onOpenWatchlist={goWatchlist}
+                        onOpenLiveTv={hasLiveTv ? goLiveTv : undefined}
                         onPlayNext={enqueuePlayNext}
                         onToast={notify}
                         isAdmin={isAdmin}
                         playlistsEnabled={settings.showPlaylists}
+                    />
+                </div>
+            ) : null}
+            {view.kind === 'livetv' ? (
+                <div key="livetv" className={screenEnterClass(tvShell, tvScreenEnter)}>
+                    <PlayerLiveTv
+                        onBack={goHome}
+                        onPlay={playItem}
+                        onToast={notify}
                     />
                 </div>
             ) : null}

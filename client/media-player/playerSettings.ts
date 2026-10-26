@@ -344,6 +344,8 @@ export type PlayerSettings = {
     showBecauseYouWatched: boolean;
     /** Watchlist hub on Home, under Continue Watching. */
     showWatchlist: boolean;
+    /** Home rail of what's on Live TV right now. Off until a DVR exists and the user turns it on. */
+    showOnNowHome: boolean;
     defaultQualityId: string;
     /** Quality away from home / on mobile data. '' = same as home. Direct app only. */
     remoteQualityId: string;
@@ -717,6 +719,7 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
     showPlaylists: true,
     showBecauseYouWatched: true,
     showWatchlist: true,
+    showOnNowHome: false,
     defaultQualityId: 'auto',
     remoteQualityId: '',
     audioLanguage: '',
@@ -787,6 +790,7 @@ export const normalizePlayerSettings = (raw: Partial<PlayerSettings> | Record<st
         showPlaylists: raw?.showPlaylists !== false,
         showBecauseYouWatched: raw?.showBecauseYouWatched !== false,
         showWatchlist: raw?.showWatchlist !== false,
+        showOnNowHome: raw?.showOnNowHome === true,
         defaultQualityId: QUALITY_IDS.has(quality) ? quality : 'auto',
         remoteQualityId: QUALITY_IDS.has(String(raw?.remoteQualityId || '')) ? String(raw?.remoteQualityId) : '',
         audioLanguage: /^[a-z]{2}(?:-[a-z]{2})?$/.test(audioLanguage) ? audioLanguage : '',
@@ -881,6 +885,7 @@ export const playerSettingsEqual = (a: PlayerSettings, b: PlayerSettings) => (
     && a.showPlaylists === b.showPlaylists
     && a.showBecauseYouWatched === b.showBecauseYouWatched
     && a.showWatchlist === b.showWatchlist
+    && a.showOnNowHome === b.showOnNowHome
     && a.defaultQualityId === b.defaultQualityId
     && a.remoteQualityId === b.remoteQualityId
     && a.audioLanguage === b.audioLanguage

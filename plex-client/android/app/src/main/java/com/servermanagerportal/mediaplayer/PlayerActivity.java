@@ -523,6 +523,7 @@ public class PlayerActivity extends AppCompatActivity {
     private String nextThumbUrl = "";
     private String loadedUpNextThumb = "";
     private String streamMode = "";
+    private boolean liveStream = false;
     private int streamWidth;
     private int streamHeight;
     private int streamBitrate;
@@ -1428,6 +1429,7 @@ public class PlayerActivity extends AppCompatActivity {
             applyEpisodeNavButtons();
             String prevMode = streamMode;
             if (root.has("playbackMode")) streamMode = root.optString("playbackMode", streamMode);
+            if (root.has("live")) liveStream = root.optBoolean("live", liveStream);
             JSONObject source = root.optJSONObject("source");
             if (source != null) {
                 streamWidth = source.optInt("width", streamWidth);
@@ -1702,6 +1704,7 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private String playbackModeLabel() {
+        if (liveStream) return getString(R.string.player_live);
         String mode = streamMode == null ? "" : streamMode.trim();
         // The stream actually open decides: the JS mode stays "directPlay" when the player falls
         // back to HLS or a lower quality itself, which left the badge stuck on Direct Play.

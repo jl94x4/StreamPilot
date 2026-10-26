@@ -1597,6 +1597,304 @@ html[data-tv="1"] .smp-resume .smp-resume-btn:focus-visible {
   box-shadow: 0 0 0 3px #e5a00d, 0 10px 26px rgba(0, 0, 0, 0.45) !important;
   transform: scale(1.05);
 }
+/* Live TV: header with pill tabs, then a guide grid (channels down the side, time across,
+   a gold now line). Cells are remote targets: white with the gold ring when focused. */
+.smp-live {
+  --live-col: 14rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.4rem;
+  width: 100%;
+  padding-bottom: 4rem;
+}
+.smp-live-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.smp-live-title {
+  margin: 0;
+  color: #fff;
+  font-family: var(--tv-display-font, inherit);
+  font-size: 2.3rem;
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+}
+.smp-live-sub {
+  margin: 0.35rem 0 0;
+  color: rgba(255, 255, 255, 0.55);
+  font-family: "Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: 1rem;
+  font-weight: 500;
+}
+.smp-live-tabs {
+  display: inline-flex;
+  gap: 0.25rem;
+  padding: 0.3rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  background: rgba(8, 11, 17, 0.75);
+}
+.smp-live-tabs button {
+  padding: 0.6rem 1.35rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.78);
+  font-family: "Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: 1.02rem;
+  font-weight: 500;
+  outline: none;
+  cursor: pointer;
+}
+.smp-live-tabs button.is-on {
+  background: #fff;
+  color: #0b0b0d;
+}
+.smp-live-tabs button:focus-visible,
+html[data-tv="1"] .smp-live-tabs button:focus {
+  background: #fff !important;
+  color: #0b0b0d !important;
+  outline: none !important;
+  box-shadow: 0 0 0 3px #e5a00d !important;
+}
+.smp-live-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.8rem;
+  padding: 2.5rem 0;
+  color: rgba(255, 255, 255, 0.7);
+  font-family: "Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: 1.1rem;
+}
+.smp-live-empty-icon {
+  display: grid;
+  place-items: center;
+  width: 3.6rem;
+  height: 3.6rem;
+  border-radius: 999px;
+  background: rgba(229, 160, 13, 0.12);
+  color: #e5a00d;
+}
+.smp-live-guide {
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 1.2rem;
+  background: rgba(255, 255, 255, 0.025);
+}
+.smp-live-ruler {
+  display: flex;
+  height: 2.8rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(8, 11, 17, 0.6);
+}
+.smp-live-ruler-corner {
+  display: flex;
+  align-items: center;
+  flex: 0 0 var(--live-col);
+  padding: 0 1.1rem;
+  color: #e5a00d;
+  font-family: "Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.smp-live-ruler-track {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.smp-live-ruler-track span {
+  position: absolute;
+  top: 50%;
+  transform: translate(0.5rem, -50%);
+  color: rgba(255, 255, 255, 0.7);
+  font-family: "Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: 0.95rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.smp-live-ruler-track span::before {
+  content: "";
+  position: absolute;
+  top: -0.9rem;
+  bottom: -0.9rem;
+  left: -0.5rem;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.1);
+}
+.smp-live-rows {
+  position: relative;
+}
+.smp-live-nowline {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--live-col) + (100% - var(--live-col)) * var(--now) / 100);
+  z-index: 3;
+  width: 2px;
+  background: #e5a00d;
+  box-shadow: 0 0 10px rgba(229, 160, 13, 0.6);
+  pointer-events: none;
+}
+.smp-live-row {
+  display: flex;
+  min-height: 4.6rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.smp-live-row:last-child {
+  border-bottom: 0;
+}
+.smp-live-channel {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  flex: 0 0 var(--live-col);
+  min-width: 0;
+  padding: 0 1rem;
+  background: rgba(8, 11, 17, 0.45);
+}
+.smp-live-logo {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 3.2rem;
+  height: 3.2rem;
+  overflow: hidden;
+  border-radius: 0.7rem;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.55);
+}
+.smp-live-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.smp-live-channel-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-family: "Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+.smp-live-channel-number {
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.smp-live-channel-name {
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.85rem;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.smp-live-track {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.smp-live-cell {
+  position: absolute;
+  top: 0.4rem;
+  bottom: 0.4rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.15rem;
+  overflow: hidden;
+  padding: 0 0.9rem;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 0.75rem;
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  font-family: "Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  text-align: left;
+  outline: none;
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease, box-shadow 0.12s ease;
+}
+.smp-live-cell + .smp-live-cell {
+  margin-left: 0.25rem;
+}
+.smp-live-cell.is-now {
+  border-color: rgba(229, 160, 13, 0.35);
+  background: rgba(229, 160, 13, 0.12);
+}
+.smp-live-cell-title {
+  overflow: hidden;
+  font-size: 1rem;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.smp-live-cell-time {
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 0.82rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.smp-live-cell-progress {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  background: #e5a00d;
+}
+.smp-live-cell:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+.smp-live-cell:focus-visible,
+html[data-tv="1"] .smp-live .smp-live-cell:focus,
+html[data-tv="1"] .smp-live .smp-live-cell:focus-visible {
+  z-index: 4;
+  border-color: transparent !important;
+  background: #fff !important;
+  color: #0b0b0d !important;
+  outline: none !important;
+  box-shadow: 0 0 0 3px #e5a00d, 0 10px 26px rgba(0, 0, 0, 0.45) !important;
+}
+.smp-live-cell:focus-visible .smp-live-cell-time,
+html[data-tv="1"] .smp-live .smp-live-cell:focus .smp-live-cell-time {
+  color: rgba(11, 11, 13, 0.65);
+}
+.smp-live-row.is-skeleton .smp-live-logo,
+.smp-live-row.is-skeleton .smp-live-cell {
+  animation: smp-live-pulse 1.4s ease-in-out infinite;
+}
+@keyframes smp-live-pulse {
+  50% { opacity: 0.45; }
+}
+html[data-reduce-motion="1"] .smp-live-row.is-skeleton .smp-live-logo,
+html[data-reduce-motion="1"] .smp-live-row.is-skeleton .smp-live-cell {
+  animation: none;
+}
+.smp-live-sheet-summary {
+  display: -webkit-box;
+  max-width: 30rem;
+  margin: 0.5rem 0 0;
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.98rem;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+@media (max-width: 767px) {
+  .smp-live { --live-col: 7.5rem; }
+  .smp-live-logo { width: 2.4rem; height: 2.4rem; }
+  .smp-live-channel-name { display: none; }
+}
+
 /* Version picker: the Resume card with one row per file. */
 .smp-version-body {
   max-width: 32rem;

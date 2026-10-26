@@ -262,13 +262,13 @@ const stopPlaybackSession = (
     sessionId?: string | null,
     serverId?: string | null,
     ratingKey?: string | null,
-    opts?: { timeMs?: number; durationMs?: number },
+    opts?: { timeMs?: number; durationMs?: number; live?: boolean },
 ) => {
     const id = String(sessionId || '').trim();
     if (!id) return Promise.resolve();
     const key = String(ratingKey || '').trim();
     const stopWork = Promise.all([
-        key
+        key && !opts?.live
             ? reportMediaPlayerTimeline({
                 ratingKey: key,
                 sessionId: id,
@@ -278,7 +278,7 @@ const stopPlaybackSession = (
                 serverId,
             })
             : Promise.resolve(),
-        stopMediaPlayerTranscode(id, { serverId, ratingKey: key || null }),
+        stopMediaPlayerTranscode(id, { serverId, ratingKey: key || null, live: opts?.live === true }),
     ]).then(() => undefined);
     return Promise.race([
         stopWork,
@@ -949,6 +949,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                 : '',
             watchNext: isMusicPlayerItem(session.item) ? null : nativeWatchNextPayload(session.item),
             music: isMusicPlayerItem(session.item),
+            live: session.live === true,
             chapters: (session.item.chapters || []).map((row) => ({ startMs: row.startMs, title: row.title })),
             previewThumbTemplate: session.previewThumbTemplate || null,
             frameRate: session.item.frameRate || null,
@@ -1958,6 +1959,12 @@ export const MediaPlayerVideo: React.FC<Props> = ({
         ) => {
             // Rebuild owns stop/start — don't revive the old session mid-swap.
             if (state !== 'stopped' && streamRebuildInFlightRef.current) return;
+            if (session.live) {
+                if (state === 'stopped') {
+                    void stopPlaybackSession(sessionId, session.item.serverId, ratingKey, { live: true });
+                }
+                return;
+            }
             const video = nativeExclusive ? null : videoRef.current;
             const timeMs = timeOverride != null
                 ? Math.max(0, Math.floor(timeOverride))
@@ -2476,7 +2483,9 @@ export const MediaPlayerVideo: React.FC<Props> = ({
     const qualityShort = qualityChip === 'original' || !qualityChip
         ? ''
         : qualityChip.replace(/-/g, 'p · ').replace(/^(\d+)p/, '$1p');
-    const modeLabel = playbackMode === 'directPlay'
+    const modeLabel = session.live
+        ? t('mediaPlayerPage.playbackLive')
+        : playbackMode === 'directPlay'
         ? t('mediaPlayerPage.playbackDirectPlay')
         : playbackMode === 'directStream'
             ? t('mediaPlayerPage.playbackDirectStream')

@@ -11,6 +11,7 @@ import {
     LogOut,
     Menu,
     Music,
+    Radio,
     Search,
     Settings,
     TvMinimal,
@@ -34,7 +35,7 @@ import { PLAYER_TV_NAV_EVENT } from './paths';
 import type { PlayerProfile, PlayerSection } from './types';
 import { focusTvContent, hasRememberedTvFocus, restoreTvFocusWhenReady } from '../plex-client/useTvRemote';
 
-type NavPage = 'home' | 'watchlist' | 'downloads' | 'playlists' | 'library' | 'settings' | 'other';
+type NavPage = 'home' | 'watchlist' | 'livetv' | 'downloads' | 'playlists' | 'library' | 'settings' | 'other';
 
 type Props = {
     libraries: PlayerSection[];
@@ -45,6 +46,7 @@ type Props = {
     onToggleExpanded: () => void;
     onHome: () => void;
     onWatchlist: () => void;
+    onLiveTv?: () => void;
     onDownloads?: () => void;
     onSearch: () => void;
     onOpenLibrary: (section: PlayerSection) => void;
@@ -123,6 +125,7 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
     onToggleExpanded,
     onHome,
     onWatchlist,
+    onLiveTv,
     onDownloads,
     onSearch,
     onOpenLibrary,
@@ -357,6 +360,18 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                     <NavIcon><Bookmark className={NAV_ICON_CLASS} /></NavIcon>
                     {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.navWatchlist')}</span> : null}
                 </button>
+                {onLiveTv ? (
+                    <button
+                        type="button"
+                        {...tvNavProps(isTvShell, expanded, page === 'livetv')}
+                        className={navButtonClass(page === 'livetv', showLabels, isTvShell)}
+                        onClick={() => go(onLiveTv)}
+                        title={t('mediaPlayerPage.navLiveTv')}
+                    >
+                        <NavIcon><Radio className={NAV_ICON_CLASS} /></NavIcon>
+                        {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.navLiveTv')}</span> : null}
+                    </button>
+                ) : null}
                 {onDownloads && !isTvShell ? (
                     <button
                         type="button"

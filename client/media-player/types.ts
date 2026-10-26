@@ -160,6 +160,13 @@ export type PlayerItem = {
     frameRate?: number | null;
     plexUrl?: string | null;
     canPlay?: boolean;
+    liveChannelId?: string | null;
+    liveChannelNumber?: string | null;
+    liveChannelTitle?: string | null;
+    liveDvrId?: string | null;
+    liveStartsAt?: number | null;
+    liveEndsAt?: number | null;
+    liveSessionId?: string | null;
     viewCount?: number;
     watched?: boolean;
     playlistType?: string;
@@ -433,6 +440,7 @@ export type PlayerPlaySession = {
     client?: 'web' | 'android' | 'ios';
     /** Phone offline download — local file://, skip network timeline. */
     offlineLocal?: boolean;
+    live?: boolean;
 };
 
 export type PlayerPlayOptions = {

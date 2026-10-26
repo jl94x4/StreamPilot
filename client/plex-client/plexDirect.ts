@@ -22,6 +22,19 @@ import {
     STUDIO_BROWSE_ART_CONCURRENCY,
     STUDIO_BROWSE_FETCH,
 } from '../../lib/media-player/studioBrowse.js';
+import {
+    clipGuideWindow,
+    guideHasAirings,
+    liveTvGridQueries,
+    epgPrefixFromProviders,
+    livePlaybackPath,
+    liveTvGuideWindow,
+    mapLiveTvChannels,
+    mapLiveTvDvrs,
+    mapLiveTvGuide,
+    onNowFromGuide,
+    parseLiveTvTune,
+} from '../../lib/media-player/liveTv.js';
 
 type PlexServer = {
     id: string;
@@ -1423,6 +1436,132 @@ const pms = async (
     } finally {
         if (timer) window.clearTimeout(timer);
     }
+};
+
+const pmsPost = async (
+    pathAndQuery: string,
+    server: PlexServer | null = mapServer || readServer(),
+    timeoutMs = 20000,
+) => {
+    if (!server) throw new Error('No Plex server selected');
+    const path = pathAndQuery.startsWith('/') ? pathAndQuery : `/${pathAndQuery}`;
+    const url = new URL(path, server.uri.endsWith('/') ? server.uri : `${server.uri}/`);
+    if (!url.searchParams.get('X-Plex-Token')) url.searchParams.set('X-Plex-Token', server.accessToken);
+    const controller = new AbortController();
+    let timer = 0;
+    try {
+        return await Promise.race([
+            plexFetch(url.toString(), server.accessToken, {
+                method: 'POST',
+                signal: controller.signal,
+                headers: { Accept: 'application/json' },
+            }),
+            new Promise((_, reject) => {
+                timer = window.setTimeout(() => {
+                    controller.abort();
+                    reject(new Error('Plex server took too long to respond'));
+                }, timeoutMs);
+            }),
+        ]);
+    } finally {
+        if (timer) window.clearTimeout(timer);
+    }
+};
+
+const liveHlsSrc = (server: PlexServer, path: string, session: string) => {
+    if (/^https?:\/\//i.test(path) || path.includes('.m3u8') || path.includes('/library/parts/')) {
+        const url = new URL(path.startsWith('http') ? path : path, server.uri.endsWith('/') ? server.uri : `${server.uri}/`);
+        url.searchParams.set('X-Plex-Token', server.accessToken);
+        url.searchParams.set('X-Plex-Session-Identifier', session);
+        url.searchParams.set('session', session);
+        return url.toString();
+    }
+    const url = new URL('/video/:/transcode/universal/start.m3u8', `${server.uri}/`);
+    url.searchParams.set('hasMDE', '1');
+    url.searchParams.set('path', path);
+    url.searchParams.set('protocol', 'hls');
+    url.searchParams.set('fastSeek', '1');
+    url.searchParams.set('directPlay', '0');
+    url.searchParams.set('directStream', '1');
+    url.searchParams.set('session', session);
+    url.searchParams.set('X-Plex-Platform', 'Android');
+    url.searchParams.set('X-Plex-Client-Identifier', clientId());
+    url.searchParams.set('X-Plex-Product', 'StreamPilot');
+    url.searchParams.set('X-Plex-Device', 'Android TV');
+    url.searchParams.set('X-Plex-Session-Identifier', session);
+    url.searchParams.set('X-Plex-Token', server.accessToken);
+    url.searchParams.set('access_token', server.accessToken);
+    return url.toString();
+};
+
+/**
+ * The guide for one DVR source and window. PMS's grid takes filter syntax
+ * (`endsAt>=…&beginsAt<=…`); older / other builds differ, so try the known forms and keep
+ * the first that returns airings, clipped to the window.
+ */
+const loadLiveGuide = async (
+    server: PlexServer,
+    source: { id: string; epgPrefix?: string; channels?: any[] },
+    startsAt: number,
+    endsAt: number,
+) => {
+    const extras = { dvrId: source.id, serverId: server.id };
+    let rows = mapLiveTvGuide(null, source.channels || [], extras);
+    if (!source.epgPrefix) return rows;
+    for (const query of liveTvGridQueries(startsAt, endsAt)) {
+        const grid = await pms(`${source.epgPrefix}/grid?${query}`, server, 15000).catch(() => null);
+        if (!grid) continue;
+        const mapped = mapLiveTvGuide(grid, source.channels || [], extras);
+        if (guideHasAirings(mapped, startsAt, endsAt)) {
+            rows = clipGuideWindow(mapped, startsAt, endsAt);
+            break;
+        }
+    }
+    return rows;
+};
+
+const loadLiveTvForServer = async (server: PlexServer) => {
+    const dvrData = await pms('/livetv/dvrs', server, 12000).catch(() => null);
+    const dvrs = mapLiveTvDvrs(dvrData, server);
+    if (!dvrs.length) return [];
+    const providers = await pms('/media/providers', server, 12000).catch(() => null);
+    const providerPrefix = epgPrefixFromProviders(providers);
+    const sources = [];
+    for (const dvr of dvrs) {
+        const detail = await pms(`/livetv/dvrs/${encodeURIComponent(dvr.id)}`, server, 12000).catch(() => null);
+        const detailed = mapLiveTvDvrs(detail, server)[0] || dvr;
+        const epg = detailed.epgPrefix || dvr.epgPrefix || providerPrefix;
+        let channels = [];
+        if (epg) {
+            channels = mapLiveTvChannels(
+                await pms(`${epg}/lineups/dvr/channels`, server, 12000).catch(() => null),
+                { dvrId: dvr.id, serverId: server.id, channelMappings: detailed.channelMappings },
+            );
+        }
+        if (!channels.length) {
+            channels = mapLiveTvChannels(
+                await pms('/livetv/epg/channels', server, 12000).catch(() => null),
+                { dvrId: dvr.id, serverId: server.id, channelMappings: detailed.channelMappings },
+            );
+        }
+        if (!channels.length) {
+            channels = mapLiveTvChannels({}, {
+                dvrId: dvr.id,
+                serverId: server.id,
+                channelMappings: detailed.channelMappings,
+            });
+        }
+        channels.sort((a, b) => String(a.number).localeCompare(String(b.number), undefined, { numeric: true }));
+        sources.push({
+            ...detailed,
+            epgPrefix: epg,
+            channels: channels.map((channel) => ({
+                ...channel,
+                thumb: imageUrl(channel.thumb, 120, 120) || channel.thumb,
+            })),
+        });
+    }
+    return sources;
 };
 
 /** Reachability check for sidebar offline marks. Keep generous — TV LAN wake / TLS
@@ -6059,6 +6198,126 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
             };
         });
     }
+    if (path === '/api/media-player/livetv/sources') {
+        await ensureServers();
+        const groups = await Promise.all(enabledServers().map((server) => (
+            loadLiveTvForServer(server).catch(() => [])
+        )));
+        const sources = groups.flat();
+        return { sources, available: sources.some((row) => row.channels?.length) };
+    }
+    if (path === '/api/media-player/livetv/guide') {
+        await ensureServers();
+        const hours = Number(query.get('hours') || 4);
+        const window = liveTvGuideWindow(Date.now(), hours);
+        const startsAt = Number(query.get('startsAt') || window.startsAt);
+        const endsAt = Number(query.get('endsAt') || window.endsAt);
+        const groups = await Promise.all(enabledServers().map(async (server) => {
+            if (query.get('server') && query.get('server') !== server.id) return [];
+            const sources = await loadLiveTvForServer(server).catch(() => []);
+            const out = [];
+            for (const source of sources) {
+                const rows = await loadLiveGuide(server, source, startsAt, endsAt);
+                out.push({
+                    source: { id: source.id, serverId: server.id, serverName: source.serverName, tuners: source.tuners },
+                    startsAt,
+                    endsAt,
+                    rows: rows.map((row) => ({
+                        channel: {
+                            ...row.channel,
+                            thumb: imageUrl(row.channel.thumb, 120, 120) || row.channel.thumb,
+                        },
+                        airings: row.airings.map((airing) => ({
+                            ...airing,
+                            thumb: imageUrl(airing.thumb, 300, 450) || airing.thumb,
+                            art: imageUrl(airing.art, 1280, 720) || airing.art,
+                        })),
+                    })),
+                });
+            }
+            return out;
+        }));
+        return { startsAt, endsAt, guides: groups.flat() };
+    }
+    if (path === '/api/media-player/livetv/onnow') {
+        await ensureServers();
+        const nowSec = Math.floor(Date.now() / 1000);
+        const window = liveTvGuideWindow(Date.now(), 2);
+        const items = [];
+        for (const server of enabledServers()) {
+            if (query.get('server') && query.get('server') !== server.id) continue;
+            const sources = await loadLiveTvForServer(server).catch(() => []);
+            for (const source of sources) {
+                let mapped = [];
+                if (source.epgPrefix) {
+                    const watch = await pms(`${source.epgPrefix}/watchnow/all`, server, 12000).catch(() => null);
+                    mapped = mapLiveTvGuide(watch, source.channels, { dvrId: source.id, serverId: server.id });
+                }
+                if (!mapped.some((row) => row.airings.length)) {
+                    mapped = await loadLiveGuide(server, source, window.startsAt, window.endsAt);
+                }
+                items.push(...onNowFromGuide(mapped, nowSec).map((airing) => ({
+                    ...airing,
+                    thumb: imageUrl(airing.thumb, 300, 450) || airing.thumb,
+                    art: imageUrl(airing.art, 1280, 720) || airing.art,
+                })));
+            }
+        }
+        return { items };
+    }
+    if (path === '/api/media-player/livetv/tune' && method === 'POST') {
+        await ensureServers();
+        const server = resolveServer(body?.serverId || query.get('server'), '');
+        if (!server) throw new Error('No Plex server selected');
+        const dvrId = String(body?.dvrId || '').trim();
+        const channel = String(body?.channelId || body?.channelKey || '').trim();
+        if (!dvrId || !channel) throw new Error('Pick a channel.');
+        const tuned = await pmsPost(
+            `/livetv/dvrs/${encodeURIComponent(dvrId)}/channels/${encodeURIComponent(channel)}/tune`,
+            server,
+            25000,
+        ).catch((error) => {
+            throw new Error(error?.message || 'Could not tune that channel. The tuner may be busy.');
+        });
+        const parsed = parseLiveTvTune(tuned);
+        const playPath = livePlaybackPath(parsed);
+        if (!playPath) throw new Error('Plex did not return a live stream.');
+        const session = parsed.sessionId || `smp-live-${Date.now().toString(36)}`;
+        const item = {
+            ...(body?.item || {}),
+            ratingKey: parsed.ratingKey || `live:${dvrId}:${channel}`,
+            title: String(body?.item?.title || body?.title || 'Live TV'),
+            type: 'liveAiring',
+            canPlay: true,
+            serverId: server.id,
+            liveDvrId: dvrId,
+            liveChannelId: channel,
+            liveSessionId: session,
+            liveStartsAt: Number(body?.item?.liveStartsAt || 0) || null,
+            liveEndsAt: Number(body?.item?.liveEndsAt || 0) || null,
+            durationMs: parsed.durationMs || Number(body?.item?.durationMs || 0) || null,
+        };
+        return {
+            sessionId: session,
+            item,
+            src: liveHlsSrc(server, playPath, session),
+            offsetMs: 0,
+            live: true,
+            canDirectPlay: /\/library\/parts\//.test(playPath) || /\.m3u8/i.test(playPath),
+            playbackMode: 'transcode',
+            client: 'android',
+            qualities: [],
+        };
+    }
+    if (path === '/api/media-player/livetv/stop' && method === 'POST') {
+        const server = resolveServer(body?.serverId || query.get('server'), '');
+        const sessionId = String(body?.sessionId || '').trim();
+        if (server && sessionId) {
+            await pms(`/livetv/sessions/${encodeURIComponent(sessionId)}/stop`, server, 5000).catch(() => undefined);
+            await pmsPost(`/livetv/sessions/${encodeURIComponent(sessionId)}/stop`, server, 5000).catch(() => undefined);
+        }
+        return { ok: true };
+    }
     const play = path.match(/^\/api\/media-player\/play\/([^/]+)$/);
     if (play) {
         const key = decodeURIComponent(play[1]);
@@ -6439,6 +6698,10 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                 5000,
                 { 'X-Plex-Session-Identifier': safeSession },
             ).catch(() => undefined);
+            if (body?.live || String(body?.ratingKey || '').startsWith('live:')) {
+                await pms(`/livetv/sessions/${encodeURIComponent(safeSession)}/stop`, server, 5000).catch(() => undefined);
+                await pmsPost(`/livetv/sessions/${encodeURIComponent(safeSession)}/stop`, server, 5000).catch(() => undefined);
+            }
         }
         return { ok: true };
     }

@@ -1134,6 +1134,69 @@ export const setMediaPlayerRating = (ratingKey: string, rating: number, serverId
     }) as Promise<{ ok: boolean; rating: number }>
 );
 
+export const fetchLiveTvSources = () => (
+    apiFetch(`${PLAYER_API_ROOT}/livetv/sources`) as Promise<{
+        available: boolean;
+        sources: Array<{
+            id: string;
+            serverId: string;
+            serverName: string;
+            tuners?: number | null;
+            channels: Array<{
+                id: string;
+                number: string;
+                title: string;
+                callSign: string;
+                thumb?: string | null;
+                dvrId: string;
+                serverId: string;
+            }>;
+        }>;
+    }>
+);
+
+export const fetchLiveTvGuide = (opts: { hours?: number; serverId?: string | null; startsAt?: number } = {}) => {
+    const qs = new URLSearchParams();
+    if (opts.hours) qs.set('hours', String(opts.hours));
+    if (opts.startsAt) qs.set('startsAt', String(opts.startsAt));
+    if (opts.serverId) qs.set('server', opts.serverId);
+    return apiFetch(`${PLAYER_API_ROOT}/livetv/guide?${qs}`) as Promise<{
+        startsAt: number;
+        endsAt: number;
+        guides: Array<{
+            source: { id: string; serverId: string; serverName: string; tuners?: number | null };
+            startsAt: number;
+            endsAt: number;
+            rows: Array<{ channel: any; airings: PlayerItem[] }>;
+        }>;
+    }>;
+};
+
+export const fetchLiveTvOnNow = (serverId?: string | null) => {
+    const qs = serverId ? `?server=${encodeURIComponent(serverId)}` : '';
+    return apiFetch(`${PLAYER_API_ROOT}/livetv/onnow${qs}`) as Promise<{ items: PlayerItem[] }>;
+};
+
+export const tuneLiveTvChannel = (body: {
+    serverId?: string | null;
+    dvrId: string;
+    channelId: string;
+    title?: string;
+    item?: PlayerItem | null;
+}) => (
+    apiFetch(`${PLAYER_API_ROOT}/livetv/tune`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+    }) as Promise<PlayerPlaySession>
+);
+
+export const stopLiveTvSession = (sessionId: string, serverId?: string | null) => (
+    apiFetch(`${PLAYER_API_ROOT}/livetv/stop`, {
+        method: 'POST',
+        body: JSON.stringify({ sessionId, serverId: serverId || undefined }),
+    }).catch(() => ({ ok: false }))
+);
+
 export const startMediaPlayerPlayback = (ratingKey: string, opts: {
     offsetMs?: number | null;
     qualityId?: string;
@@ -1255,7 +1318,7 @@ export const reportMediaPlayerTimeline = (payload: {
 
 export const stopMediaPlayerTranscode = (
     sessionId?: string | null,
-    opts: { serverId?: string | null; ratingKey?: string | null } = {},
+    opts: { serverId?: string | null; ratingKey?: string | null; live?: boolean } = {},
 ) => {
     const id = String(sessionId || '').trim();
     if (!id) return Promise.resolve();
@@ -1265,6 +1328,7 @@ export const stopMediaPlayerTranscode = (
             sessionId: id,
             serverId: opts.serverId || undefined,
             ratingKey: opts.ratingKey || undefined,
+            live: opts.live === true,
         }),
         keepalive: true,
     }).catch(() => undefined);

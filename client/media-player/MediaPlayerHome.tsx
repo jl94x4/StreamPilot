@@ -14,7 +14,7 @@ import {
     upgraderPosterGridClass,
     upgraderPosterGridStyle,
 } from './host';
-import { beginHomeRowPriority, endHomeRowPriority, fetchMediaPlayerHome, fetchMediaPlayerHomeFull, fetchMediaPlayerHomeHero, fetchMediaPlayerHomeHeroRefresh, fetchMediaPlayerItem, fetchMediaPlayerLibrary, fetchMediaPlayerWatchlist, prefetchMediaPlayerItem, recordPopularSearch, searchMediaPlayer, setMediaPlayerWatched } from './api';
+import { beginHomeRowPriority, endHomeRowPriority, fetchLiveTvOnNow, fetchMediaPlayerHome, fetchMediaPlayerHomeFull, fetchMediaPlayerHomeHero, fetchMediaPlayerHomeHeroRefresh, fetchMediaPlayerItem, fetchMediaPlayerLibrary, fetchMediaPlayerWatchlist, prefetchMediaPlayerItem, recordPopularSearch, searchMediaPlayer, setMediaPlayerWatched } from './api';
 import { isPhoneUi, isPlexDirectMode } from '../plex-client/config';
 import { PlayerPullToRefresh } from './PlayerPullToRefresh';
 import {
@@ -90,6 +90,7 @@ type Props = {
     onOpenLibrary?: (section: PlayerSection) => void;
     onOpenHub?: (hub: PlayerLibraryHub) => void;
     onOpenWatchlist?: () => void;
+    onOpenLiveTv?: () => void;
     onPlayNext?: (item: PlayerItem) => void;
     onToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
     isAdmin?: boolean;
@@ -532,6 +533,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
     onOpenLibrary,
     onOpenHub,
     onOpenWatchlist,
+    onOpenLiveTv,
     onPlayNext,
     onToast,
     isAdmin = false,
@@ -574,6 +576,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         return !hasRows;
     });
     const [watchlistItems, setWatchlistItems] = useState<PlayerItem[]>([]);
+    const [onNowItems, setOnNowItems] = useState<PlayerItem[]>([]);
     const [recentFillBySection, setRecentFillBySection] = useState<Record<string, PlayerItem[]>>({});
     const recentFillLoadedRef = useRef(new Set<string>());
     const networkOnline = usePlayerNetworkStatus();
@@ -1156,6 +1159,23 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         return () => { cancelled = true; };
     }, [active, showWatchlistRail]);
 
+    useEffect(() => {
+        if (!active || !settings.showOnNowHome) {
+            setOnNowItems([]);
+            return undefined;
+        }
+        let cancelled = false;
+        fetchLiveTvOnNow()
+            .then((data) => {
+                if (cancelled) return;
+                setOnNowItems(Array.isArray(data?.items) ? data.items : []);
+            })
+            .catch(() => {
+                if (!cancelled) setOnNowItems([]);
+            });
+        return () => { cancelled = true; };
+    }, [active, settings.showOnNowHome]);
+
     const thinRecentShowKeys = useMemo(() => {
         if (!isTvShell || settings.mixLibraries || !home) return [] as Array<{ sectionId: string; libraryKey: string }>;
         const showLibrary = (library?: { type?: string; title?: string }) => {
@@ -1269,6 +1289,15 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 aspect: '2/3',
                 onViewAll: onOpenWatchlist,
                 viewMoreShelf: { watchlist: true },
+            });
+        }
+        if (settings.showOnNowHome && onNowItems.length) {
+            rows.push({
+                id: 'home.onnow',
+                title: t('mediaPlayerPage.liveTvOnNow'),
+                items: onNowItems,
+                aspect: '16/9',
+                onViewAll: onOpenLiveTv,
             });
         }
         const becauseHubs = plexHubs.filter(isBecauseYouWatchedHub);
@@ -1408,6 +1437,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         isTvShell,
         onOpenHub,
         onOpenWatchlist,
+        onOpenLiveTv,
         freezeContinueWatching,
         mapRecentItem,
         orderedLibraries,
@@ -1421,6 +1451,8 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         showWatchlistRail,
         t,
         watchlistItems,
+        onNowItems,
+        settings.showOnNowHome,
     ]);
 
     const tvFocusStillSeed = useMemo(() => {
@@ -2012,6 +2044,23 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 />
             ) : null
         );
+        const onNowRail = (staggerIndex: number) => (
+            settings.showOnNowHome && onNowItems.length ? (
+                <PlayerRail
+                    key="home.onnow"
+                    title={t('mediaPlayerPage.liveTvOnNow')}
+                    rowId="home:onnow"
+                    items={onNowItems}
+                    density={homePosterDensity}
+                    staggerIndex={staggerIndex}
+                    onOpenItem={(item) => onPlay(item, { skipResume: true })}
+                    onPlay={onPlay}
+                    aspect="16/9"
+                    onViewAll={onOpenLiveTv}
+                    viewAllLabel={onOpenLiveTv ? t('common.viewAll') : undefined}
+                />
+            ) : null
+        );
         const recentRail = (row: { id: string; title: string; items: PlayerItem[]; hubKey?: string; identifier?: string }, staggerIndex: number) => (
             <PlayerRail
                 key={row.id}
@@ -2054,6 +2103,11 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 nodes.push(watchlistNode);
                 stagger += 1;
             }
+            const onNowNode = onNowRail(stagger);
+            if (onNowNode) {
+                nodes.push(onNowNode);
+                stagger += 1;
+            }
             const becauseHubs = plexHubs.filter(isBecauseYouWatchedHub);
             const others = plexHubs.filter((hub) => !isContinueWatchingHub(hub) && !isBecauseYouWatchedHub(hub));
             for (const hub of others) {
@@ -2087,11 +2141,15 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                     const watchlistNode = watchlistRail(hubIndex + 0.5);
                     if (watchlistNode) nodes.push(watchlistNode);
                     insertedWatchlist = true;
+                    const onNowNode = onNowRail(hubIndex + 0.6);
+                    if (onNowNode) nodes.push(onNowNode);
                 }
             });
             if (!insertedWatchlist) {
                 const watchlistNode = watchlistRail(0);
                 if (watchlistNode) nodes.unshift(watchlistNode);
+                const onNowNode = onNowRail(0.1);
+                if (onNowNode) nodes.splice(watchlistNode ? 1 : 0, 0, onNowNode);
             }
             return nodes;
         }
@@ -2126,6 +2184,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                             />
                         ) : null}
                         {watchlistRail(rowIndex + 0.5)}
+                        {onNowRail(rowIndex + 0.6)}
                     </React.Fragment>
                 );
             }
@@ -2167,6 +2226,8 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         onOpenHub,
         onOpenItem,
         onOpenWatchlist,
+        onOpenLiveTv,
+        onNowItems,
         onPlay,
         plexHubs,
         railMenuProps,
@@ -2180,6 +2241,8 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         t,
         toggleWatched,
         watchlistItems,
+        onNowItems,
+        settings.showOnNowHome,
     ]);
 
     const waitingForFullHome = Boolean(home?.partial) && !error && !hasRails;
