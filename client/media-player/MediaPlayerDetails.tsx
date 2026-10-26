@@ -1843,6 +1843,15 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             burnSubtitles: settings.burnSubtitles,
         })
         : null;
+    /** TV movie pages: the same file / track pills as episode pages, at the end of the Watch row. */
+    const movieTechPills = isTvShell && item.type === 'movie' ? episodeTechPills(item) : [];
+    const movieTrackChips = movieTechPills.length
+        ? episodeTrackChips(item, {
+            audioLanguage: settings.audioLanguage,
+            subtitleMode: settings.subtitleMode,
+            burnSubtitles: settings.burnSubtitles,
+        })
+        : null;
     const hubSpoilerHidden = hideEpisodeSpoilers(settings, hubItem.type === 'episode' ? hubItem : null);
     const hubSummary = hubSpoilerHidden
         ? t('mediaPlayerPage.spoilerSummaryHidden')
@@ -2866,6 +2875,30 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                                 onToast={onToast}
                                             />
                                             </div>
+                                            {movieTechPills.length ? (
+                                                <div className="media-details-episode-tech media-details-movie-tech">
+                                                    {movieTechPills.map((pill) => (
+                                                        <span
+                                                            key={`${pill.key}-${pill.label}`}
+                                                            className={`player-file-pill player-file-pill--${pill.tone}`}
+                                                        >
+                                                            {pill.label}
+                                                        </span>
+                                                    ))}
+                                                    {movieTrackChips?.audio ? (
+                                                        <span className="player-track-chip">
+                                                            <Volume2 className="h-[1em] w-[1em] shrink-0" aria-hidden />
+                                                            {movieTrackChips.audio}
+                                                        </span>
+                                                    ) : null}
+                                                    {movieTrackChips ? (
+                                                        <span className="player-track-chip">
+                                                            <Captions className="h-[1em] w-[1em] shrink-0" aria-hidden />
+                                                            {movieTrackChips.subtitles}
+                                                        </span>
+                                                    ) : null}
+                                                </div>
+                                            ) : null}
                                         </div>
                                         {settings.showPlaylists && playlistMessage ? (
                                             <p className="text-[11px] font-bold text-plex">{playlistMessage}</p>

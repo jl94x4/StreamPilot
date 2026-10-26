@@ -4392,6 +4392,21 @@
     html[data-lite-billboard="1"] .player-home-stage .player-home-focus-still {
       transition: none !important;
     }
+    /* TV movie pages: file / track pills at the far end of the Watch row, clear of the edge. */
+    html[data-tv="1"] .media-details-page[data-tv-kind="movie"]:has(.media-details-billboard-identity) .media-details-actions,
+    html[data-tv="1"] .media-details-page[data-tv-kind="movie"]:has(.media-details-billboard-identity) .media-details-actions > [data-tv-action-row="1"] {
+      width: 100%;
+      max-width: none;
+    }
+    html[data-tv="1"] .media-details-page[data-tv-kind="movie"] .media-details-actions > [data-tv-action-row="1"] {
+      flex-wrap: nowrap;
+    }
+    html[data-tv="1"] .media-details-movie-tech {
+      width: auto;
+      flex-shrink: 0;
+      margin-left: auto;
+      margin-right: 2.5rem;
+    }
     html[data-perf-no-focus-fx="1"] [data-tv-poster-btn="1"],
     html[data-perf-no-focus-fx="1"] [data-tv-poster-btn="1"]:focus,
     html[data-perf-no-focus-fx="1"] [data-tv-poster-btn="1"]:focus-visible {
