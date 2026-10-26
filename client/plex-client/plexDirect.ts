@@ -16,6 +16,7 @@ import {
     subtitleCodecNeedsBurn,
 } from '../../lib/media-player/directPlayCaps.js';
 import { buildGenreRelatedHubs } from '../../lib/media-player/mapItem.js';
+import { subtitleTrackLabel } from '../../lib/media-player/subtitleLabel.js';
 import {
     fillStudioBrowseArt,
     mapStudioBrowseOptions,
@@ -1168,7 +1169,7 @@ const mapItem = (meta: PlexMeta) => {
                     subtitles: streams.subtitles.map((stream) => ({
                         id: String(stream.id || ''),
                         codec: stream.codec || null,
-                        displayTitle: stream.displayTitle || stream.language || null,
+                        displayTitle: subtitleTrackLabel(stream),
                         language: stream.language || stream.languageTag || null,
                         languageTag: stream.languageTag || stream.languageCode || null,
                         forced: stream.forced === 1 || stream.forced === true,
@@ -1927,16 +1928,20 @@ const pickSubtitleId = (subtitles: PlexMeta[], requested: string | null, mode: s
         if (!raw || raw === '0') return '';
         const want = raw.replace(/\D/g, '');
         if (!want || want === '0') return '';
-        if (text.some((stream) => String(stream.id || '') === want)) return want;
+        // Any format the user picked: image subs (PGS / VobSub) are burned in by playSrc.
+        // Only accepting text subs here silently dropped every PGS choice.
+        if (subtitles.some((stream) => String(stream.id || '') === want)) return want;
         return '';
     }
-    if (mode === 'off' || !text.length) return '';
+    if (mode === 'off' || !subtitles.length) return '';
+    const isForced = (stream: PlexMeta) => stream.forced === 1 || stream.forced === true;
     if (mode === 'forced') {
-        const forced = text.find((stream) => stream.forced === 1 || stream.forced === true);
+        // Text first (Direct Play keeps going); an image-only forced track is still shown, burned in.
+        const forced = text.find(isForced) || subtitles.find(isForced);
         return forced?.id ? String(forced.id) : '';
     }
-    const selected = text.find((stream) => stream.selected === 1 || stream.selected === true);
-    return String(selected?.id || text[0]?.id || '');
+    const selected = subtitles.find((stream) => stream.selected === 1 || stream.selected === true);
+    return String(selected?.id || text[0]?.id || subtitles[0]?.id || '');
 };
 
 const PLAY_SESSION_REUSE = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|smp-[a-z0-9-]{6,40}|plex-\d{1,16})$/i;
@@ -6445,7 +6450,7 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                 audioStreamId: audioStreamId || null,
                 subtitles: streams.subtitles.map((stream) => ({
                     id: String(stream.id || ''),
-                    label: String(stream.displayTitle || stream.language || stream.codec || 'Subtitle'),
+                    label: subtitleTrackLabel(stream),
                     language: stream.language || null,
                     languageTag: stream.languageTag || stream.languageCode || null,
                     codec: stream.codec || null,

@@ -73,6 +73,16 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.411': [
+        {
+            title: 'Subtitles',
+            items: [
+                'Picking a PGS or other picture subtitle (like English Forced) now plays that track. Before, only SRT choices were kept',
+                'Subtitle lists show the format, e.g. English Forced (PGS) or English (SRT)',
+                'Forced subtitles turn on even when the film only has them as PGS',
+            ],
+        },
+    ],
     '1.0.410': [
         {
             title: 'Movie pages',
