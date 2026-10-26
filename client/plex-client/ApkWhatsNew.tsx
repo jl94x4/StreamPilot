@@ -73,6 +73,16 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.415': [
+        {
+            title: 'Subtitles',
+            items: [
+                'PGS, VobSub and DVB subtitles now Direct Play: the TV draws them itself like Plex does, so no more transcoding the whole film for subtitles',
+                'The subtitle picked in Plex for a film or episode is used by default, and the movie page shows it instead of Off',
+                'Settings → Burn-in → Image still burns picture subtitles in, for TVs that draw them badly',
+            ],
+        },
+    ],
     '1.0.414': [
         {
             title: 'Trailers',

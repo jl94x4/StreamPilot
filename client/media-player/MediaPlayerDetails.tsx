@@ -226,13 +226,22 @@ const episodeTrackChips = (ep?: PlayerItem | null, prefs: TrackChipPrefs = {}) =
     } else if (resolved.subtitleStreamId) {
         sub = byId(subRows, resolved.subtitleStreamId);
     } else {
-        // Same default as starting playback: text tracks by Subtitles mode.
+        // Same default as starting playback: Plex's selection, then the Subtitles mode.
         const text = subRows.filter((row) => !subtitleCodecNeedsBurn(row.codec, prefs.burnSubtitles || 'auto'));
         const mode = String(prefs.subtitleMode || 'forced');
-        if (mode === 'off' || !text.length) sub = null;
-        else if (mode === 'forced') sub = text.find((row) => row.forced) || null;
-        else sub = text.find((row) => row.selected) || text[0] || null;
+        const plexPick = subRows.find((row) => row.selected) || null;
+        if (mode === 'off' || !subRows.length) sub = null;
+        else if (plexPick) sub = plexPick;
+        else if (mode === 'forced') sub = text.find((row) => row.forced) || subRows.find((row) => row.forced) || null;
+        else sub = text[0] || subRows[0] || null;
     }
+    return trackChipLabels(audio, sub);
+};
+
+type ChipTrack = { codec?: string | null; channels?: number | null; language?: string | null; languageTag?: string | null; forced?: boolean | null };
+
+/** "English (EAC3 5.1)" / "English Forced (PGS)" / "Off" for the chosen audio and subtitle. */
+const trackChipLabels = (audio?: ChipTrack | null, sub?: ChipTrack | null) => {
     const audioDetail = [trackCodec(audio), channelLayoutLabel(audio?.channels)].filter(Boolean).join(' ');
     const audioLabel = audio
         ? [trackLanguage(audio) || 'Unknown', audioDetail ? `(${audioDetail})` : ''].filter(Boolean).join(' ')
@@ -1876,12 +1885,12 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         : null;
     /** TV movie pages: the same file / track pills as episode pages, at the end of the Watch row. */
     const movieTechPills = isTvShell && item.type === 'movie' ? episodeTechPills(item) : [];
+    // What this page will play: the audio / subtitle chosen here (Plex's selection by default).
     const movieTrackChips = movieTechPills.length
-        ? episodeTrackChips(item, {
-            audioLanguage: settings.audioLanguage,
-            subtitleMode: settings.subtitleMode,
-            burnSubtitles: settings.burnSubtitles,
-        })
+        ? trackChipLabels(
+            audioTrackOptions.find((row) => String(row.id) === String(audioStreamId)) || audioTrackOptions[0] || null,
+            subtitleTrackOptions.find((row) => String(row.id) === String(subtitleStreamId)) || null,
+        )
         : null;
     const hubSpoilerHidden = hideEpisodeSpoilers(settings, hubItem.type === 'episode' ? hubItem : null);
     const hubSummary = hubSpoilerHidden

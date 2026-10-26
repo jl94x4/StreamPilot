@@ -13,13 +13,24 @@ final class TrackRules {
      * Whether a subtitle codec has to be burned in by the server.
      * burnSubtitles is the user policy: "always", "image" or "auto" (null = auto).
      */
+    static boolean isImageSubtitle(@Nullable String codec) {
+        if (codec == null) return false;
+        return codec.trim().matches("(?i)pgs|hdmv_pgs_subtitle|vobsub|dvd|dvdsub|dvd_subtitle|image|bluray|dvbsub|dvb_subtitle|xsub");
+    }
+
+    /**
+     * "auto": ExoPlayer draws text (SRT, ASS/SSA) and in-file PGS / VobSub / DVB itself, like
+     * Plex's own Android apps, so only the picture formats it can't draw are burned in.
+     * "image" burns every picture format; "always" burns everything.
+     */
     static boolean subtitleCodecNeedsBurn(@Nullable String codec, @Nullable String burnSubtitles) {
         if (codec == null || codec.trim().isEmpty()) return false;
         String policy = burnSubtitles == null ? "auto" : burnSubtitles;
         if ("always".equals(policy)) return true;
-        boolean image = codec.matches("(?i)pgs|vobsub|dvd|dvdsub|image|bluray|dvbsub|xsub");
-        // "auto" matches "image": ExoPlayer renders ASS/SSA itself, so those Direct Play.
-        return image;
+        boolean image = isImageSubtitle(codec);
+        if ("image".equals(policy)) return image;
+        boolean exoDraws = codec.trim().matches("(?i)pgs|hdmv_pgs_subtitle|vobsub|dvd|dvdsub|dvd_subtitle|bluray|dvbsub|dvb_subtitle");
+        return image && !exoDraws;
     }
 
     static boolean isBitstreamAudioCodec(@Nullable String codec) {

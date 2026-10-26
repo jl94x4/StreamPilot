@@ -12,11 +12,14 @@ import org.junit.Test;
 public class TrackRulesTest {
 
     @Test
-    public void autoBurnsImageAndStyledSubtitlesButNotText() {
-        assertTrue(TrackRules.subtitleCodecNeedsBurn("pgs", null));
-        assertTrue(TrackRules.subtitleCodecNeedsBurn("VobSub", "auto"));
-        assertTrue(TrackRules.subtitleCodecNeedsBurn("dvdsub", "auto"));
-        assertTrue(TrackRules.subtitleCodecNeedsBurn("ass", "auto"));
+    public void autoBurnsOnlyPictureSubtitlesExoCannotDraw() {
+        assertFalse(TrackRules.subtitleCodecNeedsBurn("pgs", null));
+        assertFalse(TrackRules.subtitleCodecNeedsBurn("VobSub", "auto"));
+        assertFalse(TrackRules.subtitleCodecNeedsBurn("dvdsub", "auto"));
+        assertTrue(TrackRules.subtitleCodecNeedsBurn("xsub", "auto"));
+        assertFalse(TrackRules.subtitleCodecNeedsBurn("ass", "auto"));
+        assertTrue(TrackRules.isImageSubtitle("PGS"));
+        assertFalse(TrackRules.isImageSubtitle("srt"));
         assertFalse(TrackRules.subtitleCodecNeedsBurn("srt", "auto"));
         assertFalse(TrackRules.subtitleCodecNeedsBurn("subrip", null));
         assertFalse(TrackRules.subtitleCodecNeedsBurn(" ", "always"));

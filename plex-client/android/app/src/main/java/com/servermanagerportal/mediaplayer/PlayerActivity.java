@@ -864,7 +864,7 @@ public class PlayerActivity extends AppCompatActivity {
             boolean needsAvRebuild = false;
             if (avChanged) {
                 OptionItem restoredSub = findSubtitleOption(subtitleStreamId);
-                boolean burn = restoredSub != null && subtitleCodecNeedsBurn(restoredSub.codec);
+                boolean burn = subtitleNeedsBurn(restoredSub);
                 // Text subs on Direct Play only need a track select — safe to prepare now.
                 needsAvRebuild = burn || !PlaybackUrls.isDirectPlayUrl(currentUrl);
             }
@@ -1986,7 +1986,7 @@ public class PlayerActivity extends AppCompatActivity {
         if (subtitleStreamId == null || subtitleStreamId.isEmpty()) return false;
         if (sidecarSubtitleUrl != null && !sidecarSubtitleUrl.isEmpty()) return false;
         OptionItem row = findSubtitleOption(subtitleStreamId);
-        return subtitleCodecNeedsBurn(row == null ? null : row.codec);
+        return subtitleNeedsBurn(row);
     }
 
     private void applySubtitleLook(PlayerView playerView) {
@@ -3217,7 +3217,7 @@ public class PlayerActivity extends AppCompatActivity {
         }
         if (!previousSidecar.isEmpty()) reloadCurrentMedia();
         boolean off = subtitleStreamId.isEmpty();
-        boolean burn = !off && subtitleCodecNeedsBurn(picked.codec);
+        boolean burn = !off && subtitleNeedsBurn(picked);
         // Text / off on Direct Play: swap ExoPlayer text track — keep seekable bitstream.
         if (!burn && PlaybackUrls.isDirectPlayUrl(currentUrl)) {
             hideBurnInProgress();
@@ -3279,8 +3279,15 @@ public class PlayerActivity extends AppCompatActivity {
         return null;
     }
 
-    private boolean subtitleCodecNeedsBurn(@Nullable String codec) {
-        return TrackRules.subtitleCodecNeedsBurn(codec, burnSubtitles);
+    /**
+     * ExoPlayer draws in-file picture subs (PGS / VobSub) on Direct Play only: a picture sidecar,
+     * or a transcoded stream (which carries no subtitle track), still needs them burned in.
+     */
+    private boolean subtitleNeedsBurn(@Nullable OptionItem row) {
+        if (row == null) return false;
+        if (TrackRules.subtitleCodecNeedsBurn(row.codec, burnSubtitles)) return true;
+        if (!TrackRules.isImageSubtitle(row.codec)) return false;
+        return row.embeddedOrdinal < 0 || !PlaybackUrls.isDirectPlayUrl(currentUrl);
     }
 
     @Nullable
@@ -3387,7 +3394,7 @@ public class PlayerActivity extends AppCompatActivity {
         boolean sidecar = sidecarSubtitleUrl != null && !sidecarSubtitleUrl.trim().isEmpty();
         boolean off = subtitleStreamId == null || subtitleStreamId.isEmpty() || subtitleStreamId.startsWith("os:");
         OptionItem subRow = findSubtitleOption(subtitleStreamId);
-        boolean burn = !off && subRow != null && subtitleCodecNeedsBurn(subRow.codec);
+        boolean burn = !off && subtitleNeedsBurn(subRow);
         // HLS / burn-in already paints captions in-frame — keep Exo text off or they stack.
         if ((PlaybackUrls.isTranscodeUrl(currentUrl) && !sidecar) || burn) {
             builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true);

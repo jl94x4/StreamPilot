@@ -1665,9 +1665,20 @@ export const resolveStartPlaybackQualityId = (
     return def;
 };
 
-const IMAGE_SUBTITLE_CODEC = /^(pgs|vobsub|dvd|dvdsub|image|bluray|dvbsub|xsub)$/i;
+const IMAGE_SUBTITLE_CODEC = /^(pgs|hdmv_pgs_subtitle|vobsub|dvd|dvdsub|dvd_subtitle|image|bluray|dvbsub|dvb_subtitle|xsub)$/i;
+/** Picture subtitles ExoPlayer draws itself from the file (PGS, VobSub, DVB), like Plex's apps. */
+const EXO_DRAWN_IMAGE_SUBTITLE = /^(pgs|hdmv_pgs_subtitle|vobsub|dvd|dvdsub|dvd_subtitle|bluray|dvbsub|dvb_subtitle)$/i;
 export type SubtitleBurnMode = 'auto' | 'always' | 'image';
 
+export const isImageSubtitleCodec = (codec?: string | null) => IMAGE_SUBTITLE_CODEC.test(String(codec || '').trim());
+
+/**
+ * Whether a subtitle must be burned into the picture (a video transcode). Every caller is
+ * the native player: ExoPlayer draws text (SRT, ASS/SSA) and, in the file, PGS / VobSub /
+ * DVB, so "auto" Direct Plays those. "image" burns every picture format (for TVs that draw
+ * them badly), "always" burns everything. A picture sub that is a sidecar file, or one on a
+ * stream that is transcoded anyway, is still burned: callers check that.
+ */
 export const subtitleCodecNeedsBurn = (
     codec?: string | null,
     mode: SubtitleBurnMode | string | null | undefined = 'auto',
@@ -1676,9 +1687,8 @@ export const subtitleCodecNeedsBurn = (
     const raw = String(codec || '').trim();
     if (!raw) return false;
     if (policy === 'always') return true;
-    // auto — only image formats. Every caller is the native player, and ExoPlayer draws
-    // ASS/SSA itself (like official Plex on Android), so those Direct Play.
-    return IMAGE_SUBTITLE_CODEC.test(raw);
+    if (policy === 'image') return IMAGE_SUBTITLE_CODEC.test(raw);
+    return IMAGE_SUBTITLE_CODEC.test(raw) && !EXO_DRAWN_IMAGE_SUBTITLE.test(raw);
 };
 
 export const nativeDirectPlayEligible = (input: {

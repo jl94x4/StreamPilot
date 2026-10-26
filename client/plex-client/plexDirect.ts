@@ -12,6 +12,7 @@ import { homeHubHiddenByPicks, normalizeHomeLibraryPicks } from '../media-player
 import {
     canHttpDirectPlay,
     isBitstreamAudioCodec,
+    isImageSubtitleCodec,
     NATIVE_COPY_AUDIO_CODECS,
     subtitleCodecNeedsBurn,
 } from '../../lib/media-player/directPlayCaps.js';
@@ -1997,7 +1998,7 @@ const nativeAudioPlayable = (stream?: PlexMeta | null) => {
 };
 
 const isTextSubtitle = (stream?: PlexMeta | null) => (
-    !subtitleCodecNeedsBurn(stream?.codec, nativeBurnSubtitlesMode())
+    !subtitleCodecNeedsBurn(stream?.codec, nativeBurnSubtitlesMode(), true)
 );
 
 const clampPlayOffsetMs = (offsetMs: number, durationMs: number) => {
@@ -2045,6 +2046,9 @@ const pickSubtitleId = (subtitles: PlexMeta[], requested: string | null, mode: s
         return '';
     }
     if (mode === 'off' || !subtitles.length) return '';
+    // What Plex has selected for this title (set in any Plex app) wins, as in Plex's own apps.
+    const plexPick = subtitles.find((stream) => stream.selected === 1 || stream.selected === true);
+    if (plexPick?.id) return String(plexPick.id);
     const isForced = (stream: PlexMeta) => stream.forced === 1 || stream.forced === true;
     if (mode === 'forced') {
         // Text first (Direct Play keeps going); an image-only forced track is still shown, burned in.
@@ -2103,8 +2107,10 @@ const playSrc = (
         : null;
     // Only burn when we know the stream is image-based. Missing metadata must not
     // force burn-in (that stacks under Exo text captions during quality swaps).
-    const burnSubtitles = Boolean(subtitleId) && !!subStream
-        && subtitleCodecNeedsBurn(subStream.codec, nativeBurnSubtitlesMode());
+    const imageSub = !!subStream && isImageSubtitleCodec(subStream.codec);
+    // ExoPlayer draws in-file PGS / VobSub on Direct Play; a picture sidecar must be burned.
+    let burnSubtitles = Boolean(subtitleId) && !!subStream
+        && (subtitleCodecNeedsBurn(subStream.codec, nativeBurnSubtitlesMode(), true) || (imageSub && !!subStream.key));
     const capsForAudio = (id: string) => canHttpDirectPlay(meta, {
         client: 'android',
         mediaIndex,
@@ -2130,6 +2136,8 @@ const playSrc = (
     const direct = !forceHls && !burnSubtitles && capsOk && !!part?.key && (
         audioOnly || !quality || quality.id === 'original'
     );
+    // A transcoded stream carries no subtitle track, so a picture sub has to be burned in.
+    if (!direct && imageSub && subtitleId) burnSubtitles = true;
     const metadataPath = String(meta.key || '').startsWith('/')
         ? String(meta.key).split('?')[0]
         : `/library/metadata/${encodeURIComponent(String(meta.ratingKey || ''))}`;
