@@ -1734,15 +1734,6 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             }
             landOnFirstRef.current = false;
             if (next !== current) {
-                // Instant feedback: start the outgoing row moving in this same frame. On slow
-                // TV sticks the re-render below can lag the press; React drops this class when
-                // that row re-renders as parked.
-                try {
-                    document.querySelector('.player-home-stage-rail .player-home-row-active')
-                        ?.classList.add(`player-home-row-leave-${dir}`);
-                } catch {
-                    /* ignore */
-                }
                 setTvRowDir(dir);
                 setTvRowIndex(next);
             }

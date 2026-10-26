@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.407': [
+        {
+            title: 'Smoother rows',
+            items: [
+                'Moving up and down rows on Home and library homes does about half the work: only the new row slides in, and the background colour changes in a few steps instead of repainting the whole screen every frame',
+                'The performance meter now also notices the Android Remove animations setting',
+            ],
+        },
+    ],
     '1.0.406': [
         {
             title: 'Diagnostics',

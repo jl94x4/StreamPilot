@@ -54,6 +54,17 @@ const summarise = (deltas: number[]): PressStats => ({
     dropped: deltas.reduce((sum, delta) => sum + Math.max(0, Math.round(delta / FRAME_MS) - 1), 0),
 });
 
+/** The app's Reduce motion setting, or Android's Remove animations (seen as prefers-reduced-motion). */
+const motionLabel = () => {
+    if (document.documentElement.dataset.reduceMotion === '1') return 'Reduce motion on';
+    try {
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return 'Reduce motion on (system)';
+    } catch {
+        /* ignore */
+    }
+    return 'Motion on';
+};
+
 export const PlayerPerfOverlay: React.FC = () => {
     const [flags, setFlags] = useState<PerfFlags>(() => readPerfFlags());
     const [last, setLast] = useState<PressStats | null>(null);
@@ -114,7 +125,7 @@ export const PlayerPerfOverlay: React.FC = () => {
             <p className="smp-perf-flags">
                 {flags.noBillboard ? 'Billboard off · ' : ''}
                 {flags.noFocusFx ? 'Focus effect off · ' : ''}
-                {document.documentElement.dataset.reduceMotion === '1' ? 'Reduce motion on' : 'Motion on'}
+                {motionLabel()}
             </p>
         </div>
     );

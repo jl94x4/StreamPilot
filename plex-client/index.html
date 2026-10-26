@@ -1768,12 +1768,13 @@
     @property --tv-home-g { syntax: '<number>'; inherits: true; initial-value: 10; }
     @property --tv-home-b { syntax: '<number>'; inherits: true; initial-value: 16; }
     /* Billboard fade takes the title's page colour (Artwork tint), so opening the title page
-       keeps the same colour. One fade layer whose colour eases (registered channels): two
+       keeps the same colour. One fade layer whose colour steps over 3 frames (each step repaints
+       full-screen gradients, so a smooth ease was ~15 repaints a row change on TV sticks): two
        layers cross-fading their opacity let the art flash brighter mid-way, as neither was
        fully on. */
     html[data-tv="1"] .player-home-stage .player-home-focus-still {
       --tv-home-surface: var(--tv-home-r) var(--tv-home-g) var(--tv-home-b);
-      transition: --tv-home-r 0.25s ease-out, --tv-home-g 0.25s ease-out, --tv-home-b 0.25s ease-out;
+      transition: --tv-home-r 0.24s steps(3, end), --tv-home-g 0.24s steps(3, end), --tv-home-b 0.24s steps(3, end);
     }
     html[data-reduce-motion="1"] .player-home-stage .player-home-focus-still {
       transition: none;
@@ -2071,31 +2072,13 @@
       display: none !important;
     }
     /* TV Home row change: the row you move to slides in from the side you came from, and
-       the peek row below fades up behind it — instead of rows swapping in a single frame. */
+       the peek row below just appears. One animated layer per press: the outgoing-row move and
+       the peek fade-in doubled the GPU work of every row change on TV sticks. */
     html[data-tv="1"] .player-home-row-enter-down {
-      animation: player-home-row-in-down 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+      animation: player-home-row-in-down 0.18s cubic-bezier(0.22, 1, 0.36, 1) both;
     }
     html[data-tv="1"] .player-home-row-enter-up {
-      animation: player-home-row-in-up 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
-    }
-    html[data-tv="1"] .player-home-next-row {
-      animation: player-home-row-peek-in 0.22s ease-out both;
-    }
-    /* Set on key press, before React re-renders, so the move starts immediately. */
-    html[data-tv="1"] .player-home-row-leave-down,
-    html[data-tv="1"] .player-home-row-leave-up {
-      transition: transform 0.12s ease-in, opacity 0.12s ease-in;
-    }
-    html[data-tv="1"] .player-home-row-leave-down {
-      transform: translate3d(0, -1.75rem, 0);
-    }
-    html[data-tv="1"] .player-home-row-leave-up {
-      transform: translate3d(0, 1.75rem, 0);
-    }
-    html[data-reduce-motion="1"] .player-home-row-leave-down,
-    html[data-reduce-motion="1"] .player-home-row-leave-up {
-      transition: none;
-      transform: none;
+      animation: player-home-row-in-up 0.18s cubic-bezier(0.22, 1, 0.36, 1) both;
     }
     @keyframes player-home-row-in-down {
       from { opacity: 0.35; transform: translate3d(0, 2.25rem, 0); }
@@ -2103,10 +2086,6 @@
     }
     @keyframes player-home-row-in-up {
       from { opacity: 0.35; transform: translate3d(0, -2.25rem, 0); }
-      to { opacity: 1; transform: none; }
-    }
-    @keyframes player-home-row-peek-in {
-      from { opacity: 0; transform: translate3d(0, 1rem, 0); }
       to { opacity: 1; transform: none; }
     }
     html[data-reduce-motion="1"] .player-home-row-enter-down,
