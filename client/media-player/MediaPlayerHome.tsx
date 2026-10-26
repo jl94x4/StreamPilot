@@ -1507,9 +1507,9 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             return 0;
         });
         return [
-            { id: 'person', title: t('mediaPlayerPage.searchPeople'), items: people, aspect: '2/3' as const },
             { id: 'show', title: t('mediaPlayerPage.searchShows'), items: shows, aspect: '2/3' as const },
             { id: 'movie', title: t('mediaPlayerPage.searchMovies'), items: movies, aspect: '2/3' as const },
+            { id: 'person', title: t('mediaPlayerPage.searchPeople'), items: people, aspect: '2/3' as const },
             { id: 'episode', title: t('mediaPlayerPage.searchEpisodes'), items: episodes, aspect: '16/9' as const },
             { id: 'more', title: t('mediaPlayerPage.searchMore'), items: more, aspect: '2/3' as const },
         ].filter((group) => group.items.length);
