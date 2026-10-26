@@ -23,10 +23,11 @@ import {
     STUDIO_BROWSE_FETCH,
 } from '../../lib/media-player/studioBrowse.js';
 import {
+    epgPrefixCandidates,
+    epgPrefixesFromProviders,
     clipGuideWindow,
     guideHasAirings,
     liveTvGridQueries,
-    epgPrefixFromProviders,
     livePlaybackPath,
     liveTvGuideWindow,
     mapLiveTvChannels,
@@ -1499,25 +1500,39 @@ const liveHlsSrc = (server: PlexServer, path: string, session: string) => {
  * (`endsAt>=…&beginsAt<=…`); older / other builds differ, so try the known forms and keep
  * the first that returns airings, clipped to the window.
  */
+/** The guide address and query form that last returned airings, per server + DVR. */
+const liveGuideHits = new Map<string, { prefix: string; query: number }>();
+
 const loadLiveGuide = async (
     server: PlexServer,
-    source: { id: string; epgPrefix?: string; channels?: any[] },
+    source: { id: string; epgPrefix?: string; epgPrefixes?: string[]; channels?: any[] },
     startsAt: number,
     endsAt: number,
 ) => {
     const extras = { dvrId: source.id, serverId: server.id };
-    let rows = mapLiveTvGuide(null, source.channels || [], extras);
-    if (!source.epgPrefix) return rows;
-    for (const query of liveTvGridQueries(startsAt, endsAt)) {
-        const grid = await pms(`${source.epgPrefix}/grid?${query}`, server, 15000).catch(() => null);
+    const empty = mapLiveTvGuide(null, source.channels || [], extras);
+    const prefixes = source.epgPrefixes?.length ? source.epgPrefixes : (source.epgPrefix ? [source.epgPrefix] : []);
+    if (!prefixes.length) return empty;
+    const hitKey = `${server.id}|${source.id}`;
+    const queries = liveTvGridQueries(startsAt, endsAt);
+    const hit = liveGuideHits.get(hitKey);
+    const attempts: Array<{ prefix: string; query: number }> = [];
+    if (hit && prefixes.includes(hit.prefix)) attempts.push(hit);
+    for (const prefix of prefixes) {
+        queries.forEach((_, query) => {
+            if (!attempts.some((row) => row.prefix === prefix && row.query === query)) attempts.push({ prefix, query });
+        });
+    }
+    for (const attempt of attempts) {
+        const grid = await pms(`${attempt.prefix}/grid?${queries[attempt.query]}`, server, 15000).catch(() => null);
         if (!grid) continue;
         const mapped = mapLiveTvGuide(grid, source.channels || [], extras);
         if (guideHasAirings(mapped, startsAt, endsAt)) {
-            rows = clipGuideWindow(mapped, startsAt, endsAt);
-            break;
+            liveGuideHits.set(hitKey, attempt);
+            return clipGuideWindow(mapped, startsAt, endsAt);
         }
     }
-    return rows;
+    return empty;
 };
 
 const loadLiveTvForServer = async (server: PlexServer) => {
@@ -1525,18 +1540,24 @@ const loadLiveTvForServer = async (server: PlexServer) => {
     const dvrs = mapLiveTvDvrs(dvrData, server);
     if (!dvrs.length) return [];
     const providers = await pms('/media/providers', server, 12000).catch(() => null);
-    const providerPrefix = epgPrefixFromProviders(providers);
+    const providerPrefixes = epgPrefixesFromProviders(providers);
     const sources = [];
     for (const dvr of dvrs) {
         const detail = await pms(`/livetv/dvrs/${encodeURIComponent(dvr.id)}`, server, 12000).catch(() => null);
         const detailed = mapLiveTvDvrs(detail, server)[0] || dvr;
-        const epg = detailed.epgPrefix || dvr.epgPrefix || providerPrefix;
+        // The lineup's own prefix lacks the ":<n>" PMS needs, so the providers come first.
+        const prefixes = epgPrefixCandidates({ ...detailed, id: dvr.id }, providerPrefixes);
+        let epg = prefixes[0] || '';
         let channels = [];
-        if (epg) {
+        for (const prefix of prefixes) {
             channels = mapLiveTvChannels(
-                await pms(`${epg}/lineups/dvr/channels`, server, 12000).catch(() => null),
+                await pms(`${prefix}/lineups/dvr/channels`, server, 12000).catch(() => null),
                 { dvrId: dvr.id, serverId: server.id, channelMappings: detailed.channelMappings },
             );
+            if (channels.some((channel) => channel.title && channel.title !== channel.number)) {
+                epg = prefix;
+                break;
+            }
         }
         if (!channels.length) {
             channels = mapLiveTvChannels(
@@ -1555,6 +1576,7 @@ const loadLiveTvForServer = async (server: PlexServer) => {
         sources.push({
             ...detailed,
             epgPrefix: epg,
+            epgPrefixes: [epg, ...prefixes.filter((prefix) => prefix !== epg)].filter(Boolean),
             channels: channels.map((channel) => ({
                 ...channel,
                 thumb: imageUrl(channel.thumb, 120, 120) || channel.thumb,
@@ -6272,16 +6294,39 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
         const dvrId = String(body?.dvrId || '').trim();
         const channel = String(body?.channelId || body?.channelKey || '').trim();
         if (!dvrId || !channel) throw new Error('Pick a channel.');
-        const tuned = await pmsPost(
-            `/livetv/dvrs/${encodeURIComponent(dvrId)}/channels/${encodeURIComponent(channel)}/tune`,
-            server,
-            25000,
-        ).catch((error) => {
-            throw new Error(error?.message || 'Could not tune that channel. The tuner may be busy.');
-        });
-        const parsed = parseLiveTvTune(tuned);
-        const playPath = livePlaybackPath(parsed);
-        if (!playPath) throw new Error('Plex did not return a live stream.');
+        // A DVR channel has several ids (lineup identifier, tuner number, channel key) and the
+        // guide may hand us any of them: try each until PMS answers with a stream.
+        const dvrDetail = await pms(`/livetv/dvrs/${encodeURIComponent(dvrId)}`, server, 12000).catch(() => null);
+        const mappings = asList<PlexMeta>(dvrDetail?.MediaContainer?.Dvr || dvrDetail?.MediaContainer?.DVR)
+            .flatMap((row) => asList<PlexMeta>(row.Device))
+            .flatMap((device) => asList<PlexMeta>(device.ChannelMapping));
+        const ids = (row: PlexMeta) => [row.lineupIdentifier, row.deviceIdentifier, row.channelKey, row.key]
+            .map((value) => String(value ?? '').trim())
+            .filter(Boolean);
+        const mapping = mappings.find((row) => ids(row).includes(channel));
+        const candidates = [...new Set([channel, ...(mapping ? ids(mapping) : [])])];
+        let parsed = parseLiveTvTune(null);
+        let playPath = '';
+        let lastError = '';
+        for (const candidate of candidates) {
+            const tuned = await pmsPost(
+                `/livetv/dvrs/${encodeURIComponent(dvrId)}/channels/${encodeURIComponent(candidate)}/tune`,
+                server,
+                25000,
+            ).catch((error) => {
+                lastError = error?.message || '';
+                return null;
+            });
+            if (!tuned) continue;
+            parsed = parseLiveTvTune(tuned);
+            playPath = livePlaybackPath(parsed);
+            if (playPath) break;
+        }
+        if (!playPath) {
+            throw new Error(lastError
+                ? `Could not tune that channel: ${lastError}`
+                : 'Plex did not return a live stream. The tuner may be busy.');
+        }
         const session = parsed.sessionId || `smp-live-${Date.now().toString(36)}`;
         const item = {
             ...(body?.item || {}),
