@@ -3,6 +3,7 @@ import { Play, Radio, X } from 'lucide-react';
 import { useDiscoverI18n } from './host';
 import { fetchLiveTvGuide, fetchLiveTvOnNow, fetchLiveTvSources } from './api';
 import { plexImageUrl } from './playerUtils';
+import { isLanHttpImage, loadLanImage } from './lanImage';
 import type { PlayerItem, PlayerPlayOptions } from './types';
 
 type GuideRow = {
@@ -45,25 +46,6 @@ const channelName = (title?: string | null, number?: string | null) => {
     return name;
 };
 
-/**
- * Tunarr / HDHomeRun guides point artwork at the tuner's own http:// address on the LAN.
- * The page is https, so the WebView blocks those <img> loads (mixed content), and PMS's
- * photo transcoder won't fetch private addresses. The app's fetch can, so load them into
- * a blob. Away from that LAN they can't load at all and the caller shows its placeholder.
- */
-const lanImageCache = new Map<string, Promise<string>>();
-const loadLanImage = (src: string) => {
-    let hit = lanImageCache.get(src);
-    if (!hit) {
-        hit = fetch(src)
-            .then((res) => (res.ok ? res.blob() : Promise.reject(new Error(String(res.status)))))
-            .then((blob) => URL.createObjectURL(blob));
-        hit.catch(() => lanImageCache.delete(src));
-        lanImageCache.set(src, hit);
-    }
-    return hit;
-};
-
 const LiveImg: React.FC<{
     src?: string | null;
     className?: string;
@@ -71,7 +53,7 @@ const LiveImg: React.FC<{
     lazy?: boolean;
 }> = ({ src, className, fallback = null, lazy = false }) => {
     const raw = String(src || '');
-    const lan = /^http:\/\//i.test(raw);
+    const lan = isLanHttpImage(raw);
     const [resolved, setResolved] = useState(() => (lan ? '' : raw));
     const [failed, setFailed] = useState(false);
     useEffect(() => {

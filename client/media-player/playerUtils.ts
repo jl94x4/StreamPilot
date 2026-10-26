@@ -396,6 +396,8 @@ export const resizePlexArtUrl = (
 
 export const plexImageUrl = (path?: string | null, width = PLAYER_POSTER_WIDTH, height = PLAYER_POSTER_HEIGHT, opts?: { fit?: 'contain' | 'cover'; quality?: number }) => {
     if (!path) return '';
+    // Already-loaded artwork (Live TV LAN images as blob URLs): nothing to resize.
+    if (/^(blob|data):/i.test(path)) return path;
     if (path.startsWith('http://') || path.startsWith('https://') || path.startsWith('/api/')) {
         return resolvePortalAssetUrl(path);
     }
@@ -465,6 +467,7 @@ const withPlexImageSize = (url: string, width: number, height: number, quality: 
 };
 
 const backdropRequestUrl = (path: string, width: number, height: number, quality: number) => {
+    if (/^(blob|data):/i.test(path)) return path;
     if (/\/photo\/:\/transcode|\/api\/plex\/image/i.test(path)) {
         return resizePlexArtUrl(path, width, height, quality);
     }

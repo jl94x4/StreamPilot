@@ -14,6 +14,7 @@ import {
     upgraderPosterGridClass,
     upgraderPosterGridStyle,
 } from './host';
+import { resolveLanImages } from './lanImage';
 import { beginHomeRowPriority, endHomeRowPriority, fetchLiveTvOnNow, fetchMediaPlayerHome, fetchMediaPlayerHomeFull, fetchMediaPlayerHomeHero, fetchMediaPlayerHomeHeroRefresh, fetchMediaPlayerItem, fetchMediaPlayerLibrary, fetchMediaPlayerWatchlist, prefetchMediaPlayerItem, recordPopularSearch, searchMediaPlayer, setMediaPlayerWatched } from './api';
 import { isPhoneUi, isPlexDirectMode } from '../plex-client/config';
 import { PlayerPullToRefresh } from './PlayerPullToRefresh';
@@ -605,6 +606,15 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         document.documentElement?.dataset?.tv === '1'
         || window.__PLEX_CLIENT__?.isTv === true
     );
+    // TV Home is a stacked row that always uses onOpenItem. On Now cards must tune,
+    // not open details (there is no library page for a live airing).
+    const openItemOrTune = useCallback((item: PlayerItem) => {
+        if (item.type === 'liveAiring' || item.liveChannelId) {
+            onPlay(item, { skipResume: true });
+            return;
+        }
+        onOpenItem(item);
+    }, [onOpenItem, onPlay]);
 
     useEffect(() => {
         const openSearch = () => {
@@ -1178,9 +1188,11 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         }
         let cancelled = false;
         fetchLiveTvOnNow()
-            .then((data) => {
+            // Tunarr artwork is http:// on the LAN, which the https page can't show directly.
+            .then((data) => resolveLanImages(Array.isArray(data?.items) ? data.items : []))
+            .then((items) => {
                 if (cancelled) return;
-                setOnNowItems(Array.isArray(data?.items) ? data.items : []);
+                setOnNowItems(items);
             })
             .catch(() => {
                 if (!cancelled) setOnNowItems([]);
@@ -1308,7 +1320,8 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 id: 'home.onnow',
                 title: t('mediaPlayerPage.liveTvOnNow'),
                 items: onNowItems,
-                aspect: '16/9',
+                // Live airings only have posters.
+                aspect: '2/3',
                 onViewAll: onOpenLiveTv,
             });
         }
@@ -1827,6 +1840,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
     useEffect(() => {
         const key = String(tvSpotItem?.ratingKey || '');
         if (!tvStage || !key) return undefined;
+        if (tvSpotItem?.type === 'liveAiring' || tvSpotItem?.liveChannelId) return undefined;
         const serverId = tvSpotItem?.serverId || null;
         const extraKey = spotExtraKey(serverId, key);
         const cached = readPlayerItemCache(key, serverId);
@@ -2063,9 +2077,9 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                     items={onNowItems}
                     density={homePosterDensity}
                     staggerIndex={staggerIndex}
-                    onOpenItem={(item) => onPlay(item, { skipResume: true })}
+                    onOpenItem={openItemOrTune}
                     onPlay={onPlay}
-                    aspect="16/9"
+                    aspect="2/3"
                     onViewAll={onOpenLiveTv}
                     viewAllLabel={onOpenLiveTv ? t('common.viewAll') : undefined}
                 />
@@ -2235,6 +2249,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         layoutContinueWatching,
         onOpenHub,
         onOpenItem,
+        openItemOrTune,
         onOpenWatchlist,
         onOpenLiveTv,
         onNowItems,
@@ -2421,7 +2436,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                             rowDir={tvRowDir}
                             density={homePosterDensity}
                             restoreFocusById={tvRowFocusRef.current}
-                            onOpenItem={onOpenItem}
+                            onOpenItem={openItemOrTune}
                             onPlay={onPlay}
                             onToggleWatched={toggleWatched}
                             {...railMenuProps}

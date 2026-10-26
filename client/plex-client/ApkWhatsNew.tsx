@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.430': [
+        {
+            title: 'Home',
+            items: [
+                'On Now posters on Home load Tunarr artwork over http on the LAN (they used to stay blank on https)',
+                'Pressing an On Now card on TV Home starts the channel instead of opening a details page',
+            ],
+        },
+    ],
     '1.0.427': [
         {
             title: 'Continue Watching',
