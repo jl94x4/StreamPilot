@@ -130,6 +130,28 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
         : settings.watchedTickPosition;
     const tickPosClass = watchedTickPositionClass(tickCorner, { aboveProgress: progress > 0 || showProgress });
     const tickClass = `${tickPosClass} player-watched-tick z-30 flex h-6 w-6 items-center justify-center rounded-full bg-plex text-zinc-950 shadow-md`;
+    // TV / phone: the long-press menu is created on first open, not with every card. A row
+    // change mounts a whole row of cards, and a closed menu per card was a large part of it.
+    const hiddenMenu = tvMenu || (phoneUi && menuEnabled);
+    const [menuMounted, setMenuMounted] = useState(false);
+    const pendingMenuOpenRef = useRef<{ x?: number; y?: number } | null>(null);
+    const openItemMenu = (x?: number, y?: number) => {
+        const menu = menuRef.current;
+        if (menu) {
+            if (tvMenu) (menu.openAt as (cx?: number, cy?: number) => void)();
+            else (menu.openAt as (cx?: number, cy?: number) => void)(x, y);
+            return;
+        }
+        pendingMenuOpenRef.current = { x, y };
+        setMenuMounted(true);
+    };
+    useEffect(() => {
+        const pending = pendingMenuOpenRef.current;
+        if (!menuMounted || !pending || !menuRef.current) return;
+        pendingMenuOpenRef.current = null;
+        if (tvMenu) (menuRef.current.openAt as (cx?: number, cy?: number) => void)();
+        else (menuRef.current.openAt as (cx?: number, cy?: number) => void)(pending.x, pending.y);
+    }, [menuMounted, tvMenu]);
     const markWatchedClass = `pointer-events-auto ${tickPosClass} player-watched-tick flex h-6 w-6 items-center justify-center rounded-full bg-black/70 text-white hover:bg-black`;
 
     const clearLongPress = () => {
@@ -154,7 +176,7 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
             detail.handled = true;
             // Remote long-press can still synthesize a click on release — block open.
             suppressClickRef.current = true;
-            menuRef.current?.openAt();
+            openItemMenu();
             window.setTimeout(() => {
                 suppressClickRef.current = false;
             }, 600);
@@ -187,8 +209,7 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
     const openMenuAt = (clientX?: number, clientY?: number) => {
         if (!canLongPressMenu) return;
         suppressClickRef.current = true;
-        if (tvMenu) menuRef.current?.openAt();
-        else menuRef.current?.openAt(clientX, clientY);
+        openItemMenu(clientX, clientY);
         window.setTimeout(() => {
             suppressClickRef.current = false;
         }, 500);
@@ -424,7 +445,7 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
                     </>
                 )}
             />
-            {tvMenu || (phoneUi && menuEnabled) ? (
+            {hiddenMenu && menuMounted ? (
                 <PlayerItemMenu
                     ref={menuRef}
                     hideTrigger

@@ -166,6 +166,11 @@ const paintHomeSurface = (rgb: string) => {
 
 /** Focus moves closer together than this count as holding the button. */
 const BILLBOARD_HOLD_MS = 240;
+/**
+ * Moving to another row: the billboard (backdrop cross-fade, fade colour, title) waits for the
+ * row's slide-in to finish, so the TV's GPU is not doing every full-screen change at once.
+ */
+const BILLBOARD_ROW_CHANGE_MS = 230;
 /** Settle time before sampling a new backdrop's colour: past remote repeat, short enough to keep up. */
 const BILLBOARD_TINT_SAMPLE_MS = 120;
 
@@ -215,11 +220,16 @@ const HomeFocusStill: React.FC<{
      * (moves closer than BILLBOARD_HOLD_MS) it waits until you stop, so holding a button
      * never queues up artwork swaps, re-renders and fetches behind the focus ring.
      */
-    const settleDelay = () => {
+    const lastRowRef = useRef('');
+    const settleDelay = (target?: EventTarget | null) => {
         const now = performance.now();
         const holding = now - lastMoveRef.current < BILLBOARD_HOLD_MS;
         lastMoveRef.current = now;
-        return holding ? BILLBOARD_HOLD_MS : 0;
+        const row = (target as HTMLElement | null)?.closest?.('[data-tv-row-id]')?.getAttribute('data-tv-row-id') || '';
+        const rowChanged = Boolean(row && lastRowRef.current && row !== lastRowRef.current);
+        if (row) lastRowRef.current = row;
+        if (holding) return BILLBOARD_HOLD_MS;
+        return rowChanged ? BILLBOARD_ROW_CHANGE_MS : 0;
     };
     const showSoon = useCallback((next: string, delay: number) => {
         window.clearTimeout(showTimerRef.current);
@@ -247,7 +257,7 @@ const HomeFocusStill: React.FC<{
         if (!enabled) return undefined;
         const onFocus = (event: FocusEvent) => {
             const target = event.target;
-            const delay = settleDelay();
+            const delay = settleDelay(target);
             // Neighbour prefetch fetches and decodes: also only once you settle.
             window.clearTimeout(primeTimerRef.current);
             primeTimerRef.current = window.setTimeout(

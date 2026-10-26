@@ -76,6 +76,11 @@ const itemKeyFromFocusTarget = (target: EventTarget | null) => {
     return key;
 };
 
+/** Focus moves closer together than this count as holding the button. */
+const STAGE_HOLD_MS = 240;
+/** Moving to another row: the billboard waits for the row's slide-in (see TV Home). */
+const STAGE_ROW_CHANGE_MS = 230;
+
 export const PlayerTvFocusStill: React.FC<{
     enabled: boolean;
     seed?: string;
@@ -115,20 +120,35 @@ export const PlayerTvFocusStill: React.FC<{
 
     const showTimerRef = useRef(0);
     const keyTimerRef = useRef(0);
-    const showSoon = useCallback((next: string) => {
+    const primeTimerRef = useRef(0);
+    const lastMoveRef = useRef(0);
+    const lastRowRef = useRef('');
+    const showSoon = useCallback((next: string, delay = 70) => {
         window.clearTimeout(showTimerRef.current);
         if (!next) return;
-        showTimerRef.current = window.setTimeout(() => show(next), 70);
+        showTimerRef.current = window.setTimeout(() => show(next), delay);
     }, [show]);
-    const keySoon = useCallback((key: string) => {
+    const keySoon = useCallback((key: string, delay = 90) => {
         window.clearTimeout(keyTimerRef.current);
         if (!key) return;
-        keyTimerRef.current = window.setTimeout(() => onFocusKey?.(key), 90);
+        keyTimerRef.current = window.setTimeout(() => onFocusKey?.(key), delay);
     }, [onFocusKey]);
+    /** Same pacing as TV Home: wait while the remote repeats, and for a row's slide-in. */
+    const settleDelay = (target: EventTarget | null) => {
+        const now = performance.now();
+        const holding = now - lastMoveRef.current < STAGE_HOLD_MS;
+        lastMoveRef.current = now;
+        const row = (target as HTMLElement | null)?.closest?.('[data-tv-row-id]')?.getAttribute('data-tv-row-id') || '';
+        const rowChanged = Boolean(row && lastRowRef.current && row !== lastRowRef.current);
+        if (row) lastRowRef.current = row;
+        if (holding) return STAGE_HOLD_MS;
+        return rowChanged ? STAGE_ROW_CHANGE_MS : 0;
+    };
 
     useEffect(() => () => {
         window.clearTimeout(showTimerRef.current);
         window.clearTimeout(keyTimerRef.current);
+        window.clearTimeout(primeTimerRef.current);
     }, []);
 
     useEffect(() => {
@@ -138,14 +158,21 @@ export const PlayerTvFocusStill: React.FC<{
     useEffect(() => {
         if (!enabled) return undefined;
         const onFocus = (event: FocusEvent) => {
-            primeNearbyTvBillboard(event.target, prefetchMediaPlayerItem);
-            const next = backdropFromFocusTarget(event.target);
+            const target = event.target;
+            const delay = settleDelay(target);
+            // Neighbour backdrops / metadata only once the remote settles, not on every press.
+            window.clearTimeout(primeTimerRef.current);
+            primeTimerRef.current = window.setTimeout(
+                () => primeNearbyTvBillboard(target, prefetchMediaPlayerItem),
+                Math.max(delay, 120),
+            );
+            const next = backdropFromFocusTarget(target);
             if (next) {
-                if (isPlayerBackdropReady(next)) show(next);
-                else showSoon(next);
+                if (!delay && isPlayerBackdropReady(next)) show(next);
+                else showSoon(next, delay || 70);
             }
-            const key = itemKeyFromFocusTarget(event.target);
-            if (key) keySoon(key);
+            const key = itemKeyFromFocusTarget(target);
+            if (key) keySoon(key, delay || 90);
         };
         document.addEventListener('focusin', onFocus, true);
         const focused = document.activeElement;

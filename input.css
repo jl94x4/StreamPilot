@@ -4582,6 +4582,20 @@ html[data-tv="1"] .player-home-stage-rail .player-rail-enter {
   opacity: 1 !important;
   transform: none !important;
 }
+/* The active and next rows keep their own GPU layer, so a row change only moves layers:
+   promoting a row of posters at the start of every slide was a large raster on TV sticks.
+   The active row sits above the next one so a focused poster's glow is not drawn under it. */
+html[data-tv="1"] .player-home-row-active,
+html[data-tv="1"] .player-home-next-row {
+  position: relative;
+  will-change: transform, opacity;
+}
+html[data-tv="1"] .player-home-row-active {
+  z-index: 2;
+}
+html[data-tv="1"] .player-home-next-row {
+  z-index: 1;
+}
 html[data-tv="1"] .player-home-row-park {
   position: absolute;
   left: 0;

@@ -73,6 +73,23 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.405': [
+        {
+            title: 'Performance',
+            items: [
+                'Moving up and down between rows on Home and library pages is much smoother: the rows either side are built while the remote is still, so a press only slides them into place',
+                'Long-press menus are only created when you open one, so each row has far less to set up',
+                'The billboard waits for a row to finish sliding before changing its picture and colour, so the TV is not doing everything at once',
+                'Library pages hold off loading artwork while you are still moving, like Home',
+            ],
+        },
+        {
+            title: 'Look',
+            items: [
+                'Long-press and options menus use the same font as the clock on every page',
+            ],
+        },
+    ],
     '1.0.400': [
         {
             title: 'Live TV',

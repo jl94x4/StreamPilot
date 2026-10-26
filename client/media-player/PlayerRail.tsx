@@ -23,7 +23,7 @@ const isPhoneShell = () => {
     }
 };
 
-export const PlayerRail: React.FC<{
+const PlayerRailImpl: React.FC<{
     title: string;
     items: PlayerItem[];
     density: number;
@@ -140,18 +140,34 @@ export const PlayerRail: React.FC<{
             if (!items.length) return 0;
             return Math.max(current, target());
         });
-        // A TV row that just became active fills in once its slide-in is done, and only a
-        // few cards per step — one big render of ~20 cards made the end of the slide hitch.
+        // A TV row that just became active fills in once the remote has been still for a
+        // moment, a few cards per idle slot: filling in 220ms after a press landed on the next
+        // press. Cards you move right to are added on focus anyway (onFocusCapture below).
         if (tvShell && tvActive) {
             let shown = armedCountRef.current;
-            let timer = window.setTimeout(function step() {
+            let idle = 0;
+            const ric = (window as Window & { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number })
+                .requestIdleCallback;
+            const cic = (window as Window & { cancelIdleCallback?: (id: number) => void }).cancelIdleCallback;
+            const step = () => {
                 const goal = target();
                 if (shown >= goal) return;
                 shown = Math.min(goal, shown + 6);
                 setArmedCount((current) => Math.max(current, shown));
-                if (shown < goal) timer = window.setTimeout(step, 90);
-            }, 220);
-            return () => window.clearTimeout(timer);
+                if (shown < goal) schedule(120);
+            };
+            const schedule = (wait: number) => {
+                timer = window.setTimeout(() => {
+                    if (ric) idle = ric(step, { timeout: 500 });
+                    else step();
+                }, wait);
+            };
+            let timer = 0;
+            schedule(600);
+            return () => {
+                window.clearTimeout(timer);
+                if (idle && cic) cic(idle);
+            };
         }
         grow();
         return undefined;
@@ -316,6 +332,13 @@ export const PlayerRail: React.FC<{
         </div>
     );
 };
+/** Memoised: a TV row change re-renders the stack, and rows whose props did not change skip. */
+export const PlayerRail = memo(PlayerRailImpl);
+
+/** Rows kept built on each side of the active row once the remote is still. */
+const TV_STACK_WARM_ROWS = 2;
+/** Quiet time after a row change before the rows ahead are built (past remote repeat). */
+const TV_STACK_WARM_DELAY_MS = 350;
 
 export type PlayerTvStackRow = {
     id: string;
@@ -356,10 +379,22 @@ export const PlayerTvRowStack = memo(function PlayerTvRowStack({
     isAdmin?: boolean;
     playlistsEnabled?: boolean;
 }) {
+    // Rows two away are built while the remote is still, so the next press only swaps
+    // classes: mounting (and unmounting) a row of cards on the press frame was the stutter.
+    // Rows that fall out of range are dropped in that same quiet moment, not on the press.
+    const [warm, setWarm] = useState(() => ({ lo: activeIndex - 1, hi: activeIndex + 1 }));
+    useEffect(() => {
+        const timer = window.setTimeout(() => {
+            setWarm({ lo: activeIndex - TV_STACK_WARM_ROWS, hi: activeIndex + TV_STACK_WARM_ROWS });
+        }, TV_STACK_WARM_DELAY_MS);
+        return () => window.clearTimeout(timer);
+    }, [activeIndex]);
+    const lo = Math.min(warm.lo, activeIndex - 1);
+    const hi = Math.max(warm.hi, activeIndex + 1);
     return (
         <div className="player-home-stage-rail">
             {rows.map((row, index) => {
-                if (index < activeIndex - 1 || index > activeIndex + 1) return null;
+                if (index < lo || index > hi) return null;
                 const active = index === activeIndex;
                 const peek = index === activeIndex + 1;
                 // The row you move to slides in from the side you came from.
