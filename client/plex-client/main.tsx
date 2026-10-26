@@ -7,6 +7,7 @@ import { PLAYER_APP_BASE, PLAYER_LOGOUT_EVENT } from '../media-player/paths';
 import { apiFetch } from '../shared/api';
 import { PlexHomeSwitchModal, type PlexHomeProfile } from '../shared/PlexHomeSwitchModal';
 import { lazyScreen } from '../media-player/lazyScreen';
+import { applyPerfFlags, PlayerPerfOverlay } from '../media-player/PlayerPerfOverlay';
 import { PlexClientAuthScreen, PlexClientBootSplash } from './AuthScreen';
 import { firstRunSetupPending, markFirstRunSetup, PlexClientFirstRunSetup } from './FirstRunSetup';
 import { hydratePlexClientAuthStorage } from './authPersistence';
@@ -24,6 +25,9 @@ import { installNativeMediaPlayerBridge } from './nativePlayer';
 import { useTvRemote } from './useTvRemote';
 
 // Its notes are ~45KB; it decides to show after start-up, so it loads alongside, not before.
+// Diagnostics switches (Settings → Display) apply before Home first paints.
+applyPerfFlags();
+
 const ApkWhatsNew = lazyScreen(() => import('./ApkWhatsNew').then((m) => m.ApkWhatsNew));
 
 const ensurePlayerRoute = () => {
@@ -241,6 +245,7 @@ const PlexClientApp: React.FC = () => {
         <div className="plex-client-shell min-h-screen bg-zinc-950 text-zinc-100">
             <MediaPlayerDashboard />
             <ApkWhatsNew />
+            <PlayerPerfOverlay />
         </div>
     );
 };

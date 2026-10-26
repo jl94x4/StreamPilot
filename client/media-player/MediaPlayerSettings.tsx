@@ -40,6 +40,7 @@ import {
 } from '../plex-client/config';
 import { PLAYER_APP_BASE, PLAYER_NAVIGATE_EVENT } from './paths';
 import { isWatchTogetherAvailable } from './watchTogetherClient';
+import { readPerfFlags, writePerfFlags } from './PlayerPerfOverlay';
 
 type Props = {
     onBack: () => void;
@@ -78,6 +79,39 @@ type TvToggleRowProps = {
     description?: string;
     checked: boolean;
     onChange: (next: boolean) => void;
+};
+
+/** Diagnostics: frame meter and switches to compare row-change cost on a real TV. */
+const PerfDiagnosticsRows: React.FC = () => {
+    const { t } = useDiscoverI18n();
+    const [flags, setFlags] = useState(() => readPerfFlags());
+    const set = (patch: Parameters<typeof writePerfFlags>[0]) => setFlags(writePerfFlags(patch));
+    return (
+        <>
+            <TvToggleRow
+                title={t('mediaPlayerPage.perfOverlay')}
+                description={t('mediaPlayerPage.perfOverlayHint')}
+                checked={flags.overlay}
+                onChange={(checked) => set({ overlay: checked })}
+            />
+            {flags.overlay ? (
+                <>
+                    <TvToggleRow
+                        title={t('mediaPlayerPage.perfNoBillboard')}
+                        description={t('mediaPlayerPage.perfNoBillboardHint')}
+                        checked={flags.noBillboard}
+                        onChange={(checked) => set({ noBillboard: checked })}
+                    />
+                    <TvToggleRow
+                        title={t('mediaPlayerPage.perfNoFocusFx')}
+                        description={t('mediaPlayerPage.perfNoFocusFxHint')}
+                        checked={flags.noFocusFx}
+                        onChange={(checked) => set({ noFocusFx: checked })}
+                    />
+                </>
+            ) : null}
+        </>
+    );
 };
 
 const TvToggleRow: React.FC<TvToggleRowProps> = ({ title, description, checked, onChange }) => {
@@ -1243,6 +1277,7 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         checked={settings.clock24Hour}
                         onChange={(checked) => updateSettings({ clock24Hour: checked })}
                     />
+                    <PerfDiagnosticsRows />
                     <TvChoiceRow
                         title={t('mediaPlayerPage.dateFormat')}
                         description={t('mediaPlayerPage.dateFormatHint')}

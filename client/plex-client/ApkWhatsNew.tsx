@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.406': [
+        {
+            title: 'Diagnostics',
+            items: [
+                'Settings → Display → Performance meter shows how smooth each row change is (slowest frame and dropped frames), with test switches to hide the billboard art or the poster grow',
+            ],
+        },
+    ],
     '1.0.405': [
         {
             title: 'Performance',

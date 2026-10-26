@@ -4384,6 +4384,35 @@
     .player-context-menu button {
       font-weight: 500 !important;
     }
+    /* Diagnostics (Settings → Display): frame meter, and switches to turn effects off. */
+    .smp-perf-overlay {
+      position: fixed;
+      left: 1rem;
+      bottom: 1rem;
+      z-index: 5000;
+      max-width: 26rem;
+      padding: 0.7rem 0.9rem;
+      border-radius: 0.8rem;
+      background: rgba(0, 0, 0, 0.82);
+      color: #fff;
+      font-family: "Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif;
+      font-size: 0.9rem;
+      line-height: 1.45;
+      pointer-events: none;
+    }
+    .smp-perf-overlay p { margin: 0; }
+    .smp-perf-overlay strong { color: #e5a00d; font-weight: 600; }
+    .smp-perf-title { color: rgba(255, 255, 255, 0.55); font-size: 0.75rem; letter-spacing: 0.14em; text-transform: uppercase; }
+    .smp-perf-flags { margin-top: 0.3rem !important; color: rgba(255, 255, 255, 0.55); font-size: 0.78rem; }
+    html[data-perf-no-billboard="1"] .player-home-focus-still img {
+      display: none !important;
+    }
+    html[data-perf-no-focus-fx="1"] [data-tv-poster-btn="1"],
+    html[data-perf-no-focus-fx="1"] [data-tv-poster-btn="1"]:focus,
+    html[data-perf-no-focus-fx="1"] [data-tv-poster-btn="1"]:focus-visible {
+      transform: none !important;
+      transition: none !important;
+    }
   </style>
 </head>
 <body>
