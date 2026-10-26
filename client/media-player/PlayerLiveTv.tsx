@@ -120,6 +120,26 @@ const airingTitle = (airing: PlayerItem) => (
 
 type HeroHandle = { show: (airing: PlayerItem | null) => void };
 
+/** "gb/15" reads as "15"; "TV-PG" stays. */
+const ratingLabel = (value?: string | null) => String(value || '').replace(/^[a-z]{2}\//i, '').trim();
+
+const resolutionLabel = (value?: string | null) => {
+    const n = Number(String(value || '').replace(/\D/g, ''));
+    if (!n) return '';
+    if (n >= 2000) return '4K';
+    if (n >= 1000) return '1080p';
+    if (n >= 700) return '720p';
+    return 'SD';
+};
+
+const lengthLabel = (seconds: number) => {
+    if (!seconds || seconds < 60) return '';
+    const minutes = Math.round(seconds / 60);
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    return h ? `${h}h${m ? ` ${m}m` : ''}` : `${m}m`;
+};
+
 /**
  * The big panel at the top of Live TV: whatever is focused below (a poster or a guide cell).
  * It keeps its own state, so moving focus never re-renders the guide grid or poster rows.
@@ -143,10 +163,20 @@ const LiveHero = React.memo(forwardRef<HeroHandle, { initial: PlayerItem | null;
         const channel = [airing.liveChannelNumber, channelName(airing.liveChannelTitle, airing.liveChannelNumber)]
             .filter(Boolean).join('  ·  ');
         const when = from ? `${clock(from)}${to ? ` – ${clock(to)}` : ''}` : '';
-        // Times are already shown, so only an airing on now gets a status (minutes left).
-        const status = live ? t('mediaPlayerPage.liveTvMinLeft', { n: left }) : '';
-        const meta = [when, status, airing.showTitle && airing.episodeTitle ? airing.episodeTitle : '']
-            .filter(Boolean).join('  ·  ');
+        const episodeLine = airing.showTitle && airing.episodeTitle
+            ? [
+                airing.parentIndex && airing.index ? `S${airing.parentIndex} · E${airing.index}` : '',
+                airing.episodeTitle,
+            ].filter(Boolean).join('  ·  ')
+            : '';
+        const pills = [
+            ratingLabel(airing.contentRating),
+            when,
+            lengthLabel(to - from),
+            ...(airing.genres || []).slice(0, 2),
+            resolutionLabel(airing.liveResolution),
+        ].filter(Boolean);
+        const starring = (airing.cast || []).slice(0, 3).map((row) => row.name).filter(Boolean);
         return (
             <section className={`smp-live-hero${compact ? ' is-compact' : ''}`} aria-live="polite">
                 {/* Tunarr guides have posters but no wide art: the poster then fills the
@@ -160,13 +190,27 @@ const LiveHero = React.memo(forwardRef<HeroHandle, { initial: PlayerItem | null;
                     <p className="smp-live-hero-eyebrow">
                         {live ? <span className="smp-live-badge"><i aria-hidden />{t('mediaPlayerPage.liveTvLive')}</span> : null}
                         <span>{channel}</span>
+                        {airing.liveIsNew ? <span className="smp-live-new">{t('mediaPlayerPage.liveTvNew')}</span> : null}
                     </p>
                     <h2 className="smp-live-hero-title">{airingTitle(airing)}</h2>
-                    {meta ? <p className="smp-live-hero-meta">{meta}</p> : null}
-                    {airing.summary && !compact ? <p className="smp-live-hero-summary">{airing.summary}</p> : null}
+                    {episodeLine ? <p className="smp-live-hero-episode">{episodeLine}</p> : null}
+                    {pills.length ? (
+                        <div className="smp-live-hero-pills">
+                            {pills.map((pill, index) => <span key={`${pill}-${index}`}>{pill}</span>)}
+                        </div>
+                    ) : null}
+                    {airing.summary ? <p className="smp-live-hero-summary">{airing.summary}</p> : null}
+                    {starring.length ? (
+                        <p className="smp-live-hero-cast">
+                            <b>{t('mediaPlayerPage.liveTvStarring')}</b> {starring.join(', ')}
+                        </p>
+                    ) : null}
                     {live ? (
-                        <div className="smp-live-hero-bar" aria-hidden>
-                            <span style={{ width: `${pct(nowSec, from, to)}%` }} />
+                        <div className="smp-live-hero-progress">
+                            <div className="smp-live-hero-bar" aria-hidden>
+                                <span style={{ width: `${pct(nowSec, from, to)}%` }} />
+                            </div>
+                            <span>{t('mediaPlayerPage.liveTvMinLeft', { n: left })}</span>
                         </div>
                     ) : null}
                 </div>

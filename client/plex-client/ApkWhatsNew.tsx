@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.425': [
+        {
+            title: 'Live TV',
+            items: [
+                'The Live TV billboard shows much more about each programme: age rating, times, length, genres, picture quality, season and episode, a New tag for premieres, the summary and who stars in it',
+                'The Guide billboard now shows the summary too, and minutes left sit beside the progress bar',
+            ],
+        },
+    ],
     '1.0.424': [
         {
             title: 'Live TV',

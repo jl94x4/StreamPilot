@@ -167,6 +167,10 @@ export type PlayerItem = {
     liveStartsAt?: number | null;
     liveEndsAt?: number | null;
     liveSessionId?: string | null;
+    /** Guide: first showing (PMS Media premiere). */
+    liveIsNew?: boolean;
+    /** Guide: the channel's picture height, e.g. "1080". */
+    liveResolution?: string | null;
     viewCount?: number;
     watched?: boolean;
     playlistType?: string;

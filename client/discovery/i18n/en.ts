@@ -274,6 +274,8 @@ export const en = {
         liveTvUpNext: 'Up next',
         liveTvMinLeft: '{n} min left',
         liveTvStartsAt: 'Starts {time}',
+        liveTvNew: 'New',
+        liveTvStarring: 'Starring',
         showOnNowHome: 'On Now on Home',
         showOnNowHomeHint: 'Show a Home row of what is airing now. Off until you turn it on. Needs a Plex DVR.',
         navDownloads: 'Downloads',
