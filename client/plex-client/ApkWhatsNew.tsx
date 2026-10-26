@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.427': [
+        {
+            title: 'Continue Watching',
+            items: [
+                'More Continue Watching orders (Settings → Home): Z to A, Oldest released, Watched longest ago, Recently added, Almost finished, Just started, Least time left, Movies first and TV shows first',
+            ],
+        },
+    ],
     '1.0.426': [
         {
             title: 'Live TV',

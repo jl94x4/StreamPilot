@@ -46,13 +46,35 @@ export const isPlayerContinueWatchingLayout = (value: unknown): value is PlayerC
     PLAYER_CONTINUE_WATCHING_LAYOUTS.includes(String(value || '') as PlayerContinueWatchingLayout)
 );
 
-export type PlayerContinueWatchingSort = 'releaseDate' | 'plex' | 'recentlyWatched' | 'title';
+export type PlayerContinueWatchingSort =
+    | 'releaseDate'
+    | 'plex'
+    | 'recentlyWatched'
+    | 'title'
+    | 'titleDesc'
+    | 'oldestReleased'
+    | 'oldestWatched'
+    | 'recentlyAdded'
+    | 'mostProgress'
+    | 'leastProgress'
+    | 'timeLeft'
+    | 'moviesFirst'
+    | 'showsFirst';
 
 export const PLAYER_CONTINUE_WATCHING_SORTS: PlayerContinueWatchingSort[] = [
     'releaseDate',
     'plex',
     'recentlyWatched',
     'title',
+    'titleDesc',
+    'oldestReleased',
+    'oldestWatched',
+    'recentlyAdded',
+    'mostProgress',
+    'leastProgress',
+    'timeLeft',
+    'moviesFirst',
+    'showsFirst',
 ];
 
 export const isPlayerContinueWatchingSort = (value: unknown): value is PlayerContinueWatchingSort => (
@@ -211,17 +233,61 @@ type ContinueWatchingSortable = {
     showTitle?: string | null;
     title?: string | null;
     type?: string | null;
+    viewOffsetMs?: number | null;
+    durationMs?: number | null;
 };
+
+/** Share watched, 0..1 (0 when the length is unknown). */
+const continueWatchingProgress = (item: ContinueWatchingSortable): number => {
+    const duration = Number(item?.durationMs || 0);
+    const offset = Number(item?.viewOffsetMs || 0);
+    return duration > 0 ? Math.max(0, Math.min(1, offset / duration)) : 0;
+};
+
+/** Time still to watch in ms; unknown lengths sort last. */
+const continueWatchingRemainingMs = (item: ContinueWatchingSortable): number => {
+    const duration = Number(item?.durationMs || 0);
+    if (duration <= 0) return Number.MAX_SAFE_INTEGER;
+    return Math.max(0, duration - Number(item?.viewOffsetMs || 0));
+};
+
+const continueWatchingIsMovie = (item: ContinueWatchingSortable) => String(item?.type || '') === 'movie';
 
 /** Negative when `a` comes first. 0 for `plex` (server order) and ties. */
 const compareContinueWatching = (a: ContinueWatchingSortable, b: ContinueWatchingSortable, mode: PlayerContinueWatchingSort): number => {
-    if (mode === 'plex') return 0;
-    if (mode === 'title') {
-        return continueWatchingTitleKey(a).localeCompare(continueWatchingTitleKey(b), undefined, { sensitivity: 'base' });
+    switch (mode) {
+        case 'plex':
+            return 0;
+        case 'title':
+        case 'titleDesc': {
+            const order = continueWatchingTitleKey(a).localeCompare(continueWatchingTitleKey(b), undefined, { sensitivity: 'base' });
+            return mode === 'title' ? order : -order;
+        }
+        case 'recentlyWatched':
+            return continueWatchingViewedMs(b) - continueWatchingViewedMs(a);
+        case 'oldestWatched':
+            return continueWatchingViewedMs(a) - continueWatchingViewedMs(b);
+        case 'oldestReleased':
+            return continueWatchingReleaseMs(a) - continueWatchingReleaseMs(b);
+        case 'recentlyAdded':
+            return continueWatchingUnixMs(b?.addedAt) - continueWatchingUnixMs(a?.addedAt);
+        case 'mostProgress':
+            return continueWatchingProgress(b) - continueWatchingProgress(a);
+        case 'leastProgress':
+            return continueWatchingProgress(a) - continueWatchingProgress(b);
+        case 'timeLeft':
+            return continueWatchingRemainingMs(a) - continueWatchingRemainingMs(b);
+        case 'moviesFirst':
+        case 'showsFirst': {
+            // Grouped, then most recently watched within each group.
+            const am = continueWatchingIsMovie(a);
+            const bm = continueWatchingIsMovie(b);
+            if (am !== bm) return (am ? -1 : 1) * (mode === 'moviesFirst' ? 1 : -1);
+            return continueWatchingViewedMs(b) - continueWatchingViewedMs(a);
+        }
+        default:
+            return continueWatchingReleaseMs(b) - continueWatchingReleaseMs(a);
     }
-    const av = mode === 'recentlyWatched' ? continueWatchingViewedMs(a) : continueWatchingReleaseMs(a);
-    const bv = mode === 'recentlyWatched' ? continueWatchingViewedMs(b) : continueWatchingReleaseMs(b);
-    return bv - av;
 };
 
 /** Reorder Continue Watching. `plex` keeps the server/On Deck order. */
@@ -233,6 +299,8 @@ export const sortContinueWatchingItems = <T extends {
     showTitle?: string | null;
     title?: string | null;
     type?: string | null;
+    viewOffsetMs?: number | null;
+    durationMs?: number | null;
 }>(items: T[] | null | undefined, sort: unknown): T[] => {
     const list = Array.isArray(items) ? items : [];
     const mode = isPlayerContinueWatchingSort(sort) ? sort : 'releaseDate';
@@ -256,6 +324,8 @@ export const stabilizeContinueWatchingOrder = <T extends {
     showTitle?: string | null;
     title?: string | null;
     type?: string | null;
+    viewOffsetMs?: number | null;
+    durationMs?: number | null;
 }>(items: T[] | null | undefined, sort: unknown, previousKeys?: string[] | null): { items: T[]; keys: string[] } => {
     const sorted = sortContinueWatchingItems(items, sort);
     const mode = isPlayerContinueWatchingSort(sort) ? sort : 'releaseDate';

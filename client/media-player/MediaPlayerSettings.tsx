@@ -586,6 +586,15 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
         { value: 'plex', label: t('mediaPlayerPage.continueWatchingSortPlex') },
         { value: 'recentlyWatched', label: t('mediaPlayerPage.continueWatchingSortRecentlyWatched') },
         { value: 'title', label: t('mediaPlayerPage.continueWatchingSortTitle') },
+        { value: 'titleDesc', label: t('mediaPlayerPage.continueWatchingSortTitleDesc') },
+        { value: 'oldestReleased', label: t('mediaPlayerPage.continueWatchingSortOldestReleased') },
+        { value: 'oldestWatched', label: t('mediaPlayerPage.continueWatchingSortOldestWatched') },
+        { value: 'recentlyAdded', label: t('mediaPlayerPage.continueWatchingSortRecentlyAdded') },
+        { value: 'mostProgress', label: t('mediaPlayerPage.continueWatchingSortMostProgress') },
+        { value: 'leastProgress', label: t('mediaPlayerPage.continueWatchingSortLeastProgress') },
+        { value: 'timeLeft', label: t('mediaPlayerPage.continueWatchingSortTimeLeft') },
+        { value: 'moviesFirst', label: t('mediaPlayerPage.continueWatchingSortMoviesFirst') },
+        { value: 'showsFirst', label: t('mediaPlayerPage.continueWatchingSortShowsFirst') },
     ]), [t]);
     const screensaverSourceOptions = useMemo(() => (
         PLAYER_SCREENSAVER_SOURCES.map((value) => ({
