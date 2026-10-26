@@ -1507,13 +1507,15 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                                                 else onSubtitleChange?.(row.id);
                                                 setTrackPicker(null);
                                             }}
-                                            className={`rounded-xl border px-4 py-3 text-left text-sm font-bold outline-none ${
+                                            className={`player-track-option flex items-center justify-between gap-3 rounded-xl border px-4 py-3 text-left text-sm font-bold outline-none ${
                                                 selected
-                                                    ? 'border-plex/50 bg-plex/15 text-text'
+                                                    ? 'is-selected border-white/10 bg-white/5 text-plex'
                                                     : 'border-white/10 bg-white/5 text-text hover:border-plex/40 hover:bg-white/10'
                                             }`}
                                         >
-                                            {row.label}
+                                            <span className="min-w-0 truncate">{row.label}</span>
+                                            {/* A tick, not a fill: a filled row read as a second focus ring on TV. */}
+                                            {selected ? <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden /> : null}
                                         </button>
                                     );
                                 })}

@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.412': [
+        {
+            title: 'Track picker',
+            items: [
+                'The Select Subtitles / Select Audio box on TV is much taller, and the focused row no longer ends up half cut off while you scroll',
+                'The chosen track has a tick instead of a filled row, so it no longer looks like a second focus ring',
+            ],
+        },
+    ],
     '1.0.411': [
         {
             title: 'Subtitles',

@@ -4407,6 +4407,16 @@
       margin-left: auto;
       margin-right: 2.5rem;
     }
+    /* TV track picker (⋮ → Select audio / subtitles): a 44rem cap left room for ~3 rows under the
+       TV zoom. Use most of the screen height instead, scaled out of the zoom like other TV sheets. */
+    html[data-tv="1"] [data-tv-track-dialog="1"] > .player-popup-surface {
+      max-height: calc(82vh / var(--tv-zoom, 1)) !important;
+      max-width: 38rem !important;
+    }
+    html[data-tv="1"] [data-tv-track-dialog="1"] .player-track-option {
+      min-height: 3.1rem;
+      font-size: 1rem;
+    }
     html[data-perf-no-focus-fx="1"] [data-tv-poster-btn="1"],
     html[data-perf-no-focus-fx="1"] [data-tv-poster-btn="1"]:focus,
     html[data-perf-no-focus-fx="1"] [data-tv-poster-btn="1"]:focus-visible {

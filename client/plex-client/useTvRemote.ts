@@ -143,8 +143,13 @@ const scrollOverlayOnly = (el: HTMLElement) => {
     if (!scroller) return;
     const box = scroller.getBoundingClientRect();
     const row = el.getBoundingClientRect();
-    if (row.top < box.top) scroller.scrollTop -= (box.top - row.top);
-    else if (row.bottom > box.bottom) scroller.scrollTop += (row.bottom - box.bottom);
+    // Rects are on-screen px but scrollTop is layout px: under the TV zoom (< 1) the raw
+    // difference scrolled too little and left the focused row half cut off. Keep a margin
+    // for the focus ring and a peek of the next row.
+    const zoom = Math.max(0.01, readDocumentZoom());
+    const margin = Math.min(box.height / 3, row.height * 0.6 + 10);
+    if (row.top - margin < box.top) scroller.scrollTop -= (box.top - row.top + margin) / zoom;
+    else if (row.bottom + margin > box.bottom) scroller.scrollTop += (row.bottom + margin - box.bottom) / zoom;
 };
 
 const PEEK_PX = 72;
