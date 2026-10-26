@@ -6841,8 +6841,30 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
     }
     const progress = path.match(/^\/api\/media-player\/progress\/([^/]+)$/);
     if (progress && method === 'DELETE') {
-        const key = decodeURIComponent(progress[1]);
-        await pms(`/: /timeline?ratingKey=${encodeURIComponent(key)}&key=${encodeURIComponent(`/library/metadata/${key}`)}&state=stopped&time=0&duration=0`.replace('/: /', '/:/'), resolveServer('', key)).catch(() => undefined);
+        // Remove from Continue Watching. A "stopped at 0" timeline (what this used to send)
+        // leaves the progress on the server, so the title came straight back on the next
+        // Home load. Use Plex's own dismiss action (does not mark watched), then fall back
+        // to clearing the progress, like the portal does.
+        const key = decodeURIComponent(progress[1]).replace(/\D/g, '');
+        if (!key) throw new Error('Invalid title.');
+        const server = resolveServer('', key);
+        if (!server) throw new Error('No Plex server selected');
+        const base = server.uri.endsWith('/') ? server.uri : `${server.uri}/`;
+        const attempt = async (path: string, init: RequestInit) => {
+            const url = new URL(path, base);
+            url.searchParams.set('X-Plex-Token', server.accessToken);
+            try {
+                await plexFetch(url.toString(), server.accessToken, init);
+                return true;
+            } catch {
+                return false;
+            }
+        };
+        const removed = await attempt(`/actions/removeFromContinueWatching?ratingKey=${encodeURIComponent(key)}`, { method: 'PUT' })
+            || await attempt(`/:/progress?identifier=com.plexapp.plugins.library&key=${encodeURIComponent(key)}`, { method: 'DELETE' });
+        // Home is cached between visits: drop it so the removed card can't return from the cache.
+        clearPlayerGetCache();
+        if (!removed) throw new Error('Plex would not remove this from Continue Watching.');
         return { ok: true };
     }
     const refreshMeta = path.match(/^\/api\/media-player\/item\/([^/]+)\/refresh$/);

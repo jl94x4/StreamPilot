@@ -78,6 +78,7 @@ const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
             title: 'Continue Watching',
             items: [
                 'More Continue Watching orders (Settings → Home): Z to A, Oldest released, Watched longest ago, Recently added, Almost finished, Just started, Least time left, Movies first and TV shows first',
+                'Remove from Continue Watching now really removes it on your Plex server, so it no longer comes back when Home reloads',
             ],
         },
     ],
