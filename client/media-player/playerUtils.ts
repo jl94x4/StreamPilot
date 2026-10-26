@@ -754,6 +754,21 @@ export const formatPlayerDurationLong = (ms?: number | null) => {
 /** Native player top meta line: "S1 · E8 · Episode name · 26 minutes". */
 export const formatNativePlayerMeta = (item?: PlayerItem | null) => {
     if (!item) return '';
+    if (item.type === 'liveAiring') {
+        const title = String(item.liveChannelTitle || item.title || '').trim();
+        const number = String(item.liveChannelNumber || '').trim();
+        const channel = number && title && !title.startsWith(number) ? `${number} ${title}` : (title || number);
+        const from = Number(item.liveStartsAt || 0);
+        const to = Number(item.liveEndsAt || 0);
+        const clock = (unix: number) => {
+            const date = new Date(unix * 1000);
+            return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+        };
+        const when = from && to ? `${clock(from)} – ${clock(to)}` : '';
+        return [channel, item.episodeTitle && item.episodeTitle !== item.title ? item.episodeTitle : '', when]
+            .filter(Boolean)
+            .join(' · ');
+    }
     const parts: string[] = [];
     const ep = formatEpisodeCode(item);
     if (ep) parts.push(ep);

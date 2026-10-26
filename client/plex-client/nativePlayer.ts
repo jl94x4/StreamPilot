@@ -89,6 +89,7 @@ export type NativePlayerSessionPayload = {
     music?: boolean;
     /** Live TV tune — native OSD shows LIVE instead of Direct Play. */
     live?: boolean;
+    liveDebug?: string;
     chapters?: Array<{ startMs: number; title?: string }>;
     previewThumbTemplate?: string | null;
     frameRate?: number | null;

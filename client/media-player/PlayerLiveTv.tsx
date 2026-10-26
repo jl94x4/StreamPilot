@@ -118,8 +118,22 @@ export const PlayerLiveTv: React.FC<{
     });
 
     const watch = (item: PlayerItem) => {
+        const row = rows.find((entry) => (
+            entry.channel.id === item.liveChannelId
+            || entry.channel.number === item.liveChannelNumber
+            || entry.channel.dvrId === item.liveDvrId
+        ));
         setSheet(null);
-        onPlay(item);
+        onPlay({
+            ...item,
+            liveChannelId: item.liveChannelId || row?.channel.id,
+            liveChannelNumber: item.liveChannelNumber || row?.channel.number,
+            liveChannelTitle: item.liveChannelTitle || row?.channel.title,
+            liveDvrId: item.liveDvrId || row?.channel.dvrId,
+            serverId: item.serverId || row?.channel.serverId,
+            type: 'liveAiring',
+            canPlay: true,
+        });
     };
 
     const placeholder = (row: GuideRow): PlayerItem => ({

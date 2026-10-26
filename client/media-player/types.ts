@@ -441,6 +441,8 @@ export type PlayerPlaySession = {
     /** Phone offline download — local file://, skip network timeline. */
     offlineLocal?: boolean;
     live?: boolean;
+    /** Token-redacted live tune / playlist probe for the player error overlay. */
+    liveDebug?: string;
 };
 
 export type PlayerPlayOptions = {

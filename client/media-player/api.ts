@@ -1181,6 +1181,7 @@ export const tuneLiveTvChannel = (body: {
     serverId?: string | null;
     dvrId: string;
     channelId: string;
+    channelNumber?: string | null;
     title?: string;
     item?: PlayerItem | null;
 }) => (

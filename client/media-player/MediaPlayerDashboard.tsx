@@ -898,15 +898,32 @@ export const MediaPlayerDashboard: React.FC = () => {
             setPlayNextBridge(true);
         }
         try {
-            const liveTune = item.type === 'liveAiring' || Boolean(item.liveChannelId && item.liveDvrId);
+            const liveTune = item.type === 'liveAiring' || Boolean(item.liveChannelId || item.liveDvrId);
             if (liveTune) {
-                const dvrId = String(item.liveDvrId || '').trim();
-                const channelId = String(item.liveChannelId || '').trim();
-                if (!dvrId || !channelId) throw new Error(t('mediaPlayerPage.playError'));
+                let dvrId = String(item.liveDvrId || '').trim();
+                let channelId = String(item.liveChannelId || item.liveChannelNumber || '').trim();
+                if (!dvrId || !channelId) {
+                    const sources = await fetchLiveTvSources().catch(() => null);
+                    const source = (sources?.sources || []).find((row) => (
+                        !item.serverId || String(row.serverId) === String(item.serverId)
+                    )) || sources?.sources?.[0];
+                    dvrId = dvrId || String(source?.id || '').trim();
+                    const match = (source?.channels || []).find((row) => (
+                        row.id === channelId
+                        || row.number === channelId
+                        || row.number === item.liveChannelNumber
+                        || row.title === item.liveChannelTitle
+                    ));
+                    channelId = channelId || String(match?.id || match?.number || source?.channels?.[0]?.id || '').trim();
+                }
+                if (!dvrId || !channelId) {
+                    throw new Error('No Live TV channel id. Open Live TV again and pick a programme.');
+                }
                 const session = await tuneLiveTvChannel({
                     serverId: item.serverId,
                     dvrId,
                     channelId,
+                    channelNumber: item.liveChannelNumber,
                     title: item.title,
                     item,
                 });

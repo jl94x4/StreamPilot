@@ -950,6 +950,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
             watchNext: isMusicPlayerItem(session.item) ? null : nativeWatchNextPayload(session.item),
             music: isMusicPlayerItem(session.item),
             live: session.live === true,
+            liveDebug: session.liveDebug || '',
             chapters: (session.item.chapters || []).map((row) => ({ startMs: row.startMs, title: row.title })),
             previewThumbTemplate: session.previewThumbTemplate || null,
             frameRate: session.item.frameRate || null,
@@ -1512,6 +1513,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                     },
                     onError: () => {
                         if (cancelled || gen !== nativeOpenGen || nativeClosedRef.current) return;
+                        if (session.live) return;
                         const current = playbackSrcRef.current;
                         // Match ExoPlayer: DP→HLS, then HLS Original→1080p. Do not open the web player.
                         const absolutePms = /^https?:\/\//i.test(String(current || ''))
@@ -1824,6 +1826,10 @@ export const MediaPlayerVideo: React.FC<Props> = ({
 
         const fail = (message?: string) => {
             if (cancelled) return;
+            if (session.live) {
+                setError(message || t('mediaPlayerPage.playError'));
+                return;
+            }
             const offset = Math.max(
                 0,
                 Math.floor(((video.currentTime || 0) * 1000) || currentMsRef.current || session.offsetMs || 0),
@@ -1962,7 +1968,16 @@ export const MediaPlayerVideo: React.FC<Props> = ({
             if (session.live) {
                 if (state === 'stopped') {
                     void stopPlaybackSession(sessionId, session.item.serverId, ratingKey, { live: true });
+                    return;
                 }
+                void reportMediaPlayerTimeline({
+                    ratingKey,
+                    sessionId,
+                    state,
+                    timeMs: Math.max(0, Math.floor(timeOverride ?? currentMsRef.current ?? 0)),
+                    durationMs: 0,
+                    serverId: session.item.serverId,
+                });
                 return;
             }
             const video = nativeExclusive ? null : videoRef.current;

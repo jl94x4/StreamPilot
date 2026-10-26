@@ -524,6 +524,7 @@ public class PlayerActivity extends AppCompatActivity {
     private String loadedUpNextThumb = "";
     private String streamMode = "";
     private boolean liveStream = false;
+    private String liveDebug = "";
     private int streamWidth;
     private int streamHeight;
     private int streamBitrate;
@@ -1297,10 +1298,16 @@ public class PlayerActivity extends AppCompatActivity {
             @Override
             public void onPlayerError(PlaybackException error) {
                 Log.e(TAG, "ExoPlayer error " + error.getErrorCodeName(), error);
-                if (trySeekRecovery(error)) return;
-                if (tryStreamFallback(error)) return;
+                if (!liveStream && trySeekRecovery(error)) return;
+                if (!liveStream && tryStreamFallback(error)) return;
                 playbackError = true;
                 String message = "Playback error: " + error.getErrorCodeName();
+                if (liveStream) {
+                    String extra = liveDebug != null && !liveDebug.isEmpty()
+                        ? liveDebug
+                        : PlaybackUrls.summarizeUrl(currentUrl);
+                    if (extra != null && !extra.isEmpty()) message = message + "\n" + extra;
+                }
                 toast(message);
                 showError(message);
                 JSObject data = new JSObject();
@@ -1430,6 +1437,7 @@ public class PlayerActivity extends AppCompatActivity {
             String prevMode = streamMode;
             if (root.has("playbackMode")) streamMode = root.optString("playbackMode", streamMode);
             if (root.has("live")) liveStream = root.optBoolean("live", liveStream);
+            if (root.has("liveDebug")) liveDebug = root.optString("liveDebug", liveDebug);
             JSONObject source = root.optJSONObject("source");
             if (source != null) {
                 streamWidth = source.optInt("width", streamWidth);
@@ -4907,6 +4915,7 @@ public class PlayerActivity extends AppCompatActivity {
      * plexDirect Direct Play uses /library/parts/ — rewrite that to a PMS HLS session.
      */
     private boolean tryStreamFallback(PlaybackException error) {
+        if (liveStream) return false;
         int code = error.errorCode;
         boolean io = code == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS
             || code == PlaybackException.ERROR_CODE_IO_UNSPECIFIED

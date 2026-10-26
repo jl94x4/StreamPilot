@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.413': [
+        {
+            title: 'Live TV',
+            items: [
+                'Live TV channels now play: the stream goes through your server the same way Plex does it',
+                'The guide shows each channel’s name and logo from your server, with its programmes',
+            ],
+        },
+    ],
     '1.0.412': [
         {
             title: 'Track picker',

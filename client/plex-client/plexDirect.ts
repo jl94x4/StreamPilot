@@ -30,7 +30,10 @@ import {
     guideHasAirings,
     liveTvGridQueries,
     livePlaybackPath,
+    livePlaylistCandidates,
+    isHlsPlaylistBody,
     liveTvGuideWindow,
+    redactLiveUrl,
     mapLiveTvChannels,
     mapLiveTvDvrs,
     mapLiveTvGuide,
@@ -1470,30 +1473,138 @@ const pmsPost = async (
     }
 };
 
+const HLS_ACCEPT = 'application/vnd.apple.mpegurl, application/x-mpegURL, */*';
+
+/** Session playlist on PMS. Never point Exo at `/livetv/sessions/{id}` — that JSON is metadata. */
 const liveHlsSrc = (server: PlexServer, path: string, session: string) => {
-    if (/^https?:\/\//i.test(path) || path.includes('.m3u8') || path.includes('/library/parts/')) {
-        const url = new URL(path.startsWith('http') ? path : path, server.uri.endsWith('/') ? server.uri : `${server.uri}/`);
-        url.searchParams.set('X-Plex-Token', server.accessToken);
-        url.searchParams.set('X-Plex-Session-Identifier', session);
-        url.searchParams.set('session', session);
-        return url.toString();
-    }
-    const url = new URL('/video/:/transcode/universal/start.m3u8', `${server.uri}/`);
-    url.searchParams.set('hasMDE', '1');
-    url.searchParams.set('path', path);
-    url.searchParams.set('protocol', 'hls');
-    url.searchParams.set('fastSeek', '1');
-    url.searchParams.set('directPlay', '0');
-    url.searchParams.set('directStream', '1');
-    url.searchParams.set('session', session);
-    url.searchParams.set('X-Plex-Platform', 'Android');
-    url.searchParams.set('X-Plex-Client-Identifier', clientId());
-    url.searchParams.set('X-Plex-Product', 'StreamPilot');
-    url.searchParams.set('X-Plex-Device', 'Android TV');
-    url.searchParams.set('X-Plex-Session-Identifier', session);
+    const url = new URL(path.startsWith('/') ? path : `/${path}`, `${server.uri.replace(/\/+$/, '')}/`);
     url.searchParams.set('X-Plex-Token', server.accessToken);
-    url.searchParams.set('access_token', server.accessToken);
+    url.searchParams.set('X-Plex-Session-Identifier', session);
+    url.searchParams.set('session', session);
     return url.toString();
+};
+
+/**
+ * The live stream as Plex's own clients play it: the universal transcoder pointed at the tuned
+ * session (`path=/livetv/sessions/<uuid>`), copying video and audio. Checked on a Tunarr /
+ * HDHomeRun DVR: the session's own `…/index.m3u8` only ever 404s, while this returns a master
+ * playlist whose variant and segments load without a token. Same client id as the tune.
+ */
+const liveSessionTranscodePath = (sessionFolder: string, session: string) => {
+    const qs = new URLSearchParams({
+        hasMDE: '1',
+        path: sessionFolder,
+        mediaIndex: '0',
+        partIndex: '0',
+        protocol: 'hls',
+        fastSeek: '1',
+        directPlay: '0',
+        directStream: '1',
+        directStreamAudio: '1',
+        audioCodec: NATIVE_COPY_AUDIO_CODECS,
+        subtitles: 'none',
+        session,
+        'X-Plex-Platform': 'Android',
+        'X-Plex-Product': 'StreamPilot',
+        'X-Plex-Device': 'Android TV',
+        'X-Plex-Client-Identifier': clientId(),
+        'X-Plex-Session-Identifier': session,
+    });
+    return `/video/:/transcode/universal/start.m3u8?${qs}`;
+};
+
+/** Library metadata path is the only `path=` start.m3u8 accepts (live session paths 400). */
+const liveMetadataTranscodePath = (ratingKey: string, session: string) => {
+    const qs = new URLSearchParams({
+        hasMDE: '1',
+        path: `/library/metadata/${ratingKey}`,
+        mediaIndex: '0',
+        partIndex: '0',
+        protocol: 'hls',
+        fastSeek: '1',
+        directPlay: '0',
+        directStream: '1',
+        directStreamAudio: '1',
+        audioCodec: NATIVE_COPY_AUDIO_CODECS,
+        subtitleSize: '0',
+        subtitles: 'none',
+        advancedSubtitles: 'none',
+        subtitleStreamID: '0',
+        videoQuality: '100',
+        videoResolution: '3840x2160',
+        maxVideoBitrate: '200000',
+        session,
+        'X-Plex-Platform': 'Android',
+        'X-Plex-Product': 'StreamPilot',
+        'X-Plex-Device': 'Android TV',
+        'X-Plex-Client-Identifier': clientId(),
+        'X-Plex-Session-Identifier': session,
+    });
+    return `/video/:/transcode/universal/start.m3u8?${qs}`;
+};
+
+const waitLivePlaylist = async (
+    server: PlexServer,
+    tune: { sessionId?: string; partKey?: string; path?: string; ratingKey?: string },
+) => {
+    let harvested = { ...tune };
+    if (tune.sessionId) {
+        const meta = await pms(`/livetv/sessions/${encodeURIComponent(tune.sessionId)}`, server, 4000).catch(() => null);
+        if (meta && typeof meta === 'object') {
+            const parsed = parseLiveTvTune(meta);
+            harvested = {
+                ...harvested,
+                ratingKey: parsed.ratingKey || harvested.ratingKey,
+                partKey: parsed.partKey || harvested.partKey,
+                path: parsed.path || harvested.path,
+                sessionId: parsed.sessionId || harvested.sessionId,
+            };
+        }
+    }
+    const candidates = livePlaylistCandidates(harvested);
+    let status = 0;
+    let head = '';
+    let path = candidates[0] || '';
+    const tryProbe = async (probe: string, timeoutMs: number) => {
+        const body = await pms(probe, server, timeoutMs, { Accept: HLS_ACCEPT });
+        if (isHlsPlaylistBody(body)) {
+            return {
+                ok: true as const,
+                status: 200,
+                head: redactLiveUrl(String(body)).slice(0, 280),
+                path: probe,
+                ratingKey: harvested.ratingKey || '',
+            };
+        }
+        status = 200;
+        head = redactLiveUrl(typeof body === 'string' ? body : JSON.stringify(body || '')).slice(0, 220);
+        return null;
+    };
+    for (const probe of candidates) {
+        try {
+            const hit = await tryProbe(probe, 2500);
+            if (hit) return hit;
+        } catch (error: any) {
+            status = Number(error?.status) || 0;
+            head = redactLiveUrl(String(error?.message || '')).slice(0, 160);
+        }
+    }
+    if (harvested.ratingKey) {
+        const transcode = liveMetadataTranscodePath(
+            String(harvested.ratingKey),
+            String(harvested.sessionId || tune.sessionId || ''),
+        );
+        try {
+            const hit = await tryProbe(transcode, 5000);
+            if (hit) return hit;
+            path = transcode;
+        } catch (error: any) {
+            status = Number(error?.status) || 0;
+            head = redactLiveUrl(String(error?.message || '')).slice(0, 160);
+            path = candidates[0] || transcode;
+        }
+    }
+    return { ok: false, status, head, path, ratingKey: harvested.ratingKey || '' };
 };
 
 /**
@@ -6308,8 +6419,14 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
         const ids = (row: PlexMeta) => [row.lineupIdentifier, row.deviceIdentifier, row.channelKey, row.key]
             .map((value) => String(value ?? '').trim())
             .filter(Boolean);
-        const mapping = mappings.find((row) => ids(row).includes(channel));
-        const candidates = [...new Set([channel, ...(mapping ? ids(mapping) : [])])];
+        const extra = [
+            body?.channelNumber,
+            body?.item?.liveChannelNumber,
+            body?.item?.liveChannelId,
+            body?.item?.liveChannelTitle,
+        ].map((value) => String(value ?? '').trim()).filter(Boolean);
+        const mapping = mappings.find((row) => ids(row).includes(channel) || extra.some((id) => ids(row).includes(id)));
+        const candidates = [...new Set([channel, ...extra, ...(mapping ? ids(mapping) : [])])];
         let parsed = parseLiveTvTune(null);
         let playPath = '';
         let lastError = '';
@@ -6332,10 +6449,48 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                 ? `Could not tune that channel: ${lastError}`
                 : 'Plex did not return a live stream. The tuner may be busy.');
         }
+        const sessionFolder = (String(parsed.path || parsed.partKey || '').match(/\/livetv\/sessions\/[^/?]+/) || [])[0]
+            || (parsed.sessionId ? `/livetv/sessions/${parsed.sessionId}` : '');
+        if (sessionFolder) {
+            // Our own transcode session id: stopping it ends the transcode and frees the tuner.
+            const rand = [...globalThis.crypto?.getRandomValues?.(new Uint8Array(4)) || []]
+                .map((b) => b.toString(16).padStart(2, '0')).join('');
+            const transcodeSession = `smp-live-${Date.now().toString(36)}${rand}`;
+            const startPath = liveSessionTranscodePath(sessionFolder, transcodeSession);
+            return {
+                sessionId: transcodeSession,
+                item: {
+                    ...(body?.item || {}),
+                    ratingKey: parsed.ratingKey || `live:${dvrId}:${channel}`,
+                    title: String(body?.item?.title || body?.title || 'Live TV'),
+                    type: 'liveAiring',
+                    canPlay: true,
+                    serverId: server.id,
+                    liveDvrId: dvrId,
+                    liveChannelId: channel,
+                    liveSessionId: transcodeSession,
+                    liveStartsAt: Number(body?.item?.liveStartsAt || 0) || null,
+                    liveEndsAt: Number(body?.item?.liveEndsAt || 0) || null,
+                    durationMs: parsed.durationMs || Number(body?.item?.durationMs || 0) || null,
+                },
+                src: liveHlsSrc(server, startPath, transcodeSession),
+                offsetMs: 0,
+                live: true,
+                canDirectPlay: false,
+                playbackMode: 'transcode',
+                client: 'android',
+                qualities: [],
+                liveDebug: `path=${sessionFolder} (universal)`,
+            };
+        }
         const session = parsed.sessionId || `smp-live-${Date.now().toString(36)}`;
+        const playlist = await waitLivePlaylist(server, parsed);
+        const streamPath = (playlist.path && (/\.m3u8/i.test(playlist.path) || playlist.path.includes('/transcode/')))
+            ? playlist.path
+            : (livePlaylistCandidates(parsed)[0] || playPath);
         const item = {
             ...(body?.item || {}),
-            ratingKey: parsed.ratingKey || `live:${dvrId}:${channel}`,
+            ratingKey: playlist.ratingKey || parsed.ratingKey || `live:${dvrId}:${channel}`,
             title: String(body?.item?.title || body?.title || 'Live TV'),
             type: 'liveAiring',
             canPlay: true,
@@ -6347,22 +6502,30 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
             liveEndsAt: Number(body?.item?.liveEndsAt || 0) || null,
             durationMs: parsed.durationMs || Number(body?.item?.durationMs || 0) || null,
         };
+        const src = liveHlsSrc(server, streamPath, session);
         return {
             sessionId: session,
             item,
-            src: liveHlsSrc(server, playPath, session),
+            src,
             offsetMs: 0,
             live: true,
-            canDirectPlay: /\/library\/parts\//.test(playPath) || /\.m3u8/i.test(playPath),
+            canDirectPlay: false,
             playbackMode: 'transcode',
             client: 'android',
             qualities: [],
+            liveDebug: [
+                `path=${streamPath}`,
+                `playlist=${playlist.status}${playlist.ok ? '' : ' not-ready'}`,
+                playlist.head,
+                redactLiveUrl(src).replace(/\?.*$/, ''),
+            ].filter(Boolean).join('\n'),
         };
     }
     if (path === '/api/media-player/livetv/stop' && method === 'POST') {
         const server = resolveServer(body?.serverId || query.get('server'), '');
         const sessionId = String(body?.sessionId || '').trim();
         if (server && sessionId) {
+            await pms(`/video/:/transcode/universal/stop?session=${encodeURIComponent(sessionId)}`, server, 5000).catch(() => undefined);
             await pms(`/livetv/sessions/${encodeURIComponent(sessionId)}/stop`, server, 5000).catch(() => undefined);
             await pmsPost(`/livetv/sessions/${encodeURIComponent(sessionId)}/stop`, server, 5000).catch(() => undefined);
         }
