@@ -106,6 +106,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicReference;
 
 @UnstableApi
 public class PlayerActivity extends AppCompatActivity {
@@ -559,6 +560,13 @@ public class PlayerActivity extends AppCompatActivity {
      * the finished episode as playing until its session timed out.
      */
     private static final ExecutorService TIMELINE_EXECUTOR = Executors.newSingleThreadExecutor();
+    /**
+     * Newest routine timeline ping not yet sent. A slow server (4s timeouts) once let a ping
+     * every 5s queue up behind each other, so by the end of an episode the pings still going
+     * out were from ~2/3 through and Plex showed the last third unwatched. Only the newest
+     * waits; stop and scrobble skip it.
+     */
+    private static final AtomicReference<Runnable> PENDING_ROUTINE_PING = new AtomicReference<>();
     /** Transcode seek decision calls: kept off the timeline queue so a slow ping can't delay one. */
     private static final ExecutorService SEEK_EXECUTOR = Executors.newSingleThreadExecutor();
 
@@ -4365,12 +4373,26 @@ public class PlayerActivity extends AppCompatActivity {
         return PlexTimelineReporter.isWatchedPosition(positionMs, durationMs, creditsStartMs);
     }
 
+    /** Routine pings replace the one still waiting; stop / scrobble drop it and always go. */
+    private static void queueTimelinePing(Runnable ping, boolean routine) {
+        if (!routine) {
+            PENDING_ROUTINE_PING.set(null);
+            TIMELINE_EXECUTOR.execute(ping);
+            return;
+        }
+        if (PENDING_ROUTINE_PING.getAndSet(ping) != null) return;
+        TIMELINE_EXECUTOR.execute(() -> {
+            Runnable latest = PENDING_ROUTINE_PING.getAndSet(null);
+            if (latest != null) latest.run();
+        });
+    }
+
     private void scrobbleWatched() {
         absorbTimelineFromUrl(currentUrl);
         try {
             final String pingUrl = timelineReporter.buildScrobbleUrl(ratingKey);
             if (pingUrl == null) return;
-            TIMELINE_EXECUTOR.execute(() -> timelineReporter.httpPing(pingUrl, null, "GET"));
+            queueTimelinePing(() -> timelineReporter.httpPing(pingUrl, null, "GET"), false);
         } catch (Throwable e) {
             Log.w(TAG, "Plex scrobble skipped", e);
         }
@@ -4397,13 +4419,14 @@ public class PlayerActivity extends AppCompatActivity {
         }
         if (positionOverrideMs >= 0L) positionMs = positionOverrideMs;
         final String pingState = state;
+        final boolean routine = !"stopped".equals(state);
         final long pingPosition = positionMs;
         final long pingDuration = durationMs;
         if (timelineReporter.hasPmsCredentials()) {
             final String pingUrl = timelineReporter.buildPmsTimelineUrl(
                 ratingKey, pingState, pingPosition, pingDuration, musicMode, audioStreamId, subtitleStreamId);
             if (pingUrl != null) {
-                TIMELINE_EXECUTOR.execute(() -> timelineReporter.httpPing(pingUrl, null, "GET"));
+                queueTimelinePing(() -> timelineReporter.httpPing(pingUrl, null, "GET"), routine);
                 return;
             }
         }
@@ -4412,7 +4435,7 @@ public class PlayerActivity extends AppCompatActivity {
         final String body = timelineReporter.buildPortalTimelineBody(
             ratingKey, pingState, pingPosition, pingDuration, audioStreamId, subtitleStreamId);
         if (body == null) return;
-        TIMELINE_EXECUTOR.execute(() -> timelineReporter.httpPing(portalUrl, body, "POST"));
+        queueTimelinePing(() -> timelineReporter.httpPing(portalUrl, body, "POST"), routine);
     }
 
     private void toggleChrome() {
