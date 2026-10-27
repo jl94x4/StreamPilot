@@ -26,6 +26,7 @@ import {
     STUDIO_BROWSE_ART_CONCURRENCY,
     STUDIO_BROWSE_FETCH,
 } from '../../lib/media-player/studioBrowse.js';
+import { pickPersonTmdbId } from '../../lib/media-player/personProfile.js';
 import {
     epgPrefixCandidates,
     epgPrefixesFromProviders,
@@ -4688,10 +4689,8 @@ const loadDiscoverPerson = async (name: string) => {
     const metas = asList<PlexMeta>(container.SearchResult)
         .flatMap((group) => asList<PlexMeta>(group.Metadata))
         .concat(asList<PlexMeta>(container.Metadata));
-    const want = queryName.toLowerCase();
-    const match = metas.find((row) => String(row.title || row.tag || '').trim().toLowerCase() === want)
-        || metas.find((row) => String(row.type || '') === 'person')
-        || null;
+    const want = foldLoose(queryName);
+    const match = metas.find((row) => foldLoose(String(row.title || row.tag || '')) === want) || null;
     if (!match) return loadWikipediaPerson(queryName);
     let biography = String(match.summary || match.biography || '').trim();
     const detailKey = String(match.key || '').trim();
@@ -4704,17 +4703,18 @@ const loadDiscoverPerson = async (name: string) => {
         biography = String(meta?.summary || meta?.biography || '').trim();
     }
     if (!biography) return loadWikipediaPerson(queryName);
-    // Always enrich DOB / places from Wikidata even when Plex has a summary.
     const wiki = await loadWikipediaPerson(queryName);
+    const wikiSamePerson = wiki && foldLoose(String(wiki.name || '')) === want;
     return {
         name: String(match.title || match.tag || queryName),
-        biography: wiki?.biography && wiki.biography.length > biography.length ? wiki.biography : biography,
-        birthday: match.originallyAvailableAt || wiki?.birthday || null,
-        deathday: wiki?.deathday || null,
-        knownForDepartment: wiki?.knownForDepartment || null,
-        placeOfBirth: match.placeOfBirth || wiki?.placeOfBirth || null,
-        placeOfDeath: wiki?.placeOfDeath || null,
+        biography: wikiSamePerson && wiki?.biography && wiki.biography.length > biography.length ? wiki.biography : biography,
+        birthday: match.originallyAvailableAt || (wikiSamePerson ? wiki?.birthday : null) || null,
+        deathday: wikiSamePerson ? wiki?.deathday || null : null,
+        knownForDepartment: wikiSamePerson ? wiki?.knownForDepartment || null : null,
+        placeOfBirth: match.placeOfBirth || (wikiSamePerson ? wiki?.placeOfBirth : null) || null,
+        placeOfDeath: wikiSamePerson ? wiki?.placeOfDeath || null : null,
         profilePath: null,
+        tmdbId: pickPersonTmdbId(match),
     };
 };
 
@@ -6972,15 +6972,46 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
             seen.add(id);
             return true;
         }).slice(0, 100);
-        const profile = await loadDiscoverPerson(name || actorId);
+        const fromCast = items.flatMap((item: any) => item.cast || []).find((row: any) => (
+            String(row?.id || '') === String(actorId)
+            || (name && foldLoose(String(row?.name || '')) === foldLoose(name))
+        ));
+        let personName = String(name || fromCast?.name || '').trim();
+        let plexTmdbId: number | null = null;
+        if (/^\d+$/.test(actorId)) {
+            for (const server of enabledServers()) {
+                const peopleData = await pms(`/library/people/${encodeURIComponent(actorId)}`, server).catch(() => null);
+                const peopleMeta = asList<PlexMeta>(containerOf(peopleData).Directory)[0]
+                    || asList<PlexMeta>(containerOf(peopleData).Metadata)[0]
+                    || null;
+                if (!peopleMeta) continue;
+                plexTmdbId = pickPersonTmdbId(peopleMeta);
+                const peopleName = String(peopleMeta.title || peopleMeta.tag || '').trim();
+                if (peopleName && !personName) personName = peopleName;
+                if (plexTmdbId) break;
+            }
+        }
+        const profile = personName ? await loadDiscoverPerson(personName) : null;
+        if (profile && plexTmdbId && !profile.tmdbId) profile.tmdbId = plexTmdbId;
+        const resolvedProfile = profile || (plexTmdbId ? {
+            name: personName || name || actorId,
+            biography: null,
+            birthday: null,
+            deathday: null,
+            knownForDepartment: null,
+            placeOfBirth: null,
+            placeOfDeath: null,
+            profilePath: null,
+            tmdbId: plexTmdbId,
+        } : null);
         return {
             person: {
                 id: actorId,
-                name: profile?.name || name || actorId,
+                name: resolvedProfile?.name || personName || name || actorId,
                 thumb: query.get('thumb') || null,
             },
             items,
-            profile,
+            profile: resolvedProfile,
         };
     }
     if (path === '/api/media-player/watch-together/resolve' && method === 'GET') {
@@ -7214,35 +7245,50 @@ const loadWikidataPersonFacts = async (wikiTitle: string) => {
     };
 };
 
+const wikiOccupationScore = (text: string) => {
+    const desc = String(text || '').toLowerCase();
+    let value = 0;
+    if (/actor|actress/.test(desc)) value += 6;
+    if (/filmmaker|director|screenwriter|producer|cinematographer|television|film/.test(desc)) value += 3;
+    if (/basketball|footballer|politician|boxer|wrestler|athlete/.test(desc) && !/actor|actress|film|television/.test(desc)) {
+        value -= 8;
+    }
+    return value;
+};
+
 /** Direct mode has no TMDB key. Prefer Wikidata for DOB/place, Wikipedia for bio. */
 const loadWikipediaPerson = async (name: string) => {
     const queryName = String(name || '').trim();
     if (queryName.length < 2 || /^\d+$/.test(queryName)) return null;
-    const want = queryName.toLowerCase();
+    const wantFold = foldLoose(queryName);
 
     // 1) Wikidata search — most reliable for birthday / place of birth / death.
     const wdSearch = await wikiApiJson(
         `https://www.wikidata.org/w/api.php?action=wbsearchentities&search=${encodeURIComponent(queryName)}&language=en&uselang=en&type=item&limit=8&format=json&origin=*`,
     );
-    const wdHits = Array.isArray(wdSearch?.search) ? wdSearch.search : [];
+    const wdHits = (Array.isArray(wdSearch?.search) ? wdSearch.search : [])
+        .filter((hit: { id?: string; label?: string }) => {
+            const qid = String(hit?.id || '').trim();
+            const label = String(hit?.label || '').trim();
+            return /^Q\d+$/.test(qid) && foldLoose(label) === wantFold;
+        })
+        .sort((a: { description?: string }, b: { description?: string }) => (
+            wikiOccupationScore(String(b?.description || '')) - wikiOccupationScore(String(a?.description || ''))
+        ));
     for (const hit of wdHits) {
         const qid = String(hit?.id || '').trim();
         const label = String(hit?.label || '').trim();
         const desc = String(hit?.description || '').toLowerCase();
-        if (!/^Q\d+$/.test(qid)) continue;
-        if (label && foldLoose(label) !== foldLoose(queryName) && !foldLoose(label).includes(foldLoose(queryName))) {
-            if (!/actor|actress|filmmaker|director|screenwriter|producer|cinematographer/.test(desc)) continue;
-        }
         const entity = await loadWikidataEntityFacts(qid);
         if (!entity?.birthday && !entity?.placeOfBirth) continue;
-        // Pull Wikipedia extract via sitelink when possible.
         const sitelinks = await wikiApiJson(
             `https://www.wikidata.org/w/api.php?action=wbgetentities&ids=${encodeURIComponent(qid)}&props=sitelinks&sitefilter=enwiki&format=json&origin=*`,
         );
         const wikiTitle = String(sitelinks?.entities?.[qid]?.sitelinks?.enwiki?.title || label || queryName).trim();
         const pageFacts = wikiTitle ? await loadWikidataPersonFacts(wikiTitle) : null;
         return {
-            name: queryName,
+            name: label || queryName,
+            tmdbId: null as number | null,
             biography: pageFacts?.biography || null,
             birthday: entity.birthday || pageFacts?.birthday || null,
             deathday: entity.deathday || pageFacts?.deathday || null,
@@ -7264,15 +7310,16 @@ const loadWikipediaPerson = async (name: string) => {
             title: String(row?.title || '').trim(),
             snippet: String(row?.snippet || '').replace(/<[^>]+>/g, ' ').toLowerCase(),
         }))
-        .filter((row: { title: string }) => row.title && !/disambiguation/i.test(row.title))
+        .filter((row: { title: string }) => {
+            if (!row.title || /disambiguation/i.test(row.title)) return false;
+            const core = foldLoose(row.title.replace(/\s*\([^)]*\)\s*$/, ''));
+            return core === wantFold;
+        })
         .sort((a: { title: string; snippet: string }, b: { title: string; snippet: string }) => {
             const score = (row: { title: string; snippet: string }) => {
-                const title = row.title.toLowerCase();
-                let value = 0;
-                if (title === want) value += 8;
-                else if (title.startsWith(want)) value += 4;
-                else if (title.includes(want)) value += 2;
-                if (/actor|actress|filmmaker|director|film|television|born/.test(row.snippet)) value += 3;
+                const title = foldLoose(row.title);
+                let value = wikiOccupationScore(row.snippet);
+                if (title === wantFold) value += 8;
                 return value;
             };
             return score(b) - score(a);
@@ -7281,7 +7328,7 @@ const loadWikipediaPerson = async (name: string) => {
         const facts = await loadWikidataPersonFacts(row.title);
         if (!facts) continue;
         if (facts.biography || facts.birthday || facts.placeOfBirth) {
-            return { ...facts, name: queryName };
+            return { ...facts, name: queryName, tmdbId: null as number | null };
         }
     }
     return null;

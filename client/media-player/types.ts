@@ -237,6 +237,7 @@ export type PlayerPersonPage = {
 
 export type PlayerPersonProfile = {
     name?: string | null;
+    tmdbId?: number | null;
     biography?: string | null;
     birthday?: string | null;
     deathday?: string | null;

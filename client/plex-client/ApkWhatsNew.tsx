@@ -73,6 +73,38 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.436': [
+        {
+            title: 'Playback',
+            items: [
+                'TV episodes start playing instead of opening paused from leftover Play/OK or show theme audio',
+            ],
+        },
+    ],
+    '1.0.434': [
+        {
+            title: 'App',
+            items: [
+                'Updated for current Google Play Android requirements (Android 7 or newer)',
+            ],
+        },
+    ],
+    '1.0.433': [
+        {
+            title: 'People',
+            items: [
+                'Actor profiles use the matching person for bio, dates, and filmography instead of mixing in someone with a similar name',
+            ],
+        },
+    ],
+    '1.0.432': [
+        {
+            title: 'Home',
+            items: [
+                'On Now can be moved in Settings → Home row order, with Continue Watching and Recently Added',
+            ],
+        },
+    ],
     '1.0.431': [
         {
             title: 'Home',

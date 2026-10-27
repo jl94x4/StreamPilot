@@ -447,8 +447,14 @@ public class PlayerActivity extends AppCompatActivity {
         }
     );
     private boolean userPaused;
-    /** Ignore the OK press that opened the player so it cannot pause the start. */
+    /**
+     * Ignore the OK / Play press that opened the player, and audio-focus fights with
+     * the WebView theme, until the first real frames. Episodes (resume + PMS) often
+     * take longer than a movie to become READY, so a short window was not enough.
+     */
     private long suppressPauseUntilElapsed;
+    private static final long PAUSE_SUPPRESS_MS = 8000L;
+    private static final long PAUSE_SUPPRESS_AFTER_PLAY_MS = 500L;
     private long lastToggleElapsedMs;
     private long pendingSeekMs;
     /** Content time already skipped by a transcode URL offset. Player time starts at 0. */
@@ -920,12 +926,13 @@ public class PlayerActivity extends AppCompatActivity {
             updateActionVisibility();
             updateChipLabels();
             bumpChrome();
-            if (playPauseBtn != null) playPauseBtn.requestFocus();
+            // Do not focus Play yet: the OK that launched us is still in the queue.
+            if (playerView != null) playerView.requestFocus();
 
             if (needsAvRebuild) {
                 Log.i(TAG, "Deferring prepare for AV rebuild url=" + PlaybackUrls.summarizeUrl(currentUrl));
                 userPaused = false;
-                suppressPauseUntilElapsed = android.os.SystemClock.elapsedRealtime() + 1200;
+                armPauseSuppress();
                 player.setPlayWhenReady(true);
                 setBufferingVisible(true);
                 long offset = pendingSeekMs;
@@ -933,7 +940,7 @@ public class PlayerActivity extends AppCompatActivity {
             } else {
                 Log.i(TAG, "Starting ExoPlayer url=" + PlaybackUrls.summarizeUrl(currentUrl));
                 userPaused = false;
-                suppressPauseUntilElapsed = android.os.SystemClock.elapsedRealtime() + 1200;
+                armPauseSuppress();
                 queueStartPosition(currentUrl, pendingSeekMs);
                 pendingSeekMs = 0;
                 player.setPlayWhenReady(true);
@@ -1299,6 +1306,18 @@ public class PlayerActivity extends AppCompatActivity {
                 if (playWhenReady) return;
                 if (reason != Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS
                     && reason != Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY) return;
+                if (pauseSuppressed()) {
+                    mainHandler.post(() -> {
+                        if (player == null || userPaused || finishing) return;
+                        player.setPlayWhenReady(true);
+                        try {
+                            player.play();
+                        } catch (Throwable ignored) {
+                            /* ignore */
+                        }
+                    });
+                    return;
+                }
                 pausePositionMs = contentPositionMs();
                 userPaused = true;
                 mainHandler.removeCallbacks(playThenSeekRunnable);
@@ -1310,7 +1329,13 @@ public class PlayerActivity extends AppCompatActivity {
 
             @Override
             public void onIsPlayingChanged(boolean isPlaying) {
-                if (isPlaying) armPlayThenSeek();
+                if (isPlaying) {
+                    armPlayThenSeek();
+                    releasePauseSuppressSoon();
+                    if (playPauseBtn != null && getCurrentFocus() == null) {
+                        playPauseBtn.requestFocus();
+                    }
+                }
                 updatePlayPauseLabel();
                 emitProgress(isPlaying ? "playing" : "paused");
             }
@@ -2122,6 +2147,20 @@ public class PlayerActivity extends AppCompatActivity {
         }
     }
 
+    private void armPauseSuppress() {
+        suppressPauseUntilElapsed = android.os.SystemClock.elapsedRealtime() + PAUSE_SUPPRESS_MS;
+    }
+
+    private boolean pauseSuppressed() {
+        return android.os.SystemClock.elapsedRealtime() < suppressPauseUntilElapsed;
+    }
+
+    /** Keep a short tail so the opening OK key-up cannot pause after the first frame. */
+    private void releasePauseSuppressSoon() {
+        long until = android.os.SystemClock.elapsedRealtime() + PAUSE_SUPPRESS_AFTER_PLAY_MS;
+        if (suppressPauseUntilElapsed > until) suppressPauseUntilElapsed = until;
+    }
+
     /** Playback is held by a short audio focus loss (Assistant, notification), not stuck. */
     private boolean focusSuppressed() {
         return player != null
@@ -2760,7 +2799,7 @@ public class PlayerActivity extends AppCompatActivity {
         mainHandler.removeCallbacks(seekHoldSafetyRunnable);
         player.setPlayWhenReady(!userPaused);
         player.prepare();
-        if (!userPaused && offsetMs >= 5000) {
+        if (!userPaused && offsetMs > 0) {
             mainHandler.removeCallbacks(resumePlayKickRunnable);
             resumeKickArmPosMs = offsetMs;
             mainHandler.postDelayed(resumePlayKickRunnable, 2500);
@@ -3767,7 +3806,7 @@ public class PlayerActivity extends AppCompatActivity {
     void applyPlayPause(boolean play) {
         if (player == null) return;
         if (!play) {
-            if (android.os.SystemClock.elapsedRealtime() < suppressPauseUntilElapsed) return;
+            if (pauseSuppressed()) return;
             pausePositionMs = contentPositionMs();
             userPaused = true;
             mainHandler.removeCallbacks(playThenSeekRunnable);

@@ -62,6 +62,10 @@ test('pickTmdbPersonMatch prefers exact names and overlapping on-server titles',
         { id: 23, mediaType: 'person', name: 'Someone Else', popularity: 99 },
     ], { name: 'Zoe Saldaña' });
     assert.equal(accent.id, 22);
+
+    assert.equal(pickTmdbPersonMatch([
+        { id: 23, mediaType: 'person', name: 'Someone Else', popularity: 99 },
+    ], { name: 'Zoe Saldaña' }), null);
 });
 
 test('splitBiography keeps the first paragraph until Read more', () => {

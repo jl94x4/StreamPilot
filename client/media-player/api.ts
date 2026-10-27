@@ -973,28 +973,41 @@ export const fetchPlayerPersonBundle = async (
         };
     };
 
-    if (data.profile?.name || data.profile?.biography || data.profile?.birthday || data.profile?.placeOfBirth) {
-        let rows = await searchDiscoveryPeople(resolvedName || queryName);
-        const match = pickTmdbPersonMatch(rows, {
-            name: resolvedName,
-            knownTitles: items.map((row) => row.title),
-        });
-        return withFilmography(data.profile || null, Number(match?.id));
+    const knownTitles = items.map((row) => row.title);
+    const profileNameOk = (row: PlayerPersonProfile | null) => {
+        if (!row?.name || !resolvedName) return true;
+        return fold(String(row.name)) === fold(resolvedName);
+    };
+    const searchTmdbId = async (query: string) => {
+        const rows = await searchDiscoveryPeople(query);
+        const match = pickTmdbPersonMatch(rows, { name: resolvedName || query, knownTitles });
+        const id = Number(match?.id);
+        return Number.isFinite(id) && id > 0 ? id : 0;
+    };
+
+    const givenTmdb = Number(data.profile?.tmdbId);
+    if (Number.isFinite(givenTmdb) && givenTmdb > 0) {
+        const tmdbProfile = await apiFetch(`/api/discovery/proxy/person/${givenTmdb}`).catch(() => null) as PlayerPersonProfile | null;
+        const profile = tmdbProfile?.name
+            ? tmdbProfile
+            : (profileNameOk(data.profile || null) ? data.profile || null : null);
+        return withFilmography(profile, givenTmdb);
     }
-    let rows = await searchDiscoveryPeople(queryName);
-    if (resolvedName && resolvedName.toLowerCase() !== queryName.toLowerCase()) {
-        const extra = await searchDiscoveryPeople(resolvedName);
-        if (extra.length) rows = extra;
+
+    const serverProfile = profileNameOk(data.profile || null) ? (data.profile || null) : null;
+    if (serverProfile?.name || serverProfile?.biography || serverProfile?.birthday || serverProfile?.placeOfBirth) {
+        const tmdbId = await searchTmdbId(resolvedName || queryName);
+        return withFilmography(serverProfile, tmdbId || undefined);
     }
-    const match = pickTmdbPersonMatch(rows, {
-        name: resolvedName,
-        knownTitles: items.map((row) => row.title),
-    });
-    const tmdbId = Number(match?.id);
-    const profile = Number.isFinite(tmdbId) && tmdbId > 0
+    let tmdbId = await searchTmdbId(queryName);
+    if (!tmdbId && resolvedName && resolvedName.toLowerCase() !== queryName.toLowerCase()) {
+        tmdbId = await searchTmdbId(resolvedName);
+    }
+    const profile = tmdbId
         ? await apiFetch(`/api/discovery/proxy/person/${tmdbId}`).catch(() => null) as PlayerPersonProfile | null
         : null;
-    return withFilmography(profile, tmdbId);
+    const trusted = profileNameOk(profile) ? profile : null;
+    return withFilmography(trusted, trusted ? tmdbId : undefined);
 };
 
 export const searchMediaPlayer = (query: string) => (
