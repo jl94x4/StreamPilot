@@ -2450,7 +2450,8 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                     <p className="mt-1 text-[1.05rem] font-bold text-white/90">{item.title}</p>
                 )
             ) : null}
-            {!isTvShell && phoneBillboardMeta.length ? (
+            {/* The pill rows below repeat this line (year, length, rating), so it only shows without them. */}
+            {!isTvShell && !preplayUi && phoneBillboardMeta.length ? (
                 <p className="media-details-billboard-line mt-1.5 max-w-[22rem] text-center text-[12px] font-semibold tracking-wide text-white/75 drop-shadow-[0_4px_12px_rgba(0,0,0,0.7)]">
                     {phoneBillboardMeta}
                 </p>
