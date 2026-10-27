@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.441': [
+        {
+            title: 'Playback',
+            items: [
+                'The audio pill in the player bar shows the channel layout too, for example AC3 5.1 or AAC 2.0',
+            ],
+        },
+    ],
     '1.0.440': [
         {
             title: 'Playback',

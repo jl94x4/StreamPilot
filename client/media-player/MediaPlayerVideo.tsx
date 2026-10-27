@@ -890,6 +890,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                 language: row.language || row.languageTag || null,
                 languageTag: row.languageTag || row.language || null,
                 codec: row.codec || null,
+                channels: row.channels || null,
             })),
             subtitles: [
                 ...(session.subtitles || []).map((row) => ({

@@ -11,6 +11,8 @@ export type NativePlayerTrackOption = {
     language?: string | null;
     languageTag?: string | null;
     codec?: string | null;
+    /** Audio only: Plex channel count (2, 6, 8 …) for the codec pill's 2.0 / 5.1 / 7.1. */
+    channels?: number | null;
     embeddedOrdinal?: number | null;
     /** OpenSubtitles hit PMS still has to download (url is empty until then). */
     downloadKey?: string;

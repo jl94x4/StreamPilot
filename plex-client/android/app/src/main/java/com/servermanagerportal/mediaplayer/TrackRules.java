@@ -120,6 +120,19 @@ final class TrackRules {
         }
     }
 
+    /** 2.0 / 5.1 / 7.1 … from a channel count, as Plex names them; empty when unknown. */
+    static String channelLayout(int channels) {
+        switch (channels) {
+            case 1: return "Mono";
+            case 2: return "2.0";
+            case 3: return "2.1";
+            case 6: return "5.1";
+            case 7: return "6.1";
+            case 8: return "7.1";
+            default: return channels > 0 ? channels + "ch" : "";
+        }
+    }
+
     /** OSD pill for the video being decoded: HEVC, H264, AV1, VP9, DV HEVC … */
     static String videoCodecBadge(@Nullable Format format) {
         if (format == null) return "";

@@ -133,6 +133,10 @@ public class TrackRulesTest {
         assertEquals("AV1", TrackRules.videoCodecBadge(audio(MimeTypes.VIDEO_AV1, null)));
         assertEquals("DV HEVC", TrackRules.videoCodecBadge(audio(MimeTypes.VIDEO_DOLBY_VISION, "dvhe.08.06")));
         assertEquals("", TrackRules.videoCodecBadge(null));
+        assertEquals("2.0", TrackRules.channelLayout(2));
+        assertEquals("5.1", TrackRules.channelLayout(6));
+        assertEquals("7.1", TrackRules.channelLayout(8));
+        assertEquals("", TrackRules.channelLayout(0));
     }
 
     private static Format audio(String mime, String codecs) {

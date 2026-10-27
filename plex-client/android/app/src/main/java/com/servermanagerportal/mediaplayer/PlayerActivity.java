@@ -760,6 +760,8 @@ public class PlayerActivity extends AppCompatActivity {
         int embeddedOrdinal = -1;
         /** OpenSubtitles hit PMS has yet to download; url is empty until JS resolves it. */
         String downloadKey = "";
+        /** Audio: Plex channel count (6 = 5.1); 0 when unknown. */
+        int channels;
 
         OptionItem(String id, String label) {
             this(id, label, "", "", "");
@@ -2757,6 +2759,7 @@ public class PlayerActivity extends AppCompatActivity {
             OptionItem item = new OptionItem(id, label, row.optString("url", ""), language, codec);
             item.embeddedOrdinal = row.optInt("embeddedOrdinal", -1);
             item.downloadKey = row.optString("downloadKey", "");
+            item.channels = row.optInt("channels", 0);
             out.add(item);
         }
         return out;
@@ -4764,14 +4767,17 @@ public class PlayerActivity extends AppCompatActivity {
         Format audio = musicMode || player == null ? null : player.getAudioFormat();
         setChip(videoCodecChipView, TrackRules.videoCodecBadge(video),
             chipShown(modeChipView) || chipShown(resolutionChipView));
+        OptionItem row = musicMode ? null : findAudioOption(audioStreamId);
         String audioLabel = TrackRules.audioCodecBadge(audio);
-        if (audioLabel.isEmpty() && !musicMode) {
+        int channels = audio != null && audio.channelCount > 0 ? audio.channelCount : 0;
+        if (audioLabel.isEmpty() && row != null && row.codec != null && !row.codec.isEmpty()) {
             // No decoder for it here (or not selected yet): name the Plex track we asked for.
-            OptionItem row = findAudioOption(audioStreamId);
-            if (row != null && row.codec != null && !row.codec.isEmpty()) {
-                audioLabel = TrackRules.audioCodecBadge(new Format.Builder().setCodecs(row.codec).build());
-            }
+            audioLabel = TrackRules.audioCodecBadge(new Format.Builder().setCodecs(row.codec).build());
+            channels = 0;
         }
+        if (channels <= 0 && row != null) channels = row.channels;
+        String layout = TrackRules.channelLayout(channels);
+        if (!audioLabel.isEmpty() && !layout.isEmpty()) audioLabel = audioLabel + " " + layout;
         setChip(audioCodecChipView, audioLabel,
             chipShown(modeChipView) || chipShown(resolutionChipView) || chipShown(videoCodecChipView));
     }
