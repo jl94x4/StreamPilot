@@ -80,6 +80,13 @@ const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
                 'TV episodes start playing instead of opening paused from leftover Play/OK or show theme audio',
             ],
         },
+        {
+            title: 'Subtitles',
+            items: [
+                'Movie and episode pages follow your Subtitles setting: with Always on, a full subtitle track is picked (and played) instead of showing Off',
+                'Playback errors now say what actually failed (for example a connection reset), to help track down Direct Play problems',
+            ],
+        },
     ],
     '1.0.434': [
         {

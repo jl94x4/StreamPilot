@@ -1374,6 +1374,9 @@ public class PlayerActivity extends AppCompatActivity {
                 if (!liveStream && tryStreamFallback(error)) return;
                 playbackError = true;
                 String message = "Playback error: " + error.getErrorCodeName();
+                // The underlying cause (socket reset, TLS, HTTP status …), so a screenshot says why.
+                String cause = PlaybackUrls.describeCause(error);
+                if (!cause.isEmpty()) message = message + "\n" + cause;
                 if (liveStream) {
                     String extra = liveDebug != null && !liveDebug.isEmpty()
                         ? liveDebug

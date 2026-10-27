@@ -2080,8 +2080,9 @@ const pickSubtitleId = (subtitles: PlexMeta[], requested: string | null, mode: s
         const forced = text.find(isForced) || subtitles.find(isForced);
         return forced?.id ? String(forced.id) : '';
     }
-    const selected = subtitles.find((stream) => stream.selected === 1 || stream.selected === true);
-    return String(selected?.id || text[0]?.id || subtitles[0]?.id || '');
+    // Always: a full track, not a forced-only one (matches the movie page's default).
+    const full = text.find((stream) => !isForced(stream)) || subtitles.find((stream) => !isForced(stream));
+    return String(full?.id || text[0]?.id || subtitles[0]?.id || '');
 };
 
 const PLAY_SESSION_REUSE = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|smp-[a-z0-9-]{6,40}|plex-\d{1,16})$/i;

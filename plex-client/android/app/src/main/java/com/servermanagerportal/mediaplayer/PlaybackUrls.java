@@ -48,6 +48,21 @@ final class PlaybackUrls {
         return startUrl.replaceFirst("/transcode/universal/start[.]m3u8", "/transcode/universal/decision");
     }
 
+    /** Deepest cause of a playback error, as "SocketException: Connection reset" (empty if none). */
+    static String describeCause(@Nullable Throwable error) {
+        if (error == null) return "";
+        Throwable root = error;
+        int guard = 0;
+        while (root.getCause() != null && root.getCause() != root && guard++ < 8) root = root.getCause();
+        if (root == error) return "";
+        String text = root.getClass().getSimpleName();
+        String detail = root.getMessage();
+        if (detail != null && !detail.trim().isEmpty()) text = text + ": " + detail.trim();
+        // Never show a token from a URL in the message.
+        text = text.replaceAll("(?i)(X-Plex-Token|access_token)=[^&\\s]+", "$1=…");
+        return text.length() > 160 ? text.substring(0, 160) + "…" : text;
+    }
+
     static boolean isDirectPlayUrl(@Nullable String url) {
         return url != null && !url.isEmpty() && !isTranscodeUrl(url);
     }

@@ -227,13 +227,11 @@ const episodeTrackChips = (ep?: PlayerItem | null, prefs: TrackChipPrefs = {}) =
         sub = byId(subRows, resolved.subtitleStreamId);
     } else {
         // Same default as starting playback: Plex's selection, then the Subtitles mode.
-        const text = subRows.filter((row) => !subtitleCodecNeedsBurn(row.codec, prefs.burnSubtitles || 'auto'));
         const mode = String(prefs.subtitleMode || 'forced');
         const plexPick = subRows.find((row) => row.selected) || null;
         if (mode === 'off' || !subRows.length) sub = null;
         else if (plexPick) sub = plexPick;
-        else if (mode === 'forced') sub = text.find((row) => row.forced) || subRows.find((row) => row.forced) || null;
-        else sub = text[0] || subRows[0] || null;
+        else sub = defaultSubtitleForMode(subRows, mode, prefs.burnSubtitles);
     }
     return trackChipLabels(audio, sub);
 };
@@ -249,6 +247,23 @@ const trackChipLabels = (audio?: ChipTrack | null, sub?: ChipTrack | null) => {
     const subName = sub ? [trackLanguage(sub) || 'Unknown', sub.forced ? 'Forced' : ''].filter(Boolean).join(' ') : '';
     const subLabel = sub ? [subName, trackCodec(sub) ? `(${trackCodec(sub)})` : ''].filter(Boolean).join(' ') : 'Off';
     return { audio: audioLabel, subtitles: subLabel };
+};
+
+/**
+ * The subtitle the Subtitles setting picks when neither this app nor Plex chose one:
+ * Always -> the first full track (not a forced-only one), text first; Forced -> a forced track;
+ * Off -> none. Same rule as pickSubtitleId in plexDirect, so the page and playback agree.
+ */
+const defaultSubtitleForMode = <T extends { codec?: string | null; forced?: boolean | null }>(
+    rows: T[],
+    mode?: string | null,
+    burnSubtitles?: string | null,
+): T | null => {
+    const value = String(mode || 'forced');
+    if (value === 'off' || !rows.length) return null;
+    const text = rows.filter((row) => !subtitleCodecNeedsBurn(row.codec, burnSubtitles || 'auto'));
+    if (value === 'forced') return text.find((row) => row.forced) || rows.find((row) => row.forced) || null;
+    return text.find((row) => !row.forced) || rows.find((row) => !row.forced) || text[0] || rows[0] || null;
 };
 
 /** tvTint: TV "Match page colour to artwork" is on. Off keeps the black #060a10 floor. */
@@ -1208,7 +1223,10 @@ export const MediaPlayerDetails: React.FC<Props> = ({
     );
     useEffect(() => {
         const preferredAudio = audioTrackOptions.find((row) => row.selected) || audioTrackOptions[0];
-        const preferredSub = subtitleTrackOptions.find((row) => row.selected) || null;
+        // Plex's pick for this title first, then the Subtitles setting (Always / Forced / Off):
+        // a page that said Off with Subtitles set to Always also started playback without them.
+        const preferredSub = subtitleTrackOptions.find((row) => row.selected)
+            || defaultSubtitleForMode(subtitleTrackOptions, settings.subtitleMode, settings.burnSubtitles);
         const savedAv = readAvChoice(item?.grandparentRatingKey || item?.parentRatingKey, item?.ratingKey);
         const resolved = resolveAvChoiceForTracks(savedAv, audioTrackOptions, subtitleTrackOptions);
         setAudioStreamId(
@@ -1220,7 +1238,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                 ? String(resolved.subtitleStreamId)
                 : (preferredSub?.id ? String(preferredSub.id) : ''),
         );
-    }, [item?.ratingKey, mediaIndex, audioTrackOptions, subtitleTrackOptions]);
+    }, [item?.ratingKey, mediaIndex, audioTrackOptions, subtitleTrackOptions, settings.subtitleMode, settings.burnSubtitles]);
     const mediaSummary = useMemo(() => {
         const mediaInfo = item?.mediaInfo || [];
         const first = mediaInfo[Math.min(Math.max(0, mediaIndex), Math.max(0, mediaInfo.length - 1))] || mediaInfo[0];
