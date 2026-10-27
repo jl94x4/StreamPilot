@@ -77,7 +77,7 @@ import { PlayerServiceBrandMark } from './PlayerServiceBrandMark';
 import { PlayerTvScreensaver } from './PlayerTvScreensaver';
 import { PlayerTvSearch, PlayerTvSearchHistory, PlayerTvSearchNotice, TV_SEARCH_FIRST_KEY } from './PlayerTvSearch';
 import { itemHasBillboardBrandMeta } from './studioLogo.js';
-import { applyRememberedProgress, asRecentlyAddedPlayerItem, rememberBillboardBackdrop, formatPlayerDate, formatPlayerDuration, isFuturePlayerDate, heroRowCardItem, hideWatchedPlayerItems, isMusicPlayerItem, isPlayerBackdropReady, keepContinueWatchingPoster, mapContinueWatchingItemsForLayout, pickRicherSummary, pinTvNeighborBackdrops, playerItemBackdropUrl, plexBackdropUrl, plexLogoUrl, PLAYER_PROGRESS_EVENT, prefetchContinueWatchingImages, prefetchHomeRowPosters, primeNearbyTvBillboard, replaceFamilyContinueSlot, restoreContinueSlot, stampFamilyLastViewed, warmPlayerBackdrop, watchTargetTouches, withShowPoster } from './playerUtils';
+import { applyRememberedProgress, asRecentlyAddedPlayerItem, rememberBillboardBackdrop, formatPlayerDate, formatPlayerDuration, isFuturePlayerDate, heroRowCardItem, hideWatchedPlayerItems, isMusicPlayerItem, isPlayerBackdropReady, keepContinueWatchingPoster, mapContinueWatchingItemsForLayout, pickRicherSummary, pinTvNeighborBackdrops, playerItemBackdropUrl, plexBackdropUrl, plexLogoUrl, PLAYER_PROGRESS_EVENT, prefetchContinueWatchingImages, prefetchHomeRowPosters, primeNearbyTvBillboard, replaceFamilyContinueSlot, restoreContinueSlot, shufflePlayerItems, stampFamilyLastViewed, warmPlayerBackdrop, watchTargetTouches, withShowPoster } from './playerUtils';
 import { usePlayerSettings } from './usePlayerSettings';
 import { peekSurfaceColor, sampleBackdropSurfaceColor } from '../shared/imageFocalPoint';
 import { TV_FLOOR_RGB, tvTintSurfaceRgb } from './tvSurface';
@@ -121,6 +121,47 @@ const isBecauseYouWatchedHub = (hub: PlayerLibraryHub) => (
     /^because:/.test(String(hub.identifier || ''))
     || /because\s+you\s+watched/i.test(`${hub.identifier || ''} ${hub.title || ''}`)
 );
+
+/**
+ * Random-order rows (Plex hubs sorted randomly) arrive freshly shuffled on every Home refresh:
+ * live updates, the full pass after the fast one, retries. Showing each one made posters jump
+ * around while you looked. Keep each row's order and only reshuffle when Home is opened again
+ * or pulled to refresh; titles that join later go on the end.
+ */
+const randomRowOrders = new Map<string, string[]>();
+let reshuffleRandomRows = true;
+
+const allowRandomRowReshuffle = () => {
+    reshuffleRandomRows = true;
+};
+
+const randomRowItemKey = (item: PlayerItem) => String(item?.ratingKey || item?.title || '');
+
+const stableRandomRows = (next: PlayerHome | null): PlayerHome | null => {
+    if (!next?.hubs?.length) return next;
+    const reshuffle = reshuffleRandomRows;
+    let touched = false;
+    const hubs = next.hubs.map((hub) => {
+        if (!hub.randomOrder || !hub.items?.length) return hub;
+        const id = String(hub.identifier || hub.title || '').trim().toLowerCase();
+        const kept = randomRowOrders.get(id);
+        let items = hub.items;
+        if (reshuffle || !kept) {
+            items = shufflePlayerItems(items);
+        } else {
+            const rank = new Map(kept.map((key, index) => [key, index]));
+            items = items
+                .map((item, index) => ({ item, index, at: rank.get(randomRowItemKey(item)) }))
+                .sort((a, b) => (a.at ?? kept.length + a.index) - (b.at ?? kept.length + b.index))
+                .map((row) => row.item);
+        }
+        randomRowOrders.set(id, items.map(randomRowItemKey));
+        touched = true;
+        return { ...hub, items };
+    });
+    if (touched) reshuffleRandomRows = false;
+    return touched ? { ...next, hubs } : next;
+};
 
 const TV_HOME_ROW_EVENT = 'smp-tv-home-row';
 /** Fastest row change while Up/Down is held (~6–7 rows a second). */
@@ -573,7 +614,9 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             || cached.continueWatching.length > 0
             || (cached.recentByLibrary || []).some((row) => row.items?.length)
         );
-        return hasRows ? cached : null;
+        // A fresh Home (first open or remounted on the way back) shuffles once.
+        allowRandomRowReshuffle();
+        return hasRows ? stableRandomRows(cached) : null;
     });
     const [heroSlides, setHeroSlides] = useState<HomeHeroSlide[]>(() => readHeroSlidesCache() || []);
     const [heroPending, setHeroPending] = useState(() => !isHeroSlidesCacheFresh());
@@ -683,7 +726,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         const skipPartial = !opts?.force && cachedHasRows && !!cachedHome && isPlayerHomeCacheFresh();
         if (skipPartial && !cachedNeedsFull) {
             if (current()) {
-                setHome(cachedHome);
+                setHome(stableRandomRows(cachedHome));
                 setLoading(false);
             }
             return Promise.resolve();
@@ -692,7 +735,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         if (!cachedHasRows) {
             if (current()) setLoading(true);
         } else if (current()) {
-            setHome(cachedHome);
+            setHome(stableRandomRows(cachedHome));
             setLoading(false);
         }
         const hubIdentity = (hub: { identifier?: string; title?: string }) => (
@@ -726,7 +769,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 merged.partial = true;
             }
             if (playerHomeHasRows(merged)) writePlayerHomeCache(merged);
-            setHome(merged);
+            setHome(stableRandomRows(merged));
         };
         const followFull = (base: PlayerHome | null, live?: PlayerHome | null, attempt = 0): Promise<void> => {
             // Phone links drop the full pass often enough that one try left rows missing
@@ -769,7 +812,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 const cached = readPlayerHomeCache();
                 const next = coalescePlayerHomeWithCache(data, cached) || data;
                 if (playerHomeHasRows(next)) writePlayerHomeCache(next);
-                setHome(next);
+                setHome(stableRandomRows(next));
                 setError(null);
                 setLoading(false);
                 return next;
@@ -793,7 +836,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 const cached = readPlayerHomeCache();
                 const next = coalescePlayerHomeWithCache(data, cached) || data;
                 if (next && playerHomeHasRows(next)) writePlayerHomeCache(next);
-                setHome(next);
+                setHome(stableRandomRows(next));
                 setError(null);
                 setLoading(false);
                 if (!playerHomeNeedsFull(next) && !data?.partial) return undefined;
@@ -805,7 +848,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 if (playerHomeHasRows(cached)) {
                     // Keep showing the last good Home. Never flash "saved library" for a
                     // transient PMS blip — Android TV hits this constantly while LAN is fine.
-                    setHome(cached);
+                    setHome(stableRandomRows(cached));
                     if (!opts?.quietRetry) {
                         window.setTimeout(() => {
                             void refreshHome({ quietRetry: true });
@@ -822,6 +865,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
     }, [isTvShell, t]);
 
     const pullToRefresh = useCallback(() => {
+        allowRandomRowReshuffle();
         if (phoneHome) return refreshHome({ force: true });
         const hero = fetchMediaPlayerHomeHeroRefresh()
             .then((data) => {
@@ -908,6 +952,13 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         window.addEventListener(PLAYER_METADATA_REFRESHED_EVENT, onMetadataRefreshed);
         return () => window.removeEventListener(PLAYER_METADATA_REFRESHED_EVENT, onMetadataRefreshed);
     }, [active, refreshHome]);
+
+    // Coming back to Home (not the first mount) gets the random rows a fresh shuffle.
+    const wasActiveRef = useRef(active);
+    useEffect(() => {
+        if (active && !wasActiveRef.current) allowRandomRowReshuffle();
+        wasActiveRef.current = active;
+    }, [active]);
 
     useEffect(() => {
         if (!active) return undefined;

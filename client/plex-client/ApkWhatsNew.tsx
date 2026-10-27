@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.446': [
+        {
+            title: 'Home',
+            items: [
+                'Random rows keep their order while you browse, and only reshuffle when you open Home or pull to refresh',
+            ],
+        },
+    ],
     '1.0.445': [
         {
             title: 'Phone',
