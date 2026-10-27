@@ -921,6 +921,10 @@ html[data-phone="1"] .media-details-hero {
     font-size: 0.95rem;
     color: #111 !important;
     box-shadow: none;
+    /* Same face as the TV Watch button. */
+    font-family: "Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-weight: 500;
+    letter-spacing: 0;
   }
   html[data-phone="1"] .media-details-play-next {
     flex: 0 0 3.15rem;
@@ -1098,6 +1102,13 @@ html[data-phone="1"] .media-details-hero {
   }
   html[data-phone="1"] .player-home-page .player-poster-caption--phone {
     margin-top: 0.15rem;
+  }
+  /* Home poster names a size down from the card default. */
+  html[data-phone="1"] .player-home-page .player-poster-caption--phone > div:first-child {
+    font-size: 0.8rem;
+  }
+  html[data-phone="1"] .player-home-page .player-poster-caption--phone > div + div {
+    font-size: 0.72rem;
   }
   html[data-phone="1"] .player-home-page [data-tv-row="1"] .player-rail-landscape {
     width: min(48vw, 12rem) !important;

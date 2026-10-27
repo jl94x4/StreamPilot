@@ -5611,10 +5611,34 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
         const { server, path: hubPath } = splitLibraryKey(String(query.get('path') || ''));
         if (!server || !hubPath) return { title: query.get('title') || '', items: [] };
         const identifier = String(query.get('identifier') || query.get('id') || '');
+        const hubTitle = String(query.get('title') || '');
+        // "Recently Added in …": the row's key carries its own row size (36) and can be a
+        // /library/sections/N/all list without type=, which pms() refuses, so the page came
+        // up empty. Load the library's own recently-added list, grouped as Home does.
+        if (isRecentListHub({ hubIdentifier: identifier, title: hubTitle } as PlexMeta, hubPath)) {
+            let sectionId = recentSectionIdFromPath(hubPath);
+            if (!sectionId) {
+                const sections = mapSections(await withMapServer(server, () => pms('/library/sections', server)).catch(() => null));
+                sectionId = sectionIdFromRecentTitle(hubTitle, sections);
+            }
+            if (sectionId) {
+                const data = await withMapServer(server, () => pms(
+                    `/library/sections/${encodeURIComponent(sectionId)}/recentlyAdded?X-Plex-Container-Start=0&X-Plex-Container-Size=${RECENT_PAGE_SIZE}`,
+                    server,
+                    15000,
+                )).catch(() => null);
+                const recent = collapseRecentShows(mapList(data), identifier, hubTitle);
+                if (recent.length) return { title: hubTitle, items: recent };
+            }
+        }
         const random = isRandomOrderSource(hubPath) || isRandomOrderSource({ hubIdentifier: identifier, key: hubPath });
         const fetchPath = random ? withPlexSortParam(hubPath, 'random') : hubPath;
         const pageSize = /recentlyadded/i.test(fetchPath) ? 500 : 80;
-        const data = await withMapServer(server, () => pms(`${fetchPath}${fetchPath.includes('?') ? '&' : '?'}X-Plex-Container-Size=${pageSize}`, server));
+        // The stored key may already carry the Home row's size: replace it, don't add a second one.
+        const listUrl = new URL(fetchPath, 'http://plex.local');
+        listUrl.searchParams.delete('count');
+        listUrl.searchParams.set('X-Plex-Container-Size', String(pageSize));
+        const data = await withMapServer(server, () => pms(`${listUrl.pathname}${listUrl.search}`, server));
         const items = mapList(data);
         return { title: query.get('title') || '', items: random && items.length > 1 ? shuffleItems(items) : items };
     }

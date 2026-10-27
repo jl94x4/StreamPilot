@@ -1787,6 +1787,14 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                                 options={dateFormatOptions}
                             />
                         </div>
+                        {phoneUi ? (
+                            <SettingsToggleRow
+                                title={t('mediaPlayerPage.detailsArtworkTint')}
+                                description={t('mediaPlayerPage.detailsArtworkTintHint')}
+                                checked={settings.detailsArtworkTint}
+                                onChange={(checked) => updateSettings({ detailsArtworkTint: checked })}
+                            />
+                        ) : null}
                         <SettingsToggleRow
                             title={t('mediaPlayerPage.clock24Hour')}
                             description={t('mediaPlayerPage.clock24HourHint')}

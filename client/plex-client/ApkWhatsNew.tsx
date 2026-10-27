@@ -73,6 +73,17 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.444': [
+        {
+            title: 'Phone',
+            items: [
+                'Opening a Recently Added row shows its titles instead of "This library is empty"',
+                'The title page button says Watch, in the same font as the TV app',
+                'Poster names on Home are a little smaller',
+                'Match page colour to artwork can be switched on or off in Settings',
+            ],
+        },
+    ],
     '1.0.443': [
         {
             title: 'Phone',

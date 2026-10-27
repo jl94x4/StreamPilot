@@ -1628,7 +1628,9 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         // A colour sampled on an earlier visit paints now; the floor only when there is none.
         // Full details for the title already on screen keep its colour until re-sampled,
         // instead of flashing back to the floor.
-        const knownSurface = (tvTint || !isTvShell) ? peekSurfaceColor(url || posterSampleUrl) : null;
+        // Phones follow the same "Match page colour to artwork" setting (off = plain page).
+        const phoneTintOff = phoneUi && !settings.detailsArtworkTint;
+        const knownSurface = (tvTint || (!isTvShell && !phoneTintOff)) ? peekSurfaceColor(url || posterSampleUrl) : null;
         const sameTitle = surfaceTitleRef.current === String(item.ratingKey);
         surfaceTitleRef.current = String(item.ratingKey);
         if (handoffSurface) {
@@ -1667,6 +1669,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         const sampleWhenFramed = (position: string) => {
             // TV with the artwork tint off stays on the black floor: nothing to sample.
             if (isTvShell && (!tvTint || handoffSurface)) return;
+            if (phoneTintOff) return;
             let tries = 16;
             const tick = () => {
                 if (cancelled) return;
@@ -1724,7 +1727,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             node.querySelector('.media-details-hero-backdrop')?.classList.add('is-framed');
         }
         const tvTint = isTvShell && settings.detailsArtworkTint && (item.type === 'movie' || item.type === 'show');
-        const known = (tvTint || !isTvShell)
+        const known = (tvTint || (!isTvShell && !(phoneUi && !settings.detailsArtworkTint)))
             ? peekSurfaceColor(artUrl || plexImageUrl(item.thumb, 160, 240, { quality: 40 }))
             : null;
         if (handoffSurface) applyTvDetailsSurface(handoffSurface, true);
@@ -1936,7 +1939,8 @@ export const MediaPlayerDetails: React.FC<Props> = ({
     const watchedLeaves = Number(item.viewedLeafCount || 0);
     const totalLeaves = Number(item.leafCount || 0);
     const showFullyWatched = item.watched || (totalLeaves > 0 && watchedLeaves >= totalLeaves);
-    const startLabel = isTvShell && !musicItem ? t('mediaPlayerPage.watch') : t('mediaPlayerPage.play');
+    // Phones say Watch too, matching the TV app.
+    const startLabel = (isTvShell || phoneUi) && !musicItem ? t('mediaPlayerPage.watch') : t('mediaPlayerPage.play');
     const playLabel = isTvShell && (item.type === 'episode' || item.type === 'season')
         ? (shouldOfferResume(applyRememberedProgress(tvHubPlayTarget()))
             ? t('mediaPlayerPage.resume')
