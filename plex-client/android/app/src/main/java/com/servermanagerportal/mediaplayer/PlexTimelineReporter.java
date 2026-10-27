@@ -36,6 +36,8 @@ final class PlexTimelineReporter {
     private final String userAgent;
     private long lastPingElapsedMs;
     private String lastState = "";
+    /** Furthest position PMS answered 2xx for; it marks watched itself once this passes its threshold. */
+    private volatile long confirmedPositionMs = -1L;
 
     PlexTimelineReporter(String userAgent) {
         this.userAgent = userAgent;
@@ -120,6 +122,14 @@ final class PlexTimelineReporter {
         lastPingElapsedMs = nowElapsedMs;
         lastState = state;
         return true;
+    }
+
+    void notePositionConfirmed(long positionMs) {
+        if (positionMs > confirmedPositionMs) confirmedPositionMs = positionMs;
+    }
+
+    long confirmedPositionMs() {
+        return confirmedPositionMs;
     }
 
     /**
@@ -230,8 +240,8 @@ final class PlexTimelineReporter {
         }
     }
 
-    /** Blocking; call off the main thread. */
-    void httpPing(String url, @Nullable String body, String method) {
+    /** Blocking; call off the main thread. True on a 2xx answer. */
+    boolean httpPing(String url, @Nullable String body, String method) {
         HttpURLConnection conn = null;
         try {
             conn = (HttpURLConnection) new URL(url).openConnection();
@@ -268,9 +278,11 @@ final class PlexTimelineReporter {
                     out.write(bytes);
                 }
             }
-            conn.getResponseCode();
+            int code = conn.getResponseCode();
+            return code >= 200 && code < 300;
         } catch (Throwable e) {
             Log.w(TAG, "Plex timeline ping failed", e);
+            return false;
         } finally {
             if (conn != null) conn.disconnect();
         }

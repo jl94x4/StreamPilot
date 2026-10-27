@@ -97,6 +97,50 @@ final class TrackRules {
         return codecs.isEmpty() ? mime.replace("audio/", "") : codecs.split("[.,\\s]")[0];
     }
 
+    /** OSD pill for the audio being decoded or passed through: AC3, EAC3 Atmos, TrueHD, DTS-HD … */
+    static String audioCodecBadge(@Nullable Format format) {
+        if (format == null) return "";
+        String mime = format.sampleMimeType == null ? "" : format.sampleMimeType.toLowerCase(Locale.US);
+        String codecs = format.codecs == null ? "" : format.codecs.toLowerCase(Locale.US);
+        String codec = formatAudioCodec(format);
+        switch (codec) {
+            case "truehd": return "TrueHD";
+            case "eac3": return mime.contains("joc") || codecs.contains("joc") ? "EAC3 Atmos" : "EAC3";
+            case "ac3": return "AC3";
+            case "dts":
+                if (mime.contains("dts.uhd")) return "DTS:X";
+                return mime.contains("dts.hd") ? "DTS-HD" : "DTS";
+            case "flac": return "FLAC";
+            case "opus": return "Opus";
+            case "aac": return "AAC";
+            case "mp3": return "MP3";
+            default:
+                if (mime.contains("raw") || mime.contains("pcm")) return "PCM";
+                return codec.toUpperCase(Locale.US);
+        }
+    }
+
+    /** OSD pill for the video being decoded: HEVC, H264, AV1, VP9, DV HEVC … */
+    static String videoCodecBadge(@Nullable Format format) {
+        if (format == null) return "";
+        String mime = format.sampleMimeType == null ? "" : format.sampleMimeType.toLowerCase(Locale.US);
+        String codecs = format.codecs == null ? "" : format.codecs.toLowerCase(Locale.US);
+        if (mime.contains("dolby-vision")) {
+            if (codecs.startsWith("dav1")) return "DV AV1";
+            if (codecs.startsWith("dvav") || codecs.startsWith("dva1")) return "DV H264";
+            return "DV HEVC";
+        }
+        if (mime.contains("hevc")) return "HEVC";
+        if (mime.contains("avc")) return "H264";
+        if (mime.contains("av01")) return "AV1";
+        if (mime.contains("vp9")) return "VP9";
+        if (mime.contains("vp8")) return "VP8";
+        if (mime.contains("mpeg2")) return "MPEG2";
+        if (mime.contains("mp4v")) return "MPEG4";
+        if (mime.contains("vc1") || mime.contains("wvc1")) return "VC1";
+        return mime.startsWith("video/") ? mime.substring(6).toUpperCase(Locale.US) : "";
+    }
+
     static boolean audioCodecMatches(String formatCodec, String wantCodec) {
         String a = (formatCodec == null ? "" : formatCodec).toLowerCase(Locale.US);
         String b = (wantCodec == null ? "" : wantCodec).toLowerCase(Locale.US)

@@ -120,6 +120,21 @@ public class TrackRulesTest {
         assertEquals("", TrackRules.trackLangKey("   "));
     }
 
+    @Test
+    public void codecBadgesNameWhatIsPlaying() {
+        assertEquals("EAC3", TrackRules.audioCodecBadge(audio(MimeTypes.AUDIO_E_AC3, null)));
+        assertEquals("EAC3 Atmos", TrackRules.audioCodecBadge(audio(MimeTypes.AUDIO_E_AC3_JOC, null)));
+        assertEquals("TrueHD", TrackRules.audioCodecBadge(audio(MimeTypes.AUDIO_TRUEHD, null)));
+        assertEquals("DTS-HD", TrackRules.audioCodecBadge(audio(MimeTypes.AUDIO_DTS_HD, null)));
+        assertEquals("AAC", TrackRules.audioCodecBadge(audio(MimeTypes.AUDIO_AAC, "mp4a.40.2")));
+        assertEquals("", TrackRules.audioCodecBadge(null));
+        assertEquals("HEVC", TrackRules.videoCodecBadge(audio(MimeTypes.VIDEO_H265, null)));
+        assertEquals("H264", TrackRules.videoCodecBadge(audio(MimeTypes.VIDEO_H264, null)));
+        assertEquals("AV1", TrackRules.videoCodecBadge(audio(MimeTypes.VIDEO_AV1, null)));
+        assertEquals("DV HEVC", TrackRules.videoCodecBadge(audio(MimeTypes.VIDEO_DOLBY_VISION, "dvhe.08.06")));
+        assertEquals("", TrackRules.videoCodecBadge(null));
+    }
+
     private static Format audio(String mime, String codecs) {
         return new Format.Builder().setSampleMimeType(mime).setCodecs(codecs).build();
     }

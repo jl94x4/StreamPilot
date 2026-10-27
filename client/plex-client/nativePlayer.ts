@@ -151,6 +151,8 @@ export type NativePlayerCloseResult = {
     nextRatingKey?: string;
     playPrevious?: boolean;
     previousRatingKey?: string;
+    /** The native player marked it watched (or PMS already had): do not scrobble again. */
+    watchedHandled?: boolean;
 };
 
 export type NativePlayerProgressEvent = {
@@ -263,6 +265,7 @@ export const installNativeMediaPlayerBridge = () => {
                     nextRatingKey: result?.nextRatingKey ? String(result.nextRatingKey) : undefined,
                     playPrevious: !!result?.playPrevious,
                     previousRatingKey: result?.previousRatingKey ? String(result.previousRatingKey) : undefined,
+                    watchedHandled: !!result?.watchedHandled,
                 };
             },
             updateSrc: async (opts) => {
@@ -468,6 +471,7 @@ const attachTransientListeners = async (opts: NativePlayerOpenOptions) => {
                 nextRatingKey: data.nextRatingKey ? String(data.nextRatingKey) : undefined,
                 playPrevious: !!data.playPrevious,
                 previousRatingKey: data.previousRatingKey ? String(data.previousRatingKey) : undefined,
+                watchedHandled: !!data.watchedHandled,
             });
         });
     }

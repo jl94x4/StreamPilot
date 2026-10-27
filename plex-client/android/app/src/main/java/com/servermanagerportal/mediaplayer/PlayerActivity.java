@@ -132,6 +132,7 @@ public class PlayerActivity extends AppCompatActivity {
     public static final String EXTRA_PLAY_NEXT = "playNext";
     public static final String EXTRA_NEXT_RATING_KEY = "nextRatingKey";
     public static final String EXTRA_PLAY_PREVIOUS = "playPrevious";
+    public static final String EXTRA_WATCHED_HANDLED = "watchedHandled";
     public static final String EXTRA_PREVIOUS_RATING_KEY = "previousRatingKey";
 
     private ExoPlayer player;
@@ -167,6 +168,8 @@ public class PlayerActivity extends AppCompatActivity {
     private TextView modeChipView;
     private TextView resolutionChipView;
     private TextView subtitleChipView;
+    private TextView videoCodecChipView;
+    private TextView audioCodecChipView;
     private TextView bufferLabelView;
     private boolean statsVisible;
     private TextView clockView;
@@ -1008,6 +1011,8 @@ public class PlayerActivity extends AppCompatActivity {
         modeChipView = findViewById(R.id.player_mode_chip);
         resolutionChipView = findViewById(R.id.player_resolution_chip);
         subtitleChipView = findViewById(R.id.player_subtitle_chip);
+        videoCodecChipView = findViewById(R.id.player_video_codec_chip);
+        audioCodecChipView = findViewById(R.id.player_audio_codec_chip);
         bufferLabelView = findViewById(R.id.player_buffer_label);
         statsView = findViewById(R.id.player_stats);
         clockView = findViewById(R.id.player_clock);
@@ -1354,6 +1359,7 @@ public class PlayerActivity extends AppCompatActivity {
             @Override
             public void onVideoSizeChanged(VideoSize videoSize) {
                 updateResolutionChip();
+                updateCodecChips();
                 updateSubtitleChip();
             }
 
@@ -1370,6 +1376,9 @@ public class PlayerActivity extends AppCompatActivity {
                 if (!hasVideo && hasAudio) {
                     toast("Audio only — this file may need a transcode for this TV");
                 }
+                // Selected tracks set the codec pills (an audio switch changes one).
+                updateCodecChips();
+                updateSubtitleChip();
                 if (PlaybackUrls.isDirectPlayUrl(currentUrl)) {
                     applyAudioTrackPreference();
                     applyTextTrackPreference();
@@ -4387,14 +4396,33 @@ public class PlayerActivity extends AppCompatActivity {
         });
     }
 
-    private void scrobbleWatched() {
+    /**
+     * PMS marks a title watched by itself once a timeline it accepted passes its threshold
+     * (90% or the credits, the same rule as {@link #shouldMarkWatched}). Scrobbling on top
+     * of that counted every finished episode as two or three plays.
+     */
+    private boolean serverMarkedWatched() {
+        long durationMs;
+        try {
+            durationMs = contentDurationMs();
+        } catch (Throwable ignored) {
+            durationMs = Math.max(0L, durationHintMs);
+        }
+        long confirmed = timelineReporter.confirmedPositionMs();
+        return confirmed >= 0L && PlexTimelineReporter.isWatchedPosition(confirmed, durationMs, creditsStartMs);
+    }
+
+    /** True when the scrobble was queued. */
+    private boolean scrobbleWatched() {
         absorbTimelineFromUrl(currentUrl);
         try {
             final String pingUrl = timelineReporter.buildScrobbleUrl(ratingKey);
-            if (pingUrl == null) return;
+            if (pingUrl == null) return false;
             queueTimelinePing(() -> timelineReporter.httpPing(pingUrl, null, "GET"), false);
+            return true;
         } catch (Throwable e) {
             Log.w(TAG, "Plex scrobble skipped", e);
+            return false;
         }
     }
 
@@ -4426,7 +4454,10 @@ public class PlayerActivity extends AppCompatActivity {
             final String pingUrl = timelineReporter.buildPmsTimelineUrl(
                 ratingKey, pingState, pingPosition, pingDuration, musicMode, audioStreamId, subtitleStreamId);
             if (pingUrl != null) {
-                queueTimelinePing(() -> timelineReporter.httpPing(pingUrl, null, "GET"), routine);
+                queueTimelinePing(() -> {
+                    boolean ok = timelineReporter.httpPing(pingUrl, null, "GET");
+                    if (ok && routine) timelineReporter.notePositionConfirmed(pingPosition);
+                }, routine);
                 return;
             }
         }
@@ -4691,6 +4722,7 @@ public class PlayerActivity extends AppCompatActivity {
         if (musicMode) {
             modeChipView.setVisibility(View.GONE);
             updateResolutionChip();
+            updateCodecChips();
             updateSubtitleChip();
             return;
         }
@@ -4698,6 +4730,7 @@ public class PlayerActivity extends AppCompatActivity {
         if (label == null || label.trim().isEmpty()) {
             modeChipView.setVisibility(View.GONE);
             updateResolutionChip();
+            updateCodecChips();
             updateSubtitleChip();
             return;
         }
@@ -4707,6 +4740,7 @@ public class PlayerActivity extends AppCompatActivity {
         modeChipView.setVisibility(View.VISIBLE);
         modeChipView.setContentDescription(quality.isEmpty() ? label : (label + " · " + quality));
         updateResolutionChip();
+        updateCodecChips();
         updateSubtitleChip();
     }
 
@@ -4724,11 +4758,45 @@ public class PlayerActivity extends AppCompatActivity {
         setChipStartMargin(resolutionChipView, modeShown);
     }
 
-    /** Badge beside resolution: SRT / PGS / … for the subtitle currently in use. Hidden when Off. */
+    /** Badges after resolution: the video and audio codecs actually playing (HEVC, EAC3 …). */
+    private void updateCodecChips() {
+        Format video = musicMode || player == null ? null : player.getVideoFormat();
+        Format audio = musicMode || player == null ? null : player.getAudioFormat();
+        setChip(videoCodecChipView, TrackRules.videoCodecBadge(video),
+            chipShown(modeChipView) || chipShown(resolutionChipView));
+        String audioLabel = TrackRules.audioCodecBadge(audio);
+        if (audioLabel.isEmpty() && !musicMode) {
+            // No decoder for it here (or not selected yet): name the Plex track we asked for.
+            OptionItem row = findAudioOption(audioStreamId);
+            if (row != null && row.codec != null && !row.codec.isEmpty()) {
+                audioLabel = TrackRules.audioCodecBadge(new Format.Builder().setCodecs(row.codec).build());
+            }
+        }
+        setChip(audioCodecChipView, audioLabel,
+            chipShown(modeChipView) || chipShown(resolutionChipView) || chipShown(videoCodecChipView));
+    }
+
+    private void setChip(@Nullable TextView chip, String label, boolean afterPrevious) {
+        if (chip == null) return;
+        if (label == null || label.isEmpty()) {
+            chip.setVisibility(View.GONE);
+            return;
+        }
+        chip.setText(label);
+        chip.setVisibility(View.VISIBLE);
+        setChipStartMargin(chip, afterPrevious);
+    }
+
+    private static boolean chipShown(@Nullable View chip) {
+        return chip != null && chip.getVisibility() == View.VISIBLE;
+    }
+
+    /** Badge after the codecs: SRT / PGS / … for the subtitle currently in use. Hidden when Off. */
     private void updateSubtitleChip() {
         if (subtitleChipView == null) return;
-        boolean modeShown = modeChipView != null && modeChipView.getVisibility() == View.VISIBLE;
-        boolean resolutionShown = resolutionChipView != null && resolutionChipView.getVisibility() == View.VISIBLE;
+        boolean modeShown = chipShown(modeChipView);
+        boolean resolutionShown = chipShown(resolutionChipView)
+            || chipShown(videoCodecChipView) || chipShown(audioCodecChipView);
         String label = musicMode ? "" : currentSubtitleFormatBadge();
         if (label.isEmpty()) {
             subtitleChipView.setVisibility(View.GONE);
@@ -5298,8 +5366,12 @@ public class PlayerActivity extends AppCompatActivity {
         boolean endedOut = ended || playbackEnded;
         boolean errorOut = playbackError && !ended && !playbackEnded;
 
+        boolean markWatched = shouldMarkWatched(positionMs, endedOut);
+        // Mark watched once: PMS already did if it accepted a timeline past the threshold.
+        boolean watchedHandled = markWatched && (serverMarkedWatched() || scrobbleWatched());
         JSObject closed = new JSObject();
         closed.put("ended", endedOut);
+        closed.put("watchedHandled", watchedHandled);
         closed.put("positionMs", positionMs);
         closed.put("error", errorOut);
         closed.put("playNext", playNext);
@@ -5313,8 +5385,7 @@ public class PlayerActivity extends AppCompatActivity {
         PlayerBridge.get().setPlayerForeground(false);
         PlayerBridge.get().keepHostWebViewAlive();
         PlayerBridge.get().emit("closed", closed);
-        if (shouldMarkWatched(positionMs, endedOut)) {
-            scrobbleWatched();
+        if (markWatched) {
             pingPlexTimeline("stopped", 0L);
         } else {
             pingPlexTimeline("stopped");
@@ -5343,6 +5414,7 @@ public class PlayerActivity extends AppCompatActivity {
         if (playPrevious && previousRatingKey != null) {
             data.putExtra(EXTRA_PREVIOUS_RATING_KEY, previousRatingKey);
         }
+        data.putExtra(EXTRA_WATCHED_HANDLED, watchedHandled);
         setResult(RESULT_OK, data);
 
         // Always bring the WebView host forward before teardown — including

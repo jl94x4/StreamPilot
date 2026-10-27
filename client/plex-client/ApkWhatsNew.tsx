@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.440': [
+        {
+            title: 'Playback',
+            items: [
+                'Finishing an episode or movie counts as one play on your server, not three',
+                'The player bar shows the video and audio codec (for example HEVC and EAC3) after the resolution',
+            ],
+        },
+    ],
     '1.0.439': [
         {
             title: 'Playback',

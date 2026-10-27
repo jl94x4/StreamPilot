@@ -452,7 +452,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
     const sendTimelineRef = useRef<(
         state: 'playing' | 'paused' | 'buffering' | 'stopped',
         timeMs?: number,
-        extra?: { ended?: boolean },
+        extra?: { ended?: boolean; watchedHandled?: boolean },
     ) => void>(() => {});
     const onPlayItemRef = useRef(onPlayItem);
     const onConsumePlayNextRef = useRef(onConsumePlayNext);
@@ -1073,7 +1073,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                     ended: !!result?.ended,
                     item: session.item,
                 });
-                sendStopped('stopped', reportMs, { ended: !!result?.ended });
+                sendStopped('stopped', reportMs, { ended: !!result?.ended, watchedHandled: !!result?.watchedHandled });
                 if (!willChain) return;
                 const chainKey = willPlayPrevious ? previousKey : nextKey;
                 const known = willPlayPrevious
@@ -1968,7 +1968,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
         const send = (
             state: 'playing' | 'paused' | 'buffering' | 'stopped',
             timeOverride?: number,
-            extra?: { ended?: boolean },
+            extra?: { ended?: boolean; watchedHandled?: boolean },
         ) => {
             // Rebuild owns stop/start — don't revive the old session mid-swap.
             if (state !== 'stopped' && streamRebuildInFlightRef.current) return;
@@ -2012,7 +2012,8 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                     ended: extra?.ended === true,
                     creditsStartMs: Number.isFinite(creditsStartMs) && creditsStartMs > 0 ? creditsStartMs : null,
                 });
-                if (finished) {
+                // Native already marked it watched (or PMS did): a second scrobble adds a play.
+                if (finished && !extra?.watchedHandled) {
                     void setMediaPlayerWatched(ratingKey, true, session.item, { skipNote: true });
                 }
                 void stopPlaybackSession(sessionId, session.item.serverId, ratingKey);

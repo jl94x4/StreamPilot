@@ -259,6 +259,7 @@ public class NativeMediaPlayerPlugin extends Plugin {
         boolean error = data != null && data.getBooleanExtra(PlayerActivity.EXTRA_ERROR, false);
         boolean playNext = data != null && data.getBooleanExtra(PlayerActivity.EXTRA_PLAY_NEXT, false);
         boolean playPrevious = data != null && data.getBooleanExtra(PlayerActivity.EXTRA_PLAY_PREVIOUS, false);
+        boolean watchedHandled = data != null && data.getBooleanExtra(PlayerActivity.EXTRA_WATCHED_HANDLED, false);
         long positionMs = data != null ? data.getLongExtra(PlayerActivity.EXTRA_POSITION_MS, 0L) : 0L;
         String nextRatingKey = data != null ? data.getStringExtra(PlayerActivity.EXTRA_NEXT_RATING_KEY) : null;
         String previousRatingKey = data != null ? data.getStringExtra(PlayerActivity.EXTRA_PREVIOUS_RATING_KEY) : null;
@@ -275,6 +276,7 @@ public class NativeMediaPlayerPlugin extends Plugin {
         if (previousRatingKey != null && !previousRatingKey.isEmpty()) {
             ret.put("previousRatingKey", previousRatingKey);
         }
+        ret.put("watchedHandled", watchedHandled);
         call.resolve(ret);
     }
 }
