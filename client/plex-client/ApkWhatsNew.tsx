@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.442': [
+        {
+            title: 'Playback',
+            items: [
+                'Updated the video player engine (Media3 1.11) for the latest playback fixes and format support',
+            ],
+        },
+    ],
     '1.0.441': [
         {
             title: 'Playback',
