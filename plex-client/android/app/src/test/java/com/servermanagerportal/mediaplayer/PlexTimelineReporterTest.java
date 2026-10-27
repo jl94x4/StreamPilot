@@ -81,8 +81,13 @@ public class PlexTimelineReporterTest {
         assertTrue(r.shouldPing("playing", 15_000));
         assertTrue(r.shouldPing("buffering", 15_500));
         assertTrue(r.shouldPing("paused", 15_600));
-        assertTrue(r.shouldPing("paused", 15_700));
-        assertTrue(r.shouldPing("stopped", 15_800));
+        // Still paused: throttled like playing, not once per 1s tick.
+        assertFalse(r.shouldPing("paused", 16_600));
+        assertFalse(r.shouldPing("paused", 20_000));
+        assertTrue(r.shouldPing("paused", 20_600));
+        assertTrue(r.shouldPing("playing", 20_700));
+        assertTrue(r.shouldPing("stopped", 20_800));
+        assertTrue(r.shouldPing("stopped", 20_900));
     }
 
     @Test

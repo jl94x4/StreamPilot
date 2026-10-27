@@ -90,6 +90,11 @@ final class PlayerKeyHandler {
     private final Host host;
     /** Swallow the key-up that ends a long press. */
     private boolean confirmLongPress;
+    /**
+     * OK / play-pause went down in this player. The press on Watch that opens the player
+     * goes down in the browse screen and can release here; that release must not pause.
+     */
+    private boolean confirmDownSeen;
 
     PlayerKeyHandler(Host host) {
         this.host = host;
@@ -117,6 +122,7 @@ final class PlayerKeyHandler {
         if ((confirm || mediaToggle)
             && event.getAction() == KeyEvent.ACTION_DOWN
             && event.getRepeatCount() == 0) {
+            confirmDownSeen = true;
             event.startTracking();
         }
         if (event.getAction() == KeyEvent.ACTION_DOWN && host.isStatsKey(keyCode)) {
@@ -302,6 +308,8 @@ final class PlayerKeyHandler {
         boolean mediaToggle = keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE;
         boolean confirm = isConfirm(keyCode);
         if (confirm || mediaToggle) {
+            boolean downSeen = confirmDownSeen;
+            confirmDownSeen = false;
             if (confirmLongPress) {
                 confirmLongPress = false;
                 return Result.HANDLED;
@@ -315,6 +323,7 @@ final class PlayerKeyHandler {
                 }
             }
             if (!host.isPlaybackConfirmTarget()) return Result.SUPER;
+            if (!downSeen) return Result.HANDLED;
             if (!host.chromeVisible() && confirm && host.trySkipFromRemote()) return Result.HANDLED;
             host.togglePlayPause();
             return Result.HANDLED;

@@ -88,6 +88,13 @@ public class PlayerKeyHandlerTest {
         return keys.onKeyDown(keyCode, down(keyCode));
     }
 
+    /** Key-down the way PlayerActivity delivers it: dispatchKeyEvent first, then onKeyDown. */
+    private PlayerKeyHandler.Result pressInPlayer(int keyCode) {
+        KeyEvent event = down(keyCode);
+        PlayerKeyHandler.Result result = keys.dispatchKeyEvent(event);
+        return result == PlayerKeyHandler.Result.SUPER ? keys.onKeyDown(keyCode, event) : result;
+    }
+
     @Test
     public void backClosesTheOpenMenuFirst() {
         host.menuOpen = true;
@@ -134,15 +141,27 @@ public class PlayerKeyHandlerTest {
 
     @Test
     public void okTogglesPlaybackOnKeyUpNotDown() {
-        assertEquals(PlayerKeyHandler.Result.HANDLED, press(KeyEvent.KEYCODE_DPAD_CENTER));
+        assertEquals(PlayerKeyHandler.Result.HANDLED, pressInPlayer(KeyEvent.KEYCODE_DPAD_CENTER));
         assertEquals(List.of(), host.calls);
         assertEquals(PlayerKeyHandler.Result.HANDLED, keys.onKeyUp(KeyEvent.KEYCODE_DPAD_CENTER));
         assertEquals(List.of("trySkip", "toggle"), host.calls);
     }
 
     @Test
+    public void okReleaseFromThePressThatOpenedThePlayerDoesNotPause() {
+        // Watch was pressed on the browse screen; only its key-up reaches the player.
+        assertEquals(PlayerKeyHandler.Result.HANDLED, keys.onKeyUp(KeyEvent.KEYCODE_DPAD_CENTER));
+        assertEquals(List.of(), host.calls);
+        // The next full press is a normal one.
+        pressInPlayer(KeyEvent.KEYCODE_DPAD_CENTER);
+        keys.onKeyUp(KeyEvent.KEYCODE_DPAD_CENTER);
+        assertEquals(List.of("trySkip", "toggle"), host.calls);
+    }
+
+    @Test
     public void okOnASkipChipSkipsInsteadOfPausing() {
         host.skipChip = true;
+        pressInPlayer(KeyEvent.KEYCODE_ENTER);
         keys.onKeyUp(KeyEvent.KEYCODE_ENTER);
         assertEquals(List.of("trySkip"), host.calls);
     }
@@ -153,6 +172,7 @@ public class PlayerKeyHandlerTest {
         assertEquals(PlayerKeyHandler.Result.HANDLED, keys.onKeyUp(KeyEvent.KEYCODE_DPAD_CENTER));
         assertEquals(List.of("toggleStats"), host.calls);
         // The next press is a normal one again.
+        pressInPlayer(KeyEvent.KEYCODE_DPAD_CENTER);
         keys.onKeyUp(KeyEvent.KEYCODE_DPAD_CENTER);
         assertEquals(List.of("toggleStats", "trySkip", "toggle"), host.calls);
         assertEquals(PlayerKeyHandler.Result.SUPER, keys.onKeyLongPress(KeyEvent.KEYCODE_DPAD_LEFT));

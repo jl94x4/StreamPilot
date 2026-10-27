@@ -954,6 +954,9 @@ public class PlayerActivity extends AppCompatActivity {
                 applyTextTrackPreference();
                 if (avChanged) notifyTracksOnlyChange();
             }
+            // A second start (new source, retry) must not add a second 1s loop beside the first.
+            mainHandler.removeCallbacks(tickRunnable);
+            mainHandler.removeCallbacks(progressEmitRunnable);
             mainHandler.post(tickRunnable);
             mainHandler.postDelayed(progressEmitRunnable, 5000);
             updatePipVisibility();

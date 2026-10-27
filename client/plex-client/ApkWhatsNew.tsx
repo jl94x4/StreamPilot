@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.437': [
+        {
+            title: 'Playback',
+            items: [
+                'Playback no longer starts paused when the OK press that opened the player is released inside it',
+                'A paused player stops sending your server a progress update every second, which could slow or stall busy servers',
+            ],
+        },
+    ],
     '1.0.436': [
         {
             title: 'Playback',

@@ -1247,8 +1247,11 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                         const state = event.state === 'paused' || event.state === 'buffering'
                             ? event.state
                             : 'playing';
+                        // Native progress arrives every second; send only state changes here.
+                        // The 5s timer sends routine position (per-second sends flooded PMS).
+                        const changed = nativeTimelineStateRef.current !== state;
                         nativeTimelineStateRef.current = state;
-                        sendTimelineRef.current(state, event.positionMs);
+                        if (changed) sendTimelineRef.current(state, event.positionMs);
                         if (watchTogetherRef.current && !applyingRemoteRef.current) {
                             const buffering = event.state === 'buffering'
                                 && Date.now() >= wtRemoteSeekGuardUntilRef.current;

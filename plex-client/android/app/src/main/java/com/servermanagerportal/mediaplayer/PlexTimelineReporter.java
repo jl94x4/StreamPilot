@@ -110,9 +110,12 @@ final class PlexTimelineReporter {
         return state;
     }
 
-    /** At most one routine ping per 5s; pause, stop and state changes always go. */
+    /**
+     * At most one routine ping per 5s; stop and state changes always go. A paused player
+     * is routine too: the 1s UI tick asks every second, and sending each one flooded PMS.
+     */
     boolean shouldPing(String state, long nowElapsedMs) {
-        boolean important = "stopped".equals(state) || "paused".equals(state) || !state.equals(lastState);
+        boolean important = "stopped".equals(state) || !state.equals(lastState);
         if (!important && nowElapsedMs - lastPingElapsedMs < 5_000) return false;
         lastPingElapsedMs = nowElapsedMs;
         lastState = state;
