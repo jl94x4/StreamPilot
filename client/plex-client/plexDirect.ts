@@ -4264,6 +4264,16 @@ const loadRecentFallbackHubs = async (server: PlexServer, many: boolean, section
 /** Fast-path pin rows. A full home always re-reads Plex so coming back shows the current pins. */
 const homePinCache = new Map<string, { at: number; hubs: Awaited<ReturnType<typeof pinnedHubs>> }>();
 
+// Playback ended or a title was marked (watched / removed). The native player reports
+// straight to PMS, so nothing else here clears the cached Home, and Continue Watching
+// stayed as it was during playback until the app was relaunched.
+if (typeof window !== 'undefined') {
+    window.addEventListener('smp-playback-progress', () => {
+        clearPlayerGetCache();
+        homePinCache.clear();
+    });
+}
+
 /** Library item types Home shows: movie, show, season, episode. */
 const LIVE_LIBRARY_TYPES = new Set([1, 2, 3, 4]);
 /** Plex timeline states: 5 = finished processing (added / refreshed), 9 = deleted. */

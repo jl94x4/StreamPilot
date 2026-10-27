@@ -102,19 +102,27 @@ export const fetchMediaPlayerMe = () => {
 };
 
 let homeInflight: Promise<PlayerHome> | null = null;
+let homeInflightAt = 0;
 let homeFullInflight: Promise<PlayerHome> | null = null;
 
-export const fetchMediaPlayerHome = () => {
-    if (homeInflight) return homeInflight;
-    homeInflight = (apiFetch(`${PLAYER_API_ROOT}/home`) as Promise<PlayerHome>)
+/**
+ * fresh: do not join a request that started a while ago. One begun during playback
+ * (a live update) otherwise answered the refresh on the way back to Home with
+ * Continue Watching as it was mid-episode.
+ */
+export const fetchMediaPlayerHome = (opts: { fresh?: boolean } = {}) => {
+    if (homeInflight && !(opts.fresh && Date.now() - homeInflightAt > 1500)) return homeInflight;
+    homeInflightAt = Date.now();
+    const request = (apiFetch(`${PLAYER_API_ROOT}/home`) as Promise<PlayerHome>)
         .then((data) => {
             if (!data?.partial) writePlayerHomeCache(data);
             return data;
         })
         .finally(() => {
-            homeInflight = null;
+            if (homeInflight === request) homeInflight = null;
         });
-    return homeInflight;
+    homeInflight = request;
+    return request;
 };
 
 /** Second pass for direct mode: Plex hubs, after the fast rows are already on screen. */

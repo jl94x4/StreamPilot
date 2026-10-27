@@ -817,7 +817,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 setLoading(false);
                 return next;
             };
-            return fetchMediaPlayerHome()
+            return fetchMediaPlayerHome({ fresh: !!opts?.force })
                 .then((data) => paintFast(data) || data)
                 .catch(() => cachedHasRows ? cachedHome : null)
                 .then((base) => followFull(base || (cachedHasRows ? cachedHome : null)))
@@ -830,7 +830,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                     endHomeRowPriority();
                 });
         }
-        return fetchMediaPlayerHome()
+        return fetchMediaPlayerHome({ fresh: !!opts?.force })
             .then((data) => {
                 if (!current()) return undefined;
                 const cached = readPlayerHomeCache();
@@ -1931,11 +1931,21 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         };
     }, [tvSpotItem?.ratingKey, tvSpotItem?.serverId, tvStage]);
 
+    // After a stop / mark, re-read Home from Plex once PMS has taken it in, so Continue
+    // Watching shows the server's answer, not only the local patch below.
+    const progressRefreshRef = useRef<{ refresh: typeof refreshHome; active: boolean }>({ refresh: refreshHome, active });
+    progressRefreshRef.current = { refresh: refreshHome, active };
     useEffect(() => {
+        let refreshTimer = 0;
         const onProgress = (event: Event) => {
             const detail = (event as CustomEvent<{ ratingKey?: string; item?: PlayerItem; dropContinue?: boolean; watched?: boolean; continueWith?: PlayerItem | null; advanceContinue?: boolean; restoreContinue?: PlayerItem | null }>).detail;
             const key = String(detail?.ratingKey || '');
             if (!key) return;
+            window.clearTimeout(refreshTimer);
+            refreshTimer = window.setTimeout(() => {
+                const { refresh, active: homeActive } = progressRefreshRef.current;
+                if (homeActive) void refresh({ force: true, quietRetry: true });
+            }, 2500);
             const drop = detail?.dropContinue === true;
             const advance = detail?.advanceContinue === true;
             const restore = detail?.watched === false ? (detail.restoreContinue || null) : null;
@@ -1991,7 +2001,10 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             });
         };
         window.addEventListener(PLAYER_PROGRESS_EVENT, onProgress);
-        return () => window.removeEventListener(PLAYER_PROGRESS_EVENT, onProgress);
+        return () => {
+            window.clearTimeout(refreshTimer);
+            window.removeEventListener(PLAYER_PROGRESS_EVENT, onProgress);
+        };
     }, []);
 
     const patchWatched = useCallback((ratingKey: string, watched: boolean) => {
