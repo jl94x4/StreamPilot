@@ -36,6 +36,23 @@ type Props = {
 const LONG_PRESS_MS = 700;
 const LONG_PRESS_MOVE_PX = 12;
 
+/** Phone caption, as Plex mobile writes it: [name, "S1 • E1" | "rating • resolution" | year]. */
+const phoneCaptionLines = (item: PlayerItem): [string, string] => {
+    if (item.type === 'episode') {
+        const show = String(item.showTitle || '').trim();
+        const season = Number(item.parentIndex);
+        const episode = Number(item.index);
+        const code = episode > 0 ? (season > 0 ? `S${season} • E${episode}` : `E${episode}`) : '';
+        return [show || item.title, code || (show ? String(item.episodeTitle || '') : '')];
+    }
+    if (item.type === 'movie') {
+        const resolution = String(item.versions?.[0]?.resolution || '').toUpperCase();
+        const meta = [item.contentRating, resolution].filter(Boolean).join(' • ');
+        return [item.title, meta || (item.year ? String(item.year) : '')];
+    }
+    return [item.title, item.year ? String(item.year) : ''];
+};
+
 export const PlayerPosterCard = memo(function PlayerPosterCard({
     item,
     onOpenItem,
@@ -133,6 +150,7 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
         : posterItem;
     const heroLine = item.heroCard ? heroRowSubtitle(item) : '';
     const episodeCode = formatEpisodeCode(item);
+    const phoneLines = phoneUi && !item.heroCard ? phoneCaptionLines(item) : null;
     // Nested menu/play/watched controls inside the poster <button> break Android TV spatial nav.
     const menuAllowed = showMenu && item.type !== 'collection' && item.type !== 'artist' && item.type !== 'album' && item.type !== 'playlist' && item.type !== 'person';
     const menuEnabled = !isTvShell && menuAllowed;
@@ -321,6 +339,14 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
                             <div className={`${isTvShell ? 'text-sm' : 'text-[11px]'} mt-0.5 truncate text-muted`}>
                                 {heroLine}
                             </div>
+                        ) : null}
+                    </div>
+                ) : phoneLines ? (
+                    // Plex mobile: show or movie name, then "S1 • E1" or "gb/PG • 1080P".
+                    <div className="player-poster-caption player-poster-caption--phone px-0.5 text-left">
+                        <div className="truncate text-[0.9rem] font-medium leading-tight text-text">{phoneLines[0]}</div>
+                        {phoneLines[1] ? (
+                            <div className="mt-0.5 truncate text-[0.8rem] leading-tight text-muted">{phoneLines[1]}</div>
                         ) : null}
                     </div>
                 ) : (

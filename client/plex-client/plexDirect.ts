@@ -7340,18 +7340,22 @@ const wikiSentences = (text: string) => text
     .map((row) => row.trim())
     .filter((row) => row.length >= 40 && row.length <= 280);
 
-/** Trivia for the native player. Title search against Wikipedia — no portal TMDB key needed. */
-const WIKI_UA = 'SMP-Media-Player/1.0 (discovery-facts; +https://github.com)';
-
+/**
+ * Trivia for the native player. Title search against Wikipedia — no portal TMDB key needed.
+ * A plain GET (no custom User-Agent): some phone WebViews refuse that header or fail the
+ * CORS preflight it forces, which left "Did you know?" empty there. One retry on a network error.
+ */
 const wikiFetchJson = async (url: string) => {
-    const res = await fetch(url, {
-        headers: {
-            Accept: 'application/json',
-            'User-Agent': WIKI_UA,
-        },
-    });
-    if (!res.ok) return null;
-    return res.json().catch(() => null);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+            const res = await fetch(url, { headers: { Accept: 'application/json' } });
+            if (!res.ok) return null;
+            return await res.json().catch(() => null);
+        } catch {
+            if (attempt === 1) return null;
+        }
+    }
+    return null;
 };
 
 const loadDirectFacts = async (query: URLSearchParams) => {

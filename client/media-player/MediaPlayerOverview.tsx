@@ -718,8 +718,9 @@ export const OverviewFacts: React.FC<{
 
 export const OverviewLinks: React.FC<{ item: PlayerItem }> = ({ item }) => {
     const { t } = useDiscoverI18n();
-    // External browser links are useless on leanback — hide IMDb / TMDB / TVDB entirely.
+    // External browser links are useless on leanback, and phones match the TV app here.
     if (isTvShell()) return null;
+    if (typeof document !== 'undefined' && document.documentElement?.dataset?.phone === '1') return null;
     const ids = item.externalIds || { imdb: null, tmdb: item.tmdbId || null, tvdb: null };
     const tmdbType = item.type === 'movie' ? 'movie' : 'tv';
     const season = Number(item.parentIndex);

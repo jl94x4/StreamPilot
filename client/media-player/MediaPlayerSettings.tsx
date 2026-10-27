@@ -29,6 +29,7 @@ import { RowHeaderMark } from '../shared/RowHeaderMark';
 import type { PlayerSection } from './types';
 import {
     isPlexClientApp,
+    isPhoneUi,
     isPlexDirectMode,
     normalizePortalBaseUrl,
     readHomeAutoSignIn,
@@ -418,6 +419,8 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
     const tvShell = isTvShell();
     const [appVersion, setAppVersion] = useState(readAppVersion);
     const canEditHero = isAdmin || (typeof window !== 'undefined' && Boolean(window.__PLEX_CLIENT__));
+    // Phone Home has no hero: its options move out, keeping the Continue Watching poster toggle.
+    const phoneUi = !tvShell && isPhoneUi();
     const [settings, updateSettings, { dirty: playerDirty, saving: playerSaving, saveSettings, discardSettings }] = usePlayerSettings();
     // Device-only, saved straight away (not part of the synced player settings).
     const [homeAutoSignIn, setHomeAutoSignIn] = useState(readHomeAutoSignIn);
@@ -1436,7 +1439,7 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
 
             <SettingsTabBar tabs={settingsTabs} value={settingsTab} onChange={setSettingsTab} tv={false} />
 
-            {settingsTab === 'home' && canEditHero ? (
+            {settingsTab === 'home' && canEditHero && !phoneUi ? (
                 <section className={sectionClass}>
                     <div className="border-b border-border px-5 py-4 sm:px-6">
                         <div className="flex items-center gap-2">
@@ -1572,6 +1575,14 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         checked={settings.showContinueWatching}
                         onChange={(checked) => updateSettings({ showContinueWatching: checked })}
                     />
+                    {phoneUi && canEditHero ? (
+                        <SettingsToggleRow
+                            title={t('mediaPlayerPage.continueWatchingSeasonPoster')}
+                            description={t('mediaPlayerPage.continueWatchingSeasonPosterHint')}
+                            checked={cwSeasonPoster}
+                            onChange={setCwSeasonPoster}
+                        />
+                    ) : null}
                     <div className="border-b border-border/40 py-4">
                         <label className="mb-2 block text-sm font-bold text-text" htmlFor="media-player-cw-layout">
                             {t('mediaPlayerPage.continueWatchingLayout')}
@@ -1776,6 +1787,12 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                                 options={dateFormatOptions}
                             />
                         </div>
+                        <SettingsToggleRow
+                            title={t('mediaPlayerPage.clock24Hour')}
+                            description={t('mediaPlayerPage.clock24HourHint')}
+                            checked={settings.clock24Hour}
+                            onChange={(checked) => updateSettings({ clock24Hour: checked })}
+                        />
                         <div className="py-4">
                             <label className="mb-2 block text-sm font-bold text-text" htmlFor="media-player-row-marker">
                                 {t('mediaPlayerPage.rowMarker')}

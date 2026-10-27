@@ -316,7 +316,8 @@ export const SettingsSwitch: React.FC<{
             disabled={disabled}
             onChange={(e) => onChange(e.target.checked)}
         />
-        <div className="w-11 h-6 bg-background peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-text after:border-border after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-plex" />
+        {/* relative: the knob is placed on the track, not the label (a taller label on phones lifted it off). */}
+        <div className="relative w-11 h-6 shrink-0 bg-background peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-text after:border-border after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-plex" />
     </label>
 );
 
@@ -332,8 +333,9 @@ export const SettingsToggleRow: React.FC<{
     children?: React.ReactNode;
 }> = ({ title, description, hint, checked, onChange, className = '', border = true, disabled = false, children }) => (
     <div className={`${border ? 'py-4 border-b border-border/40' : 'py-4'} ${disabled ? 'opacity-70' : ''} ${className}`}>
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="min-w-0">
+        {/* Label left, switch right on every width (it used to stack under the label on phones). */}
+        <div className="flex flex-row items-center justify-between gap-3">
+            <div className="min-w-0 flex-1">
                 <h4 className="font-bold text-text inline-flex items-center gap-1.5 flex-wrap">
                     <span>{title}</span>
                     {hint || (description ? <SettingHint>{description}</SettingHint> : null)}

@@ -73,6 +73,18 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.443': [
+        {
+            title: 'Phone',
+            items: [
+                'Home is poster rows only, like Plex mobile: bigger row titles in the TV font, the server name under library rows, and posters that run to the edge of the screen',
+                'Posters show the show and episode (S1 • E1) or the rating and resolution for movies',
+                'Title pages have round action buttons and smaller pills, without the IMDb / TMDB / TVDB links',
+                'Settings switches line up next to their labels, and the 24-hour clock can be set on phones',
+                '"Did you know?" trivia loads more reliably',
+            ],
+        },
+    ],
     '1.0.442': [
         {
             title: 'Playback',

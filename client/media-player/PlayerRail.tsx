@@ -5,6 +5,7 @@ import { PlayerViewMoreCard, type ViewMoreShelfSource } from './PlayerViewMoreCa
 import { isHomeRowsBusy, playerItemRef, PLAYER_HOME_ROWS_IDLE_EVENT, prefetchTvRowItems } from './api';
 import { beginTvRowBackdropPreload, isMusicPlayerItem, playerRailPosterUrl, plexBackdropUrl, plexLogoUrl, prefetchPlayerImages, resolvePlayerCardAspect, warmPlayerBackdrop, warmPlayerPoster } from './playerUtils';
 import type { PlayerItem, PlayerPlayOptions } from './types';
+import { STORAGE_PLEX_SERVERS } from '../plex-client/configStorageKeys';
 
 const isTvShell = () => {
     try {
@@ -20,6 +21,24 @@ const isPhoneShell = () => {
         return document.documentElement?.dataset?.phone === '1';
     } catch {
         return false;
+    }
+};
+
+/** Phone row subtitle, as Plex mobile shows it: the server the row comes from. */
+const rowServerName = (items: PlayerItem[]): string => {
+    try {
+        const raw = localStorage.getItem(STORAGE_PLEX_SERVERS);
+        if (!raw) return '';
+        const parsed = JSON.parse(raw) as { servers?: Array<{ id?: string; name?: string }>; enabledIds?: string[] };
+        const servers = (parsed.servers || []).filter((server) => server?.id);
+        if (!servers.length) return '';
+        const ids = Array.from(new Set(items.map((item) => String(item.serverId || '')).filter(Boolean)));
+        if (ids.length > 1) return '';
+        const enabled = parsed.enabledIds?.length ? parsed.enabledIds : servers.map((server) => String(server.id));
+        const id = ids[0] || (enabled.length === 1 ? enabled[0] : '');
+        return String(servers.find((server) => server.id === id)?.name || '').trim();
+    } catch {
+        return '';
     }
 };
 
@@ -240,6 +259,9 @@ const PlayerRailImpl: React.FC<{
         return () => observer.disconnect();
     }, [armedCount, items.length, phoneShell]);
 
+    // Continue Watching mixes servers; Plex only names the server under library rows.
+    const phoneServer = phoneShell && !showProgress ? rowServerName(items) : '';
+
     if (!items.length) return null;
     const visibleItems = lazyMount ? items.slice(0, Math.max(1, armedCount)) : items;
     return (
@@ -254,6 +276,8 @@ const PlayerRailImpl: React.FC<{
                     title={title}
                     onViewAll={tvShell ? undefined : onViewAll}
                     viewAllLabel={tvShell ? undefined : viewAllLabel}
+                    chevron={phoneShell}
+                    subtitle={phoneServer || undefined}
                 />
             ) : null}
             <Carousel posterRow>

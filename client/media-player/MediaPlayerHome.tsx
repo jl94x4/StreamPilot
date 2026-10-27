@@ -606,6 +606,8 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         document.documentElement?.dataset?.tv === '1'
         || window.__PLEX_CLIENT__?.isTv === true
     );
+    // Phone Home is poster rows only (Plex mobile style): no hero, so it is never fetched.
+    const phoneHome = !isTvShell && isPhoneUi();
     // TV Home is a stacked row that always uses onOpenItem. On Now cards must tune,
     // not open details (there is no library page for a live airing).
     const openItemOrTune = useCallback((item: PlayerItem) => {
@@ -820,6 +822,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
     }, [isTvShell, t]);
 
     const pullToRefresh = useCallback(() => {
+        if (phoneHome) return refreshHome({ force: true });
         const hero = fetchMediaPlayerHomeHeroRefresh()
             .then((data) => {
                 if (data?.effectiveMode) setHeroEffectiveMode(String(data.effectiveMode));
@@ -830,7 +833,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             })
             .catch(() => undefined);
         return Promise.all([refreshHome({ force: true }), hero]);
-    }, [refreshHome]);
+    }, [phoneHome, refreshHome]);
 
     // Live Home: Plex pushed an add / delete / stopped-playback change. Refetch the rows
     // in place (cards keep their keys, so focus stays put and new items slide in).
@@ -912,7 +915,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         void refreshHome({ force: true }).then(() => {
             if (cancelled) return;
         });
-        if (isTvShell) {
+        if (isTvShell || phoneHome) {
             setHeroSlides([]);
             setHeroPending(false);
             return () => { cancelled = true; };
@@ -2473,7 +2476,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                     ) : null}
                 </div>
             ) : null}
-            {!isTvShell && !searchActive && heroSlides.length ? (
+            {!isTvShell && !phoneHome && !searchActive && heroSlides.length ? (
                 <MediaPlayerHomeHero
                     items={heroSlides}
                     effectiveMode={heroEffectiveMode}
@@ -2481,7 +2484,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                     onOpenItem={onOpenItem}
                     onPlay={onPlay}
                 />
-            ) : !isTvShell && !searchActive && heroPending ? (
+            ) : !isTvShell && !phoneHome && !searchActive && heroPending ? (
                 <PlayerHomeHeroSkeleton />
             ) : null}
             <h1 className="sr-only">{t('mediaPlayerPage.navHome')}</h1>
