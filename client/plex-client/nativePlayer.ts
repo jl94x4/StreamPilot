@@ -133,6 +133,8 @@ export type NativePlayerOpenOptions = {
     onStreamChange?: (event: NativePlayerStreamChangeEvent) => void | Promise<void>;
     onPlayNext?: (event: { ratingKey: string }) => void;
     onPlayRelated?: (event: { ratingKey: string }) => void;
+    /** Live TV: CH+/CH- (or Up/Down) in the player. +1 next channel, -1 previous. */
+    onLiveChannel?: (event: { direction: number }) => void;
     onSpeed?: (event: { speed: number }) => void;
     onError?: (event: { message?: string }) => void;
     onMinimized?: (event: NativePlayerProgressEvent) => void;
@@ -408,6 +410,12 @@ const attachTransientListeners = async (opts: NativePlayerOpenOptions) => {
         await add('playRelated', (data) => {
             const key = data.ratingKey ? String(data.ratingKey) : '';
             if (key) opts.onPlayRelated?.({ ratingKey: key });
+        });
+    }
+    if (opts.onLiveChannel) {
+        await add('liveChannel', (data) => {
+            const direction = Number(data.direction) < 0 ? -1 : 1;
+            opts.onLiveChannel?.({ direction });
         });
     }
     if (opts.onSpeed) {

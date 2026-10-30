@@ -71,6 +71,12 @@ final class PlayerKeyHandler {
 
         void finishForPlayPrevious();
 
+        /** Playing a Live TV channel (no seeking, no next/previous item). */
+        boolean liveMode();
+
+        /** Live TV: ask JS to tune the next (+1) or previous (-1) channel. */
+        void liveChannelStep(int direction);
+
         void showSettingsRoot();
 
         void applyPlayPause(boolean play);
@@ -191,6 +197,23 @@ final class PlayerKeyHandler {
         if (keyCode == KeyEvent.KEYCODE_MEDIA_STOP) {
             host.finishWithResult(false, false);
             return Result.HANDLED;
+        }
+        if (host.liveMode()) {
+            // Live TV: CH+/CH- and next/previous change channel. With the OSD hidden,
+            // Up/Down do too (Up = next channel), like a TV.
+            boolean channelKey = keyCode == KeyEvent.KEYCODE_CHANNEL_UP
+                || keyCode == KeyEvent.KEYCODE_CHANNEL_DOWN
+                || keyCode == KeyEvent.KEYCODE_MEDIA_NEXT
+                || keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS;
+            boolean dpadChannel = !host.chromeVisible()
+                && (keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN);
+            if (channelKey || dpadChannel) {
+                boolean up = keyCode == KeyEvent.KEYCODE_CHANNEL_UP
+                    || keyCode == KeyEvent.KEYCODE_MEDIA_NEXT
+                    || keyCode == KeyEvent.KEYCODE_DPAD_UP;
+                host.liveChannelStep(up ? 1 : -1);
+                return Result.HANDLED;
+            }
         }
         if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == KeyEvent.KEYCODE_CHANNEL_UP) {
             if (host.hasChapters()) host.skipChapter(1);

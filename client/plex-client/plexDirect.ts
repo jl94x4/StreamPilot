@@ -4529,6 +4529,14 @@ const applyHomeLibraryPicks = <T extends { identifier: string; title: string; hu
     return hubs.filter((hub) => !homeHubHiddenByPicks({ ...hub, serverId: hub.serverId || server.id }, picks));
 };
 
+/** Plex's merged Continue Watching hub (in-progress + Next Up). Some servers wrap the items in a Hub; read either shape. */
+const PLEX_CONTINUE_WATCHING_PATH = '/hubs/continueWatching/items?X-Plex-Container-Size=24&includeGuids=1';
+const plexContinueWatchingItems = (data: any, seasonPoster: boolean) => {
+    const hub = asList<PlexMeta>(containerOf(data).Hub)[0];
+    return mapList(hub ? { MediaContainer: hub } : data)
+        .map((item) => asContinueWatchingItem(item, null, seasonPoster));
+};
+
 const loadServerHome = async (server: PlexServer, many: boolean, full = false) => withMapServer(server, async () => {
     const seasonPoster = readHeroConfig().continueWatchingSeasonPoster;
     // Shell list (no includeMeta) is the pin directory and stays small enough to answer.
@@ -4560,7 +4568,7 @@ const loadServerHome = async (server: PlexServer, many: boolean, full = false) =
         // Plex's own merged Continue Watching hub (in-progress + Next Up episodes), the
         // same list and order the official Plex apps show. Honours the server's
         // "Weeks to consider" / "Include season premieres" Continue Watching settings.
-        pms('/hubs/continueWatching/items?X-Plex-Container-Size=24&includeGuids=1', server, 8000).catch(() => null),
+        pms(PLEX_CONTINUE_WATCHING_PATH, server, 8000).catch(() => null),
     ]);
     const primaryShells = uniqueHubShells(
         metaPromoted.answered ? asList<PlexMeta>(containerOf(metaPromoted.data).Hub) : [],
@@ -4628,10 +4636,7 @@ const loadServerHome = async (server: PlexServer, many: boolean, full = false) =
         }
         return `item:${item.ratingKey}`;
     };
-    // Some servers wrap the items in a Hub; read either shape.
-    const plexContinueHub = asList<PlexMeta>(containerOf(plexContinueData).Hub)[0];
-    const plexContinue = mapList(plexContinueHub ? { MediaContainer: plexContinueHub } : plexContinueData)
-        .map((item) => asContinueWatchingItem(item, null, seasonPoster));
+    const plexContinue = plexContinueWatchingItems(plexContinueData, seasonPoster);
     // Plex's merged hub answered: use it as-is (its order, its Next Up picks). Older
     // servers without it fall back to merging the Home continue hubs with On Deck.
     const refreshed = plexContinue.length
@@ -5946,6 +5951,8 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
             active,
             8000,
         ).catch(() => null);
+        // Same merged Continue Watching as Home, narrowed to this library below.
+        const plexContinueP = pms(PLEX_CONTINUE_WATCHING_PATH, active, 8000).catch(() => null);
         // Paint from includeMeta when it lands quickly. Don't sit behind the shell
         // request, and don't wait out a slow includeMeta before filling shells.
         const earlyMeta = await Promise.race([
@@ -5992,14 +5999,21 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                 }
             }
         }
+        const plexContinue = await withMapServer(active, async () => (
+            plexContinueWatchingItems(await plexContinueP, seasonPoster)
+        ));
         const onDeckItems = mapList(onDeckData).map((item) => asContinueWatchingItem(item, null, seasonPoster));
         const sectionCw = hubs.filter((hub) => continueHub(hub));
         const otherHubs = hubs.filter((hub) => !continueHub(hub));
-        // Prefer section On Deck (same as portal assembleLibraryHomeHubs); fall back to
-        // whatever continue hub /hubs/sections returned.
-        const continueItems = onDeckItems.length
-            ? onDeckItems
-            : (sectionCw.find((hub) => hub.items?.length)?.items || []);
+        // Plex's merged hub answered: this library's share of it, in Plex's order (what Home
+        // shows). Older servers without it: section On Deck, then whatever continue hub
+        // /hubs/sections returned.
+        const sectionId = bareSectionId(section);
+        const continueItems = plexContinue.length
+            ? plexContinue.filter((item) => bareSectionId(item.librarySectionID) === sectionId)
+            : (onDeckItems.length
+                ? onDeckItems
+                : (sectionCw.find((hub) => hub.items?.length)?.items || []));
         hubs = otherHubs;
         if (continueItems.length) {
             const primaryCw = sectionCw[0];

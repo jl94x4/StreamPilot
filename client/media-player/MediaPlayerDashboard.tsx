@@ -299,6 +299,9 @@ export const MediaPlayerDashboard: React.FC = () => {
     const [isAdmin, setIsAdmin] = useState(false);
     const [startingPlay, setStartingPlay] = useState(false);
     const startingPlayRef = useRef(false);
+    // Newest in-player Live TV channel press that arrived while a tune was running.
+    const pendingLiveTuneRef = useRef<PlayerItem | null>(null);
+    const startPlaybackRef = useRef<(item: PlayerItem, opts?: PlayerPlayOptions) => Promise<void>>(async () => undefined);
     const [pendingResume, setPendingResume] = useState<PendingResume | null>(null);
     const [pendingStillWatching, setPendingStillWatching] = useState<{ item: PlayerItem; opts: PlayerPlayOptions } | null>(null);
     const autoplayStreakRef = useRef(0);
@@ -885,15 +888,26 @@ export const MediaPlayerDashboard: React.FC = () => {
             && isMusicPlayerItem(current.item)
             && isMusicPlayerItem(item),
         );
+        // Live TV channel change from inside the player: same in-place swap.
+        const replacingLive = Boolean(
+            current?.live
+            && (item.type === 'liveAiring' || item.liveChannelId || item.liveDvrId),
+        );
+        const replacingInPlace = replacingMusic || replacingLive;
         // Play-next bridge: allow start even if the prior session ref briefly lingers.
-        if (startingPlayRef.current) return;
-        if (current && !replacingMusic && !playNextBridgeRef.current) return;
+        if (startingPlayRef.current) {
+            // A channel press while the last one is still tuning: the player already stopped
+            // its stream, so run the newest press once this tune ends instead of dropping it.
+            if (replacingLive) pendingLiveTuneRef.current = item;
+            return;
+        }
+        if (current && !replacingInPlace && !playNextBridgeRef.current) return;
         const gen = ++startPlaybackGenRef.current;
         startingPlayRef.current = true;
-        if (isAndroidTvUi() && !replacingMusic) captureTvFocusSnapshot();
+        if (isAndroidTvUi() && !replacingInPlace) captureTvFocusSnapshot();
         setStartingPlay(true);
         setPendingResume(null);
-        if (!replacingMusic) {
+        if (!replacingInPlace) {
             playNextBridgeRef.current = true;
             setPlayNextBridge(true);
         }
@@ -918,6 +932,17 @@ export const MediaPlayerDashboard: React.FC = () => {
                 }
                 if (!dvrId || !channelId) {
                     throw new Error('No Live TV channel id. Open Live TV again and pick a programme.');
+                }
+                if (replacingLive && current) {
+                    // Free the tuner first: a single-tuner DVR refuses the new channel while
+                    // the old one holds it, and every tune reuses this client's session id,
+                    // so stopping afterwards would stop the new channel.
+                    await stopMediaPlayerTranscode(current.sessionId, {
+                        serverId: current.item.serverId,
+                        ratingKey: current.item.ratingKey,
+                        live: true,
+                    }).catch(() => undefined);
+                    if (gen !== startPlaybackGenRef.current) return;
                 }
                 const session = await tuneLiveTvChannel({
                     serverId: item.serverId,
@@ -1029,14 +1054,28 @@ export const MediaPlayerDashboard: React.FC = () => {
                 playNextBridgeRef.current = false;
                 setPlayNextBridge(false);
                 setToasts((prev) => appendToast(prev, String(error?.message || t('mediaPlayerPage.playError')), 'error'));
+                // The old channel is already stopped: leave the player rather than sit on a
+                // black screen.
+                if (replacingLive) {
+                    pendingLiveTuneRef.current = null;
+                    setPlaySession(null);
+                }
             }
         } finally {
             if (gen === startPlaybackGenRef.current) {
                 startingPlayRef.current = false;
                 setStartingPlay(false);
             }
+            const pendingLive = pendingLiveTuneRef.current;
+            pendingLiveTuneRef.current = null;
+            if (pendingLive && playSessionRef.current?.live) {
+                window.setTimeout(() => {
+                    void startPlaybackRef.current(pendingLive, { offsetMs: 0, skipResume: true });
+                }, 0);
+            }
         }
     }, [settings.audioLanguage, settings.defaultQualityId, settings.subtitleMode, t]);
+    startPlaybackRef.current = startPlayback;
 
     const startWatchTogetherPlayback = useCallback(async (state: WtRoomState) => {
         const offsetMs = Math.max(0, Number(state.positionMs) || 0);

@@ -885,6 +885,9 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
     }, [settings.libraryNavOrder]);
 
     const homeRefreshGen = useRef(0);
+    // Read by delayed full-pass retries: never hit the server once Home is left (playback).
+    const homeActiveRef = useRef(active);
+    homeActiveRef.current = active;
     const refreshHome = useCallback((opts?: { force?: boolean; quietRetry?: boolean; fullOnly?: boolean }) => {
         const gen = ++homeRefreshGen.current;
         const current = () => gen === homeRefreshGen.current;
@@ -942,10 +945,22 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         const followFull = (base: PlayerHome | null, live?: PlayerHome | null, attempt = 0): Promise<void> => {
             // Phone links drop the full pass often enough that one try left rows missing
             // until the app restarted. Retry a couple of times while it lacks pinned rows.
+            // TV retries too, but spaced well apart: a full pass fans out to every pin,
+            // and back-to-back passes can stall a busy server into a restart.
             const retry = () => {
-                if (isTvShell || attempt >= 2 || !current()) return undefined;
+                if (attempt >= 2 || !current()) return undefined;
+                if (isTvShell) {
+                    // Detached, so the first pass ends (and background loads resume) now;
+                    // the retry takes row priority only while it runs.
+                    window.setTimeout(() => {
+                        if (!current() || !homeActiveRef.current) return;
+                        beginHomeRowPriority();
+                        void followFull(base, live, attempt + 1).finally(endHomeRowPriority);
+                    }, attempt ? 30000 : 10000);
+                    return undefined;
+                }
                 return new Promise<void>((resolve) => { window.setTimeout(resolve, attempt ? 8000 : 3000); })
-                    .then(() => (current() ? followFull(base, live, attempt + 1) : undefined));
+                    .then(() => (current() && homeActiveRef.current ? followFull(base, live, attempt + 1) : undefined));
             };
             return fetchMediaPlayerHomeFull()
                 .then((full) => {

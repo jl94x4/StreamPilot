@@ -73,6 +73,82 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.482': [
+        {
+            title: 'Home',
+            items: [
+                'Continue Watching on a library page now matches Home (Plex\'s own list, just that library\'s titles)',
+            ],
+        },
+        {
+            title: 'TV',
+            items: [
+                'Home tries again by itself if your rows fail to load, spaced out so a busy server is not overloaded',
+            ],
+        },
+        {
+            title: 'Live TV',
+            items: [
+                'Change channel without leaving the player: CH+ / CH− on the remote, or Up / Down while the controls are hidden',
+            ],
+        },
+    ],
+    '1.0.481': [
+        {
+            title: 'TV',
+            items: [
+                'Recently Added rows (e.g. "Recently Added in Movies") no longer appear twice on Home',
+            ],
+        },
+    ],
+    '1.0.480': [
+        {
+            title: 'TV',
+            items: [
+                'Test build: work on repeated Recently Added rows on Home',
+            ],
+        },
+    ],
+    '1.0.479': [
+        {
+            title: 'TV',
+            items: [
+                'Test build: work on repeated Recently Added rows on Home',
+            ],
+        },
+    ],
+    '1.0.478': [
+        {
+            title: 'Home',
+            items: [
+                'Continue Watching shows the same list and order as the official Plex apps, including Next Up episodes',
+            ],
+        },
+    ],
+    '1.0.477': [
+        {
+            title: 'App',
+            items: [
+                'Back to the 1.0.474 build while Continue Watching was reworked',
+            ],
+        },
+    ],
+    '1.0.476': [
+        {
+            title: 'Home',
+            items: [
+                'Test build: Continue Watching from Plex\'s own list',
+            ],
+        },
+    ],
+    '1.0.475': [
+        {
+            title: 'Home',
+            items: [
+                'Test build: Continue Watching from Plex\'s own list',
+            ],
+        },
+    ],
     '1.0.474': [
         {
             title: 'TV',

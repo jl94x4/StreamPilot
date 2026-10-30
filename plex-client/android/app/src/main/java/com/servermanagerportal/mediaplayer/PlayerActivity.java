@@ -323,6 +323,16 @@ public class PlayerActivity extends AppCompatActivity {
         }
 
         @Override
+        public boolean liveMode() {
+            return liveStream;
+        }
+
+        @Override
+        public void liveChannelStep(int direction) {
+            PlayerActivity.this.liveChannelStep(direction);
+        }
+
+        @Override
         public void showSettingsRoot() {
             PlayerActivity.this.showSettingsRoot();
         }
@@ -5387,6 +5397,27 @@ public class PlayerActivity extends AppCompatActivity {
         if (settingsBtn != null) {
             settingsBtn.setNextFocusLeftId(hasNext ? R.id.player_next_episode : R.id.player_play_pause);
         }
+    }
+
+    /**
+     * Live TV channel change. JS tunes the new channel and swaps it in with updateSrc;
+     * the old stream stops now, so the tuner is free and its end is not shown as an error.
+     */
+    void liveChannelStep(int direction) {
+        if (!liveStream || player == null) return;
+        errorGeneration++;
+        playbackError = false;
+        hideError();
+        try {
+            player.stop();
+        } catch (Throwable ignored) {
+            /* best-effort: the swap replaces the item anyway */
+        }
+        // OSD stays hidden so the next Up/Down keeps changing channel.
+        toast(getString(direction > 0 ? R.string.player_channel_up : R.string.player_channel_down));
+        JSObject data = new JSObject();
+        data.put("direction", direction > 0 ? 1 : -1);
+        PlayerBridge.get().emit("liveChannel", data);
     }
 
     private void requestPlayNextWithoutFinish() {

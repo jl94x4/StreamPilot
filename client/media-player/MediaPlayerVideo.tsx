@@ -55,7 +55,7 @@ import {
     audioStreamIdFromSrc,
     subtitleStreamIdFromSrc,
 } from './playerUtils';
-import { downloadMediaPlayerSubtitle, fetchMediaPlayerItem, fetchMediaPlayerItemMore,fetchMediaPlayerNeighbors, fetchMediaPlayerSubtitleSearch, fetchMediaPlayerVoiceActivity, pausePlayerBackgroundLoads, reportMediaPlayerTimeline, resumePlayerBackgroundLoads, saveMediaPlayerSettings, setMediaPlayerWatched, startMediaPlayerPlayback, stopMediaPlayerTranscode } from './api';
+import { downloadMediaPlayerSubtitle, fetchLiveTvSources, fetchMediaPlayerItem, fetchMediaPlayerItemMore,fetchMediaPlayerNeighbors, fetchMediaPlayerSubtitleSearch, fetchMediaPlayerVoiceActivity, pausePlayerBackgroundLoads, reportMediaPlayerTimeline, resumePlayerBackgroundLoads, saveMediaPlayerSettings, setMediaPlayerWatched, startMediaPlayerPlayback, stopMediaPlayerTranscode } from './api';
 import { usePlayerSettings } from './usePlayerSettings';
 import { normalizePlayerSettings, readPlayerSettings, writePlayerSettings } from './playerSettings';
 import { computeSubtitleSyncOffsetMs, parseSrtCueStartsMs } from './subtitleAutoSync.js';
@@ -256,6 +256,47 @@ const hlsErrorMessage = (data: { response?: { code?: number; text?: string; data
     const code = Number(data?.response?.code);
     if (Number.isFinite(code) && code > 0) return `${fallback} (${code})`;
     return fallback;
+};
+
+// The DVR channel list for in-player channel changes. Cached so flicking through channels
+// does not re-read the lineup from Plex on every press.
+let liveSourcesCache: { at: number; data: Awaited<ReturnType<typeof fetchLiveTvSources>> } | null = null;
+const LIVE_SOURCES_TTL_MS = 5 * 60 * 1000;
+
+/** The channel `steps` away from the one `item` is on (wraps round), as a tunable item. */
+const liveChannelStepItem = async (item: PlayerItem, steps: number): Promise<PlayerItem | null> => {
+    if (!liveSourcesCache || Date.now() - liveSourcesCache.at > LIVE_SOURCES_TTL_MS) {
+        liveSourcesCache = { at: Date.now(), data: await fetchLiveTvSources() };
+    }
+    const sources = liveSourcesCache.data?.sources || [];
+    const dvrId = String(item.liveDvrId || '').trim();
+    const source = sources.find((row) => dvrId && String(row.id) === dvrId)
+        || sources.find((row) => !item.serverId || String(row.serverId) === String(item.serverId));
+    const channels = source?.channels || [];
+    if (!channels.length) return null;
+    const ids = [item.liveChannelId, item.liveChannelNumber]
+        .map((value) => String(value || '').trim())
+        .filter(Boolean);
+    const index = channels.findIndex((row) => ids.includes(row.id) || ids.includes(row.number));
+    const from = index >= 0 ? index : 0;
+    const channel = channels[(((from + steps) % channels.length) + channels.length) % channels.length];
+    if (!channel) return null;
+    const label = [channel.number, channel.title || channel.callSign].filter(Boolean).join(' ');
+    return {
+        ...item,
+        ratingKey: `live:${channel.dvrId || source?.id}:${channel.id}`,
+        title: label || 'Live TV',
+        thumb: channel.thumb || item.thumb,
+        type: 'liveAiring',
+        serverId: channel.serverId || source?.serverId || item.serverId,
+        liveDvrId: String(channel.dvrId || source?.id || dvrId),
+        liveChannelId: channel.id,
+        liveChannelNumber: channel.number,
+        liveChannelTitle: channel.title,
+        liveStartsAt: null,
+        liveEndsAt: null,
+        durationMs: null,
+    } as PlayerItem;
 };
 
 const stopPlaybackSession = (
@@ -492,6 +533,9 @@ export const MediaPlayerVideo: React.FC<Props> = ({
     const nativeMinimizedRef = useRef(false);
     const sessionRef = useRef(session);
     sessionRef.current = session;
+    // Live TV channel presses gathered until the remote goes quiet: one tune per stop.
+    // `target` is the channel last asked for, so a press during a tune steps from there.
+    const liveZapRef = useRef<{ steps: number; timer: number; target: PlayerItem | null }>({ steps: 0, timer: 0, target: null });
     const publishMusicNowPlaying = (minimized = nativeMinimizedRef.current) => {
         if (typeof window === 'undefined') return;
         const item = sessionRef.current.item;
@@ -1202,6 +1246,31 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                             })
                             .catch(() => undefined);
                     },
+                    onLiveChannel: ({ direction }) => {
+                        if (cancelled || gen !== nativeOpenGenRef.current) return;
+                        const zap = liveZapRef.current;
+                        zap.steps += direction;
+                        window.clearTimeout(zap.timer);
+                        // Each tune starts a tuner + transcode on the server; flicking through
+                        // five channels must cost one, not five.
+                        zap.timer = window.setTimeout(() => {
+                            const steps = zap.steps;
+                            zap.steps = 0;
+                            if (cancelled || gen !== nativeOpenGenRef.current) return;
+                            const current = zap.target || sessionRef.current.item;
+                            void (async () => {
+                                const target = steps
+                                    ? await liveChannelStepItem(current, steps).catch(() => null)
+                                    : null;
+                                if (cancelled || gen !== nativeOpenGenRef.current) return;
+                                if (steps && !target) onPlaybackErrorRef.current?.('Could not change channel.');
+                                zap.target = target || current;
+                                // The player stopped the old stream on the press: tune the new
+                                // channel, or the same one again if there is nowhere to go.
+                                onPlayItemRef.current?.(target || current, { offsetMs: 0, skipResume: true });
+                            })();
+                        }, 700);
+                    },
                     onPlayRelated: ({ ratingKey }) => {
                         if (cancelled || gen !== nativeOpenGenRef.current) return;
                         const related = relatedItemsRef.current.find((row) => row.ratingKey === ratingKey);
@@ -1615,6 +1684,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
         return () => {
             cancelled = true;
             window.clearTimeout(coverTimer);
+            window.clearTimeout(liveZapRef.current.timer);
             nativeOpenGen += 1;
             nativeOpenGenRef.current = nativeOpenGen;
             nativeLiveRef.current = false;
@@ -1667,7 +1737,9 @@ export const MediaPlayerVideo: React.FC<Props> = ({
         return () => {
             cancelled = true;
         };
-    }, [session.sessionId]);
+        // Live TV re-tunes keep the same session id (it is this client's id), so a channel
+        // change is told apart by its stream.
+    }, [session.sessionId, session.live ? session.src : '']);
 
     useEffect(() => {
         if (!nativeExclusive) return undefined;

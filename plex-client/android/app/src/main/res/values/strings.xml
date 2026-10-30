@@ -32,6 +32,8 @@
     <string name="player_up_next_in">Starts in %ds</string>
     <string name="player_direct_play">Direct Play</string>
     <string name="player_live">LIVE</string>
+    <string name="player_channel_up">Channel up…</string>
+    <string name="player_channel_down">Channel down…</string>
     <string name="player_direct_stream">Direct Stream</string>
     <string name="player_transcode">Transcode</string>
     <string name="player_transcoding_parts">Transcoding %1$s</string>
