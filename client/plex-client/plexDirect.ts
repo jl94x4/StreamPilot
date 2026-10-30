@@ -4535,8 +4535,24 @@ const applyHomeLibraryPicks = <T extends { identifier: string; title: string; hu
 const PLEX_CONTINUE_WATCHING_PATH = '/hubs/continueWatching/items?X-Plex-Container-Size=24&includeGuids=1';
 const plexContinueWatchingItems = (data: any, seasonPoster: boolean) => {
     const hub = asList<PlexMeta>(containerOf(data).Hub)[0];
-    return mapList(hub ? { MediaContainer: hub } : data)
+    const items = mapList(hub ? { MediaContainer: hub } : data)
         .map((item) => asContinueWatchingItem(item, null, seasonPoster));
+    // Next Up episodes were never played, so Plex sends no lastViewedAt and "Recently
+    // watched" dropped them to the end. The list is newest-watched first: give each one a
+    // sort-only time just under the card before it (or just over the one after), keeping
+    // Plex's place. lastViewedAt itself stays empty: the details page shows it as Last played.
+    const known = items.map((item) => Number(item.lastViewedAt) || 0);
+    if (!known.some(Boolean)) return items;
+    return items.map((item, index) => {
+        if (known[index]) return item;
+        for (let back = index - 1; back >= 0; back -= 1) {
+            if (known[back]) return { ...item, continueWatchingViewedAt: known[back] - (index - back) * 1000 };
+        }
+        for (let ahead = index + 1; ahead < known.length; ahead += 1) {
+            if (known[ahead]) return { ...item, continueWatchingViewedAt: known[ahead] + (ahead - index) * 1000 };
+        }
+        return item;
+    });
 };
 
 const loadServerHome = async (server: PlexServer, many: boolean, full = false) => withMapServer(server, async () => {

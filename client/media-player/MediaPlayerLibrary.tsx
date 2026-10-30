@@ -192,6 +192,12 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
     const continueWatchingAspect = continueWatchingRailAspect(settings.continueWatchingLayout);
     const cwOrderKeysRef = useRef<string[]>([]);
     const cwOrderSortRef = useRef(settings.continueWatchingSort);
+    // Re-sort Continue Watching when the page is opened again or switched to another library.
+    const cwOpenedRef = useRef(`${active}:${sectionKey}`);
+    if (cwOpenedRef.current !== `${active}:${sectionKey}`) {
+        if (active) cwOrderKeysRef.current = [];
+        cwOpenedRef.current = `${active}:${sectionKey}`;
+    }
     const layoutContinueWatching = useCallback(
         (items: PlayerItem[]) => {
             if (cwOrderSortRef.current !== settings.continueWatchingSort) {

@@ -148,6 +148,8 @@ export type PlayerItem = {
     collectionItems?: PlayerCollectionRef[];
     addedAt?: number | null;
     lastViewedAt?: number | null;
+    /** Continue Watching sort only: Next Up episodes' implied watch time from Plex's order. */
+    continueWatchingViewedAt?: number | null;
     viewedLeafCount?: number | null;
     extraType?: string | null;
     extraSubtype?: string | null;

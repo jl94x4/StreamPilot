@@ -1347,6 +1347,11 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
     const cwOrderKeysRef = useRef<string[]>([]);
     const cwOrderSortRef = useRef(settings.continueWatchingSort);
     const cwShowAiredRef = useRef('');
+    // The order holds still while Home is on screen; coming back to Home re-sorts it, so
+    // what was just watched (and Plex's new order) shows up.
+    const cwWasActiveRef = useRef(active);
+    if (active && !cwWasActiveRef.current) cwOrderKeysRef.current = [];
+    cwWasActiveRef.current = active;
     const freezeContinueWatching = useCallback((items: PlayerItem[]) => {
         if (cwOrderSortRef.current !== settings.continueWatchingSort) {
             cwOrderKeysRef.current = [];

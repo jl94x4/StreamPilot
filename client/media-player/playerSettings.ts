@@ -216,8 +216,11 @@ const continueWatchingOwnReleaseMs = (item: {
     return continueWatchingUnixMs(item?.addedAt);
 };
 
-const continueWatchingViewedMs = (item: { lastViewedAt?: number | null } | null | undefined): number => (
-    continueWatchingUnixMs(item?.lastViewedAt)
+/** Last watched; Next Up episodes (never played) use the time their place in Plex's list implies. */
+const continueWatchingViewedMs = (
+    item: { lastViewedAt?: number | null; continueWatchingViewedAt?: number | null } | null | undefined,
+): number => (
+    continueWatchingUnixMs(item?.lastViewedAt) || continueWatchingUnixMs(item?.continueWatchingViewedAt)
 );
 
 const continueWatchingTitleKey = (item: { showTitle?: string | null; title?: string | null } | null | undefined): string => (
@@ -230,6 +233,7 @@ type ContinueWatchingSortable = {
     year?: number | string | null;
     addedAt?: number | null;
     lastViewedAt?: number | null;
+    continueWatchingViewedAt?: number | null;
     showTitle?: string | null;
     title?: string | null;
     type?: string | null;
@@ -358,9 +362,14 @@ export const stabilizeContinueWatchingOrder = <T extends {
     // or the next / newly aired episode under a new key) goes where the sort puts it —
     // appending it left a release from yesterday at the back of "Latest release".
     const next = kept.slice();
+    // Match Plex: a new title goes in front of the first card Plex lists after it.
+    const plexRank = new Map(sorted.map((item, index) => [continueWatchingItemKey(item), index]));
     for (const item of extras) {
         if (mode === 'plex') {
-            next.push(item);
+            const rank = plexRank.get(continueWatchingItemKey(item)) ?? Number.MAX_SAFE_INTEGER;
+            const at = next.findIndex((row) => (plexRank.get(continueWatchingItemKey(row)) ?? -1) > rank);
+            if (at < 0) next.push(item);
+            else next.splice(at, 0, item);
             continue;
         }
         const at = next.findIndex((row) => compareContinueWatching(item, row, mode) < 0);
