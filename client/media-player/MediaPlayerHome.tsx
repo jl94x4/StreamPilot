@@ -1680,10 +1680,21 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 });
             }
         }
+        // Plex's combined Recently Added row is split per library above ("Recently Added in
+        // Movies", "… in Movies - Misc"), and the same libraries' own pinned Recently Added
+        // rows carry those titles too. Keep the first row per title so neither shows twice.
+        const seenRecentTitles = new Set<string>();
+        const uniqueRecentRows = recentRows.filter((row) => {
+            if (!/recent/i.test(`${row.id} ${row.title}`)) return true;
+            const title = row.title.trim().toLowerCase();
+            if (seenRecentTitles.has(title)) return false;
+            seenRecentTitles.add(title);
+            return true;
+        });
         const buckets: Record<string, TvHomeRow[]> = {
             continueWatching: continueRows,
             onNow: onNowRows,
-            recents: recentRows,
+            recents: uniqueRecentRows,
         };
         return applyHomeRowOrder(['continueWatching', 'onNow', 'recents'], settings.homeRowOrder)
             .flatMap((id) => buckets[id] || [])

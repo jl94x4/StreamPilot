@@ -4550,13 +4550,17 @@ const loadServerHome = async (server: PlexServer, many: boolean, full = false) =
     // IncludeMeta often carries the pinned rows. A short race was returning
     // Continue Watching before that answer arrived, and the follow-up fill then
     // lost the race to other Plex image work.
-    const [shellPromoted, shellHome, metaPromoted, metaHome, onDeckData, sectionsRaw] = await Promise.all([
+    const [shellPromoted, shellHome, metaPromoted, metaHome, onDeckData, sectionsRaw, plexContinueData] = await Promise.all([
         ask(`/hubs/promoted?${shellQuery}`),
         ask(`/hubs/home?${shellQuery}`),
         ask(`/hubs/promoted?${metaQuery}`),
         ask(`/hubs/home?${metaQuery}`),
         pms('/library/onDeck?X-Plex-Container-Size=24', server, 8000).catch(() => null),
         pms('/library/sections', server, full ? 8000 : 4000).catch(() => null),
+        // Plex's own merged Continue Watching hub (in-progress + Next Up episodes), the
+        // same list and order the official Plex apps show. Honours the server's
+        // "Weeks to consider" / "Include season premieres" Continue Watching settings.
+        pms('/hubs/continueWatching/items?X-Plex-Container-Size=24&includeGuids=1', server, 8000).catch(() => null),
     ]);
     const primaryShells = uniqueHubShells(
         metaPromoted.answered ? asList<PlexMeta>(containerOf(metaPromoted.data).Hub) : [],
@@ -4624,8 +4628,16 @@ const loadServerHome = async (server: PlexServer, many: boolean, full = false) =
         }
         return `item:${item.ratingKey}`;
     };
-    const refreshed = watchingHubs.map((hub) => hub.items).filter((items) => items.length);
-    if (onDeck.length) refreshed.push(onDeck);
+    // Some servers wrap the items in a Hub; read either shape.
+    const plexContinueHub = asList<PlexMeta>(containerOf(plexContinueData).Hub)[0];
+    const plexContinue = mapList(plexContinueHub ? { MediaContainer: plexContinueHub } : plexContinueData)
+        .map((item) => asContinueWatchingItem(item, null, seasonPoster));
+    // Plex's merged hub answered: use it as-is (its order, its Next Up picks). Older
+    // servers without it fall back to merging the Home continue hubs with On Deck.
+    const refreshed = plexContinue.length
+        ? [plexContinue]
+        : watchingHubs.map((hub) => hub.items).filter((items) => items.length);
+    if (!plexContinue.length && onDeck.length) refreshed.push(onDeck);
     const seenWatching = new Set<string>();
     const watchingList = refreshed.flat().filter((item) => {
         const key = showKey(item);
@@ -4645,7 +4657,9 @@ const loadServerHome = async (server: PlexServer, many: boolean, full = false) =
                 title: primary?.title || 'Continue Watching',
                 identifier: primary?.identifier || 'home.continue',
                 items: continueItems,
-                hubKey: primary?.hubKey || (many ? `${server.id}::/library/onDeck` : '/library/onDeck'),
+                hubKey: plexContinue.length
+                    ? (many ? `${server.id}::/hubs/continueWatching/items` : '/hubs/continueWatching/items')
+                    : (primary?.hubKey || (many ? `${server.id}::/library/onDeck` : '/library/onDeck')),
                 collectionRatingKey: null as string | null,
                 randomOrder: undefined as boolean | undefined,
                 serverId: server.id,
