@@ -207,7 +207,9 @@ export const PlexHomeSwitchModal: React.FC<{
                 type="button"
                 tabIndex={-1}
                 className={`absolute inset-0 cursor-default ${
-                    isTvShell ? 'bg-black/88' : 'bg-black/75 backdrop-blur-xl'
+                    // TV: solid, so the screen behind never shows through (and nothing to blend).
+                    // bg-black/88 was not a generated class, which left the backdrop see-through.
+                    isTvShell ? 'bg-[rgb(5,7,11)]' : 'bg-black/75 backdrop-blur-xl'
                 }`}
                 aria-label={loginMode ? 'Use a different Plex account' : 'Close profile switcher'}
                 onClick={dismiss}
