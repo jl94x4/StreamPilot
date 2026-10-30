@@ -28,23 +28,23 @@ Object.assign(ja, { support: { page: { adminTitle: 'サポート受信箱', memb
 Object.assign(ja, { maintenance: { rules: { title: 'ライブラリメンテナンスルール', description: '保存したフィルターを編集、プレビュー、実行できます。', savedFilters: '保存済みフィルター', noFilters: 'フィルターはありません。「フィルターを追加」をクリックしてください。', unsaved: '未保存の変更があります。プレビューまたは実行する前に保存してください。' }, actions: { rebuildIndex: 'インデックスを再構築', addFilter: 'フィルターを追加', edit: '編集', refresh: '更新', reset: 'リセット', delete: '削除', closeEditor: 'エディターを閉じる', deleteFilter: 'フィルターを削除', addCondition: '条件を追加', saveFilter: 'フィルターを保存', previewMatches: '一致をプレビュー', runDry: 'ドライランを実行', runDestructive: '削除を実行' }, labels: { true: '真', false: '偽', minMax: '最小,最大', values: 'v1,v2', value: '値', enabled: '有効', disabled: '無効', matches: '一致', grace: '猶予期間', graceDays: '猶予日数', maxActions: '最大アクション数', collectionName: 'コレクション名', matchLogic: '一致条件', filterName: 'フィルター名', matchedTitles: '一致したタイトル', noPoster: 'ポスターなし', eligible: '対象', unmapped: '未マッピング', ambiguous: '不明確' }, statuses: { saving: '保存中…', resetting: 'リセット中…', refreshingPreview: 'プレビュー更新中…', running: '実行中…', executing: '処理中…' }, options: { createCollection: 'Plexコレクションを作成 / 同期', deleteViaArr: 'Sonarr/Radarr経由で削除', deleteFiles: 'ディスク上のファイルを削除', pinCollection: '削除実行時にコレクションを作成し、全ユーザーのホームに固定' }, toasts: { filterDeleted: 'フィルターを削除しました', rulesSaved: 'メンテナンスルールを保存しました。', indexRebuilt: 'メンテナンスインデックスを再構築しました。', filterEnabled: 'フィルターを有効化しました', filterDisabled: 'フィルターを無効化しました' }, errors: { load: 'メンテナンスモジュールを読み込めませんでした', deleteFilter: 'フィルターを削除できませんでした', saveRules: 'メンテナンスルールを保存できませんでした', rebuildIndex: 'インデックスを再構築できませんでした', preview: 'プレビューを生成できませんでした', unsavedBeforeRun: '実行する前にフィルターの変更を保存してください。', run: 'ルールの実行に失敗しました', preflight: '事前チェックに失敗しました。', resetGrace: '猶予期間をリセットできませんでした', toggleFilter: 'フィルターの状態を更新できませんでした' }, confirmations: { deleteFilter: 'フィルターを削除', destructive: '破壊的なメンテナンスを実行しますか？保存済みフィルターに一致する項目をSonarr/Radarr経由で削除します。', destructiveWithCollection: '破壊的なメンテナンスを実行しますか？項目をSonarr/Radarr経由で削除し、全ユーザー用のPlexコレクションを作成して固定します。' }, summaries: { matched: '{count} 件一致', deleted: '{count} 件削除', skipped: '{count} 件スキップ', failed: '{count} 件失敗', dayLeft: '残り {count} 日', from: '作成から', fromCreation: '作成時から', conditions: '{count} 条件' } } });
 
 
-Object.assign(ja, { maintenance: { ...ja.maintenance, rules: { ...ja.maintenance?.rules, selectFilter: '一致をプレビューする保存済みフィルターを選択してください。' }, labels: { ...ja.maintenance?.labels, mapped: 'マッピング済み', instanceMappingHint: 'インスタンスのマッピングが不明確です', index: 'インデックス', mediaItems: 'メディア項目', lastBuild: '最終構築', requestRecords: 'リクエスト記録' }, status: { dryRunCompleted: 'ドライランが完了しました', destructiveWithCollection: 'コレクションの固定を含む削除が完了しました', destructiveCompleted: '削除が完了しました', executionWithCollection: 'コレクションの固定を含むルール実行が完了しました', executionCompleted: 'ルールの実行が完了しました' }, summaries: { ...ja.maintenance?.summaries, allInGrace: 'すべて猶予期間中（残り{count}日）', upToPerRun: '1回あたり最大{count}件', previewAllInGrace: 'プレビュー: {matches}件一致、すべて猶予期間中（残り{days}日）。', previewSummary: 'プレビュー: {matches}件一致、対象{eligible}件、Sonarr/Radarrにマッピング済み{mapped}件{inGrace}。', inGraceSuffix: '、猶予期間中{count}件', warnings: '警告:', wouldProcess: '最大{count}件を処理します: Sonarr/Radarrにマッピング済み{mapped}件、未マッピング{unmapped}件。', stillInGrace: '猶予期間中: {count}件（残り{days}日）。', graceTimerReset: '猶予タイマーをリセットしました' } } });
+Object.assign(ja, { maintenance: { ...(ja as AnyCatalog).maintenance, rules: { ...(ja as AnyCatalog).maintenance?.rules, selectFilter: '一致をプレビューする保存済みフィルターを選択してください。' }, labels: { ...(ja as AnyCatalog).maintenance?.labels, mapped: 'マッピング済み', instanceMappingHint: 'インスタンスのマッピングが不明確です', index: 'インデックス', mediaItems: 'メディア項目', lastBuild: '最終構築', requestRecords: 'リクエスト記録' }, status: { dryRunCompleted: 'ドライランが完了しました', destructiveWithCollection: 'コレクションの固定を含む削除が完了しました', destructiveCompleted: '削除が完了しました', executionWithCollection: 'コレクションの固定を含むルール実行が完了しました', executionCompleted: 'ルールの実行が完了しました' }, summaries: { ...(ja as AnyCatalog).maintenance?.summaries, allInGrace: 'すべて猶予期間中（残り{count}日）', upToPerRun: '1回あたり最大{count}件', previewAllInGrace: 'プレビュー: {matches}件一致、すべて猶予期間中（残り{days}日）。', previewSummary: 'プレビュー: {matches}件一致、対象{eligible}件、Sonarr/Radarrにマッピング済み{mapped}件{inGrace}。', inGraceSuffix: '、猶予期間中{count}件', warnings: '警告:', wouldProcess: '最大{count}件を処理します: Sonarr/Radarrにマッピング済み{mapped}件、未マッピング{unmapped}件。', stillInGrace: '猶予期間中: {count}件（残り{days}日）。', graceTimerReset: '猶予タイマーをリセットしました' } } });
 
 
-Object.assign(ja, { maintenance: { ...ja.maintenance, sections: { overview: '概要', exclusions: '除外', rules: 'ルール', collections: 'コレクション', candidates: '候補', calendar: 'カレンダー', storage: 'ストレージ指標', library: 'ルールライブラリ', settings: 'クリーナー設定', logs: 'ログ' }, labels: { noData: 'データなし', unknownLibrary: '不明なライブラリ', unnamedRule: '名前なしルール', noPoster: 'ポスターなし', library: 'ライブラリ', before: '前', reclaim: '回収', after: '後', matched: '一致', previous: '前へ', next: '次へ', close: '閉じる' }, overview: { reclaimImpact: '回収と影響の概要', rulesWithMatches: '一致するルール', totalRuns: '実行総数', totalMatched: '一致総数', uniqueCandidates: '一意の候補タイトル', estimatedReclaim: '回収見込み', topLibraries: '回収量の多いライブラリ', topRules: '回収量の多いルール' }, candidates: { title: '候補', searchPlaceholder: 'タイトルを検索...', noResults: '一致する候補はありません。', loading: '候補を読み込み中...' }, storage: { title: 'ストレージ指標', refreshSummary: '概要を更新', projectedReclaim: '回収見込み', ruleScope: 'ルール範囲:', noSummary: 'ストレージ概要はありません。', loading: 'ストレージ概要を読み込み中...', matchedItems: '一致する候補項目' }, library: { title: 'ルールライブラリ', export: 'ルールJSONをエクスポート', import: 'ルールJSONをインポート', placeholder: 'ルールJSONをここに貼り付けます。' }, exclusions: { title: '除外', allLibraries: 'すべてのライブラリ', searchPlaceholder: 'タイトルを検索...', refresh: '更新', selectPage: 'ページを選択', excludeSelected: '選択項目を除外 ({count})', clearSelection: '選択を解除', removeSelected: '選択した除外を削除', loading: 'ポスターを読み込み中...', excluded: '除外済み', exclude: '除外', unexclude: '除外を解除', noTitles: 'タイトルがありません。', saved: '除外を保存しました。' }, settings: { save: 'クリーナー設定を保存', saved: 'メンテナンス設定を保存しました。' }, calendar: { currentRule: '現在のルール:', graceDays: '猶予日数', ruleAge: 'ルール経過日数', eligibleNow: '今すぐ対象', laterReclaim: '後で回収', daysUntilEligible: '対象までの日数', titleCount: 'タイトル', laterDetail: 'これらのタイトルは猶予期間の終了を待っています。', dateTitleCount: 'この日に対象になるタイトル数。', delayedReclaimTooltip: '遅延した一致項目の回収見込み。', eligibilityDetailTooltip: 'バックエンドが使用する対象詳細。', ago: '日前', notAvailable: '該当なし' } } });
+Object.assign(ja, { maintenance: { ...(ja as AnyCatalog).maintenance, sections: { overview: '概要', exclusions: '除外', rules: 'ルール', collections: 'コレクション', candidates: '候補', calendar: 'カレンダー', storage: 'ストレージ指標', library: 'ルールライブラリ', settings: 'クリーナー設定', logs: 'ログ' }, labels: { noData: 'データなし', unknownLibrary: '不明なライブラリ', unnamedRule: '名前なしルール', noPoster: 'ポスターなし', library: 'ライブラリ', before: '前', reclaim: '回収', after: '後', matched: '一致', previous: '前へ', next: '次へ', close: '閉じる' }, overview: { reclaimImpact: '回収と影響の概要', rulesWithMatches: '一致するルール', totalRuns: '実行総数', totalMatched: '一致総数', uniqueCandidates: '一意の候補タイトル', estimatedReclaim: '回収見込み', topLibraries: '回収量の多いライブラリ', topRules: '回収量の多いルール' }, candidates: { title: '候補', searchPlaceholder: 'タイトルを検索...', noResults: '一致する候補はありません。', loading: '候補を読み込み中...' }, storage: { title: 'ストレージ指標', refreshSummary: '概要を更新', projectedReclaim: '回収見込み', ruleScope: 'ルール範囲:', noSummary: 'ストレージ概要はありません。', loading: 'ストレージ概要を読み込み中...', matchedItems: '一致する候補項目' }, library: { title: 'ルールライブラリ', export: 'ルールJSONをエクスポート', import: 'ルールJSONをインポート', placeholder: 'ルールJSONをここに貼り付けます。' }, exclusions: { title: '除外', allLibraries: 'すべてのライブラリ', searchPlaceholder: 'タイトルを検索...', refresh: '更新', selectPage: 'ページを選択', excludeSelected: '選択項目を除外 ({count})', clearSelection: '選択を解除', removeSelected: '選択した除外を削除', loading: 'ポスターを読み込み中...', excluded: '除外済み', exclude: '除外', unexclude: '除外を解除', noTitles: 'タイトルがありません。', saved: '除外を保存しました。' }, settings: { save: 'クリーナー設定を保存', saved: 'メンテナンス設定を保存しました。' }, calendar: { currentRule: '現在のルール:', graceDays: '猶予日数', ruleAge: 'ルール経過日数', eligibleNow: '今すぐ対象', laterReclaim: '後で回収', daysUntilEligible: '対象までの日数', titleCount: 'タイトル', laterDetail: 'これらのタイトルは猶予期間の終了を待っています。', dateTitleCount: 'この日に対象になるタイトル数。', delayedReclaimTooltip: '遅延した一致項目の回収見込み。', eligibilityDetailTooltip: 'バックエンドが使用する対象詳細。', ago: '日前', notAvailable: '該当なし' } } });
 
-Object.assign(ja, { maintenance: { ...ja.maintenance,
-    ...ja.maintenance,
+Object.assign(ja, { maintenance: { ...(ja as AnyCatalog).maintenance,
+    ...(ja as AnyCatalog).maintenance,
     page: { title: 'クリーナー', disabledTitle: 'クリーナー無効', disabledDescription: '実験的クリーナーモードは現在オフです。', disabledHint: '`設定` → `システム` の `実験的クリーナーモード` で有効にして、設定を保存してください。', controlCenter: 'クリーナーコントロールセンター', controlCenterDescription: 'ライブラリ保守を自動化するモジュール：ルール、コレクション、候補、実行履歴、カレンダー、ストレージ、管理。' },
-    labels: { ...ja.maintenance.labels, modulePage: 'モジュールページ', modulePages: 'モジュールページ', indexedMedia: 'インデックス済みメディア', requestRecords: 'リクエスト記録', topImpactLibrary: '影響の大きいライブラリ', unknownTitle: '不明なタイトル', mapped: 'マッピング済み', eligible: '対象', unmapped: '未マッピング', ambiguous: '曖昧' },
+    labels: { ...(ja as AnyCatalog).maintenance.labels, modulePage: 'モジュールページ', modulePages: 'モジュールページ', indexedMedia: 'インデックス済みメディア', requestRecords: 'リクエスト記録', topImpactLibrary: '影響の大きいライブラリ', unknownTitle: '不明なタイトル', mapped: 'マッピング済み', eligible: '対象', unmapped: '未マッピング', ambiguous: '曖昧' },
     collections: { title: 'コレクション', description: 'ルールごとのコレクション動作を管理します。変更は各ルールセットに直接保存されます。', enabled: '有効', templateSaved: 'コレクションテンプレートを保存しました。', settingsUpdated: 'コレクション設定を更新しました。' },
-    candidates: { ...ja.maintenance.candidates, noRules: '保存されたルールがありません。まず `ルール` で作成してください。', showing: '{name} の候補のみ表示しています。' },
+    candidates: { ...(ja as AnyCatalog).maintenance.candidates, noRules: '保存されたルールがありません。まず `ルール` で作成してください。', showing: '{name} の候補のみ表示しています。' },
     runs: { title: 'ログ', dryRun: 'ドライラン', destructive: '破壊的', summary: '一致 {matched} · 処理済み {processed} · 削除 {deleted} · スキップ {skipped} · 失敗 {failed}', noRuns: '記録された実行はありません。' },
-    calendar: { ...ja.maintenance.calendar, title: 'カレンダー', description: 'ルールに基づく対象スケジュール。このルールの作成日から猶予日数を適用します。', eligibleLaterDays: '後で対象の日数', laterTitles: '後で対象のタイトル', eligibleLaterByDate: '日付別の後続対象', noDelayedDates: '遅延日はありません。現在の一致項目は今すぐ対象です。', reclaimNow: '{value} 今すぐ回収', eligibilityNowTooltip: 'このルールに一致し、猶予期間が終了したタイトル。', notEligibleYet: 'まだ対象外です。残り猶予日数は {count} 日です。', lastWatched: '{count} 日前に最後に視聴しました。', addedDaysAgo: '{count} 日前に追加されました。', futureDatesTooltip: 'ルールの猶予期間中に対象となる将来の日付の数。', waitingTooltip: '現在ルールに一致していますが、猶予期間の終了を待っているタイトル。', datesTooltip: 'ルールの猶予期間終了後に一致タイトルが対象となる日付。', nowDetail: 'これらのタイトルは現在このルールに一致し、今すぐ対象です。', lastWatch: '最後の視聴:', added: '追加:' },
-    storage: { ...ja.maintenance.storage, description: 'インデックス済みサイズと現在のルール一致に基づくライブラリ別ストレージ予測。', refreshing: '更新中...', librarySizeBefore: '変更前のライブラリサイズ', projectedSizeAfter: '変更後の予測サイズ', reclaimPercent: '回収率', rulesIncluded: '含まれるルール' },
-    library: { ...ja.maintenance.library, exportDownloaded: 'ルールのエクスポートをダウンロードしました。', importSaved: 'インポートしたルールを保存しました。', invalidJson: '無効なJSONインポートです。', arrayRequired: 'JSONはルールの配列である必要があります。' },
-    exclusions: { ...ja.maintenance.exclusions, description: '一括操作するポスターをクリックして選択します。選択項目にはチェックが表示されます。個別変更には各タイトル下の除外リンクを使います。', excludedSelected: '{count} 件の選択タイトルを除外しました。', removedSelected: '{count} 件の選択した除外を削除しました。', showing: '{total} 件中 {shown} 件 · ページ {page}', selectToExclude: 'まず除外するポスターを選択してください。', selectToUnexclude: 'まず除外解除するポスターを選択してください。', removed: '{title} の除外を解除しました。', excludedTitle: '{title} を除外しました。', currentResolved: '現在の除外（解決済み）', ratingKeyTitles: 'RatingKey別の除外タイトル', titleTerms: '除外タイトル語', libraries: '除外ライブラリ', noRatingKeys: 'RatingKey除外はありません。', noTitleTerms: 'タイトル除外はありません。', noLibraries: 'ライブラリ除外はありません。', advancedTitle: 'タイトル除外（詳細、1行に1件）', advancedLibrary: 'ライブラリ除外（詳細、1行に1件）', advancedRating: 'RatingKey除外（詳細、1行に1件）' },
-    settings: { ...ja.maintenance.settings, title: 'クリーナー設定', defaultDryRun: 'デフォルトのドライラン', enableByDefault: 'デフォルトで有効化', maxActions: '実行あたりの最大アクション数', requireConfirm: '確認トークンが必要', required: '破壊的実行に必要' },
+    calendar: { ...(ja as AnyCatalog).maintenance.calendar, title: 'カレンダー', description: 'ルールに基づく対象スケジュール。このルールの作成日から猶予日数を適用します。', eligibleLaterDays: '後で対象の日数', laterTitles: '後で対象のタイトル', eligibleLaterByDate: '日付別の後続対象', noDelayedDates: '遅延日はありません。現在の一致項目は今すぐ対象です。', reclaimNow: '{value} 今すぐ回収', eligibilityNowTooltip: 'このルールに一致し、猶予期間が終了したタイトル。', notEligibleYet: 'まだ対象外です。残り猶予日数は {count} 日です。', lastWatched: '{count} 日前に最後に視聴しました。', addedDaysAgo: '{count} 日前に追加されました。', futureDatesTooltip: 'ルールの猶予期間中に対象となる将来の日付の数。', waitingTooltip: '現在ルールに一致していますが、猶予期間の終了を待っているタイトル。', datesTooltip: 'ルールの猶予期間終了後に一致タイトルが対象となる日付。', nowDetail: 'これらのタイトルは現在このルールに一致し、今すぐ対象です。', lastWatch: '最後の視聴:', added: '追加:' },
+    storage: { ...(ja as AnyCatalog).maintenance.storage, description: 'インデックス済みサイズと現在のルール一致に基づくライブラリ別ストレージ予測。', refreshing: '更新中...', librarySizeBefore: '変更前のライブラリサイズ', projectedSizeAfter: '変更後の予測サイズ', reclaimPercent: '回収率', rulesIncluded: '含まれるルール' },
+    library: { ...(ja as AnyCatalog).maintenance.library, exportDownloaded: 'ルールのエクスポートをダウンロードしました。', importSaved: 'インポートしたルールを保存しました。', invalidJson: '無効なJSONインポートです。', arrayRequired: 'JSONはルールの配列である必要があります。' },
+    exclusions: { ...(ja as AnyCatalog).maintenance.exclusions, description: '一括操作するポスターをクリックして選択します。選択項目にはチェックが表示されます。個別変更には各タイトル下の除外リンクを使います。', excludedSelected: '{count} 件の選択タイトルを除外しました。', removedSelected: '{count} 件の選択した除外を削除しました。', showing: '{total} 件中 {shown} 件 · ページ {page}', selectToExclude: 'まず除外するポスターを選択してください。', selectToUnexclude: 'まず除外解除するポスターを選択してください。', removed: '{title} の除外を解除しました。', excludedTitle: '{title} を除外しました。', currentResolved: '現在の除外（解決済み）', ratingKeyTitles: 'RatingKey別の除外タイトル', titleTerms: '除外タイトル語', libraries: '除外ライブラリ', noRatingKeys: 'RatingKey除外はありません。', noTitleTerms: 'タイトル除外はありません。', noLibraries: 'ライブラリ除外はありません。', advancedTitle: 'タイトル除外（詳細、1行に1件）', advancedLibrary: 'ライブラリ除外（詳細、1行に1件）', advancedRating: 'RatingKey除外（詳細、1行に1件）' },
+    settings: { ...(ja as AnyCatalog).maintenance.settings, title: 'クリーナー設定', defaultDryRun: 'デフォルトのドライラン', enableByDefault: 'デフォルトで有効化', maxActions: '実行あたりの最大アクション数', requireConfirm: '確認トークンが必要', required: '破壊的実行に必要' },
     errors: { loadOverview: 'クリーナー概要を読み込めませんでした', loadCandidates: '候補を読み込めませんでした', loadExclusions: '除外の概要を読み込めませんでした。', loadLibrary: 'ライブラリのポスターを読み込めませんでした。', loadStorage: 'ストレージ概要を読み込めませんでした。' }
 } });
 
@@ -68,7 +68,7 @@ Object.assign(ja, { usersAdmin: {
 
 Object.assign(ja, { quickActions: { menuLabel: 'クイックアクション' } });
 
-Object.assign(ja, { homeDashboard: { ...ja.homeDashboard, opsSnapshot: {
+Object.assign(ja, { homeDashboard: { ...(ja as AnyCatalog).homeDashboard, opsSnapshot: {
     title: '運用スナップショット',
     loading: '運用スナップショットを読み込み中…',
     errors: { loadFailed: '運用スナップショットを読み込めませんでした' },
@@ -82,7 +82,7 @@ Object.assign(ja, { homeDashboard: { ...ja.homeDashboard, opsSnapshot: {
     empty: { noIncidents: 'インシデントはありません', unavailable: '運用スナップショットは利用できません。' },
 } } });
 
-Object.assign(ja, { settings: { ...ja.settings, streamKillRules: {
+Object.assign(ja, { settings: { ...(ja as AnyCatalog).settings, streamKillRules: {
     title: 'ストリーム停止ルール',
     description: { beforeInterval: 'Plexストリームを自動停止するルールを定義します。ルールは', interval: '15秒', afterInterval: 'ごとに評価されます。条件は「', andAllMatch: '」（すべて一致）か、「', orAnyMatch: '」（いずれかが一致）で組み合わせます。', afterLogic: '停止メッセージはユーザーのPlexクライアント画面に表示されます。' },
     fields: { isTranscoding: 'トランスコード中', videoResolution: '映像解像度', transcodeVideoDecision: '映像トランスコードの判定', mediaType: 'メディア種別', state: '再生状態', sessionLocation: '接続場所', videoCodec: '映像コーデック', audioCodec: '音声コーデック', bandwidth: '帯域幅 (Mbps)', user: 'ユーザー名', playerProduct: 'プレーヤーアプリ', playerTitle: 'プレーヤー/デバイス名' },
@@ -101,8 +101,8 @@ Object.assign(ja, { settings: { ...ja.settings, streamKillRules: {
     defaults: { newRuleName: '新しいルール', killMessage: 'ストリームはサーバー管理者によって停止されました。' },
 } } });
 
-Object.assign(ja, { homeDashboard: { ...ja.homeDashboard, nowPlayingCompanion: {
-    ...ja.homeDashboard.nowPlayingCompanion,
+Object.assign(ja, { homeDashboard: { ...(ja as AnyCatalog).homeDashboard, nowPlayingCompanion: {
+    ...(ja as AnyCatalog).homeDashboard.nowPlayingCompanion,
     timeline: { release: '公開日', runtime: '上映時間', episodeRuntime: 'エピソード時間', genres: 'ジャンル', tmdbScore: 'TMDBスコア', status: '状態', currentEpisode: '現在のエピソード', episodeAirDate: 'エピソードの放送日' },
     loading: { context: 'コンパニオン情報を読み込んでいます...', facts: '情報源から詳細なトリビアを読み込んでいます...' },
     errors: { noTmdbContext: 'このアクティブなセッションではTMDB情報を利用できません。', detailsUnavailable: 'コンパニオンの詳細はまだ利用できません。', loadFailed: 'コンパニオンのデータを読み込めませんでした。', providerLinkUnavailable: 'ライブラリへのリンクを利用できません', providerOpenFailed: 'プロバイダーのリンクを開けませんでした。' },
@@ -122,7 +122,7 @@ Object.assign(ja, { homeDashboard: { ...ja.homeDashboard, nowPlayingCompanion: {
     telemetry: { state: '状態', progress: '進行状況', mediaType: 'メディア種別', episode: 'エピソード', playing: '再生中' },
 } } });
 
-Object.assign(ja, { settings: { ...ja.settings, homeLayout: {
+Object.assign(ja, { settings: { ...(ja as AnyCatalog).settings, homeLayout: {
     sectionShown: 'ホームページに表示中のセクション', sectionHidden: 'ホームページで非表示のセクション', shown: '表示', hidden: '非表示', livePreview: 'ライブプレビュー', leftColumn: '左列', heroFixed: 'ヒーローバナーは上部に固定され、設定できません。',
     title: 'ホームページのレイアウト', description: 'セクションをドラッグして、全員のホームページの順序を変更します。セクション全体を表示または非表示にできます。メインダッシュボードのグリッドは、カードの高さを整えるため左右の固定レイアウトを維持します。', resetDefault: 'デフォルトに戻す', pageSections: 'ページセクション', reorderHint: 'ハンドルをドラッグして並べ替えます。表示/非表示で各セクションを切り替えます。すべてのセクションは初期状態で表示されています。', saveHintBefore: 'このページの下部にある', saveAction: '「設定を保存」', saveHintAfter: 'をクリックすると、レイアウトの変更が全員に適用されます。', tipLabel: 'ヒント:', tipBody: 'ライブポータルエディターでは、ホームページから直接個別のウィジェットを移動、非表示、再追加することもできます。このページは管理者向けのセクションレイアウトエディターです。', watchHistory: '視聴履歴の設定', recentlyWatchedRows: '最近視聴した行数', mostWatchedRows: '最も視聴された行数', rowsPerPage: 'ページごとに表示する行数。', row: '行', rows: '行',
     sections: { wrapUp: { label: '個人のまとめ', description: '個人統計カード' }, mainGrid: { label: 'メインダッシュボードグリッド', description: '左に管理/操作、右にライブラリ統計' }, pendingRequests: { label: '保留中のリクエスト', description: 'ホームからメディアリクエストを承認（管理者）' }, watchRow: { label: '視聴履歴', description: '最近視聴した項目と最も視聴された項目' }, scanner: { description: '全幅のライブラリ更新ステータス' }, mediaAutomation: { description: 'ネイティブ処理キューとワーカーの状態' }, recentlyAdded: { label: '最近追加された項目', description: '映画、シリーズ、音楽の行' }, bazarrTools: { label: 'Bazarr 字幕ツール', description: '字幕自動化ウィジェット' } },
@@ -142,7 +142,7 @@ Object.assign(ja, { scanner: {
     toasts: { queued: 'キューに追加しました: {path}', copied: 'クリップボードにコピーしました' },
 } });
 
-Object.assign(ja, { scanner: { ...ja.scanner, settings: {
+Object.assign(ja, { scanner: { ...(ja as AnyCatalog).scanner, settings: {
     general: {
         description: 'Sonarr、Radarr、Lidarr 向けの Autoscan 形式ライブラリ更新です。有効にすると、手動パスとキューの状態を扱う管理者専用 Scanner ページがナビゲーションに表示されます。',
         title: '一般', enableTitle: 'Scanner を有効にする', enableHint: '/triggers/* Webhook と管理者用 Scanner ページを有効にします。', currentStatus: '現在の状態', on: 'オン', off: 'オフ',
@@ -160,7 +160,7 @@ Object.assign(ja, { scanner: { ...ja.scanner, settings: {
     },
 } } });
 
-Object.assign(ja, { scanner: { ...ja.scanner, settings: { ...ja.scanner.settings,
+Object.assign(ja, { scanner: { ...(ja as AnyCatalog).scanner, settings: { ...(ja as AnyCatalog).scanner.settings,
     pathRewrites: {
         title: 'パスの書き換え', add: '書き換えを追加', empty: '書き換えルールはありません。パスはトリガーから受け取ったまま使用されます。', sourcePath: '変換元パス', destinationPath: '変換先パス', sourcePathFor: '{name} のパス', scannerPath: 'Scanner パス', targetPath: '{name} のパス',
         mediaAutomationTitle: 'Media Automation の書き換え', mediaAutomationDescription: 'Media Automation が Copy/Replace を完了して即時 Scanner 更新をキューに入れるときに適用されます。Sonarr の「変換元 → 変換先」と同様に、Automation/コンテナのパスを Plex（または Scanner）が期待するパスへ対応付けます。', label: 'ラベル', mediaAutomationLabelHint: 'Webhook URL ではありません。Scanner キュー内のソース表示にのみ使用されます。', automationPath: 'Automation パス', scannerOrPlexPath: 'Scanner / Plex パス', mediaAutomationExamplePrefix: '例:', mediaAutomationExampleSuffix: 'Media Automation → 「Queue Scanner refresh after library writes」と Scanner の有効化が必要です。',
@@ -170,7 +170,7 @@ Object.assign(ja, { scanner: { ...ja.scanner, settings: { ...ja.scanner.settings
     },
 } } });
 
-Object.assign(ja, { scanner: { ...ja.scanner, settings: { ...ja.scanner.settings,
+Object.assign(ja, { scanner: { ...(ja as AnyCatalog).scanner, settings: { ...(ja as AnyCatalog).scanner.settings,
     autoscan: {
         title: 'Autoscan からインポート', description: 'Autoscan の config.yml をアップロードまたは貼り付けて、最小経過時間、Webhook 認証、トリガー、書き換えを設定します。Plex URL とトークンは引き続き 設定 → Plex から取得されます。', uploadConfig: 'config.yml をアップロード', previewPastedYaml: '貼り付けた YAML をプレビュー', applyImport: 'インポートを適用',
         placeholder: '# Paste Autoscan config.yml here\nminimum-age: 1m\nauthentication:\n  username: admin\n  ...', previewNotApplied: 'プレビュー（まだ適用されていません）', applied: '適用済み', importedToast: 'Autoscan 設定をインポートしました。以下を確認してから「設定を保存」を実行してください', pasteOrUploadFirst: '先に Autoscan の config.yml を貼り付けるかアップロードしてください', yamlParsedToast: 'YAML を解析しました。プレビューを確認してからインポートを適用してください', previewFailed: 'プレビューに失敗しました', previewFirst: '先に YAML をプレビューしてください', readFileFailed: 'そのファイルを読み取れませんでした', summaryMinimumAge: '最小経過時間 {value}', summaryAuth: '認証 @{username}', summaryRewrites: '{name} の書き換え {count} 件',
@@ -181,7 +181,7 @@ Object.assign(ja, { scanner: { ...ja.scanner, settings: { ...ja.scanner.settings
     },
 } } });
 
-Object.assign(ja, { settings: { ...ja.settings, logs: {
+Object.assign(ja, { settings: { ...(ja as AnyCatalog).settings, logs: {
     actions: { refresh: '更新', refreshing: '更新中...', exportAll: 'すべてエクスポート', exporting: 'エクスポート中…', unblock: 'ブロック解除' },
     audit: { viewerTitle: '監査ログビューアー', empty: '監査イベントが見つかりません。', target: '対象', system: 'システム', actor: '実行者', field: '項目', before: '変更前', after: '変更後', value: '値', unknownEvent: 'イベント' },
     blocklist: { title: '削除済みユーザーのブロックリスト', empty: '現在ブロックされている削除済みユーザーはいません。', unknownUser: '不明なユーザー', noIdentifier: '識別子なし', deletedBy: '{actor} が {date} に削除', defaultActor: '管理者' },
@@ -191,13 +191,17 @@ Object.assign(ja, { settings: { ...ja.settings, logs: {
 } } });
 
 Object.assign(ja, { maintenance: {
-    ...ja.maintenance,
-    labels: { ...ja.maintenance.labels, true: '真', false: '偽', minMax: '最小,最大', values: 'v1,v2', value: '値', enabled: '有効', disabled: '無効', matches: '一致', grace: '猶予期間', graceDays: '猶予日数', maxActions: '最大アクション数', collectionName: 'コレクション名', matchLogic: '一致条件', filterName: 'フィルター名', matchedTitles: '一致したタイトル', noPoster: 'ポスターなし', eligible: '対象', unmapped: '未マッピング', ambiguous: '不明確', ...ja.maintenance?.labels, mapped: 'マッピング済み', instanceMappingHint: 'インスタンスのマッピングが不明確です', index: 'インデックス', mediaItems: 'メディア項目', lastBuild: '最終構築', requestRecords: 'リクエスト記録',...ja.maintenance?.labels, matchLogicHint: 'ルール条件の組み合わせ方。', graceHint: 'このルールセットの全体猶予期間。', resetGraceHint: 'このルールの猶予タイマーを今すぐリセットします。' },
-    errors: { ...ja.maintenance.errors, load: 'メンテナンスモジュールを読み込めませんでした', deleteFilter: 'フィルターを削除できませんでした', saveRules: 'メンテナンスルールを保存できませんでした', rebuildIndex: 'インデックスを再構築できませんでした', preview: 'プレビューを生成できませんでした', unsavedBeforeRun: '実行する前にフィルターの変更を保存してください。', run: 'ルールの実行に失敗しました', preflight: '事前チェックに失敗しました。', resetGrace: '猶予期間をリセットできませんでした', toggleFilter: 'フィルターの状態を更新できませんでした' }
+    ...(ja as AnyCatalog).maintenance,
+    labels: { ...(ja as AnyCatalog).maintenance.labels, true: '真', false: '偽', minMax: '最小,最大', values: 'v1,v2', value: '値', enabled: '有効', disabled: '無効', matches: '一致', grace: '猶予期間', graceDays: '猶予日数', maxActions: '最大アクション数', collectionName: 'コレクション名', matchLogic: '一致条件', filterName: 'フィルター名', matchedTitles: '一致したタイトル', noPoster: 'ポスターなし', eligible: '対象', unmapped: '未マッピング', ambiguous: '不明確', ...(ja as AnyCatalog).maintenance?.labels, mapped: 'マッピング済み', instanceMappingHint: 'インスタンスのマッピングが不明確です', index: 'インデックス', mediaItems: 'メディア項目', lastBuild: '最終構築', requestRecords: 'リクエスト記録',...(ja as AnyCatalog).maintenance?.labels, matchLogicHint: 'ルール条件の組み合わせ方。', graceHint: 'このルールセットの全体猶予期間。', resetGraceHint: 'このルールの猶予タイマーを今すぐリセットします。' },
+    errors: { ...(ja as AnyCatalog).maintenance.errors, load: 'メンテナンスモジュールを読み込めませんでした', deleteFilter: 'フィルターを削除できませんでした', saveRules: 'メンテナンスルールを保存できませんでした', rebuildIndex: 'インデックスを再構築できませんでした', preview: 'プレビューを生成できませんでした', unsavedBeforeRun: '実行する前にフィルターの変更を保存してください。', run: 'ルールの実行に失敗しました', preflight: '事前チェックに失敗しました。', resetGrace: '猶予期間をリセットできませんでした', toggleFilter: 'フィルターの状態を更新できませんでした' }
 } });
 
 // en.ts is `as const`, so its leaves are literal English strings: widen them to string,
 // or every translation fails to type-check against the English text.
+// Object.assign blocks below add keys EnCatalog does not list, then later blocks spread
+// them back in. Read through this loose view; the translations themselves stay typed.
+type AnyCatalog = Record<string, any>;
+
 type DeepPartial<T> = {
     [K in keyof T]?: T[K] extends string ? string : T[K] extends object ? DeepPartial<T[K]> : T[K];
 };
@@ -223,7 +227,7 @@ Object.assign(ja, { about: {
     links: { title: 'プロジェクトリンク', documentation: 'ドキュメント', githubRepository: 'GitHub リポジトリ', featureOverview: '機能概要', gettingStarted: 'はじめに' },
 } });
 
-Object.assign(ja, { settings: { ...ja.settings, notifications: {
+Object.assign(ja, { settings: { ...(ja as AnyCatalog).settings, notifications: {
     common: { never: 'なし', unknownDate: '不明', unknownUser: '不明なユーザー', unread: '未読', all: 'すべて', loading: '読み込み中...', ready: '準備完了', needsSetup: '設定が必要', email: 'メール', inAppBell: 'アプリ内ベル', browserPush: 'ブラウザプッシュ', webPush: 'Web Push', ntfy: 'ntfy', webhook: 'Webhook' },
     page: { title: '通知', description: 'リクエストが利用可能になった時の通知、ブラウザプッシュ、Discord、アプリ内ベルの履歴、自分宛てのテスト送信をまとめて管理します。SMTP と Gotify の管理者向け通知もこのページで扱います。' },
     actions: { refreshStatus: '状態を更新', openSmtpSettings: 'SMTP 設定を開く', openGotifySettings: 'Gotify 設定を開く' },
@@ -239,7 +243,7 @@ Object.assign(ja, { settings: { ...ja.settings, notifications: {
     saveReminder: { title: '設定の保存を忘れずに', hint: 'チャンネル切り替えと Discord webhook を保持するには、フッターのボタンで保存してください。' },
     templates: { title: '通知テンプレート', hint: 'イベントごとに文面をカスタマイズできます。組み込み文面を使うには、フィールドを既定値のままにするか空にしてください。', variablesLabel: '変数:', resetEvent: 'イベントを既定値に戻す', customBadge: 'カスタム', events: { available: 'リクエスト利用可能', approved: 'リクエスト承認済み', declined: 'リクエスト却下済み', season: 'シーズン利用可能', episode: '新しいエピソード', admin_pending: '管理者 - 新しい承認待ちリクエスト', not_released: 'まだ公開前', collexions_failed: '管理者 - ColleXions 失敗', scanner_failed: '管理者 - Scanner 失敗', scanner_deleted: 'Scanner deleted', scanner_upgrade: 'Scanner upgrade', scanner_import: 'Scanner import', scanner_grab: 'Scanner grab', scanner_update: 'Scanner update', scanner_interaction: 'Scanner interaction', status_down: '管理者 - 状態チェック停止', status_up: '管理者 - 状態チェック復旧', media_job_failed: '管理者 - Media Automation ジョブ失敗', media_job_completed: '管理者 - Media Automation ジョブ完了' }, fields: { emailSubject: 'メール件名', emailHeadline: 'メール見出し', emailBody: 'メール本文', pushTitle: 'Push / in-app タイトル', pushBody: 'Push / in-app 本文', discordContent: 'Discord メッセージ', discordEmbedTitle: 'Discord 埋め込みタイトル', discordEmbedDescription: 'Discord 埋め込み説明', gotifyTitle: 'Gotify タイトル', gotifyBody: 'Gotify 本文', ntfyTitle: 'ntfy タイトル', ntfyBody: 'ntfy 本文', webhookBody: 'Webhook JSON 本文 (任意テンプレート)' } },
 } } });
-Object.assign(ja, { settings: { ...ja.settings, arrIntegrations: {
+Object.assign(ja, { settings: { ...(ja as AnyCatalog).settings, arrIntegrations: {
     actions: { addInstance: 'インスタンスを追加', defaultInstance: 'デフォルトインスタンス', setAsDefault: 'デフォルトに設定', removeInstance: 'インスタンスを削除', testConnection: '接続をテスト' },
     status: { default: 'デフォルト' },
     empty: { noInstances: '{appName} インスタンスは設定されていません。' },
@@ -255,17 +259,17 @@ Object.assign(ja, { settings: { ...ja.settings, arrIntegrations: {
 
 Object.assign(ja, {
     support: {
-        ...ja.support,
-        actions: { ...ja.support?.actions, ...{
+        ...(ja as AnyCatalog).support,
+        actions: { ...(ja as AnyCatalog).support?.actions, ...{
             edit: "編集",
             react: "リアクション",
             save: "保存"
         } },
-        errors: { ...ja.support?.errors, ...{
+        errors: { ...(ja as AnyCatalog).support?.errors, ...{
             editFailed: "編集を保存できませんでした",
             reactFailed: "リアクションを保存できませんでした"
         } },
-        labels: { ...ja.support?.labels, ...{
+        labels: { ...(ja as AnyCatalog).support?.labels, ...{
             edited: "編集済み",
             mediaIssue: "メディアの問題",
             noMatch: "一致する項目はありません",
@@ -274,15 +278,15 @@ Object.assign(ja, {
             viewMedia: "メディアを表示",
             you: "あなた"
         } },
-        reply: { ...ja.support?.reply, ...{
+        reply: { ...(ja as AnyCatalog).support?.reply, ...{
             closedHint: "このチケットは閉じています。返信するには再オープンしてください。"
         } },
-        toasts: { ...ja.support?.toasts, ...{
+        toasts: { ...(ja as AnyCatalog).support?.toasts, ...{
             edited: "返信を保存しました"
         } },
     },
     settings: {
-        ...ja.settings,
+        ...(ja as AnyCatalog).settings,
         navigation: {
             category: "カテゴリ",
             groups: {
@@ -595,14 +599,14 @@ Object.assign(ja, { preferencesPage: {
         installInstalled: 'この端末にはすでにインストール済み',
 } });
 
-Object.assign(ja, { settings: { ...ja.settings, achievements: { title: '実績とXP', description: 'レベル、バッジ、プロフィール表示枠、ランキングを使う任意のゲーミフィケーションです。初期状態ではオフです。', enableTitle: '実績を有効化', enableDescription: 'ナビゲーションに実績を追加し、視聴履歴からXP / バッジを記録します。', watchHistoryMovedHint: '視聴履歴のソースは「設定 → 分析」にあります。同じソースが実績XP/バッジとホームのまとめにも使われます。', watchHistorySource: '視聴履歴のソース', watchHistorySourceHint: '実績XP/バッジとホームの個人まとめ数に使われます。Plexはこのサーバーのセッション履歴を使います。Tautulliを設定すると、通常はより完全な再生履歴を保持できます。', plexSessionHistory: 'Plex（セッション履歴）', tautulliNotConfigured: 'Tautulliはまだ設定されていません — インテグレーションでURL + APIキーを追加してください。追加しない場合、ポータルはPlexを使い続けます。', showLeaderboard: 'ランキングを表示', showLeaderboardDescription: 'メンバーをXPでランク付けします。ユーザーはランキングから自分を非表示にできます。', homeWidget: 'ホームダッシュボードのウィジェット', homeWidgetDescription: 'ホームにレベル、XPバー、最近のバッジを表示します。', showBadgesOnProfile: 'プロフィールにバッジを表示', showBadgesOnProfileDescription: '獲得済みバッジをサイドバーのプロフィールパネルに表示します。', minPercentComplete: '最小完了率', minPercentCompleteHint: '短すぎる再生を除外します。0にするとこの条件を無効化します。完了率データが必要です（Tautulliが最も信頼できます）。', seasonManager: 'シーズン管理', seasonManagerHint: '対象バッジを制限し、必要に応じて実績ページで目立たせる季節ウィンドウを定義します。日付はMM-DD（またはYYYY-MM-DD）形式です。', addSeason: 'シーズンを追加', noSeasons: 'まだシーズンは設定されていません。', seasonBadgeCount: '{count} 個のバッジ', seasonBadgeCount_plural: '{count} 個のバッジ', noSpotlight: 'スポットライトなし', edit: '編集', name: '名前', showSpotlightStrip: 'スポットライト帯を表示', activeFrom: '開始日', activeUntil: '終了日', badgesInSeason: 'シーズン内のバッジ（{count}）', searchBadgesToInclude: '含めるバッジを検索…', noMatchingBadges: '一致するバッジはありません。', saveSeason: 'シーズンを保存', backfillTitle: 'ランキングのバックフィル', backfillHint: '視聴履歴からXPスナップショットを再構築し、バッジ解除時刻を強制修復します（初回実行時の「誰が最初に解除したか」スタンプを修正します）。履歴ソースや重みを変更した後に使用してください。', refreshStatus: 'ステータスを更新', running: '実行中…', forceRun: '強制実行', statusLabel: 'ステータス:', inProgress: '進行中', ready: '準備完了', idle: '待機中', lastCompleted: '最終完了: {date}', lastRunProcessed: '前回の実行で {count} 人のメンバーを処理しました。', badgeInsights: 'バッジ分析', badgeInsightsHint: '一度も解除されていないバッジや希少なバッジを見つけ、しきい値の調整や不要なものの無効化に役立てます。', loading: '読み込み中…', refreshInsights: '分析を更新', loadInsights: '分析を読み込む', neverUnlocked: '未解除', rarest: '最も希少', mostCommon: '最も一般的', noData: 'まだデータがありません。', xpWeights: 'XPの重み', xpWeightsHint: '統計ごとに付与されるポイントです。視聴時間は1分あたり1 XPで、日曜日は2倍です。完了、当日の初回視聴、現在の連続記録、まとめ視聴セッション、バッジ解除、メディアリクエストにもXPが付与されます。二重カウントを避けるため、視聴時間（時間）と総再生数は0のままです。重みを変更した後はXPスナップショットを再構築してください。', resetToDefaults: '既定値に戻す', disableBadges: 'バッジを無効化', disableBadgesHint: '非表示のバッジは全員に対してロックされたままとなり、進捗や殿堂に表示されません。', disabledCount: '{count} 個が無効です。', disabledCount_plural: '{count} 個が無効です。', searchBadges: 'バッジを検索…', allCategories: 'すべてのカテゴリ', loadingBadgeCatalog: 'バッジカタログを読み込み中…', noBadgesMatch: '一致するバッジはありません。', off: 'オフ', showingBadgeLimit: '{total} 件中 {shown} 件を表示中 — さらに表示するには検索を絞り込んでください。', clearDisabledBadges: '無効なバッジをすべてクリア' } } });
+Object.assign(ja, { settings: { ...(ja as AnyCatalog).settings, achievements: { title: '実績とXP', description: 'レベル、バッジ、プロフィール表示枠、ランキングを使う任意のゲーミフィケーションです。初期状態ではオフです。', enableTitle: '実績を有効化', enableDescription: 'ナビゲーションに実績を追加し、視聴履歴からXP / バッジを記録します。', watchHistoryMovedHint: '視聴履歴のソースは「設定 → 分析」にあります。同じソースが実績XP/バッジとホームのまとめにも使われます。', watchHistorySource: '視聴履歴のソース', watchHistorySourceHint: '実績XP/バッジとホームの個人まとめ数に使われます。Plexはこのサーバーのセッション履歴を使います。Tautulliを設定すると、通常はより完全な再生履歴を保持できます。', plexSessionHistory: 'Plex（セッション履歴）', tautulliNotConfigured: 'Tautulliはまだ設定されていません — インテグレーションでURL + APIキーを追加してください。追加しない場合、ポータルはPlexを使い続けます。', showLeaderboard: 'ランキングを表示', showLeaderboardDescription: 'メンバーをXPでランク付けします。ユーザーはランキングから自分を非表示にできます。', homeWidget: 'ホームダッシュボードのウィジェット', homeWidgetDescription: 'ホームにレベル、XPバー、最近のバッジを表示します。', showBadgesOnProfile: 'プロフィールにバッジを表示', showBadgesOnProfileDescription: '獲得済みバッジをサイドバーのプロフィールパネルに表示します。', minPercentComplete: '最小完了率', minPercentCompleteHint: '短すぎる再生を除外します。0にするとこの条件を無効化します。完了率データが必要です（Tautulliが最も信頼できます）。', seasonManager: 'シーズン管理', seasonManagerHint: '対象バッジを制限し、必要に応じて実績ページで目立たせる季節ウィンドウを定義します。日付はMM-DD（またはYYYY-MM-DD）形式です。', addSeason: 'シーズンを追加', noSeasons: 'まだシーズンは設定されていません。', seasonBadgeCount: '{count} 個のバッジ', seasonBadgeCount_plural: '{count} 個のバッジ', noSpotlight: 'スポットライトなし', edit: '編集', name: '名前', showSpotlightStrip: 'スポットライト帯を表示', activeFrom: '開始日', activeUntil: '終了日', badgesInSeason: 'シーズン内のバッジ（{count}）', searchBadgesToInclude: '含めるバッジを検索…', noMatchingBadges: '一致するバッジはありません。', saveSeason: 'シーズンを保存', backfillTitle: 'ランキングのバックフィル', backfillHint: '視聴履歴からXPスナップショットを再構築し、バッジ解除時刻を強制修復します（初回実行時の「誰が最初に解除したか」スタンプを修正します）。履歴ソースや重みを変更した後に使用してください。', refreshStatus: 'ステータスを更新', running: '実行中…', forceRun: '強制実行', statusLabel: 'ステータス:', inProgress: '進行中', ready: '準備完了', idle: '待機中', lastCompleted: '最終完了: {date}', lastRunProcessed: '前回の実行で {count} 人のメンバーを処理しました。', badgeInsights: 'バッジ分析', badgeInsightsHint: '一度も解除されていないバッジや希少なバッジを見つけ、しきい値の調整や不要なものの無効化に役立てます。', loading: '読み込み中…', refreshInsights: '分析を更新', loadInsights: '分析を読み込む', neverUnlocked: '未解除', rarest: '最も希少', mostCommon: '最も一般的', noData: 'まだデータがありません。', xpWeights: 'XPの重み', xpWeightsHint: '統計ごとに付与されるポイントです。視聴時間は1分あたり1 XPで、日曜日は2倍です。完了、当日の初回視聴、現在の連続記録、まとめ視聴セッション、バッジ解除、メディアリクエストにもXPが付与されます。二重カウントを避けるため、視聴時間（時間）と総再生数は0のままです。重みを変更した後はXPスナップショットを再構築してください。', resetToDefaults: '既定値に戻す', disableBadges: 'バッジを無効化', disableBadgesHint: '非表示のバッジは全員に対してロックされたままとなり、進捗や殿堂に表示されません。', disabledCount: '{count} 個が無効です。', disabledCount_plural: '{count} 個が無効です。', searchBadges: 'バッジを検索…', allCategories: 'すべてのカテゴリ', loadingBadgeCatalog: 'バッジカタログを読み込み中…', noBadgesMatch: '一致するバッジはありません。', off: 'オフ', showingBadgeLimit: '{total} 件中 {shown} 件を表示中 — さらに表示するには検索を絞り込んでください。', clearDisabledBadges: '無効なバッジをすべてクリア' } } });
 
 Object.assign(ja, { userAnalytics: { page: { loadingStats: "統計を読み込み中...", totalPlays: "合計 {count} 回の再生", loadError: "このユーザーの分析を読み込めませんでした。" }, tabs: { overview: "概要", history: "履歴", graphs: "グラフ", xp: "XP監査" }, xp: { title: "実績XP監査", description: "このメンバーのXPを説明するスナップショット合計と重み付きソース内訳です。", source: "ソース", updated: "更新済み", hiddenLeaderboard: "ランキングで非表示", unlockToastsMuted: "解除通知をミュート", pinned: "ピン留め:", breakdown: "XP内訳", noBreakdown: "保存された内訳項目はありません。", recentBadges: "最近のバッジ", rawStats: "生の統計", noData: "このユーザーの実績データはありません。", noSnapshot: "このユーザーの実績スナップショットはありません。" }, overview: { favoriteLibraries: "お気に入りライブラリ", noLibraryData: "ライブラリデータはありません。", plays: "{count} 回再生", topMovies: "よく視聴された映画", topShows: "よく視聴されたTV番組" }, history: { title: "完全な視聴履歴", plexHint: "一時停止時間にはTautulliの設定が必要です — Plex履歴のみを表示しています。詳細を見るには行をクリックしてください。", tautulliHint: "行をクリックするとセッション詳細（一時停止時間、プレーヤー、ストリーム）を確認できます。Tautulli提供。", searchPlaceholder: "履歴を検索...", empty: "履歴が見つかりません。", started: "開始", stopped: "停止", watched: "視聴済み", partial: "一部視聴", watchedFor: "視聴時間", mediaLength: "メディアの長さ", progress: "進行状況", pausedFor: "一時停止時間", episode: "エピソード", status: "ステータス", player: "プレーヤー", platform: "プラットフォーム", product: "製品", stream: "ストリーム", ip: "IP", location: "場所", year: "年", type: "種類", none: "なし", unknownDate: "不明な日付", tautulliPauseHint: "Tautulliの一時停止値は一時停止していた時間（秒）であり、一時停止ボタンを押した回数ではありません。", plexSessionHint: "セッション詳細（一時停止時間、プレーヤー、ストリーム）にはTautulliが必要です。", showing: "{total} 件中 {from} から {to} 件を表示", prev: "前へ", next: "次へ" }, charts: { playsByHour: "時間帯別の再生", playsByDay: "曜日別の再生", playsByLibrary: "ライブラリ別の再生", topShows: "よく視聴された番組", noData: "データなし。", plays: "再生", weekdays: { sunday: "日曜日", monday: "月曜日", tuesday: "火曜日", wednesday: "水曜日", thursday: "木曜日", friday: "金曜日", saturday: "土曜日" } } } });
-Object.assign(ja, { homeDashboard: { ...ja.homeDashboard, nowPlayingCompanion: { ...ja.homeDashboard.nowPlayingCompanion,
-    sections: { ...ja.homeDashboard.nowPlayingCompanion.sections, storySnapshot: 'ストーリーの概要' },
+Object.assign(ja, { homeDashboard: { ...(ja as AnyCatalog).homeDashboard, nowPlayingCompanion: { ...(ja as AnyCatalog).homeDashboard.nowPlayingCompanion,
+    sections: { ...(ja as AnyCatalog).homeDashboard.nowPlayingCompanion.sections, storySnapshot: 'ストーリーの概要' },
     overview: { show: '番組について', movie: '映画について', season: 'シーズン {season} の概要', episode: 'エピソード S{season}E{episode}', episodeWithName: 'エピソード S{season}E{episode}: {name}', readMore: '続きを読む', readLess: '表示を減らす', unavailable: 'この作品のあらすじはまだありません。' },
     crew: { popularity: '人気度 {value}', otherRoles: 'この作品での他の役割: {roles}', productionSnapshot: '制作概要', moreCrew: 'スタッフをさらに表示', networks: 'ネットワーク' },
-    header: { ...ja.homeDashboard.nowPlayingCompanion.header, playbackProgress: '{type}・{progress}% 視聴済み' },
+    header: { ...(ja as AnyCatalog).homeDashboard.nowPlayingCompanion.header, playbackProgress: '{type}・{progress}% 視聴済み' },
     summary: { progress: '進行状況 {progress}%', throughSession: 'このセッションで {progress}% 視聴済み' },
 } } });
-Object.assign(ja, { notifications: { ...ja.notifications, repeat: { expand: '{count} 件の更新を表示', expand_plural: '{count} 件の更新を表示', collapse: '繰り返された更新を非表示', legacyHint: '{count} 件の類似アラートのうち最新のものを表示しています。' } } });
+Object.assign(ja, { notifications: { ...(ja as AnyCatalog).notifications, repeat: { expand: '{count} 件の更新を表示', expand_plural: '{count} 件の更新を表示', collapse: '繰り返された更新を非表示', legacyHint: '{count} 件の類似アラートのうち最新のものを表示しています。' } } });

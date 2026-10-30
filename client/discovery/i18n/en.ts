@@ -3642,7 +3642,7 @@ Object.assign(en, { homeDashboard: { ...en.homeDashboard, opsSnapshot: {
 } } });
 
 Object.assign(en, { homeDashboard: { ...en.homeDashboard, nowPlayingCompanion: {
-    ...en.homeDashboard.nowPlayingCompanion,
+    ...(en.homeDashboard as Record<string, any>).nowPlayingCompanion,
     timeline: {
         release: 'Release', runtime: 'Runtime', episodeRuntime: 'Episode runtime', genres: 'Genres',
         tmdbScore: 'TMDB score', status: 'Status', currentEpisode: 'Current episode', episodeAirDate: 'Episode air date',
