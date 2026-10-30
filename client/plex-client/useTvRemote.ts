@@ -924,13 +924,44 @@ const tvFocusByPath = new Map<string, TvFocusSnapshot>();
 /** Last focused poster within a home/library rail — restored when re-entering the row. */
 const tvRowFocusById = new Map<string, TvFocusSnapshot>();
 
-const persistTvFocusMaps = () => {
+/** Debounce disk writes while scrubbing; Maps stay current in RAM for restore. */
+const TV_FOCUS_PERSIST_MS = 500;
+let persistTvFocusTimer = 0;
+
+const flushTvFocusMaps = () => {
+    if (typeof window !== 'undefined' && persistTvFocusTimer) {
+        window.clearTimeout(persistTvFocusTimer);
+        persistTvFocusTimer = 0;
+    }
     const byPath: Record<string, TvFocusSnapshot> = {};
     const byRow: Record<string, TvFocusSnapshot> = {};
     tvFocusByPath.forEach((value, key) => { byPath[key] = value; });
     tvRowFocusById.forEach((value, key) => { byRow[key] = value; });
     writePersistedTvFocus({ byPath, byRow });
 };
+
+const persistTvFocusMaps = (immediate = false) => {
+    if (typeof window === 'undefined') return;
+    if (immediate) {
+        flushTvFocusMaps();
+        return;
+    }
+    if (persistTvFocusTimer) window.clearTimeout(persistTvFocusTimer);
+    persistTvFocusTimer = window.setTimeout(() => {
+        persistTvFocusTimer = 0;
+        flushTvFocusMaps();
+    }, TV_FOCUS_PERSIST_MS);
+};
+
+if (typeof window !== 'undefined') {
+    const flushOnLeave = () => {
+        if (persistTvFocusTimer) flushTvFocusMaps();
+    };
+    window.addEventListener('pagehide', flushOnLeave);
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') flushOnLeave();
+    });
+}
 
 const hydrateTvFocusMaps = () => {
     if (tvFocusByPath.size || tvRowFocusById.size) return;
@@ -984,17 +1015,19 @@ export const forgetHomePosterFocus = (rowIds: string[] = []) => {
         if (tvRowFocusById.delete(id)) changed = true;
         if (!id.startsWith('hub:') && tvRowFocusById.delete(`hub:${id}`)) changed = true;
     });
-    if (changed) persistTvFocusMaps();
+    if (changed) persistTvFocusMaps(true);
 };
 
 export const rememberTvFocusKey = (key: string, path = currentPath(), railScroll?: number) => {
     const id = String(key || '').trim();
     if (!id || !path) return;
     const prev = tvFocusByPath.get(path);
-    tvFocusByPath.set(path, {
+    const next: TvFocusSnapshot = {
         key: id,
         railScroll: railScroll ?? (prev?.key === id ? prev.railScroll : undefined),
-    });
+    };
+    if (prev?.key === next.key && prev?.railScroll === next.railScroll) return;
+    tvFocusByPath.set(path, next);
     persistTvFocusMaps();
 };
 
@@ -1005,7 +1038,10 @@ const rememberRowFocus = (item: HTMLElement | null) => {
     const key = tvKeyOf(item);
     if (!rowId || !key) return;
     const rail = item.closest<HTMLElement>('[data-tv-poster-rail="1"]');
-    tvRowFocusById.set(rowId, { key, railScroll: rail?.scrollLeft });
+    const next: TvFocusSnapshot = { key, railScroll: rail?.scrollLeft };
+    const prev = tvRowFocusById.get(rowId);
+    if (prev?.key === next.key && prev?.railScroll === next.railScroll) return;
+    tvRowFocusById.set(rowId, next);
     persistTvFocusMaps();
 };
 

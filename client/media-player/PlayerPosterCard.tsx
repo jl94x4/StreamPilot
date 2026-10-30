@@ -4,7 +4,7 @@ import { DiscoverPosterCard, useDiscoverI18n } from './host';
 import { prefetchMediaPlayerItem } from './api';
 import { PlayerItemMenu, type PlayerItemMenuHandle } from './PlayerItemMenu';
 import { watchedTickPositionClass } from './playerSettings';
-import { applyRememberedProgress, formatEpisodeCode, formatRemainingWatchTime, heroRailCardImageUrl, heroRowSubtitle, PLAYER_PROGRESS_EVENT, plexBackdropUrl, PLAYER_POSTER_QUALITY, prefetchPlayerImages, progressPercent, remainingWatchMs, resizePlexArtUrl, resolvePlayerCardAspect, toPosterCardItem } from './playerUtils';
+import { applyRememberedProgress, formatEpisodeCode, formatRemainingWatchTime, heroRailCardImageUrl, heroRowSubtitle, PLAYER_PROGRESS_EVENT, playerItemBackdropUrl, plexBackdropUrl, PLAYER_POSTER_QUALITY, prefetchPlayerImages, progressPercent, remainingWatchMs, resizePlexArtUrl, resolvePlayerCardAspect, toPosterCardItem } from './playerUtils';
 import { usePlayerSettings } from './usePlayerSettings';
 import { hideEpisodeSpoilers } from './spoilers';
 import { isLanHttpImage, loadLanImage } from './lanImage';
@@ -250,9 +250,7 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
         <div
             ref={rootRef}
             data-browse-index={browseIndex}
-            data-tv-backdrop={isTvShell ? (plexBackdropUrl(
-                (item as { backdropArt?: string | null }).backdropArt || item.art || item.thumb,
-            ) || undefined) : undefined}
+            data-tv-backdrop={isTvShell ? (playerItemBackdropUrl(item) || undefined) : undefined}
             className={`player-poster-hold relative touch-manipulation select-none [-webkit-touch-callout:none] [-webkit-user-select:none] [user-select:none]${
                 // Only an episode's own still can spoil; posters and hero art never blur.
                 landscapeEpisode && !item.heroCard && hideEpisodeSpoilers(settings, item) ? ' player-spoiler-blur' : ''

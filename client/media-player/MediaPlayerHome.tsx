@@ -305,7 +305,7 @@ const HomeFocusStill: React.FC<{
             // Neighbour prefetch fetches and decodes: also only once you settle.
             window.clearTimeout(primeTimerRef.current);
             primeTimerRef.current = window.setTimeout(
-                () => primeNearbyTvBillboard(target, prefetchMediaPlayerItem),
+                () => primeNearbyTvBillboard(target),
                 delay,
             );
             const next = backdropFromFocusTarget(target);
@@ -421,6 +421,174 @@ const HomeSpotBody: React.FC<{ item: PlayerItem }> = ({ item }) => {
             ) : null}
             {summary ? <p className="player-home-spot-summary">{summary}</p> : null}
             {cast ? <p className="player-home-spot-cast">{cast}</p> : null}
+        </>
+    );
+};
+
+type TvHomeBillboardRow = {
+    id: string;
+    items: PlayerItem[];
+};
+
+/**
+ * Owns Left/Right focus for the billboard copy and tint. Keeping that state here
+ * means a poster move does not re-render the Home row stack.
+ */
+const TvHomeBillboard: React.FC<{
+    enabled: boolean;
+    active: boolean;
+    row: TvHomeBillboardRow | null;
+    rowDir?: 'up' | 'down' | null;
+    restoreKey?: string;
+    detailsArtworkTint: boolean;
+    liteBillboard: boolean;
+    onFocusKey: (key: string) => void;
+    /** Poster stack stays under the copy column; still sits beside it. */
+    stack?: React.ReactNode;
+}> = ({
+    enabled,
+    active,
+    row,
+    rowDir = null,
+    restoreKey = '',
+    detailsArtworkTint,
+    liteBillboard,
+    onFocusKey,
+    stack = null,
+}) => {
+    const [focusKey, setFocusKey] = useState('');
+    const [spotExtra, setSpotExtra] = useState<Record<string, PlayerItem>>({});
+    const rowId = row?.id || '';
+
+    useEffect(() => {
+        if (!row) {
+            setFocusKey('');
+            return;
+        }
+        const preferred = String(restoreKey || '').trim();
+        const match = preferred && row.items.some((item) => String(item.ratingKey || '') === preferred)
+            ? preferred
+            : String(row.items[0]?.ratingKey || '').trim();
+        setFocusKey(match);
+    }, [rowId]); // eslint-disable-line react-hooks/exhaustive-deps -- only reset when the Home row changes
+
+    const noteFocusKey = useCallback((key: string) => {
+        const next = String(key || '').trim();
+        if (!next) return;
+        setFocusKey((prev) => (prev === next ? prev : next));
+        onFocusKey(next);
+    }, [onFocusKey]);
+
+    const spotItem = useMemo(() => {
+        if (!row) return null;
+        const key = focusKey || row.items[0]?.ratingKey || '';
+        const base = row.items.find((item) => item.ratingKey === key) || row.items[0] || null;
+        const extra = key && base ? spotExtra[spotExtraKey(base.serverId, key)] : (key ? spotExtra[key] : null);
+        if (!base) return extra || null;
+        if (!extra) return base;
+        const episodeBase = base.type === 'episode' || extra.type === 'episode';
+        return {
+            ...base,
+            ...extra,
+            thumb: base.thumb || extra.thumb,
+            art: base.art || extra.art,
+            logo: extra.logo || base.logo,
+            type: episodeBase ? 'episode' : (extra.type || base.type),
+            title: base.title,
+            showTitle: base.showTitle || extra.showTitle || (episodeBase ? extra.showTitle : null),
+            episodeTitle: base.episodeTitle
+                || extra.episodeTitle
+                || (episodeBase && extra.title && extra.title !== (base.showTitle || base.title) ? extra.title : null),
+            parentIndex: base.parentIndex ?? extra.parentIndex,
+            index: base.index ?? extra.index,
+            summary: pickRicherSummary(base.summary, extra.summary),
+            ratingKey: base.ratingKey,
+            parentRatingKey: base.parentRatingKey || extra.parentRatingKey,
+            grandparentRatingKey: base.grandparentRatingKey || extra.grandparentRatingKey,
+        };
+    }, [focusKey, row, spotExtra]);
+
+    const stillSeed = playerItemBackdropUrl(spotItem) || '';
+    const spotKey = spotItem?.ratingKey ? String(spotItem.ratingKey) : '';
+    const spotServer = spotItem?.serverId || null;
+
+    useEffect(() => {
+        if (!enabled || !active || !spotKey || !stillSeed) return undefined;
+        if (!detailsArtworkTint) {
+            rememberBillboardBackdrop(spotKey, stillSeed, null, spotServer);
+            paintHomeSurface(TV_FLOOR_RGB);
+            return undefined;
+        }
+        if (liteBillboard) {
+            rememberBillboardBackdrop(spotKey, stillSeed, undefined, spotServer);
+            paintHomeSurface(TV_FLOOR_RGB);
+            return undefined;
+        }
+        const known = peekSurfaceColor(stillSeed);
+        if (known) {
+            rememberBillboardBackdrop(spotKey, stillSeed, known, spotServer);
+            paintHomeSurface(tvTintSurfaceRgb(known));
+            return undefined;
+        }
+        rememberBillboardBackdrop(spotKey, stillSeed, undefined, spotServer);
+        let cancelled = false;
+        const timer = window.setTimeout(() => {
+            const still = document.querySelector<HTMLElement>('.player-home-stage .player-home-focus-still');
+            const frame = still && still.clientWidth > 2 && still.clientHeight > 2
+                ? { width: still.clientWidth, height: still.clientHeight, position: '82% 8%' }
+                : undefined;
+            void sampleBackdropSurfaceColor(stillSeed, frame).then((rgb) => {
+                if (cancelled) return;
+                rememberBillboardBackdrop(spotKey, stillSeed, rgb || null, spotServer);
+                paintHomeSurface(rgb ? tvTintSurfaceRgb(rgb) : TV_FLOOR_RGB);
+            });
+        }, BILLBOARD_TINT_SAMPLE_MS);
+        return () => {
+            cancelled = true;
+            window.clearTimeout(timer);
+        };
+    }, [active, detailsArtworkTint, enabled, liteBillboard, spotKey, spotServer, stillSeed]);
+
+    useEffect(() => {
+        const key = String(spotItem?.ratingKey || '');
+        if (!enabled || !key) return undefined;
+        if (spotItem?.type === 'liveAiring' || spotItem?.liveChannelId) return undefined;
+        const serverId = spotItem?.serverId || null;
+        const extraKey = spotExtraKey(serverId, key);
+        const cached = readPlayerItemCache(key, serverId);
+        if (cached?.item) {
+            setSpotExtra((prev) => (prev[extraKey] ? prev : { ...prev, [extraKey]: cached.item }));
+            if (cached.item.logo && itemHasBillboardBrandMeta(cached.item) && cached.item.summary) return undefined;
+        }
+        let cancelled = false;
+        const timer = window.setTimeout(() => {
+            if (cancelled) return;
+            prefetchMediaPlayerItem(key, serverId);
+            void fetchMediaPlayerItem(key, { core: true, serverId })
+                .then((page) => {
+                    if (cancelled || !page?.item) return;
+                    setSpotExtra((prev) => ({ ...prev, [extraKey]: page.item }));
+                })
+                .catch(() => undefined);
+        }, 0);
+        return () => {
+            cancelled = true;
+            window.clearTimeout(timer);
+        };
+    }, [enabled, spotItem?.ratingKey, spotItem?.serverId, spotItem?.type, spotItem?.liveChannelId]);
+
+    if (!enabled) return null;
+    return (
+        <>
+            <HomeFocusStill
+                enabled={enabled && active}
+                seed={stillSeed || ''}
+                onFocusKey={noteFocusKey}
+            />
+            <div className="player-home-stage-copy">
+                <HomeSpot item={spotItem} rowId={rowId} rowDir={rowDir} />
+                {stack}
+            </div>
         </>
     );
 };
@@ -1544,15 +1712,6 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         settings.homeRowOrder,
     ]);
 
-    const tvFocusStillSeed = useMemo(() => {
-        if (!isTvShell || !home) return '';
-        const first = tvHomeRows[0]?.items?.[0]
-            || home.recentByLibrary?.[0]?.items?.[0];
-        return plexBackdropUrl(
-            (first as { backdropArt?: string | null } | undefined)?.backdropArt || first?.art || first?.thumb,
-        ) || '';
-    }, [home, isTvShell, tvHomeRows]);
-
     const searchGroups = useMemo(() => {
         const people: PlayerItem[] = [];
         const shows: PlayerItem[] = [];
@@ -1602,8 +1761,8 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
 
     const [tvRowIndex, setTvRowIndex] = useState(0);
     const [tvRowDir, setTvRowDir] = useState<'up' | 'down' | null>(null);
-    const [tvFocusKey, setTvFocusKey] = useState('');
-    const [tvSpotExtra, setTvSpotExtra] = useState<Record<string, PlayerItem>>({});
+    /** Focus key lives in a ref so Left/Right does not re-render the row stack. */
+    const tvFocusKeyRef = useRef('');
     const tvRowIndexRef = useRef(0);
     const tvRowsRef = useRef(tvHomeRows);
     const tvRowFocusRef = useRef<Record<string, string>>({});
@@ -1611,6 +1770,14 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
     const landOnFirstRef = useRef(true);
     tvRowIndexRef.current = tvRowIndex;
     tvRowsRef.current = tvHomeRows;
+    const noteTvFocusKey = useCallback((key: string) => {
+        const next = String(key || '').trim();
+        if (!next) return;
+        tvFocusKeyRef.current = next;
+        if (landOnFirstRef.current) return;
+        const row = tvRowsRef.current[tvRowIndexRef.current];
+        if (row?.id) tvRowFocusRef.current[row.id] = next;
+    }, []);
 
     const clearHomeRowHighlights = () => {
         const ids = tvRowsRef.current.map((row) => row.id);
@@ -1631,11 +1798,12 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             landOnFirstRef.current = false;
             setTvRowDir(null);
             setTvRowIndex(0);
-            setTvFocusKey('');
+            tvFocusKeyRef.current = '';
             const firstRow = tvRowsRef.current[0];
             const firstKey = String(firstRow?.items?.[0]?.ratingKey || '').trim();
             if (firstRow?.id && firstKey) {
-                setTvFocusKey(firstKey);
+                tvFocusKeyRef.current = firstKey;
+                tvRowFocusRef.current[firstRow.id] = firstKey;
                 rememberTvFocusKey(firstKey, PLAYER_APP_BASE);
             }
             const scroller = document.getElementById(PLAYER_SCROLL_ID);
@@ -1673,56 +1841,19 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
     }, []);
 
     const tvStage = isTvShell && !searchActive;
-    // Stable rows for the memoised stack: left/right focus moves (tvFocusKey) re-render Home,
-    // and a fresh array each time redrew all three mounted rows on every press.
+    // Stable rows for the memoised stack: Left/Right billboard focus stays in TvHomeBillboard,
+    // so this array must not be rebuilt on every poster move.
     const tvStackRows = useMemo(() => tvHomeRows.map((row) => ({
         ...row,
         viewAllLabel: row.onViewAll ? t('common.viewMore') : undefined,
     })), [tvHomeRows, t]);
     const tvRowSafeIndex = Math.min(tvRowIndex, Math.max(0, tvHomeRows.length - 1));
     const tvActiveRow = tvHomeRows[tvRowSafeIndex] || null;
-    const tvSpotItem = useMemo(() => {
-        if (!tvActiveRow) return null;
-        const key = tvFocusKey || tvActiveRow.items[0]?.ratingKey || '';
-        const base = tvActiveRow.items.find((row) => row.ratingKey === key) || tvActiveRow.items[0] || null;
-        // Rating keys repeat across servers: the fetched details are kept per server.
-        const extra = key && base ? tvSpotExtra[spotExtraKey(base.serverId, key)] : (key ? tvSpotExtra[key] : null);
-        if (!base) return extra || null;
-        if (!extra) return base;
-        const episodeBase = base.type === 'episode' || extra.type === 'episode';
-        return {
-            ...base,
-            ...extra,
-            thumb: base.thumb || extra.thumb,
-            // Keep the art already on the card. A later metadata fetch used to swap in a
-            // different URL and the backdrop sat on the previous title until it downloaded.
-            art: base.art || extra.art,
-            logo: extra.logo || base.logo,
-            // Recently Added cards use the show title on the poster; keep that for the
-            // billboard headline and pull SxxExx / episode name / synopsis from the leaf.
-            type: episodeBase ? 'episode' : (extra.type || base.type),
-            title: base.title,
-            showTitle: base.showTitle || extra.showTitle || (episodeBase ? extra.showTitle : null),
-            episodeTitle: base.episodeTitle
-                || extra.episodeTitle
-                || (episodeBase && extra.title && extra.title !== (base.showTitle || base.title) ? extra.title : null),
-            parentIndex: base.parentIndex ?? extra.parentIndex,
-            index: base.index ?? extra.index,
-            summary: pickRicherSummary(base.summary, extra.summary),
-            ratingKey: base.ratingKey,
-            parentRatingKey: base.parentRatingKey || extra.parentRatingKey,
-            grandparentRatingKey: base.grandparentRatingKey || extra.grandparentRatingKey,
-        };
-    }, [tvActiveRow, tvFocusKey, tvSpotExtra]);
-    const tvStageStillSeed = plexBackdropUrl(
-        (tvSpotItem as { backdropArt?: string | null } | null)?.backdropArt || tvSpotItem?.art || tvSpotItem?.thumb || '',
-    ) || tvFocusStillSeed;
-
     useEffect(() => {
         if (!tvStage || !active) return undefined;
-        if (tvStageStillSeed) warmPlayerBackdrop(tvStageStillSeed, true);
         // Neighbour backdrops and poster warming decode big images. Wait until the row
-        // slide has finished so it isn't competing with them on a slow TV stick.
+        // change has settled so it isn't competing with them on a slow TV stick.
+        // Do not depend on the focused title: Left/Right must not re-queue whole-row warms.
         const timer = window.setTimeout(() => {
             const prev = tvHomeRows[tvRowSafeIndex - 1];
             const next = tvHomeRows[tvRowSafeIndex + 1];
@@ -1738,51 +1869,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             if (tvHomeRows.length) prefetchHomeRowPosters(tvHomeRows, tvRowSafeIndex);
         }, 450);
         return () => window.clearTimeout(timer);
-    }, [active, tvRowSafeIndex, tvActiveRow?.id, tvStage, tvStageStillSeed, tvHomeRows]);
-
-    // The billboard fade takes the colour the title page will open with (Artwork tint), and
-    // Home hands the title page its exact art and colour, so opening a title changes nothing.
-    const tvSpotKey = tvSpotItem?.ratingKey ? String(tvSpotItem.ratingKey) : '';
-    const tvSpotServer = tvSpotItem?.serverId || null;
-    useEffect(() => {
-        if (!tvStage || !active || !tvSpotKey || !tvStageStillSeed) return undefined;
-        if (!settings.detailsArtworkTint) {
-            rememberBillboardBackdrop(tvSpotKey, tvStageStillSeed, null, tvSpotServer);
-            paintHomeSurface(TV_FLOOR_RGB);
-            return undefined;
-        }
-        if (settings.liteBillboard) {
-            // One fixed colour: no sampling and no full-screen gradient repaints per title.
-            // The title page still samples its own colour when it opens.
-            rememberBillboardBackdrop(tvSpotKey, tvStageStillSeed, undefined, tvSpotServer);
-            paintHomeSurface(TV_FLOOR_RGB);
-            return undefined;
-        }
-        const known = peekSurfaceColor(tvStageStillSeed);
-        if (known) {
-            rememberBillboardBackdrop(tvSpotKey, tvStageStillSeed, known, tvSpotServer);
-            paintHomeSurface(tvTintSurfaceRgb(known));
-            return undefined;
-        }
-        rememberBillboardBackdrop(tvSpotKey, tvStageStillSeed, undefined, tvSpotServer);
-        let cancelled = false;
-        // Sample once focus settles, not on every step while the remote is held.
-        const timer = window.setTimeout(() => {
-            const still = document.querySelector<HTMLElement>('.player-home-stage .player-home-focus-still');
-            const frame = still && still.clientWidth > 2 && still.clientHeight > 2
-                ? { width: still.clientWidth, height: still.clientHeight, position: '82% 8%' }
-                : undefined;
-            void sampleBackdropSurfaceColor(tvStageStillSeed, frame).then((rgb) => {
-                if (cancelled) return;
-                rememberBillboardBackdrop(tvSpotKey, tvStageStillSeed, rgb || null, tvSpotServer);
-                paintHomeSurface(rgb ? tvTintSurfaceRgb(rgb) : TV_FLOOR_RGB);
-            });
-        }, BILLBOARD_TINT_SAMPLE_MS);
-        return () => {
-            cancelled = true;
-            window.clearTimeout(timer);
-        };
-    }, [active, settings.detailsArtworkTint, settings.liteBillboard, tvSpotKey, tvSpotServer, tvStage, tvStageStillSeed]);
+    }, [active, tvRowSafeIndex, tvActiveRow?.id, tvStage, tvHomeRows]);
 
     // Rows are on screen: let the remote land the focus ring on the first card if nothing
     // has it yet. Next frame, so the cards exist when it looks for them.
@@ -1815,8 +1902,9 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 ? Math.min(rows.length - 1, current + 1)
                 : Math.max(0, current - 1);
             const prev = rows[current];
-            if (prev && tvFocusKey && !landOnFirstRef.current) {
-                tvRowFocusRef.current[prev.id] = tvFocusKey;
+            const focusKey = tvFocusKeyRef.current;
+            if (prev && focusKey && !landOnFirstRef.current) {
+                tvRowFocusRef.current[prev.id] = focusKey;
             }
             landOnFirstRef.current = false;
             if (next !== current) {
@@ -1826,15 +1914,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         };
         window.addEventListener(TV_HOME_ROW_EVENT, onRow);
         return () => window.removeEventListener(TV_HOME_ROW_EVENT, onRow);
-    }, [active, tvFocusKey, tvStage]);
-
-    // Keep per-row restore in sync with live poster focus while this Home visit lasts.
-    // Sidebar Home sets landOnFirstRef so that visit starts on the first poster.
-    useEffect(() => {
-        if (landOnFirstRef.current) return;
-        if (!tvStage || !active || !tvActiveRow?.id || !tvFocusKey) return;
-        tvRowFocusRef.current[tvActiveRow.id] = tvFocusKey;
-    }, [active, tvActiveRow?.id, tvFocusKey, tvStage]);
+    }, [active, tvStage]);
 
     useLayoutEffect(() => {
         if (!tvStage || !active || !tvActiveRow) return undefined;
@@ -1845,7 +1925,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         const remembered = landOnFirst ? '' : peekRememberedTvFocusKey();
         const saved = (rowHas(remembered) ? remembered : '')
             || (rowHas(tvRowFocusRef.current[rowId] || '') ? tvRowFocusRef.current[rowId] : '')
-            || (rowHas(tvFocusKey) ? tvFocusKey : '');
+            || (rowHas(tvFocusKeyRef.current) ? tvFocusKeyRef.current : '');
         let cancelled = false;
         let attempts = 0;
         const focusEl = (btn: HTMLElement) => {
@@ -1876,11 +1956,11 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 const key = String(btn.getAttribute('data-tv-key') || '').trim();
                 landOnFirstRef.current = false;
                 if (key) {
-                    setTvFocusKey(key);
+                    noteTvFocusKey(key);
                     rememberTvFocusKey(key, PLAYER_APP_BASE);
                 }
-            } else if (focused && saved && saved !== tvFocusKey) {
-                setTvFocusKey(saved);
+            } else if (focused && saved) {
+                noteTvFocusKey(saved);
             }
             return focused;
         };
@@ -1899,37 +1979,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             cancelled = true;
             window.clearTimeout(timer);
         };
-    }, [active, tvActiveRow?.id, tvStage]);
-
-    useEffect(() => {
-        const key = String(tvSpotItem?.ratingKey || '');
-        if (!tvStage || !key) return undefined;
-        if (tvSpotItem?.type === 'liveAiring' || tvSpotItem?.liveChannelId) return undefined;
-        const serverId = tvSpotItem?.serverId || null;
-        const extraKey = spotExtraKey(serverId, key);
-        const cached = readPlayerItemCache(key, serverId);
-        if (cached?.item) {
-            setTvSpotExtra((prev) => (prev[extraKey] ? prev : { ...prev, [extraKey]: cached.item }));
-            // Episodes need show studio / showTmdbId — leaf episode TMDB ids must not skip enrich.
-            if (cached.item.logo && itemHasBillboardBrandMeta(cached.item) && cached.item.summary) return undefined;
-        }
-        let cancelled = false;
-        // Wait until the remote settles so a fast scroll does not pile metadata requests.
-        const timer = window.setTimeout(() => {
-            if (cancelled) return;
-            prefetchMediaPlayerItem(key, serverId);
-            void fetchMediaPlayerItem(key, { core: true, serverId })
-                .then((page) => {
-                    if (cancelled || !page?.item) return;
-                    setTvSpotExtra((prev) => ({ ...prev, [extraKey]: page.item }));
-                })
-                .catch(() => undefined);
-        }, 0);
-        return () => {
-            cancelled = true;
-            window.clearTimeout(timer);
-        };
-    }, [tvSpotItem?.ratingKey, tvSpotItem?.serverId, tvStage]);
+    }, [active, noteTvFocusKey, tvActiveRow?.id, tvStage]);
 
     // After a stop / mark, re-read Home from Plex once PMS has taken it in, so Continue
     // Watching shows the server's answer, not only the local patch below.
@@ -2513,19 +2563,19 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 enabled={!isTvShell && active && !searchActive && isPhoneUi()}
                 onRefresh={pullToRefresh}
             />
-            <HomeFocusStill
-                enabled={tvStage && active && !searchActive}
-                seed={tvStage ? tvStageStillSeed : ''}
-                onFocusKey={tvStage ? setTvFocusKey : undefined}
-            />
             {tvStage && !searchActive ? (
-                <div className="player-home-stage-copy">
-                    <HomeSpot
-                        item={tvSpotItem}
-                        rowId={tvActiveRow?.id || ''}
-                        rowDir={tvRowDir}
-                    />
-                    {home && tvActiveRow ? (
+                <TvHomeBillboard
+                    enabled={tvStage && !searchActive}
+                    active={active}
+                    row={tvActiveRow}
+                    rowDir={tvRowDir}
+                    restoreKey={
+                        (tvActiveRow && (tvRowFocusRef.current[tvActiveRow.id] || tvFocusKeyRef.current)) || ''
+                    }
+                    detailsArtworkTint={settings.detailsArtworkTint}
+                    liteBillboard={settings.liteBillboard}
+                    onFocusKey={noteTvFocusKey}
+                    stack={home && tvActiveRow ? (
                         <PlayerTvRowStack
                             rows={tvStackRows}
                             activeIndex={tvRowSafeIndex}
@@ -2538,7 +2588,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                             {...railMenuProps}
                         />
                     ) : null}
-                </div>
+                />
             ) : null}
             {!isTvShell && !phoneHome && !searchActive && heroSlides.length ? (
                 <MediaPlayerHomeHero

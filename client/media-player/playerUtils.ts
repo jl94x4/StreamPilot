@@ -58,6 +58,9 @@ export const playerRailPosterUrl = (
  * hub fills and the rows you were looking at loaded last. Rows further away warm as you
  * reach them (this runs on every row change).
  */
+/** Per-row poster warm: about one screen of cards, not a 50-title hub. */
+const TV_HOME_POSTER_PER_ROW = 10;
+
 export const prefetchHomeRowPosters = (
     rows: Array<{ items?: Array<PlayerItem | null | undefined> | null; aspect?: '2/3' | 'square' | '16/9' }>,
     startIndex = 0,
@@ -65,7 +68,7 @@ export const prefetchHomeRowPosters = (
     if (typeof window === 'undefined' || !rows?.length) return;
     const urls: string[] = [];
     const pushRow = (row?: { items?: Array<PlayerItem | null | undefined> | null; aspect?: '2/3' | 'square' | '16/9' }) => {
-        for (const item of row?.items || []) {
+        for (const item of (row?.items || []).slice(0, TV_HOME_POSTER_PER_ROW)) {
             const url = playerRailPosterUrl(item, row?.aspect);
             if (url) urls.push(url);
         }
@@ -274,8 +277,20 @@ export const pinTvNeighborBackdrops = (urls: Array<string | null | undefined>) =
 };
 
 export const playerItemBackdropUrl = (
-    item?: { backdropArt?: string | null; art?: string | null; thumb?: string | null } | null,
-) => plexBackdropUrl(item?.backdropArt || item?.art || item?.thumb);
+    item?: {
+        type?: string | null;
+        backdropArt?: string | null;
+        art?: string | null;
+        thumb?: string | null;
+    } | null,
+) => {
+    // Live On Now cards are portrait posters. Never stretch them as the billboard —
+    // only real show/movie art (from the guide or a library match) belongs there.
+    if (item?.type === 'liveAiring') {
+        return plexBackdropUrl(item?.backdropArt || item?.art);
+    }
+    return plexBackdropUrl(item?.backdropArt || item?.art || item?.thumb);
+};
 
 /**
  * TV Home → title page handoff: the exact billboard art URL (and the page colour sampled
@@ -322,23 +337,17 @@ export const isPlayerBackdropReady = (url?: string | null) => {
     if (!key) return false;
     const held = readyBackdrops.get(key);
     if (held?.complete && held.naturalWidth > 0) return true;
-    return Array.from(document.images).some((node) => (
-        (node.currentSrc === key || node.src === key) && node.complete && node.naturalWidth > 0
-    ));
+    // Already decoded this session — browser cache serves the swap without a DOM scan.
+    return backdropLoaded.has(key);
 };
 
 /** Keep the focused poster at the front of the row that is already preloading. */
-export const primeNearbyTvBillboard = (
-    target: EventTarget | null,
-    prefetchItem?: (ratingKey: string) => void,
-) => {
+export const primeNearbyTvBillboard = (target: EventTarget | null) => {
     const el = target as HTMLElement | null;
     const btn = el?.closest?.('[data-tv-poster-btn="1"]') as HTMLElement | null;
     if (!btn) return;
     const art = btn.closest('[data-tv-backdrop]')?.getAttribute('data-tv-backdrop') || '';
     if (art) prioritizeTvRowBackdrop(art);
-    const key = String(btn.getAttribute('data-tv-key') || '').trim();
-    if (key && !key.startsWith('view-more:')) prefetchItem?.(key);
 };
 
 const MUSIC_ITEM_TYPES = new Set(['artist', 'album', 'track', 'audio', 'music']);

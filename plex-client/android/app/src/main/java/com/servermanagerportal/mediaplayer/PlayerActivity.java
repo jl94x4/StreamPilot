@@ -582,6 +582,22 @@ public class PlayerActivity extends AppCompatActivity {
     private float videoFrameRate;
     private boolean nightMode;
     private boolean matchFrameRate = true;
+    /** Last Surface/window frame-rate apply — avoid re-switching HDMI every session tick. */
+    private float appliedSurfaceFps = Float.NaN;
+    private boolean appliedSurfaceMatch;
+    /** Soft A/V resync after a display-mode switch settles. */
+    private final Runnable frameRateResyncRunnable = () -> {
+        if (player == null || finishing || userPaused || scrubTargetMs >= 0) return;
+        if (!player.isPlaying() && !player.getPlayWhenReady()) return;
+        try {
+            long pos = Math.max(0, player.getCurrentPosition());
+            player.seekTo(pos);
+        } catch (Throwable ignored) {
+            /* ignore */
+        }
+    };
+    /** ElapsedRealtime when mid-playback buffering began; 0 = not buffering. */
+    private long bufferingStartedAtMs;
     private int subtitleSizePct = 100;
     private String subtitleColor = "#ffffff";
     private String subtitleBackground = "none";
@@ -605,7 +621,10 @@ public class PlayerActivity extends AppCompatActivity {
         if (isOptionDialogShowing()) return;
         setChromeVisible(false);
     };
-    private final Runnable clearSwapRunnable = () -> streamSwapInFlight = false;
+    private final Runnable clearSwapRunnable = () -> {
+        streamSwapInFlight = false;
+        flushPendingTranscodeSeek();
+    };
     /**
      * Resume target. Opening the file already at this time shows that frame and
      * then the clock never moves. Start at 0, and seek only after frames advance.
@@ -895,9 +914,19 @@ public class PlayerActivity extends AppCompatActivity {
                 .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
                 .build();
 
+            // TV: tunneled video+audio keeps lip-sync on many SoCs (Plex-style). Phone
+            // stays untunneled — overlays and some codecs are happier without it.
+            DefaultTrackSelector trackSelector = new DefaultTrackSelector(this);
+            if (isTelevision()) {
+                trackSelector.setParameters(
+                    trackSelector.buildUponParameters().setTunnelingEnabled(true)
+                );
+            }
+
             // handleAudioFocus: pause for calls / other apps / Assistant and duck for
             // short prompts. Becoming noisy: pause when headphones or BT audio drop.
             player = new ExoPlayer.Builder(this, renderersFactory)
+                .setTrackSelector(trackSelector)
                 .setMediaSourceFactory(new DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory))
                 .setLoadControl(loadControl)
                 .setAudioAttributes(audioAttributes, true)
@@ -1034,6 +1063,11 @@ public class PlayerActivity extends AppCompatActivity {
                     : R.drawable.player_seek_progress));
                 seekBar.setProgress(progress);
                 seekBar.setSecondaryProgress(secondary);
+                // Focus stolen mid-scrub often drops the key-up; clear the hold so
+                // Left/Right are not permanently swallowed by seekHoldActive.
+                if (!hasFocus && seekHoldDirection != 0) {
+                    stopSeekHold();
+                }
             });
             if (Build.VERSION.SDK_INT >= 26) {
                 seekBar.setDefaultFocusHighlightEnabled(false);
@@ -1245,7 +1279,16 @@ public class PlayerActivity extends AppCompatActivity {
                     || (playbackState == Player.STATE_READY && !player.isPlaying() && !userPaused
                         && !focusSuppressed());
                 setBufferingVisible(waitingToPlay);
+                if (playbackState == Player.STATE_BUFFERING) {
+                    if (bufferingStartedAtMs <= 0 && resumeFrameSeen && !userPaused) {
+                        bufferingStartedAtMs = android.os.SystemClock.elapsedRealtime();
+                    }
+                }
                 if (playbackState == Player.STATE_READY) {
+                    long bufferedForMs = bufferingStartedAtMs > 0
+                        ? android.os.SystemClock.elapsedRealtime() - bufferingStartedAtMs
+                        : 0;
+                    bufferingStartedAtMs = 0;
                     playbackError = false;
                     hideError();
                     hideBurnInProgress();
@@ -1255,6 +1298,16 @@ public class PlayerActivity extends AppCompatActivity {
                         player.seekTo(seekTo);
                     } else {
                         pendingSeekMs = 0;
+                        // Long mid-playback rebuffer can leave audio clock ahead of video.
+                        // A same-position seek forces ExoPlayer to realign (Direct Play/remux).
+                        if (bufferedForMs >= 3500
+                            && resumeFrameSeen
+                            && scrubTargetMs < 0
+                            && !streamSwapInFlight
+                            && !PlaybackUrls.isTranscodeUrl(currentUrl)) {
+                            long pos = Math.max(0, player.getCurrentPosition());
+                            player.seekTo(pos);
+                        }
                     }
                     reconcileTranscodeOrigin();
                     long landed = timelineOriginMs + Math.max(0, player.getCurrentPosition());
@@ -2123,38 +2176,64 @@ public class PlayerActivity extends AppCompatActivity {
     private void applyFrameRate(PlayerView playerView) {
         if (playerView == null) return;
         boolean match = matchFrameRate && videoFrameRate > 0;
-        if (Build.VERSION.SDK_INT < 31) {
-            // Android 6–11 (most Fire TV sticks run Fire OS 7 = Android 9): ask the
-            // window for a display mode instead. Surface.setFrameRate is 11+ only.
-            if (Build.VERSION.SDK_INT >= 23) applyDisplayModeForFrameRate(match ? videoFrameRate : 0f);
+        // Session JSON refreshes often — do not re-switch HDMI for the same fps.
+        if (match == appliedSurfaceMatch
+            && (!match || Math.abs(appliedSurfaceFps - videoFrameRate) < 0.01f)) {
             return;
         }
-        View surfaceView = playerView.getVideoSurfaceView();
-        if (!(surfaceView instanceof SurfaceView)) return;
-        Surface surface = ((SurfaceView) surfaceView).getHolder().getSurface();
-        if (surface == null || !surface.isValid()) return;
-        try {
-            if (match) {
-                // The 2-arg call only switches when seamless, and 60→24Hz never is on a
-                // TV — films kept juddering. ALWAYS allows the HDMI mode change.
-                surface.setFrameRate(videoFrameRate, Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE,
-                    Surface.CHANGE_FRAME_RATE_ALWAYS);
-            } else {
-                surface.setFrameRate(0f, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT,
-                    Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS);
+        float targetFps = match ? videoFrameRate : 0f;
+        // Non-seamless refresh changes belong on the window display mode. Using
+        // Surface.setFrameRate(..., CHANGE_FRAME_RATE_ALWAYS) forces an HDMI
+        // renegotiation that leaves audio out of sync on Google TV and many SoCs
+        // (with Match frame rate off, the same file stays in sync).
+        boolean modeChanged = false;
+        if (Build.VERSION.SDK_INT >= 23) {
+            modeChanged = applyDisplayModeForFrameRate(targetFps);
+        }
+        if (Build.VERSION.SDK_INT >= 31) {
+            View surfaceView = playerView.getVideoSurfaceView();
+            if (surfaceView instanceof SurfaceView) {
+                Surface surface = ((SurfaceView) surfaceView).getHolder().getSurface();
+                if (surface != null && surface.isValid()) {
+                    try {
+                        if (match) {
+                            // Hint only — ONLY_IF_SEAMLESS will not re-handshake HDMI.
+                            surface.setFrameRate(
+                                videoFrameRate,
+                                Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE,
+                                Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS);
+                        } else {
+                            surface.setFrameRate(
+                                0f,
+                                Surface.FRAME_RATE_COMPATIBILITY_DEFAULT,
+                                Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS);
+                        }
+                    } catch (Throwable ignored) {
+                        /* older devices */
+                    }
+                }
             }
-        } catch (Throwable ignored) {
-            /* older devices */
+        }
+        appliedSurfaceMatch = match;
+        appliedSurfaceFps = match ? videoFrameRate : 0f;
+        // After a real mode switch, ExoPlayer's audio clock can sit ahead of video
+        // until we nudge it once HDMI has settled.
+        mainHandler.removeCallbacks(frameRateResyncRunnable);
+        if (modeChanged && player != null && resumeFrameSeen) {
+            mainHandler.postDelayed(frameRateResyncRunnable, 450);
         }
     }
 
-    /** Pick a mode at the current resolution whose refresh is a whole multiple of fps. 0 = system default. */
-    private void applyDisplayModeForFrameRate(float fps) {
-        if (Build.VERSION.SDK_INT < 23) return;
+    /**
+     * Pick a mode at the current resolution whose refresh is a whole multiple of fps.
+     * 0 = system default. Returns true when the preferred mode actually changed.
+     */
+    private boolean applyDisplayModeForFrameRate(float fps) {
+        if (Build.VERSION.SDK_INT < 23) return false;
         try {
             Window window = getWindow();
             Display display = getWindowManager().getDefaultDisplay();
-            if (window == null || display == null) return;
+            if (window == null || display == null) return false;
             int wanted = 0;
             if (fps > 0) {
                 wanted = DisplayModeMatcher.pickModeId(
@@ -2164,11 +2243,13 @@ public class PlayerActivity extends AppCompatActivity {
                 );
             }
             WindowManager.LayoutParams params = window.getAttributes();
-            if (params.preferredDisplayModeId == wanted) return;
+            if (params.preferredDisplayModeId == wanted) return false;
             params.preferredDisplayModeId = wanted;
             window.setAttributes(params);
+            return true;
         } catch (Throwable ignored) {
             /* display mode switching is best-effort */
+            return false;
         }
     }
 
@@ -2786,6 +2867,10 @@ public class PlayerActivity extends AppCompatActivity {
         pendingSeekMs = 0;
         scrubTargetMs = -1;
         seekingUi = false;
+        bufferingStartedAtMs = 0;
+        // New surface/stream: allow frame-rate matching to run again.
+        appliedSurfaceFps = Float.NaN;
+        appliedSurfaceMatch = false;
         // Intentional JS rebuild resets the ladder; native DP→HLS→1080 must keep its stage.
         if (resetFallbackLadder) streamFallbackStage = 0;
         streamSwapInFlight = false;
@@ -4490,7 +4575,8 @@ public class PlayerActivity extends AppCompatActivity {
             // Up-next owns the remote while visible — do not steal focus to Play/Pause.
             // A seek-hold must keep the key, or the repeat is eaten as focus movement.
             if (!isUpNextVisible()) playPauseBtn.requestFocus();
-        } else if (!visible && !isOptionDialogShowing()) {
+        } else if (!visible && !isOptionDialogShowing() && seekHoldDirection == 0) {
+            // Same hold guard as show: hiding chrome mid-scrub must not CANCEL the SeekBar key.
             if (isUpNextVisible()) {
                 focusUpNextControls();
             } else if (!focusSkipChipIfVisible()) {
@@ -4998,6 +5084,14 @@ public class PlayerActivity extends AppCompatActivity {
         mainHandler.postDelayed(clearSwapRunnable, 8000);
     }
 
+    /** Apply a seek that only updated pendingTranscodeSeekMs while a swap was in flight. */
+    private void flushPendingTranscodeSeek() {
+        if (pendingTranscodeSeekMs < 0 || !shouldRestartForSeek() || finishing) return;
+        if (streamSwapInFlight) return;
+        mainHandler.removeCallbacks(transcodeSeekRunnable);
+        mainHandler.postDelayed(transcodeSeekRunnable, 80);
+    }
+
     private boolean isSeekIoError(PlaybackException error) {
         int code = error.errorCode;
         return code == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS
@@ -5070,7 +5164,8 @@ public class PlayerActivity extends AppCompatActivity {
             pendingTranscodeSeekMs = target;
             mainHandler.removeCallbacks(transcodeSeekRunnable);
             // Never stack stream rebuilds while one is in flight — that mints ghost
-            // Now Playing sessions on PMS. Coalesce to the latest target instead.
+            // Now Playing sessions on PMS. Coalesce to the latest target; clearSwapRunnable
+            // (or applyUpdateSrc) starts the rebuild once the current swap finishes.
             if (streamSwapInFlight) return;
             // Debounce even "immediate" scrub releases so rapid seeks share one restart.
             mainHandler.postDelayed(transcodeSeekRunnable, immediate ? 180 : 400);
@@ -5357,6 +5452,7 @@ public class PlayerActivity extends AppCompatActivity {
         finishing = true;
         mainHandler.removeCallbacks(tickRunnable);
         mainHandler.removeCallbacks(progressEmitRunnable);
+        mainHandler.removeCallbacks(frameRateResyncRunnable);
         hideStatsOverlay();
         mainHandler.removeCallbacks(hideChromeRunnable);
         long positionMs = 0L;

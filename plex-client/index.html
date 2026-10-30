@@ -1929,12 +1929,18 @@
     }
     html[data-tv="1"] .player-home-spot-summary {
       margin: 0;
-      flex: 0 1 auto;
-      min-height: calc(0.92rem * 1.45 * 2);
+      flex: 0 0 auto;
+      min-height: calc(1rem * 1.45 * 2);
+      max-width: 36rem;
+      font-size: 1rem;
       line-height: 1.45;
       color: rgba(255, 255, 255, 0.78) !important;
       display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 4;
+      line-clamp: 4;
       overflow: hidden;
+      text-overflow: ellipsis;
     }
     html[data-tv="1"] .player-home-spot-cast {
       margin: 0;
@@ -2101,6 +2107,9 @@
     html[data-tv="1"] .player-home-next-row {
       padding-left: 0;
       pointer-events: none;
+      margin-top: 0.85rem;
+      max-height: 6.2rem;
+      overflow: hidden;
     }
     html[data-tv="1"] .player-home-next-row .player-row-header {
       margin: 0;
@@ -2540,6 +2549,11 @@
       border-radius: 0.38rem !important;
       font-size: 0.78rem !important;
       line-height: 1 !important;
+      background: transparent !important;
+      border-color: transparent !important;
+      box-shadow: none !important;
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
     }
     html[data-tv="1"] .player-meta-chip svg {
       width: 0.8rem !important;

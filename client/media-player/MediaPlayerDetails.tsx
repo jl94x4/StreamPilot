@@ -438,6 +438,44 @@ const hasDetailsHero = (row?: PlayerItem | null) => Boolean(
     String(row?.thumb || '').trim() || String(row?.art || '').trim(),
 );
 
+const TV_EPISODE_SKELETON_COUNT = 8;
+
+const seedTvSeasonEpisodes = (row: PlayerItem | null | undefined, sid: string): PlayerItem[] => {
+    if (!row || row.type !== 'episode' || !row.parentRatingKey) return [];
+    return (readPlayerItemCache(row.parentRatingKey, sid)?.children || [])
+        .filter((child) => child.type === 'episode')
+        .map((child) => applyRememberedProgress(child));
+};
+
+/** Same 16:9 still size as TV episode cards (titles are hidden on TV). */
+const TvEpisodeRailSkeleton: React.FC<{ label: string }> = ({ label }) => (
+    <section
+        className="media-details-episodes mt-6 player-tv-home-skel"
+        aria-busy="true"
+        aria-live="polite"
+        aria-label={label}
+    >
+        <span className="sr-only">{label}</span>
+        <div className="media-details-episodes-stage">
+            <div className="media-details-episodes-rail">
+                <Carousel posterRow flush>
+                    {Array.from({ length: TV_EPISODE_SKELETON_COUNT }, (_, index) => (
+                        <div
+                            key={`tv-ep-skel-${index}`}
+                            className="media-details-episode-card group w-[17rem] shrink-0 snap-start sm:w-[20rem]"
+                            aria-hidden="true"
+                        >
+                            <div className="player-poster-frame relative overflow-hidden rounded-[12px] border border-white/10 bg-black/30">
+                                <div className="skeleton-base aspect-video w-full" />
+                            </div>
+                        </div>
+                    ))}
+                </Carousel>
+            </div>
+        </div>
+    </section>
+);
+
 const DetailsHeroSkeleton: React.FC<{ label: string }> = ({ label }) => (
     <div className="animate-fade-in" aria-busy="true" aria-live="polite">
         <span className="sr-only">{label}</span>
@@ -533,7 +571,12 @@ export const MediaPlayerDetails: React.FC<Props> = ({
     const [neighbors, setNeighbors] = useState<{ previous: PlayerItem | null; next: PlayerItem | null }>({ previous: null, next: null });
     const [nowPlayingTrackKey, setNowPlayingTrackKey] = useState<string | null>(null);
     const [showSeasons, setShowSeasons] = useState<PlayerItem[]>([]);
-    const [seasonEpisodes, setSeasonEpisodes] = useState<PlayerItem[]>([]);
+    const [seasonEpisodes, setSeasonEpisodes] = useState<PlayerItem[]>(() => (
+        seedTvSeasonEpisodes(readPlayerItemCache(ratingKey, serverId)?.item, serverId)
+    ));
+    const [seasonEpisodesReady, setSeasonEpisodesReady] = useState(() => (
+        seedTvSeasonEpisodes(readPlayerItemCache(ratingKey, serverId)?.item, serverId).length > 0
+    ));
     const [spotlightKey, setSpotlightKey] = useState('');
     const [spotlightDetail, setSpotlightDetail] = useState<PlayerItem | null>(null);
     const openingSeasonRef = useRef('');
@@ -939,6 +982,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
     useEffect(() => {
         if (!isTvShell || item?.type !== 'episode' || !item.parentRatingKey) {
             setSeasonEpisodes([]);
+            setSeasonEpisodesReady(false);
             return undefined;
         }
         let cancelled = false;
@@ -950,12 +994,16 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                         .filter((row) => row.type === 'episode')
                         .map((row) => applyRememberedProgress(row)),
                 );
+                setSeasonEpisodesReady(true);
             })
             .catch(() => {
-                if (!cancelled) setSeasonEpisodes([]);
+                if (!cancelled) {
+                    setSeasonEpisodes([]);
+                    setSeasonEpisodesReady(true);
+                }
             });
         return () => { cancelled = true; };
-    }, [isTvShell, item?.ratingKey, item?.type, item?.parentRatingKey, item?.serverId, serverId]);
+    }, [isTvShell, item?.type, item?.parentRatingKey, item?.serverId, serverId]);
 
     useEffect(() => {
         if (!isTvShell || !item) return;
@@ -1820,13 +1868,19 @@ export const MediaPlayerDetails: React.FC<Props> = ({
 
     if (loading && !hasDetailsHero(item)) {
         if (isTvShell) {
+            const kind = item?.type || '';
             return (
                 <div
                     className="media-details-page"
                     data-tv-details="1"
+                    data-tv-kind={kind}
                     aria-busy="true"
                     aria-label={t('mediaPlayerPage.loading')}
-                />
+                >
+                    {kind === 'episode' || kind === 'season' ? (
+                        <TvEpisodeRailSkeleton label={t('mediaPlayerPage.loading')} />
+                    ) : null}
+                </div>
             );
         }
         return <DetailsHeroSkeleton label={t('mediaPlayerPage.loading')} />;
@@ -1882,6 +1936,12 @@ export const MediaPlayerDetails: React.FC<Props> = ({
     const tvEpisodeRows = isTvShell && item.type === 'episode' && seasonEpisodes.length
         ? seasonEpisodes
         : children.filter((row) => row.type === 'episode');
+    const showTvEpisodeSkeletons = isTvShell
+        && !tvEpisodeRows.length
+        && (
+            (item.type === 'episode' && !seasonEpisodesReady)
+            || (item.type === 'season' && loading)
+        );
     const spotlightRow = tvEpisodeRows.find((row) => String(row.ratingKey) === String(spotlightKey)) || null;
     const hubItem = (
         isTvShell && (item.type === 'episode' || item.type === 'season')
@@ -3320,6 +3380,8 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                         onPlayEpisode={playEpisodeTile}
                         hideSpoiler={(row) => hideEpisodeSpoilers(settings, row)}
                     />
+                    ) : showTvEpisodeSkeletons ? (
+                    <TvEpisodeRailSkeleton label={t('mediaPlayerPage.loading')} />
                     ) : tvEpisodeRows.length ? (
                     <section className="media-details-episodes mt-6" data-tv-row="1" data-tv-row-id={`episodes:${item.ratingKey}`}>
                         {isTvShell ? null : (

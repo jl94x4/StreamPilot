@@ -305,20 +305,21 @@ public class MainActivity extends BridgeActivity {
         webView.setFocusable(true);
         webView.setFocusableInTouchMode(true);
         webView.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
-        if (isTelevisionDevice(this)) {
-            // System / WebView chrome scrollbars ignore CSS on many TV WebViews.
-            webView.setVerticalScrollBarEnabled(false);
-            webView.setHorizontalScrollBarEnabled(false);
-            webView.setScrollBarStyle(View.SCROLLBARS_INSIDE_OVERLAY);
-            webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                try {
-                    webView.setVerticalScrollbarThumbDrawable(null);
-                    webView.setHorizontalScrollbarThumbDrawable(null);
-                } catch (Throwable ignored) {
-                    /* older WebView */
-                }
+        // System / WebView chrome scrollbars ignore CSS on many Android WebViews
+        // (phone and TV). Keep overflow scrolling; just hide the chrome.
+        webView.setVerticalScrollBarEnabled(false);
+        webView.setHorizontalScrollBarEnabled(false);
+        webView.setScrollBarStyle(View.SCROLLBARS_INSIDE_OVERLAY);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            try {
+                webView.setVerticalScrollbarThumbDrawable(null);
+                webView.setHorizontalScrollbarThumbDrawable(null);
+            } catch (Throwable ignored) {
+                /* older WebView */
             }
+        }
+        if (isTelevisionDevice(this)) {
+            webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 webView.setDefaultFocusHighlightEnabled(false);
                 webView.setFocusedByDefault(true);

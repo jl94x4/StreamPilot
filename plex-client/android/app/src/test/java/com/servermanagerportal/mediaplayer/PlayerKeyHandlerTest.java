@@ -184,10 +184,14 @@ public class PlayerKeyHandlerTest {
         assertEquals(PlayerKeyHandler.Result.HANDLED, keys.onKeyDown(KeyEvent.KEYCODE_DPAD_RIGHT, repeat(KeyEvent.KEYCODE_DPAD_RIGHT)));
         assertEquals(List.of("hold:-1"), host.calls);
         host.seekHold = true;
-        assertEquals(PlayerKeyHandler.Result.HANDLED, press(KeyEvent.KEYCODE_DPAD_RIGHT));
+        // Key repeat while holding must not restart the hold.
+        assertEquals(PlayerKeyHandler.Result.HANDLED, keys.onKeyDown(KeyEvent.KEYCODE_DPAD_RIGHT, repeat(KeyEvent.KEYCODE_DPAD_RIGHT)));
         assertEquals(List.of("hold:-1"), host.calls);
+        // A fresh DOWN while "holding" means the previous UP was lost — restart.
+        assertEquals(PlayerKeyHandler.Result.HANDLED, press(KeyEvent.KEYCODE_DPAD_RIGHT));
+        assertEquals(List.of("hold:-1", "hold:1"), host.calls);
         keys.onKeyUp(KeyEvent.KEYCODE_DPAD_RIGHT);
-        assertEquals("stopHold", host.calls.get(1));
+        assertEquals("stopHold", host.calls.get(2));
     }
 
     @Test

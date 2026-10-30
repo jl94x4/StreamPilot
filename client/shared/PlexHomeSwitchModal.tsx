@@ -152,7 +152,8 @@ export const PlexHomeSwitchModal: React.FC<{
             window.removeEventListener('smp-tv-overlay-close', onOverlayClose);
             window.cancelAnimationFrame(id);
         };
-    }, [open, busy, pinUser]);
+        // Do not depend on `busy`: submit flipping busy was re-focusing the pad mid-entry.
+    }, [open, pinUser]);
 
     const profiles = useMemo(
         () => (Array.isArray(users) ? users.filter((user) => user?.id) : []),
@@ -205,14 +206,20 @@ export const PlexHomeSwitchModal: React.FC<{
             <button
                 type="button"
                 tabIndex={-1}
-                className="absolute inset-0 bg-black/75 backdrop-blur-xl cursor-default"
+                className={`absolute inset-0 cursor-default ${
+                    isTvShell ? 'bg-black/88' : 'bg-black/75 backdrop-blur-xl'
+                }`}
                 aria-label={loginMode ? 'Use a different Plex account' : 'Close profile switcher'}
                 onClick={dismiss}
             />
-            <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
-                <div className="absolute -top-24 left-1/2 h-72 w-72 -translate-x-1/2 rounded-full bg-plex/20 blur-[90px]" />
-                <div className="absolute bottom-0 right-0 h-56 w-56 rounded-full bg-amber-500/10 blur-[80px]" />
-            </div>
+            {/* Soft glow orbs are fine on phone/desktop; on TV they force heavy blur composites
+                on every digit press and make the PIN pad feel laggy. */}
+            {!isTvShell ? (
+                <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
+                    <div className="absolute -top-24 left-1/2 h-72 w-72 -translate-x-1/2 rounded-full bg-plex/20 blur-[90px]" />
+                    <div className="absolute bottom-0 right-0 h-56 w-56 rounded-full bg-amber-500/10 blur-[80px]" />
+                </div>
+            ) : null}
 
             {pinUser && isTvShell ? (
                 <div
@@ -249,20 +256,25 @@ export const PlexHomeSwitchModal: React.FC<{
                                         data-tv-item="1"
                                         data-tv-key={`home-switch-pin-${key}`}
                                         tabIndex={0}
-                                        disabled={busy || (isDel && !pin.length)}
+                                        disabled={busy}
                                         aria-label={isDel ? 'Delete' : key}
                                         className={`player-tv-home-pin-key ${isDel ? 'is-del' : ''}`}
                                         onClick={() => {
+                                            if (busy) return;
                                             if (isDel) {
                                                 setPin((current) => current.slice(0, -1));
                                                 return;
                                             }
-                                            const next = `${pin}${key}`.replace(/\D/g, '').slice(0, 8);
-                                            setPin(next);
-                                            if (next.length >= 4 && pinUser && !busy) {
-                                                pinSubmittedRef.current = true;
-                                                onSelect(pinUser, next, remember);
-                                            }
+                                            // Functional update keeps rapid remote presses in order.
+                                            setPin((current) => {
+                                                const next = `${current}${key}`.replace(/\D/g, '').slice(0, 8);
+                                                if (next.length >= 4 && pinUser) {
+                                                    pinSubmittedRef.current = true;
+                                                    // Defer submit so this paint can show the 4th dot first.
+                                                    window.setTimeout(() => onSelect(pinUser, next, remember), 0);
+                                                }
+                                                return next;
+                                            });
                                         }}
                                     >
                                         {isDel ? <Delete className="h-7 w-7" strokeWidth={2} /> : key}

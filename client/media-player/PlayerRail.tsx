@@ -3,7 +3,7 @@ import { Carousel, DiscoverSectionHeader, discoverRowCardWidthClass, posterGridC
 import { PlayerPosterCard } from './PlayerPosterCard';
 import { PlayerViewMoreCard, type ViewMoreShelfSource } from './PlayerViewMoreCard';
 import { isHomeRowsBusy, playerItemRef, PLAYER_HOME_ROWS_IDLE_EVENT, prefetchTvRowItems } from './api';
-import { beginTvRowBackdropPreload, isMusicPlayerItem, playerRailPosterUrl, plexBackdropUrl, plexLogoUrl, prefetchPlayerImages, resolvePlayerCardAspect, warmPlayerBackdrop, warmPlayerPoster } from './playerUtils';
+import { beginTvRowBackdropPreload, isMusicPlayerItem, playerItemBackdropUrl, playerRailPosterUrl, plexLogoUrl, prefetchPlayerImages, resolvePlayerCardAspect, warmPlayerBackdrop, warmPlayerPoster } from './playerUtils';
 import type { PlayerItem, PlayerPlayOptions } from './types';
 import { STORAGE_PLEX_SERVERS } from '../plex-client/configStorageKeys';
 
@@ -193,14 +193,12 @@ const PlayerRailImpl: React.FC<{
     }, [armedFloor, items.length, lazyMount, restoreIndex, tvActive, tvShell]);
 
     useEffect(() => {
-        const take = tvShell ? items.length : eagerCount;
+        const take = tvShell
+            ? Math.min(items.length, Math.max(armedCount, TV_RAIL_POSTER_WARM))
+            : eagerCount;
         const urls = items.slice(0, take).map((item) => playerRailPosterUrl(item, aspect));
         prefetchPlayerImages(urls, take);
-    }, [aspect, eagerCount, items, tvShell]);
-
-    const tvRowKey = tvShell
-        ? `${rowId || title}|${items.map((item) => `${item.ratingKey}|${item.art || ''}|${(item as { backdropArt?: string | null }).backdropArt || ''}|${item.logo || ''}`).join(',')}`
-        : '';
+    }, [armedCount, aspect, eagerCount, items, tvShell]);
 
     useEffect(() => {
         if (!tvShell || !tvActive || !items.length) return undefined;
@@ -209,16 +207,16 @@ const PlayerRailImpl: React.FC<{
         const urls: string[] = [];
         const keys: string[] = [];
         ordered.forEach((item) => {
-            const url = plexBackdropUrl(
-                (item as { backdropArt?: string | null }).backdropArt || item.art || item.thumb,
-            );
+            const url = playerItemBackdropUrl(item);
             if (url) urls.push(url);
             const key = String(item.ratingKey || '').trim();
             if (key && /^\d+$/.test(key) && item.type !== 'collection' && item.type !== 'playlist') keys.push(playerItemRef(item));
         });
+        const nearUrls = urls.slice(0, TV_RAIL_BACKDROP_WARM);
+        const nearKeys = keys.slice(0, TV_RAIL_META_WARM);
         // Only the focused card's backdrop is needed now; the rest wait (startExtras).
-        let stopArt = beginTvRowBackdropPreload(urls.slice(0, 1), 0);
-        if (urls[0]) warmPlayerBackdrop(urls[0], true);
+        let stopArt = beginTvRowBackdropPreload(nearUrls.slice(0, 1), 0);
+        if (nearUrls[0]) warmPlayerBackdrop(nearUrls[0], true);
         let stopMeta = () => {};
         let timer = 0;
         const startExtras = () => {
@@ -226,9 +224,9 @@ const PlayerRailImpl: React.FC<{
                 window.addEventListener(PLAYER_HOME_ROWS_IDLE_EVENT, arm);
                 return;
             }
-            stopArt = beginTvRowBackdropPreload(urls, 0);
-            stopMeta = prefetchTvRowItems(keys);
-            ordered.slice(0, 8).forEach((item) => {
+            stopArt = beginTvRowBackdropPreload(nearUrls, 0);
+            stopMeta = prefetchTvRowItems(nearKeys);
+            ordered.slice(0, 6).forEach((item) => {
                 const logo = plexLogoUrl(item.logo);
                 if (logo) warmPlayerPoster(logo);
             });
@@ -245,7 +243,7 @@ const PlayerRailImpl: React.FC<{
             stopArt();
             stopMeta();
         };
-    }, [tvRowKey, tvShell, tvActive]);
+    }, [itemKeySig, restoreIndex, rowId, tvShell, tvActive]);
 
     useEffect(() => {
         if (!phoneShell || armedCount >= items.length) return undefined;
@@ -356,6 +354,11 @@ const PlayerRailImpl: React.FC<{
         </div>
     );
 };
+/** TV: warm what is on screen plus a few neighbours, not every card in a long hub. */
+const TV_RAIL_POSTER_WARM = 12;
+const TV_RAIL_BACKDROP_WARM = 8;
+const TV_RAIL_META_WARM = 8;
+
 /** Memoised: a TV row change re-renders the stack, and rows whose props did not change skip. */
 export const PlayerRail = memo(PlayerRailImpl);
 

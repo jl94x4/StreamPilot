@@ -38,6 +38,7 @@ import {
     isHlsPlaylistBody,
     liveTvGuideWindow,
     redactLiveUrl,
+    liveAiringNeedsLibraryArt,
     mapLiveTvChannels,
     mapLiveTvDvrs,
     mapLiveTvGuide,
@@ -5164,6 +5165,66 @@ const matchLibraryByGuids = async (guids: string[], title: string, year: string 
     return hit ? mapItem(hit) : null;
 };
 
+/**
+ * On Now / guide often only has a Tunarr poster. When that title exists in the Plex
+ * library, borrow the show or movie backdrop so Home does not stretch the poster.
+ */
+const libraryArtForLiveTitle = async (
+    title: string,
+    year: string | number | null | undefined,
+    preferShow: boolean,
+    server: PlexServer,
+) => {
+    const query = String(title || '').trim();
+    if (!query) return null;
+    const yearKey = year != null && String(year).trim() ? String(year) : null;
+    const types = preferShow ? ['show', 'movie'] : ['movie', 'show'];
+    for (const type of types) {
+        const hit = await matchLibraryByGuids([], query, yearKey, type, server);
+        const art = hit?.backdropArt || hit?.art || null;
+        if (art) return String(art);
+    }
+    return null;
+};
+
+const enrichLiveAiringsWithLibraryArt = async (
+    items: Array<Record<string, unknown>>,
+    server: PlexServer,
+) => {
+    if (!items.length) return items;
+    const lookups = new Map<string, { title: string; year: unknown; preferShow: boolean }>();
+    for (const item of items) {
+        if (!liveAiringNeedsLibraryArt(item)) continue;
+        const episodeTitle = String(item.episodeTitle || '').trim();
+        const title = String(
+            episodeTitle ? (item.showTitle || item.title || '') : (item.title || ''),
+        ).trim();
+        if (!title) continue;
+        const key = title.toLowerCase();
+        if (lookups.has(key)) continue;
+        lookups.set(key, { title, year: item.year, preferShow: Boolean(episodeTitle) });
+    }
+    if (!lookups.size) return items;
+    const artByTitle = new Map<string, string | null>();
+    await mapPool([...lookups.entries()], 3, async ([key, meta]) => {
+        const art = await withMapServer(server, () => (
+            libraryArtForLiveTitle(meta.title, meta.year as string | number | null, meta.preferShow, server)
+        ));
+        artByTitle.set(key, art);
+    });
+    return items.map((item) => {
+        if (!liveAiringNeedsLibraryArt(item)) return item;
+        const episodeTitle = String(item.episodeTitle || '').trim();
+        const title = String(
+            episodeTitle ? (item.showTitle || item.title || '') : (item.title || ''),
+        ).trim();
+        if (!title) return item;
+        const art = artByTitle.get(title.toLowerCase());
+        if (!art) return item;
+        return { ...item, art: imageUrl(art, 1280, 720) || art };
+    });
+};
+
 /** Find a local playable library copy for Watch Together (sync-only join). */
 const resolveWatchTogetherLocal = async (query: URLSearchParams) => {
     await ensureServers();
@@ -6539,11 +6600,12 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                 if (!mapped.some((row) => row.airings.length)) {
                     mapped = await loadLiveGuide(server, source, window.startsAt, window.endsAt);
                 }
-                items.push(...onNowFromGuide(mapped, nowSec).map((airing) => ({
+                const airings = onNowFromGuide(mapped, nowSec).map((airing) => ({
                     ...airing,
                     thumb: imageUrl(airing.thumb, 300, 450) || airing.thumb,
                     art: imageUrl(airing.art, 1280, 720) || airing.art,
-                })));
+                }));
+                items.push(...await enrichLiveAiringsWithLibraryArt(airings, server));
             }
         }
         return { items };

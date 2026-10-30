@@ -73,6 +73,192 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.474': [
+        {
+            title: 'TV',
+            items: [
+                'Match frame rate no longer knocks audio out of sync (uses display mode instead of forced HDMI renegotiation)',
+            ],
+        },
+    ],
+    '1.0.473': [
+        {
+            title: 'TV',
+            items: [
+                'Plex Home PIN pad feels snappier when entering digits',
+            ],
+        },
+    ],
+    '1.0.472': [
+        {
+            title: 'TV',
+            items: [
+                'Audio stays in sync more reliably (tunneled playback, fewer HDMI refresh switches, resync after long rebuffers)',
+            ],
+        },
+    ],
+    '1.0.471': [
+        {
+            title: 'TV',
+            items: [
+                'Play bar seek keeps working after a scrub (no more one-shot seek)',
+            ],
+        },
+    ],
+    '1.0.470': [
+        {
+            title: 'TV',
+            items: [
+                'Play bar seek works more than once (forward and back)',
+            ],
+        },
+    ],
+    '1.0.469': [
+        {
+            title: 'TV',
+            items: [
+                'Play bar seek works more than once (forward and back)',
+            ],
+        },
+    ],
+    '1.0.468': [
+        {
+            title: 'Phone',
+            items: [
+                'Scrollbars stay hidden in the app (WebView chrome too)',
+                'Home and library row titles are smaller',
+            ],
+        },
+    ],
+    '1.0.467': [
+        {
+            title: 'TV',
+            items: [
+                '16:9 hero cards are a little larger',
+            ],
+        },
+    ],
+    '1.0.466': [
+        {
+            title: 'Phone',
+            items: [
+                '16:9 hero cards and the Home hero are a little larger',
+                'Scrollbars stay hidden while you still scroll',
+            ],
+        },
+    ],
+    '1.0.465': [
+        {
+            title: 'TV',
+            items: [
+                'Theme tunes play once instead of looping',
+                'Home billboard descriptions stop after four lines so logos stay clear; the title page still shows the full synopsis',
+                'On Now Home billboard uses the show or movie backdrop instead of a stretched poster',
+                'Next Home row title sits a little farther below the row above',
+                'Home left and right is smoother on TV sticks',
+            ],
+        },
+    ],
+    '1.0.464': [
+        {
+            title: 'TV',
+            items: [
+                'Theme tunes play once instead of looping',
+            ],
+        },
+    ],
+    '1.0.463': [
+        {
+            title: 'TV',
+            items: [
+                'Home billboard descriptions stop after four lines so logos stay clear; the title page still shows the full synopsis',
+            ],
+        },
+    ],
+    '1.0.462': [
+        {
+            title: 'TV',
+            items: [
+                'Home billboard descriptions are no longer cut off mid-sentence',
+            ],
+        },
+    ],
+    '1.0.461': [
+        {
+            title: 'TV',
+            items: [
+                'On Now Home billboard uses the show or movie backdrop instead of a stretched poster',
+                'Next Home row title sits a little farther below the row above',
+            ],
+        },
+    ],
+    '1.0.460': [
+        {
+            title: 'TV',
+            items: [
+                'Home billboard description text is a little larger',
+            ],
+        },
+    ],
+    '1.0.459': [
+        {
+            title: 'TV',
+            items: [
+                'Home left and right is smoother on TV sticks: fewer disk writes while scrubbing, less work checking backdrop readiness, and no duplicate title metadata fetches',
+            ],
+        },
+    ],
+    '1.0.458': [
+        {
+            title: 'TV',
+            items: [
+                'Episode screens show loading placeholders while the season list is fetching',
+                'Episode and title pages show season, rating, date, and length as plain text, with pills kept on IMDb and TMDB',
+                'Home left and right is lighter on TV sticks',
+            ],
+        },
+    ],
+    '1.0.457': [
+        {
+            title: 'TV',
+            items: [
+                'Home left and right is lighter: fewer images warm ahead of time, and moving across a row no longer rebuilds the whole page',
+            ],
+        },
+    ],
+    '1.0.456': [
+        {
+            title: 'TV',
+            items: [
+                'Home up and down is back to the previous row layout',
+            ],
+        },
+    ],
+    '1.0.455': [
+        {
+            title: 'TV',
+            items: [
+                'Episode screens show loading placeholders in the same size as episode stills while the season list is fetching',
+                'Episode and title pages show season, rating, date, and length as plain text, with pills kept on IMDb and TMDB',
+            ],
+        },
+    ],
+    '1.0.450': [
+        {
+            title: 'TV',
+            items: [
+                'Episode and title pages show season, rating, date, and length as plain text, with pills kept on IMDb and TMDB',
+            ],
+        },
+    ],
+    '1.0.449': [
+        {
+            title: 'TV',
+            items: [
+                'Episode screens show loading placeholders in the same size as episode stills while the season list is fetching',
+            ],
+        },
+    ],
     '1.0.447': [
         {
             title: 'Home',

@@ -9,7 +9,7 @@ import { PlayerTvRowStack } from './PlayerRail';
 import type { ViewMoreShelfSource } from './PlayerViewMoreCard';
 import { readPlayerItemCache } from './playerMemory';
 import { itemHasBillboardBrandMeta } from './studioLogo.js';
-import { formatPlayerDate, formatPlayerDuration, isFuturePlayerDate, isPlayerBackdropReady, pickRicherSummary, pinTvNeighborBackdrops, playerItemBackdropUrl, plexBackdropUrl, plexLogoUrl, prefetchHomeRowPosters, primeNearbyTvBillboard, warmPlayerBackdrop } from './playerUtils';
+import { formatPlayerDate, formatPlayerDuration, isFuturePlayerDate, isPlayerBackdropReady, pickRicherSummary, pinTvNeighborBackdrops, playerItemBackdropUrl, plexLogoUrl, prefetchHomeRowPosters, primeNearbyTvBillboard, warmPlayerBackdrop } from './playerUtils';
 import { PlayerTvStatusPanel } from './PlayerTvStatusPanel';
 import type { PlayerItem, PlayerPlayOptions } from './types';
 
@@ -163,7 +163,7 @@ export const PlayerTvFocusStill: React.FC<{
             // Neighbour backdrops / metadata only once the remote settles, not on every press.
             window.clearTimeout(primeTimerRef.current);
             primeTimerRef.current = window.setTimeout(
-                () => primeNearbyTvBillboard(target, prefetchMediaPlayerItem),
+                () => primeNearbyTvBillboard(target),
                 Math.max(delay, 120),
             );
             const next = backdropFromFocusTarget(target);
@@ -352,13 +352,9 @@ export const PlayerTvHubStage: React.FC<Props> = ({
 
     const focusStillSeed = useMemo(() => {
         const first = rows[0]?.items?.[0];
-        return plexBackdropUrl(
-            (first as { backdropArt?: string | null } | undefined)?.backdropArt || first?.art || first?.thumb,
-        ) || '';
+        return playerItemBackdropUrl(first) || '';
     }, [rows]);
-    const stageStillSeed = plexBackdropUrl(
-        (tvSpotItem as { backdropArt?: string | null } | null)?.backdropArt || tvSpotItem?.art || tvSpotItem?.thumb || '',
-    ) || focusStillSeed;
+    const stageStillSeed = playerItemBackdropUrl(tvSpotItem) || focusStillSeed;
 
     useEffect(() => {
         if (!active) return;

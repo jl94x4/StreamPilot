@@ -1080,8 +1080,10 @@ html[data-phone="1"] .media-details-hero {
   html[data-phone="1"] .player-home-page .player-row-header {
     margin: 0 !important;
   }
-  html[data-phone="1"] .player-home-page .player-row-header-title {
-    font-size: 1.3rem !important;
+  html[data-phone="1"] .player-home-page .player-row-header-title,
+  html[data-phone="1"] .player-row-header-title,
+  html[data-phone="1"] .player-row-header h2 {
+    font-size: 0.78rem !important;
     font-weight: 800 !important;
     line-height: 1.2 !important;
   }
@@ -1111,7 +1113,7 @@ html[data-phone="1"] .media-details-hero {
     font-size: 0.72rem;
   }
   html[data-phone="1"] .player-home-page [data-tv-row="1"] .player-rail-landscape {
-    width: min(48vw, 12rem) !important;
+    width: min(56vw, 14rem) !important;
   }
   html[data-phone="1"] .tv-poster-rows [data-tv-rail="1"] {
     gap: 0.55rem;
@@ -1153,8 +1155,8 @@ html[data-phone="1"] .media-details-hero {
   }
   html[data-phone="1"] .player-home-hero-stage {
     aspect-ratio: 16 / 9;
-    min-height: 12.25rem;
-    max-height: 34vh;
+    min-height: 13.75rem;
+    max-height: 40vh;
   }
   html[data-phone="1"] .player-hero-art,
   html[data-phone="1"] .player-hero-art.is-active {
@@ -1255,8 +1257,8 @@ html:not([data-phone="1"]) .media-details-action-label {
 }
 html[data-phone="1"] .player-home-hero-stage {
   aspect-ratio: 16 / 9 !important;
-  min-height: 12.25rem !important;
-  max-height: 34vh !important;
+  min-height: 13.75rem !important;
+  max-height: 40vh !important;
 }
 html[data-phone="1"] .media-details-hero:has(.media-details-billboard-identity) .media-details-kicker-row {
   display: none !important;
@@ -2139,6 +2141,34 @@ html[data-tv="1"] .custom-scrollbar::-webkit-scrollbar-track {
   background: transparent !important;
 }
 
+/* Capacitor phone/tablet: hide all CSS scrollbar chrome; scrolling still works.
+   WebView chrome is also disabled in MainActivity (CSS alone is not enough). */
+html[data-plex-client="1"][data-phone="1"],
+html[data-plex-client="1"][data-phone="1"] *,
+html[data-phone-native="1"],
+html[data-phone-native="1"] * {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+  scrollbar-color: transparent transparent !important;
+}
+html[data-plex-client="1"][data-phone="1"]::-webkit-scrollbar,
+html[data-plex-client="1"][data-phone="1"] *::-webkit-scrollbar,
+html[data-plex-client="1"][data-phone="1"]::-webkit-scrollbar-thumb,
+html[data-plex-client="1"][data-phone="1"] *::-webkit-scrollbar-thumb,
+html[data-plex-client="1"][data-phone="1"]::-webkit-scrollbar-track,
+html[data-plex-client="1"][data-phone="1"] *::-webkit-scrollbar-track,
+html[data-phone-native="1"]::-webkit-scrollbar,
+html[data-phone-native="1"] *::-webkit-scrollbar,
+html[data-phone-native="1"]::-webkit-scrollbar-thumb,
+html[data-phone-native="1"] *::-webkit-scrollbar-thumb,
+html[data-phone-native="1"]::-webkit-scrollbar-track,
+html[data-phone-native="1"] *::-webkit-scrollbar-track {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent !important;
+}
+
 @layer components {
   /* —— Cards —— */
   .glass-card {
@@ -2777,7 +2807,7 @@ html[data-tv="1"] .player-tv-home-skel-card {
   min-width: 0;
 }
 html[data-tv="1"] .player-tv-home-skel-card--hero {
-  width: 21rem !important;
+  width: 23.5rem !important;
   aspect-ratio: 16 / 9;
 }
 html[data-tv="1"] .player-tv-home-skel-card--poster {
@@ -2906,6 +2936,14 @@ html[data-tv="1"] .media-details-billboard-ratings .media-rating-pills {
   align-items: flex-start;
   justify-content: flex-start;
   width: auto;
+}
+/* Episode/show facts stay as text; IMDb / TMDB keep their pill chrome. */
+html[data-tv="1"] .player-meta-chip {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 }
 /* Keep gb/PG · year · CSM · HDR10+ chips the same height (icons must not stretch pills). */
 .player-meta-chips .player-meta-chip {
@@ -3912,16 +3950,16 @@ html[data-tv="1"] .player-home-spot-watched {
 html[data-tv="1"] .player-home-spot-summary {
   margin: 0;
   flex: 0 0 auto;
-  min-height: calc(0.92rem * 1.45 * 2);
+  min-height: calc(1rem * 1.45 * 2);
   max-width: 36rem;
-  font-size: 0.92rem;
+  font-size: 1rem;
   line-height: 1.45;
   color: rgba(255, 255, 255, 0.78) !important;
-  /* Short billboard copy — 3 lines max so cast stays clear below. */
+  /* Cap Home copy so logos stay clear; the title page shows the full synopsis. */
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  line-clamp: 3;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -4601,7 +4639,7 @@ html[data-tv="1"] .player-home-stage-rail [data-tv-poster-rail="1"] {
   padding-right: 1.5rem !important;
 }
 html[data-tv="1"] .player-home-stage-rail .player-rail-landscape {
-  width: 21rem !important;
+  width: 23.5rem !important;
 }
 html[data-tv="1"] .player-music-tracks {
   position: relative;
@@ -4704,8 +4742,9 @@ html[data-reduce-motion="1"] .player-home-next-row {
 html[data-tv="1"] .player-home-next-row {
   padding-left: 0;
   pointer-events: none;
-  margin-top: 0.05rem;
-  /* 5.5rem plus the 0.7rem the stage used to leave below it: same top, reaches the edge. */
+  /* Leave a little air under the focused row's posters before the peek title. */
+  margin-top: 0.85rem;
+  /* 5.5rem plus the 0.7rem the stage used to leave below it, plus the peek gap. */
   max-height: 6.2rem;
   overflow: hidden;
 }
@@ -4927,9 +4966,11 @@ html[data-tv="1"] [data-tv-home-switch="1"][data-tv-home-switch-pin="1"] {
   padding: 2.4rem 2.5rem 1.8rem;
   border: 0 !important;
   border-radius: 2rem;
-  background: rgba(14, 16, 22, 0.94) !important;
+  background: rgb(14, 16, 22) !important;
   background-image: none !important;
-  box-shadow: 0 40px 120px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+  /* Opening animation once is fine; avoid re-trigger cost while typing. */
+  animation: none !important;
 }
 html[data-tv="1"] .player-tv-home-pin-name {
   margin-top: 1rem;
@@ -4954,11 +4995,11 @@ html[data-tv="1"] .player-tv-home-pin-dot {
   height: 0.9rem;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.18);
-  transition: background-color 0.15s ease, transform 0.15s ease;
+  /* Color only — scale/transition on every digit costs a frame on TV WebViews. */
+  transition: none;
 }
 html[data-tv="1"] .player-tv-home-pin-dot.is-filled {
   background: #fff;
-  transform: scale(1.1);
 }
 html[data-tv="1"] .player-tv-home-pin-error {
   min-height: 1.4rem;
@@ -4989,7 +5030,8 @@ html[data-tv="1"] .player-tv-home-pin-key {
   font-weight: 500;
   line-height: 1;
   font-variant-numeric: tabular-nums;
-  transition: background-color 0.12s ease, color 0.12s ease, transform 0.12s ease;
+  /* Instant focus paint — transform/transition made remote entry feel sticky. */
+  transition: none;
 }
 html[data-tv="1"] .player-tv-home-pin-key.is-del {
   background: transparent;
@@ -5001,7 +5043,7 @@ html[data-tv="1"] .player-tv-home-pin-key:focus-visible {
   background: #e5a00d !important;
   color: #111 !important;
   box-shadow: 0 0 0 4px rgba(229, 160, 13, 0.25) !important;
-  transform: scale(1.06);
+  transform: none;
 }
 html[data-tv="1"] .player-tv-home-pin-key:disabled {
   opacity: 0.3;

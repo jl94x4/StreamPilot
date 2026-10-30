@@ -205,8 +205,14 @@ final class PlayerKeyHandler {
 
         boolean seekLeft = keyCode == KeyEvent.KEYCODE_MEDIA_REWIND || keyCode == KeyEvent.KEYCODE_DPAD_LEFT;
         boolean seekRight = keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT;
-        // Hold already running: keep consuming left/right so chrome focus cannot swallow the repeat.
-        if (host.seekHoldActive() && (seekLeft || seekRight)) return Result.HANDLED;
+        // Hold already running: swallow key *repeats* so chrome focus cannot steal them.
+        // A fresh DOWN (repeatCount == 0) means the previous UP was lost — restart the hold
+        // or the play bar only seeks once until chrome is toggled.
+        if (host.seekHoldActive() && (seekLeft || seekRight)) {
+            if (event.getRepeatCount() > 0) return Result.HANDLED;
+            host.startSeekHold(seekLeft ? -1 : 1);
+            return Result.HANDLED;
+        }
 
         if (!host.chromeVisible()) {
             // Up-next card: D-pad must move between its buttons, not open the OSD / seek.
