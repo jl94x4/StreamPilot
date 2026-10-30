@@ -44,7 +44,6 @@ import {
     type PosterSetsWatchStats,
 } from './types';
 import { groupPosterSetsWatchesByCategory } from './watchGroups';
-import type { RecentSetCategory } from './shared/posterSetsRecent';
 import { excludeBlockedCreators, prioritizeSetsByFollowedCreators } from './prioritizeCreatorSets';
 import { classifyPreviewAsset, groupPreviewAssets, inspectorThumbsFromAssets } from './previewGroups';
 import { pickAutoMatchedTitle, rankSearchTitlesForLibraryItem } from './autoMatchTitle';

@@ -158,7 +158,7 @@ export const EncodeControlCard: React.FC<Props> = ({ status, busy, onStart, onPa
         const interval = window.setInterval(fetchMetrics, refreshMs);
         const onRefreshPref = (event: Event) => {
             const detail = (event as CustomEvent<number>).detail;
-            if (Number.isFinite(detail)) setRefreshMs(detail);
+            if (Number.isFinite(detail)) setRefreshMs(detail as typeof refreshMs);
         };
         window.addEventListener(SYSTEM_METRICS_REFRESH_EVENT, onRefreshPref);
         return () => {

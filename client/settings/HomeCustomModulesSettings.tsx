@@ -65,7 +65,7 @@ export const HomeCustomModulesSettings: React.FC<Props> = ({
         nextModules.splice(target, 0, moved);
         onChange(nextModules);
 
-        const orderedSectionIds = nextModules.map((module) => `customModule:${module.id}`);
+        const orderedSectionIds = nextModules.map((module) => `customModule:${module.id}` as const);
         const stockSections = dashboardLayout.sections.filter((id) => !id.startsWith('customModule:'));
         const recentlyAddedIndex = stockSections.indexOf('recentlyAdded');
         const merged = recentlyAddedIndex >= 0

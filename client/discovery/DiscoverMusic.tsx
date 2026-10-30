@@ -365,7 +365,7 @@ export const DiscoverMusic: React.FC<{
             const res = await apiFetch(`/api/discovery/music/search?q=${encodeURIComponent(trimmed)}`);
             if (seq !== seqRef.current) return;
             const raw = Array.isArray(res?.results) ? res.results : [];
-            const enriched = await enrichDiscoverItemsWithAvailability(raw);
+            const enriched = await enrichDiscoverItemsWithAvailability(raw as ArtistHit[]);
             if (seq !== seqRef.current) return;
             setResults(enriched);
         } catch (e: any) {

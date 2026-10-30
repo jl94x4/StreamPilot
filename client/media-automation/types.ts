@@ -499,6 +499,8 @@ export type MediaAutomationStepType =
 
 export type MediaAutomationStep = {
     type: MediaAutomationStepType;
+    /** Older saved pipelines name the step kind `mode`; read as a fallback for `type`. */
+    mode?: string;
     container?: string;
     videoCodec?: string;
     audioCodec?: string;

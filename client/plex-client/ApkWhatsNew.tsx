@@ -73,6 +73,20 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.483': [
+        {
+            title: 'TV',
+            items: [
+                'Focus no longer jumps back for a moment after a screen opens while you are already moving with the remote',
+            ],
+        },
+        {
+            title: 'App',
+            items: [
+                'Information messages show in grey instead of red, so they no longer look like errors',
+            ],
+        },
+    ],
     '1.0.482': [
         {
             title: 'Home',

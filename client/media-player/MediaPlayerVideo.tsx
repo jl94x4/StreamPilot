@@ -2712,7 +2712,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                             data-tv-item="1"
                             data-tv-action="1"
                             className="player-page-back mt-4 rounded-lg bg-white/15 px-4 py-2 font-semibold text-white"
-                            onClick={onClose}
+                            onClick={() => onClose()}
                         >
                             {t('mediaPlayerPage.back')}
                         </button>

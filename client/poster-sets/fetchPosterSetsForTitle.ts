@@ -11,7 +11,7 @@ import type { PosterSetsSearchResult, PosterSetsSearchSet, PosterSetsSearchTitle
 export type FetchPosterSetsOptions = {
     dupePreference: 'mediux' | 'posterdb';
     mediaType?: 'show' | 'movie' | null;
-    libraryItem?: Pick<LibraryRecentItem, 'title' | 'year' | 'mediaType'>;
+    libraryItem?: Pick<LibraryRecentItem, 'title' | 'year' | 'mediaType' | 'tvdbId'>;
     /** Followed creators — title search floats these sets first. */
     preferredCreators?: string[] | null;
     /** Blocked creators — hidden and never image-cached. */
@@ -602,7 +602,7 @@ async function fetchPosterdbSets(
 }
 
 async function fetchMediuxSetsViaTmdbLookup(
-    libraryItem: Pick<LibraryRecentItem, 'title' | 'year' | 'mediaType'>,
+    libraryItem: Pick<LibraryRecentItem, 'title' | 'year' | 'mediaType' | 'tvdbId'>,
     fallbackMedia: 'show' | 'movie',
     tpdbConfigured?: boolean,
 ): Promise<PosterSetsSearchResult | null> {

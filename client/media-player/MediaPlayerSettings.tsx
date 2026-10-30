@@ -720,7 +720,7 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
         }
         const normalized = normalizePortalBaseUrl(raw);
         if (!normalized.ok) {
-            setPortalError(normalized.error || t('mediaPlayerPage.settingsPortalUrlInvalid'));
+            setPortalError(('error' in normalized ? normalized.error : '') || t('mediaPlayerPage.settingsPortalUrlInvalid'));
             return false;
         }
         writeStoredPortalBaseUrl(normalized.url);
@@ -742,7 +742,7 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
         }
         const normalized = normalizePortalBaseUrl(raw);
         if (!normalized.ok) {
-            setWtRelayError(normalized.error || t('mediaPlayerPage.settingsWtRelayUrlInvalid'));
+            setWtRelayError(('error' in normalized ? normalized.error : '') || t('mediaPlayerPage.settingsWtRelayUrlInvalid'));
             return false;
         }
         writeStoredWtRelayUrl(normalized.url);

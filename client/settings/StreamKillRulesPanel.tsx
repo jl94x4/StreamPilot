@@ -87,7 +87,7 @@ const KRConditionRow: React.FC<{ cond: any; onCh: (c: any) => void; onDel: () =>
         onCh({ ...cond, field: v, value: dv, operator: krGetOps(def)[0].value });
     };
     const fieldOptions = RULE_FIELDS.map(f => ({ label: t(KR_FIELD_LABEL_KEYS[f.value]), value: f.value }));
-    const opOptions = ops.map(o => ({ label: t('labelKey' in o ? o.labelKey : KR_OPERATOR_LABEL_KEYS[o.value]), value: o.value }));
+    const opOptions = ops.map(o => ({ label: t('labelKey' in o ? String(o.labelKey) : KR_OPERATOR_LABEL_KEYS[o.value]), value: o.value }));
     const boolOptions = [{ label: t('settings.streamKillRules.boolean.yesTrue'), value: 'true' }, { label: t('settings.streamKillRules.boolean.noFalse'), value: 'false' }];
     const selectOptions = ('options' in (fd ?? {}) && (fd as any).options)
         ? (fd as any).options.map((o: string) => ({ label: KR_OPTION_LABEL_KEYS[o] ? t(KR_OPTION_LABEL_KEYS[o]) : o.toUpperCase(), value: o }))

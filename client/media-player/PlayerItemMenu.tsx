@@ -68,7 +68,7 @@ import { isPhoneUi } from '../plex-client/config';
 import { portalUrl } from '../shared/basePath';
 
 export type PlayerItemMenuHandle = {
-    openAt: (clientX: number, clientY: number) => void;
+    openAt: (clientX?: number, clientY?: number) => void;
 };
 
 const TV_MENU_CLOSE_EVENT = 'smp-tv-menu-close';

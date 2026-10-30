@@ -24,6 +24,9 @@ export type NowPlayingSession = {
     artUrl?: string | null;
     /** Jellyfin item id to use for series/movie art fallback. */
     artItemId?: string | null;
+    /** Plex sessions: the playing item, and the item it was started from. */
+    ratingKey?: string | null;
+    sourceRatingKey?: string | null;
 };
 
 type NowPlayingPayload = {

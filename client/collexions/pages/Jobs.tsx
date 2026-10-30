@@ -497,7 +497,7 @@ const JobsPage: React.FC = () => {
                 </div>
                 <div className="flex items-center gap-3 w-full md:w-auto">
                     <button
-                        onClick={fetchJobs}
+                        onClick={() => void fetchJobs()}
                         className="flex items-center gap-2 bg-card hover:bg-white/10 text-text px-4 py-2.5 rounded-xl transition-colors border border-border"
                     >
                         <RefreshCcw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />

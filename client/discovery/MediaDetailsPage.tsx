@@ -612,7 +612,8 @@ export const MediaDetailsPage: React.FC<{
         ? {
             label: requestOptionsSaysRequested ? 'Requested' : 'Available',
             disabled: true,
-            variant: (requestOptionsSaysRequested ? 'pending' : 'available') as const,
+            variant: requestOptionsSaysRequested ? 'pending' as const : 'available' as const,
+            hide: undefined,
         }
         : visibleRequestButtonBase;
     const requestButtonLabel = translateDiscoverStatus(t, visibleRequestButton.label);

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
 import ReactDOM from 'react-dom';
-import { Home, Film, Activity, Sparkles, LogOut, Settings, FileText, BarChart3, Users, PlaySquare, TrendingUp, X, Star, Layers, HardDrive, Calendar, Tv, Clock, DownloadCloud, MonitorSmartphone, Copy, ChevronUp, ChevronDown, List, Palette, Music, Play, Pause, Upload, Shield, CheckCircle, AlertCircle, RefreshCw, ChevronLeft, ChevronRight, Trophy, PlayCircle, Coffee, Compass, PieChart, Clapperboard, AlertTriangle, Check, Cpu, Monitor, LineChart as LucideLineChart, Share2, Search, BookOpen, Loader2, Eye, EyeOff, ClipboardList, ArrowUpCircle, MoreHorizontal, ExternalLink, Info, GitFork, MapPin, Radar, Image as ImageIcon, SlidersHorizontal, LifeBuoy, MessageSquare, User, Mail, AppWindow, Wand2 } from 'lucide-react';
+import { Home, Film, Activity, Sparkles, LogOut, Settings, FileText, BarChart3, Users, PlaySquare, TrendingUp, X, Star, Layers, HardDrive, Calendar, Tv, Clock, DownloadCloud, MonitorSmartphone, Copy, ChevronUp, ChevronDown, List, Palette, Music, Play, Pause, Upload, Shield, CheckCircle, AlertCircle, RefreshCw, ChevronLeft, ChevronRight, Trophy, PlayCircle, Coffee, Compass, PieChart, Clapperboard, AlertTriangle, Check, Cpu, Monitor, LineChart as LucideLineChart, Share2, Search, BookOpen, Loader2, Eye, EyeOff, ClipboardList, ArrowUpCircle, MoreHorizontal, ExternalLink, Info, GitFork, MapPin, Radar, Image as ImageIcon, SlidersHorizontal, LifeBuoy, MessageSquare, User as UserIcon, Mail, AppWindow, Wand2 } from 'lucide-react';
 import { ResponsiveContainer, LineChart, Line, BarChart, Bar, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, PieChart as RechartsPieChart, Pie, Cell } from 'recharts';
 
 import { TitleAnalyticsPage } from './dashboard/TitleAnalyticsPage';
@@ -501,7 +501,7 @@ const UserCard: React.FC<{
                         onClick={onViewProfile}
                         title={t('usersAdmin.actions.viewProfile')}
                     >
-                        <User className="w-3.5 h-3.5" />
+                        <UserIcon className="w-3.5 h-3.5" />
                         {t('usersAdmin.actions.viewProfile')}
                     </button>
                 )}
@@ -4342,7 +4342,7 @@ export const AnalyticsDashboard: React.FC<{ isAdmin: boolean, sessionInfo: any, 
         let cancelled = false;
         let attempts = 0;
         const maxAttempts = 24;
-        let timer: ReturnType<typeof window.setTimeout> | undefined;
+        let timer: number | undefined;
         const poll = () => {
             if (cancelled || attempts >= maxAttempts) return;
             attempts += 1;
@@ -7242,7 +7242,7 @@ export { WrapUpModal } from './shared/WrapUpModal';
 
 
 export const DiscoverPosterCard: React.FC<{
-    item: { title: string; thumb?: string; thumbUrl?: string; posterFallbackUrl?: string; plexUrl: string; tags?: string[]; year?: number | string; parentTitle?: string; ratingKey?: string };
+    item: { title: string; thumb?: string; thumbUrl?: string; posterFallbackUrl?: string; plexUrl: string; tags?: string[]; year?: number | string; parentTitle?: string; ratingKey?: string; mediaType?: string; type?: string };
     aspect?: '2/3' | 'square' | '16/9';
     overlay?: React.ReactNode;
     variant?: 'discover' | 'home';
@@ -7685,9 +7685,11 @@ const PortalWidgetEditorModal: React.FC<{
             onChange(normalizeLayout({ ...layout, sections: moveDashboardItemTo(layout.sections, source.index, targetIndex) }));
             return;
         }
-        const items = list === 'main' ? layout.mainGridOrder : layout.recentlyAddedOrder;
-        const next = moveDashboardItemTo(items, source.index, targetIndex);
-        onChange(normalizeLayout(list === 'main' ? { ...layout, mainGridOrder: next } : { ...layout, recentlyAddedOrder: next }));
+        if (list === 'main') {
+            onChange(normalizeLayout({ ...layout, mainGridOrder: moveDashboardItemTo(layout.mainGridOrder, source.index, targetIndex) }));
+            return;
+        }
+        onChange(normalizeLayout({ ...layout, recentlyAddedOrder: moveDashboardItemTo(layout.recentlyAddedOrder, source.index, targetIndex) }));
     };
 
     const selectOrMove = (list: 'sections' | 'main' | 'recent', index: number) => {
@@ -12734,7 +12736,7 @@ export const Navigation: React.FC<NavigationProps> = ({ currentRoute, onNavigate
         // Admin-only until member Plex identity is always resolved (owner-token fallback polluted CW).
         'media-player': { label: t('navigation.mediaPlayer'), icon: PlayCircle, route: 'media-player', adminOnly: true, beta: true },
         'about': { label: t('navigation.about'), icon: Info, route: 'about', adminOnly: false },
-        'profile': { label: t('navigation.profile'), icon: User, route: 'profile', adminOnly: false },
+        'profile': { label: t('navigation.profile'), icon: UserIcon, route: 'profile', adminOnly: false },
         'preferences': { label: t('navigation.preferences'), icon: SlidersHorizontal, route: 'preferences', adminOnly: false },
         'settings': { label: t('navigation.settings'), icon: Settings, route: 'settings', adminOnly: true },
         'logout': { label: t('navigation.logout'), icon: LogOut, route: '', adminOnly: false, onClick: onLogout },

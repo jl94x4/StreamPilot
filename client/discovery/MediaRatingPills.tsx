@@ -62,7 +62,7 @@ export const MediaRatingPills: React.FC<MediaRatingPillsProps> = ({
     const rtCritics = Number(ratings?.rt?.criticsScore);
     const rtAudience = Number(ratings?.rt?.audienceScore);
     const imdbScore = ratings?.imdb?.criticsScore;
-    const imdbScoreLabel = imdbScore == null || imdbScore === ''
+    const imdbScoreLabel = imdbScore == null || String(imdbScore) === ''
         ? null
         : typeof imdbScore === 'number'
             ? (Number.isInteger(imdbScore) ? String(imdbScore) : imdbScore.toFixed(1))

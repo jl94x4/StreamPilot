@@ -2765,7 +2765,6 @@ export const SettingsDashboard: React.FC = () => {
                                                 setCollexionsEnabled(false);
                                                 setCollexionsAutostart(false);
                                                 setSpotifyToPlexEnabled(false);
-                                                if (activeTab === 'collexions' || activeTab === 'spotify-sync' || activeTab === 'metadata-fill') setActiveTab('plex');
                                             }
                                         }}
                                         options={[

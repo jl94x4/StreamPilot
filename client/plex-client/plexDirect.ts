@@ -160,6 +160,7 @@ type HeroMappedItem = {
     title: string;
     type: string;
     year?: number | null;
+    audienceRating?: number | null;
     summary?: string;
     thumb?: string | null;
     art?: string | null;
@@ -1027,7 +1028,7 @@ const mapItem = (meta: PlexMeta) => {
         year: meta.year ? Number(meta.year) : null,
         summary: String(meta.summary || ''),
         thumb: imageUrl(meta.thumb || meta.parentThumb || meta.grandparentThumb, 300, music ? 300 : 450),
-        ...(music ? { cardAspect: 'square' as const } : {}),
+        ...(music ? { cardAspect: 'square' as '2/3' | 'square' } : {}),
         art: imageUrl(meta.art || meta.grandparentArt, 1920, 1080),
         heroArt: coverArtUrl(meta) || null,
         backdropArt: imageUrl(heroBackdropPath(meta, type), 1920, 1080, { crop: false }),
@@ -1919,7 +1920,7 @@ const discoverServers = async (token: string) => {
         return found;
     }
     if (!found.length) {
-        const relays = await Promise.all(resources.map(async (resource) => {
+        const relays = await Promise.all(resources.map(async (resource): Promise<PlexServer | null> => {
             const relay = asList<PlexMeta>(resource.connections).find((connection) => isRelayConnection(connection));
             const id = String(resource.clientIdentifier || resource.machineIdentifier || resource.name || '').trim();
             const uri = String(relay?.uri || '').replace(/\/+$/, '');
@@ -2860,6 +2861,7 @@ type MappedPlayerItem = ReturnType<typeof mapItem> & {
     episodeThumb?: string | null;
     episodeTitle?: string | null;
     preferSeasonPoster?: boolean;
+    thumbUpdatedAt?: number | null;
 };
 
 const asContinueWatchingItem = (
@@ -2942,7 +2944,7 @@ const withCurrentBackdrop = <T extends { art?: string | null; backdropArt?: stri
 ) => (path ? { ...item, art: path, backdropArt: path } : item);
 
 const refreshContinueEpisodeThumbs = async (
-    items: Array<ReturnType<typeof mapItem>>,
+    items: MappedPlayerItem[],
     server: PlexServer,
     preferSeasonPoster = false,
 ) => {
@@ -3156,7 +3158,7 @@ const hydrateHubsBrandMeta = async <T extends { items?: Array<ReturnType<typeof 
  * Recently Added (Plex-style): show poster + show title on the card, but keep the
  * episode ratingKey / SxxExx / episode summary so focus + click open that episode.
  */
-const asRecentlyAddedItem = (item: ReturnType<typeof mapItem>): ReturnType<typeof mapItem> => {
+const asRecentlyAddedItem = (item: ReturnType<typeof mapItem>): MappedPlayerItem & { dedupeKey?: string } => {
     if (item.type !== 'episode' && item.type !== 'season') return item;
     const showKey = String(
         item.type === 'season' ? item.parentRatingKey : item.grandparentRatingKey || '',
@@ -3266,7 +3268,7 @@ const hubsFrom = (data: any, server: PlexServer, many: boolean) => {
                 items: randomOrder && items.length > 1 ? shuffleItems(items) : items,
                 hubKey: hubPath ? (many ? `${server.id}::${hubPath}` : hubPath) : null,
                 collectionRatingKey: collectionRatingKeyFromHub(hub) || null,
-                randomOrder,
+                randomOrder: randomOrder as boolean | undefined,
                 serverId: server.id,
             };
         }).filter((hub) => hub.items.length && hub.title);
@@ -3626,7 +3628,7 @@ const fillPlexHomeHub = async (hub: PlexMeta, server: PlexServer, many: boolean)
         items: randomOrder && items.length > 1 ? shuffleItems(items) : items,
         hubKey: many ? `${server.id}::${hubKeyPath}` : hubKeyPath,
         collectionRatingKey: collectionRatingKeyFromHub(hub) || null,
-        randomOrder,
+        randomOrder: randomOrder as boolean | undefined,
         serverId: server.id,
     };
 };
@@ -3767,7 +3769,7 @@ const applyHeroRowFlags = <T extends {
             ...hub,
             ...(labels?.length ? { labels } : {}),
             ...(hero ? { heroRow: true } : {}),
-            ...(random ? { randomOrder: true } : {}),
+            ...(random ? { randomOrder: true as boolean } : {}),
         };
         if (random && next.hubKey) next.hubKey = withPlexSortParam(String(next.hubKey), 'random');
         if (random && Array.isArray(next.items) && next.items.length > 1) {
@@ -4021,7 +4023,7 @@ const mergeHubItemLists = <T extends MergeableHub>(group: T[], opts: { title?: s
         ...first,
         ...(opts.title != null ? { title: opts.title } : {}),
         heroRow: group.some((hub) => hub.heroRow) || undefined,
-        randomOrder: opts.randomOrder || undefined,
+        randomOrder: (opts.randomOrder || undefined) as boolean | undefined,
         items: opts.randomOrder ? shuffleItems(items) : items,
     };
 };
@@ -4694,7 +4696,8 @@ const loadServerHome = async (server: PlexServer, many: boolean, full = false) =
         void attachBecauseYouWatched(pinHubs, continueItems, server)
             .then((next) => hydrateHubsBrandMeta(next, server).catch(() => next))
             .then((next) => {
-                homePinCache.set(server.id, { at: Date.now(), hubs: next });
+                // Because-you-watched rows lack the pin-only fields (collection key, random order).
+                homePinCache.set(server.id, { at: Date.now(), hubs: next as typeof pinHubs });
             })
             .catch(() => undefined);
     }
@@ -5994,6 +5997,10 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                             title: 'Recently Added',
                             identifier: 'recentlyAdded',
                             items: recent,
+                            hubKey: null,
+                            collectionRatingKey: null,
+                            randomOrder: undefined,
+                            serverId: active.id,
                         },
                     ]);
                 }

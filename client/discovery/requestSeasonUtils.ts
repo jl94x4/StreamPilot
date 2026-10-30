@@ -572,6 +572,8 @@ export type RequestOptionsPayload = {
     tmdbId: number;
     title: string;
     overview?: string;
+    /** Release year (the request apps send it as a 4-digit string). */
+    year?: string | number | null;
     mediaStatus: number | null;
     isBlacklisted: boolean;
     isAnime?: boolean;

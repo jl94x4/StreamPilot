@@ -1,6 +1,9 @@
 import type { LibraryRecentItem } from './libraryRecent';
 import type { PosterSetsSearchTitle } from './types';
 
+/** What matching reads from a library item. */
+type MatchableLibraryItem = Pick<LibraryRecentItem, 'title' | 'year' | 'mediaType'>;
+
 const stripDiacritics = (value: string) =>
     String(value || '')
         .normalize('NFKD')
@@ -49,7 +52,7 @@ const tokensContainPhrase = (haystack: string[], needle: string[]): boolean => {
     return false;
 };
 
-const mediaTypeMatches = (libraryItem: LibraryRecentItem, candidate: PosterSetsSearchTitle): boolean => {
+const mediaTypeMatches = (libraryItem: MatchableLibraryItem, candidate: PosterSetsSearchTitle): boolean => {
     const candMedia = normalizeMediaType(candidate.mediaType);
     return !candMedia || candMedia === libraryItem.mediaType;
 };
@@ -147,7 +150,7 @@ export const filterSetsForWork = <T extends { title?: string | null }>(
 };
 
 const rankTitleCandidate = (
-    libraryItem: LibraryRecentItem,
+    libraryItem: MatchableLibraryItem,
     candidate: PosterSetsSearchTitle,
 ): number => {
     let score = 0;
@@ -176,7 +179,7 @@ const rankTitleCandidate = (
 };
 
 const isStrictAutoMatch = (
-    libraryItem: LibraryRecentItem,
+    libraryItem: MatchableLibraryItem,
     candidate: PosterSetsSearchTitle,
 ): boolean => (
     mediaTypeMatches(libraryItem, candidate)
@@ -202,7 +205,7 @@ export const catalogTitleMatchesLibraryItem = (
  * Returns null when matches are ambiguous or no exact title(+year) hit exists.
  */
 export const pickAutoMatchedTitle = (
-    libraryItem: LibraryRecentItem,
+    libraryItem: MatchableLibraryItem,
     titles: PosterSetsSearchTitle[],
 ): PosterSetsSearchTitle | null => {
     if (!titles.length) return null;
@@ -271,7 +274,7 @@ export const pickAutoMatchedTitle = (
 
 /** Sort search titles for manual pick lists — best title+year matches first. */
 export const rankSearchTitlesForLibraryItem = (
-    libraryItem: LibraryRecentItem,
+    libraryItem: MatchableLibraryItem,
     titles: PosterSetsSearchTitle[],
 ): PosterSetsSearchTitle[] => (
     [...titles].sort((a, b) => rankTitleCandidate(libraryItem, b) - rankTitleCandidate(libraryItem, a))

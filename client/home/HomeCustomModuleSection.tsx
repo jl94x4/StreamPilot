@@ -54,7 +54,7 @@ const clampHomeHtmlFrameHeight = (value: unknown) => {
 const measureHomeHtmlFrame = (frame: HTMLIFrameElement) => {
     const doc = frame.contentDocument;
     if (!doc) return null;
-    const wrap = doc.querySelector('.home-custom-module-html');
+    const wrap = doc.querySelector<HTMLElement>('.home-custom-module-html');
     if (wrap) {
         return clampHomeHtmlFrameHeight(Math.max(wrap.scrollHeight, wrap.offsetHeight));
     }

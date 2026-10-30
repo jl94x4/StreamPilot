@@ -515,7 +515,7 @@ const focusedRow = (el: HTMLElement) => {
 };
 
 let pinTopRaf = 0;
-const pinTopTimers: ReturnType<typeof window.setTimeout>[] = [];
+const pinTopTimers: number[] = [];
 
 const clearPinTopFollowup = () => {
     if (pinTopRaf) {
@@ -1510,32 +1510,36 @@ const leaveNavToContent = () => {
 };
 
 /** Focus last remembered poster, else the first content control. */
-export const focusTvContent = () => {
+/**
+ * Focus the best target on screen. True when it landed on real content; the search box /
+ * first-item fallbacks report false so focusTvContentWhenReady keeps trying for content.
+ */
+export const focusTvContent = (): boolean => {
     if (isAuthScreen()) {
         const active = document.activeElement as HTMLElement | null;
         if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA') && active.closest(TV_AUTH)) {
-            return;
+            return true;
         }
         const items = focusableTvItems();
         const action = items.find((el) => el.getAttribute('data-tv-action') === '1');
         const target = action || items[0];
         if (target) {
             focusItem(target, 'nearest');
-            return;
+            return true;
         }
     }
-    if (restoreTvFocus()) return;
-    if (isPlayerItemPath() && focusFirstSeasonEpisode()) return;
-    if (isPlayerItemPath() && focusTvPlayButton()) return;
-    if (isPlayerSettingsPath() && focusTvSettings()) return;
-    if (isPlayerHomePath() && focusTvHero()) return;
+    if (restoreTvFocus()) return true;
+    if (isPlayerItemPath() && focusFirstSeasonEpisode()) return true;
+    if (isPlayerItemPath() && focusTvPlayButton()) return true;
+    if (isPlayerSettingsPath() && focusTvSettings()) return true;
+    if (isPlayerHomePath() && focusTvHero()) return true;
     const library = document.querySelector<HTMLElement>('[data-tv-library="1"]');
     if (library && hasLayout(library)) {
         const poster = Array.from(library.querySelectorAll<HTMLElement>(TV_POSTER_BTN)).find(hasLayout);
         if (poster) {
             focusItem(poster, 'center');
             requestAnimationFrame(syncPosterFocusAttr);
-            return;
+            return true;
         }
     }
     const rails = visibleContentRails();
@@ -1544,22 +1548,23 @@ export const focusTvContent = () => {
         if (items[0]) {
             focusItem(items[0], 'center');
             requestAnimationFrame(syncPosterFocusAttr);
-            return;
+            return true;
         }
     }
     const poster = Array.from(document.querySelectorAll<HTMLElement>(TV_POSTER_BTN)).find(hasLayout);
     if (poster) {
         focusItem(poster, 'center');
         requestAnimationFrame(syncPosterFocusAttr);
-        return;
+        return true;
     }
     const search = document.getElementById('media-player-search') as HTMLElement | null;
     if (search && hasLayout(search)) {
         search.focus();
-        return;
+        return false;
     }
     const fallback = focusableTvItems()[0];
     if (fallback) focusItem(fallback, 'nearest');
+    return false;
 };
 
 const isPlayerHomePath = () => {
