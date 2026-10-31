@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.535': [
+        {
+            title: 'Display',
+            items: [
+                'New App font setting: choose Inter, Outfit, Nunito, Montserrat, Lexend or Lora (or keep the default). Each choice previews in its own font',
+            ],
+        },
+    ],
     '1.0.534': [
         {
             title: 'Display',

@@ -40,6 +40,9 @@ import {
     type PlayerNavClosedStyle,
     type PlayerViewMoreStyle,
     PLAYER_VIEW_MORE_STYLES,
+    type PlayerAppFont,
+    PLAYER_APP_FONTS,
+    PLAYER_APP_FONT_FAMILY,
     type PlayerScreensaverStyle,
     type PlayerScreensaverSource,
     type PlayerSubtitleMode,
@@ -160,7 +163,14 @@ const TvToggleRow: React.FC<TvToggleRowProps> = ({ title, description, checked, 
     );
 };
 
-type TvChoice = { value: string; label: string; icon?: React.ReactNode };
+/** fontFamily: show the label in that face (App font picker). */
+type TvChoice = { value: string; label: string; icon?: React.ReactNode; fontFamily?: string };
+
+const ChoiceLabel: React.FC<{ row: TvChoice | undefined }> = ({ row }) => (
+    row?.fontFamily
+        ? <span data-font-preview="1" style={{ fontFamily: row.fontFamily }}>{row.label}</span>
+        : <>{row?.label || '—'}</>
+);
 
 type TvChoiceRowProps = {
     title: string;
@@ -232,7 +242,7 @@ const TvChoiceRow: React.FC<TvChoiceRowProps> = ({ title, description, value, op
                 </span>
                 <span className="inline-flex shrink-0 items-center gap-2 text-base font-bold text-white/85">
                     {selected?.icon}
-                    {selected?.label || '—'}
+                    <ChoiceLabel row={selected} />
                 </span>
             </button>
             {open && typeof document !== 'undefined' ? createPortal(
@@ -287,7 +297,7 @@ const TvChoiceRow: React.FC<TvChoiceRowProps> = ({ title, description, value, op
                                     >
                                         <span className="inline-flex min-w-0 items-center gap-2.5 truncate">
                                             {row.icon}
-                                            {row.label}
+                                            <ChoiceLabel row={row} />
                                         </span>
                                         {isSelected ? (
                                             <Check className="h-5 w-5 shrink-0" strokeWidth={2.75} aria-hidden />
@@ -677,6 +687,11 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
     const textSizeOptions = useMemo(() => PLAYER_TEXT_SIZES.map((value) => ({
         value,
         label: t(`mediaPlayerPage.textSize_${value}`),
+    })), [t]);
+    const appFontOptions = useMemo(() => PLAYER_APP_FONTS.map((value) => ({
+        value,
+        label: t(`mediaPlayerPage.appFont_${value}`),
+        fontFamily: PLAYER_APP_FONT_FAMILY[value],
     })), [t]);
     const viewMoreStyleOptions = useMemo(() => PLAYER_VIEW_MORE_STYLES.map((value) => ({
         value,
@@ -1491,6 +1506,13 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                                 value={settings.navClosedStyle}
                                 options={navClosedStyleOptions}
                                 onChange={(value) => updateSettings({ navClosedStyle: value as PlayerNavClosedStyle })}
+                            />
+                            <TvChoiceRow
+                                title={t('mediaPlayerPage.appFont')}
+                                description={t('mediaPlayerPage.appFontHint')}
+                                value={settings.appFont}
+                                options={appFontOptions}
+                                onChange={(value) => updateSettings({ appFont: value as PlayerAppFont })}
                             />
                             <TvChoiceRow
                                 title={t('mediaPlayerPage.viewMoreStyle')}

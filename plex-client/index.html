@@ -181,6 +181,60 @@
       font-display: swap;
       src: url("./fonts/satoshi-900.woff2") format("woff2");
     }
+    @font-face {
+      font-family: "SMP Inter";
+      font-style: normal;
+      font-weight: 100 900;
+      font-display: swap;
+      src: url("./fonts/inter-variable.woff2") format("woff2");
+    }
+    @font-face {
+      font-family: "SMP Outfit";
+      font-style: normal;
+      font-weight: 100 900;
+      font-display: swap;
+      src: url("./fonts/outfit-variable.woff2") format("woff2");
+    }
+    @font-face {
+      font-family: "SMP Nunito";
+      font-style: normal;
+      font-weight: 100 900;
+      font-display: swap;
+      src: url("./fonts/nunito-variable.woff2") format("woff2");
+    }
+    @font-face {
+      font-family: "SMP Montserrat";
+      font-style: normal;
+      font-weight: 100 900;
+      font-display: swap;
+      src: url("./fonts/montserrat-variable.woff2") format("woff2");
+    }
+    @font-face {
+      font-family: "SMP Lexend";
+      font-style: normal;
+      font-weight: 100 900;
+      font-display: swap;
+      src: url("./fonts/lexend-variable.woff2") format("woff2");
+    }
+    @font-face {
+      font-family: "SMP Lora";
+      font-style: normal;
+      font-weight: 100 900;
+      font-display: swap;
+      src: url("./fonts/lora-variable.woff2") format("woff2");
+    }
+    /* Settings → App font. Default leaves every existing font rule alone. The repeated attribute
+       outranks the hard-coded Switzer / Satoshi rules (some are !important); font pickers show
+       each option in its own face. */
+    html[data-app-font="inter"] { --app-font: "SMP Inter", "Switzer", sans-serif; }
+    html[data-app-font="outfit"] { --app-font: "SMP Outfit", "Switzer", sans-serif; }
+    html[data-app-font="nunito"] { --app-font: "SMP Nunito", "Switzer", sans-serif; }
+    html[data-app-font="montserrat"] { --app-font: "SMP Montserrat", "Switzer", sans-serif; }
+    html[data-app-font="lexend"] { --app-font: "SMP Lexend", "Switzer", sans-serif; }
+    html[data-app-font="lora"] { --app-font: "SMP Lora", Georgia, serif; }
+    html[data-app-font][data-app-font][data-app-font] *:not([data-font-preview]) {
+      font-family: var(--app-font) !important;
+    }
     html, body, #root { margin: 0; background: #07080c; color: #ffffff; }
     html, body, button, input, select, textarea {
       font-family: "Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif;

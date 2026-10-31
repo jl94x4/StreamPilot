@@ -168,6 +168,22 @@ export type PlayerNavStyle = 'labels' | 'icons';
 export const isPlayerNavStyle = (value: unknown): value is PlayerNavStyle => value === 'labels' || value === 'icons';
 
 /** TV side menu while closed: icons on the page ('blend', default) or on the dark panel. */
+/** App-wide typeface. 'default' keeps the built-in Switzer / Satoshi pair. */
+export type PlayerAppFont = 'default' | 'inter' | 'outfit' | 'nunito' | 'montserrat' | 'lexend' | 'lora';
+export const PLAYER_APP_FONTS: PlayerAppFont[] = ['default', 'inter', 'outfit', 'nunito', 'montserrat', 'lexend', 'lora'];
+export const isPlayerAppFont = (value: unknown): value is PlayerAppFont =>
+    PLAYER_APP_FONTS.includes(value as PlayerAppFont);
+/** CSS family for each font (the bundled faces are named "SMP …" so Tailwind's Inter stack is untouched). */
+export const PLAYER_APP_FONT_FAMILY: Record<PlayerAppFont, string> = {
+    default: '"Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif',
+    inter: '"SMP Inter", "Switzer", sans-serif',
+    outfit: '"SMP Outfit", "Switzer", sans-serif',
+    nunito: '"SMP Nunito", "Switzer", sans-serif',
+    montserrat: '"SMP Montserrat", "Switzer", sans-serif',
+    lexend: '"SMP Lexend", "Switzer", sans-serif',
+    lora: '"SMP Lora", Georgia, serif',
+};
+
 export type PlayerViewMoreStyle = 'backdrop' | 'mosaic' | 'deck' | 'minimal';
 export const PLAYER_VIEW_MORE_STYLES: PlayerViewMoreStyle[] = ['backdrop', 'mosaic', 'deck', 'minimal'];
 export const isPlayerViewMoreStyle = (value: unknown): value is PlayerViewMoreStyle =>
@@ -525,6 +541,8 @@ export type PlayerSettings = {
     navClosedStyle: PlayerNavClosedStyle;
     /** The card at the end of a row that opens the full list. */
     viewMoreStyle: PlayerViewMoreStyle;
+    /** Typeface for the whole app. */
+    appFont: PlayerAppFont;
     /** Clock in the corner of the app (and in the player with its controls). */
     showClock: boolean;
     /** TV corner clock sits on a dark pill. Off shows just the time (with a soft shadow). */
@@ -922,6 +940,7 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
     navStyle: 'labels',
     navClosedStyle: 'blend',
     viewMoreStyle: 'backdrop',
+    appFont: 'default',
     showClock: true,
     clockBackground: true,
     seekBackSec: 10,
@@ -1011,6 +1030,7 @@ export const normalizePlayerSettings = (raw: Partial<PlayerSettings> | Record<st
         navStyle: isPlayerNavStyle(raw?.navStyle) ? raw.navStyle : 'labels',
         navClosedStyle: isPlayerNavClosedStyle(raw?.navClosedStyle) ? raw.navClosedStyle : 'blend',
         viewMoreStyle: isPlayerViewMoreStyle(raw?.viewMoreStyle) ? raw.viewMoreStyle : 'backdrop',
+        appFont: isPlayerAppFont(raw?.appFont) ? raw.appFont : 'default',
         showClock: raw?.showClock !== false,
         clockBackground: raw?.clockBackground !== false,
         seekBackSec: pickNumber(raw?.seekBackSec, PLAYER_SEEK_STEPS, 10),
@@ -1124,6 +1144,7 @@ export const playerSettingsEqual = (a: PlayerSettings, b: PlayerSettings) => (
     && a.navStyle === b.navStyle
     && a.navClosedStyle === b.navClosedStyle
     && a.viewMoreStyle === b.viewMoreStyle
+    && a.appFont === b.appFont
     && a.showClock === b.showClock
     && a.clockBackground === b.clockBackground
     && a.seekBackSec === b.seekBackSec

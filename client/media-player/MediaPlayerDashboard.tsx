@@ -1358,6 +1358,11 @@ export const MediaPlayerDashboard: React.FC = () => {
     useEffect(() => {
         document.documentElement.dataset.tvViewMore = settings.viewMoreStyle;
     }, [settings.viewMoreStyle]);
+    useEffect(() => {
+        const root = document.documentElement;
+        if (settings.appFont && settings.appFont !== 'default') root.dataset.appFont = settings.appFont;
+        else delete root.dataset.appFont;
+    }, [settings.appFont]);
     const navContentInset = tvShell
         ? (navWide ? '18.5rem' : '6.75rem')
         : (navWide ? '18.25rem' : '6.5rem');
