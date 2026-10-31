@@ -18,6 +18,8 @@ type Props = {
     name?: string;
     sectionKey?: string;
     mediaType?: 'movie' | 'show';
+    /** Other Plex tags of the same brand, searched together. */
+    alts?: string[];
     onBack: () => void;
     onOpenItem: (item: PlayerItem) => void;
     onPlay: (item: PlayerItem, opts?: PlayerPlayOptions) => void;
@@ -28,6 +30,7 @@ export const MediaPlayerStudio: React.FC<Props> = ({
     name,
     sectionKey,
     mediaType,
+    alts,
     onBack,
     onOpenItem,
     onPlay,
@@ -43,10 +46,13 @@ export const MediaPlayerStudio: React.FC<Props> = ({
     );
     const eyebrow = mediaType === 'show' ? t('mediaPlayerPage.network') : t('media.studio');
 
+    // Stable effect key for the alt tags (the array is rebuilt on every route read).
+    const altList = (alts || []).join('\n');
+
     useEffect(() => {
         let cancelled = false;
         setLoading(true);
-        fetchMediaPlayerStudio(studioKey, { name, sectionKey, mediaType })
+        fetchMediaPlayerStudio(studioKey, { name, sectionKey, mediaType, alts: altList ? altList.split('\n') : [] })
             .then((data) => {
                 if (cancelled) return;
                 setTitle(data.studio?.name || name || eyebrow);
@@ -61,7 +67,7 @@ export const MediaPlayerStudio: React.FC<Props> = ({
                 if (!cancelled) setLoading(false);
             });
         return () => { cancelled = true; };
-    }, [eyebrow, mediaType, name, sectionKey, studioKey, t]);
+    }, [altList, eyebrow, mediaType, name, sectionKey, studioKey, t]);
 
     const toggleWatched = async (item: PlayerItem) => {
         const next = !item.watched;

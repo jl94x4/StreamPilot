@@ -68,7 +68,7 @@ type Props = {
     onOpenItem: (item: PlayerItem) => void;
     onOpenCollection: (sectionKey: string, item: PlayerItem) => void;
     onOpenHub?: (hub: PlayerLibraryHub) => void;
-    onOpenStudio?: (studio: { key: string; name: string; sectionKey?: string; mediaType?: 'movie' | 'show' }) => void;
+    onOpenStudio?: (studio: { key: string; name: string; sectionKey?: string; mediaType?: 'movie' | 'show'; alts?: string[] }) => void;
     onChangeTab: (tab: LibraryTab) => void;
     onPlay: (item: PlayerItem, opts?: PlayerPlayOptions) => void;
     onPlayNext?: (item: PlayerItem) => void;
@@ -1756,13 +1756,20 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                             name: card.title,
                             sectionKey,
                             mediaType: card.facet === 'studio' ? 'movie' : 'show',
+                            alts: card.alts,
                         })}
                     />
                     <PlayerStudioTiles
                         title={t('mediaPlayerPage.browseByStudio')}
                         cards={studioStudios}
                         keyPrefix="studio-studio"
-                        onOpen={(card) => onOpenStudio?.({ key: card.key, name: card.title, sectionKey, mediaType: 'movie' })}
+                        onOpen={(card) => onOpenStudio?.({
+                            key: card.key,
+                            name: card.title,
+                            sectionKey,
+                            mediaType: 'movie',
+                            alts: card.alts,
+                        })}
                     />
                 </div>
             ) : tab === 'studios' ? (

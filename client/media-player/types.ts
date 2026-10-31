@@ -333,6 +333,8 @@ export type PlayerStudioBrowseCard = {
     title: string;
     /** Plex tag the key belongs to; movie libraries file streamers (Netflix…) under studio. */
     facet?: 'studio' | 'network';
+    /** Other Plex tags filed under the same brand ("Walt Disney Pictures", "Lucasfilm Ltd." → Disney). */
+    alts?: string[];
     logoPath?: string | null;
     art?: string | null;
     thumb?: string | null;

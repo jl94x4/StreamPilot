@@ -910,12 +910,13 @@ export const fetchMediaPlayerPerson = (actorId: string, name = '') => {
 
 export const fetchMediaPlayerStudio = (
     studioKey: string,
-    opts: { name?: string; sectionKey?: string; mediaType?: 'movie' | 'show' } = {},
+    opts: { name?: string; sectionKey?: string; mediaType?: 'movie' | 'show'; alts?: string[] } = {},
 ) => {
     const qs = new URLSearchParams();
     if (opts.name) qs.set('name', opts.name);
     if (opts.sectionKey) qs.set('section', opts.sectionKey);
     if (opts.mediaType) qs.set('type', opts.mediaType);
+    (opts.alts || []).forEach((alt) => qs.append('alt', alt));
     const suffix = qs.toString() ? `?${qs}` : '';
     return apiFetch(`${PLAYER_API_ROOT}/studio/${encodeURIComponent(studioKey)}${suffix}`) as Promise<{
         studio: { key: string; name: string };

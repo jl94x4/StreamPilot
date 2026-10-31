@@ -134,7 +134,7 @@ type PlayerView =
     | { kind: 'hub'; path: string; title: string; identifier?: string }
     | { kind: 'item'; ratingKey: string; serverId: string }
     | { kind: 'person'; actorId: string; name?: string; thumb?: string | null }
-    | { kind: 'studio'; studioKey: string; name?: string; sectionKey?: string; mediaType?: 'movie' | 'show' }
+    | { kind: 'studio'; studioKey: string; name?: string; sectionKey?: string; mediaType?: 'movie' | 'show'; alts?: string[] }
     | { kind: 'watchlist' }
     | { kind: 'livetv' }
     | { kind: 'downloads' }
@@ -230,6 +230,7 @@ const readPlayerView = (): PlayerView => {
             name: params.get('name') || '',
             sectionKey: params.get('section') || '',
             mediaType: params.get('type') === 'movie' ? 'movie' : params.get('type') === 'show' ? 'show' : undefined,
+            alts: params.getAll('alt'),
         };
     }
     return { kind: 'home' };
@@ -753,13 +754,14 @@ export const MediaPlayerDashboard: React.FC = () => {
         navigate(`${PLAYER_APP_BASE}/person/${encodeURIComponent(actorId)}${suffix}`);
     }, [navigate]);
 
-    const openStudio = useCallback((studio: { key: string; name: string; sectionKey?: string; mediaType?: 'movie' | 'show' }) => {
+    const openStudio = useCallback((studio: { key: string; name: string; sectionKey?: string; mediaType?: 'movie' | 'show'; alts?: string[] }) => {
         const studioKey = String(studio?.key || studio?.name || '').trim();
         if (!studioKey) return;
         const qs = new URLSearchParams();
         if (studio.name) qs.set('name', studio.name);
         if (studio.sectionKey) qs.set('section', studio.sectionKey);
         if (studio.mediaType) qs.set('type', studio.mediaType);
+        (studio.alts || []).forEach((alt) => qs.append('alt', alt));
         const suffix = qs.toString() ? `?${qs}` : '';
         navigate(`${PLAYER_APP_BASE}/studio/${encodeURIComponent(studioKey)}${suffix}`);
     }, [navigate]);
@@ -1596,6 +1598,7 @@ export const MediaPlayerDashboard: React.FC = () => {
                     name={view.name}
                     sectionKey={view.sectionKey}
                     mediaType={view.mediaType}
+                    alts={view.alts}
                     onBack={goBack}
                     onOpenItem={openItem}
                     onPlay={playItem}

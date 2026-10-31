@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.519': [
+        {
+            title: 'Libraries',
+            items: [
+                'Studio and network pages now include every label the brand files films under: Disney picks up Walt Disney Pictures, Lucasfilm, Touchstone and more; Prime Video picks up Amazon Studios and Amazon MGM',
+                'Studio logos load much faster, and appear instantly after the first time',
+            ],
+        },
+    ],
     '1.0.518': [
         {
             title: 'Libraries',

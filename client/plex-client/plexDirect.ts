@@ -18,7 +18,7 @@ import {
     NATIVE_COPY_AUDIO_CODECS,
     subtitleCodecNeedsBurn,
 } from '../../lib/media-player/directPlayCaps.js';
-import { buildGenreRelatedHubs } from '../../lib/media-player/mapItem.js';
+import { buildGenreRelatedHubs, mapPoolLimited } from '../../lib/media-player/mapItem.js';
 import { isSubtitleStreamRow, subtitleCodecFromStream, subtitleTrackLabel } from '../../lib/media-player/subtitleLabel.js';
 import {
     fillStudioBrowseArt,
@@ -31,6 +31,8 @@ import { companyMatchScreen, isStreamingBrandLabel, matchDiscoverCompanyByName }
 
 /** Every studio / network tag in a section (Plex lists them A–Z, so a capped fetch stops at "A"). */
 const STUDIO_FACET_FETCH = 5000;
+/** Most Plex tags one brand tile searches (Disney has many labels; keep the server load sane). */
+const STUDIO_BRAND_TAGS = 12;
 /** Smaller brands from the extra catalogs only top the grid up to this many. */
 const STUDIO_BROWSE_MIN = 12;
 
@@ -47,7 +49,7 @@ const pickStudioBrowseCards = (
     const rank = new Map(catalog.map((row, index) => [row.logoPath, index]));
     // Thousands of tags can't each run the full matcher on a TV; screen out obvious misses first.
     const mightMatch = companyMatchScreen(catalog) as (name: string) => boolean;
-    const best = new Map<string, { row: { key: string; title: string; logoPath?: string; art?: string | null; thumb?: string | null }; named: boolean; index: number }>();
+    const best = new Map<string, { row: { key: string; title: string; logoPath?: string; art?: string | null; thumb?: string | null }; named: boolean; index: number; keys: string[] }>();
     for (const row of mapStudioBrowseOptions(facet, STUDIO_FACET_FETCH)) {
         if (!mightMatch(row.title)) continue;
         const hit = matchDiscoverCompanyByName(row.title, catalog) as { name?: string; logoPath?: string } | null;
@@ -56,14 +58,21 @@ const pickStudioBrowseCards = (
         const brandWord = String(hit.name || '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)[0] || '';
         const named = Boolean(brandWord) && row.title.toLowerCase().includes(brandWord);
         const prev = best.get(hit.logoPath);
-        if (prev && (prev.named || !named)) continue;
-        best.set(hit.logoPath, { row, named, index: rank.get(hit.logoPath) ?? catalog.length });
+        const keys = [...(prev?.keys || []), row.key];
+        if (prev && (prev.named || !named)) {
+            prev.keys = keys;
+            continue;
+        }
+        best.set(hit.logoPath, { row, named, index: rank.get(hit.logoPath) ?? catalog.length, keys });
     }
     const ordered = [...best.values()].sort((a, b) => a.index - b.index);
     const majors = ordered.filter((entry) => entry.index < major.length);
     const fill = ordered.filter((entry) => entry.index >= major.length)
         .slice(0, Math.max(0, STUDIO_BROWSE_MIN - majors.length));
-    return [...majors, ...fill].slice(0, STUDIO_BROWSE_CAP).map((entry) => entry.row);
+    return [...majors, ...fill].slice(0, STUDIO_BROWSE_CAP).map((entry) => {
+        const alts = entry.keys.filter((key) => key !== entry.row.key).slice(0, STUDIO_BRAND_TAGS - 1);
+        return alts.length ? { ...entry.row, alts } : entry.row;
+    });
 };
 import { pickPersonTmdbId } from '../../lib/media-player/personProfile.js';
 import {
@@ -6421,16 +6430,38 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
             const typeQs = pinnedType ? `type=${encodeURIComponent(pinnedType)}&` : '';
             // Shows are filed by network, movies by studio (streamers included); try the likely one first.
             const params = sectionType === 'show' ? ['network', 'studio'] : ['studio', 'network'];
-            for (const param of params) {
-                const data = await pms(
-                    `/library/sections/${encodeURIComponent(section)}/all?${typeQs}${param}=${encodeURIComponent(studioKey)}&sort=titleSort:asc&includeGuids=1&X-Plex-Container-Start=0&X-Plex-Container-Size=500`,
-                    server,
-                    15000,
-                ).catch(() => null);
-                const items = mapList(data);
-                if (items.length) return { studio, items };
+            const tagItems = async (tag: string) => {
+                for (const param of params) {
+                    const data = await pms(
+                        `/library/sections/${encodeURIComponent(section)}/all?${typeQs}${param}=${encodeURIComponent(tag)}&sort=titleSort:asc&includeGuids=1&X-Plex-Container-Start=0&X-Plex-Container-Size=500`,
+                        server,
+                        15000,
+                    ).catch(() => null);
+                    const items = mapList(data);
+                    if (items.length) return items;
+                }
+                return [] as ReturnType<typeof mapList>;
+            };
+            // A brand tile carries every tag behind it; two at a time keeps small servers happy.
+            const tags = [studioKey, ...query.getAll('alt')]
+                .map((tag) => tag.trim())
+                .filter((tag, index, all) => tag && all.indexOf(tag) === index)
+                .slice(0, STUDIO_BRAND_TAGS);
+            const lists = await mapPoolLimited(tags, 2, tagItems);
+            const seen = new Set<string>();
+            const items = lists.flat().filter((item) => {
+                if (!item.ratingKey || seen.has(item.ratingKey)) return false;
+                seen.add(item.ratingKey);
+                return true;
+            });
+            if (lists.length > 1) {
+                items.sort((a, b) => String(a.titleSort || a.title || '').localeCompare(
+                    String(b.titleSort || b.title || ''),
+                    undefined,
+                    { sensitivity: 'base' },
+                ));
             }
-            return { studio, items: [] };
+            return { studio, items };
         });
     }
     const collectionPath = path.match(/^\/api\/media-player\/collection\/([^/]+)$/);

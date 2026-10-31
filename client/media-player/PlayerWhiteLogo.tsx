@@ -10,10 +10,10 @@ import { discoveryLogoUrl } from './host';
  * logos as a white silhouette.
  */
 
-const MAX_WIDTH = 480;
+const MAX_WIDTH = 360;
 const cache = new Map<string, string | null>();
 const waiting = new Map<string, Array<(url: string | null) => void>>();
-const queue: string[] = [];
+const ready: Array<{ src: string; img: HTMLImageElement | null }> = [];
 let busy = false;
 
 type Rgb = [number, number, number];
@@ -30,7 +30,7 @@ const luma = (r: number, g: number, b: number) => (0.2126 * r + 0.7152 * g + 0.0
  * - highlights: gradient badge with no main colour — only its brightest parts stay.
  * - plain: ordinary transparent logo — a white silhouette.
  */
-const whiten = (img: HTMLImageElement): string | null => {
+const whiten = (img: HTMLImageElement): HTMLCanvasElement | null => {
     const scale = Math.min(1, MAX_WIDTH / Math.max(1, img.naturalWidth));
     const w = Math.max(1, Math.round(img.naturalWidth * scale));
     const h = Math.max(1, Math.round(img.naturalHeight * scale));
@@ -109,10 +109,31 @@ const whiten = (img: HTMLImageElement): string | null => {
         px[i + 3] = alpha;
     }
     ctx.putImageData(frame, 0, 0);
+    return canvas;
+};
+
+/** Finished logos survive restarts, so a tile shows its logo straight away next time. */
+const STORE_PREFIX = 'smp-white-logo:v1:';
+const readStored = (src: string) => {
     try {
-        return canvas.toDataURL('image/png');
+        return window.localStorage.getItem(STORE_PREFIX + src);
     } catch {
         return null;
+    }
+};
+const store = (src: string, blob: Blob) => {
+    try {
+        const reader = new FileReader();
+        reader.onload = () => {
+            try {
+                if (typeof reader.result === 'string') window.localStorage.setItem(STORE_PREFIX + src, reader.result);
+            } catch {
+                /* storage full: keep the in-memory copy only */
+            }
+        };
+        reader.readAsDataURL(blob);
+    } catch {
+        /* ignore */
     }
 };
 
@@ -122,29 +143,43 @@ const settle = (src: string, url: string | null) => {
     waiting.delete(src);
 };
 
-/** One logo at a time, yielding between them so D-pad input stays responsive. */
+/** Encode off the main thread (toBlob) instead of a blocking toDataURL. */
+const publish = (src: string, canvas: HTMLCanvasElement | null) => {
+    if (!canvas) {
+        settle(src, null);
+        return;
+    }
+    try {
+        canvas.toBlob((blob) => {
+            if (!blob) {
+                settle(src, null);
+                return;
+            }
+            settle(src, URL.createObjectURL(blob));
+            store(src, blob);
+        }, 'image/png');
+    } catch {
+        settle(src, null);
+    }
+};
+
+/** Downloads run in parallel; the pixel work runs one logo at a time, yielding in between. */
 const pump = () => {
     if (busy) return;
-    const src = queue.shift();
-    if (!src) return;
+    const job = ready.shift();
+    if (!job) return;
     busy = true;
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.decoding = 'async';
-    const next = (url: string | null) => {
-        settle(src, url);
+    let canvas: HTMLCanvasElement | null = null;
+    try {
+        canvas = job.img ? whiten(job.img) : null;
+    } catch {
+        canvas = null;
+    }
+    publish(job.src, canvas);
+    window.setTimeout(() => {
         busy = false;
-        window.setTimeout(pump, 16);
-    };
-    img.onload = () => {
-        try {
-            next(whiten(img));
-        } catch {
-            next(null);
-        }
-    };
-    img.onerror = () => next(null);
-    img.src = src;
+        pump();
+    }, 16);
 };
 
 const requestWhite = (src: string, done: (url: string | null) => void) => {
@@ -158,8 +193,23 @@ const requestWhite = (src: string, done: (url: string | null) => void) => {
         return;
     }
     waiting.set(src, [done]);
-    queue.push(src);
-    pump();
+    const stored = readStored(src);
+    if (stored) {
+        settle(src, stored);
+        return;
+    }
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.decoding = 'async';
+    img.onload = () => {
+        ready.push({ src, img });
+        pump();
+    };
+    img.onerror = () => {
+        ready.push({ src, img: null });
+        pump();
+    };
+    img.src = src;
 };
 
 type Props = {
@@ -169,7 +219,8 @@ type Props = {
 };
 
 export const PlayerWhiteLogo: React.FC<Props> = ({ logoPath, alt, className = '' }) => {
-    const src = discoveryLogoUrl(logoPath, 780);
+    // Tiles show logos ~300px wide; the 780 rendition only made downloads and pixel work slower.
+    const src = discoveryLogoUrl(logoPath, 300);
     const [state, setState] = useState<{ src: string; url: string | null } | null>(
         () => (cache.has(src) ? { src, url: cache.get(src) ?? null } : null),
     );
