@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.501': [
+        {
+            title: 'TV',
+            items: [
+                'On View more and other poster grids, Left from the first poster in a row opens the side menu instead of jumping to the row above',
+            ],
+        },
+    ],
     '1.0.500': [
         {
             title: 'Customise',

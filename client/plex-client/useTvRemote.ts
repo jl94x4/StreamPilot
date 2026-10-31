@@ -2529,6 +2529,27 @@ export const useTvRemote = (enabled = true) => {
                 if (dir !== 'left') return;
             }
             const inBrowseChrome = Boolean(current.closest('[data-tv-browse-grid="1"], [data-tv-alpha="1"]'));
+            // Wrapping poster grids (View more, collections, playlists…): Left from the first
+            // poster of a row opens the side menu, not the last poster of the row above.
+            if (!target && !menuRoot && dir === 'left' && !inBrowseChrome && !overflowXRailOf(current)) {
+                const grid = current.closest<HTMLElement>('[data-tv-poster-grid="1"], .upgrader-poster-grid');
+                if (grid) {
+                    const from = current.getBoundingClientRect();
+                    const midY = from.top + from.height / 2;
+                    const hasLeftInRow = focusableTvItems(grid).some((el) => {
+                        if (el === current || el.contains(current) || current.contains(el)) return false;
+                        const r = el.getBoundingClientRect();
+                        return r.width > 0 && r.right <= from.left + 1 && r.top < midY && r.bottom > midY;
+                    });
+                    if (!hasLeftInRow) {
+                        const key = tvKeyOf(current);
+                        if (key) rememberTvFocusKey(key);
+                        setNavOpen(true);
+                        window.setTimeout(focusNavItem, 50);
+                        return;
+                    }
+                }
+            }
             if (!target && !menuRoot && (dir === 'left' || dir === 'right') && !inBrowseChrome) {
                 const onEpisodeRail = Boolean(current.closest('[data-tv-episode-btn="1"]'));
                 // Native repeats stack on top of the hold timer and re-trigger smooth pans.
