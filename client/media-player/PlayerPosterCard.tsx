@@ -53,6 +53,12 @@ const phoneCaptionLines = (item: PlayerItem): [string, string] => {
     return [item.title, item.year ? String(item.year) : ''];
 };
 
+/**
+ * TV poster grids (Browse, View more…) get walked through fast. Only prefetch the title page once
+ * focus rests here, not for every poster the D-pad passes over.
+ */
+const TV_GRID_PREFETCH_REST_MS = 320;
+
 export const PlayerPosterCard = memo(function PlayerPosterCard({
     item,
     onOpenItem,
@@ -217,13 +223,14 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
     }, [item.ratingKey, tvMenu]);
 
     const canLongPressMenu = menuEnabled || tvMenu;
-    const schedulePrefetch = () => {
+    const schedulePrefetch = (event?: React.SyntheticEvent<HTMLElement>) => {
         if (!item?.ratingKey || item.type === 'collection' || item.type === 'playlist') return;
         if (prefetchTimerRef.current) window.clearTimeout(prefetchTimerRef.current);
         const key = item.ratingKey;
         const serverId = item.serverId || null;
         const art = (item as { backdropArt?: string | null }).backdropArt || item.art;
-        const delay = isTvShell ? 0 : 450;
+        const inTvGrid = isTvShell && Boolean(event?.currentTarget?.closest?.('[data-tv-poster-grid="1"]'));
+        const delay = isTvShell ? (inTvGrid ? TV_GRID_PREFETCH_REST_MS : 0) : 450;
         prefetchTimerRef.current = window.setTimeout(() => {
             prefetchTimerRef.current = null;
             prefetchMediaPlayerItem(key, serverId);

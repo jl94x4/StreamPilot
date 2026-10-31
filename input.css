@@ -6525,6 +6525,9 @@ html[data-tv="1"] [data-tv-library-scroll="1"] {
   scroll-padding-top: 0.75rem;
   scroll-padding-bottom: calc(96px / var(--tv-zoom, 1));
   scrollbar-width: none;
+  /* Opaque, so low-DPI TV WebViews scroll it on the compositor instead of repainting every
+     poster each step (no will-change: that would trap the fixed A–Z bar). */
+  background-color: rgb(var(--tv-page-surface, 36 40 48));
 }
 html[data-tv="1"] [data-tv-library-scroll="1"]::-webkit-scrollbar {
   display: none;

@@ -811,7 +811,9 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
             }
             maybeLoad(rowIndex, Math.ceil(loaded / cols), loaded, movingDown);
         };
-        const grid = document.querySelector<HTMLElement>('[data-tv-browse-grid="1"]');
+        // focusin bubbles: the grid only needs its own listener when the scroller doesn't hold it.
+        const found = document.querySelector<HTMLElement>('[data-tv-browse-grid="1"]');
+        const grid = found && !scroller?.contains(found) ? found : null;
         scroller?.addEventListener('scroll', onScroll, { passive: true });
         scroller?.addEventListener('focusin', onFocus);
         grid?.addEventListener('focusin', onFocus);
