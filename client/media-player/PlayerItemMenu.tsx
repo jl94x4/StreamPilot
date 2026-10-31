@@ -739,6 +739,51 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
         </button>
     ) : null;
 
+    // TV sheet: Rate sits directly under Resume / Play; elsewhere it stays in the list.
+    const rateRow = canRate ? (
+        <div className="px-1 py-1.5" data-tv-rail="1">
+            <p className="px-2.5 pb-1 text-[11px] font-bold uppercase tracking-[0.16em] text-white/45">
+                {t('mediaPlayerPage.rate')}
+            </p>
+            <div className="flex items-center gap-0.5 px-1">
+                {[1, 2, 3, 4, 5].map((star) => (
+                    <button
+                        key={star}
+                        type="button"
+                        data-tv-item="1"
+                        data-tv-menu-item="1"
+                        title={t('mediaPlayerPage.rate')}
+                        aria-label={`${star}`}
+                        className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-white/40 hover:bg-white/[0.06]"
+                        onClick={() => choose(async () => {
+                            const rating = star * 2;
+                            await setMediaPlayerRating(item.ratingKey, rating, item.serverId);
+                            toast(t('mediaPlayerPage.ratingSaved'));
+                        })}
+                    >
+                        <Star
+                            className={`h-5 w-5 ${ratingStars >= star ? 'fill-plex text-plex' : 'text-white/35'}`}
+                        />
+                    </button>
+                ))}
+                {ratingStars > 0 ? (
+                    <button
+                        type="button"
+                        data-tv-item="1"
+                        data-tv-menu-item="1"
+                        className="ml-1 px-2 text-xs font-semibold text-white/55 hover:text-white"
+                        onClick={() => choose(async () => {
+                            await setMediaPlayerRating(item.ratingKey, 0, item.serverId);
+                            toast(t('mediaPlayerPage.ratingCleared'));
+                        })}
+                    >
+                        {t('mediaPlayerPage.clearRating')}
+                    </button>
+                ) : null}
+            </div>
+        </div>
+    ) : null;
+
     const actionRows = mode === 'main' ? (
         <>
             {!useContextSheet && isTv ? watchToggle : null}
@@ -828,49 +873,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                 </>
             ) : null}
             {!useContextSheet ? watchlistBtn : null}
-            {canRate ? (
-                <div className="px-1 py-1.5" data-tv-rail="1">
-                    <p className="px-2.5 pb-1 text-[11px] font-bold uppercase tracking-[0.16em] text-white/45">
-                        {t('mediaPlayerPage.rate')}
-                    </p>
-                    <div className="flex items-center gap-0.5 px-1">
-                        {[1, 2, 3, 4, 5].map((star) => (
-                            <button
-                                key={star}
-                                type="button"
-                                data-tv-item="1"
-                                data-tv-menu-item="1"
-                                title={t('mediaPlayerPage.rate')}
-                                aria-label={`${star}`}
-                                className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-white/40 hover:bg-white/[0.06]"
-                                onClick={() => choose(async () => {
-                                    const rating = star * 2;
-                                    await setMediaPlayerRating(item.ratingKey, rating, item.serverId);
-                                    toast(t('mediaPlayerPage.ratingSaved'));
-                                })}
-                            >
-                                <Star
-                                    className={`h-5 w-5 ${ratingStars >= star ? 'fill-plex text-plex' : 'text-white/35'}`}
-                                />
-                            </button>
-                        ))}
-                        {ratingStars > 0 ? (
-                            <button
-                                type="button"
-                                data-tv-item="1"
-                                data-tv-menu-item="1"
-                                className="ml-1 px-2 text-xs font-semibold text-white/55 hover:text-white"
-                                onClick={() => choose(async () => {
-                                    await setMediaPlayerRating(item.ratingKey, 0, item.serverId);
-                                    toast(t('mediaPlayerPage.ratingCleared'));
-                                })}
-                            >
-                                {t('mediaPlayerPage.clearRating')}
-                            </button>
-                        ) : null}
-                    </div>
-                </div>
-            ) : null}
+            {!useContextSheet ? rateRow : null}
             {canPlaylist ? (
                 <button
                     type="button"
@@ -1341,7 +1344,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                                     {item.title || t('mediaPlayerPage.unknownTitle')}
                                 </h2>
                             )}
-                            {(canPrimaryOpen || canPrimaryWatch) ? (
+                            {(canPrimaryOpen || canPrimaryWatch || (mode === 'main' && rateRow)) ? (
                                 <div className="mb-4 flex w-full shrink-0 flex-col gap-2.5">
                                     {canPrimaryWatch ? (
                                         <button
@@ -1357,6 +1360,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                                             {primaryWatchLabel}
                                         </button>
                                     ) : null}
+                                    {mode === 'main' ? rateRow : null}
                                     {canPrimaryOpen ? (
                                         <button
                                             type="button"
