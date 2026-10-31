@@ -3775,7 +3775,7 @@ html[data-tv="1"] .player-home-stage-copy {
   overflow: hidden;
   pointer-events: none;
 }
-html[data-tv="1"][data-tv-nav-open="1"] .player-home-stage-copy {
+html[data-tv="1"][data-tv-nav-open="1"]:not([data-tv-nav-icons="1"]) .player-home-stage-copy {
   padding-left: 18.5rem;
 }
 html[data-tv="1"] .player-home-spot-stage {
@@ -4300,7 +4300,7 @@ html[data-tv="1"] .player-home-now-playing {
   max-width: none;
   pointer-events: auto;
 }
-html[data-tv="1"][data-tv-nav-open="1"] .player-home-now-playing {
+html[data-tv="1"][data-tv-nav-open="1"]:not([data-tv-nav-icons="1"]) .player-home-now-playing {
   left: 18.5rem;
   max-width: none;
 }
@@ -4430,7 +4430,7 @@ html[data-tv="1"] [data-tv-search="1"] {
     #060a10;
   padding: 2.35rem 3rem 0 6.75rem;
 }
-html[data-tv="1"][data-tv-nav-open="1"] [data-tv-search="1"] {
+html[data-tv="1"][data-tv-nav-open="1"]:not([data-tv-nav-icons="1"]) [data-tv-search="1"] {
   padding-left: 18.5rem;
 }
 html[data-tv="1"] .player-tv-search {
@@ -4680,7 +4680,7 @@ html[data-tv="1"] .player-home-stage-rail {
   padding-left: 0;
   pointer-events: auto;
 }
-html[data-tv="1"][data-tv-nav-open="1"] .player-home-stage-rail {
+html[data-tv="1"][data-tv-nav-open="1"]:not([data-tv-nav-icons="1"]) .player-home-stage-rail {
   padding-left: 0;
 }
 html[data-tv="1"] .player-home-stage-rail [data-tv-poster-rail="1"] {
@@ -4821,7 +4821,7 @@ html[data-tv="1"] .player-home-page:not(.player-home-stage) > :not(.player-home-
   z-index: 1;
 }
 html[data-tv="1"] #media-player-scroll:has(> div > div:not([hidden]) > .player-home-stage),
-html[data-tv="1"][data-tv-nav-open="1"] #media-player-scroll:has(> div > div:not([hidden]) > .player-home-stage) {
+html[data-tv="1"][data-tv-nav-open="1"]:not([data-tv-nav-icons="1"]) #media-player-scroll:has(> div > div:not([hidden]) > .player-home-stage) {
   overflow: hidden !important;
   overflow-x: hidden !important;
   overflow-clip-margin: 0 !important;
@@ -4847,7 +4847,7 @@ html[data-tv="1"] .player-library-stage-chrome {
 html[data-tv="1"] .player-library-stage-chrome > * {
   pointer-events: auto;
 }
-html[data-tv="1"][data-tv-nav-open="1"] .player-library-stage-chrome {
+html[data-tv="1"][data-tv-nav-open="1"]:not([data-tv-nav-icons="1"]) .player-library-stage-chrome {
   left: 18.7rem;
 }
 html[data-tv="1"] .player-library-stage-chrome .player-page-back {

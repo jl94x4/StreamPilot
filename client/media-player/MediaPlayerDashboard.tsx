@@ -1346,6 +1346,12 @@ export const MediaPlayerDashboard: React.FC = () => {
     // TV icons-only menu (Settings → Side menu) opens without widening, so content stays put.
     const navIconsOnly = tvShell && settings.navStyle === 'icons';
     const navWide = navExpanded && !navIconsOnly;
+    // TV CSS shifts the page aside when the menu opens; icons-only opens without moving it.
+    useEffect(() => {
+        const root = document.documentElement;
+        if (navIconsOnly) root.dataset.tvNavIcons = '1';
+        else delete root.dataset.tvNavIcons;
+    }, [navIconsOnly]);
     const navContentInset = tvShell
         ? (navWide ? '18.5rem' : '6.75rem')
         : (navWide ? '18.25rem' : '6.5rem');

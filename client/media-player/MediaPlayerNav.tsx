@@ -551,7 +551,11 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
             >
                 <div
                     data-tv-nav-root="1"
-                    className={`pointer-events-auto flex max-h-[calc(100%-3rem)] flex-col rounded-[28px] bg-[#0b1018]/80 backdrop-blur-2xl ${
+                    // TV: closed, the icons sit straight on the page (no pill); opening the menu
+                    // brings the dark blurred panel. Elsewhere the panel is always there.
+                    className={`pointer-events-auto flex max-h-[calc(100%-3rem)] flex-col rounded-[28px] ${
+                        !isTvShell || expanded ? 'bg-[#0b1018]/80 backdrop-blur-2xl' : 'bg-transparent'
+                    } ${
                         isTvShell ? 'border-0 shadow-none' : 'border border-white shadow-[0_18px_50px_rgba(0,0,0,0.45)] transition-[width] duration-200'
                     } ${
                         isTvShell ? 'overflow-x-visible overflow-y-auto' : 'overflow-hidden'
