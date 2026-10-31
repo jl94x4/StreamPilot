@@ -103,10 +103,10 @@ export const isPlayerRowMarker = (value: unknown): value is PlayerRowMarker => (
 );
 
 /** Highlight colour for focus, buttons and progress bars (app and native player). */
-export type PlayerAccentColor = 'gold' | 'orange' | 'red' | 'pink' | 'purple' | 'blue' | 'teal' | 'green';
+export type PlayerAccentColor = 'gold' | 'orange' | 'red' | 'pink' | 'purple' | 'blue' | 'teal' | 'green' | 'white';
 
 export const PLAYER_ACCENT_COLORS: PlayerAccentColor[] = [
-    'gold', 'orange', 'red', 'pink', 'purple', 'blue', 'teal', 'green',
+    'gold', 'orange', 'red', 'pink', 'purple', 'blue', 'teal', 'green', 'white',
 ];
 
 export const isPlayerAccentColor = (value: unknown): value is PlayerAccentColor => (

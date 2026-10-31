@@ -5461,6 +5461,7 @@ public class PlayerActivity extends AppCompatActivity {
             case "blue": style = R.style.PlayerAccent_Blue; break;
             case "teal": style = R.style.PlayerAccent_Teal; break;
             case "green": style = R.style.PlayerAccent_Green; break;
+            case "white": style = R.style.PlayerAccent_White; break;
             default: return; // gold: PlayerTheme already carries it
         }
         getTheme().applyStyle(style, true);

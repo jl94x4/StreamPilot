@@ -784,7 +784,7 @@ const EpisodeNeighborCard: React.FC<{
                     )}
                     {progressPercent(item) > 0 ? (
                         <div className="player-watch-bar absolute inset-x-0 bottom-0 h-0.5 bg-black/60">
-                            <div className="h-full bg-plex" style={{ width: `${progressPercent(item)}%` }} />
+                            <div className="h-full bg-progress" style={{ width: `${progressPercent(item)}%` }} />
                         </div>
                     ) : null}
                 </div>

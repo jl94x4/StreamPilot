@@ -236,4 +236,18 @@
         <item name="playerAccentA55">#5522C55E</item>
         <item name="playerAccentA88">#8822C55E</item>
     </style>
+
+    <style name="PlayerAccent.White" parent="">
+        <item name="playerAccent">#F5F5F5</item>
+        <item name="playerAccentDim">#B5B5B5</item>
+        <item name="playerAccentA18">#18F5F5F5</item>
+        <item name="playerAccentA22">#22F5F5F5</item>
+        <item name="playerAccentA28">#28F5F5F5</item>
+        <item name="playerAccentA2A">#2AF5F5F5</item>
+        <item name="playerAccentA38">#38F5F5F5</item>
+        <item name="playerAccentA40">#40F5F5F5</item>
+        <item name="playerAccentA44">#44F5F5F5</item>
+        <item name="playerAccentA55">#55F5F5F5</item>
+        <item name="playerAccentA88">#88F5F5F5</item>
+    </style>
 </resources>

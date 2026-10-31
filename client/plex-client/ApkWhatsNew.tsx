@@ -73,6 +73,16 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.487': [
+        {
+            title: 'Make it yours',
+            items: [
+                'The accent colour now also changes the focus ring round posters and episodes, menus, tabs and row markers',
+                'New White accent colour',
+                'Progress bars always stay orange, whatever accent you pick',
+            ],
+        },
+    ],
     '1.0.486': [
         {
             title: 'Make it yours',

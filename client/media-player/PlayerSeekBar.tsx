@@ -77,7 +77,7 @@ export const PlayerSeekBar: React.FC<Props> = ({
                             }}
                         />
                     ))}
-                    <div className="absolute inset-y-0 left-0 bg-plex" style={{ width: `${progress}%` }} />
+                    <div className="absolute inset-y-0 left-0 bg-progress" style={{ width: `${progress}%` }} />
                 </div>
                 {markers?.intro && duration ? (
                     <div

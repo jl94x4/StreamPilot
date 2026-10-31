@@ -17,7 +17,7 @@
             </item>
             <item android:bottom="7dp" android:left="7dp" android:right="7dp" android:top="7dp">
                 <shape android:shape="oval">
-                    <solid android:color="?attr/playerAccent" />
+                    <solid android:color="@color/player_accent" />
                 </shape>
             </item>
         </layer-list>
@@ -37,7 +37,7 @@
             </item>
             <item android:bottom="7dp" android:left="7dp" android:right="7dp" android:top="7dp">
                 <shape android:shape="oval">
-                    <solid android:color="?attr/playerAccent" />
+                    <solid android:color="@color/player_accent" />
                 </shape>
             </item>
         </layer-list>
@@ -57,7 +57,7 @@
             </item>
             <item android:bottom="9dp" android:left="9dp" android:right="9dp" android:top="9dp">
                 <shape android:shape="oval">
-                    <solid android:color="?attr/playerAccent" />
+                    <solid android:color="@color/player_accent" />
                 </shape>
             </item>
         </layer-list>

@@ -416,8 +416,8 @@
       color: #ffffff;
       background: rgb(var(--tv-page-surface)) !important;
       --tv-focus-stroke: calc(2px / var(--tv-zoom, 1));
-      --tv-focus-glow: 0 0 0 var(--tv-focus-stroke) #f59e0b;
-      --tv-focus-glow-cover: inset 0 0 0 var(--tv-focus-stroke) #fbbf24;
+      --tv-focus-glow: 0 0 0 var(--tv-focus-stroke) rgb(var(--tv-accent));
+      --tv-focus-glow-cover: inset 0 0 0 var(--tv-focus-stroke) rgb(var(--tv-accent-soft));
     }
     html[data-tv="1"] body,
     html[data-tv="1"] #root,
@@ -475,12 +475,12 @@
     }
     /* Non-TV fallback mark (portal / phone). */
     @keyframes play-mark-pulse {
-      0%, 100% { opacity: 0.3; filter: drop-shadow(0 0 2px rgba(245, 158, 11, 0.2)); }
-      50%      { opacity: 1;   filter: drop-shadow(0 0 8px rgba(245, 158, 11, 0.7)); }
+      0%, 100% { opacity: 0.3; filter: drop-shadow(0 0 2px rgb(var(--tv-accent) / 0.2)); }
+      50%      { opacity: 1;   filter: drop-shadow(0 0 8px rgb(var(--tv-accent) / 0.7)); }
     }
     /* Row marker "Bar (classic)": the original line, sized as it was before the play icon. */
     html[data-tv="1"] .player-row-header-mark.player-row-header-mark--bar {
-      box-shadow: 0 0 12px rgba(251, 191, 36, 0.4);
+      box-shadow: 0 0 12px rgb(var(--tv-accent-soft) / 0.4);
     }
     /* Title pages: an image still loading fades in; a cached one is shown at once (FadeImg). */
     .player-fade-img {
@@ -626,9 +626,9 @@
       font-weight: 700 !important;
     }
     html[data-tv="1"] [data-tv-library-tabs="1"] button[aria-current="page"] {
-      border-color: rgba(245, 158, 11, 0.75) !important;
-      background: rgba(245, 158, 11, 0.16) !important;
-      color: #f59e0b !important;
+      border-color: rgb(var(--tv-accent) / 0.75) !important;
+      background: rgb(var(--tv-accent) / 0.16) !important;
+      color: rgb(var(--tv-accent)) !important;
     }
     html[data-tv="1"] [data-tv-settings-tabs="1"] {
       display: flex !important;
@@ -646,9 +646,9 @@
       font-weight: 700 !important;
     }
     html[data-tv="1"] [data-tv-settings-tabs="1"] button[aria-current="page"] {
-      border-color: rgba(245, 158, 11, 0.75) !important;
-      background: rgba(245, 158, 11, 0.16) !important;
-      color: #f59e0b !important;
+      border-color: rgb(var(--tv-accent) / 0.75) !important;
+      background: rgb(var(--tv-accent) / 0.16) !important;
+      color: rgb(var(--tv-accent)) !important;
     }
     html[data-tv="1"] [data-tv-library-filters="1"] > div {
       width: max-content !important;
@@ -788,8 +788,8 @@
     }
     html[data-tv="1"] [data-tv-alpha="1"] button[aria-current="true"] {
       border-color: transparent !important;
-      background: rgba(245, 158, 11, 0.28) !important;
-      color: #fbbf24 !important;
+      background: rgb(var(--tv-accent) / 0.28) !important;
+      color: rgb(var(--tv-accent-soft)) !important;
     }
     /* Focused letter: solid pill so D-pad position is obvious and not clipped. */
     html[data-tv="1"] [data-tv-alpha="1"] button:focus,
@@ -834,12 +834,12 @@
       outline: none !important;
       box-shadow: var(--tv-focus-glow-cover) !important;
       background: transparent !important;
-      color: #f59e0b !important;
+      color: rgb(var(--tv-accent)) !important;
     }
     html[data-tv="1"] [data-tv-menu-item="1"]:focus svg,
     html[data-tv="1"] [data-tv-menu-item="1"]:focus-visible svg {
-      color: #f59e0b !important;
-      stroke: #f59e0b !important;
+      color: rgb(var(--tv-accent)) !important;
+      stroke: rgb(var(--tv-accent)) !important;
     }
     /* Season / episode / extra: glow the card button, never the title under it.
        Outer glow must live on the button — overflow-hidden on the art clips a child glow. */
@@ -1024,16 +1024,16 @@
     }
     html[data-tv="1"] .player-view-more-icon {
       box-shadow:
-        inset 0 0 0 1px rgba(251, 191, 36, 0.35),
+        inset 0 0 0 1px rgb(var(--tv-accent-soft) / 0.35),
         0 8px 22px rgba(0, 0, 0, 0.45);
     }
     html[data-tv="1"] [data-tv-poster-btn="1"][data-tv-focused="1"]:focus .player-view-more-icon,
     html[data-tv="1"] [data-tv-poster-btn="1"][data-tv-focused="1"]:focus-visible .player-view-more-icon {
       color: #111;
-      background: #f59e0b;
+      background: rgb(var(--tv-accent));
       box-shadow:
         inset 0 0 0 1px rgba(0, 0, 0, 0.08),
-        0 10px 24px rgba(245, 158, 11, 0.35);
+        0 10px 24px rgb(var(--tv-accent) / 0.35);
     }
     html[data-tv="1"] [data-tv-poster-btn="1"][data-tv-focused="1"]:focus .player-view-more-shelf-poster,
     html[data-tv="1"] [data-tv-poster-btn="1"][data-tv-focused="1"]:focus-visible .player-view-more-shelf-poster {
@@ -2828,8 +2828,8 @@
       width: 1.65rem;
       height: 2px;
       border-radius: 999px;
-      background: linear-gradient(90deg, #fbbf24, rgba(251, 191, 36, 0.15));
-      box-shadow: 0 0 12px rgba(251, 191, 36, 0.45);
+      background: linear-gradient(90deg, rgb(var(--tv-accent-soft)), rgb(var(--tv-accent-soft) / 0.15));
+      box-shadow: 0 0 12px rgb(var(--tv-accent-soft) / 0.45);
     }
     .player-home-hero-progress {
       position: relative;
@@ -3152,7 +3152,7 @@
     }
     .player-person-ambient-scrim {
       background:
-        radial-gradient(ellipse 60% 80% at 18% 30%, rgba(245, 158, 11, 0.10), transparent 70%),
+        radial-gradient(ellipse 60% 80% at 18% 30%, rgb(var(--tv-accent) / 0.10), transparent 70%),
         linear-gradient(to right, rgb(var(--tv-page-surface, 36 40 48) / 0.55) 0%, rgb(var(--tv-page-surface, 36 40 48) / 0.15) 45%, rgb(var(--tv-page-surface, 36 40 48) / 0.6) 100%),
         linear-gradient(to bottom, transparent 0%, transparent 45%, rgb(var(--tv-page-surface, 36 40 48)) 100%);
     }
@@ -3167,7 +3167,7 @@
       box-shadow:
         0 0 0 1px rgba(255, 255, 255, 0.35),
         0 24px 60px rgba(0, 0, 0, 0.55),
-        0 0 60px rgba(245, 158, 11, 0.18);
+        0 0 60px rgb(var(--tv-accent) / 0.18);
     }
     .player-person-portrait {
       width: 13rem;
@@ -3255,15 +3255,15 @@
     .player-person-bio-body:focus,
     .player-person-bio-body:focus-visible {
       outline: none;
-      box-shadow: var(--tv-focus-glow, 0 0 0 2px rgba(245,158,11,0.5));
+      box-shadow: var(--tv-focus-glow, 0 0 0 2px rgb(var(--tv-accent) / 0.5));
       background: rgba(255, 255, 255, 0.04);
     }
     .player-person-bio-more { font-size: 0.8rem; min-height: 2.1rem; padding: 0.25rem 0.5rem; }
     .player-person-bio-more:focus,
     .player-person-bio-more:focus-visible {
       outline: none;
-      background: rgba(245, 158, 11, 0.14);
-      box-shadow: var(--tv-focus-glow, 0 0 0 2px rgba(245,158,11,0.5));
+      background: rgb(var(--tv-accent) / 0.14);
+      box-shadow: var(--tv-focus-glow, 0 0 0 2px rgb(var(--tv-accent) / 0.5));
     }
     .player-person-knownfor { font-size: 0.78rem; }
     .player-person-knownfor .uppercase { font-size: 0.62rem; }
@@ -3275,7 +3275,7 @@
     .player-person-decade-rule {
       height: 2px;
       border-radius: 2px;
-      background: linear-gradient(to left, rgba(245, 158, 11, 0.9), rgba(245, 158, 11, 0.05));
+      background: linear-gradient(to left, rgb(var(--tv-accent) / 0.9), rgb(var(--tv-accent) / 0.05));
     }
     .player-person-credit-row {
       min-height: 3.1rem;
@@ -3285,17 +3285,17 @@
       transition: background-color 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
     }
     .player-person-credit-row.is-on-server {
-      border-color: rgba(245, 158, 11, 0.22);
-      background: linear-gradient(90deg, rgba(245, 158, 11, 0.10), rgba(255, 255, 255, 0.03) 60%);
+      border-color: rgb(var(--tv-accent) / 0.22);
+      background: linear-gradient(90deg, rgb(var(--tv-accent) / 0.10), rgba(255, 255, 255, 0.03) 60%);
     }
     .player-person-credit-row.is-static { opacity: 0.72; }
     .player-person-credit-row[data-tv-item="1"]:hover { background: rgba(255, 255, 255, 0.07); }
     .player-person-credit-row[data-tv-item="1"]:focus,
     .player-person-credit-row[data-tv-item="1"]:focus-visible {
       outline: none;
-      border-color: rgba(251, 191, 36, 0.95);
-      background: rgba(245, 158, 11, 0.18);
-      box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.6), 0 0 22px 2px rgba(245, 158, 11, 0.25);
+      border-color: rgb(var(--tv-accent-soft) / 0.95);
+      background: rgb(var(--tv-accent) / 0.18);
+      box-shadow: 0 0 0 1px rgb(var(--tv-accent-soft) / 0.6), 0 0 22px 2px rgb(var(--tv-accent) / 0.25);
       transform: translateX(4px);
     }
     .player-person-credit-year { width: 2.6rem; font-size: 0.82rem; }
@@ -3305,9 +3305,9 @@
     .player-person-credit-badge {
       padding: 0.2rem 0.55rem;
       font-size: 0.55rem;
-      color: #fbbf24;
-      background: rgba(245, 158, 11, 0.18);
-      border: 1px solid rgba(245, 158, 11, 0.35);
+      color: rgb(var(--tv-accent-soft));
+      background: rgb(var(--tv-accent) / 0.18);
+      border: 1px solid rgb(var(--tv-accent) / 0.35);
     }
     /* TV: full width, nothing capped. */
     html[data-tv="1"] .player-person-page,
@@ -4201,9 +4201,9 @@
         font-weight: 800;
       }
       html[data-phone="1"] [data-tv-alpha="1"] button[aria-current="true"] {
-        border-color: rgba(245, 158, 11, 0.75);
-        background: rgba(245, 158, 11, 0.16);
-        color: #f59e0b;
+        border-color: rgb(var(--tv-accent) / 0.75);
+        background: rgb(var(--tv-accent) / 0.16);
+        color: rgb(var(--tv-accent));
       }
       /* Bar owns the status-bar strip too, opaque — rows scrolled under it must not show through. */
       html[data-phone="1"] .player-phone-topbar {

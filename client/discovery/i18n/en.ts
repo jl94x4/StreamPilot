@@ -206,6 +206,7 @@ export const en = {
         accentColor_blue: 'Blue',
         accentColor_teal: 'Teal',
         accentColor_green: 'Green',
+        accentColor_white: 'White',
         navigationSound: 'Navigation sounds',
         navigationSoundHint: 'A short sound when you move, select and go back with the remote.',
         navigationSound_off: 'Off',

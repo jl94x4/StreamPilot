@@ -405,7 +405,7 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
                                             </span>
                                         </div>
                                     ) : null}
-                                    <div className="h-full bg-plex" style={{ width: `${progress}%` }} />
+                                    <div className="h-full bg-progress" style={{ width: `${progress}%` }} />
                                 </div>
                             ) : null
                         ) : null}

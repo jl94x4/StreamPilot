@@ -11,6 +11,11 @@
     --color-muted: 139 148 158;
     --color-plex: 229 160 13;
     --color-plex-hover: 240 168 16;
+    /* TV focus rings and highlights (Settings → Accent colour overrides these). */
+    --tv-accent: 245 158 11;
+    --tv-accent-soft: 251 191 36;
+    /* Progress bars stay this orange whatever the accent. */
+    --color-progress: 229 160 13;
     color-scheme: dark;
   }
 
@@ -1602,7 +1607,7 @@ html[data-theme="light"] .media-details-hero-scrim-left {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: rgb(var(--color-plex));
+  background: rgb(var(--color-progress));
 }
 .smp-resume-times {
   display: flex;
@@ -1918,7 +1923,7 @@ html[data-tv="1"] .smp-live-tabs button:focus {
   left: 0;
   bottom: 0;
   height: 3px;
-  background: rgb(var(--color-plex));
+  background: rgb(var(--color-progress));
 }
 .smp-live-cell:hover {
   background: rgba(255, 255, 255, 0.12);
@@ -3287,8 +3292,8 @@ html[data-tv="1"] [data-tv-kind="show"] .media-details-seasons h3::before {
   width: 0.2rem;
   height: 0.85em;
   border-radius: 999px;
-  background: linear-gradient(180deg, #fbbf24 0%, rgba(245, 158, 11, 0.45) 100%);
-  box-shadow: 0 0 12px rgba(251, 191, 36, 0.4);
+  background: linear-gradient(180deg, rgb(var(--tv-accent-soft)) 0%, rgb(var(--tv-accent) / 0.45) 100%);
+  box-shadow: 0 0 12px rgb(var(--tv-accent-soft) / 0.4);
 }
 html[data-tv="1"] [data-tv-kind="show"] .media-details-seasons [data-tv-poster-rail="1"] {
   padding-top: 0.35rem !important;
@@ -3997,8 +4002,8 @@ html[data-tv="1"] .player-row-header-mark {
   width: 1.15em;
   height: 1.15em;
   flex-shrink: 0;
-  fill: #f59e0b;
-  filter: drop-shadow(0 0 6px rgba(245, 158, 11, 0.5));
+  fill: rgb(var(--tv-accent));
+  filter: drop-shadow(0 0 6px rgb(var(--tv-accent) / 0.5));
 }
 /* Non-TV mark (portal / phone). Without it the SVG grew to fill the row on the web. */
 .player-row-header-mark {
@@ -4006,27 +4011,27 @@ html[data-tv="1"] .player-row-header-mark {
   width: 0.9em;
   height: 0.9em;
   flex-shrink: 0;
-  fill: #f59e0b;
-  filter: drop-shadow(0 0 4px rgba(245, 158, 11, 0.4));
+  fill: rgb(var(--tv-accent));
+  filter: drop-shadow(0 0 4px rgb(var(--tv-accent) / 0.4));
 }
 @keyframes play-mark-pulse {
-  0%, 100% { opacity: 0.3; filter: drop-shadow(0 0 2px rgba(245, 158, 11, 0.2)); }
-  50%      { opacity: 1;   filter: drop-shadow(0 0 8px rgba(245, 158, 11, 0.7)); }
+  0%, 100% { opacity: 0.3; filter: drop-shadow(0 0 2px rgb(var(--tv-accent) / 0.2)); }
+  50%      { opacity: 1;   filter: drop-shadow(0 0 8px rgb(var(--tv-accent) / 0.7)); }
 }
 /* Row marker "Bar (classic)": the original line, sized as it was before the play icon. */
 .player-row-header-mark.player-row-header-mark--bar {
   width: 0.18rem;
   height: 1em;
   border-radius: 999px;
-  background: linear-gradient(180deg, #fbbf24 0%, rgba(245, 158, 11, 0.4) 100%);
+  background: linear-gradient(180deg, rgb(var(--tv-accent-soft)) 0%, rgb(var(--tv-accent) / 0.4) 100%);
   filter: none;
 }
 html[data-tv="1"] .player-row-header-mark.player-row-header-mark--bar {
   width: 0.28rem;
   height: 1.15em;
   margin-right: -0.3rem;
-  background: linear-gradient(180deg, #fbbf24 0%, rgba(245, 158, 11, 0.45) 100%);
-  box-shadow: 0 0 12px rgba(251, 191, 36, 0.4);
+  background: linear-gradient(180deg, rgb(var(--tv-accent-soft)) 0%, rgb(var(--tv-accent) / 0.45) 100%);
+  box-shadow: 0 0 12px rgb(var(--tv-accent-soft) / 0.4);
 }
 /* Title pages: an image still loading fades in; a cached one is shown at once (FadeImg). */
 .player-fade-img {
@@ -5172,7 +5177,7 @@ html[data-tv="1"] .player-view-more-card {
   position: relative;
   isolation: isolate;
   background:
-    radial-gradient(120% 80% at 50% 0%, rgba(245, 158, 11, 0.18) 0%, transparent 55%),
+    radial-gradient(120% 80% at 50% 0%, rgb(var(--tv-accent) / 0.18) 0%, transparent 55%),
     linear-gradient(165deg, #27272a 0%, #18181b 48%, #09090b 100%);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
@@ -5227,7 +5232,7 @@ html[data-tv="1"] .player-view-more-card::after {
   pointer-events: none;
   background:
     linear-gradient(180deg, rgba(9, 9, 11, 0.28) 0%, rgba(9, 9, 11, 0.72) 52%, rgba(9, 9, 11, 0.92) 100%),
-    radial-gradient(90% 70% at 50% 42%, rgba(245, 158, 11, 0.14) 0%, transparent 65%);
+    radial-gradient(90% 70% at 50% 42%, rgb(var(--tv-accent) / 0.14) 0%, transparent 65%);
 }
 html[data-tv="1"] .player-view-more-icon {
   position: relative;
@@ -5238,10 +5243,10 @@ html[data-tv="1"] .player-view-more-icon {
   width: 3.25rem;
   height: 3.25rem;
   border-radius: 999px;
-  color: #fbbf24;
+  color: rgb(var(--tv-accent-soft));
   background: rgba(0, 0, 0, 0.45);
   box-shadow:
-    inset 0 0 0 1px rgba(251, 191, 36, 0.35),
+    inset 0 0 0 1px rgb(var(--tv-accent-soft) / 0.35),
     0 8px 22px rgba(0, 0, 0, 0.45);
 }
 html[data-tv="1"] .player-view-more-label {
@@ -5260,10 +5265,10 @@ html[data-tv="1"] .player-view-more-sub {
 html[data-tv="1"] [data-tv-poster-btn="1"][data-tv-focused="1"]:focus .player-view-more-icon,
 html[data-tv="1"] [data-tv-poster-btn="1"][data-tv-focused="1"]:focus-visible .player-view-more-icon {
   color: #111;
-  background: #f59e0b;
+  background: rgb(var(--tv-accent));
   box-shadow:
     inset 0 0 0 1px rgba(0, 0, 0, 0.08),
-    0 10px 24px rgba(245, 158, 11, 0.35);
+    0 10px 24px rgb(var(--tv-accent) / 0.35);
 }
 html[data-tv="1"] [data-tv-poster-btn="1"][data-tv-focused="1"]:focus .player-view-more-shelf-poster,
 html[data-tv="1"] [data-tv-poster-btn="1"][data-tv-focused="1"]:focus-visible .player-view-more-shelf-poster {
@@ -6069,7 +6074,7 @@ html[data-reduce-motion="1"] .media-details-trailer-up {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: rgb(var(--color-plex));
+  background: rgb(var(--color-progress));
 }
 .smp-live-hero-poster {
   position: absolute;

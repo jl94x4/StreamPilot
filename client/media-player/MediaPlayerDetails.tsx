@@ -416,7 +416,7 @@ const PhoneEpisodeList: React.FC<{
                             ) : null}
                             {progressPercent(row) > 0 ? (
                                 <div className="absolute inset-x-0 bottom-0 h-0.5 bg-black/50">
-                                    <div className="h-full bg-plex" style={{ width: `${progressPercent(row)}%` }} />
+                                    <div className="h-full bg-progress" style={{ width: `${progressPercent(row)}%` }} />
                                 </div>
                             ) : null}
                         </div>
@@ -2772,7 +2772,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                     ) : null}
                                     {progressPercent(playbackItem) > 0 ? (
                                         <div className="player-watch-bar absolute inset-x-0 bottom-0 z-[6] h-1 bg-black/70">
-                                            <div className="h-full bg-plex" style={{ width: `${progressPercent(playbackItem)}%` }} />
+                                            <div className="h-full bg-progress" style={{ width: `${progressPercent(playbackItem)}%` }} />
                                         </div>
                                     ) : null}
                                     {(item.themeKey || item.themeUrl) && settings.playThemeTunes ? (
@@ -3472,7 +3472,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                             ) : null}
                                             {progressPercent(row) > 0 ? (
                                                 <div className="player-watch-bar absolute inset-x-0 bottom-0 z-10 h-0.5 bg-black/50">
-                                                    <div className="h-full bg-plex" style={{ width: `${progressPercent(row)}%` }} />
+                                                    <div className="h-full bg-progress" style={{ width: `${progressPercent(row)}%` }} />
                                                 </div>
                                             ) : null}
                                         </div>

@@ -148,7 +148,7 @@ export const MediaPlayerDownloads: React.FC<Props> = ({ onBack, onPlay, onToast 
                                     {row.status === 'downloading' || row.status === 'queued' ? (
                                         <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10">
                                             <div
-                                                className="h-full rounded-full bg-plex transition-[width]"
+                                                className="h-full rounded-full bg-progress transition-[width]"
                                                 style={{ width: `${Math.max(4, progress)}%` }}
                                             />
                                         </div>
