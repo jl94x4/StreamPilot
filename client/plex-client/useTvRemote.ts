@@ -2543,9 +2543,13 @@ export const useTvRemote = (enabled = true) => {
             const inBrowseChrome = Boolean(current.closest('[data-tv-browse-grid="1"], [data-tv-alpha="1"]'));
             // Wrapping poster grids (View more, collections, playlists…): Left from the first
             // poster of a row opens the side menu, not the last poster of the row above.
-            if (!target && !menuRoot && dir === 'left' && !inBrowseChrome && !overflowXRailOf(current)) {
+            if (!target && !menuRoot && dir === 'left' && !inBrowseChrome) {
                 const grid = current.closest<HTMLElement>('[data-tv-poster-grid="1"], .upgrader-poster-grid');
-                if (grid) {
+                // Some grids (Watchlist) also carry the rail marker; only a real sideways rail
+                // inside the grid should keep Left for itself.
+                const rail = overflowXRailOf(current);
+                const innerRail = rail && grid && rail !== grid && grid.contains(rail) ? rail : null;
+                if (grid && !innerRail) {
                     const from = current.getBoundingClientRect();
                     const midY = from.top + from.height / 2;
                     const hasLeftInRow = focusableTvItems(grid).some((el) => {
