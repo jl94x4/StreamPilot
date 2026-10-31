@@ -6560,3 +6560,22 @@ html[data-tv="1"] .player-library-header [data-tv-library-tabs="1"] button[aria-
   content: none !important;
   display: none !important;
 }
+
+/* Settings (tabs + rows): focus like the side nav, a white fill with dark text instead of a ring. */
+html[data-tv="1"] [data-tv-settings="1"] [data-tv-item="1"]:not([data-tv-settings-save="1"]):focus,
+html[data-tv="1"] [data-tv-settings="1"] [data-tv-item="1"]:not([data-tv-settings-save="1"]):focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+  background: #fff !important;
+  border-color: #fff !important;
+  color: #18181b !important;
+}
+html[data-tv="1"] [data-tv-settings="1"] [data-tv-item="1"]:not([data-tv-settings-save="1"]):focus *,
+html[data-tv="1"] [data-tv-settings="1"] [data-tv-item="1"]:not([data-tv-settings-save="1"]):focus-visible * {
+  color: #18181b !important;
+}
+/* "On" keeps its accent so toggles still read at a glance. */
+html[data-tv="1"] [data-tv-settings="1"] [data-tv-item="1"]:not([data-tv-settings-save="1"]):focus .text-plex,
+html[data-tv="1"] [data-tv-settings="1"] [data-tv-item="1"]:not([data-tv-settings-save="1"]):focus-visible .text-plex {
+  color: rgb(var(--color-plex)) !important;
+}
