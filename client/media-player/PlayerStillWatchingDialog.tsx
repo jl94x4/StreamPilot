@@ -83,7 +83,7 @@ export const PlayerStillWatchingDialog: React.FC<Props> = ({
                             data-tv-action="1"
                             data-tv-still-watching-primary="1"
                             onClick={onContinue}
-                            className={`${actionBtn} bg-plex text-zinc-950 shadow-[0_8px_28px_rgba(245,158,11,0.35)] hover:bg-amber-400`}
+                            className={`${actionBtn} bg-plex text-zinc-950 shadow-[0_8px_28px_rgb(var(--color-plex)/0.35)] hover:bg-plex-hover`}
                         >
                             <Play className="h-5 w-5 shrink-0 fill-current" />
                             {t('mediaPlayerPage.stillWatchingContinue')}

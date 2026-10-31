@@ -126,6 +126,8 @@ public class PlayerActivity extends AppCompatActivity {
     public static final String EXTRA_AUTOPLAY_NEXT = "autoplayNext";
     public static final String EXTRA_AUTO_SKIP_INTRO = "autoSkipIntro";
     public static final String EXTRA_AUTO_SKIP_CREDITS = "autoSkipCredits";
+    /** Settings → Accent colour (gold, orange, red, pink, purple, blue, teal, green). */
+    public static final String EXTRA_ACCENT = "accent";
     public static final String EXTRA_ENDED = "ended";
     public static final String EXTRA_POSITION_MS = "positionMs";
     public static final String EXTRA_ERROR = "error";
@@ -161,6 +163,11 @@ public class PlayerActivity extends AppCompatActivity {
     private TextView upNextKicker;
     private TextView upNextCountdown;
     private ImageView upNextArt;
+    /** Holds the still, its fade and the countdown ring; shown only once the still loads. */
+    private View upNextArtFrame;
+    private CountdownRingView upNextRing;
+    private TextView upNextMeta;
+    private TextView upNextSummary;
     private Button upNextPlayBtn;
     private Button upNextCreditsBtn;
     private boolean watchCreditsChosen;
@@ -542,6 +549,9 @@ public class PlayerActivity extends AppCompatActivity {
     private String previousRatingKey = "";
     private String nextTitle = "";
     private String nextThumbUrl = "";
+    /** "S2 · E5 · 42m" and a short synopsis for the Up Next card. */
+    private String nextMeta = "";
+    private String nextSummary = "";
     private String loadedUpNextThumb = "";
     private String streamMode = "";
     private boolean liveStream = false;
@@ -811,6 +821,8 @@ public class PlayerActivity extends AppCompatActivity {
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
+        // Before super/inflate: drawables read ?attr/playerAccent from this overlay.
+        applyAccentOverlay(getIntent() == null ? null : getIntent().getStringExtra(EXTRA_ACCENT));
         super.onCreate(savedInstanceState);
         overridePendingTransition(0, 0);
         PlayerBridge.get().attachActivity(this);
@@ -1105,16 +1117,21 @@ public class PlayerActivity extends AppCompatActivity {
         externalBtn = findViewById(R.id.player_external);
         upNextRow = findViewById(R.id.player_up_next);
         upNextArt = findViewById(R.id.player_up_next_art);
-        if (upNextArt != null) {
-            // Card is player_context_sheet (18dp, 6dp inset) — art follows its inner curve.
+        upNextArtFrame = findViewById(R.id.player_up_next_art_frame);
+        upNextRing = findViewById(R.id.player_up_next_ring);
+        upNextMeta = findViewById(R.id.player_up_next_meta);
+        upNextSummary = findViewById(R.id.player_up_next_summary);
+        if (upNextArtFrame != null) {
+            // Card is player_context_sheet (18dp, 6dp inset) — the still, its fade and the
+            // ring all follow its inner curve.
             final float artRadius = 12f * getResources().getDisplayMetrics().density;
-            upNextArt.setOutlineProvider(new ViewOutlineProvider() {
+            upNextArtFrame.setOutlineProvider(new ViewOutlineProvider() {
                 @Override
                 public void getOutline(View view, Outline outline) {
                     outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), artRadius);
                 }
             });
-            upNextArt.setClipToOutline(true);
+            upNextArtFrame.setClipToOutline(true);
         }
         upNextKicker = findViewById(R.id.player_up_next_kicker);
         upNextLabel = findViewById(R.id.player_up_next_label);
@@ -1588,6 +1605,8 @@ public class PlayerActivity extends AppCompatActivity {
                 nextRatingKey = next.optString("ratingKey", "");
                 nextTitle = next.optString("title", "");
                 nextThumbUrl = next.optString("thumb", "");
+                nextMeta = next.optString("meta", "").trim();
+                nextSummary = next.optString("summary", "").trim();
             }
             JSONObject previous = root.optJSONObject("previousItem");
             if (previous != null) {
@@ -1822,16 +1841,26 @@ public class PlayerActivity extends AppCompatActivity {
         }
     }
 
+    private void setUpNextArtVisible(boolean visible) {
+        View target = upNextArtFrame != null ? upNextArtFrame : upNextArt;
+        if (target != null) target.setVisibility(visible ? View.VISIBLE : View.GONE);
+    }
+
+    private boolean isUpNextArtVisible() {
+        View target = upNextArtFrame != null ? upNextArtFrame : upNextArt;
+        return target != null && target.getVisibility() == View.VISIBLE;
+    }
+
     private void applyUpNextArt() {
         if (upNextArt == null) return;
         String url = nextThumbUrl == null ? "" : nextThumbUrl.trim();
         if (url.isEmpty()) {
-            upNextArt.setVisibility(View.GONE);
+            setUpNextArtVisible(false);
             upNextArt.setImageDrawable(null);
             loadedUpNextThumb = "";
             return;
         }
-        if (url.equals(loadedUpNextThumb) && upNextArt.getVisibility() == View.VISIBLE) return;
+        if (url.equals(loadedUpNextThumb) && isUpNextArtVisible()) return;
         final String fetchUrl = url;
         final Map<String, String> imageHeaders = headersForImageUrl(fetchUrl);
         try {
@@ -1841,11 +1870,11 @@ public class PlayerActivity extends AppCompatActivity {
                 mainHandler.post(() -> {
                     if (isFinishing() || upNextArt == null) return;
                     if (ready == null || ready.getWidth() < 8 || ready.getHeight() < 8) {
-                        upNextArt.setVisibility(View.GONE);
+                        setUpNextArtVisible(false);
                         return;
                     }
                     upNextArt.setImageBitmap(ready);
-                    upNextArt.setVisibility(View.VISIBLE);
+                    setUpNextArtVisible(true);
                     loadedUpNextThumb = fetchUrl;
                 });
             });
@@ -4203,8 +4232,11 @@ public class PlayerActivity extends AppCompatActivity {
             OptionItem first = relatedItems.get(0);
             if (upNextKicker != null) upNextKicker.setText(R.string.player_more_like_this);
             if (upNextLabel != null) upNextLabel.setText(first.label);
-            if (upNextArt != null) upNextArt.setVisibility(View.GONE);
+            setUpNextArtVisible(false);
             if (upNextCountdown != null) upNextCountdown.setVisibility(View.GONE);
+            if (upNextMeta != null) upNextMeta.setVisibility(View.GONE);
+            if (upNextSummary != null) upNextSummary.setVisibility(View.GONE);
+            if (upNextRing != null) upNextRing.setVisibility(View.GONE);
             if (upNextCreditsBtn != null) {
                 upNextCreditsBtn.setVisibility(relatedItems.size() > 1 ? View.VISIBLE : View.GONE);
                 upNextCreditsBtn.setText(R.string.player_more_like_this);
@@ -4220,9 +4252,29 @@ public class PlayerActivity extends AppCompatActivity {
                 upNextLabel.setText(nextTitle.isEmpty() ? getString(R.string.player_up_next) : nextTitle);
             }
             applyUpNextArt();
+            if (upNextMeta != null) {
+                upNextMeta.setText(nextMeta);
+                upNextMeta.setVisibility(nextMeta.isEmpty() ? View.GONE : View.VISIBLE);
+            }
+            if (upNextSummary != null) {
+                upNextSummary.setText(nextSummary);
+                upNextSummary.setVisibility(nextSummary.isEmpty() ? View.GONE : View.VISIBLE);
+            }
+            int seconds = duration > pos ? (int) Math.max(1, Math.ceil((duration - pos) / 1000.0)) : 0;
+            boolean counting = autoplayNext && seconds > 0;
+            // The ring sits on the still; with no still, the line of text counts down instead.
+            boolean ring = counting && upNextRing != null && isUpNextArtVisible();
+            if (upNextRing != null) {
+                upNextRing.setVisibility(ring ? View.VISIBLE : View.GONE);
+                if (ring) {
+                    long windowStart = duration - 30_000;
+                    if (creditsStartMs >= 0) windowStart = Math.min(windowStart, creditsStartMs);
+                    long window = Math.max(1_000, duration - windowStart);
+                    upNextRing.setCountdown((duration - pos) / (float) window, seconds);
+                }
+            }
             if (upNextCountdown != null) {
-                int seconds = duration > pos ? (int) Math.max(1, Math.ceil((duration - pos) / 1000.0)) : 0;
-                if (autoplayNext && seconds > 0) {
+                if (counting && !ring) {
                     upNextCountdown.setVisibility(View.VISIBLE);
                     upNextCountdown.setText(getString(R.string.player_up_next_in, seconds));
                 } else {
@@ -5397,6 +5449,21 @@ public class PlayerActivity extends AppCompatActivity {
         if (settingsBtn != null) {
             settingsBtn.setNextFocusLeftId(hasNext ? R.id.player_next_episode : R.id.player_play_pause);
         }
+    }
+
+    private void applyAccentOverlay(@Nullable String accent) {
+        int style;
+        switch (accent == null ? "" : accent) {
+            case "orange": style = R.style.PlayerAccent_Orange; break;
+            case "red": style = R.style.PlayerAccent_Red; break;
+            case "pink": style = R.style.PlayerAccent_Pink; break;
+            case "purple": style = R.style.PlayerAccent_Purple; break;
+            case "blue": style = R.style.PlayerAccent_Blue; break;
+            case "teal": style = R.style.PlayerAccent_Teal; break;
+            case "green": style = R.style.PlayerAccent_Green; break;
+            default: return; // gold: PlayerTheme already carries it
+        }
+        getTheme().applyStyle(style, true);
     }
 
     /**

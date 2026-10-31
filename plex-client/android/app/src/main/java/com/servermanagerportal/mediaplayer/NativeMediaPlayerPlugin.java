@@ -94,6 +94,8 @@ public class NativeMediaPlayerPlugin extends Plugin {
         Boolean autoSkipIntro = call.getBoolean("autoSkipIntro", false);
         intent.putExtra(PlayerActivity.EXTRA_AUTO_SKIP_INTRO, autoSkipIntro != null && autoSkipIntro);
 
+        intent.putExtra(PlayerActivity.EXTRA_ACCENT, call.getString("accent", "gold"));
+
         Boolean autoSkipCredits = call.getBoolean("autoSkipCredits", false);
         intent.putExtra(PlayerActivity.EXTRA_AUTO_SKIP_CREDITS, autoSkipCredits != null && autoSkipCredits);
 

@@ -12,6 +12,8 @@ import {
     PLAYER_SCREENSAVER_SOURCES,
     PLAYER_DATE_FORMATS,
     PLAYER_ROW_MARKERS,
+    PLAYER_ACCENT_COLORS,
+    PLAYER_NAVIGATION_SOUNDS,
     PLAYER_SUBTITLE_SIZES,
     applyHomeRowOrder,
     applyLibraryNavOrder,
@@ -20,6 +22,8 @@ import {
     type PlayerContinueWatchingSort,
     type PlayerDateFormat,
     type PlayerRowMarker,
+    type PlayerAccentColor,
+    type PlayerNavigationSound,
     type PlayerScreensaverSource,
     type PlayerSubtitleMode,
 } from './playerSettings';
@@ -42,6 +46,8 @@ import {
 import { PLAYER_APP_BASE, PLAYER_NAVIGATE_EVENT } from './paths';
 import { isWatchTogetherAvailable } from './watchTogetherClient';
 import { readPerfFlags, writePerfFlags } from './PlayerPerfOverlay';
+import { playerAccentCss } from './playerAppearance';
+import { previewNavSound } from './navSounds';
 
 type Props = {
     onBack: () => void;
@@ -627,6 +633,27 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
             <span className="inline-flex items-center"><RowHeaderMark marker={marker} /></span>
         ),
     })), [t]);
+    // Each colour shows as a swatch beside its name.
+    const accentColorOptions = useMemo(() => PLAYER_ACCENT_COLORS.map((accent) => ({
+        value: accent,
+        label: t(`mediaPlayerPage.accentColor_${accent}`),
+        icon: (
+            <span
+                className="inline-block h-4 w-4 rounded-full ring-1 ring-white/25"
+                style={{ background: playerAccentCss(accent) }}
+                aria-hidden
+            />
+        ),
+    })), [t]);
+    const navigationSoundOptions = useMemo(() => PLAYER_NAVIGATION_SOUNDS.map((sound) => ({
+        value: sound,
+        label: t(`mediaPlayerPage.navigationSound_${sound}`),
+    })), [t]);
+    const chooseNavigationSound = (value: string) => {
+        const sound = value as PlayerNavigationSound;
+        updateSettings({ navigationSound: sound });
+        previewNavSound(sound);
+    };
     // Each option is labelled with a sample date written in that style.
     const dateFormatOptions = useMemo(() => PLAYER_DATE_FORMATS.map((format) => ({
         value: format,
@@ -1323,6 +1350,24 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         options={rowMarkerOptions}
                         onChange={(value) => updateSettings({ rowMarker: value as PlayerRowMarker })}
                     />
+                    {isPlexDirectMode() ? (
+                        <>
+                            <TvChoiceRow
+                                title={t('mediaPlayerPage.accentColor')}
+                                description={t('mediaPlayerPage.accentColorHint')}
+                                value={settings.accentColor}
+                                options={accentColorOptions}
+                                onChange={(value) => updateSettings({ accentColor: value as PlayerAccentColor })}
+                            />
+                            <TvChoiceRow
+                                title={t('mediaPlayerPage.navigationSound')}
+                                description={t('mediaPlayerPage.navigationSoundHint')}
+                                value={settings.navigationSound}
+                                options={navigationSoundOptions}
+                                onChange={chooseNavigationSound}
+                            />
+                        </>
+                    ) : null}
                     <TvToggleRow
                         title={t('mediaPlayerPage.showServiceBrandLogos')}
                         description={t('mediaPlayerPage.showServiceBrandLogosHint')}
@@ -1814,6 +1859,21 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                                 options={rowMarkerOptions.map(({ value, label }) => ({ value, label }))}
                             />
                         </div>
+                        {isPlexDirectMode() ? (
+                            <div className="py-4">
+                                <label className="mb-2 block text-sm font-bold text-text" htmlFor="media-player-accent-color">
+                                    {t('mediaPlayerPage.accentColor')}
+                                </label>
+                                <p className="mb-3 text-xs text-muted">{t('mediaPlayerPage.accentColorHint')}</p>
+                                <CustomSelect
+                                    id="media-player-accent-color"
+                                    value={settings.accentColor}
+                                    onChange={(value) => updateSettings({ accentColor: value as PlayerAccentColor })}
+                                    className="max-w-xl"
+                                    options={accentColorOptions.map(({ value, label }) => ({ value, label }))}
+                                />
+                            </div>
+                        ) : null}
                     </div>
                 </section>
             ) : null}

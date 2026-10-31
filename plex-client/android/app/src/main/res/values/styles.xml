@@ -27,10 +27,22 @@
     </style>
 
     <style name="PlayerTheme" parent="Theme.AppCompat.NoActionBar">
+        <!-- Gold defaults so every accent attr resolves; PlayerAccent.* overlays replace them. -->
+        <item name="playerAccent">@color/player_accent</item>
+        <item name="playerAccentDim">@color/player_accent_dim</item>
+        <item name="playerAccentA18">#18F59E0B</item>
+        <item name="playerAccentA22">#22F59E0B</item>
+        <item name="playerAccentA28">#28F59E0B</item>
+        <item name="playerAccentA2A">#2AF59E0B</item>
+        <item name="playerAccentA38">#38F59E0B</item>
+        <item name="playerAccentA40">#40F59E0B</item>
+        <item name="playerAccentA44">#44F59E0B</item>
+        <item name="playerAccentA55">#55F59E0B</item>
+        <item name="playerAccentA88">#88F59E0B</item>
         <item name="android:windowBackground">@android:color/black</item>
         <item name="android:windowAnimationStyle">@null</item>
-        <item name="android:colorAccent">@color/player_accent</item>
-        <item name="colorAccent">@color/player_accent</item>
+        <item name="android:colorAccent">?attr/playerAccent</item>
+        <item name="colorAccent">?attr/playerAccent</item>
         <item name="alertDialogTheme">@style/PlayerDialogTheme</item>
         <item name="android:colorControlHighlight">@android:color/transparent</item>
     </style>
@@ -49,13 +61,13 @@
     </style>
 
     <style name="PlayerDialogTheme" parent="Theme.AppCompat.Dialog.Alert">
-        <item name="colorAccent">@color/player_accent</item>
+        <item name="colorAccent">?attr/playerAccent</item>
         <item name="android:background">#1A2030</item>
         <item name="android:textColorPrimary">@color/player_text_primary</item>
         <item name="android:textColor">@color/player_text_primary</item>
         <item name="android:windowMinWidthMajor">56%</item>
         <item name="android:windowMinWidthMinor">72%</item>
-        <item name="android:colorControlHighlight">#40F59E0B</item>
+        <item name="android:colorControlHighlight">?attr/playerAccentA40</item>
         <item name="android:listSelector">@drawable/player_dialog_item</item>
         <item name="android:listChoiceBackgroundIndicator">@drawable/player_dialog_item</item>
         <item name="android:defaultFocusHighlightEnabled">false</item>
@@ -110,5 +122,118 @@
         <item name="android:stateListAnimator">@null</item>
         <item name="android:ellipsize">end</item>
         <item name="android:maxLines">1</item>
+    </style>
+
+    <!-- One overlay per accent; PlayerActivity applies the chosen one before inflating. -->
+    <style name="PlayerAccent.Gold" parent="">
+        <item name="playerAccent">#F59E0B</item>
+        <item name="playerAccentDim">#B45309</item>
+        <item name="playerAccentA18">#18F59E0B</item>
+        <item name="playerAccentA22">#22F59E0B</item>
+        <item name="playerAccentA28">#28F59E0B</item>
+        <item name="playerAccentA2A">#2AF59E0B</item>
+        <item name="playerAccentA38">#38F59E0B</item>
+        <item name="playerAccentA40">#40F59E0B</item>
+        <item name="playerAccentA44">#44F59E0B</item>
+        <item name="playerAccentA55">#55F59E0B</item>
+        <item name="playerAccentA88">#88F59E0B</item>
+    </style>
+
+    <style name="PlayerAccent.Orange" parent="">
+        <item name="playerAccent">#F97316</item>
+        <item name="playerAccentDim">#B85510</item>
+        <item name="playerAccentA18">#18F97316</item>
+        <item name="playerAccentA22">#22F97316</item>
+        <item name="playerAccentA28">#28F97316</item>
+        <item name="playerAccentA2A">#2AF97316</item>
+        <item name="playerAccentA38">#38F97316</item>
+        <item name="playerAccentA40">#40F97316</item>
+        <item name="playerAccentA44">#44F97316</item>
+        <item name="playerAccentA55">#55F97316</item>
+        <item name="playerAccentA88">#88F97316</item>
+    </style>
+
+    <style name="PlayerAccent.Red" parent="">
+        <item name="playerAccent">#EF4444</item>
+        <item name="playerAccentDim">#B13232</item>
+        <item name="playerAccentA18">#18EF4444</item>
+        <item name="playerAccentA22">#22EF4444</item>
+        <item name="playerAccentA28">#28EF4444</item>
+        <item name="playerAccentA2A">#2AEF4444</item>
+        <item name="playerAccentA38">#38EF4444</item>
+        <item name="playerAccentA40">#40EF4444</item>
+        <item name="playerAccentA44">#44EF4444</item>
+        <item name="playerAccentA55">#55EF4444</item>
+        <item name="playerAccentA88">#88EF4444</item>
+    </style>
+
+    <style name="PlayerAccent.Pink" parent="">
+        <item name="playerAccent">#EC4899</item>
+        <item name="playerAccentDim">#AF3571</item>
+        <item name="playerAccentA18">#18EC4899</item>
+        <item name="playerAccentA22">#22EC4899</item>
+        <item name="playerAccentA28">#28EC4899</item>
+        <item name="playerAccentA2A">#2AEC4899</item>
+        <item name="playerAccentA38">#38EC4899</item>
+        <item name="playerAccentA40">#40EC4899</item>
+        <item name="playerAccentA44">#44EC4899</item>
+        <item name="playerAccentA55">#55EC4899</item>
+        <item name="playerAccentA88">#88EC4899</item>
+    </style>
+
+    <style name="PlayerAccent.Purple" parent="">
+        <item name="playerAccent">#A855F7</item>
+        <item name="playerAccentDim">#7C3FB7</item>
+        <item name="playerAccentA18">#18A855F7</item>
+        <item name="playerAccentA22">#22A855F7</item>
+        <item name="playerAccentA28">#28A855F7</item>
+        <item name="playerAccentA2A">#2AA855F7</item>
+        <item name="playerAccentA38">#38A855F7</item>
+        <item name="playerAccentA40">#40A855F7</item>
+        <item name="playerAccentA44">#44A855F7</item>
+        <item name="playerAccentA55">#55A855F7</item>
+        <item name="playerAccentA88">#88A855F7</item>
+    </style>
+
+    <style name="PlayerAccent.Blue" parent="">
+        <item name="playerAccent">#3B82F6</item>
+        <item name="playerAccentDim">#2C60B6</item>
+        <item name="playerAccentA18">#183B82F6</item>
+        <item name="playerAccentA22">#223B82F6</item>
+        <item name="playerAccentA28">#283B82F6</item>
+        <item name="playerAccentA2A">#2A3B82F6</item>
+        <item name="playerAccentA38">#383B82F6</item>
+        <item name="playerAccentA40">#403B82F6</item>
+        <item name="playerAccentA44">#443B82F6</item>
+        <item name="playerAccentA55">#553B82F6</item>
+        <item name="playerAccentA88">#883B82F6</item>
+    </style>
+
+    <style name="PlayerAccent.Teal" parent="">
+        <item name="playerAccent">#14B8A6</item>
+        <item name="playerAccentDim">#0F887B</item>
+        <item name="playerAccentA18">#1814B8A6</item>
+        <item name="playerAccentA22">#2214B8A6</item>
+        <item name="playerAccentA28">#2814B8A6</item>
+        <item name="playerAccentA2A">#2A14B8A6</item>
+        <item name="playerAccentA38">#3814B8A6</item>
+        <item name="playerAccentA40">#4014B8A6</item>
+        <item name="playerAccentA44">#4414B8A6</item>
+        <item name="playerAccentA55">#5514B8A6</item>
+        <item name="playerAccentA88">#8814B8A6</item>
+    </style>
+
+    <style name="PlayerAccent.Green" parent="">
+        <item name="playerAccent">#22C55E</item>
+        <item name="playerAccentDim">#199246</item>
+        <item name="playerAccentA18">#1822C55E</item>
+        <item name="playerAccentA22">#2222C55E</item>
+        <item name="playerAccentA28">#2822C55E</item>
+        <item name="playerAccentA2A">#2A22C55E</item>
+        <item name="playerAccentA38">#3822C55E</item>
+        <item name="playerAccentA40">#4022C55E</item>
+        <item name="playerAccentA44">#4422C55E</item>
+        <item name="playerAccentA55">#5522C55E</item>
+        <item name="playerAccentA88">#8822C55E</item>
     </style>
 </resources>

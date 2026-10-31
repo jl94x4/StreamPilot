@@ -63,14 +63,14 @@ export const Loader: React.FC<{ isLoading: boolean; isCinematic?: boolean }> = (
                             style={{ animation: 'cinematic-draw 2s infinite cubic-bezier(0.4, 0, 0.2, 1)' }}
                             d="M 30 20 L 80 50 L 30 80 Z" 
                             fill="none" 
-                            stroke="var(--plex-color, #e5a00d)" 
+                            stroke="var(--plex-color, rgb(var(--color-plex)))" 
                             strokeWidth="3" 
                             strokeLinejoin="round" 
                             strokeLinecap="round" 
                         />
                         <path 
                             d="M 30 20 L 80 50 L 30 80 Z" 
-                            fill="var(--plex-color, #e5a00d)" 
+                            fill="var(--plex-color, rgb(var(--color-plex)))" 
                             className="animate-pulse opacity-50" 
                         />
                     </svg>

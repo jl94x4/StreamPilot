@@ -8,6 +8,8 @@ import { apiFetch } from '../shared/api';
 import { PlexHomeSwitchModal, type PlexHomeProfile } from '../shared/PlexHomeSwitchModal';
 import { lazyScreen } from '../media-player/lazyScreen';
 import { applyPerfFlags, PlayerPerfOverlay } from '../media-player/PlayerPerfOverlay';
+import { installPlayerAppearance } from '../media-player/playerAppearance';
+import { installNavigationSounds } from '../media-player/navSounds';
 import { PlexClientAuthScreen, PlexClientBootSplash } from './AuthScreen';
 import { firstRunSetupPending, markFirstRunSetup, PlexClientFirstRunSetup } from './FirstRunSetup';
 import { hydratePlexClientAuthStorage } from './authPersistence';
@@ -27,6 +29,9 @@ import { useTvRemote } from './useTvRemote';
 // Its notes are ~45KB; it decides to show after start-up, so it loads alongside, not before.
 // Diagnostics switches (Settings → Display) apply before Home first paints.
 applyPerfFlags();
+// Accent colour before the first paint (no gold flash), and opt-in remote sounds.
+installPlayerAppearance();
+installNavigationSounds();
 
 const ApkWhatsNew = lazyScreen(() => import('./ApkWhatsNew').then((m) => m.ApkWhatsNew));
 

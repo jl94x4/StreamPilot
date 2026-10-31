@@ -73,6 +73,21 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.486': [
+        {
+            title: 'Make it yours',
+            items: [
+                'Accent colour: pick gold, orange, red, pink, purple, blue, teal or green for focus, buttons and progress bars, in the app and the player (Settings → Display)',
+                'Navigation sounds: Soft, Click, Pop, Chime or Retro when you move, select and go back. Off unless you turn them on',
+            ],
+        },
+        {
+            title: 'Player',
+            items: [
+                'A new Up Next card: the episode still, season and episode, runtime, a short synopsis and a countdown ring',
+            ],
+        },
+    ],
     '1.0.485': [
         {
             title: 'TV',

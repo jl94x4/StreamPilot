@@ -4,6 +4,8 @@
  * need @capacitor/core (that dep lives only under plex-client/).
  */
 
+import { readPlayerSettings } from '../media-player/playerSettings';
+
 export type NativePlayerTrackOption = {
     id: string;
     label: string;
@@ -35,7 +37,7 @@ export type NativePlayerSessionPayload = {
         intro?: { startMs: number; endMs: number } | null;
         credits?: { startMs: number; endMs?: number } | null;
     };
-    nextItem?: { ratingKey: string; title?: string; thumb?: string } | null;
+    nextItem?: { ratingKey: string; title?: string; thumb?: string; meta?: string; summary?: string } | null;
     previousItem?: { ratingKey: string; title?: string; thumb?: string } | null;
     /** Credits-end “More like this” strip (native Up Next panel when no next episode). */
     relatedItems?: Array<{ ratingKey: string; title: string; thumb?: string }>;
@@ -259,6 +261,8 @@ export const installNativeMediaPlayerBridge = () => {
                     autoplayNext: opts.autoplayNext !== false,
                     autoSkipIntro: opts.autoSkipIntro === true,
                     autoSkipCredits: opts.autoSkipCredits === true,
+                    // Settings → Accent colour; the player picks its theme overlay from it.
+                    accent: readPlayerSettings().accentColor,
                     sessionJson: opts.session ? JSON.stringify(opts.session) : '',
                 });
                 return {

@@ -102,6 +102,26 @@ export const isPlayerRowMarker = (value: unknown): value is PlayerRowMarker => (
     PLAYER_ROW_MARKERS.includes(String(value || '') as PlayerRowMarker)
 );
 
+/** Highlight colour for focus, buttons and progress bars (app and native player). */
+export type PlayerAccentColor = 'gold' | 'orange' | 'red' | 'pink' | 'purple' | 'blue' | 'teal' | 'green';
+
+export const PLAYER_ACCENT_COLORS: PlayerAccentColor[] = [
+    'gold', 'orange', 'red', 'pink', 'purple', 'blue', 'teal', 'green',
+];
+
+export const isPlayerAccentColor = (value: unknown): value is PlayerAccentColor => (
+    PLAYER_ACCENT_COLORS.includes(String(value || '') as PlayerAccentColor)
+);
+
+/** Sounds when moving around with the remote. Off by default. */
+export type PlayerNavigationSound = 'off' | 'soft' | 'click' | 'pop' | 'chime' | 'retro';
+
+export const PLAYER_NAVIGATION_SOUNDS: PlayerNavigationSound[] = ['off', 'soft', 'click', 'pop', 'chime', 'retro'];
+
+export const isPlayerNavigationSound = (value: unknown): value is PlayerNavigationSound => (
+    PLAYER_NAVIGATION_SOUNDS.includes(String(value || '') as PlayerNavigationSound)
+);
+
 /** Subtitle size choices (%), shared by Settings and the native in-player menu. */
 export const PLAYER_SUBTITLE_SIZES = [50, 60, 75, 100, 125, 150, 200];
 
@@ -419,6 +439,10 @@ export type PlayerSettings = {
     dateFormat: PlayerDateFormat;
     /** Shape before row titles; 'none' lets the title start where the mark was. */
     rowMarker: PlayerRowMarker;
+    /** Highlight colour across the app and the player. */
+    accentColor: PlayerAccentColor;
+    /** Remote navigation sounds; 'off' by default. */
+    navigationSound: PlayerNavigationSound;
     showPlaylists: boolean;
     showBecauseYouWatched: boolean;
     /** Watchlist hub on Home, under Continue Watching. */
@@ -797,6 +821,8 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
     continueWatchingSort: 'releaseDate',
     dateFormat: 'long',
     rowMarker: 'play',
+    accentColor: 'gold',
+    navigationSound: 'off',
     showPlaylists: true,
     showBecauseYouWatched: true,
     showWatchlist: true,
@@ -869,6 +895,8 @@ export const normalizePlayerSettings = (raw: Partial<PlayerSettings> | Record<st
             : 'releaseDate',
         dateFormat: isPlayerDateFormat(raw?.dateFormat) ? raw.dateFormat : 'long',
         rowMarker: isPlayerRowMarker(raw?.rowMarker) ? raw.rowMarker : 'play',
+        accentColor: isPlayerAccentColor(raw?.accentColor) ? raw.accentColor : 'gold',
+        navigationSound: isPlayerNavigationSound(raw?.navigationSound) ? raw.navigationSound : 'off',
         showPlaylists: raw?.showPlaylists !== false,
         showBecauseYouWatched: raw?.showBecauseYouWatched !== false,
         showWatchlist: raw?.showWatchlist !== false,
@@ -965,6 +993,8 @@ export const playerSettingsEqual = (a: PlayerSettings, b: PlayerSettings) => (
     && a.continueWatchingSort === b.continueWatchingSort
     && a.dateFormat === b.dateFormat
     && a.rowMarker === b.rowMarker
+    && a.accentColor === b.accentColor
+    && a.navigationSound === b.navigationSound
     && a.showPlaylists === b.showPlaylists
     && a.showBecauseYouWatched === b.showBecauseYouWatched
     && a.showWatchlist === b.showWatchlist

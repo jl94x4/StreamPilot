@@ -22,6 +22,7 @@ import {
 import { requestBrowseFocusAbs } from '../media-player/playerUtils';
 import { TV_SCREENSAVER_DISMISS_EVENT } from '../media-player/PlayerTvScreensaver';
 import { showNativePlayer } from './nativePlayer';
+import { playNavSound } from '../media-player/navSounds';
 import {
     browseGridMove,
     nearestByMiddleY,
@@ -2093,7 +2094,10 @@ export const handlePhoneBack = (): boolean => {
 
 export const handleAppBack = (): boolean => {
     try {
-        if (isAndroidTvUi()) return handleTvBack();
+        if (isAndroidTvUi()) {
+            playNavSound('back');
+            return handleTvBack();
+        }
         return handlePhoneBack();
     } catch {
         return false;

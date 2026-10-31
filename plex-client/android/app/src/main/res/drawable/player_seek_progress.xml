@@ -27,7 +27,7 @@
         <clip>
             <shape android:shape="rectangle">
                 <corners android:radius="2dp" />
-                <solid android:color="@color/player_accent" />
+                <solid android:color="?attr/playerAccent" />
             </shape>
         </clip>
     </item>

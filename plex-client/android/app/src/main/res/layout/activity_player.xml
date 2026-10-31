@@ -47,7 +47,7 @@
         android:layout_height="43dp"
         android:layout_gravity="center"
         android:indeterminate="true"
-        android:indeterminateTint="@color/player_accent"
+        android:indeterminateTint="?attr/playerAccent"
         android:visibility="gone" />
 
     <TextView
@@ -78,7 +78,7 @@
             android:layout_width="36dp"
             android:layout_height="36dp"
             android:indeterminate="true"
-            android:indeterminateTint="@color/player_accent" />
+            android:indeterminateTint="?attr/playerAccent" />
 
         <TextView
             android:id="@+id/player_burn_message"
@@ -451,7 +451,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginStart="10dp"
                     android:text="1.0×"
-                    android:textColor="@color/player_accent"
+                    android:textColor="?attr/playerAccent"
                     android:textSize="13sp"
                     android:visibility="gone" />
             </LinearLayout>
@@ -636,7 +636,7 @@
 
     <LinearLayout
         android:id="@+id/player_up_next"
-        android:layout_width="304dp"
+        android:layout_width="360dp"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|end"
         android:layout_marginEnd="25dp"
@@ -646,14 +646,35 @@
         android:padding="6dp"
         android:visibility="gone">
 
-        <ImageView
-            android:id="@+id/player_up_next_art"
+        <!-- Episode still with a fade into the card and the countdown ring on top. -->
+        <FrameLayout
+            android:id="@+id/player_up_next_art_frame"
             android:layout_width="match_parent"
-            android:layout_height="171dp"
-            android:background="#33000000"
-            android:contentDescription="@null"
-            android:scaleType="centerCrop"
-            android:visibility="gone" />
+            android:layout_height="196dp"
+            android:visibility="gone">
+
+            <ImageView
+                android:id="@+id/player_up_next_art"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="#33000000"
+                android:contentDescription="@null"
+                android:scaleType="centerCrop" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="72dp"
+                android:layout_gravity="bottom"
+                android:background="@drawable/player_up_next_fade" />
+
+            <com.servermanagerportal.mediaplayer.CountdownRingView
+                android:id="@+id/player_up_next_ring"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_gravity="bottom|end"
+                android:layout_margin="10dp"
+                android:visibility="gone" />
+        </FrameLayout>
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -676,15 +697,39 @@
                 android:textStyle="bold" />
 
             <TextView
-                android:id="@+id/player_up_next_label"
+                android:id="@+id/player_up_next_meta"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
                 android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="?attr/playerAccent"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/player_up_next_label"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:ellipsize="end"
                 android:maxLines="2"
                 android:textColor="@color/player_text_primary"
-                android:textSize="16sp"
+                android:textSize="17sp"
                 android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/player_up_next_summary"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:ellipsize="end"
+                android:lineSpacingExtra="2dp"
+                android:maxLines="3"
+                android:textColor="@color/player_text_secondary"
+                android:textSize="12sp"
+                android:visibility="gone" />
 
             <TextView
                 android:id="@+id/player_up_next_countdown"

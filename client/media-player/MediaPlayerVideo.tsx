@@ -409,7 +409,15 @@ const nativeNextItemPayload = (item?: PlayerItem | null) => {
     const thumb = item.thumb
         ? portalUrl(resizePlexArtUrl(plexImageUrl(item.thumb, 480, 270, { quality: PLAYER_POSTER_QUALITY }), 480, 270))
         : '';
-    return { ratingKey: item.ratingKey, title: item.title, thumb };
+    // Up Next card: "S2 · E5 · 42m" (or "2024 · 1h 52m") and a short synopsis.
+    const minutes = Math.round((Number(item.durationMs) || 0) / 60000);
+    const runtime = minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m` : (minutes > 0 ? `${minutes}m` : '');
+    const code = item.type === 'episode' && item.parentIndex != null && item.index != null
+        ? `S${item.parentIndex} · E${item.index}`
+        : (item.year ? String(item.year) : '');
+    const meta = [code, runtime].filter(Boolean).join(' · ');
+    const summary = String(item.summary || '').trim().slice(0, 260);
+    return { ratingKey: item.ratingKey, title: item.title, thumb, meta, summary };
 };
 
 const bufferedRanges = (video: HTMLVideoElement | null) => {
