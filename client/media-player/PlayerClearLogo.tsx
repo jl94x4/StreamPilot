@@ -22,7 +22,9 @@ type Visual = { from: string; src: string; left: number; top: number; right?: nu
 
 /** Logos narrower than this (width ÷ height of the visible mark) are grown in growSmall slots. */
 const GROW_FULL_RATIO = 3;
-const GROW_MAX = 2;
+/** Grown marks get a little extra on top of the area match (they still read small at parity). */
+const GROW_BOOST = 1.15;
+const GROW_MAX = 2.3;
 
 /**
  * TV details: logos up to this wide (width ÷ height) fill the slot height. Wider wordmarks
@@ -162,7 +164,8 @@ export const PlayerClearLogo: React.FC<Props> = ({ src, alt, className, onError,
         const contentH = Math.max(0.2, 1 - (visual.top || 0) - (visual.bottom || 0));
         const ratio = (natural.w * contentW) / (natural.h * contentH);
         const shape = ratio < GROW_FULL_RATIO ? Math.sqrt(GROW_FULL_RATIO / ratio) : 1;
-        growScale = Math.max(1, Math.min(GROW_MAX, shape / contentH));
+        const grow = shape / contentH;
+        growScale = grow > 1.02 ? Math.min(GROW_MAX, grow * GROW_BOOST) : 1;
     }
 
     const translate = fillSlot
