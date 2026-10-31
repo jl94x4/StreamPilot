@@ -260,6 +260,8 @@ export const isStreamingBrandLabel = (name = '') => {
     const normalized = normalizeCompanyName(name);
     const compact = compactCompanyName(name);
     const core = coreCompanyName(name);
+    // Normalising turns '+' into a space, so read it off the raw label ('Disney+').
+    const plus = /\+|plus/i.test(String(name || ''));
     const key = STREAMING_ALIASES[normalized]
         || STREAMING_ALIASES[compact]
         || STREAMING_ALIASES[core]
@@ -268,13 +270,13 @@ export const isStreamingBrandLabel = (name = '') => {
         return core === 'amazon' || core === 'netflix' || core === 'hulu' || core === 'peacock';
     }
     // Bare theatrical names must not count as streamers.
-    if (key === 'paramount' && !/paramount\s*\+|paramount\s*plus|paramountplus/.test(normalized) && !compact.includes('plus')) {
+    if (key === 'paramount' && !plus) {
         return false;
     }
-    if (key === 'disney' && !normalized.includes('plus') && !compact.includes('plus')) {
+    if (key === 'disney' && !plus) {
         return false;
     }
-    if (key === 'discovery' && !normalized.includes('plus') && !compact.includes('plus') && normalized !== 'discovery') {
+    if (key === 'discovery' && !plus && normalized !== 'discovery') {
         // "Discovery Channel" etc. — only discovery+
         return normalized.includes('discovery plus') || compact === 'discoveryplus' || normalized === 'discovery+';
     }

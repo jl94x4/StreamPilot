@@ -1751,7 +1751,12 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                         title={t('mediaPlayerPage.browseByNetwork')}
                         cards={studioNetworks}
                         keyPrefix="studio-network"
-                        onOpen={(card) => onOpenStudio?.({ key: card.key, name: card.title, sectionKey, mediaType: 'show' })}
+                        onOpen={(card) => onOpenStudio?.({
+                            key: card.key,
+                            name: card.title,
+                            sectionKey,
+                            mediaType: card.facet === 'studio' ? 'movie' : 'show',
+                        })}
                     />
                     <PlayerStudioTiles
                         title={t('mediaPlayerPage.browseByStudio')}

@@ -75,7 +75,6 @@ export const PlayerStudioTiles: React.FC<Props> = ({ title, cards, keyPrefix, on
                                             logoPath={card.logoPath}
                                             alt={card.title}
                                             width={780}
-                                            tone="light"
                                             loading={index < 9 ? 'eager' : 'lazy'}
                                             className="player-studio-tile-logo"
                                         />

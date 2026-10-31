@@ -27,7 +27,7 @@ import {
     STUDIO_BROWSE_CAP,
 } from '../../lib/media-player/studioBrowse.js';
 import { DISCOVER_NETWORKS, DISCOVER_NETWORKS_EXTRA, DISCOVER_STUDIOS, DISCOVER_STUDIOS_EXTRA } from '../discovery/discoverConstants';
-import { companyMatchScreen, matchDiscoverCompanyByName } from '../media-player/studioLogo.js';
+import { companyMatchScreen, isStreamingBrandLabel, matchDiscoverCompanyByName } from '../media-player/studioLogo.js';
 
 /** Every studio / network tag in a section (Plex lists them A–Z, so a capped fetch stops at "A"). */
 const STUDIO_FACET_FETCH = 5000;
@@ -6374,8 +6374,20 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                 facet('studio'),
                 facet('network'),
             ]);
-            const studios = pickStudioBrowseCards(studioFacet, DISCOVER_STUDIOS, DISCOVER_STUDIOS_EXTRA);
-            const networks = pickStudioBrowseCards(networkFacet, DISCOVER_NETWORKS, DISCOVER_NETWORKS_EXTRA);
+            let studios: Array<ReturnType<typeof pickStudioBrowseCards>[number] & { facet?: 'studio' | 'network' }> = pickStudioBrowseCards(studioFacet, DISCOVER_STUDIOS, DISCOVER_STUDIOS_EXTRA);
+            let networks: typeof studios = pickStudioBrowseCards(networkFacet, DISCOVER_NETWORKS, DISCOVER_NETWORKS_EXTRA);
+            let networkParam = 'network';
+            if (!networks.length) {
+                // Movies have no network tags; Netflix, Prime Video, Apple… are filed as studios.
+                networkParam = 'studio';
+                networks = pickStudioBrowseCards(
+                    studioFacet.filter((row) => isStreamingBrandLabel(row.title)),
+                    DISCOVER_NETWORKS,
+                    DISCOVER_NETWORKS_EXTRA,
+                ).map((card) => ({ ...card, facet: 'studio' as const }));
+                const streamers = new Set(networks.map((card) => card.key));
+                studios = studios.filter((card) => !streamers.has(card.key));
+            }
             const sampleFor = (param: string) => async (card: { key: string }) => {
                 const listed = await pms(
                     `/library/sections/${encodeURIComponent(section)}/all?${typeQs}${encodeURIComponent(param)}=${encodeURIComponent(card.key)}&sort=audienceRating:desc&X-Plex-Container-Start=0&X-Plex-Container-Size=1`,
@@ -6388,7 +6400,7 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                 return { art: item.art || null, thumb: item.thumb || null };
             };
             await Promise.all([
-                fillStudioBrowseArt(networks, sampleFor('network'), STUDIO_BROWSE_ART_CONCURRENCY),
+                fillStudioBrowseArt(networks, sampleFor(networkParam), STUDIO_BROWSE_ART_CONCURRENCY),
                 fillStudioBrowseArt(studios, sampleFor('studio'), STUDIO_BROWSE_ART_CONCURRENCY),
             ]);
             return { networks, studios };

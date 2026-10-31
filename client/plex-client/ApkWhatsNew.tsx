@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.514': [
+        {
+            title: 'Libraries',
+            items: [
+                'Studio and network logos keep their original colours instead of being turned white',
+                'Movie libraries now show a Networks row on Studios too: Netflix, Prime Video, Apple TV+ and the other streamers your films come from',
+            ],
+        },
+    ],
     '1.0.513': [
         {
             title: 'Libraries',

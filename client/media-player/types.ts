@@ -331,6 +331,8 @@ export type PlayerLibraryFilterOption = { key: string; title: string };
 export type PlayerStudioBrowseCard = {
     key: string;
     title: string;
+    /** Plex tag the key belongs to; movie libraries file streamers (Netflix…) under studio. */
+    facet?: 'studio' | 'network';
     logoPath?: string | null;
     art?: string | null;
     thumb?: string | null;
