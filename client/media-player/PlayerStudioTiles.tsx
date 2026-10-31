@@ -1,5 +1,6 @@
 import React from 'react';
-import { DiscoverSectionHeader, DiscoveryLogo, RowHeaderMark, SkeletonBlock } from './host';
+import { DiscoverSectionHeader, RowHeaderMark, SkeletonBlock } from './host';
+import { PlayerWhiteLogo } from './PlayerWhiteLogo';
 import { plexImageUrl } from './playerUtils';
 import type { PlayerStudioBrowseCard } from './types';
 
@@ -71,12 +72,9 @@ export const PlayerStudioTiles: React.FC<Props> = ({ title, cards, keyPrefix, on
                                 <span className="player-studio-tile-wash" aria-hidden />
                                 <span className="player-studio-tile-mark">
                                     {card.logoPath ? (
-                                        <DiscoveryLogo
+                                        <PlayerWhiteLogo
                                             logoPath={card.logoPath}
                                             alt={card.title}
-                                            width={780}
-                                            tone="light"
-                                            loading={index < 9 ? 'eager' : 'lazy'}
                                             className="player-studio-tile-logo"
                                         />
                                     ) : (
