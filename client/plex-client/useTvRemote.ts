@@ -759,7 +759,11 @@ const focusItem = (el: HTMLElement, block: ScrollLogicalPosition = 'nearest', di
         el.focus();
     }
     syncPosterFocusAttr();
-    if (el.closest('[data-tv-sticky-header="1"]')) return;
+    const stickyHeader = el.closest<HTMLElement>('[data-tv-sticky-header="1"]');
+    if (stickyHeader) {
+        scrollEl(stickyHeader, 'start');
+        return;
+    }
     if (el.closest('[data-tv-search="1"]')) {
         const body = el.closest<HTMLElement>('[data-tv-search-body="1"]');
         // Query and keyboard stay pinned. Vertical moves scroll the list only —

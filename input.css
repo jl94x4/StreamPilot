@@ -6486,14 +6486,14 @@ html[data-tv="1"] [data-tv-poster-btn="1"][data-tv-focused="1"]:focus-visible .p
 /* TV library (Browse / Collections / Studios): title, tabs and toolbar stay pinned; content scrolls under. */
 /* TV library (Browse / Collections / Studios): the page itself stops scrolling and the body
    under the header scrolls instead. Sticky and scroll-synced pinning both drift under TV zoom. */
-html[data-tv="1"] #media-player-scroll:has(> div > div:not([hidden]) > [data-tv-library-pinned="1"]) {
+html[data-tv="1"][data-tv-library-pinned="1"] #media-player-scroll {
   display: flex !important;
   flex-direction: column !important;
   overflow: hidden !important;
   padding-bottom: 0 !important;
 }
-html[data-tv="1"] #media-player-scroll:has(> div > div:not([hidden]) > [data-tv-library-pinned="1"]) > div,
-html[data-tv="1"] #media-player-scroll:has(> div > div:not([hidden]) > [data-tv-library-pinned="1"]) > div > div:not([hidden]) {
+html[data-tv="1"][data-tv-library-pinned="1"] #media-player-scroll > div,
+html[data-tv="1"][data-tv-library-pinned="1"] #media-player-scroll > div > div:not([hidden]):not(.hidden) {
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;

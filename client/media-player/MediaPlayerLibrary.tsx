@@ -1176,6 +1176,17 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
         if (body) body.scrollTop = 0;
     }, [active, sectionKey, tab, tvShell]);
 
+    // Stop the page scrolling so only the body under the header does. Set on <html> rather than
+    // matched with :has() — older TV WebViews don't support it.
+    useEffect(() => {
+        if (!tvShell || !active || tab === 'home') return undefined;
+        const html = document.documentElement;
+        html.dataset.tvLibraryPinned = '1';
+        return () => {
+            delete html.dataset.tvLibraryPinned;
+        };
+    }, [active, tab, tvShell]);
+
     const libraryChrome = (
         <div className="player-library-header flex flex-col gap-5">
             <div className="flex flex-wrap items-end justify-between gap-3">
