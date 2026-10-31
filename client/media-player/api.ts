@@ -1193,6 +1193,13 @@ export const fetchLiveTvGuide = (opts: { hours?: number; serverId?: string | nul
     }>;
 };
 
+/** A wide backdrop for a guide title that only has a poster (TMDB, cached). */
+export const fetchLiveTvBackdrop = (title: string, show: boolean, year?: string | number | null) => {
+    const qs = new URLSearchParams({ title, show: show ? '1' : '0' });
+    if (year) qs.set('year', String(year));
+    return apiFetch(`${PLAYER_API_ROOT}/livetv/backdrop?${qs}`) as Promise<{ url: string | null }>;
+};
+
 export const fetchLiveTvOnNow = (serverId?: string | null) => {
     const qs = serverId ? `?server=${encodeURIComponent(serverId)}` : '';
     return apiFetch(`${PLAYER_API_ROOT}/livetv/onnow${qs}`) as Promise<{ items: PlayerItem[] }>;

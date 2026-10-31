@@ -1,7 +1,7 @@
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { Play, Radio, X } from 'lucide-react';
 import { useDiscoverI18n } from './host';
-import { fetchLiveTvGuide, fetchLiveTvOnNow, fetchLiveTvSources } from './api';
+import { fetchLiveTvBackdrop, fetchLiveTvGuide, fetchLiveTvOnNow, fetchLiveTvSources } from './api';
 import { plexImageUrl } from './playerUtils';
 import { isLanHttpImage, loadLanImage } from './lanImage';
 import type { PlayerItem, PlayerPlayOptions } from './types';
@@ -122,6 +122,11 @@ const lengthLabel = (seconds: number) => {
     return h ? `${h}h${m ? ` ${m}m` : ''}` : `${m}m`;
 };
 
+/** Title → wide backdrop (null: none found). Shared across visits to Live TV. */
+const heroBackdrops = new Map<string, string | null>();
+/** Wait for focus to settle before looking a title up, so flicking through the guide stays light. */
+const HERO_BACKDROP_DELAY_MS = 400;
+
 /**
  * The big panel at the top of Live TV: whatever is focused below (a poster or a guide cell).
  * It keeps its own state, so moving focus never re-renders the guide grid or poster rows.
@@ -137,6 +142,39 @@ const LiveHero = React.memo(forwardRef<HeroHandle, { initial: PlayerItem | null;
             const id = window.setInterval(() => setNowSec(Math.floor(Date.now() / 1000)), 30_000);
             return () => window.clearInterval(id);
         }, []);
+        // Guide titles often have only a poster: fetch the show's wide backdrop for behind it.
+        const hasWideArt = Boolean(airing?.art && airing.art !== airing.thumb);
+        const isShow = Boolean(airing?.showTitle || airing?.episodeTitle);
+        const lookupTitle = airing ? String((isShow ? airing.showTitle : '') || airing.title || '').trim() : '';
+        const lookupKey = `${isShow ? 'tv' : 'movie'}:${lookupTitle.toLowerCase()}`;
+        const [backdrop, setBackdrop] = useState<string | null>(null);
+        useEffect(() => {
+            if (hasWideArt || !lookupTitle) {
+                setBackdrop(null);
+                return undefined;
+            }
+            if (heroBackdrops.has(lookupKey)) {
+                setBackdrop(heroBackdrops.get(lookupKey) || null);
+                return undefined;
+            }
+            setBackdrop(null);
+            let cancelled = false;
+            const year = airing?.year;
+            const timer = window.setTimeout(() => {
+                void fetchLiveTvBackdrop(lookupTitle, isShow, year)
+                    .then((res) => res?.url || null)
+                    .catch(() => null)
+                    .then((url) => {
+                        heroBackdrops.set(lookupKey, url);
+                        if (!cancelled) setBackdrop(url);
+                    });
+            }, HERO_BACKDROP_DELAY_MS);
+            return () => {
+                cancelled = true;
+                window.clearTimeout(timer);
+            };
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [hasWideArt, lookupKey]);
         if (!airing) return <div className={`smp-live-hero is-empty${compact ? ' is-compact' : ''}`} aria-hidden />;
         const from = Number(airing.liveStartsAt || 0);
         const to = Number(airing.liveEndsAt || 0);
@@ -164,8 +202,8 @@ const LiveHero = React.memo(forwardRef<HeroHandle, { initial: PlayerItem | null;
                 {/* Tunarr guides have posters but no wide art: the poster then fills the
                     backdrop too (same cached image, no blur, so cheap on TV sticks). */}
                 <LiveImg
-                    src={airing.art || airing.thumb}
-                    className={`smp-live-hero-art${airing.art ? '' : ' is-poster'}`}
+                    src={(hasWideArt ? airing.art : backdrop) || airing.art || airing.thumb}
+                    className={`smp-live-hero-art${hasWideArt || backdrop ? '' : ' is-poster'}`}
                 />
                 <div className="smp-live-hero-fade" aria-hidden />
                 <div className="smp-live-hero-copy">

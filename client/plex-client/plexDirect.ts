@@ -5225,6 +5225,61 @@ const libraryArtForLiveTitle = async (
     return null;
 };
 
+/** Live TV hero: wide backdrop for a guide title that has only a poster. Cached per title. */
+const liveBackdropCache = new Map<string, string | null>();
+const TMDB_BACKDROP_BASE = 'https://image.tmdb.org/t/p/w1280';
+
+const pickTmdbBackdrop = (results: unknown, title: string, mediaType: 'tv' | 'movie') => {
+    const rows = Array.isArray(results) ? results as Array<Record<string, unknown>> : [];
+    const wanted = title.trim().toLowerCase();
+    const nameOf = (row: Record<string, unknown>) => String(row.name || row.title || row.original_name || row.originalName || '').trim().toLowerCase();
+    const typeOf = (row: Record<string, unknown>) => String(row.media_type || row.mediaType || mediaType);
+    const backdropOf = (row: Record<string, unknown>) => String(row.backdrop_path || row.backdropPath || '').trim();
+    const usable = rows.filter((row) => backdropOf(row) && (typeOf(row) === 'tv' || typeOf(row) === 'movie'));
+    const ordered = [
+        ...usable.filter((row) => nameOf(row) === wanted && typeOf(row) === mediaType),
+        ...usable.filter((row) => nameOf(row) === wanted),
+        ...usable.filter((row) => typeOf(row) === mediaType),
+    ];
+    const path = ordered.length ? backdropOf(ordered[0]) : '';
+    return path ? `${TMDB_BACKDROP_BASE}${path.startsWith('/') ? '' : '/'}${path}` : null;
+};
+
+const liveBackdropForTitle = async (title: string, show: boolean, year: string) => {
+    const mediaType: 'tv' | 'movie' = show ? 'tv' : 'movie';
+    const portal = String(readStoredPortalBaseUrl() || '').replace(/\/+$/, '');
+    const token = String(getSessionToken() || '').trim();
+    if (portal && token) {
+        const res = await fetch(
+            `${portal}/api/discovery/proxy/search?query=${encodeURIComponent(title)}`,
+            {
+                headers: {
+                    Accept: 'application/json',
+                    'X-Requested-With': 'ServerManagerPortal',
+                    Authorization: `Bearer ${token}`,
+                },
+                cache: 'no-store',
+            },
+        ).catch(() => null);
+        if (res?.ok) {
+            const payload = await res.json().catch(() => null) as { results?: unknown } | null;
+            const hit = pickTmdbBackdrop(payload?.results, title, mediaType);
+            if (hit) return hit;
+        }
+    }
+    const key = readTmdbApiKey();
+    if (!key) return null;
+    const yearParam = /^\d{4}$/.test(year)
+        ? `&${show ? 'first_air_date_year' : 'year'}=${year}`
+        : '';
+    const res = await fetch(
+        `https://api.themoviedb.org/3/search/${mediaType}?api_key=${encodeURIComponent(key)}&query=${encodeURIComponent(title)}${yearParam}`,
+    ).catch(() => null);
+    if (!res?.ok) return null;
+    const json = await res.json().catch(() => null) as { results?: unknown } | null;
+    return pickTmdbBackdrop(json?.results, title, mediaType);
+};
+
 const enrichLiveAiringsWithLibraryArt = async (
     items: Array<Record<string, unknown>>,
     server: PlexServer,
@@ -6633,6 +6688,17 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
             return out;
         }));
         return { startsAt, endsAt, guides: groups.flat() };
+    }
+    if (path === '/api/media-player/livetv/backdrop') {
+        const title = String(query.get('title') || '').trim();
+        if (!title) return { url: null };
+        const show = query.get('show') === '1';
+        const year = String(query.get('year') || '').trim();
+        const cacheKey = `${show ? 'tv' : 'movie'}:${title.toLowerCase()}`;
+        if (liveBackdropCache.has(cacheKey)) return { url: liveBackdropCache.get(cacheKey) || null };
+        const url = await liveBackdropForTitle(title, show, year).catch(() => null);
+        liveBackdropCache.set(cacheKey, url);
+        return { url };
     }
     if (path === '/api/media-player/livetv/onnow') {
         await ensureServers();
