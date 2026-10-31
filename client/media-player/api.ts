@@ -1,6 +1,6 @@
 import { apiErrorMessage, apiFetch, PORTAL_CSRF_HEADER, PORTAL_CSRF_VALUE } from '../shared/api';
 import { portalUrl } from '../shared/basePath';
-import { DISCOVER_NETWORKS, DISCOVER_STUDIOS } from '../discovery/discoverConstants';
+import { DISCOVER_NETWORKS, DISCOVER_NETWORKS_EXTRA, DISCOVER_STUDIOS, DISCOVER_STUDIOS_EXTRA } from '../discovery/discoverConstants';
 import { pickTmdbPersonMatch, personCreditYear, splitPersonCredits } from '../discovery/personCredits';
 import { preferStudioBrowseLogos } from '../../lib/media-player/studioBrowse.js';
 import {
@@ -352,8 +352,8 @@ export const fetchMediaPlayerLibraryStudios = async (sectionKey: string) => {
         priority,
     );
     return {
-        networks: attachLogo(data?.networks, DISCOVER_NETWORKS, NETWORK_BROWSE_PRIORITY),
-        studios: attachLogo(data?.studios, DISCOVER_STUDIOS, STUDIO_BROWSE_PRIORITY),
+        networks: attachLogo(data?.networks, [...DISCOVER_NETWORKS, ...DISCOVER_NETWORKS_EXTRA], NETWORK_BROWSE_PRIORITY),
+        studios: attachLogo(data?.studios, [...DISCOVER_STUDIOS, ...DISCOVER_STUDIOS_EXTRA], STUDIO_BROWSE_PRIORITY),
     } as PlayerLibraryStudios;
 };
 

@@ -73,6 +73,16 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.504': [
+        {
+            title: 'Libraries',
+            items: [
+                'Studios tiles are smaller (four across) with no shadow on the logos',
+                'Over 100 more studio, network and streaming logos (Lucasfilm, Touchstone, StudioCanal, FX, Syfy, Crunchyroll, Sky One and more)',
+                'Scrolling down through Studios no longer gets stuck on the third row',
+            ],
+        },
+    ],
     '1.0.503': [
         {
             title: 'Libraries',

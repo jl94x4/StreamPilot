@@ -33,7 +33,7 @@ export const PlayerStudioTiles: React.FC<Props> = ({ title, cards, keyPrefix, on
         <section className="flex min-w-0 max-w-full flex-col gap-4">
             <DiscoverSectionHeader title={title} />
             <div
-                className="player-studio-tiles grid grid-cols-3 gap-7"
+                className="player-studio-tiles grid grid-cols-4 gap-6"
                 data-tv-rail="1"
                 data-tv-poster-rail="1"
                 data-tv-poster-grid="1"
@@ -41,9 +41,10 @@ export const PlayerStudioTiles: React.FC<Props> = ({ title, cards, keyPrefix, on
                 {cards.map((card, index) => {
                     const art = card.art || card.thumb;
                     const artUrl = art ? plexImageUrl(art, 640, 360, { quality: 70 }) : '';
+                    // The card wrapper is what the remote scrolls into view (not the whole grid).
                     return (
+                        <div key={`${keyPrefix}-${card.key}-${card.title}`} data-tv-poster-card="1" className="min-w-0">
                         <button
-                            key={`${keyPrefix}-${card.key}-${card.title}`}
                             type="button"
                             data-tv-item="1"
                             data-tv-poster-btn="1"
@@ -84,6 +85,7 @@ export const PlayerStudioTiles: React.FC<Props> = ({ title, cards, keyPrefix, on
                                 </span>
                             </div>
                         </button>
+                        </div>
                     );
                 })}
             </div>

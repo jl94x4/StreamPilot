@@ -6466,15 +6466,13 @@ html[data-tv="1"] .player-studio-tile-logo {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
-  filter: drop-shadow(0 4px 14px rgba(0, 0, 0, 0.45));
 }
 html[data-tv="1"] .player-studio-tile-name {
   color: #fff;
-  font-size: calc(1.5rem * var(--tv-text-scale, 1));
+  font-size: calc(1.2rem * var(--tv-text-scale, 1));
   font-weight: 800;
   line-height: 1.15;
   text-align: center;
-  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;

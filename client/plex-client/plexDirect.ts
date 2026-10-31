@@ -26,7 +26,7 @@ import {
     STUDIO_BROWSE_ART_CONCURRENCY,
     STUDIO_BROWSE_CAP,
 } from '../../lib/media-player/studioBrowse.js';
-import { DISCOVER_NETWORKS, DISCOVER_STUDIOS } from '../discovery/discoverConstants';
+import { DISCOVER_NETWORKS, DISCOVER_NETWORKS_EXTRA, DISCOVER_STUDIOS, DISCOVER_STUDIOS_EXTRA } from '../discovery/discoverConstants';
 import { companyAliasKey, matchDiscoverCompanyByName } from '../media-player/studioLogo.js';
 
 /** Library Studios: brands with a logo first, one card per brand, then the rest A–Z. */
@@ -6356,8 +6356,8 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                 facet('studio'),
                 facet('network'),
             ]);
-            const studios = pickStudioBrowseCards(studioFacet, DISCOVER_STUDIOS);
-            const networks = pickStudioBrowseCards(networkFacet, DISCOVER_NETWORKS);
+            const studios = pickStudioBrowseCards(studioFacet, [...DISCOVER_STUDIOS, ...DISCOVER_STUDIOS_EXTRA]);
+            const networks = pickStudioBrowseCards(networkFacet, [...DISCOVER_NETWORKS, ...DISCOVER_NETWORKS_EXTRA]);
             const sampleFor = (param: string) => async (card: { key: string }) => {
                 const listed = await pms(
                     `/library/sections/${encodeURIComponent(section)}/all?${typeQs}${encodeURIComponent(param)}=${encodeURIComponent(card.key)}&sort=audienceRating:desc&X-Plex-Container-Start=0&X-Plex-Container-Size=1`,
