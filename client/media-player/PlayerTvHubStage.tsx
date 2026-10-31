@@ -3,6 +3,7 @@ import { Check } from 'lucide-react';
 import { fetchMediaPlayerItem, prefetchMediaPlayerItem } from './api';
 import { peekRememberedTvFocusKey, pinTvRailItemToSlot, visibleHomeStage } from '../plex-client/useTvRemote';
 import { homeRailPosterDensity, PlayerTvHomeStageSkeleton } from './host';
+import { CommonSenseMediaIcon } from './CommonSenseMediaIcon';
 import { PlayerClearLogo } from './PlayerClearLogo';
 import { PlayerServiceBrandMark } from './PlayerServiceBrandMark';
 import { PlayerTvRowStack } from './PlayerRail';
@@ -236,6 +237,12 @@ export const PlayerTvSpot: React.FC<{ item: PlayerItem | null }> = ({ item }) =>
     const year = item.type === 'episode' ? '' : (item.year ? String(item.year) : '');
     // Each its own part, so every one gets a separator (S17 E4 · Title · Date · 48m · TV-14).
     const meta = [epCode, episodeTitle, date || year, duration, rating].filter(Boolean);
+    const csm = item.commonSenseMedia;
+    const csmLabel = String(csm?.ageLabel || '').trim();
+    const csmTitle = csm?.oneLiner
+        || (csmLabel
+            ? `Common Sense Media${csm?.stars != null ? ` · ${csm.stars}/5` : ''}`
+            : '');
     const cast = (item.cast || []).slice(0, 4).map((row) => row.name).filter(Boolean).join(', ');
     return (
         <div className="player-home-spot-stage" aria-live="polite">
@@ -257,7 +264,7 @@ export const PlayerTvSpot: React.FC<{ item: PlayerItem | null }> = ({ item }) =>
                     <h2 className="player-home-spot-title">{title}</h2>
                 )}
                 {!epLine && tagline ? <p className="player-home-spot-tagline">{tagline}</p> : null}
-                {item.watched || meta.length ? (
+                {item.watched || meta.length || csmLabel ? (
                     <p className="player-home-spot-meta">
                         {item.watched ? (
                             <span className="player-home-spot-watched">
@@ -267,7 +274,7 @@ export const PlayerTvSpot: React.FC<{ item: PlayerItem | null }> = ({ item }) =>
                         ) : null}
                         {meta.map((part, index) => (
                             <React.Fragment key={`${index}:${part}`}>
-                                {index > 0 ? <span className="player-home-spot-meta-sep" aria-hidden="true">·</span> : null}
+                                {(index > 0 || item.watched) ? <span className="player-home-spot-meta-sep" aria-hidden="true">·</span> : null}
                                 <span
                                 className={part === episodeTitle
                                     ? 'player-home-spot-meta-title'
@@ -277,6 +284,17 @@ export const PlayerTvSpot: React.FC<{ item: PlayerItem | null }> = ({ item }) =>
                             </span>
                             </React.Fragment>
                         ))}
+                        {csmLabel ? (
+                            <>
+                                {(item.watched || meta.length) ? (
+                                    <span className="player-home-spot-meta-sep" aria-hidden="true">·</span>
+                                ) : null}
+                                <span className="player-home-spot-csm" title={csmTitle || undefined}>
+                                    <CommonSenseMediaIcon />
+                                    <span>{csmLabel}</span>
+                                </span>
+                            </>
+                        ) : null}
                     </p>
                 ) : null}
                 {summary ? <p className="player-home-spot-summary">{summary}</p> : null}
@@ -345,6 +363,7 @@ export const PlayerTvHubStage: React.FC<Props> = ({
             parentIndex: base.parentIndex ?? extra.parentIndex,
             index: base.index ?? extra.index,
             summary: pickRicherSummary(base.summary, extra.summary),
+            commonSenseMedia: extra.commonSenseMedia || base.commonSenseMedia,
             ratingKey: base.ratingKey,
             parentRatingKey: base.parentRatingKey || extra.parentRatingKey,
             grandparentRatingKey: base.grandparentRatingKey || extra.grandparentRatingKey,
@@ -352,15 +371,25 @@ export const PlayerTvHubStage: React.FC<Props> = ({
     }, [tvActiveRow, tvFocusKey, tvSpotExtra]);
 
     // Several new episodes arrive as one season card with no synopsis: borrow the show's overview.
-    const tvSpotShowKey = tvSpotMerged && !String(tvSpotMerged.summary || '').trim()
-        ? String((tvSpotMerged.type === 'season' ? tvSpotMerged.parentRatingKey : tvSpotMerged.grandparentRatingKey) || '')
+    const tvSpotShowKey = tvSpotMerged && (
+        !String(tvSpotMerged.summary || '').trim() || !tvSpotMerged.commonSenseMedia?.ageLabel
+    )
+        ? String((tvSpotMerged.type === 'season' || tvSpotMerged.type === 'episode'
+            ? (tvSpotMerged.type === 'season' ? tvSpotMerged.parentRatingKey : tvSpotMerged.grandparentRatingKey)
+            : '') || '')
         : '';
-    const tvSpotShowSummary = tvSpotShowKey
-        ? String(tvSpotExtra[spotExtraKey(tvSpotMerged?.serverId, tvSpotShowKey)]?.summary || '').trim()
-        : '';
-    const tvSpotItem = useMemo(() => (
-        tvSpotMerged && tvSpotShowSummary ? { ...tvSpotMerged, summary: tvSpotShowSummary } : tvSpotMerged
-    ), [tvSpotMerged, tvSpotShowSummary]);
+    const tvSpotShowMeta = tvSpotShowKey
+        ? tvSpotExtra[spotExtraKey(tvSpotMerged?.serverId, tvSpotShowKey)]
+        : null;
+    const tvSpotShowSummary = String(tvSpotShowMeta?.summary || '').trim();
+    const tvSpotShowCsm = tvSpotShowMeta?.commonSenseMedia;
+    const tvSpotItem = useMemo(() => {
+        if (!tvSpotMerged) return null;
+        const next = { ...tvSpotMerged };
+        if (!String(next.summary || '').trim() && tvSpotShowSummary) next.summary = tvSpotShowSummary;
+        if (!next.commonSenseMedia?.ageLabel && tvSpotShowCsm?.ageLabel) next.commonSenseMedia = tvSpotShowCsm;
+        return next;
+    }, [tvSpotMerged, tvSpotShowSummary, tvSpotShowCsm]);
 
     useEffect(() => {
         if (!active || !tvSpotShowKey) return undefined;

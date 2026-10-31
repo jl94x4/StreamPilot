@@ -18,7 +18,12 @@ import {
     NATIVE_COPY_AUDIO_CODECS,
     subtitleCodecNeedsBurn,
 } from '../../lib/media-player/directPlayCaps.js';
-import { buildGenreRelatedHubs, mapPoolLimited } from '../../lib/media-player/mapItem.js';
+import {
+    applyLibraryNavOrderToHubs,
+    buildGenreRelatedHubs,
+    mapPoolLimited,
+    normalizeLibraryNavOrder,
+} from '../../lib/media-player/mapItem.js';
 import { isSubtitleStreamRow, subtitleCodecFromStream, subtitleTrackLabel } from '../../lib/media-player/subtitleLabel.js';
 import {
     fillStudioBrowseArt,
@@ -945,30 +950,96 @@ const mapRatings = (meta: PlexMeta) => {
     return { ids, ratings: out };
 };
 
+/** Plex CommonSenseMedia / AgeRating node → official age badge + stars / 5. */
+const mapCommonSenseMediaRoot = (root: PlexMeta | null | undefined) => {
+    if (!root || typeof root !== 'object') return null;
+    const ages = asList<PlexMeta>(root.AgeRating).concat(asList<PlexMeta>((root as any).ageRatings));
+    const official = ages.find((row) => String(row?.type || '').toLowerCase() === 'official')
+        || ages[0]
+        || null;
+    // Some payloads put the official age on the CommonSenseMedia node itself.
+    const ageRaw = official?.age ?? (root as any).age ?? (root as any).ageRating;
+    const starsRaw = official?.rating ?? (root as any).rating ?? (root as any).stars;
+    const ageNum = Number(ageRaw);
+    const starsNum = Number(starsRaw);
+    const age = Number.isFinite(ageNum) && ageNum > 0 ? Math.round(ageNum) : null;
+    const stars = Number.isFinite(starsNum) && starsNum > 0 ? starsNum : null;
+    if (age == null && stars == null) return null;
+    return {
+        age,
+        // Match commonsensemedia.org badge copy: "age 7+"
+        ageLabel: age != null ? `age ${age}+` : null,
+        stars,
+        ageGroup: String(official?.ageGroup || (root as any).ageGroup || '').trim() || null,
+        oneLiner: String(root.oneLiner || '').trim() || null,
+    };
+};
+
 /** Plex CommonSenseMedia → official AgeRating (age badge + stars / 5). */
 const mapCommonSenseMedia = (meta: PlexMeta) => {
     const root = asList<PlexMeta>(meta.CommonSenseMedia)[0]
         || (meta.CommonSenseMedia && typeof meta.CommonSenseMedia === 'object'
             ? meta.CommonSenseMedia as PlexMeta
             : null);
-    if (!root) return null;
-    const ages = asList<PlexMeta>((root as PlexMeta).AgeRating);
-    const official = ages.find((row) => String(row?.type || '').toLowerCase() === 'official')
-        || ages[0]
-        || null;
-    if (!official) return null;
-    const ageNum = Number(official.age);
-    const starsNum = Number(official.rating);
-    const age = Number.isFinite(ageNum) && ageNum > 0 ? Math.round(ageNum) : null;
-    const stars = Number.isFinite(starsNum) && starsNum > 0 ? starsNum : null;
-    if (age == null && stars == null) return null;
-    return {
-        age,
-        ageLabel: age != null ? `${age}+` : null,
-        stars,
-        ageGroup: String(official.ageGroup || '').trim() || null,
-        oneLiner: String((root as PlexMeta).oneLiner || '').trim() || null,
-    };
+    return mapCommonSenseMediaRoot(root);
+};
+
+/** plex://movie|show|…/<id> from the primary guid or Guid list. */
+const plexMetadataGuidKey = (meta: PlexMeta) => {
+    const candidates = [
+        String(meta.guid || '').trim(),
+        ...asList<PlexMeta>(meta.Guid).map((row) => String(row?.id || '').trim()),
+    ];
+    for (const guid of candidates) {
+        if (!guid.startsWith('plex://')) continue;
+        const id = guid.split('/').pop() || '';
+        if (id) return id;
+    }
+    return '';
+};
+
+/**
+ * Resolve Plex Common Sense Media for movies and shows the same way:
+ * embedded AgeRating → CSM tag key on the PMS → metadata.provider.
+ */
+const enrichCommonSenseMedia = async (meta: PlexMeta, server: PlexServer | null) => {
+    const local = mapCommonSenseMedia(meta);
+    if (local?.ageLabel) return local;
+    const root = asList<PlexMeta>(meta.CommonSenseMedia)[0]
+        || (meta.CommonSenseMedia && typeof meta.CommonSenseMedia === 'object'
+            ? meta.CommonSenseMedia as PlexMeta
+            : null);
+    const csmKey = String(root?.key || '').trim();
+    if (server && csmKey.startsWith('/')) {
+        const data = await pms(csmKey, server, 4000).catch(() => null);
+        const container = containerOf(data);
+        const fromKey = mapCommonSenseMediaRoot(
+            asList<PlexMeta>(container.CommonSenseMedia)[0]
+            || asList<PlexMeta>((data as any)?.CommonSenseMedia)[0]
+            || (data && typeof data === 'object' && (data as any).AgeRating ? data as PlexMeta : null)
+            || root,
+        );
+        if (fromKey?.ageLabel) return fromKey;
+    }
+    const guidKey = plexMetadataGuidKey(meta);
+    if (!guidKey) return local;
+    const tokens = [...new Set([readOwnerToken(), accountToken(), server?.accessToken]
+        .map((value) => String(value || '').trim())
+        .filter(Boolean))];
+    for (const token of tokens) {
+        const data = await providerFetch(
+            `https://metadata.provider.plex.tv/library/metadata/${encodeURIComponent(guidKey)}/commonsensemedia`,
+            token,
+        ).catch(() => null);
+        const container = containerOf(data);
+        const fromProvider = mapCommonSenseMediaRoot(
+            asList<PlexMeta>(container.CommonSenseMedia)[0]
+            || asList<PlexMeta>((data as any)?.CommonSenseMedia)[0]
+            || (data && typeof data === 'object' ? data as PlexMeta : null),
+        );
+        if (fromProvider?.ageLabel) return fromProvider;
+    }
+    return local;
 };
 
 /** Unique watched episodes. Rewatches do not push the count past the episode total. */
@@ -3310,7 +3381,7 @@ const hubsFrom = (data: any, server: PlexServer, many: boolean) => {
                 ? listPath
                 : '';
             if (randomOrder && hubPath) hubPath = withPlexSortParam(hubPath, 'random');
-            return {
+            return stampMappedHubSection({
                 title: String(hub.title || identifier || 'Hub'),
                 identifier,
                 items: randomOrder && items.length > 1 ? shuffleItems(items) : items,
@@ -3318,7 +3389,7 @@ const hubsFrom = (data: any, server: PlexServer, many: boolean) => {
                 collectionRatingKey: collectionRatingKeyFromHub(hub) || null,
                 randomOrder: randomOrder as boolean | undefined,
                 serverId: server.id,
-            };
+            });
         }).filter((hub) => hub.items.length && hub.title);
     } finally {
         mapServer = previous;
@@ -3426,6 +3497,58 @@ const withSectionId = (items: ReturnType<typeof mapItem>[], sectionId: string) =
     return items.map((item) => (
         bareSectionId(item.librarySectionID) ? item : { ...item, librarySectionID: id }
     ));
+};
+
+/** Any library section id embedded in a hub list path or identifier. */
+const sectionIdFromHubPath = (text: string) => (
+    bareSectionId(text.match(/\/library\/sections\/(\d+)/i)?.[1])
+    || bareSectionId(text.match(/\/hubs\/sections\/(\d+)/i)?.[1])
+    || bareSectionId(text.match(/[?&](?:sectionID|sectionId)=(\d+)/i)?.[1])
+    || bareSectionId(text.match(/recentlyadded\.(\d+)/i)?.[1])
+    || ''
+);
+
+/** Clear owning section from hub items (unanimous among tagged, else strict majority). */
+const dominantItemSectionId = (items: Array<{ librarySectionID?: string | null }> = []) => {
+    const counts = new Map<string, number>();
+    let tagged = 0;
+    for (const item of items) {
+        const id = bareSectionId(item?.librarySectionID);
+        if (!id) continue;
+        tagged += 1;
+        counts.set(id, (counts.get(id) || 0) + 1);
+    }
+    if (!tagged) return '';
+    let best = '';
+    let most = 0;
+    for (const [id, count] of counts) {
+        if (count > most) {
+            best = id;
+            most = count;
+        }
+    }
+    if (best && (most === tagged || most * 2 > items.length)) return best;
+    return '';
+};
+
+/** Attach librarySectionID as soon as hubs are mapped so Library order can rank collection pins. */
+const stampMappedHubSection = <T extends {
+    hubKey?: string | null;
+    identifier?: string;
+    librarySectionID?: string | null;
+    items?: Array<{ librarySectionID?: string | null }>;
+}>(hub: T): T => {
+    const existing = bareSectionId(hub.librarySectionID);
+    const fromPath = sectionIdFromHubPath(`${hub.hubKey || ''} ${hub.identifier || ''}`);
+    const fromItems = dominantItemSectionId(hub.items || []);
+    const sectionId = existing || fromPath || fromItems;
+    if (!sectionId) return hub;
+    const items = withSectionId((hub.items || []) as ReturnType<typeof mapItem>[], sectionId);
+    return {
+        ...hub,
+        librarySectionID: sectionId,
+        ...(items !== hub.items ? { items: items as T['items'] } : {}),
+    };
 };
 
 const recentGroupsFull = (items: ReturnType<typeof mapItem>[]) => {
@@ -3670,7 +3793,7 @@ const fillPlexHomeHub = async (hub: PlexMeta, server: PlexServer, many: boolean)
     if (!items.length || !title) return ready?.items?.length ? ready : null;
     const randomOrder = isRandomOrderSource(hub) || isRandomOrderSource(storedPath) || undefined;
     const hubKeyPath = randomOrder ? withPlexSortParam(storedPath, 'random') : storedPath;
-    return {
+    return stampMappedHubSection({
         title,
         identifier,
         items: randomOrder && items.length > 1 ? shuffleItems(items) : items,
@@ -3678,7 +3801,7 @@ const fillPlexHomeHub = async (hub: PlexMeta, server: PlexServer, many: boolean)
         collectionRatingKey: collectionRatingKeyFromHub(hub) || null,
         randomOrder: randomOrder as boolean | undefined,
         serverId: server.id,
-    };
+    });
 };
 
 const collectionRatingKeyFromHub = (hub: PlexMeta) => {
@@ -3727,7 +3850,7 @@ const isReservedHomeMergeLabel = (value: unknown) => {
     const tag = String(value || '').trim();
     if (!tag) return true;
     if (isHeroRowLabel(tag)) return true;
-    if (/^(kometa|collexions|network)$/i.test(tag)) return true;
+    if (/^(kometa|collexions|network|streaming)$/i.test(tag)) return true;
     return false;
 };
 
@@ -3752,9 +3875,17 @@ const collectionMetaHasHeroLabel = (meta: PlexMeta | null | undefined) => (
 const heroLabelCache = new Map<string, boolean>();
 const collectionRandomCache = new Map<string, boolean>();
 const collectionLabelsCache = new Map<string, string[]>();
+const collectionSectionCache = new Map<string, string>();
 const HERO_LABEL_STORE = 'smp-hero-row-labels-v1';
 const COLLECTION_LABELS_STORE = 'smp-collection-labels-v1';
+const COLLECTION_SECTION_STORE = 'smp-collection-sections-v1';
 let heroLabelStoreLoaded = false;
+
+const collectionSectionIdFromMeta = (meta: PlexMeta | null | undefined) => (
+    bareSectionId(meta?.librarySectionID)
+    || bareSectionId((meta as { librarySectionId?: unknown } | null | undefined)?.librarySectionId)
+    || ''
+);
 
 const loadHeroLabelStore = () => {
     if (heroLabelStoreLoaded || typeof localStorage === 'undefined') return;
@@ -3772,6 +3903,13 @@ const loadHeroLabelStore = () => {
             // Persist empty arrays too — otherwise unlabeled collections refetch every open.
             const labels = value.map((row) => String(row || '').trim()).filter(Boolean);
             collectionLabelsCache.set(key, labels);
+        });
+    } catch { /* ignore */ }
+    try {
+        const parsed = JSON.parse(localStorage.getItem(COLLECTION_SECTION_STORE) || '{}') as Record<string, unknown>;
+        Object.entries(parsed).forEach(([key, value]) => {
+            const section = bareSectionId(value);
+            if (key && section) collectionSectionCache.set(key, section);
         });
     } catch { /* ignore */ }
 };
@@ -3792,6 +3930,26 @@ const saveHeroLabelStore = () => {
         });
         localStorage.setItem(COLLECTION_LABELS_STORE, JSON.stringify(out));
     } catch { /* ignore quota */ }
+    try {
+        const out: Record<string, string> = {};
+        collectionSectionCache.forEach((value, key) => {
+            if (value) out[key] = value;
+        });
+        localStorage.setItem(COLLECTION_SECTION_STORE, JSON.stringify(out));
+    } catch { /* ignore quota */ }
+};
+
+const stampItemsWithSection = <T,>(items: T[] | undefined, sectionId: string): T[] | undefined => {
+    if (!sectionId || !Array.isArray(items) || !items.length) return items;
+    let changed = false;
+    const next = items.map((item) => {
+        if (!item || typeof item !== 'object') return item;
+        const row = item as { librarySectionID?: string | null };
+        if (bareSectionId(row.librarySectionID)) return item;
+        changed = true;
+        return { ...row, librarySectionID: sectionId } as T;
+    });
+    return changed ? next : items;
 };
 
 const applyHeroRowFlags = <T extends {
@@ -3800,22 +3958,29 @@ const applyHeroRowFlags = <T extends {
     hubKey?: string | null;
     items?: unknown[];
     labels?: string[];
+    librarySectionID?: string | null;
 }>(hubs: T[], server: PlexServer) => {
     loadHeroLabelStore();
     return hubs.map((hub) => {
         const id = String(hub.collectionRatingKey || '');
         const cacheKey = id ? `${server.id}:${id}` : '';
         const labels = cacheKey ? collectionLabelsCache.get(cacheKey) : undefined;
+        const sectionId = (cacheKey && collectionSectionCache.get(cacheKey))
+            || bareSectionId(hub.librarySectionID)
+            || '';
         // The boolean was cached before "Hero" counted. Labels already on disk still count.
         const hero = Boolean(cacheKey && (
             heroLabelCache.get(cacheKey)
             || (labels || []).some((label) => isHeroRowLabel(label))
         ));
         const random = Boolean(hub.randomOrder) || Boolean(cacheKey && collectionRandomCache.get(cacheKey));
-        if (!hero && !random && !labels?.length) return hub;
+        if (!hero && !random && !labels?.length && !sectionId) return hub;
+        const stampedItems = stampItemsWithSection(hub.items, sectionId);
         const next = {
             ...hub,
             ...(labels?.length ? { labels } : {}),
+            ...(sectionId ? { librarySectionID: sectionId } : {}),
+            ...(stampedItems !== hub.items ? { items: stampedItems } : {}),
             ...(hero ? { heroRow: true } : {}),
             ...(random ? { randomOrder: true as boolean } : {}),
         };
@@ -3833,12 +3998,14 @@ const stampHeroRows = async <T extends { collectionRatingKey?: string | null; ra
     if (!ids.length) return applyHeroRowFlags(hubs, server);
     // Only hit PMS for collections missing from cache. Empty label arrays are valid hits
     // (unlabeled collections) so libraries do not refetch them on every open.
+    // Section ids were added later — refetch when labels/hero are cached but section is not.
     const missing = ids.filter((id) => {
         const cacheKey = `${server.id}:${id}`;
         return !(
             heroLabelCache.has(cacheKey)
             && collectionRandomCache.has(cacheKey)
             && collectionLabelsCache.has(cacheKey)
+            && collectionSectionCache.has(cacheKey)
         );
     });
     if (missing.length) {
@@ -3850,6 +4017,7 @@ const stampHeroRows = async <T extends { collectionRatingKey?: string | null; ra
                 heroLabelCache.set(cacheKey, false);
                 collectionRandomCache.set(cacheKey, false);
                 collectionLabelsCache.set(cacheKey, []);
+                collectionSectionCache.set(cacheKey, '');
                 return;
             }
             const container = containerOf(data);
@@ -3860,6 +4028,7 @@ const stampHeroRows = async <T extends { collectionRatingKey?: string | null; ra
             heroLabelCache.set(cacheKey, collectionMetaHasHeroLabel(meta));
             collectionRandomCache.set(cacheKey, isRandomOrderSource(meta));
             collectionLabelsCache.set(cacheKey, labels);
+            collectionSectionCache.set(cacheKey, collectionSectionIdFromMeta(meta));
         });
         saveHeroLabelStore();
     }
@@ -4297,7 +4466,7 @@ const loadRecentFallbackHubs = async (server: PlexServer, many: boolean, section
         const title = `Recently Added · ${section.title}`;
         const items = await loadCollapsedRecentlyAdded(server, section.key, identifier, title);
         if (!items.length) return null;
-        return {
+        return stampMappedHubSection({
             title,
             identifier,
             items,
@@ -4307,7 +4476,7 @@ const loadRecentFallbackHubs = async (server: PlexServer, many: boolean, section
             collectionRatingKey: null as string | null,
             randomOrder: undefined as boolean | undefined,
             serverId: server.id,
-        };
+        });
     });
     return filled.filter((hub): hub is NonNullable<typeof hub> => !!hub);
 };
@@ -5842,11 +6011,19 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                 partial: true,
             };
         }
-        const hubs = mergeSameTitleHubs(mergeSameLabelHubs(rows.flatMap((row) => row.hubs.map((hub) => ({
+        const libraries = rows.flatMap((row) => row.sections);
+        const mergedHubs = mergeSameTitleHubs(mergeSameLabelHubs(rows.flatMap((row) => row.hubs.map((hub) => ({
             ...hub,
             identifier: many ? `${row.server.id}:${hub.identifier}` : hub.identifier,
         })))));
-        const libraries = rows.flatMap((row) => row.sections);
+        // Bake Library order into the Home payload so cache/coalesce/first paint already match Settings.
+        let libraryNavOrder: string[] = [];
+        try {
+            const raw = window.localStorage?.getItem('portal-media-player-settings');
+            const parsed = raw ? JSON.parse(raw) : null;
+            libraryNavOrder = normalizeLibraryNavOrder(parsed?.libraryNavOrder);
+        } catch { /* ignore */ }
+        const hubs = applyLibraryNavOrderToHubs(mergedHubs, libraries, libraryNavOrder);
         return {
             libraries,
             continueWatching: rows.flatMap((row) => row.onDeck),
@@ -6729,7 +6906,7 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                 if (Array.isArray(showItem.networkLabels) && showItem.networkLabels.length) {
                     item.networkLabels = showItem.networkLabels;
                 }
-                if (!item.commonSenseMedia && showItem.commonSenseMedia) {
+                if (!item.commonSenseMedia?.ageLabel && showItem.commonSenseMedia?.ageLabel) {
                     item.commonSenseMedia = showItem.commonSenseMedia;
                 }
                 if (ratingsEmpty && showItem.ratings) item.ratings = showItem.ratings;
@@ -6746,6 +6923,12 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                     item.externalIds = showItem.externalIds;
                     item.tmdbId = showItem.tmdbId;
                 }
+            }
+            // Movies + shows: same Plex CSM path (embedded → tag key → metadata.provider).
+            if (item.type === 'movie' || item.type === 'show' || item.type === 'season' || item.type === 'episode') {
+                const csmMeta = (item.type === 'movie' || item.type === 'show') ? meta : (showMeta || meta);
+                const csm = await enrichCommonSenseMedia(csmMeta, server).catch(() => null);
+                if (csm?.ageLabel) item.commonSenseMedia = csm;
             }
             const [children, extras, onDeck] = await Promise.all([
                 childrenPromise,

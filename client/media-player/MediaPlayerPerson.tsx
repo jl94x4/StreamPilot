@@ -261,7 +261,7 @@ export const MediaPlayerPerson: React.FC<Props> = ({ actorId, name, thumb, onBac
 
     const decades = useMemo(() => {
         const groups = new Map<string, PlayerPersonCreditRow[]>();
-        filmographyRows.slice(0, 120).forEach((row) => {
+        filmographyRows.forEach((row) => {
             const y = yearOf(row.year);
             const key = y ? `${Math.floor(y / 10) * 10}` : '—';
             groups.set(key, [...(groups.get(key) || []), row]);
@@ -563,12 +563,27 @@ export const MediaPlayerPerson: React.FC<Props> = ({ actorId, name, thumb, onBac
                                     </span>
                                     <span className="player-person-decade-rule mt-2 w-full" />
                                 </div>
-                                <div className="player-person-credit-grid grid w-full grid-cols-1 gap-2 xl:grid-cols-2">
+                                <div
+                                    className="player-person-credit-grid grid w-full grid-cols-1 gap-2 xl:grid-cols-2"
+                                    data-tv-person-credits="1"
+                                >
                                     {rows.map((row, index) => {
                                         const interactive = Boolean(row.ratingKey);
                                         const typeLabel = row.mediaType === 'tv' ? t('person.showType') : t('person.movieType');
-                                        const body = (
-                                            <>
+                                        const rowClass = `player-person-credit-row flex w-full items-center gap-3 rounded-xl text-left outline-none ${
+                                            row.onServer ? 'is-on-server' : 'is-static'
+                                        }`;
+                                        return (
+                                            <button
+                                                key={`${row.id}-${index}`}
+                                                type="button"
+                                                onClick={() => { if (interactive) openCredit(row); }}
+                                                data-tv-item="1"
+                                                data-tv-action={interactive ? '1' : undefined}
+                                                data-tv-key={`credit:${row.id}`}
+                                                className={rowClass}
+                                                aria-disabled={!interactive}
+                                            >
                                                 <span className="player-person-credit-year shrink-0 font-bold tabular-nums text-plex">
                                                     {yearOf(row.year) ?? '—'}
                                                 </span>
@@ -586,27 +601,7 @@ export const MediaPlayerPerson: React.FC<Props> = ({ actorId, name, thumb, onBac
                                                         {t('person.onServerBadge')}
                                                     </span>
                                                 ) : null}
-                                            </>
-                                        );
-                                        const rowClass = `player-person-credit-row flex w-full items-center gap-3 rounded-xl text-left outline-none ${
-                                            row.onServer ? 'is-on-server' : ''
-                                        }`;
-                                        return interactive ? (
-                                            <button
-                                                key={`${row.id}-${index}`}
-                                                type="button"
-                                                onClick={() => openCredit(row)}
-                                                data-tv-item="1"
-                                                data-tv-action="1"
-                                                data-tv-key={`credit:${row.id}`}
-                                                className={rowClass}
-                                            >
-                                                {body}
                                             </button>
-                                        ) : (
-                                            <div key={`${row.id}-${index}`} className={`${rowClass} is-static`}>
-                                                {body}
-                                            </div>
                                         );
                                     })}
                                 </div>

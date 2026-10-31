@@ -697,9 +697,12 @@ export const isPlayerHomeRowId = (value: unknown): value is string => {
     return /^recent:[A-Za-z0-9._-]{1,64}$/.test(id);
 };
 
-export const isPlayerLibraryKey = (value: unknown): value is string => (
-    /^[A-Za-z0-9._-]{1,64}$/.test(String(value || '').trim())
-);
+export const isPlayerLibraryKey = (value: unknown): value is string => {
+    const id = String(value || '').trim();
+    // Bare section keys, or multi-server `serverId::sectionId`.
+    if (/^[A-Za-z0-9._-]{1,64}$/.test(id)) return true;
+    return /^[A-Za-z0-9._-]{1,64}::\d{1,16}$/.test(id);
+};
 
 export const normalizeLibraryNavOrder = (raw: unknown): string[] => {
     if (!Array.isArray(raw)) return [];
@@ -742,12 +745,20 @@ export const applyLibraryNavOrder = <T extends { key?: string | null }>(
 ): T[] => {
     const list = Array.isArray(libraries) ? libraries.filter((row) => row && String(row.key || '').trim()) : [];
     const byKey = new Map(list.map((row) => [String(row.key), row]));
+    const byBare = new Map<string, T>();
+    list.forEach((row) => {
+        const bare = (String(row.key || '').split('::').pop() || '').replace(/\D/g, '');
+        if (bare && !byBare.has(bare)) byBare.set(bare, row);
+    });
     const seen = new Set<string>();
     const out: T[] = [];
     for (const key of normalizeLibraryNavOrder(order)) {
-        const row = byKey.get(key);
-        if (!row || seen.has(key)) continue;
-        seen.add(key);
+        const bare = (key.split('::').pop() || '').replace(/\D/g, '');
+        const row = byKey.get(key) || (bare ? byBare.get(bare) : undefined);
+        if (!row) continue;
+        const rowKey = String(row.key);
+        if (seen.has(rowKey)) continue;
+        seen.add(rowKey);
         out.push(row);
     }
     for (const row of list) {
@@ -769,6 +780,16 @@ const normalizeLibraryMediaType = (value: unknown): 'movie' | 'show' | 'artist' 
     return null;
 };
 
+/** Strip multi-server `{serverId}:` so movie./show./artist. hub ids still classify. */
+const homeHubIdentifierCore = (identifier: string) => {
+    const idLower = String(identifier || '').trim().toLowerCase();
+    if (!idLower.includes(':')) return idLower;
+    if (/:(?:movie|film|tv|show|artist|music|album)\./.test(idLower)) {
+        return idLower.replace(/^[^:]+:/, '');
+    }
+    return idLower;
+};
+
 /** Classify a home hub so library nav order can regroup movie / TV / music rows. */
 export const classifyPlayerHomeHub = (hub: {
     identifier?: string | null;
@@ -777,10 +798,12 @@ export const classifyPlayerHomeHub = (hub: {
     items?: Array<{ type?: string | null; librarySectionID?: string | null }> | null;
 } = {}): PlayerHomeHubMediaKind => {
     const identifier = String(hub.identifier || '');
-    const idLower = identifier.toLowerCase();
+    const idLower = homeHubIdentifierCore(identifier);
     const blob = `${identifier} ${hub.title || ''}`.toLowerCase();
     if (/continue\s*watch|ondeck|on[.\s_-]?deck|in[.\s_-]?progress/.test(blob)) return 'continueWatching';
-    if (/because\s+you\s+watched/.test(blob) || /^because:/.test(identifier)) return 'becauseYouWatched';
+    if (/because\s+you\s+watched/.test(blob) || /^because:/.test(identifier) || /^[^:]+:because:/.test(identifier)) {
+        return 'becauseYouWatched';
+    }
     if (hub.playlistRatingKey || /playlist/.test(blob)) return 'playlist';
     // Prefer hubIdentifier structure over title words — "Music Movies" collections
     // are movie.collection.* hubs, not albums.
@@ -806,24 +829,44 @@ export const classifyPlayerHomeHub = (hub: {
     return 'other';
 };
 
-const dominantLibrarySectionId = (
-    items: Array<{ librarySectionID?: string | null }> = [],
-): string | null => {
+const sectionIdFromHomeHubPath = (text: string) => (
+    text.match(/\/library\/sections\/(\d+)\//i)?.[1]
+    || text.match(/\/hubs\/sections\/(\d+)/i)?.[1]
+    || text.match(/[?&](?:sectionID|sectionId)=(\d+)/i)?.[1]
+    || text.match(/recentlyadded\.(\d+)/i)?.[1]
+    || ''
+);
+
+const bareLibrarySectionId = (value: unknown) => (
+    (String(value ?? '').split('::').pop() || '').replace(/\D/g, '')
+);
+
+/** Library section for nav ranking: stamped hub section, path, else clear item majority. */
+const hubSectionForNavOrder = (hub: {
+    hubKey?: string | null;
+    identifier?: string | null;
+    librarySectionID?: string | null;
+    items?: Array<{ librarySectionID?: string | null }> | null;
+} = {}): string => {
+    const stamped = bareLibrarySectionId(hub.librarySectionID);
+    if (stamped) return stamped;
+    const fromPath = sectionIdFromHomeHubPath(`${hub.hubKey || ''} ${hub.identifier || ''}`);
+    if (fromPath) return fromPath;
     const counts = new Map<string, number>();
-    for (const item of items) {
-        const id = String(item?.librarySectionID || '').trim();
-        if (!id) continue;
-        counts.set(id, (counts.get(id) || 0) + 1);
+    for (const item of hub.items || []) {
+        const id = bareLibrarySectionId(item?.librarySectionID);
+        if (id) counts.set(id, (counts.get(id) || 0) + 1);
     }
-    let best: string | null = null;
-    let bestCount = 0;
+    let best = '';
+    let most = 0;
     for (const [id, count] of counts) {
-        if (count > bestCount) {
+        if (count > most) {
             best = id;
-            bestCount = count;
+            most = count;
         }
     }
-    return best;
+    const total = (hub.items || []).length;
+    return best && most * 2 > total ? best : '';
 };
 
 /**
@@ -833,6 +876,8 @@ const dominantLibrarySectionId = (
 export const applyLibraryNavOrderToHubs = <T extends {
     identifier?: string | null;
     title?: string | null;
+    hubKey?: string | null;
+    librarySectionID?: string | null;
     playlistRatingKey?: string | null;
     items?: Array<{ type?: string | null; librarySectionID?: string | null }> | null;
 }>(
@@ -849,7 +894,9 @@ export const applyLibraryNavOrderToHubs = <T extends {
     const typeRank = new Map<'movie' | 'show' | 'artist', number>();
     orderedLibraries.forEach((library, index) => {
         const key = String(library.key || '').trim();
+        const bare = bareLibrarySectionId(key);
         if (key) libraryRank.set(key, index);
+        if (bare) libraryRank.set(bare, index);
         const kind = normalizeLibraryMediaType(library.type);
         if (kind && !typeRank.has(kind)) typeRank.set(kind, index);
     });
@@ -857,18 +904,17 @@ export const applyLibraryNavOrderToHubs = <T extends {
     const rankFor = (hub: T, index: number): [number, number, number] => {
         const kind = classifyPlayerHomeHub(hub);
         if (kind === 'continueWatching') return [-2, 0, index];
-        if (kind === 'playlist') return [1, 0, index];
         if (kind === 'becauseYouWatched') return [2, 0, index];
-        if (kind === 'other') return [1, 1, index];
+        if (kind === 'playlist') return [1, 0, index];
 
-        const sectionId = dominantLibrarySectionId(hub.items || []);
+        const sectionId = hubSectionForNavOrder(hub);
         if (sectionId && libraryRank.has(sectionId)) {
             return [0, libraryRank.get(sectionId) as number, index];
         }
-        if (typeRank.has(kind)) {
+        if (kind !== 'other' && typeRank.has(kind)) {
             return [0, typeRank.get(kind) as number, index];
         }
-        return [1, 2, index];
+        return [1, 1, index];
     };
 
     return list

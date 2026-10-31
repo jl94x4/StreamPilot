@@ -29,6 +29,7 @@ import { PlayerClearLogo } from './PlayerClearLogo';
 import { PlayerFileInfo } from './PlayerFileInfo';
 import { PlayerItemMenu, type PlayerItemMenuHandle } from './PlayerItemMenu';
 import { PlayerSeasonWatchDialog } from './PlayerSeasonWatchDialog';
+import { CommonSenseMediaIcon } from './CommonSenseMediaIcon';
 import { PlayerServiceBrandMark } from './PlayerServiceBrandMark';
 import { PlayerRail } from './PlayerRail';
 import { MediaPlayerMusicTracks } from './MediaPlayerMusicTracks';
@@ -1938,7 +1939,9 @@ export const MediaPlayerDetails: React.FC<Props> = ({
     const isEpisodeGrid = children.some((row) => row.type === 'episode');
     const musicTracks = children.filter((row) => row.type === 'track');
     const musicAlbums = children.filter((row) => row.type === 'album');
-    const musicPosterDensity = homeRailPosterDensity(gridSize);
+    // Same rail width as Home — related used raw gridSize and looked smaller on TV.
+    const railPosterDensity = homeRailPosterDensity(gridSize);
+    const musicPosterDensity = railPosterDensity;
     const tvEpisodeRows = isTvShell && item.type === 'episode' && seasonEpisodes.length
         ? seasonEpisodes
         : children.filter((row) => row.type === 'episode');
@@ -2073,14 +2076,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         item.audienceRating ? { icon: <Star className="h-3.5 w-3.5 text-plex" />, label: String(item.audienceRating) } : null,
         item.commonSenseMedia?.ageLabel
             ? {
-                icon: (
-                    <img
-                        src="/static/logos/common-sense-media.png"
-                        alt=""
-                        className="h-3.5 w-3.5 object-contain object-center"
-                        aria-hidden
-                    />
-                ),
+                icon: <CommonSenseMediaIcon />,
                 label: item.commonSenseMedia.ageLabel,
                 title: item.commonSenseMedia.oneLiner
                     || `Common Sense Media${item.commonSenseMedia.stars != null ? ` · ${item.commonSenseMedia.stars}/5` : ''}`,
@@ -2120,6 +2116,18 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                 ? { icon: null, label: t('mediaPlayerPage.episodeProgressValue', { watched: watchedLeaves, total: totalLeaves }) }
                 : null,
             hubItem.audienceRating ? { icon: <Star className="h-3.5 w-3.5 text-plex" />, label: String(hubItem.audienceRating) } : null,
+            (() => {
+                const csm = hubItem.commonSenseMedia?.ageLabel
+                    ? hubItem.commonSenseMedia
+                    : item.commonSenseMedia;
+                if (!csm?.ageLabel) return null;
+                return {
+                    icon: <CommonSenseMediaIcon />,
+                    label: csm.ageLabel,
+                    title: csm.oneLiner
+                        || `Common Sense Media${csm.stars != null ? ` · ${csm.stars}/5` : ''}`,
+                };
+            })(),
         ].filter((chip) => chip && chip.label) as MetaChip[])
         : [];
     const hubTmdbScore = hubItem.ratings?.tmdb?.percent != null ? `${hubItem.ratings.tmdb.percent}%` : null;
@@ -2135,7 +2143,11 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                     title={chip.title}
                     className="player-meta-chip inline-flex h-7 items-center gap-1 rounded-md border border-white/10 bg-black/45 px-2 text-[11px] font-semibold leading-none text-white/85 backdrop-blur-md"
                 >
-                    {chip.icon ? <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center [&_img]:h-3.5 [&_img]:w-3.5 [&_svg]:h-3.5 [&_svg]:w-3.5">{chip.icon}</span> : null}
+                    {chip.icon ? (
+                        <span className="player-meta-chip-icon inline-flex shrink-0 items-center justify-center">
+                            {chip.icon}
+                        </span>
+                    ) : null}
                     <span className="leading-none">{chip.label}</span>
                 </div>
             ))}
@@ -3669,7 +3681,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                 key={hub.identifier || hub.title}
                                 title={hub.title}
                                 items={hub.items}
-                                density={isPhoneDetailsUi() ? 6.75 : gridSize}
+                                density={isPhoneDetailsUi() ? 6.75 : railPosterDensity}
                                 onOpenItem={onOpenItem}
                                 onPlay={onPlay}
                             />

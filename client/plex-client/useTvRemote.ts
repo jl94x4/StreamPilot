@@ -2635,7 +2635,9 @@ export const useTvRemote = (enabled = true) => {
                 return;
             }
             if (!target && !menuRoot && !inBrowseChrome && (dir === 'up' || dir === 'down')) {
-                const grid = current.closest<HTMLElement>('[data-tv-poster-grid="1"], .upgrader-poster-grid');
+                const grid = current.closest<HTMLElement>(
+                    '[data-tv-poster-grid="1"], .upgrader-poster-grid, [data-tv-person-credits="1"]',
+                );
                 if (grid) target = findSpatialTarget(current, dir, grid);
             }
             if (!target && !menuRoot && !inBrowseChrome && (dir === 'up' || dir === 'down')) {

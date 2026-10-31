@@ -66,12 +66,14 @@ import {
     readLongPressHintSeen,
     readPlayerHomeCache,
     readPlayerItemCache,
+    readPlayerLibrariesCache,
     usePlayerNetworkStatus,
     writeHeroSlidesCache,
     writeLongPressHintSeen,
     writePlayerHomeCache,
 } from './playerMemory';
 import { PlayerTvStatusPanel } from './PlayerTvStatusPanel';
+import { CommonSenseMediaIcon } from './CommonSenseMediaIcon';
 import { PlayerClearLogo } from './PlayerClearLogo';
 import { PlayerServiceBrandMark } from './PlayerServiceBrandMark';
 import { PlayerTvScreensaver } from './PlayerTvScreensaver';
@@ -377,6 +379,12 @@ const HomeSpotBody: React.FC<{ item: PlayerItem }> = ({ item }) => {
     const year = item.type === 'episode' ? '' : (item.year ? String(item.year) : '');
     // Each its own part, so every one gets a separator (S17 E4 · Title · Date · 48m · TV-14).
     const meta = [epCode, episodeTitle, date || year, duration, rating].filter(Boolean);
+    const csm = item.commonSenseMedia;
+    const csmLabel = String(csm?.ageLabel || '').trim();
+    const csmTitle = csm?.oneLiner
+        || (csmLabel
+            ? `Common Sense Media${csm?.stars != null ? ` · ${csm.stars}/5` : ''}`
+            : '');
     const cast = (item.cast || []).slice(0, 4).map((row) => row.name).filter(Boolean).join(', ');
     return (
         <>
@@ -398,7 +406,7 @@ const HomeSpotBody: React.FC<{ item: PlayerItem }> = ({ item }) => {
             )}
             {/* Episode title lives in meta (SxxExx · Title); keep show tagline only when no episode line. */}
             {!epLine && tagline ? <p className="player-home-spot-tagline">{tagline}</p> : null}
-            {item.watched || meta.length ? (
+            {item.watched || meta.length || csmLabel ? (
                 <p className="player-home-spot-meta">
                     {item.watched ? (
                         <span className="player-home-spot-watched">
@@ -408,7 +416,7 @@ const HomeSpotBody: React.FC<{ item: PlayerItem }> = ({ item }) => {
                     ) : null}
                     {meta.map((part, index) => (
                         <React.Fragment key={`${index}:${part}`}>
-                            {index > 0 ? <span className="player-home-spot-meta-sep" aria-hidden="true">·</span> : null}
+                            {(index > 0 || item.watched) ? <span className="player-home-spot-meta-sep" aria-hidden="true">·</span> : null}
                             <span
                             className={part === episodeTitle
                                 ? 'player-home-spot-meta-title'
@@ -418,6 +426,17 @@ const HomeSpotBody: React.FC<{ item: PlayerItem }> = ({ item }) => {
                         </span>
                         </React.Fragment>
                     ))}
+                    {csmLabel ? (
+                        <>
+                            {(item.watched || meta.length) ? (
+                                <span className="player-home-spot-meta-sep" aria-hidden="true">·</span>
+                            ) : null}
+                            <span className="player-home-spot-csm" title={csmTitle || undefined}>
+                                <CommonSenseMediaIcon />
+                                <span>{csmLabel}</span>
+                            </span>
+                        </>
+                    ) : null}
                 </p>
             ) : null}
             {summary ? <p className="player-home-spot-summary">{summary}</p> : null}
@@ -503,22 +522,33 @@ const TvHomeBillboard: React.FC<{
             parentIndex: base.parentIndex ?? extra.parentIndex,
             index: base.index ?? extra.index,
             summary: pickRicherSummary(base.summary, extra.summary),
+            commonSenseMedia: extra.commonSenseMedia || base.commonSenseMedia,
             ratingKey: base.ratingKey,
             parentRatingKey: base.parentRatingKey || extra.parentRatingKey,
             grandparentRatingKey: base.grandparentRatingKey || extra.grandparentRatingKey,
         };
     }, [focusKey, row, spotExtra]);
 
-    // Several new episodes arrive as one season card with no synopsis: borrow the show's overview.
-    const spotShowKey = spotMerged && !String(spotMerged.summary || '').trim()
-        ? String((spotMerged.type === 'season' ? spotMerged.parentRatingKey : spotMerged.grandparentRatingKey) || '')
+    // Season/episode cards may lack a synopsis or CSM age — borrow those from the show.
+    const spotShowKey = spotMerged && (
+        !String(spotMerged.summary || '').trim() || !spotMerged.commonSenseMedia?.ageLabel
+    )
+        ? String((spotMerged.type === 'season' || spotMerged.type === 'episode'
+            ? (spotMerged.type === 'season' ? spotMerged.parentRatingKey : spotMerged.grandparentRatingKey)
+            : '') || '')
         : '';
-    const spotShowSummary = spotShowKey
-        ? String(spotExtra[spotExtraKey(spotMerged?.serverId, spotShowKey)]?.summary || '').trim()
-        : '';
-    const spotItem = useMemo(() => (
-        spotMerged && spotShowSummary ? { ...spotMerged, summary: spotShowSummary } : spotMerged
-    ), [spotMerged, spotShowSummary]);
+    const spotShowMeta = spotShowKey
+        ? spotExtra[spotExtraKey(spotMerged?.serverId, spotShowKey)]
+        : null;
+    const spotShowSummary = String(spotShowMeta?.summary || '').trim();
+    const spotShowCsm = spotShowMeta?.commonSenseMedia;
+    const spotItem = useMemo(() => {
+        if (!spotMerged) return null;
+        const next = { ...spotMerged };
+        if (!String(next.summary || '').trim() && spotShowSummary) next.summary = spotShowSummary;
+        if (!next.commonSenseMedia?.ageLabel && spotShowCsm?.ageLabel) next.commonSenseMedia = spotShowCsm;
+        return next;
+    }, [spotMerged, spotShowSummary, spotShowCsm]);
 
     useEffect(() => {
         if (!enabled || !spotShowKey) return undefined;
@@ -1298,7 +1328,10 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
     }, []);
 
     const orderedLibraries = useMemo(
-        () => applyLibraryNavOrder(home?.libraries || [], libraryNavOrder),
+        () => applyLibraryNavOrder(
+            (home?.libraries?.length ? home.libraries : readPlayerLibrariesCache()) || [],
+            libraryNavOrder,
+        ),
         [home?.libraries, libraryNavOrder],
     );
 
@@ -1749,10 +1782,24 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             seenRecentTitles.add(title);
             return true;
         });
+        // Splitting Plex's combined Recently Added row lands every library's row in one spot.
+        // Re-rank the finished list so each library's rows sit where Library order puts them
+        // (same ranking the pinned rows already get; rows are not fetched any differently).
+        const rankedRecentRows = applyLibraryNavOrderToHubs(
+            uniqueRecentRows.map((row) => ({
+                row,
+                identifier: row.id,
+                title: row.title,
+                hubKey: row.viewMoreShelf?.path || null,
+                items: row.items,
+            })),
+            orderedLibraries,
+            libraryNavOrder,
+        ).map((entry) => entry.row);
         const buckets: Record<string, TvHomeRow[]> = {
             continueWatching: continueRows,
             onNow: onNowRows,
-            recents: uniqueRecentRows,
+            recents: rankedRecentRows,
         };
         return applyHomeRowOrder(['continueWatching', 'onNow', 'recents'], settings.homeRowOrder)
             .flatMap((id) => buckets[id] || [])
@@ -1779,6 +1826,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         onNowItems,
         settings.showOnNowHome,
         settings.homeRowOrder,
+        libraryNavOrder,
     ]);
 
     const searchGroups = useMemo(() => {

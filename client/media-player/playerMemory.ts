@@ -832,6 +832,9 @@ const mergePlayerItemsPreserveOrder = <T extends { ratingKey?: string | number |
 export const mergePlayerHomePayloads = (full: PlayerHome, partial: PlayerHome): PlayerHome => {
     const byKey = new Map<string, NonNullable<PlayerHome['hubs']>[number]>();
     const order: string[] = [];
+    const hubHasSection = (hub: NonNullable<PlayerHome['hubs']>[number]) => (
+        Boolean(String(hub.librarySectionID || '').replace(/\D/g, ''))
+    );
     const add = (hub: NonNullable<PlayerHome['hubs']>[number], replaceIfRicher: boolean) => {
         const key = homeHubKey(hub);
         if (!key) return;
@@ -843,7 +846,14 @@ export const mergePlayerHomePayloads = (full: PlayerHome, partial: PlayerHome): 
         }
         const prevN = prev.items?.length || 0;
         const nextN = hub.items?.length || 0;
-        if (replaceIfRicher ? nextN >= prevN : nextN > prevN) byKey.set(key, hub);
+        if (replaceIfRicher ? nextN >= prevN : nextN > prevN) {
+            byKey.set(key, hub);
+            return;
+        }
+        // Same richness: prefer the hub that already knows its library (Library order).
+        if (nextN === prevN && hubHasSection(hub) && !hubHasSection(prev)) {
+            byKey.set(key, hub);
+        }
     };
     const countable = (hubs: NonNullable<PlayerHome['hubs']>) => (
         hubs.filter((hub) => !isBecauseHomeHub(hub) && !isSyntheticRecentHomeHub(hub))

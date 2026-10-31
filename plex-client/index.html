@@ -1963,8 +1963,8 @@
       /* 23.5rem above the old stage bottom, which sat 0.35rem up. */
       bottom: 23.85rem;
       z-index: 2;
-      /* +6rem so the info line fits ~9 more letters of a long episode title before the ellipsis. */
-      width: min(44rem, 50%);
+      /* Same measure as title-page synopsis (42rem). 90% so rem wins on leanback ~960 CSS px. */
+      width: min(42rem, 90%);
       /* Tall enough for logo + tagline + meta + 3-line synopsis + cast. */
       height: 16.75rem;
       max-height: 48%;
@@ -2059,15 +2059,17 @@
     html[data-tv="1"] .player-home-spot-summary {
       margin: 0;
       flex: 0 0 auto;
-      min-height: calc(1rem * 1.45 * 2);
-      max-width: 36rem;
-      font-size: 1rem;
+      width: 100%;
+      min-height: calc(0.85rem * 1.45 * 2);
+      /* Match title-page .media-details-synopsis measure so Home wraps onto fewer lines. */
+      max-width: 42rem;
+      font-size: calc(1.12rem - 2px);
       line-height: 1.45;
       color: rgba(255, 255, 255, 0.78) !important;
       display: -webkit-box;
       -webkit-box-orient: vertical;
-      -webkit-line-clamp: 4;
-      line-clamp: 4;
+      -webkit-line-clamp: 3;
+      line-clamp: 3;
       overflow: hidden;
       text-overflow: ellipsis;
     }
@@ -2684,7 +2686,8 @@
       backdrop-filter: none !important;
       -webkit-backdrop-filter: none !important;
     }
-    html[data-tv="1"] .player-meta-chip svg {
+    /* Keep CSM check wider than tall — do not square-crop the overhang. */
+    html[data-tv="1"] .player-meta-chip svg:not(.player-csm-icon) {
       width: 0.8rem !important;
       height: 0.8rem !important;
     }

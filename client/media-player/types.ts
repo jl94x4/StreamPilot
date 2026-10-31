@@ -297,6 +297,8 @@ export type PlayerLibraryHub = {
     hubKey?: string | null;
     collectionRatingKey?: string | null;
     playlistRatingKey?: string | null;
+    /** Owning library section (stamped from collection meta for Home library order). */
+    librarySectionID?: string | null;
     /** Plex collection labels (used to merge same-label home rows). */
     labels?: string[];
     /** Pinned collection labeled Heros or Heroes. */

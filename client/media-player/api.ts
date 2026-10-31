@@ -974,8 +974,7 @@ export const fetchPlayerPersonBundle = async (
             const credits = await apiFetch(`/api/discovery/proxy/person/${tmdbId}/combined_credits`).catch(() => null);
             const { cast, crew } = splitPersonCredits(credits || {});
             filmography = [...mapCredits(cast, 'cast'), ...mapCredits(crew, 'crew')]
-                .sort((a, b) => String(b.year || '').localeCompare(String(a.year || '')) || a.title.localeCompare(b.title))
-                .slice(0, 120);
+                .sort((a, b) => String(b.year || '').localeCompare(String(a.year || '')) || a.title.localeCompare(b.title));
         }
         if (!filmography.length && items.length) {
             filmography = items.map((row) => ({

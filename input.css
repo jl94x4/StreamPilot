@@ -2960,7 +2960,7 @@ html[data-tv="1"] .player-meta-chip {
   line-height: 1;
 }
 .player-meta-chips .player-meta-chip img,
-.player-meta-chips .player-meta-chip svg {
+.player-meta-chips .player-meta-chip svg:not(.player-csm-icon) {
   width: 0.875rem;
   height: 0.875rem;
   flex-shrink: 0;
@@ -3061,8 +3061,8 @@ html[data-tv="1"] .media-details-page [data-tv-action-row="1"] .media-details-ac
 }
 html[data-tv="1"] .media-details-page:has(.media-details-billboard-identity) .media-details-synopsis {
   order: 3;
-  /* Same measure as the Home / library billboard (.player-home-spot-summary). */
-  max-width: 36rem;
+  /* ~25% wider than the previous 36rem title-page measure. */
+  max-width: 45rem;
   margin-top: 0.35rem;
 }
 /* Movie / show: synopsis sits between the ratings and the Watch row, not under it. */
@@ -3195,7 +3195,7 @@ html[data-tv="1"] [data-tv-row-id^="guests:"] [data-tv-rail="1"] {
 html[data-tv="1"] .media-details-billboard-summary {
   margin: 0.4rem 0 0;
   max-width: 34rem;
-  font-size: 0.92rem;
+  font-size: 0.85rem;
   line-height: 1.45;
   color: rgba(255, 255, 255, 0.78) !important;
   display: -webkit-box;
@@ -3242,12 +3242,12 @@ html[data-tv="1"] [data-tv-kind="movie"] .media-details-synopsis {
 }
 html[data-tv="1"] [data-tv-kind="show"] .media-overview-summary,
 html[data-tv="1"] [data-tv-kind="movie"] .media-overview-summary {
-  max-width: 36rem;
+  max-width: 45rem;
 }
-/* Match the Home / library billboard copy so a title reads the same on both screens. */
+/* Match the Home billboard synopsis size on title pages. */
 html[data-tv="1"] [data-tv-kind="show"] .media-overview-summary p,
 html[data-tv="1"] [data-tv-kind="movie"] .media-overview-summary p {
-  font-size: 0.92rem !important;
+  font-size: 0.85rem !important;
   line-height: 1.45 !important;
 }
 html[data-tv="1"] .media-overview-summary-full,
@@ -3433,7 +3433,7 @@ html[data-tv="1"] [data-tv-kind="episode"] .media-details-billboard-summary,
 html[data-tv="1"] [data-tv-kind="season"] .media-details-billboard-summary {
   margin-top: 0.35rem;
   max-width: 36rem;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   line-height: 1.4;
   display: -webkit-box;
   -webkit-box-orient: vertical;
@@ -3784,7 +3784,8 @@ html[data-tv="1"] .player-home-spot-stage {
   top: auto;
   bottom: auto;
   z-index: 2;
-  width: min(48rem, 54%);
+  /* Same measure as title-page synopsis; 90% so rem wins on leanback ~960 CSS px. */
+  width: min(42rem, 90%);
   height: auto;
   max-height: none;
   flex: 0 0 auto;
@@ -3863,6 +3864,7 @@ html[data-tv="1"] .player-service-brand-mark,
 html[data-tv="1"] .player-home-spot-service-logo,
 html[data-tv="1"] .media-details-service-logo {
   display: block;
+  flex-shrink: 0;
   height: 2.35rem !important;
   max-height: 2.35rem !important;
   width: auto !important;
@@ -3905,7 +3907,7 @@ html[data-tv="1"] .player-home-spot-title {
 html[data-tv="1"] .player-home-spot-tagline {
   margin: 0;
   flex-shrink: 0;
-  font-size: 1.05rem;
+  font-size: 0.95rem;
   font-weight: 500;
   font-style: italic;
   color: rgba(255, 255, 255, 0.88) !important;
@@ -3918,9 +3920,9 @@ html[data-tv="1"] .player-home-spot-meta {
   min-width: 0;
   white-space: nowrap;
   align-items: center;
-  gap: 0.5rem;
-  /* A touch larger than the synopsis (1rem) so the episode / date line leads. */
-  font-size: 1.08rem;
+  gap: 0.45rem;
+  /* Slightly above the synopsis so the episode / date line still leads. */
+  font-size: 0.95rem;
   font-weight: 600;
   color: rgba(255, 255, 255, 0.82) !important;
 }
@@ -3938,17 +3940,32 @@ html[data-tv="1"] .player-home-spot-meta > .player-home-spot-meta-title {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+html[data-tv="1"] .player-home-spot-csm {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.28rem;
+}
+html[data-tv="1"] .player-home-spot-csm .player-csm-icon {
+  display: block;
+  /* Height-only — mark is wider than tall (check overhangs the ring). */
+  height: 1.05rem !important;
+  width: auto !important;
+  max-width: none;
+  overflow: visible;
+  flex-shrink: 0;
+}
 html[data-tv="1"] .player-home-spot-watched {
   display: inline-flex;
   align-items: center;
   gap: 0.28rem;
-  padding: 0.22rem 0.65rem 0.24rem;
+  padding: 0.2rem 0.6rem 0.22rem;
   border-radius: 999px;
   background: rgb(var(--color-plex));
   color: #111111 !important;
   /* The clock's face (medium Switzer), like the play buttons. */
   font-family: "Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif;
-  font-size: 0.92rem;
+  font-size: 0.85rem;
   font-weight: 500;
   letter-spacing: 0;
   line-height: 1;
@@ -3956,16 +3973,18 @@ html[data-tv="1"] .player-home-spot-watched {
 html[data-tv="1"] .player-home-spot-summary {
   margin: 0;
   flex: 0 0 auto;
-  min-height: calc(1rem * 1.45 * 2);
-  max-width: 36rem;
-  font-size: 1rem;
+  width: 100%;
+  min-height: calc(0.85rem * 1.45 * 2);
+  /* Same measure as title-page .media-details-synopsis so Home wraps with fewer lines. */
+  max-width: 42rem;
+  font-size: calc(1.12rem - 2px);
   line-height: 1.45;
   color: rgba(255, 255, 255, 0.78) !important;
-  /* Cap Home copy so logos stay clear; the title page shows the full synopsis. */
+  /* Three lines (was four) so the studio/network mark above the title clearlogo is not clipped. */
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
-  line-clamp: 4;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -3973,7 +3992,7 @@ html[data-tv="1"] .player-home-spot-cast {
   margin: 0;
   flex: 0 0 auto;
   flex-shrink: 0;
-  font-size: 0.82rem;
+  font-size: 0.75rem;
   line-height: 1.35;
   color: rgba(255, 255, 255, 0.55) !important;
   overflow: visible;
@@ -6589,15 +6608,45 @@ html[data-tv="1"] .player-tv-clock.player-tv-clock--plain {
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85), 0 0 12px rgba(0, 0, 0, 0.55);
 }
 
-/* Title page info row (S28 · E9 · rating · date · runtime): same size as the Home spotlight line. */
+/* Title page info row: match the Home spotlight meta size. */
 html[data-tv="1"] .media-details-page .player-meta-chips .player-meta-chip {
-  font-size: 1.08rem !important;
+  font-size: 0.88rem !important;
   height: auto;
-  min-height: 2rem;
-  gap: 0.36rem !important;
+  min-height: 1.55rem;
+  gap: 0.28rem !important;
 }
-html[data-tv="1"] .media-details-page .player-meta-chips .player-meta-chip svg,
-html[data-tv="1"] .media-details-page .player-meta-chips .player-meta-chip img {
-  width: 1.05rem !important;
+html[data-tv="1"] .media-details-page .player-meta-chips .player-meta-chip:first-child {
+  padding-left: 0 !important;
+}
+html[data-tv="1"] .media-details-page .player-meta-chips .player-meta-chip-icon {
+  height: 0.88rem;
+  width: auto;
+}
+/* Generic chip icons (star, calendar) stay square. */
+html[data-tv="1"] .media-details-page .player-meta-chips .player-meta-chip-icon > svg:not(.player-csm-icon),
+html[data-tv="1"] .media-details-page .player-meta-chips .player-meta-chip-icon > img {
+  width: 0.88rem !important;
+  height: 0.88rem !important;
+}
+/* CSM check is wider than tall — height only so the overhang stays visible. */
+html[data-tv="1"] .media-details-page .player-meta-chips .player-csm-icon {
+  display: block;
   height: 1.05rem !important;
+  width: auto !important;
+  max-width: none;
+  overflow: visible;
+  flex-shrink: 0;
+}
+.player-meta-chips .player-meta-chip-icon > svg:not(.player-csm-icon),
+.player-meta-chips .player-meta-chip-icon > img {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+.player-meta-chips .player-csm-icon {
+  display: block;
+  height: 1.05rem;
+  width: auto;
+  max-width: none;
+  overflow: visible;
+  flex-shrink: 0;
 }

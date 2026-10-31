@@ -73,6 +73,176 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.563': [
+        {
+            title: 'Home',
+            items: [
+                'Library order now sorts Home pins when they load (including collection rows), matching Settings → Layout',
+            ],
+        },
+    ],
+    '1.0.562': [
+        {
+            title: 'Home',
+            items: [
+                'Library order now places collection pins under the correct library (TV vs Movies and per-library)',
+            ],
+        },
+    ],
+    '1.0.561': [
+        {
+            title: 'Home',
+            items: [
+                'Library order in Settings now correctly regroups pinned Home rows (including collection pins)',
+            ],
+        },
+    ],
+    '1.0.560': [
+        {
+            title: 'Home',
+            items: [
+                'Collections that share only a “Streaming” Label no longer merge into one Home row',
+            ],
+        },
+    ],
+    '1.0.559': [
+        {
+            title: 'Common Sense Media',
+            items: [
+                'Movies use the same Plex Common Sense Media lookup as TV shows (including when the age is only on Plex’s metadata provider)',
+            ],
+        },
+    ],
+    '1.0.558': [
+        {
+            title: 'Common Sense Media',
+            items: [
+                'TV shows now show the Common Sense Media age rating on the title page and Home spotlight',
+            ],
+        },
+    ],
+    '1.0.557': [
+        {
+            title: 'Common Sense Media',
+            items: [
+                'Age rating uses the official Common Sense Media check and “age 7+” label style',
+            ],
+        },
+    ],
+    '1.0.556': [
+        {
+            title: 'Home',
+            items: [
+                'Spotlight description now uses the same width as the title-page synopsis (wider, fewer wrap lines)',
+            ],
+        },
+    ],
+    '1.0.555': [
+        {
+            title: 'Home',
+            items: [
+                'Spotlight synopsis matches the title-page description width so it wraps onto fewer lines',
+            ],
+        },
+    ],
+    '1.0.554': [
+        {
+            title: 'Home',
+            items: [
+                'Spotlight synopsis uses the same wider measure as title-page descriptions',
+            ],
+        },
+    ],
+    '1.0.553': [
+        {
+            title: 'Home & title pages',
+            items: [
+                'Spotlight and title-page meta / synopsis text is a little smaller',
+            ],
+        },
+    ],
+    '1.0.552': [
+        {
+            title: 'Home',
+            items: [
+                'Common Sense Media age rating now shows in the Home spotlight next to the content rating',
+            ],
+        },
+    ],
+    '1.0.551': [
+        {
+            title: 'Title pages',
+            items: [
+                'Common Sense Media uses the official open-ring check mark again (not the old closed circle)',
+                'The year / runtime / rating row is slightly smaller',
+            ],
+        },
+    ],
+    '1.0.550': [
+        {
+            title: 'Home',
+            items: [
+                'Spotlight synopsis is one line shorter so studio and streaming logos are not cut off at the top',
+            ],
+        },
+    ],
+    '1.0.549': [
+        {
+            title: 'Title pages',
+            items: [
+                'Movie and show descriptions are a bit wider so more of the synopsis fits on one line',
+            ],
+        },
+    ],
+    '1.0.548': [
+        {
+            title: 'Title pages',
+            items: [
+                'Common Sense Media check mark shows again next to the age rating',
+            ],
+        },
+    ],
+    '1.0.547': [
+        {
+            title: 'Actor pages',
+            items: [
+                'Down on a person\'s filmography now moves through each title instead of jumping to the next decade',
+                'Full filmography and on-server catalogues are no longer cut short',
+            ],
+        },
+    ],
+    '1.0.546': [
+        {
+            title: 'Title pages',
+            items: [
+                'Related-title posters match the Home row size again',
+            ],
+        },
+    ],
+    '1.0.545': [
+        {
+            title: 'Title pages',
+            items: [
+                'Common Sense Media uses its official icon',
+            ],
+        },
+    ],
+    '1.0.544': [
+        {
+            title: 'Title pages',
+            items: [
+                'Episode rating chips keep their spacing after the left-align fix',
+            ],
+        },
+    ],
+    '1.0.543': [
+        {
+            title: 'Title pages',
+            items: [
+                'Episode rating / date chips align to the left of the overview',
+            ],
+        },
+    ],
     '1.0.542': [
         {
             title: 'Home',
