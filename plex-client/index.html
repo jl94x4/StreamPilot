@@ -703,10 +703,10 @@
       overflow-x: auto !important;
       overflow-y: hidden !important;
       /* overflow clips box-shadow — pad so the focus ring stays inside the scrollport. */
-      padding-top: calc(var(--tv-poster-radius, 6px) / var(--tv-zoom, 1)) !important;
-      padding-bottom: calc(var(--tv-poster-radius, 6px) / var(--tv-zoom, 1)) !important;
-      padding-left: calc(var(--tv-poster-radius, 6px) / var(--tv-zoom, 1)) !important;
-      padding-right: calc(var(--tv-poster-radius, 6px) / var(--tv-zoom, 1)) !important;
+      padding-top: calc(6px / var(--tv-zoom, 1)) !important;
+      padding-bottom: calc(6px / var(--tv-zoom, 1)) !important;
+      padding-left: calc(6px / var(--tv-zoom, 1)) !important;
+      padding-right: calc(6px / var(--tv-zoom, 1)) !important;
       margin-left: calc(-6px / var(--tv-zoom, 1)) !important;
       margin-right: calc(-6px / var(--tv-zoom, 1)) !important;
       scrollbar-width: none !important;
@@ -1087,8 +1087,8 @@
       height: calc(11px / var(--tv-zoom, 1)) !important;
     }
     html[data-tv="1"] .player-watched-tick svg {
-      width: calc(var(--tv-poster-radius, 6px) / var(--tv-zoom, 1)) !important;
-      height: calc(var(--tv-poster-radius, 6px) / var(--tv-zoom, 1)) !important;
+      width: calc(6px / var(--tv-zoom, 1)) !important;
+      height: calc(6px / var(--tv-zoom, 1)) !important;
     }
     html[data-tv="1"] [data-tv-poster="1"].aspect-square {
       aspect-ratio: 1 / 1 !important;
@@ -2421,13 +2421,6 @@
       z-index: 40 !important;
     }
     html[data-tv="1"] aside,
-    /* No live blur on TV: the menu sits over sliding rows and the changing Home banner, so a
-       backdrop blur is redrawn every frame of movement. A slightly denser tint looks the same. */
-    html[data-tv="1"] [data-tv-nav-root="1"] {
-      -webkit-backdrop-filter: none !important;
-      backdrop-filter: none !important;
-      background-color: rgb(11 16 24 / 0.93) !important;
-    }
     html[data-tv="1"] [data-tv-nav-root="1"] {
       --tw-shadow: 0 0 #0000 !important;
       --tw-shadow-colored: 0 0 #0000 !important;
@@ -2477,7 +2470,7 @@
       margin-top: 0 !important;
     }
     html[data-tv="1"] .media-details-cast {
-      padding-top: calc(var(--tv-poster-radius, 6px) / var(--tv-zoom, 1)) !important;
+      padding-top: calc(6px / var(--tv-zoom, 1)) !important;
       border-top-width: 0 !important;
     }
     html[data-tv="1"] .media-details-cast > div:first-child {
@@ -2753,7 +2746,7 @@
       scroll-margin-bottom: 0;
     }
     html[data-tv="1"] .player-home-hero {
-      border-radius: calc(var(--tv-poster-radius, 6px) / var(--tv-zoom, 1)) !important;
+      border-radius: calc(6px / var(--tv-zoom, 1)) !important;
       border: 1px solid rgba(255, 255, 255, 0.08) !important;
       scroll-margin-top: 1.35rem;
       background-color: #07090d !important;
@@ -2880,7 +2873,7 @@
       max-width: 48%;
     }
     html[data-tv="1"] [data-tv-home-hero="1"] {
-      border-radius: calc(var(--tv-poster-radius, 6px) / var(--tv-zoom, 1)) !important;
+      border-radius: calc(6px / var(--tv-zoom, 1)) !important;
     }
     html[data-tv="1"] [data-tv-home-hero="1"]:focus,
     html[data-tv="1"] [data-tv-home-hero="1"]:focus-visible {

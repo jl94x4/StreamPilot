@@ -4887,10 +4887,10 @@ html[data-tv="1"] [data-tv-library-filters="1"] [data-tv-item="1"] {
 }
 html[data-tv="1"] [data-tv-library-filters="1"] {
   /* Keep focus ring inside the overflow clip on the horizontal filter scroller. */
-  padding-top: calc(var(--tv-poster-radius, 6px) / var(--tv-zoom, 1));
-  padding-bottom: calc(var(--tv-poster-radius, 6px) / var(--tv-zoom, 1));
-  padding-left: calc(var(--tv-poster-radius, 6px) / var(--tv-zoom, 1));
-  padding-right: calc(var(--tv-poster-radius, 6px) / var(--tv-zoom, 1));
+  padding-top: calc(6px / var(--tv-zoom, 1));
+  padding-bottom: calc(6px / var(--tv-zoom, 1));
+  padding-left: calc(6px / var(--tv-zoom, 1));
+  padding-right: calc(6px / var(--tv-zoom, 1));
 }
 .player-library-filter-select button {
   border-radius: 999px !important;
