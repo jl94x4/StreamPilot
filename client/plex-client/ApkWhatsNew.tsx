@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.503': [
+        {
+            title: 'Libraries',
+            items: [
+                'Studios is now a grid of wide tiles like Plex\'s Categories: each studio or network logo over a colour-washed backdrop from one of its titles',
+                'Studios with a recognised logo come first (no more rows of obscure names), and each brand appears once',
+            ],
+        },
+    ],
     '1.0.502': [
         {
             title: 'Libraries',

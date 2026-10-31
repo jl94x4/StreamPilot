@@ -6430,3 +6430,57 @@ html[data-tv="1"] .player-library-count {
 html[data-tv="1"] [data-tv-library-filters="1"].player-library-toolbar button span {
   font-size: inherit !important;
 }
+
+/* TV Library → Studios: Plex Categories-style tiles, logo over a colour-washed backdrop. */
+html[data-tv="1"] .player-studio-tile {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--tile-tint, #2c4f86);
+}
+html[data-tv="1"] .player-studio-tile-art {
+  z-index: 0;
+  filter: grayscale(0.35) brightness(0.9);
+}
+html[data-tv="1"] .player-studio-tile-wash {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: var(--tile-tint, #2c4f86);
+  opacity: 0.78;
+}
+html[data-tv="1"] .player-studio-tile-mark {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 12% 16%;
+}
+html[data-tv="1"] .player-studio-tile-logo {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 4px 14px rgba(0, 0, 0, 0.45));
+}
+html[data-tv="1"] .player-studio-tile-name {
+  color: #fff;
+  font-size: calc(1.5rem * var(--tv-text-scale, 1));
+  font-weight: 800;
+  line-height: 1.15;
+  text-align: center;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+html[data-tv="1"] [data-tv-poster-btn="1"][data-tv-focused="1"]:focus .player-studio-tile-wash,
+html[data-tv="1"] [data-tv-poster-btn="1"][data-tv-focused="1"]:focus-visible .player-studio-tile-wash {
+  opacity: 0.6;
+}

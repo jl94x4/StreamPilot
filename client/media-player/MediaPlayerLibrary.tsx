@@ -31,6 +31,7 @@ import { readLibraryBrowseState, readLibraryHomeCache, writeLibraryBrowseState, 
 import { PLAYER_SCROLL_ID } from './paths';
 import { PlayerLibraryFilterSheet, type LibraryFilterGroup, type LibraryFilterToggle } from './PlayerLibraryFilterSheet';
 import { PlayerPosterCard } from './PlayerPosterCard';
+import { PlayerStudioTiles } from './PlayerStudioTiles';
 import { PlayerRail } from './PlayerRail';
 import { viewMoreShelfFromHub } from './PlayerViewMoreCard';
 import { PlayerTvHubStage, type PlayerTvHubStageRow } from './PlayerTvHubStage';
@@ -1708,6 +1709,21 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                         <p className={discoveryTheme.emptyTitle}>{t('mediaPlayerPage.emptyCollections')}</p>
                     </div>
                 )
+            ) : tab === 'studios' && tvShell && (studioNetworks.length || studioStudios.length) ? (
+                <div className="player-library-studios flex flex-col gap-12 pb-10">
+                    <PlayerStudioTiles
+                        title={t('mediaPlayerPage.browseByNetwork')}
+                        cards={studioNetworks}
+                        keyPrefix="studio-network"
+                        onOpen={(card) => onOpenStudio?.({ key: card.key, name: card.title, sectionKey, mediaType: 'show' })}
+                    />
+                    <PlayerStudioTiles
+                        title={t('mediaPlayerPage.browseByStudio')}
+                        cards={studioStudios}
+                        keyPrefix="studio-studio"
+                        onOpen={(card) => onOpenStudio?.({ key: card.key, name: card.title, sectionKey, mediaType: 'movie' })}
+                    />
+                </div>
             ) : tab === 'studios' ? (
                 (studioNetworks.length || studioStudios.length) ? (
                     <div className="player-library-studios tv-poster-rows player-home-rows flex flex-col gap-12 pb-10">
