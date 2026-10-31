@@ -169,11 +169,13 @@ export const isPlayerNavStyle = (value: unknown): value is PlayerNavStyle => val
 
 /** TV side menu while closed: icons on the page ('blend', default) or on the dark panel. */
 /** App-wide typeface. 'default' keeps the built-in Switzer / Satoshi pair. */
-export type PlayerAppFont = 'default' | 'inter' | 'outfit' | 'nunito' | 'montserrat' | 'lexend' | 'lora'
-    | 'playfair' | 'slab' | 'mono' | 'oswald' | 'comfortaa' | 'orbitron' | 'caveat';
+export type PlayerAppFont = 'default' | 'inter' | 'roboto' | 'nunito' | 'montserrat' | 'lexend' | 'lora'
+    | 'playfair' | 'slab' | 'mono' | 'oswald' | 'comfortaa' | 'orbitron' | 'caveat'
+    | 'cinzel' | 'merriweather' | 'script' | 'fredoka' | 'typewriter' | 'marker' | 'comic';
 export const PLAYER_APP_FONTS: PlayerAppFont[] = [
-    'default', 'inter', 'outfit', 'nunito', 'montserrat', 'lexend', 'lora',
+    'default', 'inter', 'roboto', 'nunito', 'montserrat', 'lexend', 'lora',
     'playfair', 'slab', 'mono', 'oswald', 'comfortaa', 'orbitron', 'caveat',
+    'cinzel', 'merriweather', 'script', 'fredoka', 'typewriter', 'marker', 'comic',
 ];
 export const isPlayerAppFont = (value: unknown): value is PlayerAppFont =>
     PLAYER_APP_FONTS.includes(value as PlayerAppFont);
@@ -181,7 +183,7 @@ export const isPlayerAppFont = (value: unknown): value is PlayerAppFont =>
 export const PLAYER_APP_FONT_FAMILY: Record<PlayerAppFont, string> = {
     default: '"Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif',
     inter: '"SMP Inter", "Switzer", sans-serif',
-    outfit: '"SMP Outfit", "Switzer", sans-serif',
+    roboto: '"SMP Roboto", "Switzer", sans-serif',
     nunito: '"SMP Nunito", "Switzer", sans-serif',
     montserrat: '"SMP Montserrat", "Switzer", sans-serif',
     lexend: '"SMP Lexend", "Switzer", sans-serif',
@@ -193,6 +195,13 @@ export const PLAYER_APP_FONT_FAMILY: Record<PlayerAppFont, string> = {
     comfortaa: '"SMP Comfortaa", "Switzer", sans-serif',
     orbitron: '"SMP Orbitron", "Switzer", sans-serif',
     caveat: '"SMP Caveat", cursive',
+    cinzel: '"SMP Cinzel", Georgia, serif',
+    merriweather: '"SMP Merriweather", Georgia, serif',
+    script: '"SMP Dancing Script", cursive',
+    fredoka: '"SMP Fredoka", "Switzer", sans-serif',
+    typewriter: '"SMP Special Elite", "Courier New", monospace',
+    marker: '"SMP Permanent Marker", cursive',
+    comic: '"SMP Bangers", "Switzer", sans-serif',
 };
 
 export type PlayerViewMoreStyle = 'backdrop' | 'mosaic' | 'deck' | 'minimal';

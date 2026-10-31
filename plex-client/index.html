@@ -189,11 +189,11 @@
       src: url("./fonts/inter-variable.woff2") format("woff2");
     }
     @font-face {
-      font-family: "SMP Outfit";
+      font-family: "SMP Roboto";
       font-style: normal;
       font-weight: 100 900;
       font-display: swap;
-      src: url("./fonts/outfit-variable.woff2") format("woff2");
+      src: url("./fonts/roboto-variable.woff2") format("woff2");
     }
     @font-face {
       font-family: "SMP Nunito";
@@ -272,11 +272,60 @@
       font-display: swap;
       src: url("./fonts/caveat-variable.woff2") format("woff2");
     }
+    @font-face {
+      font-family: "SMP Cinzel";
+      font-style: normal;
+      font-weight: 100 900;
+      font-display: swap;
+      src: url("./fonts/cinzel-variable.woff2") format("woff2");
+    }
+    @font-face {
+      font-family: "SMP Merriweather";
+      font-style: normal;
+      font-weight: 100 900;
+      font-display: swap;
+      src: url("./fonts/merriweather-variable.woff2") format("woff2");
+    }
+    @font-face {
+      font-family: "SMP Dancing Script";
+      font-style: normal;
+      font-weight: 100 900;
+      font-display: swap;
+      src: url("./fonts/dancing-script-variable.woff2") format("woff2");
+    }
+    @font-face {
+      font-family: "SMP Fredoka";
+      font-style: normal;
+      font-weight: 100 900;
+      font-display: swap;
+      src: url("./fonts/fredoka-variable.woff2") format("woff2");
+    }
+    @font-face {
+      font-family: "SMP Special Elite";
+      font-style: normal;
+      font-weight: 100 900;
+      font-display: swap;
+      src: url("./fonts/special-elite-regular.woff2") format("woff2");
+    }
+    @font-face {
+      font-family: "SMP Permanent Marker";
+      font-style: normal;
+      font-weight: 100 900;
+      font-display: swap;
+      src: url("./fonts/permanent-marker-regular.woff2") format("woff2");
+    }
+    @font-face {
+      font-family: "SMP Bangers";
+      font-style: normal;
+      font-weight: 100 900;
+      font-display: swap;
+      src: url("./fonts/bangers-regular.woff2") format("woff2");
+    }
     /* Settings → App font. Default leaves every existing font rule alone. The repeated attribute
        outranks the hard-coded Switzer / Satoshi rules (some are !important); font pickers show
        each option in its own face. */
     html[data-app-font="inter"] { --app-font: "SMP Inter", "Switzer", sans-serif; }
-    html[data-app-font="outfit"] { --app-font: "SMP Outfit", "Switzer", sans-serif; }
+    html[data-app-font="roboto"] { --app-font: "SMP Roboto", "Switzer", sans-serif; }
     html[data-app-font="nunito"] { --app-font: "SMP Nunito", "Switzer", sans-serif; }
     html[data-app-font="montserrat"] { --app-font: "SMP Montserrat", "Switzer", sans-serif; }
     html[data-app-font="lexend"] { --app-font: "SMP Lexend", "Switzer", sans-serif; }
@@ -288,6 +337,13 @@
     html[data-app-font="comfortaa"] { --app-font: "SMP Comfortaa", "Switzer", sans-serif; }
     html[data-app-font="orbitron"] { --app-font: "SMP Orbitron", "Switzer", sans-serif; }
     html[data-app-font="caveat"] { --app-font: "SMP Caveat", cursive; }
+    html[data-app-font="cinzel"] { --app-font: "SMP Cinzel", Georgia, serif; }
+    html[data-app-font="merriweather"] { --app-font: "SMP Merriweather", Georgia, serif; }
+    html[data-app-font="script"] { --app-font: "SMP Dancing Script", cursive; }
+    html[data-app-font="fredoka"] { --app-font: "SMP Fredoka", "Switzer", sans-serif; }
+    html[data-app-font="typewriter"] { --app-font: "SMP Special Elite", "Courier New", monospace; }
+    html[data-app-font="marker"] { --app-font: "SMP Permanent Marker", cursive; }
+    html[data-app-font="comic"] { --app-font: "SMP Bangers", "Switzer", sans-serif; }
     html[data-app-font][data-app-font][data-app-font] *:not([data-font-preview]) {
       font-family: var(--app-font) !important;
     }

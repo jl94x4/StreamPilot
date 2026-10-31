@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.538': [
+        {
+            title: 'Display',
+            items: [
+                '21 app fonts now: added Roboto (Google\'s Android font), Cinzel, Merriweather, Dancing Script, Fredoka, Special Elite (typewriter), Permanent Marker and Bangers (comic)',
+                'Outfit was removed (it looked too much like the other sans fonts); if you had it, the app is back on the default font',
+            ],
+        },
+    ],
     '1.0.537': [
         {
             title: 'Display',
