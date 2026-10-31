@@ -1963,7 +1963,8 @@
       /* 23.5rem above the old stage bottom, which sat 0.35rem up. */
       bottom: 23.85rem;
       z-index: 2;
-      width: min(38rem, 44%);
+      /* +6rem so the info line fits ~9 more letters of a long episode title before the ellipsis. */
+      width: min(44rem, 50%);
       /* Tall enough for logo + tagline + meta + 3-line synopsis + cast. */
       height: 16.75rem;
       max-height: 48%;

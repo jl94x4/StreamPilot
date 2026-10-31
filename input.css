@@ -3784,7 +3784,7 @@ html[data-tv="1"] .player-home-spot-stage {
   top: auto;
   bottom: auto;
   z-index: 2;
-  width: min(42rem, 48%);
+  width: min(48rem, 54%);
   height: auto;
   max-height: none;
   flex: 0 0 auto;
