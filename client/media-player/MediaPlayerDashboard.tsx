@@ -16,7 +16,6 @@ import { isPhoneUi } from '../plex-client/config';
 import { MediaPlayerCollection } from './MediaPlayerCollection';
 import { MediaPlayerHub } from './MediaPlayerHub';
 import { MediaPlayerPlaylist } from './MediaPlayerPlaylist';
-import { MediaPlayerDetails } from './MediaPlayerDetails';
 import { MediaPlayerStudio } from './MediaPlayerStudio';
 import { lazyScreen, preloadScreensWhenIdle } from './lazyScreen';
 import { MediaPlayerNav } from './MediaPlayerNav';
@@ -74,6 +73,9 @@ import {
 import type { PlayerItem, PlayerLibraryHub, PlayerPlayOptions, PlayerPlaySession, PlayerSection } from './types';
 
 // Not needed for Home's first paint: loaded on first open, or at idle once Home has settled.
+// Title pages are opened all the time but are not needed before Home: loaded on demand and
+// preloaded first once start-up settles, so opening one stays instant.
+const MediaPlayerDetails = lazyScreen(() => import('./MediaPlayerDetails').then((m) => m.MediaPlayerDetails));
 const MediaPlayerLibrary = lazyScreen(() => import('./MediaPlayerLibrary').then((m) => m.MediaPlayerLibrary));
 const MediaPlayerPerson = lazyScreen(() => import('./MediaPlayerPerson').then((m) => m.MediaPlayerPerson));
 const MediaPlayerSettings = lazyScreen(() => import('./MediaPlayerSettings').then((m) => m.MediaPlayerSettings));
@@ -278,7 +280,7 @@ const screenEnterClass = (tvShell: boolean, animate = true) => (
 
 export const MediaPlayerDashboard: React.FC = () => {
     const { t } = useDiscoverI18n();
-    useEffect(() => preloadScreensWhenIdle([MediaPlayerLibrary, MediaPlayerSettings, MediaPlayerPerson, MediaPlayerVideo, PlayerLiveTv]), []);
+    useEffect(() => preloadScreensWhenIdle([MediaPlayerDetails, MediaPlayerLibrary, MediaPlayerSettings, MediaPlayerPerson, MediaPlayerVideo, PlayerLiveTv]), []);
     const [settings] = usePlayerSettings();
     const [view, setView] = useState<PlayerView>(() => readPlayerView());
     const [libraries, setLibraries] = useState<PlayerSection[]>(() => readPlayerLibrariesCache());
