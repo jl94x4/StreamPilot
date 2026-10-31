@@ -6482,3 +6482,13 @@ html[data-tv="1"] [data-tv-poster-btn="1"][data-tv-focused="1"]:focus .player-st
 html[data-tv="1"] [data-tv-poster-btn="1"][data-tv-focused="1"]:focus-visible .player-studio-tile-wash {
   opacity: 0.6;
 }
+
+/* TV library (Browse / Collections / Studios): title, tabs and toolbar stay pinned; content scrolls under. */
+html[data-tv="1"] .player-library-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  margin-top: -1.35rem;
+  padding: 1.35rem 0 1rem;
+  background-color: rgb(var(--tv-page-surface, 36 40 48));
+}

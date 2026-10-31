@@ -759,6 +759,7 @@ const focusItem = (el: HTMLElement, block: ScrollLogicalPosition = 'nearest', di
         el.focus();
     }
     syncPosterFocusAttr();
+    if (el.closest('[data-tv-sticky-header="1"]')) return;
     if (el.closest('[data-tv-search="1"]')) {
         const body = el.closest<HTMLElement>('[data-tv-search-body="1"]');
         // Query and keyboard stay pinned. Vertical moves scroll the list only —
@@ -2621,6 +2622,10 @@ export const useTvRemote = (enabled = true) => {
                 rememberRowFocus(current);
                 window.dispatchEvent(new CustomEvent('smp-tv-home-row', { detail: { dir } }));
                 return;
+            }
+            if (!target && !menuRoot && !inBrowseChrome && (dir === 'up' || dir === 'down')) {
+                const grid = current.closest<HTMLElement>('[data-tv-poster-grid="1"], .upgrader-poster-grid');
+                if (grid) target = findSpatialTarget(current, dir, grid);
             }
             if (!target && !menuRoot && !inBrowseChrome && (dir === 'up' || dir === 'down')) {
                 target = nearestVerticalRow(current, dir);

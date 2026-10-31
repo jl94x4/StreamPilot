@@ -30,7 +30,7 @@ type Props = {
 export const PlayerStudioTiles: React.FC<Props> = ({ title, cards, keyPrefix, onOpen }) => {
     if (!cards.length) return null;
     return (
-        <section className="flex min-w-0 max-w-full flex-col gap-4">
+        <section className="flex min-w-0 max-w-full flex-col gap-4" data-tv-row="1" data-tv-row-id={`lib:${keyPrefix}`}>
             <DiscoverSectionHeader title={title} />
             <div
                 className="player-studio-tiles grid grid-cols-4 gap-6"

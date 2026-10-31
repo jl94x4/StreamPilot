@@ -247,6 +247,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
     /** Absolute library index of items[0] in the current browse window. */
     const browseAbsStartRef = useRef(0);
     const browseColumnsRef = useRef(0);
+    const stickyHeaderRef = useRef<HTMLDivElement>(null);
     const browseRowRef = useRef(-1);
     /** Index within the loaded window of the focused browse poster. */
     const browseFocusAbsRef = useRef(-1);
@@ -1163,6 +1164,22 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
         bar.scrollTop = Math.max(0, top);
     }, [markedLetter, tab, alphaLetters.length]);
 
+    useEffect(() => {
+        const header = stickyHeaderRef.current;
+        const scroller = document.getElementById(PLAYER_SCROLL_ID);
+        if (!tvShell || !active || !header || !scroller) return undefined;
+        const apply = () => {
+            scroller.style.scrollPaddingTop = `${header.offsetHeight + 16}px`;
+        };
+        apply();
+        const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(apply) : null;
+        observer?.observe(header);
+        return () => {
+            observer?.disconnect();
+            scroller.style.scrollPaddingTop = '';
+        };
+    }, [active, tab, tvShell]);
+
     const libraryChrome = (
         <div className="player-library-header flex flex-col gap-5">
             <div className="flex flex-wrap items-end justify-between gap-3">
@@ -1275,9 +1292,10 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
 
     return (
         <div className="flex flex-col gap-5 pb-8" data-tv-library="1">
-            {libraryChrome}
-
-            {tab === 'browse' && tvShell ? (
+            {tvShell ? (
+                <div ref={stickyHeaderRef} className="player-library-sticky flex flex-col gap-5" data-tv-sticky-header="1">
+                    {libraryChrome}
+            {tab === 'browse' ? (
                 <div className="player-library-toolbar flex flex-wrap items-center" data-tv-library-filters="1">
                     <CustomSelect
                         compact
@@ -1298,7 +1316,10 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                         </span>
                     ) : null}
                 </div>
-            ) : tab === 'browse' ? (
+            ) : null}
+                </div>
+            ) : libraryChrome}
+            {!tvShell && tab === 'browse' ? (
                 <div className="flex flex-wrap items-center gap-2" data-tv-library-filters="1">
                     <CustomSelect
                         compact

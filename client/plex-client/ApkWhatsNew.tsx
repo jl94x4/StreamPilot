@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.505': [
+        {
+            title: 'Libraries',
+            items: [
+                'The library name, tabs and Browse toolbar stay pinned at the top; only the posters below scroll',
+                'Pressing Up on Studios (and other poster grids) moves up one row instead of jumping to the tabs',
+            ],
+        },
+    ],
     '1.0.504': [
         {
             title: 'Libraries',
