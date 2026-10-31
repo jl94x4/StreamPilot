@@ -3919,7 +3919,8 @@ html[data-tv="1"] .player-home-spot-meta {
   white-space: nowrap;
   align-items: center;
   gap: 0.5rem;
-  font-size: 0.88rem;
+  /* A touch larger than the synopsis (1rem) so the episode / date line leads. */
+  font-size: 1.08rem;
   font-weight: 600;
   color: rgba(255, 255, 255, 0.82) !important;
 }
@@ -3947,7 +3948,7 @@ html[data-tv="1"] .player-home-spot-watched {
   color: #111111 !important;
   /* The clock's face (medium Switzer), like the play buttons. */
   font-family: "Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif;
-  font-size: 0.78rem;
+  font-size: 0.92rem;
   font-weight: 500;
   letter-spacing: 0;
   line-height: 1;
