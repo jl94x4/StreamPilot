@@ -1078,7 +1078,14 @@ export const restoreTvFocus = (): boolean => {
     const snapshot = tvFocusByPath.get(currentPath());
     const key = snapshot?.key;
     if (!key) return false;
-    const match = findTvItemByKey(key);
+    let match = findTvItemByKey(key);
+    // Library tabs: come back to the tab this page is on, not whichever tab was last focused.
+    if (key.startsWith('library-tab-')) {
+        const current = Array.from(document.querySelectorAll<HTMLElement>(
+            '[data-tv-library-tabs="1"] [aria-current="page"]',
+        )).find((el) => hasLayout(el) && !el.closest('[hidden]'));
+        if (current) match = current;
+    }
     if (!match) return false;
     focusItem(match, 'center');
     if (match.closest('[data-tv-poster-rail="1"]')) pinTvRailItemToSlot(match);
