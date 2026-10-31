@@ -378,7 +378,7 @@ const TvReorderList: React.FC<{
 
 // TV uses its own grouping (playback / audio / display / screensaver / account).
 type SettingsTabId = 'home' | 'player' | 'titles' | 'servers' | 'connection'
-    | 'playback' | 'audio' | 'display' | 'screensaver' | 'account';
+    | 'layout' | 'playback' | 'audio' | 'display' | 'screensaver' | 'account';
 
 const SettingsTabBar: React.FC<{
     tabs: Array<{ id: SettingsTabId; label: string }>;
@@ -717,6 +717,7 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
         if (tvShell) {
             const tvRows: Array<{ id: SettingsTabId; label: string }> = [
                 { id: 'home', label: t('mediaPlayerPage.settingsTabHome') },
+                { id: 'layout', label: t('mediaPlayerPage.settingsTabHomeLayout') },
                 { id: 'playback', label: t('mediaPlayerPage.settingsTabPlayback') },
                 { id: 'audio', label: t('mediaPlayerPage.settingsTabAudioSubtitles') },
                 { id: 'display', label: t('mediaPlayerPage.settingsTabDisplay') },
@@ -1161,6 +1162,11 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         checked={settings.recentlyAddedSeasonPoster}
                         onChange={(checked) => updateSettings({ recentlyAddedSeasonPoster: checked })}
                     />
+                </section>
+                ) : null}
+
+                {settingsTab === 'layout' ? (
+                <section className="flex flex-col gap-3">
                     {orderedLibraries.length ? (
                         <TvReorderList
                             title={t('mediaPlayerPage.libraryNavOrder')}

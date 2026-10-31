@@ -459,6 +459,7 @@ export const en = {
         settingsHintTv: 'Pick a section, change a setting, then save. Unsaved changes stay until you save.',
         appVersion: 'Version {version}',
         settingsTabHome: 'Home',
+        settingsTabHomeLayout: 'Home layout',
         settingsTabPlayer: 'Player',
         settingsTabTitles: 'Titles',
         settingsTabServers: 'Servers',
