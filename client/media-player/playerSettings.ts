@@ -167,6 +167,10 @@ export const isPlayerTextSize = (value: unknown): value is PlayerTextSize => (
 export type PlayerNavStyle = 'labels' | 'icons';
 export const isPlayerNavStyle = (value: unknown): value is PlayerNavStyle => value === 'labels' || value === 'icons';
 
+/** TV side menu while closed: icons on the page ('blend', default) or on the dark panel. */
+export type PlayerNavClosedStyle = 'blend' | 'panel';
+export const isPlayerNavClosedStyle = (value: unknown): value is PlayerNavClosedStyle => value === 'blend' || value === 'panel';
+
 /** Player skip (seconds) for Left / Right. */
 export const PLAYER_SEEK_STEPS = [5, 10, 15, 30, 60] as const;
 /** Seconds the player controls stay up before fading. */
@@ -514,6 +518,7 @@ export type PlayerSettings = {
     ratingSources: PlayerRatingSources;
     textSize: PlayerTextSize;
     navStyle: PlayerNavStyle;
+    navClosedStyle: PlayerNavClosedStyle;
     /** Clock in the corner of the app (and in the player with its controls). */
     showClock: boolean;
     seekBackSec: number;
@@ -907,6 +912,7 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
     ratingSources: { imdb: true, rtCritics: true, rtAudience: true, tmdb: true, tvdb: true },
     textSize: 'medium',
     navStyle: 'labels',
+    navClosedStyle: 'blend',
     showClock: true,
     seekBackSec: 10,
     seekForwardSec: 10,
@@ -993,6 +999,7 @@ export const normalizePlayerSettings = (raw: Partial<PlayerSettings> | Record<st
         ratingSources: normalizeRatingSources(raw?.ratingSources),
         textSize: isPlayerTextSize(raw?.textSize) ? raw.textSize : 'medium',
         navStyle: isPlayerNavStyle(raw?.navStyle) ? raw.navStyle : 'labels',
+        navClosedStyle: isPlayerNavClosedStyle(raw?.navClosedStyle) ? raw.navClosedStyle : 'blend',
         showClock: raw?.showClock !== false,
         seekBackSec: pickNumber(raw?.seekBackSec, PLAYER_SEEK_STEPS, 10),
         seekForwardSec: pickNumber(raw?.seekForwardSec, PLAYER_SEEK_STEPS, 10),
@@ -1103,6 +1110,7 @@ export const playerSettingsEqual = (a: PlayerSettings, b: PlayerSettings) => (
     && PLAYER_RATING_SOURCE_KEYS.every((key) => a.ratingSources[key] === b.ratingSources[key])
     && a.textSize === b.textSize
     && a.navStyle === b.navStyle
+    && a.navClosedStyle === b.navClosedStyle
     && a.showClock === b.showClock
     && a.seekBackSec === b.seekBackSec
     && a.seekForwardSec === b.seekForwardSec

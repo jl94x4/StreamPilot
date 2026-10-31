@@ -58,6 +58,8 @@ type Props = {
     offlineServerIds?: string[];
     /** TV: open the menu as icons only (Settings → Side menu). */
     iconsOnly?: boolean;
+    /** TV: keep the dark panel behind the closed menu (Settings → Closed side menu). */
+    closedPanel?: boolean;
 };
 
 /** Fixed slot so every row’s glyph shares one vertical column (Lucide viewBoxes differ). */
@@ -137,6 +139,7 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
     offline = false,
     offlineServerIds = [],
     iconsOnly = false,
+    closedPanel = false,
 }: Props) {
     const { t } = useDiscoverI18n();
     const [mobileOpen, setMobileOpen] = useState(false);
@@ -551,10 +554,10 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
             >
                 <div
                     data-tv-nav-root="1"
-                    // TV: closed, the icons sit straight on the page (no pill); opening the menu
-                    // brings the dark blurred panel. Elsewhere the panel is always there.
+                    // TV: closed, the icons sit straight on the page unless Closed side menu is set to
+                    // the dark panel; opening the menu always brings the panel. Elsewhere it is always there.
                     className={`pointer-events-auto flex max-h-[calc(100%-3rem)] flex-col rounded-[28px] ${
-                        !isTvShell || expanded ? 'bg-[#0b1018]/80 backdrop-blur-2xl' : 'bg-transparent'
+                        !isTvShell || expanded || closedPanel ? 'bg-[#0b1018]/80 backdrop-blur-2xl' : 'bg-transparent'
                     } ${
                         isTvShell ? 'border-0 shadow-none' : 'border border-white shadow-[0_18px_50px_rgba(0,0,0,0.45)] transition-[width] duration-200'
                     } ${

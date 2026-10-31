@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.495': [
+        {
+            title: 'Display',
+            items: [
+                'Closed side menu: blend into the background (default) or keep the dark panel (Settings → Display)',
+            ],
+        },
+    ],
     '1.0.494': [
         {
             title: 'TV',

@@ -1379,6 +1379,7 @@ export const MediaPlayerDashboard: React.FC = () => {
                 offline={false}
                 offlineServerIds={offlineServerIds}
                 iconsOnly={navIconsOnly}
+                closedPanel={settings.navClosedStyle === 'panel'}
             />
             <div
                 id={PLAYER_SCROLL_ID}
