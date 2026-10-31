@@ -223,6 +223,55 @@
       font-display: swap;
       src: url("./fonts/lora-variable.woff2") format("woff2");
     }
+    @font-face {
+      font-family: "SMP Playfair Display";
+      font-style: normal;
+      font-weight: 100 900;
+      font-display: swap;
+      src: url("./fonts/playfair-display-variable.woff2") format("woff2");
+    }
+    @font-face {
+      font-family: "SMP Roboto Slab";
+      font-style: normal;
+      font-weight: 100 900;
+      font-display: swap;
+      src: url("./fonts/roboto-slab-variable.woff2") format("woff2");
+    }
+    @font-face {
+      font-family: "SMP JetBrains Mono";
+      font-style: normal;
+      font-weight: 100 900;
+      font-display: swap;
+      src: url("./fonts/jetbrains-mono-variable.woff2") format("woff2");
+    }
+    @font-face {
+      font-family: "SMP Oswald";
+      font-style: normal;
+      font-weight: 100 900;
+      font-display: swap;
+      src: url("./fonts/oswald-variable.woff2") format("woff2");
+    }
+    @font-face {
+      font-family: "SMP Comfortaa";
+      font-style: normal;
+      font-weight: 100 900;
+      font-display: swap;
+      src: url("./fonts/comfortaa-variable.woff2") format("woff2");
+    }
+    @font-face {
+      font-family: "SMP Orbitron";
+      font-style: normal;
+      font-weight: 100 900;
+      font-display: swap;
+      src: url("./fonts/orbitron-variable.woff2") format("woff2");
+    }
+    @font-face {
+      font-family: "SMP Caveat";
+      font-style: normal;
+      font-weight: 100 900;
+      font-display: swap;
+      src: url("./fonts/caveat-variable.woff2") format("woff2");
+    }
     /* Settings → App font. Default leaves every existing font rule alone. The repeated attribute
        outranks the hard-coded Switzer / Satoshi rules (some are !important); font pickers show
        each option in its own face. */
@@ -232,6 +281,13 @@
     html[data-app-font="montserrat"] { --app-font: "SMP Montserrat", "Switzer", sans-serif; }
     html[data-app-font="lexend"] { --app-font: "SMP Lexend", "Switzer", sans-serif; }
     html[data-app-font="lora"] { --app-font: "SMP Lora", Georgia, serif; }
+    html[data-app-font="playfair"] { --app-font: "SMP Playfair Display", Georgia, serif; }
+    html[data-app-font="slab"] { --app-font: "SMP Roboto Slab", Georgia, serif; }
+    html[data-app-font="mono"] { --app-font: "SMP JetBrains Mono", monospace; }
+    html[data-app-font="oswald"] { --app-font: "SMP Oswald", "Switzer", sans-serif; }
+    html[data-app-font="comfortaa"] { --app-font: "SMP Comfortaa", "Switzer", sans-serif; }
+    html[data-app-font="orbitron"] { --app-font: "SMP Orbitron", "Switzer", sans-serif; }
+    html[data-app-font="caveat"] { --app-font: "SMP Caveat", cursive; }
     html[data-app-font][data-app-font][data-app-font] *:not([data-font-preview]) {
       font-family: var(--app-font) !important;
     }

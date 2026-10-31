@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.537': [
+        {
+            title: 'Display',
+            items: [
+                'Seven more app fonts with very different styles: Playfair Display (elegant serif), Roboto Slab, JetBrains Mono (monospace), Oswald (condensed), Comfortaa (rounded), Orbitron (futuristic) and Caveat (handwritten)',
+            ],
+        },
+    ],
     '1.0.536': [
         {
             title: 'Display',

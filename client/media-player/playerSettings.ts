@@ -169,8 +169,12 @@ export const isPlayerNavStyle = (value: unknown): value is PlayerNavStyle => val
 
 /** TV side menu while closed: icons on the page ('blend', default) or on the dark panel. */
 /** App-wide typeface. 'default' keeps the built-in Switzer / Satoshi pair. */
-export type PlayerAppFont = 'default' | 'inter' | 'outfit' | 'nunito' | 'montserrat' | 'lexend' | 'lora';
-export const PLAYER_APP_FONTS: PlayerAppFont[] = ['default', 'inter', 'outfit', 'nunito', 'montserrat', 'lexend', 'lora'];
+export type PlayerAppFont = 'default' | 'inter' | 'outfit' | 'nunito' | 'montserrat' | 'lexend' | 'lora'
+    | 'playfair' | 'slab' | 'mono' | 'oswald' | 'comfortaa' | 'orbitron' | 'caveat';
+export const PLAYER_APP_FONTS: PlayerAppFont[] = [
+    'default', 'inter', 'outfit', 'nunito', 'montserrat', 'lexend', 'lora',
+    'playfair', 'slab', 'mono', 'oswald', 'comfortaa', 'orbitron', 'caveat',
+];
 export const isPlayerAppFont = (value: unknown): value is PlayerAppFont =>
     PLAYER_APP_FONTS.includes(value as PlayerAppFont);
 /** CSS family for each font (the bundled faces are named "SMP …" so Tailwind's Inter stack is untouched). */
@@ -182,6 +186,13 @@ export const PLAYER_APP_FONT_FAMILY: Record<PlayerAppFont, string> = {
     montserrat: '"SMP Montserrat", "Switzer", sans-serif',
     lexend: '"SMP Lexend", "Switzer", sans-serif',
     lora: '"SMP Lora", Georgia, serif',
+    playfair: '"SMP Playfair Display", Georgia, serif',
+    slab: '"SMP Roboto Slab", Georgia, serif',
+    mono: '"SMP JetBrains Mono", monospace',
+    oswald: '"SMP Oswald", "Switzer", sans-serif',
+    comfortaa: '"SMP Comfortaa", "Switzer", sans-serif',
+    orbitron: '"SMP Orbitron", "Switzer", sans-serif',
+    caveat: '"SMP Caveat", cursive',
 };
 
 export type PlayerViewMoreStyle = 'backdrop' | 'mosaic' | 'deck' | 'minimal';
