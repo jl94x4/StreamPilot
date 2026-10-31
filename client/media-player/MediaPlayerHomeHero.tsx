@@ -409,7 +409,7 @@ export const MediaPlayerHomeHero: React.FC<Props> = ({ items, effectiveMode, act
                     >
                         <div className="player-home-hero-eyebrow-row">
                             <span className="player-home-hero-eyebrow-mark" aria-hidden />
-                            <p className="player-home-hero-eyebrow shrink-0 text-sm font-bold uppercase tracking-[0.22em] text-plex">
+                            <p className="player-home-hero-eyebrow shrink-0 text-sm font-bold uppercase tracking-[0.22em] text-amber-300/95">
                                 {eyebrow}
                             </p>
                         </div>
@@ -429,7 +429,7 @@ export const MediaPlayerHomeHero: React.FC<Props> = ({ items, effectiveMode, act
                     <div className="absolute inset-0 z-10 flex flex-col justify-end gap-3 p-4 sm:gap-4 sm:p-6 lg:p-8 max-md:gap-2 max-md:p-3.5 max-md:pb-3.5">
                         <div className="player-home-hero-eyebrow-row max-md:hidden">
                             <span className="player-home-hero-eyebrow-mark" aria-hidden />
-                            <p className="player-home-hero-eyebrow shrink-0 text-sm font-bold uppercase tracking-[0.22em] text-plex max-md:text-[11px] max-md:tracking-[0.18em]">
+                            <p className="player-home-hero-eyebrow shrink-0 text-sm font-bold uppercase tracking-[0.22em] text-amber-300/95 max-md:text-[11px] max-md:tracking-[0.18em]">
                                 {eyebrow}
                             </p>
                         </div>

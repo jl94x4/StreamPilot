@@ -418,8 +418,9 @@
       color: #ffffff;
       background: rgb(var(--tv-page-surface)) !important;
       --tv-focus-stroke: calc(2px / var(--tv-zoom, 1));
-      --tv-focus-glow: 0 0 0 var(--tv-focus-stroke) rgb(var(--tv-accent));
-      --tv-focus-glow-cover: inset 0 0 0 var(--tv-focus-stroke) rgb(var(--tv-accent-soft));
+      /* Settings → Accent colour changes only these focus rings (posters, episodes, settings rows). */
+      --tv-focus-glow: 0 0 0 var(--tv-focus-stroke) rgb(var(--tv-focus-accent, 245 158 11));
+      --tv-focus-glow-cover: inset 0 0 0 var(--tv-focus-stroke) rgb(var(--tv-focus-accent-soft, 251 191 36));
     }
     html[data-tv="1"] body,
     html[data-tv="1"] #root,

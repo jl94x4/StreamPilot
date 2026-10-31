@@ -263,7 +263,6 @@ export const installNativeMediaPlayerBridge = () => {
                     autoSkipIntro: opts.autoSkipIntro === true,
                     autoSkipCredits: opts.autoSkipCredits === true,
                     // Settings → Accent colour; the player picks its theme overlay from it.
-                    accent: playerPrefs.accentColor,
                     seekBackSec: playerPrefs.seekBackSec,
                     seekForwardSec: playerPrefs.seekForwardSec,
                     controlsTimeoutSec: playerPrefs.controlsTimeoutSec,

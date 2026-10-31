@@ -197,7 +197,7 @@ export const en = {
         rowMarker_bolt: 'Lightning',
         rowMarker_none: 'None',
         accentColor: 'Accent colour',
-        accentColorHint: 'The highlight colour for focus, buttons and progress bars, in the app and the player.',
+        accentColorHint: 'The colour of the ring around the poster, episode or setting you are on.',
         accentColor_gold: 'Gold',
         accentColor_orange: 'Orange',
         accentColor_red: 'Red',

@@ -34,16 +34,17 @@ export const playerAccentCss = (accent: PlayerAccentColor) => {
 
 let appliedAccent = '';
 
-/** Point the app's accent variables at this colour (one style write, no re-render). */
+/**
+ * Colour the TV focus rings (posters, episodes, settings rows) and nothing else: buttons,
+ * tabs, badges, progress bars and the player keep the app's own gold.
+ */
 export const applyPlayerAccent = (accent: PlayerAccentColor) => {
     if (typeof document === 'undefined' || accent === appliedAccent) return;
     appliedAccent = accent;
     const entry = PLAYER_ACCENT_PALETTE[accent] || PLAYER_ACCENT_PALETTE.gold;
     const root = document.documentElement;
-    root.style.setProperty('--color-plex', entry.rgb.join(' '));
-    root.style.setProperty('--color-plex-hover', entry.hover.join(' '));
-    root.style.setProperty('--tv-accent', (entry.tv || entry.rgb).join(' '));
-    root.style.setProperty('--tv-accent-soft', (entry.tvSoft || entry.hover).join(' '));
+    root.style.setProperty('--tv-focus-accent', (entry.tv || entry.rgb).join(' '));
+    root.style.setProperty('--tv-focus-accent-soft', (entry.tvSoft || entry.hover).join(' '));
     root.dataset.accent = accent;
 };
 

@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.489': [
+        {
+            title: 'Display',
+            items: [
+                'Accent colour now only changes the ring around the poster, episode or setting you are on; everything else keeps its usual colours',
+                'The clock is hidden on the Settings pages',
+            ],
+        },
+    ],
     '1.0.488': [
         {
             title: 'Make it yours (Settings → Display)',

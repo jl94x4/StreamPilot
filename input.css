@@ -11,7 +11,7 @@
     --color-muted: 139 148 158;
     --color-plex: 229 160 13;
     --color-plex-hover: 240 168 16;
-    /* TV focus rings and highlights (Settings → Accent colour overrides these). */
+    /* TV highlights (fixed amber). Settings → Accent colour only sets --tv-focus-accent. */
     --tv-accent: 245 158 11;
     --tv-accent-soft: 251 191 36;
     /* Progress bars stay this orange whatever the accent. */
