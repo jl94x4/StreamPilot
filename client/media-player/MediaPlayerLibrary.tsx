@@ -1174,8 +1174,24 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
         apply();
         const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(apply) : null;
         observer?.observe(header);
+        // TV WebViews don't keep position: sticky pinned here, so ride the header down by the
+        // scroll offset (it sits at the very top of the scroller's content).
+        let raf = 0;
+        const pin = () => {
+            raf = 0;
+            const y = Math.max(0, scroller.scrollTop);
+            header.style.transform = y ? `translate3d(0, ${y}px, 0)` : '';
+        };
+        const onScroll = () => {
+            if (!raf) raf = window.requestAnimationFrame(pin);
+        };
+        pin();
+        scroller.addEventListener('scroll', onScroll, { passive: true });
         return () => {
             observer?.disconnect();
+            scroller.removeEventListener('scroll', onScroll);
+            if (raf) window.cancelAnimationFrame(raf);
+            header.style.transform = '';
             scroller.style.scrollPaddingTop = '';
         };
     }, [active, tab, tvShell]);

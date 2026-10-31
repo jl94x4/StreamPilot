@@ -6485,8 +6485,8 @@ html[data-tv="1"] [data-tv-poster-btn="1"][data-tv-focused="1"]:focus-visible .p
 
 /* TV library (Browse / Collections / Studios): title, tabs and toolbar stay pinned; content scrolls under. */
 html[data-tv="1"] .player-library-sticky {
-  position: sticky;
-  top: 0;
+  /* Pinned by a scroll-driven transform (MediaPlayerLibrary); sticky did not hold on TV WebViews. */
+  position: relative;
   z-index: 20;
   margin-top: -1.35rem;
   padding: 1.35rem 0 1rem;
