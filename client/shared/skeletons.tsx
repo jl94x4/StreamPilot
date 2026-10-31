@@ -71,12 +71,15 @@ export const PosterGridSkeleton: React.FC<{
     rows?: number;
     className?: string;
     style?: React.CSSProperties;
+    /** 'home' adds a year line under the title, like TV library posters. */
+    variant?: 'discover' | 'home';
 }> = ({
     count,
     aspect = '2/3',
     rows = 2,
     className,
     style,
+    variant = 'discover',
 }) => {
     const { grid: defaultCount } = useSkeletonLayoutCounts({ gridRows: rows });
     const itemCount = count ?? defaultCount;
@@ -84,7 +87,7 @@ export const PosterGridSkeleton: React.FC<{
     return (
         <div className={className || discoverPosterGridClass} style={style} aria-hidden="true">
             {Array.from({ length: itemCount }, (_, i) => (
-                <PosterCardSkeleton key={i} aspect={aspect} variant="discover" />
+                <PosterCardSkeleton key={i} aspect={aspect} variant={variant} />
             ))}
         </div>
     );

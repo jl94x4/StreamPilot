@@ -1926,12 +1926,14 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                         </div>
                     ) : null}
                     <div data-tv-browse-main="1">
-                        {loading && !tvShell ? (
+                        {loading ? (
                             <PosterGridSkeleton
                                 className={upgraderPosterGridClass(gridSize)}
                                 style={upgraderPosterGridStyle(gridSize)}
+                                aspect={musicLibrary ? 'square' : '2/3'}
+                                {...(tvShell ? { count: browseCols * 3, variant: 'home' as const } : {})}
                             />
-                        ) : loading ? null : error ? (
+                        ) : error ? (
                             tvShell ? (
                                 <PlayerTvStatusPanel
                                     title={error}
