@@ -5930,11 +5930,15 @@ html[data-reduce-motion="1"] .media-details-trailer-up {
   object-position: 70% 30%;
   opacity: 0.6;
 }
-.smp-live-hero-art.is-poster {
-  left: 38%;
-  width: 62%;
-  object-position: 50% 22%;
-  opacity: 0.32;
+/* Backdrops can arrive a moment after the panel: ease them in rather than pop. */
+.smp-live-hero-art {
+  animation: smp-live-hero-art-in 0.35s ease-out both;
+}
+@keyframes smp-live-hero-art-in {
+  from { opacity: 0; }
+}
+html[data-reduce-motion="1"] .smp-live-hero-art {
+  animation: none;
 }
 .smp-live-hero-fade {
   position: absolute;

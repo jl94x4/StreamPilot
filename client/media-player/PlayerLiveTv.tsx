@@ -216,12 +216,15 @@ const LiveHero = React.memo(forwardRef<HeroHandle, { initial: PlayerItem | null;
         const starring = (airing.cast || []).slice(0, 3).map((row) => row.name).filter(Boolean);
         return (
             <section className={`smp-live-hero${compact ? ' is-compact' : ''}`} aria-live="polite">
-                {/* Tunarr guides have posters but no wide art: the poster then fills the
-                    backdrop too (same cached image, no blur, so cheap on TV sticks). */}
-                <LiveImg
-                    src={(hasWideArt ? airing.art : backdrop) || airing.art || airing.thumb}
-                    className={`smp-live-hero-art${hasWideArt || backdrop ? '' : ' is-poster'}`}
-                />
+                {/* Wide art only: the show's backdrop (from the guide, the library or Plex Discover).
+                    No backdrop yet, or none at all: the panel stays plain, never the poster. */}
+                {hasWideArt || backdrop ? (
+                    <LiveImg
+                        key={hasWideArt ? airing.art : backdrop}
+                        src={hasWideArt ? airing.art : backdrop}
+                        className="smp-live-hero-art"
+                    />
+                ) : null}
                 <div className="smp-live-hero-fade" aria-hidden />
                 <div className="smp-live-hero-copy">
                     <p className="smp-live-hero-eyebrow">
