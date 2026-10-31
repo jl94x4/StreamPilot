@@ -3,6 +3,7 @@ import { Play, Radio, X } from 'lucide-react';
 import { useDiscoverI18n } from './host';
 import { fetchLiveTvBackdrop, fetchLiveTvGuide, fetchLiveTvOnNow, fetchLiveTvSources } from './api';
 import { plexImageUrl } from './playerUtils';
+import { isLivePosterArtUrl } from '../../lib/media-player/liveTv.js';
 import { isLanHttpImage, loadLanImage } from './lanImage';
 import type { PlayerItem, PlayerPlayOptions } from './types';
 
@@ -122,6 +123,22 @@ const lengthLabel = (seconds: number) => {
     return h ? `${h}h${m ? ` ${m}m` : ''}` : `${m}m`;
 };
 
+const decodeUrl = (url: string) => {
+    try {
+        return decodeURIComponent(url);
+    } catch {
+        return url;
+    }
+};
+
+/** Real wide art, not the poster stamped into `art` (XMLTV / Tunarr do that), even through the image resizer. */
+const hasWideLiveArt = (item: PlayerItem | null) => {
+    const art = String(item?.art || '').trim();
+    if (!art) return false;
+    const thumb = String(item?.thumb || '').trim();
+    return !isLivePosterArtUrl(art, thumb) && !isLivePosterArtUrl(decodeUrl(art), decodeUrl(thumb));
+};
+
 /** Title → wide backdrop (null: none found). Shared across visits to Live TV. */
 const heroBackdrops = new Map<string, string | null>();
 /** Wait for focus to settle before looking a title up, so flicking through the guide stays light. */
@@ -143,7 +160,7 @@ const LiveHero = React.memo(forwardRef<HeroHandle, { initial: PlayerItem | null;
             return () => window.clearInterval(id);
         }, []);
         // Guide titles often have only a poster: fetch the show's wide backdrop for behind it.
-        const hasWideArt = Boolean(airing?.art && airing.art !== airing.thumb);
+        const hasWideArt = hasWideLiveArt(airing);
         const isShow = Boolean(airing?.showTitle || airing?.episodeTitle);
         const lookupTitle = airing ? String((isShow ? airing.showTitle : '') || airing.title || '').trim() : '';
         const lookupKey = `${isShow ? 'tv' : 'movie'}:${lookupTitle.toLowerCase()}`;

@@ -5245,8 +5245,54 @@ const pickTmdbBackdrop = (results: unknown, title: string, mediaType: 'tv' | 'mo
     return path ? `${TMDB_BACKDROP_BASE}${path.startsWith('/') ? '' : '/'}${path}` : null;
 };
 
+/** Every metadata object in a Plex Discover answer (search results nest them a few levels deep). */
+const collectDiscoverMetadata = (node: unknown, out: Array<Record<string, unknown>> = [], depth = 0) => {
+    if (!node || typeof node !== 'object' || depth > 6) return out;
+    if (Array.isArray(node)) {
+        for (const row of node) collectDiscoverMetadata(row, out, depth + 1);
+        return out;
+    }
+    const row = node as Record<string, unknown>;
+    if (typeof row.title === 'string' && typeof row.type === 'string') out.push(row);
+    for (const value of Object.values(row)) {
+        if (value && typeof value === 'object') collectDiscoverMetadata(value, out, depth + 1);
+    }
+    return out;
+};
+
+/** TMDB "original" images are several MB; the hero never needs more than 1280 wide. */
+const sizedBackdropUrl = (url: string) => url.replace(/\/t\/p\/original\//, '/t/p/w1280/');
+
+/**
+ * Plex's own Discover search with the signed-in Plex account (what the official app uses for
+ * art). Needs no TMDB key or portal.
+ */
+const plexDiscoverBackdrop = async (title: string, show: boolean, year: string) => {
+    const token = accountToken() || readOwnerToken();
+    if (!token) return null;
+    const params = new URLSearchParams({
+        query: title,
+        limit: '10',
+        searchTypes: show ? 'tv' : 'movies',
+        searchProviders: 'discover',
+        includeMetadata: '1',
+    });
+    const data = await plexFetch(`${DISCOVER_BASE}/library/search?${params}`, token).catch(() => null);
+    if (!data) return null;
+    const wantedType = show ? 'show' : 'movie';
+    const wanted = title.trim().toLowerCase();
+    const rows = collectDiscoverMetadata(data)
+        .filter((row) => String(row.type) === wantedType && /^https?:\/\//.test(String(row.art || '')));
+    const sameTitle = rows.filter((row) => String(row.title).trim().toLowerCase() === wanted);
+    const sameYear = sameTitle.filter((row) => !/^\d{4}$/.test(year) || String(row.year || '') === year);
+    const pick = sameYear[0] || sameTitle[0] || rows[0];
+    return pick ? sizedBackdropUrl(String(pick.art)) : null;
+};
+
 const liveBackdropForTitle = async (title: string, show: boolean, year: string) => {
     const mediaType: 'tv' | 'movie' = show ? 'tv' : 'movie';
+    const fromPlex = await plexDiscoverBackdrop(title, show, year).catch(() => null);
+    if (fromPlex) return fromPlex;
     const portal = String(readStoredPortalBaseUrl() || '').replace(/\/+$/, '');
     const token = String(getSessionToken() || '').trim();
     if (portal && token) {
