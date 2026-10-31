@@ -3727,7 +3727,7 @@ const isReservedHomeMergeLabel = (value: unknown) => {
     const tag = String(value || '').trim();
     if (!tag) return true;
     if (isHeroRowLabel(tag)) return true;
-    if (/^(kometa|collexions)$/i.test(tag)) return true;
+    if (/^(kometa|collexions|network)$/i.test(tag)) return true;
     return false;
 };
 
