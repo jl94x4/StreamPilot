@@ -3882,8 +3882,8 @@ html[data-tv="1"] .media-details-service-logo.player-service-brand-mark--color {
 html[data-tv="1"] .player-home-spot-logo {
   display: block;
   flex-shrink: 0;
-  height: 4.2rem;
-  max-height: 4.2rem;
+  height: calc(4.2rem * var(--logo-scale, 1));
+  max-height: calc(4.2rem * var(--logo-scale, 1));
   width: auto;
   max-width: min(100%, 22rem);
   object-fit: contain;

@@ -248,6 +248,7 @@ export const PlayerTvSpot: React.FC<{ item: PlayerItem | null }> = ({ item }) =>
                             alt={title}
                             className="player-home-spot-logo"
                             trimTop={false}
+                            growSmall
                             onError={() => setLogoFailed(true)}
                         />
                         <h2 className="sr-only">{title}</h2>

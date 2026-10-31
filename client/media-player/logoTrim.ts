@@ -3,6 +3,9 @@
 export type LogoInsets = {
     left: number;
     top: number;
+    /** Empty space on the right / bottom (older cached entries may lack them). */
+    right?: number;
+    bottom?: number;
 };
 
 const ALPHA = 20;
@@ -70,9 +73,41 @@ export const topOpaqueInset = (
     return 0;
 };
 
+const rightOpaqueInset = (data: Uint8ClampedArray | Uint8Array, width: number, height: number): number => {
+    if (!width || !height || data.length < width * height * 4) return 0;
+    const need = hitsNeeded(height);
+    for (let x = width - 1; x >= 0; x -= 1) {
+        let hits = 0;
+        for (let y = 0; y < height; y += 1) {
+            if (pixelIsContent(data, (y * width + x) * 4)) {
+                hits += 1;
+                if (hits >= need) return clamp((width - 1 - x) / width, MAX_LEFT);
+            }
+        }
+    }
+    return 0;
+};
+
+const bottomOpaqueInset = (data: Uint8ClampedArray | Uint8Array, width: number, height: number): number => {
+    if (!width || !height || data.length < width * height * 4) return 0;
+    const need = hitsNeeded(width);
+    for (let y = height - 1; y >= 0; y -= 1) {
+        let hits = 0;
+        for (let x = 0; x < width; x += 1) {
+            if (pixelIsContent(data, (y * width + x) * 4)) {
+                hits += 1;
+                if (hits >= need) return clamp((height - 1 - y) / height, MAX_LEFT);
+            }
+        }
+    }
+    return 0;
+};
+
 const insetsFromRgba = (data: Uint8ClampedArray | Uint8Array, width: number, height: number): LogoInsets => ({
     left: leftOpaqueInset(data, width, height),
     top: topOpaqueInset(data, width, height),
+    right: rightOpaqueInset(data, width, height),
+    bottom: bottomOpaqueInset(data, width, height),
 });
 
 export const peekLogoInsets = (url: string): LogoInsets | null => cache.get(url) || null;
