@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.511': [
+        {
+            title: 'Libraries',
+            items: [
+                'Studios now shows only the big studios, networks and streaming services, biggest first, instead of every studio A–Z',
+                'Fixed big names like Warner Bros., Universal and Paramount missing from Studios on large libraries',
+            ],
+        },
+    ],
     '1.0.510': [
         {
             title: 'Libraries',

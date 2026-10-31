@@ -342,6 +342,37 @@ export const matchDiscoverCompanyByName = (name, list = []) => {
     return null;
 };
 
+/** Words too common in company names to say anything about the brand. */
+const SCREEN_STOP_WORDS = new Set([
+    'the', 'and', 'of', 'a', 'co', 'pictures', 'picture', 'studio', 'studios', 'film', 'films',
+    'entertainment', 'productions', 'production', 'media', 'international', 'company', 'group',
+    'inc', 'ltd', 'llc', 'corp', 'corporation', 'distribution', 'releasing', 'presents', 'original',
+    'originals', 'animation', 'television', 'tv', 'plus', 'network', 'networks', 'home', 'motion', 'channel',
+]);
+const screenTokens = (value = '') => normalizeCompanyName(value)
+    .split(/[^a-z0-9+]+/)
+    .filter((word) => word && !SCREEN_STOP_WORDS.has(word));
+
+/**
+ * Cheap pre-check before matchDiscoverCompanyByName over thousands of library tags: true when
+ * the name shares a meaningful word with a catalog name or a known alias, so obvious misses
+ * ("1212 Entertainment") skip the full matcher.
+ */
+export const companyMatchScreen = (list = []) => {
+    const words = new Set();
+    const add = (value) => {
+        for (const word of screenTokens(value)) words.add(word);
+    };
+    for (const row of Array.isArray(list) ? list : []) add(row?.name);
+    for (const table of [STREAMING_ALIASES, STUDIO_ALIASES]) {
+        for (const [key, value] of Object.entries(table)) {
+            add(key);
+            add(value);
+        }
+    }
+    return (name = '') => screenTokens(name).some((word) => words.has(word));
+};
+
 /**
  * Prefer streaming networks (Netflix, Disney+, Apple TV+, …) over movie studios,
  * even for movies — Netflix originals are networks, not traditional studios.

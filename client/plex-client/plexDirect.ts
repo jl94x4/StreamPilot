@@ -27,25 +27,43 @@ import {
     STUDIO_BROWSE_CAP,
 } from '../../lib/media-player/studioBrowse.js';
 import { DISCOVER_NETWORKS, DISCOVER_NETWORKS_EXTRA, DISCOVER_STUDIOS, DISCOVER_STUDIOS_EXTRA } from '../discovery/discoverConstants';
-import { companyAliasKey, matchDiscoverCompanyByName } from '../media-player/studioLogo.js';
+import { companyMatchScreen, matchDiscoverCompanyByName } from '../media-player/studioLogo.js';
 
-/** Library Studios: brands with a logo first, one card per brand, then the rest A–Z. */
+/** Every studio / network tag in a section (Plex lists them A–Z, so a capped fetch stops at "A"). */
+const STUDIO_FACET_FETCH = 5000;
+/** Smaller brands from the extra catalogs only top the grid up to this many. */
+const STUDIO_BROWSE_MIN = 12;
+
+/**
+ * Library Studios: only the big studios, networks and streamers (the main catalog, in its
+ * size order), one card per brand. Smaller logo'd brands fill in when a library has few majors.
+ */
 const pickStudioBrowseCards = (
     facet: Array<{ key: string; title: string }>,
-    catalog: Array<{ name: string; logoPath: string }>,
+    major: Array<{ name: string; logoPath: string }>,
+    extra: Array<{ name: string; logoPath: string }>,
 ) => {
-    const rows = mapStudioBrowseOptions(facet, FILTER_FACET_CAP);
-    const seen = new Set<string>();
-    const branded: typeof rows = [];
-    const plain: typeof rows = [];
-    for (const row of rows) {
+    const catalog = [...major, ...extra];
+    const rank = new Map(catalog.map((row, index) => [row.logoPath, index]));
+    // Thousands of tags can't each run the full matcher on a TV; screen out obvious misses first.
+    const mightMatch = companyMatchScreen(catalog) as (name: string) => boolean;
+    const best = new Map<string, { row: { key: string; title: string; logoPath?: string; art?: string | null; thumb?: string | null }; named: boolean; index: number }>();
+    for (const row of mapStudioBrowseOptions(facet, STUDIO_FACET_FETCH)) {
+        if (!mightMatch(row.title)) continue;
         const hit = matchDiscoverCompanyByName(row.title, catalog) as { name?: string; logoPath?: string } | null;
-        const id = hit?.logoPath ? `logo:${hit.logoPath}` : `alias:${companyAliasKey(row.title) || row.title.toLowerCase()}`;
-        if (seen.has(id)) continue;
-        seen.add(id);
-        (hit?.logoPath ? branded : plain).push(row);
+        if (!hit?.logoPath) continue;
+        // Several tags share a brand (Lucasfilm, Touchstone → Disney): open the one named after it.
+        const brandWord = String(hit.name || '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)[0] || '';
+        const named = Boolean(brandWord) && row.title.toLowerCase().includes(brandWord);
+        const prev = best.get(hit.logoPath);
+        if (prev && (prev.named || !named)) continue;
+        best.set(hit.logoPath, { row, named, index: rank.get(hit.logoPath) ?? catalog.length });
     }
-    return [...branded, ...plain].slice(0, STUDIO_BROWSE_CAP);
+    const ordered = [...best.values()].sort((a, b) => a.index - b.index);
+    const majors = ordered.filter((entry) => entry.index < major.length);
+    const fill = ordered.filter((entry) => entry.index >= major.length)
+        .slice(0, Math.max(0, STUDIO_BROWSE_MIN - majors.length));
+    return [...majors, ...fill].slice(0, STUDIO_BROWSE_CAP).map((entry) => entry.row);
 };
 import { pickPersonTmdbId } from '../../lib/media-player/personProfile.js';
 import {
@@ -1363,7 +1381,7 @@ const mapFirstCharacters = (data: any) => {
 const FILTER_FACET_CAP = 250;
 
 /** Plex section facet Directory → { key, title } for /all?facet=… filters. */
-const mapFilterFacet = (data: any, facet: string) => {
+const mapFilterFacet = (data: any, facet: string, cap = FILTER_FACET_CAP) => {
     const param = String(facet || '').trim();
     const rows = asList<PlexMeta>(containerOf(data).Directory).map((row) => {
         const title = String(row.title || row.tag || '').trim();
@@ -1388,11 +1406,11 @@ const mapFilterFacet = (data: any, facet: string) => {
         seen.add(row.key);
         return true;
     });
-    if (unique.length <= FILTER_FACET_CAP) return unique;
+    if (unique.length <= cap) return unique;
     return unique
         .slice()
         .sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }))
-        .slice(0, FILTER_FACET_CAP);
+        .slice(0, cap);
 };
 
 /** "The Matrix" is filed under M. */
@@ -6345,19 +6363,19 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
             const typeQs = pinnedType ? `type=${encodeURIComponent(pinnedType)}&` : '';
             const facet = (name: string) => (
                 pms(
-                    `/library/sections/${encodeURIComponent(section)}/${name}?${typeQs}X-Plex-Container-Size=${FILTER_FACET_CAP}`,
+                    `/library/sections/${encodeURIComponent(section)}/${name}?${typeQs}X-Plex-Container-Size=${STUDIO_FACET_FETCH}`,
                     server,
-                    8000,
+                    12000,
                 )
-                    .then((data) => mapFilterFacet(data, name))
+                    .then((data) => mapFilterFacet(data, name, STUDIO_FACET_FETCH))
                     .catch(() => [] as Array<{ key: string; title: string }>)
             );
             const [studioFacet, networkFacet] = await Promise.all([
                 facet('studio'),
                 facet('network'),
             ]);
-            const studios = pickStudioBrowseCards(studioFacet, [...DISCOVER_STUDIOS, ...DISCOVER_STUDIOS_EXTRA]);
-            const networks = pickStudioBrowseCards(networkFacet, [...DISCOVER_NETWORKS, ...DISCOVER_NETWORKS_EXTRA]);
+            const studios = pickStudioBrowseCards(studioFacet, DISCOVER_STUDIOS, DISCOVER_STUDIOS_EXTRA);
+            const networks = pickStudioBrowseCards(networkFacet, DISCOVER_NETWORKS, DISCOVER_NETWORKS_EXTRA);
             const sampleFor = (param: string) => async (card: { key: string }) => {
                 const listed = await pms(
                     `/library/sections/${encodeURIComponent(section)}/all?${typeQs}${encodeURIComponent(param)}=${encodeURIComponent(card.key)}&sort=audienceRating:desc&X-Plex-Container-Start=0&X-Plex-Container-Size=1`,
