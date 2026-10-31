@@ -101,12 +101,13 @@ export const MediaPlayerStudio: React.FC<Props> = ({
                 <DiscoverGridSizeSelect value={gridSize} onChange={setGridSize} />
             </div>
 
-            {loading && !tvShell ? (
+            {loading ? (
                 <PosterGridSkeleton
                     className={upgraderPosterGridClass(gridSize)}
                     style={upgraderPosterGridStyle(gridSize)}
+                    {...(tvShell ? { count: 24, variant: 'home' as const } : {})}
                 />
-            ) : loading ? null : error ? (
+            ) : error ? (
                 <div className={discoveryTheme.emptyState}>
                     <p className={discoveryTheme.emptyTitle}>{error}</p>
                 </div>
