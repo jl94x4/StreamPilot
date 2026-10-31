@@ -1353,6 +1353,9 @@ export const MediaPlayerDashboard: React.FC = () => {
         if (navIconsOnly) root.dataset.tvNavIcons = '1';
         else delete root.dataset.tvNavIcons;
     }, [navIconsOnly]);
+    useEffect(() => {
+        document.documentElement.dataset.tvViewMore = settings.viewMoreStyle;
+    }, [settings.viewMoreStyle]);
     const navContentInset = tvShell
         ? (navWide ? '18.5rem' : '6.75rem')
         : (navWide ? '18.25rem' : '6.5rem');

@@ -168,6 +168,10 @@ export type PlayerNavStyle = 'labels' | 'icons';
 export const isPlayerNavStyle = (value: unknown): value is PlayerNavStyle => value === 'labels' || value === 'icons';
 
 /** TV side menu while closed: icons on the page ('blend', default) or on the dark panel. */
+export type PlayerViewMoreStyle = 'backdrop' | 'mosaic' | 'deck' | 'minimal';
+export const PLAYER_VIEW_MORE_STYLES: PlayerViewMoreStyle[] = ['backdrop', 'mosaic', 'deck', 'minimal'];
+export const isPlayerViewMoreStyle = (value: unknown): value is PlayerViewMoreStyle =>
+    PLAYER_VIEW_MORE_STYLES.includes(value as PlayerViewMoreStyle);
 export type PlayerNavClosedStyle = 'blend' | 'panel';
 export const isPlayerNavClosedStyle = (value: unknown): value is PlayerNavClosedStyle => value === 'blend' || value === 'panel';
 
@@ -519,6 +523,8 @@ export type PlayerSettings = {
     textSize: PlayerTextSize;
     navStyle: PlayerNavStyle;
     navClosedStyle: PlayerNavClosedStyle;
+    /** The card at the end of a row that opens the full list. */
+    viewMoreStyle: PlayerViewMoreStyle;
     /** Clock in the corner of the app (and in the player with its controls). */
     showClock: boolean;
     seekBackSec: number;
@@ -913,6 +919,7 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
     textSize: 'medium',
     navStyle: 'labels',
     navClosedStyle: 'blend',
+    viewMoreStyle: 'backdrop',
     showClock: true,
     seekBackSec: 10,
     seekForwardSec: 10,
@@ -1000,6 +1007,7 @@ export const normalizePlayerSettings = (raw: Partial<PlayerSettings> | Record<st
         textSize: isPlayerTextSize(raw?.textSize) ? raw.textSize : 'medium',
         navStyle: isPlayerNavStyle(raw?.navStyle) ? raw.navStyle : 'labels',
         navClosedStyle: isPlayerNavClosedStyle(raw?.navClosedStyle) ? raw.navClosedStyle : 'blend',
+        viewMoreStyle: isPlayerViewMoreStyle(raw?.viewMoreStyle) ? raw.viewMoreStyle : 'backdrop',
         showClock: raw?.showClock !== false,
         seekBackSec: pickNumber(raw?.seekBackSec, PLAYER_SEEK_STEPS, 10),
         seekForwardSec: pickNumber(raw?.seekForwardSec, PLAYER_SEEK_STEPS, 10),
@@ -1111,6 +1119,7 @@ export const playerSettingsEqual = (a: PlayerSettings, b: PlayerSettings) => (
     && a.textSize === b.textSize
     && a.navStyle === b.navStyle
     && a.navClosedStyle === b.navClosedStyle
+    && a.viewMoreStyle === b.viewMoreStyle
     && a.showClock === b.showClock
     && a.seekBackSec === b.seekBackSec
     && a.seekForwardSec === b.seekForwardSec

@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.500': [
+        {
+            title: 'Customise',
+            items: [
+                'New View more card setting: Blurred backdrop (new default), Poster mosaic, Stacked posters or Minimal',
+                'The View more card now shows how many more titles are in the row',
+            ],
+        },
+    ],
     '1.0.499': [
         {
             title: 'TV',

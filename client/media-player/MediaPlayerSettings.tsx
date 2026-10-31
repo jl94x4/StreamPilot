@@ -38,6 +38,8 @@ import {
     type PlayerTextSize,
     type PlayerNavStyle,
     type PlayerNavClosedStyle,
+    type PlayerViewMoreStyle,
+    PLAYER_VIEW_MORE_STYLES,
     type PlayerScreensaverStyle,
     type PlayerScreensaverSource,
     type PlayerSubtitleMode,
@@ -675,6 +677,10 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
     const textSizeOptions = useMemo(() => PLAYER_TEXT_SIZES.map((value) => ({
         value,
         label: t(`mediaPlayerPage.textSize_${value}`),
+    })), [t]);
+    const viewMoreStyleOptions = useMemo(() => PLAYER_VIEW_MORE_STYLES.map((value) => ({
+        value,
+        label: t(`mediaPlayerPage.viewMoreStyle_${value}`),
     })), [t]);
     const navClosedStyleOptions = useMemo(() => ([
         { value: 'blend', label: t('mediaPlayerPage.navClosedStyle_blend') },
@@ -1479,6 +1485,13 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                                 value={settings.navClosedStyle}
                                 options={navClosedStyleOptions}
                                 onChange={(value) => updateSettings({ navClosedStyle: value as PlayerNavClosedStyle })}
+                            />
+                            <TvChoiceRow
+                                title={t('mediaPlayerPage.viewMoreStyle')}
+                                description={t('mediaPlayerPage.viewMoreStyleHint')}
+                                value={settings.viewMoreStyle}
+                                options={viewMoreStyleOptions}
+                                onChange={(value) => updateSettings({ viewMoreStyle: value as PlayerViewMoreStyle })}
                             />
                             <TvToggleRow
                                 title={t('mediaPlayerPage.showClock')}
