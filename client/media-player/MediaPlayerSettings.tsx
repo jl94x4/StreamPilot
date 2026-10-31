@@ -16,6 +16,7 @@ import {
     PLAYER_NAVIGATION_SOUNDS,
     PLAYER_POSTER_CORNERS,
     PLAYER_FOCUS_RING_WIDTHS,
+    PLAYER_RATING_SOURCE_KEYS,
     PLAYER_TEXT_SIZES,
     PLAYER_SEEK_STEPS,
     PLAYER_CONTROLS_TIMEOUTS,
@@ -1449,6 +1450,17 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                                 options={textSizeOptions}
                                 onChange={(value) => updateSettings({ textSize: value as PlayerTextSize })}
                             />
+                            {PLAYER_RATING_SOURCE_KEYS.map((key) => (
+                                <TvToggleRow
+                                    key={key}
+                                    title={t(`mediaPlayerPage.ratingSource_${key}`)}
+                                    description={key === 'imdb' ? t('mediaPlayerPage.ratingSourcesHint') : undefined}
+                                    checked={settings.ratingSources[key]}
+                                    onChange={(checked) => updateSettings({
+                                        ratingSources: { ...settings.ratingSources, [key]: checked },
+                                    })}
+                                />
+                            ))}
                             <TvChoiceRow
                                 title={t('mediaPlayerPage.navStyle')}
                                 description={t('mediaPlayerPage.navStyleHint')}

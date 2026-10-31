@@ -33,7 +33,7 @@ import { PlayerServiceBrandMark } from './PlayerServiceBrandMark';
 import { PlayerRail } from './PlayerRail';
 import { MediaPlayerMusicTracks } from './MediaPlayerMusicTracks';
 import { PlayerTvStatusPanel } from './PlayerTvStatusPanel';
-import { watchedTickPositionClass } from './playerSettings';
+import { watchedTickPositionClass, type PlayerRatingSources } from './playerSettings';
 import { usePlayerSettings } from './usePlayerSettings';
 import {
     detectPlayerHdrLabel,
@@ -500,16 +500,22 @@ const DetailsHeroSkeleton: React.FC<{ label: string }> = ({ label }) => (
     </div>
 );
 
-const toCombinedRatings = (ratings?: PlayerRatings | null): CombinedRatings | null => {
+/** Settings → Ratings shown: a switched-off source simply has no score to draw. */
+const toCombinedRatings = (
+    ratings: PlayerRatings | null | undefined,
+    sources: PlayerRatingSources,
+): CombinedRatings | null => {
     if (!ratings) return null;
+    const critics = sources.rtCritics ? ratings.rottenTomatoes : null;
+    const audience = sources.rtAudience ? ratings.popcorn : null;
     return {
-        rt: (ratings.rottenTomatoes || ratings.popcorn) ? {
-            criticsScore: ratings.rottenTomatoes?.percent ?? undefined,
-            audienceScore: ratings.popcorn?.percent ?? undefined,
-            criticsRating: ratings.rottenTomatoes?.fresh === false ? 'Rotten' : 'Fresh',
-            audienceRating: ratings.popcorn?.fresh === false ? 'Spilled' : 'Upright',
+        rt: (critics || audience) ? {
+            criticsScore: critics?.percent ?? undefined,
+            audienceScore: audience?.percent ?? undefined,
+            criticsRating: critics?.fresh === false ? 'Rotten' : 'Fresh',
+            audienceRating: audience?.fresh === false ? 'Spilled' : 'Upright',
         } : undefined,
-        imdb: ratings.imdb ? {
+        imdb: sources.imdb && ratings.imdb ? {
             criticsScore: ratings.imdb.value > 10 ? ratings.imdb.value / 10 : ratings.imdb.value,
             url: ratings.imdb.url,
         } : undefined,
@@ -2325,10 +2331,10 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             ) : null}
             {metaChipRow(metaChips)}
             <MediaRatingPills
-                ratings={toCombinedRatings(item.ratings)}
-                tmdbScore={tmdbScore}
+                ratings={toCombinedRatings(item.ratings, settings.ratingSources)}
+                tmdbScore={settings.ratingSources.tmdb ? tmdbScore : null}
                 tmdbUrl={item.ratings?.tmdb?.url}
-                tvdbScore={tvdbScore}
+                tvdbScore={settings.ratingSources.tvdb ? tvdbScore : null}
                 tvdbUrl={item.ratings?.tvdb?.url}
                 interactive={!isTvShell}
             />
@@ -2483,10 +2489,10 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                             <div className="media-details-billboard-ratings media-details-hub-ratings pointer-events-auto mt-2.5 flex w-full flex-col gap-2">
                                 {hubMetaChips.length ? metaChipRow(hubMetaChips) : null}
                                 <MediaRatingPills
-                                    ratings={toCombinedRatings(hubItem.ratings)}
-                                    tmdbScore={hubTmdbScore}
+                                    ratings={toCombinedRatings(hubItem.ratings, settings.ratingSources)}
+                                    tmdbScore={settings.ratingSources.tmdb ? hubTmdbScore : null}
                                     tmdbUrl={hubItem.ratings?.tmdb?.url}
-                                    tvdbScore={hubTvdbScore}
+                                    tvdbScore={settings.ratingSources.tvdb ? hubTvdbScore : null}
                                     tvdbUrl={hubItem.ratings?.tvdb?.url}
                                     interactive={false}
                                 />
@@ -2520,10 +2526,10 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                 <div className="media-details-billboard-ratings pointer-events-auto mt-2.5 flex w-full flex-col items-center gap-2">
                     {metaChipRow(metaChips, 'justify-center')}
                     <MediaRatingPills
-                        ratings={toCombinedRatings(hubItem.ratings || item.ratings)}
-                        tmdbScore={tmdbScore}
+                        ratings={toCombinedRatings(hubItem.ratings || item.ratings, settings.ratingSources)}
+                        tmdbScore={settings.ratingSources.tmdb ? tmdbScore : null}
                         tmdbUrl={(hubItem.ratings || item.ratings)?.tmdb?.url}
-                        tvdbScore={tvdbScore}
+                        tvdbScore={settings.ratingSources.tvdb ? tvdbScore : null}
                         tvdbUrl={(hubItem.ratings || item.ratings)?.tvdb?.url}
                         interactive={!isTvShell}
                     />

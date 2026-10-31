@@ -136,6 +136,26 @@ export const isPlayerFocusRingWidth = (value: unknown): value is PlayerFocusRing
     PLAYER_FOCUS_RING_WIDTHS.includes(String(value || '') as PlayerFocusRingWidth)
 );
 
+/** Which rating badges title pages show. All on is the original look. */
+export type PlayerRatingSources = {
+    imdb: boolean;
+    rtCritics: boolean;
+    rtAudience: boolean;
+    tmdb: boolean;
+    tvdb: boolean;
+};
+export const PLAYER_RATING_SOURCE_KEYS: Array<keyof PlayerRatingSources> = ['imdb', 'rtCritics', 'rtAudience', 'tmdb', 'tvdb'];
+const normalizeRatingSources = (raw: unknown): PlayerRatingSources => {
+    const row = (raw && typeof raw === 'object' ? raw : {}) as Partial<Record<keyof PlayerRatingSources, unknown>>;
+    return {
+        imdb: row.imdb !== false,
+        rtCritics: row.rtCritics !== false,
+        rtAudience: row.rtAudience !== false,
+        tmdb: row.tmdb !== false,
+        tvdb: row.tvdb !== false,
+    };
+};
+
 /** App text size on TV. 'medium' is the original size. */
 export type PlayerTextSize = 'small' | 'medium' | 'large';
 export const PLAYER_TEXT_SIZES: PlayerTextSize[] = ['small', 'medium', 'large'];
@@ -491,6 +511,7 @@ export type PlayerSettings = {
     navigationSound: PlayerNavigationSound;
     posterCorners: PlayerPosterCorners;
     focusRingWidth: PlayerFocusRingWidth;
+    ratingSources: PlayerRatingSources;
     textSize: PlayerTextSize;
     navStyle: PlayerNavStyle;
     /** Clock in the corner of the app (and in the player with its controls). */
@@ -883,6 +904,7 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
     navigationSound: 'off',
     posterCorners: 'rounded',
     focusRingWidth: 'normal',
+    ratingSources: { imdb: true, rtCritics: true, rtAudience: true, tmdb: true, tvdb: true },
     textSize: 'medium',
     navStyle: 'labels',
     showClock: true,
@@ -968,6 +990,7 @@ export const normalizePlayerSettings = (raw: Partial<PlayerSettings> | Record<st
         navigationSound: isPlayerNavigationSound(raw?.navigationSound) ? raw.navigationSound : 'off',
         posterCorners: isPlayerPosterCorners(raw?.posterCorners) ? raw.posterCorners : 'rounded',
         focusRingWidth: isPlayerFocusRingWidth(raw?.focusRingWidth) ? raw.focusRingWidth : 'normal',
+        ratingSources: normalizeRatingSources(raw?.ratingSources),
         textSize: isPlayerTextSize(raw?.textSize) ? raw.textSize : 'medium',
         navStyle: isPlayerNavStyle(raw?.navStyle) ? raw.navStyle : 'labels',
         showClock: raw?.showClock !== false,
@@ -1077,6 +1100,7 @@ export const playerSettingsEqual = (a: PlayerSettings, b: PlayerSettings) => (
     && a.navigationSound === b.navigationSound
     && a.posterCorners === b.posterCorners
     && a.focusRingWidth === b.focusRingWidth
+    && PLAYER_RATING_SOURCE_KEYS.every((key) => a.ratingSources[key] === b.ratingSources[key])
     && a.textSize === b.textSize
     && a.navStyle === b.navStyle
     && a.showClock === b.showClock

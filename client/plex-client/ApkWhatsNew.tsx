@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.491': [
+        {
+            title: 'Display',
+            items: [
+                'Choose which ratings show on title pages: IMDb, Rotten Tomatoes critics, Rotten Tomatoes audience, TMDB and TVDB, each on or off (Settings → Display)',
+            ],
+        },
+    ],
     '1.0.490': [
         {
             title: 'Display',
