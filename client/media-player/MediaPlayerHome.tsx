@@ -480,7 +480,7 @@ const TvHomeBillboard: React.FC<{
         onFocusKey(next);
     }, [onFocusKey]);
 
-    const spotItem = useMemo(() => {
+    const spotMerged = useMemo(() => {
         if (!row) return null;
         const key = focusKey || row.items[0]?.ratingKey || '';
         const base = row.items.find((item) => item.ratingKey === key) || row.items[0] || null;
@@ -508,6 +508,43 @@ const TvHomeBillboard: React.FC<{
             grandparentRatingKey: base.grandparentRatingKey || extra.grandparentRatingKey,
         };
     }, [focusKey, row, spotExtra]);
+
+    // Several new episodes arrive as one season card with no synopsis: borrow the show's overview.
+    const spotShowKey = spotMerged && !String(spotMerged.summary || '').trim()
+        ? String((spotMerged.type === 'season' ? spotMerged.parentRatingKey : spotMerged.grandparentRatingKey) || '')
+        : '';
+    const spotShowSummary = spotShowKey
+        ? String(spotExtra[spotExtraKey(spotMerged?.serverId, spotShowKey)]?.summary || '').trim()
+        : '';
+    const spotItem = useMemo(() => (
+        spotMerged && spotShowSummary ? { ...spotMerged, summary: spotShowSummary } : spotMerged
+    ), [spotMerged, spotShowSummary]);
+
+    useEffect(() => {
+        if (!enabled || !spotShowKey) return undefined;
+        const serverId = spotMerged?.serverId || null;
+        const extraKey = spotExtraKey(serverId, spotShowKey);
+        if (spotExtra[extraKey]) return undefined;
+        const cached = readPlayerItemCache(spotShowKey, serverId);
+        if (cached?.item) {
+            setSpotExtra((prev) => (prev[extraKey] ? prev : { ...prev, [extraKey]: cached.item }));
+            return undefined;
+        }
+        // Give the card's own details a moment first; only fetch the show if it still has no synopsis.
+        let cancelled = false;
+        const timer = window.setTimeout(() => {
+            void fetchMediaPlayerItem(spotShowKey, { core: true, serverId })
+                .then((page) => {
+                    if (!cancelled && page?.item) setSpotExtra((prev) => ({ ...prev, [extraKey]: page.item }));
+                })
+                .catch(() => undefined);
+        }, 400);
+        return () => {
+            cancelled = true;
+            window.clearTimeout(timer);
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [enabled, spotShowKey, spotMerged?.serverId]);
 
     const stillSeed = playerItemBackdropUrl(spotItem) || '';
     const spotKey = spotItem?.ratingKey ? String(spotItem.ratingKey) : '';

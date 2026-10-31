@@ -321,7 +321,7 @@ export const PlayerTvHubStage: React.FC<Props> = ({
 
     const tvRowSafeIndex = Math.min(tvRowIndex, Math.max(0, rows.length - 1));
     const tvActiveRow = rows[tvRowSafeIndex] || null;
-    const tvSpotItem = useMemo(() => {
+    const tvSpotMerged = useMemo(() => {
         if (!tvActiveRow) return null;
         const key = tvFocusKey || tvActiveRow.items[0]?.ratingKey || '';
         const base = tvActiveRow.items.find((row) => row.ratingKey === key) || tvActiveRow.items[0] || null;
@@ -350,6 +350,43 @@ export const PlayerTvHubStage: React.FC<Props> = ({
             grandparentRatingKey: base.grandparentRatingKey || extra.grandparentRatingKey,
         };
     }, [tvActiveRow, tvFocusKey, tvSpotExtra]);
+
+    // Several new episodes arrive as one season card with no synopsis: borrow the show's overview.
+    const tvSpotShowKey = tvSpotMerged && !String(tvSpotMerged.summary || '').trim()
+        ? String((tvSpotMerged.type === 'season' ? tvSpotMerged.parentRatingKey : tvSpotMerged.grandparentRatingKey) || '')
+        : '';
+    const tvSpotShowSummary = tvSpotShowKey
+        ? String(tvSpotExtra[spotExtraKey(tvSpotMerged?.serverId, tvSpotShowKey)]?.summary || '').trim()
+        : '';
+    const tvSpotItem = useMemo(() => (
+        tvSpotMerged && tvSpotShowSummary ? { ...tvSpotMerged, summary: tvSpotShowSummary } : tvSpotMerged
+    ), [tvSpotMerged, tvSpotShowSummary]);
+
+    useEffect(() => {
+        if (!active || !tvSpotShowKey) return undefined;
+        const serverId = tvSpotMerged?.serverId || null;
+        const extraKey = spotExtraKey(serverId, tvSpotShowKey);
+        if (tvSpotExtra[extraKey]) return undefined;
+        const cached = readPlayerItemCache(tvSpotShowKey, serverId);
+        if (cached?.item) {
+            setTvSpotExtra((prev) => (prev[extraKey] ? prev : { ...prev, [extraKey]: cached.item }));
+            return undefined;
+        }
+        // Give the card's own details a moment first; only fetch the show if it still has no synopsis.
+        let cancelled = false;
+        const timer = window.setTimeout(() => {
+            void fetchMediaPlayerItem(tvSpotShowKey, { core: true, serverId })
+                .then((page) => {
+                    if (!cancelled && page?.item) setTvSpotExtra((prev) => ({ ...prev, [extraKey]: page.item }));
+                })
+                .catch(() => undefined);
+        }, 400);
+        return () => {
+            cancelled = true;
+            window.clearTimeout(timer);
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [active, tvSpotShowKey, tvSpotMerged?.serverId]);
 
     const focusStillSeed = useMemo(() => {
         const first = rows[0]?.items?.[0];
