@@ -18,6 +18,12 @@ type Props = {
 
 type Visual = { from: string; src: string; left: number; top: number };
 
+/**
+ * TV details: logos up to this wide (width ÷ height) fill the slot height. Wider wordmarks
+ * shrink so they cover about the same area — a 7:1 logo at full height dwarfed the page.
+ */
+const SLOT_FULL_RATIO = 3;
+
 export const PlayerClearLogo: React.FC<Props> = ({ src, alt, className, onError, boostTopMark = false, center = false, trimTop = true, fillSlot = false }) => {
     const [visual, setVisual] = useState<Visual | null>(() => {
         if (boostTopMark) {
@@ -86,6 +92,8 @@ export const PlayerClearLogo: React.FC<Props> = ({ src, alt, className, onError,
     const shiftX = center ? left / 2 : left;
     const shift = shiftX > 0 || top > 0;
     const [fillBoost, setFillBoost] = useState(1);
+    /** fillSlot: 0–1 height scale for very wide marks (read by the TV CSS as --logo-scale). */
+    const [slotScale, setSlotScale] = useState(1);
     /** fillSlot: px to lift the scaled mark so its visible top meets the slot top, never above. */
     const [fillLift, setFillLift] = useState(0);
     const imgRef = useRef<HTMLImageElement | null>(null);
@@ -93,14 +101,15 @@ export const PlayerClearLogo: React.FC<Props> = ({ src, alt, className, onError,
     useEffect(() => {
         setFillBoost(1);
         setFillLift(0);
+        setSlotScale(1);
     }, [src, fillSlot]);
 
-    // The top inset can arrive after the image has loaded: measure again with it.
+    // The top inset (or a smaller slot for a wide mark) can arrive after load: measure again.
     useEffect(() => {
         const node = imgRef.current;
         if (fillSlot && node?.complete && node.naturalWidth > 0) onImgLoad(node);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [fillSlot, top]);
+    }, [fillSlot, top, slotScale]);
 
     const onImgLoad = (img: HTMLImageElement) => {
         if (!fillSlot) {
@@ -109,6 +118,14 @@ export const PlayerClearLogo: React.FC<Props> = ({ src, alt, className, onError,
         }
         const nw = img.naturalWidth;
         const nh = img.naturalHeight;
+        if (nw > 1 && nh > 1) {
+            const ratio = nw / nh;
+            const next = ratio > SLOT_FULL_RATIO ? Math.sqrt(SLOT_FULL_RATIO / ratio) : 1;
+            if (Math.abs(next - slotScale) > 0.01) {
+                setSlotScale(next);
+                return;
+            }
+        }
         const boxW = img.clientWidth;
         const boxH = img.clientHeight;
         if (nw < 2 || nh < 2 || boxW < 2 || boxH < 2) {
@@ -144,6 +161,7 @@ export const PlayerClearLogo: React.FC<Props> = ({ src, alt, className, onError,
             onError={() => onError?.()}
             style={{
                 opacity: ready ? 1 : 0,
+                ...(fillSlot && slotScale < 1 ? { ['--logo-scale' as string]: slotScale.toFixed(3) } : null),
                 transform,
                 transformOrigin: scale ? (fillSlot ? 'left top' : 'left bottom') : undefined,
             }}

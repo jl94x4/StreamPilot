@@ -2916,8 +2916,8 @@ html[data-tv="1"] .media-details-billboard-title-stack .media-details-service-lo
   margin-bottom: 0;
 }
 html[data-tv="1"] .media-details-clearlogo {
-  height: 4.75rem !important;
-  max-height: 4.75rem !important;
+  height: calc(4.75rem * var(--logo-scale, 1)) !important;
+  max-height: calc(4.75rem * var(--logo-scale, 1)) !important;
   width: auto !important;
   max-width: min(52rem, 100%) !important;
   margin: 0;
@@ -3608,8 +3608,8 @@ html[data-tv="1"] .media-details-episode-cast-role {
 }
 html[data-tv="1"] [data-tv-kind="episode"] .media-details-clearlogo,
 html[data-tv="1"] [data-tv-kind="season"] .media-details-clearlogo {
-  height: 4.75rem !important;
-  max-height: 4.75rem !important;
+  height: calc(4.75rem * var(--logo-scale, 1)) !important;
+  max-height: calc(4.75rem * var(--logo-scale, 1)) !important;
   max-width: min(52rem, 100%) !important;
 }
 html[data-tv="1"] .media-details-episode-tech .player-file-pill {
