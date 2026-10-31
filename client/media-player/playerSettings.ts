@@ -129,6 +129,13 @@ export const isPlayerPosterCorners = (value: unknown): value is PlayerPosterCorn
     PLAYER_POSTER_CORNERS.includes(String(value || '') as PlayerPosterCorners)
 );
 
+/** TV focus ring thickness. 'normal' is the original ring. */
+export type PlayerFocusRingWidth = 'thin' | 'normal' | 'thick';
+export const PLAYER_FOCUS_RING_WIDTHS: PlayerFocusRingWidth[] = ['thin', 'normal', 'thick'];
+export const isPlayerFocusRingWidth = (value: unknown): value is PlayerFocusRingWidth => (
+    PLAYER_FOCUS_RING_WIDTHS.includes(String(value || '') as PlayerFocusRingWidth)
+);
+
 /** App text size on TV. 'medium' is the original size. */
 export type PlayerTextSize = 'small' | 'medium' | 'large';
 export const PLAYER_TEXT_SIZES: PlayerTextSize[] = ['small', 'medium', 'large'];
@@ -483,6 +490,7 @@ export type PlayerSettings = {
     /** Remote navigation sounds; 'off' by default. */
     navigationSound: PlayerNavigationSound;
     posterCorners: PlayerPosterCorners;
+    focusRingWidth: PlayerFocusRingWidth;
     textSize: PlayerTextSize;
     navStyle: PlayerNavStyle;
     /** Clock in the corner of the app (and in the player with its controls). */
@@ -874,6 +882,7 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
     accentColor: 'gold',
     navigationSound: 'off',
     posterCorners: 'rounded',
+    focusRingWidth: 'normal',
     textSize: 'medium',
     navStyle: 'labels',
     showClock: true,
@@ -958,6 +967,7 @@ export const normalizePlayerSettings = (raw: Partial<PlayerSettings> | Record<st
         accentColor: isPlayerAccentColor(raw?.accentColor) ? raw.accentColor : 'gold',
         navigationSound: isPlayerNavigationSound(raw?.navigationSound) ? raw.navigationSound : 'off',
         posterCorners: isPlayerPosterCorners(raw?.posterCorners) ? raw.posterCorners : 'rounded',
+        focusRingWidth: isPlayerFocusRingWidth(raw?.focusRingWidth) ? raw.focusRingWidth : 'normal',
         textSize: isPlayerTextSize(raw?.textSize) ? raw.textSize : 'medium',
         navStyle: isPlayerNavStyle(raw?.navStyle) ? raw.navStyle : 'labels',
         showClock: raw?.showClock !== false,
@@ -1066,6 +1076,7 @@ export const playerSettingsEqual = (a: PlayerSettings, b: PlayerSettings) => (
     && a.accentColor === b.accentColor
     && a.navigationSound === b.navigationSound
     && a.posterCorners === b.posterCorners
+    && a.focusRingWidth === b.focusRingWidth
     && a.textSize === b.textSize
     && a.navStyle === b.navStyle
     && a.showClock === b.showClock

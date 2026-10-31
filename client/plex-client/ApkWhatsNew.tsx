@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.490': [
+        {
+            title: 'Display',
+            items: [
+                'Focus ring thickness: thin, normal or thick (Settings → Display)',
+            ],
+        },
+    ],
     '1.0.489': [
         {
             title: 'Display',

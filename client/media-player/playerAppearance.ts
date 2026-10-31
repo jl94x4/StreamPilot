@@ -3,6 +3,7 @@ import {
     PLAYER_SETTINGS_EVENT,
     readPlayerSettings,
     type PlayerAccentColor,
+    type PlayerFocusRingWidth,
     type PlayerPosterCorners,
     type PlayerSettings,
     type PlayerTextSize,
@@ -33,6 +34,16 @@ export const playerAccentCss = (accent: PlayerAccentColor) => {
 };
 
 let appliedAccent = '';
+let appliedRingWidth = '';
+
+const RING_WIDTH: Record<PlayerFocusRingWidth, string> = { thin: '1.5px', normal: '2px', thick: '3.5px' };
+
+/** Focus ring thickness: one variable read by every TV focus ring. */
+export const applyFocusRingWidth = (width: PlayerFocusRingWidth) => {
+    if (typeof document === 'undefined' || width === appliedRingWidth) return;
+    appliedRingWidth = width;
+    document.documentElement.style.setProperty('--tv-focus-width', RING_WIDTH[width] || '2px');
+};
 
 /**
  * Colour the TV focus rings (posters, episodes, settings rows) and nothing else: buttons,
@@ -72,8 +83,9 @@ export const applyPlayerLook = (corners: PlayerPosterCorners, textSize: PlayerTe
     if (root.dataset.tv === '1') root.style.fontSize = `${TV_ROOT_FONT_PX * scale}px`;
 };
 
-const applyAll = (settings: Pick<PlayerSettings, 'accentColor' | 'posterCorners' | 'textSize'>) => {
+const applyAll = (settings: Pick<PlayerSettings, 'accentColor' | 'focusRingWidth' | 'posterCorners' | 'textSize'>) => {
     applyPlayerAccent(settings.accentColor);
+    applyFocusRingWidth(settings.focusRingWidth);
     applyPlayerLook(settings.posterCorners, settings.textSize);
 };
 

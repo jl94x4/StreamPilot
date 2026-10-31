@@ -15,6 +15,7 @@ import {
     PLAYER_ACCENT_COLORS,
     PLAYER_NAVIGATION_SOUNDS,
     PLAYER_POSTER_CORNERS,
+    PLAYER_FOCUS_RING_WIDTHS,
     PLAYER_TEXT_SIZES,
     PLAYER_SEEK_STEPS,
     PLAYER_CONTROLS_TIMEOUTS,
@@ -32,6 +33,7 @@ import {
     type PlayerAccentColor,
     type PlayerNavigationSound,
     type PlayerPosterCorners,
+    type PlayerFocusRingWidth,
     type PlayerTextSize,
     type PlayerNavStyle,
     type PlayerScreensaverStyle,
@@ -659,6 +661,10 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
     const navigationSoundOptions = useMemo(() => PLAYER_NAVIGATION_SOUNDS.map((sound) => ({
         value: sound,
         label: t(`mediaPlayerPage.navigationSound_${sound}`),
+    })), [t]);
+    const focusRingWidthOptions = useMemo(() => PLAYER_FOCUS_RING_WIDTHS.map((value) => ({
+        value,
+        label: t(`mediaPlayerPage.focusRingWidth_${value}`),
     })), [t]);
     const posterCornerOptions = useMemo(() => PLAYER_POSTER_CORNERS.map((value) => ({
         value,
@@ -1414,6 +1420,13 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                                 value={settings.accentColor}
                                 options={accentColorOptions}
                                 onChange={(value) => updateSettings({ accentColor: value as PlayerAccentColor })}
+                            />
+                            <TvChoiceRow
+                                title={t('mediaPlayerPage.focusRingWidth')}
+                                description={t('mediaPlayerPage.focusRingWidthHint')}
+                                value={settings.focusRingWidth}
+                                options={focusRingWidthOptions}
+                                onChange={(value) => updateSettings({ focusRingWidth: value as PlayerFocusRingWidth })}
                             />
                             <TvChoiceRow
                                 title={t('mediaPlayerPage.navigationSound')}

@@ -417,7 +417,8 @@
       --tv-page-surface: 6 10 16;
       color: #ffffff;
       background: rgb(var(--tv-page-surface)) !important;
-      --tv-focus-stroke: calc(2px / var(--tv-zoom, 1));
+      /* Settings → Focus ring thickness sets --tv-focus-width (2px is the original ring). */
+      --tv-focus-stroke: calc(var(--tv-focus-width, 2px) / var(--tv-zoom, 1));
       /* Settings → Accent colour changes only these focus rings (posters, episodes, settings rows). */
       --tv-focus-glow: 0 0 0 var(--tv-focus-stroke) rgb(var(--tv-focus-accent, 245 158 11));
       --tv-focus-glow-cover: inset 0 0 0 var(--tv-focus-stroke) rgb(var(--tv-focus-accent-soft, 251 191 36));
