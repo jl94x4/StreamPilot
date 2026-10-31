@@ -6343,3 +6343,90 @@ html[data-phone="1"] .smp-live-hero-poster {
 html[data-phone="1"] .smp-live-poster {
   flex-basis: 8.5rem;
 }
+
+/*
+ * Library header, Plex style (TV): title and text tabs on one line, then one slim toolbar —
+ * sort, Filters (every filter in a sheet), a chip per active filter, and the title count.
+ */
+html[data-tv="1"] .player-library-header {
+  flex-direction: row !important;
+  align-items: baseline;
+  flex-wrap: wrap;
+  column-gap: 2.25rem;
+  row-gap: 0.75rem;
+}
+html[data-tv="1"] .player-library-header [data-tv-library-tabs="1"] {
+  gap: 0.35rem !important;
+}
+html[data-tv="1"] .player-library-header [data-tv-library-tabs="1"] button,
+html[data-tv="1"] .player-library-header [data-tv-library-tabs="1"] [data-tv-item="1"] {
+  position: relative;
+  border: 0 !important;
+  border-radius: 0.6rem !important;
+  background: transparent !important;
+  color: rgba(255, 255, 255, 0.55) !important;
+  font-size: calc(1.15rem * var(--tv-text-scale, 1)) !important;
+  padding: 0.4rem 0.85rem 0.55rem !important;
+}
+html[data-tv="1"] .player-library-header [data-tv-library-tabs="1"] button[aria-current="page"] {
+  color: #fff !important;
+  background: transparent !important;
+}
+html[data-tv="1"] .player-library-header [data-tv-library-tabs="1"] button[aria-current="page"]::after {
+  content: "";
+  position: absolute;
+  left: 0.85rem;
+  right: 0.85rem;
+  bottom: 0.15rem;
+  height: 3px;
+  border-radius: 3px;
+  background: #fff;
+}
+html[data-tv="1"] [data-tv-library-filters="1"].player-library-toolbar {
+  flex-wrap: wrap !important;
+  overflow: visible !important;
+  max-width: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  gap: 0.75rem !important;
+}
+html[data-tv="1"] [data-tv-library-filters="1"].player-library-toolbar button {
+  min-height: 2.75rem !important;
+  padding: 0.45rem 1.05rem !important;
+  font-size: calc(1rem * var(--tv-text-scale, 1)) !important;
+}
+html[data-tv="1"] .player-library-filter-button,
+html[data-tv="1"] .player-library-filter-chip {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  font-weight: 700;
+}
+html[data-tv="1"] .player-library-filter-button.is-active {
+  border-color: rgba(255, 255, 255, 0.4);
+}
+html[data-tv="1"] .player-library-filter-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.45em;
+  height: 1.45em;
+  padding: 0 0.35em;
+  border-radius: 999px;
+  background: #fff;
+  color: #000;
+  font-size: 0.8em;
+  font-weight: 800;
+}
+html[data-tv="1"] .player-library-filter-chip {
+  background: rgba(255, 255, 255, 0.12);
+}
+html[data-tv="1"] .player-library-count {
+  margin-left: 0.5rem;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: calc(1rem * var(--tv-text-scale, 1));
+  font-weight: 600;
+}
+html[data-tv="1"] [data-tv-library-filters="1"].player-library-toolbar button span {
+  font-size: inherit !important;
+}

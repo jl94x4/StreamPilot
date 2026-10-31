@@ -73,6 +73,16 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.502': [
+        {
+            title: 'Libraries',
+            items: [
+                'Browse has a cleaner, Plex-style top: the library name and tabs on one line, then sort, Filters and the number of titles',
+                'Every filter (genre, year, studio, actor and more, plus Unwatched, In progress, HDR and Duplicates) is in one Filters panel; active filters show as chips you can press to remove',
+                'The filter row is no longer cut off at the left edge',
+            ],
+        },
+    ],
     '1.0.501': [
         {
             title: 'TV',

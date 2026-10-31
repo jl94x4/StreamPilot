@@ -29,6 +29,7 @@ import { studioBrowsePlateBackground } from './studioBrowsePlate.js';
 import type { PlayerStudioBrowseCard } from './types';
 import { readLibraryBrowseState, readLibraryHomeCache, writeLibraryBrowseState, writeLibraryHomeCache } from './playerMemory';
 import { PLAYER_SCROLL_ID } from './paths';
+import { PlayerLibraryFilterSheet, type LibraryFilterGroup, type LibraryFilterToggle } from './PlayerLibraryFilterSheet';
 import { PlayerPosterCard } from './PlayerPosterCard';
 import { PlayerRail } from './PlayerRail';
 import { viewMoreShelfFromHub } from './PlayerViewMoreCard';
@@ -1162,7 +1163,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
     }, [markedLetter, tab, alphaLetters.length]);
 
     const libraryChrome = (
-        <>
+        <div className="player-library-header flex flex-col gap-5">
             <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
                     <button
@@ -1207,8 +1208,44 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                     );
                 })}
             </div>
-        </>
+        </div>
     );
+
+    // TV Browse: every filter lives in one Plex-style Filters sheet; active ones show as chips.
+    const opts = (rows: Array<{ key: string; title: string }>) => rows.map((row) => ({ value: row.key, label: row.title }));
+    const filterGroups: LibraryFilterGroup[] = [
+        { id: 'genre', label: t('mediaPlayerPage.genre'), allLabel: t('mediaPlayerPage.allGenres'), value: genre, options: opts(genres), onChange: setGenre },
+        { id: 'decade', label: t('mediaPlayerPage.decade'), allLabel: t('mediaPlayerPage.allDecades'), value: decade, options: opts(decades), onChange: (value: string) => { setDecade(value); if (value) setYear(''); } },
+        { id: 'year', label: t('mediaPlayerPage.filterBy_year'), allLabel: t('mediaPlayerPage.allYears'), value: year, options: opts(years), onChange: (value: string) => { setYear(value); if (value) setDecade(''); } },
+        { id: 'contentRating', label: t('mediaPlayerPage.filterBy_contentRating'), allLabel: t('mediaPlayerPage.allContentRatings'), value: contentRating, options: opts(contentRatings), onChange: setContentRating },
+        { id: 'resolution', label: t('mediaPlayerPage.resolution'), allLabel: t('mediaPlayerPage.allResolutions'), value: resolution, options: opts(resolutions), onChange: setResolution },
+        { id: 'network', label: t('mediaPlayerPage.filterBy_network'), allLabel: t('mediaPlayerPage.allNetworks'), value: network, options: opts(networks), onChange: setNetwork },
+        { id: 'studio', label: t('mediaPlayerPage.filterBy_studio'), allLabel: t('mediaPlayerPage.allStudios'), value: studio, options: opts(studios), onChange: setStudio },
+        { id: 'country', label: t('mediaPlayerPage.filterBy_country'), allLabel: t('mediaPlayerPage.allCountries'), value: country, options: opts(countries), onChange: setCountry },
+        { id: 'collection', label: t('mediaPlayerPage.filterBy_collection'), allLabel: t('mediaPlayerPage.allCollections'), value: collection, options: opts(collectionOptions), onChange: setCollection },
+        { id: 'audioLanguage', label: t('mediaPlayerPage.filterBy_audioLanguage'), allLabel: t('mediaPlayerPage.allAudioLanguages'), value: audioLanguage, options: opts(audioLanguages), onChange: setAudioLanguage },
+        { id: 'subtitleLanguage', label: t('mediaPlayerPage.filterBy_subtitleLanguage'), allLabel: t('mediaPlayerPage.allSubtitleLanguages'), value: subtitleLanguage, options: opts(subtitleLanguages), onChange: setSubtitleLanguage },
+        { id: 'actor', label: t('mediaPlayerPage.filterBy_actor'), allLabel: t('mediaPlayerPage.allActors'), value: actor, options: opts(actors), onChange: setActor },
+        { id: 'director', label: t('mediaPlayerPage.filterBy_director'), allLabel: t('mediaPlayerPage.allDirectors'), value: director, options: opts(directors), onChange: setDirector },
+        { id: 'writer', label: t('mediaPlayerPage.filterBy_writer'), allLabel: t('mediaPlayerPage.allWriters'), value: writer, options: opts(writers), onChange: setWriter },
+        { id: 'producer', label: t('mediaPlayerPage.filterBy_producer'), allLabel: t('mediaPlayerPage.allProducers'), value: producer, options: opts(producers), onChange: setProducer },
+        { id: 'label', label: t('mediaPlayerPage.filterBy_label'), allLabel: t('mediaPlayerPage.allLabels'), value: label, options: opts(labels), onChange: setLabel },
+    ].filter((row) => row.options.length || row.value);
+    const filterToggles: LibraryFilterToggle[] = [
+        { id: 'unwatched', label: t('mediaPlayerPage.unwatched'), on: unwatched, onToggle: () => { setUnwatched((prev) => !prev); setInProgress(false); } },
+        { id: 'inProgress', label: t('mediaPlayerPage.inProgress'), on: inProgress, onToggle: () => { setInProgress((prev) => !prev); setUnwatched(false); } },
+        ...(!musicLibrary ? [
+            { id: 'hdr', label: t('mediaPlayerPage.hdr'), on: hdr, onToggle: () => setHdr((prev) => !prev) },
+            { id: 'duplicates', label: t('mediaPlayerPage.duplicates'), on: duplicate, onToggle: () => setDuplicate((prev) => !prev) },
+        ] : []),
+    ];
+    const clearAllFilters = () => {
+        for (const row of filterGroups) row.onChange('');
+        setUnwatched(false);
+        setInProgress(false);
+        setHdr(false);
+        setDuplicate(false);
+    };
 
     if (tvShell && tab === 'home') {
         const homeBusy = loading && !tvRecommendedRows.length;
@@ -1239,7 +1276,28 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
         <div className="flex flex-col gap-5 pb-8" data-tv-library="1">
             {libraryChrome}
 
-            {tab === 'browse' ? (
+            {tab === 'browse' && tvShell ? (
+                <div className="player-library-toolbar flex flex-wrap items-center" data-tv-library-filters="1">
+                    <CustomSelect
+                        compact
+                        value={sort}
+                        onChange={(value) => {
+                            setSort(value);
+                            if (value !== 'titleSort') setLetter('');
+                        }}
+                        dropdownClassName="player-filter-menu"
+                        className="player-library-filter-select"
+                        triggerProps={tvFilterTrigger('library-sort')}
+                        options={SORT_IDS.map((id) => ({ value: id, label: sortLabels[id] || id }))}
+                    />
+                    <PlayerLibraryFilterSheet groups={filterGroups} toggles={filterToggles} onClearAll={clearAllFilters} />
+                    {total > 0 ? (
+                        <span className="player-library-count">
+                            {t('mediaPlayerPage.itemCount', { count: total.toLocaleString() })}
+                        </span>
+                    ) : null}
+                </div>
+            ) : tab === 'browse' ? (
                 <div className="flex flex-wrap items-center gap-2" data-tv-library-filters="1">
                     <CustomSelect
                         compact
