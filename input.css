@@ -6484,11 +6484,47 @@ html[data-tv="1"] [data-tv-poster-btn="1"][data-tv-focused="1"]:focus-visible .p
 }
 
 /* TV library (Browse / Collections / Studios): title, tabs and toolbar stay pinned; content scrolls under. */
+/* TV library (Browse / Collections / Studios): the page itself stops scrolling and the body
+   under the header scrolls instead. Sticky and scroll-synced pinning both drift under TV zoom. */
+html[data-tv="1"] #media-player-scroll:has(> div > div:not([hidden]) > [data-tv-library-pinned="1"]) {
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+  padding-bottom: 0 !important;
+}
+html[data-tv="1"] #media-player-scroll:has(> div > div:not([hidden]) > [data-tv-library-pinned="1"]) > div,
+html[data-tv="1"] #media-player-scroll:has(> div > div:not([hidden]) > [data-tv-library-pinned="1"]) > div > div:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+html[data-tv="1"] [data-tv-library-pinned="1"] {
+  flex: 1 1 auto;
+  min-height: 0;
+  gap: 0 !important;
+  padding-bottom: 0 !important;
+}
 html[data-tv="1"] .player-library-sticky {
-  /* Pinned by a scroll-driven transform (MediaPlayerLibrary); sticky did not hold on TV WebViews. */
+  flex: none;
   position: relative;
-  z-index: 20;
-  margin-top: -1.35rem;
-  padding: 1.35rem 0 1rem;
-  background-color: rgb(var(--tv-page-surface, 36 40 48));
+  z-index: 2;
+  padding-bottom: 1rem;
+}
+html[data-tv="1"] [data-tv-library-scroll="1"] {
+  flex: 1 1 auto;
+  min-height: 0;
+  gap: 1.15rem;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overflow-anchor: none;
+  /* Room for focus rings at the edges without moving the grid. */
+  margin: 0 -0.75rem;
+  padding: 0.75rem 0.75rem 2rem;
+  scroll-padding-top: 0.75rem;
+  scroll-padding-bottom: calc(96px / var(--tv-zoom, 1));
+  scrollbar-width: none;
+}
+html[data-tv="1"] [data-tv-library-scroll="1"]::-webkit-scrollbar {
+  display: none;
 }

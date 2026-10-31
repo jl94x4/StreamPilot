@@ -104,6 +104,12 @@ const estimateBrowseColumns = (size: Parameters<typeof posterGridScaleRem>[0]) =
     return Math.max(1, Math.floor((width + gap) / (col + gap)));
 };
 
+/** TV libraries scroll their own body under the pinned header; elsewhere the page scrolls. */
+const libraryScroller = () => (
+    document.querySelector<HTMLElement>('[data-tv-library-scroll="1"]')
+    || document.getElementById(PLAYER_SCROLL_ID)
+);
+
 const isContinueWatchingHub = (hub: PlayerLibraryHub) => (
     /continue\s*watch|ondeck|on[.\s_-]?deck|in[.\s_-]?progress/i.test(`${hub.identifier || ''} ${hub.title || ''}`)
 );
@@ -247,7 +253,6 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
     /** Absolute library index of items[0] in the current browse window. */
     const browseAbsStartRef = useRef(0);
     const browseColumnsRef = useRef(0);
-    const stickyHeaderRef = useRef<HTMLDivElement>(null);
     const browseRowRef = useRef(-1);
     /** Index within the loaded window of the focused browse poster. */
     const browseFocusAbsRef = useRef(-1);
@@ -480,7 +485,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
             setBrowseHasMore(false);
             setLoading(true);
             if (activeRef.current) {
-                const scroller = document.getElementById(PLAYER_SCROLL_ID);
+                const scroller = libraryScroller();
                 if (scroller) scroller.scrollTop = 0;
             }
         }
@@ -712,7 +717,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
 
     useEffect(() => {
         if (!active || tab !== 'browse' || !browseHasMore || !items.length) return;
-        const el = document.getElementById(PLAYER_SCROLL_ID);
+        const el = libraryScroller();
         if (!el || el.scrollHeight > el.clientHeight + 8) return;
         const paintedEnd = browseAbsStartRef.current + items.length;
         if (browseCountRef.current > paintedEnd) return;
@@ -722,7 +727,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
 
     useEffect(() => {
         if (!active || tab !== 'browse' || !browseHasMore) return undefined;
-        const scroller = document.getElementById(PLAYER_SCROLL_ID);
+        const scroller = libraryScroller();
         let measuredCardCount = 0;
         let scrollRaf = 0;
         const measureColumns = (cards: HTMLElement[], force = false) => {
@@ -1164,37 +1169,12 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
         bar.scrollTop = Math.max(0, top);
     }, [markedLetter, tab, alphaLetters.length]);
 
+    // A new tab or library starts the TV body back at the top.
     useEffect(() => {
-        const header = stickyHeaderRef.current;
-        const scroller = document.getElementById(PLAYER_SCROLL_ID);
-        if (!tvShell || !active || !header || !scroller) return undefined;
-        const apply = () => {
-            scroller.style.scrollPaddingTop = `${header.offsetHeight + 16}px`;
-        };
-        apply();
-        const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(apply) : null;
-        observer?.observe(header);
-        // TV WebViews don't keep position: sticky pinned here, so ride the header down by the
-        // scroll offset (it sits at the very top of the scroller's content).
-        let raf = 0;
-        const pin = () => {
-            raf = 0;
-            const y = Math.max(0, scroller.scrollTop);
-            header.style.transform = y ? `translate3d(0, ${y}px, 0)` : '';
-        };
-        const onScroll = () => {
-            if (!raf) raf = window.requestAnimationFrame(pin);
-        };
-        pin();
-        scroller.addEventListener('scroll', onScroll, { passive: true });
-        return () => {
-            observer?.disconnect();
-            scroller.removeEventListener('scroll', onScroll);
-            if (raf) window.cancelAnimationFrame(raf);
-            header.style.transform = '';
-            scroller.style.scrollPaddingTop = '';
-        };
-    }, [active, tab, tvShell]);
+        if (!tvShell || !active) return;
+        const body = document.querySelector<HTMLElement>('[data-tv-library-scroll="1"]');
+        if (body) body.scrollTop = 0;
+    }, [active, sectionKey, tab, tvShell]);
 
     const libraryChrome = (
         <div className="player-library-header flex flex-col gap-5">
@@ -1307,9 +1287,9 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
     }
 
     return (
-        <div className="flex flex-col gap-5 pb-8" data-tv-library="1">
+        <div className="flex flex-col gap-5 pb-8" data-tv-library="1" data-tv-library-pinned={tvShell ? '1' : undefined}>
             {tvShell ? (
-                <div ref={stickyHeaderRef} className="player-library-sticky flex flex-col gap-5" data-tv-sticky-header="1">
+                <div className="player-library-sticky flex flex-col gap-5" data-tv-sticky-header="1">
                     {libraryChrome}
             {tab === 'browse' ? (
                 <div className="player-library-toolbar flex flex-wrap items-center" data-tv-library-filters="1">
@@ -1630,6 +1610,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                 </div>
             ) : null}
 
+            <div className="player-library-body flex flex-col gap-5" data-tv-library-scroll={tvShell ? '1' : undefined}>
             {loading && tab === 'home' && !homeHubs.length ? (
                 <div className="flex w-full flex-col gap-6 py-2">
                     <PlayerHomeRowSkeleton />
@@ -1990,6 +1971,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                     </div>
                 </div>
             )}
+            </div>
         </div>
     );
 };
