@@ -17,6 +17,12 @@ import { hideWatchedPlayerItems } from './playerUtils';
 import { usePlayerSettings } from './usePlayerSettings';
 import type { PlayerItem, PlayerPlayOptions } from './types';
 
+/** Posters the row already showed, handed over when its View more opens this page. */
+const hubSeeds = new Map<string, PlayerItem[]>();
+export const seedHubItems = (path: string, items: PlayerItem[] | null | undefined) => {
+    if (path && items?.length) hubSeeds.set(path, items);
+};
+
 type Props = {
     path: string;
     title?: string;
@@ -47,7 +53,8 @@ export const MediaPlayerHub: React.FC<Props> = ({
     const [settings] = usePlayerSettings();
     const [gridSize, setGridSize] = useDiscoverGridSize();
     const [title, setTitle] = useState(titleHint || t('common.viewMore'));
-    const [items, setItems] = useState<PlayerItem[]>([]);
+    // Start with the row's own posters so the page is never blank; the full list replaces them.
+    const [items, setItems] = useState<PlayerItem[]>(() => hubSeeds.get(path) || []);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const tvShell = isTvShell();
@@ -55,12 +62,16 @@ export const MediaPlayerHub: React.FC<Props> = ({
     useEffect(() => {
         let cancelled = false;
         setLoading(true);
+        const seed = hubSeeds.get(path);
+        if (seed?.length) setItems(seed);
         fetchMediaPlayerHub(path, { title: titleHint, identifier })
             .then((data) => {
                 if (cancelled) return;
                 setTitle(data.title || titleHint || t('common.viewMore'));
-                setItems(data.items || []);
+                const full = data.items || [];
+                setItems(full.length || !seed?.length ? full : seed);
                 setError(null);
+                hubSeeds.delete(path);
             })
             .catch((err) => {
                 if (cancelled) return;
@@ -138,12 +149,12 @@ export const MediaPlayerHub: React.FC<Props> = ({
                 ) : null}
             </div>
 
-            {loading && !tvShell ? (
+            {loading && !shownItems.length && !tvShell ? (
                 <PosterGridSkeleton
                     className={upgraderPosterGridClass(gridSize)}
                     style={upgraderPosterGridStyle(gridSize)}
                 />
-            ) : loading ? null : error ? (
+            ) : loading && !shownItems.length ? null : error && !shownItems.length ? (
                 <div className={discoveryTheme.emptyState}>
                     <p className={discoveryTheme.emptyTitle}>{error}</p>
                 </div>

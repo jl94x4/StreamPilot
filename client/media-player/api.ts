@@ -362,11 +362,27 @@ export const fetchMediaPlayerCollection = (ratingKey: string, sectionKey?: strin
     return apiFetch(`${PLAYER_API_ROOT}/collection/${encodeURIComponent(ratingKey)}${qs}`) as Promise<PlayerItemPage>;
 };
 
+type HubPage = { title: string; items: PlayerItem[] };
+/**
+ * The View more card fetches its row's full list for the posters behind it; the View more page
+ * asks for the same list. Share one request (and keep the answer briefly) so opening the page is
+ * instant and the server is asked once.
+ */
+const hubFetches = new Map<string, { at: number; promise: Promise<HubPage> }>();
+const HUB_CACHE_TTL_MS = 2 * 60_000;
+
 export const fetchMediaPlayerHub = (path: string, opts: { title?: string; identifier?: string } = {}) => {
     const qs = new URLSearchParams({ path });
     if (opts.title) qs.set('title', opts.title);
     if (opts.identifier) qs.set('identifier', opts.identifier);
-    return apiFetch(`${PLAYER_API_ROOT}/hub?${qs.toString()}`) as Promise<{ title: string; items: PlayerItem[] }>;
+    const key = qs.toString();
+    const hit = hubFetches.get(key);
+    if (hit && Date.now() - hit.at < HUB_CACHE_TTL_MS) return hit.promise;
+    const promise = apiFetch(`${PLAYER_API_ROOT}/hub?${key}`) as Promise<HubPage>;
+    hubFetches.set(key, { at: Date.now(), promise });
+    // A failure is not worth keeping: the next ask tries again.
+    promise.catch(() => { if (hubFetches.get(key)?.promise === promise) hubFetches.delete(key); });
+    return promise;
 };
 
 let playlistsInflight: Promise<{ items: PlayerItem[] }> | null = null;

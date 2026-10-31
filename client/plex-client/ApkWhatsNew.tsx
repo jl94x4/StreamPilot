@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.499': [
+        {
+            title: 'TV',
+            items: [
+                'View more opens straight away with the row\'s posters, then fills in the rest (no more blank screen)',
+                'The full list is fetched once and shared with the View more card, so it is often instant',
+            ],
+        },
+    ],
     '1.0.498': [
         {
             title: 'Live TV',

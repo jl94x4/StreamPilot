@@ -14,7 +14,7 @@ import { MediaPlayerPlaylists } from './MediaPlayerPlaylists';
 import { getMediaDownloadLocalUrl, isMediaDownloadsSupported } from '../plex-client/mediaDownloads';
 import { isPhoneUi } from '../plex-client/config';
 import { MediaPlayerCollection } from './MediaPlayerCollection';
-import { MediaPlayerHub } from './MediaPlayerHub';
+import { MediaPlayerHub, seedHubItems } from './MediaPlayerHub';
 import { MediaPlayerPlaylist } from './MediaPlayerPlaylist';
 import { MediaPlayerStudio } from './MediaPlayerStudio';
 import { lazyScreen, preloadScreensWhenIdle } from './lazyScreen';
@@ -717,7 +717,7 @@ export const MediaPlayerDashboard: React.FC = () => {
         navigate(`${PLAYER_APP_BASE}/library/${encodeURIComponent(sectionKey)}/collection/${encodeURIComponent(item.ratingKey)}`);
     }, [navigate]);
 
-    const openHub = useCallback((hub: Pick<PlayerLibraryHub, 'title' | 'identifier' | 'hubKey' | 'collectionRatingKey' | 'playlistRatingKey'>) => {
+    const openHub = useCallback((hub: Pick<PlayerLibraryHub, 'title' | 'identifier' | 'hubKey' | 'collectionRatingKey' | 'playlistRatingKey'> & { items?: PlayerItem[] }) => {
         if (hub.collectionRatingKey) {
             openItem({
                 ratingKey: hub.collectionRatingKey,
@@ -739,6 +739,7 @@ export const MediaPlayerDashboard: React.FC = () => {
         if (!hubPath.startsWith('/library/') && !hubPath.startsWith('/hubs/')) return;
         const qs = new URLSearchParams({ path, title: hub.title || '' });
         if (hub.identifier) qs.set('id', hub.identifier);
+        seedHubItems(path, hub.items);
         navigate(`${PLAYER_APP_BASE}/hub?${qs.toString()}`);
     }, [navigate, openItem]);
 
