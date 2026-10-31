@@ -6547,3 +6547,16 @@ html[data-tv="1"] .player-library-header [data-tv-library-tabs="1"] button[data-
 html[data-tv="1"] .player-library-header [data-tv-library-tabs="1"] button[data-tv-action="1"][aria-current="page"]:focus-visible::after {
   background: #18181b;
 }
+
+/* Studios stacks two tile grids; the poster-grid bezel gap belongs only after the last one. */
+html[data-tv="1"] .player-library-studios .player-studio-tiles[data-tv-poster-grid="1"] {
+  padding-bottom: 0.75rem !important;
+}
+html[data-tv="1"] .player-library-studios > :last-child .player-studio-tiles[data-tv-poster-grid="1"] {
+  padding-bottom: calc(160px / var(--tv-zoom, 1)) !important;
+}
+/* Library tabs: no underline; the current tab is the bright one. */
+html[data-tv="1"] .player-library-header [data-tv-library-tabs="1"] button[aria-current="page"]::after {
+  content: none !important;
+  display: none !important;
+}
