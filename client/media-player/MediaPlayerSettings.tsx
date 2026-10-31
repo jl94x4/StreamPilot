@@ -168,7 +168,8 @@ type TvChoice = { value: string; label: string; icon?: React.ReactNode; fontFami
 
 const ChoiceLabel: React.FC<{ row: TvChoice | undefined }> = ({ row }) => (
     row?.fontFamily
-        ? <span data-font-preview="1" style={{ fontFamily: row.fontFamily }}>{row.label}</span>
+        // Menu sheets force their own face with !important; the preview rule reads this variable.
+        ? <span data-font-preview="1" style={{ ['--preview-font' as string]: row.fontFamily }}>{row.label}</span>
         : <>{row?.label || '—'}</>
 );
 

@@ -235,6 +235,10 @@
     html[data-app-font][data-app-font][data-app-font] *:not([data-font-preview]) {
       font-family: var(--app-font) !important;
     }
+    /* Font pickers: each option in its own face, over the menu sheet's forced Switzer. */
+    [data-font-preview][data-font-preview] {
+      font-family: var(--preview-font) !important;
+    }
     html, body, #root { margin: 0; background: #07080c; color: #ffffff; }
     html, body, button, input, select, textarea {
       font-family: "Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif;
