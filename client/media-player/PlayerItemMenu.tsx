@@ -197,9 +197,11 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
     );
     const useContextSheet = isTv;
     const useMobileModal = !isTv && variant !== 'toolbar' && phoneUi;
-    const canFileInfo = variant !== 'toolbar'
+    // TV: the page's ⋯ menu and a Select-hold on the same title must offer the same options.
+    const fullMenu = variant !== 'toolbar' || isTv;
+    const canFileInfo = fullMenu
         && (item.type === 'movie' || item.type === 'episode' || item.type === 'clip' || item.type === 'trailer');
-    const canRefreshMetadata = variant !== 'toolbar'
+    const canRefreshMetadata = fullMenu
         && !!String(item.ratingKey || '').replace(/^\d+::/, '').replace(/\D/g, '')
         && (
             item.type === 'movie'
@@ -211,8 +213,9 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
             || item.type === 'track'
             || item.type === 'collection'
         );
-    const canPickAudio = variant === 'toolbar' && audioTracks.length > 0 && !!onAudioChange;
-    const canPickSubtitles = variant === 'toolbar' && !!onSubtitleChange
+    // Track pickers need the title's streams; only the page's own title passes them.
+    const canPickAudio = (variant === 'toolbar' || isTv) && audioTracks.length > 0 && !!onAudioChange;
+    const canPickSubtitles = (variant === 'toolbar' || isTv) && !!onSubtitleChange
         && (item.type === 'movie' || item.type === 'episode');
     const phoneDownloads = !isTv && isMediaDownloadsSupported() && isPhoneUi();
     const canOfflineDownload = phoneDownloads

@@ -3744,7 +3744,37 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                 </div>,
                 document.body,
             ) : null}
-            {heldMenuItem ? (
+            {heldMenuItem && item && String(heldMenuItem.ratingKey) === String(item.ratingKey) ? (
+                // The title this page is about: exactly what its ⋯ button offers.
+                <PlayerItemMenu
+                    ref={heldMenuRef}
+                    hideTrigger
+                    item={heldMenuItem}
+                    isAdmin={isAdmin}
+                    playlistsEnabled={playlistsEnabled && settings.showPlaylists}
+                    mediaIndex={mediaIndex}
+                    audioStreamId={audioStreamId}
+                    subtitleStreamId={subtitleStreamId}
+                    audioTracks={audioTrackOptions.map((row) => ({
+                        id: String(row.id),
+                        label: String(row.displayTitle || row.language || t('mediaPlayerPage.audio')),
+                    }))}
+                    subtitleTracks={subtitleTrackOptions.map((row) => ({
+                        id: String(row.id),
+                        label: String(row.displayTitle || row.language || t('mediaPlayerPage.subtitles')),
+                    }))}
+                    onAudioChange={onAudioTrackChange}
+                    onSubtitleChange={onSubtitleTrackChange}
+                    onPlay={onPlay}
+                    onPlayNext={onPlayNext}
+                    onWatchedChange={(row, watched) => {
+                        onHeldWatchedChange(row, watched);
+                        onWatchedChange?.(row, watched);
+                    }}
+                    onDeleted={() => onBack()}
+                    onToast={onToast}
+                />
+            ) : heldMenuItem ? (
                 <PlayerItemMenu
                     ref={heldMenuRef}
                     hideTrigger
