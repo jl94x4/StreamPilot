@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Check, Loader2 } from 'lucide-react';
+import { Check } from 'lucide-react';
 import { fetchMediaPlayerItem, prefetchMediaPlayerItem } from './api';
 import { peekRememberedTvFocusKey, pinTvRailItemToSlot, visibleHomeStage } from '../plex-client/useTvRemote';
-import { homeRailPosterDensity } from './host';
+import { homeRailPosterDensity, PlayerTvHomeStageSkeleton } from './host';
 import { PlayerClearLogo } from './PlayerClearLogo';
 import { PlayerServiceBrandMark } from './PlayerServiceBrandMark';
 import { PlayerTvRowStack } from './PlayerRail';
@@ -524,25 +524,7 @@ export const PlayerTvHubStage: React.FC<Props> = ({
     }, [active, tvSpotItem?.ratingKey, tvSpotItem?.serverId]);
 
     if (loading && !rows.length) {
-        return (
-            <div
-                ref={stageRef}
-                className="tv-poster-rows player-home-page player-home-stage"
-                data-tv-library="1"
-                aria-busy="true"
-                aria-label={ariaLabel || 'Loading'}
-            >
-                {header}
-                <div className="player-home-focus-still" aria-hidden />
-                <div
-                    className="player-home-stage-rail flex min-h-[40vh] flex-col items-center justify-center gap-3"
-                    data-tv-hub-loading="1"
-                >
-                    <Loader2 className="h-10 w-10 animate-spin text-white/70" aria-hidden />
-                    <p className="text-sm font-semibold text-white/55">Loading…</p>
-                </div>
-            </div>
-        );
+        return <PlayerTvHomeStageSkeleton header={header} heroCard={false} />;
     }
 
     if (!loading && !rows.length && emptyTitle) {

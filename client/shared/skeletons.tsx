@@ -177,8 +177,14 @@ export const PlayerHomeSkeleton: React.FC = () => (
     </div>
 );
 
-/** TV home stage — focus still + spot copy + active rail + next-row peek (matches loaded Home). */
-export const PlayerTvHomeStageSkeleton: React.FC = () => {
+/**
+ * TV home stage — focus still + spot copy + active rail + next-row peek (matches loaded Home).
+ * Library Recommended passes its header and drops the wide first card (its rails are all posters).
+ */
+export const PlayerTvHomeStageSkeleton: React.FC<{ header?: React.ReactNode; heroCard?: boolean }> = ({
+    header,
+    heroCard = true,
+}) => {
     const [cardCount, setCardCount] = useState(() => tvHomeStageSkeletonCardCount());
 
     useEffect(() => {
@@ -194,7 +200,9 @@ export const PlayerTvHomeStageSkeleton: React.FC = () => {
             aria-busy="true"
             aria-label="Loading home"
             data-tv-hub-loading="1"
+            data-tv-library={header ? '1' : undefined}
         >
+            {header}
             <div className="player-home-focus-still player-tv-home-skel-still" aria-hidden>
                 <div className="skeleton-base absolute inset-0 rounded-none" />
             </div>
@@ -220,20 +228,23 @@ export const PlayerTvHomeStageSkeleton: React.FC = () => {
                     </div>
                     {/* Inline widths + dynamic count so CSS zoom / 20px root still spill past the right edge. */}
                     <div className="player-tv-home-skel-rail-track flex w-full flex-nowrap gap-4 overflow-hidden py-2 pl-5 pr-0">
-                        {Array.from({ length: cardCount }, (_, i) => (
-                            <SkeletonBlock
-                                key={i}
-                                className={`player-tv-home-skel-card shrink-0 rounded-xl border border-white/5 ${
-                                    i === 0 ? 'player-tv-home-skel-card--hero' : 'player-tv-home-skel-card--poster'
-                                }`}
-                                style={{
-                                    animationDelay: `${Math.min(i, 10) * 70}ms`,
-                                    width: i === 0 ? '21rem' : '9.5rem',
-                                    aspectRatio: i === 0 ? '16 / 9' : '2 / 3',
-                                    flex: '0 0 auto',
-                                }}
-                            />
-                        ))}
+                        {Array.from({ length: cardCount + (heroCard ? 0 : 1) }, (_, i) => {
+                            const hero = heroCard && i === 0;
+                            return (
+                                <SkeletonBlock
+                                    key={i}
+                                    className={`player-tv-home-skel-card shrink-0 rounded-xl border border-white/5 ${
+                                        hero ? 'player-tv-home-skel-card--hero' : 'player-tv-home-skel-card--poster'
+                                    }`}
+                                    style={{
+                                        animationDelay: `${Math.min(i, 10) * 70}ms`,
+                                        width: hero ? '21rem' : '9.5rem',
+                                        aspectRatio: hero ? '16 / 9' : '2 / 3',
+                                        flex: '0 0 auto',
+                                    }}
+                                />
+                            );
+                        })}
                     </div>
                     <div className="player-home-next-row mt-1 px-5">
                         <div className="player-row-header flex min-w-0 items-center gap-3 opacity-70">

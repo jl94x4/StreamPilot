@@ -1,5 +1,5 @@
 import React from 'react';
-import { DiscoverSectionHeader, DiscoveryLogo } from './host';
+import { DiscoverSectionHeader, DiscoveryLogo, RowHeaderMark, SkeletonBlock } from './host';
 import { plexImageUrl } from './playerUtils';
 import type { PlayerStudioBrowseCard } from './types';
 
@@ -92,3 +92,26 @@ export const PlayerStudioTiles: React.FC<Props> = ({ title, cards, keyPrefix, on
         </section>
     );
 };
+
+/** Studios while loading: a networks row and two studio rows of tile-shaped placeholders. */
+export const PlayerStudioTilesSkeleton: React.FC = () => (
+    <div className="player-library-studios flex flex-col gap-12 pb-10" aria-busy="true" aria-hidden="true">
+        {[4, 8].map((count, section) => (
+            <div key={section} className="flex min-w-0 max-w-full flex-col gap-4">
+                <div className="player-row-header flex min-w-0 items-center gap-3">
+                    <RowHeaderMark />
+                    <SkeletonBlock className="h-6 w-52 max-w-[55%] rounded" />
+                </div>
+                <div className="player-studio-tiles grid grid-cols-4 gap-6">
+                    {Array.from({ length: count }, (_, i) => (
+                        <SkeletonBlock
+                            key={i}
+                            className="aspect-video w-full rounded-xl border border-white/5"
+                            style={{ animationDelay: `${Math.min(i, 8) * 70}ms` }}
+                        />
+                    ))}
+                </div>
+            </div>
+        ))}
+    </div>
+);

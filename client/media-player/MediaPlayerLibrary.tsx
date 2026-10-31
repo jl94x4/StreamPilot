@@ -31,7 +31,7 @@ import { readLibraryBrowseState, readLibraryHomeCache, writeLibraryBrowseState, 
 import { PLAYER_SCROLL_ID } from './paths';
 import { PlayerLibraryFilterSheet, type LibraryFilterGroup, type LibraryFilterToggle } from './PlayerLibraryFilterSheet';
 import { PlayerPosterCard } from './PlayerPosterCard';
-import { PlayerStudioTiles } from './PlayerStudioTiles';
+import { PlayerStudioTiles, PlayerStudioTilesSkeleton } from './PlayerStudioTiles';
 import { PlayerRail } from './PlayerRail';
 import { viewMoreShelfFromHub } from './PlayerViewMoreCard';
 import { PlayerTvHubStage, type PlayerTvHubStageRow } from './PlayerTvHubStage';
@@ -1643,10 +1643,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                 />
             ) : loading && tab === 'studios' && !studioNetworks.length && !studioStudios.length ? (
                 tvShell ? (
-                    <div className="flex w-full flex-col gap-6 py-2">
-                        <PlayerHomeRowSkeleton />
-                        <PlayerHomeRowSkeleton />
-                    </div>
+                    <PlayerStudioTilesSkeleton />
                 ) : (
                     <div className="flex flex-col gap-8">
                         <div className="flex gap-3 overflow-hidden">
