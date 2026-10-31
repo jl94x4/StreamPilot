@@ -6509,7 +6509,8 @@ html[data-tv="1"] .player-library-sticky {
   flex: none;
   position: relative;
   z-index: 2;
-  padding-bottom: 1rem;
+  /* The page clips at its edges now; leave room for the focused tab's ring. */
+  padding: 0.6rem 0 1rem;
 }
 html[data-tv="1"] [data-tv-library-scroll="1"] {
   flex: 1 1 auto;

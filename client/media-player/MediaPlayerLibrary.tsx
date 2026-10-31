@@ -1182,7 +1182,15 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
         if (!tvShell || !active || tab === 'home') return undefined;
         const html = document.documentElement;
         html.dataset.tvLibraryPinned = '1';
+        // The page can't scroll by hand, but focus moves can still nudge it; put it back.
+        const page = document.getElementById(PLAYER_SCROLL_ID);
+        const unnudge = () => {
+            if (page && page.scrollTop) page.scrollTop = 0;
+        };
+        unnudge();
+        page?.addEventListener('scroll', unnudge, { passive: true });
         return () => {
+            page?.removeEventListener('scroll', unnudge);
             delete html.dataset.tvLibraryPinned;
         };
     }, [active, tab, tvShell]);
