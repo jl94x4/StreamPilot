@@ -6579,3 +6579,11 @@ html[data-tv="1"] [data-tv-settings="1"] [data-tv-item="1"]:not([data-tv-setting
 html[data-tv="1"] [data-tv-settings="1"] [data-tv-item="1"]:not([data-tv-settings-save="1"]):focus-visible .text-plex {
   color: rgb(var(--color-plex)) !important;
 }
+
+/* Corner clock without its pill: just the time, with a soft shadow to stay readable on bright art. */
+html[data-tv="1"] .player-tv-clock.player-tv-clock--plain {
+  background: transparent !important;
+  box-shadow: none !important;
+  padding-right: 0.25rem;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85), 0 0 12px rgba(0, 0, 0, 0.55);
+}

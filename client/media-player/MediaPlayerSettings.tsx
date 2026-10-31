@@ -1499,11 +1499,19 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                                 options={viewMoreStyleOptions}
                                 onChange={(value) => updateSettings({ viewMoreStyle: value as PlayerViewMoreStyle })}
                             />
-                            <TvToggleRow
+                            <TvChoiceRow
                                 title={t('mediaPlayerPage.showClock')}
                                 description={t('mediaPlayerPage.showClockHint')}
-                                checked={settings.showClock}
-                                onChange={(checked) => updateSettings({ showClock: checked })}
+                                value={!settings.showClock ? 'off' : settings.clockBackground ? 'on' : 'plain'}
+                                options={[
+                                    { value: 'on', label: t('mediaPlayerPage.clockOn') },
+                                    { value: 'plain', label: t('mediaPlayerPage.clockOnPlain') },
+                                    { value: 'off', label: t('mediaPlayerPage.clockOff') },
+                                ]}
+                                onChange={(value) => updateSettings({
+                                    showClock: value !== 'off',
+                                    clockBackground: value !== 'plain',
+                                })}
                             />
                         </>
                     ) : null}

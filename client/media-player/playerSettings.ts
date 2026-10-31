@@ -527,6 +527,8 @@ export type PlayerSettings = {
     viewMoreStyle: PlayerViewMoreStyle;
     /** Clock in the corner of the app (and in the player with its controls). */
     showClock: boolean;
+    /** TV corner clock sits on a dark pill. Off shows just the time (with a soft shadow). */
+    clockBackground: boolean;
     seekBackSec: number;
     seekForwardSec: number;
     controlsTimeoutSec: number;
@@ -921,6 +923,7 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
     navClosedStyle: 'blend',
     viewMoreStyle: 'backdrop',
     showClock: true,
+    clockBackground: true,
     seekBackSec: 10,
     seekForwardSec: 10,
     controlsTimeoutSec: 5,
@@ -1009,6 +1012,7 @@ export const normalizePlayerSettings = (raw: Partial<PlayerSettings> | Record<st
         navClosedStyle: isPlayerNavClosedStyle(raw?.navClosedStyle) ? raw.navClosedStyle : 'blend',
         viewMoreStyle: isPlayerViewMoreStyle(raw?.viewMoreStyle) ? raw.viewMoreStyle : 'backdrop',
         showClock: raw?.showClock !== false,
+        clockBackground: raw?.clockBackground !== false,
         seekBackSec: pickNumber(raw?.seekBackSec, PLAYER_SEEK_STEPS, 10),
         seekForwardSec: pickNumber(raw?.seekForwardSec, PLAYER_SEEK_STEPS, 10),
         controlsTimeoutSec: pickNumber(raw?.controlsTimeoutSec, PLAYER_CONTROLS_TIMEOUTS, 5),
@@ -1121,6 +1125,7 @@ export const playerSettingsEqual = (a: PlayerSettings, b: PlayerSettings) => (
     && a.navClosedStyle === b.navClosedStyle
     && a.viewMoreStyle === b.viewMoreStyle
     && a.showClock === b.showClock
+    && a.clockBackground === b.clockBackground
     && a.seekBackSec === b.seekBackSec
     && a.seekForwardSec === b.seekForwardSec
     && a.controlsTimeoutSec === b.controlsTimeoutSec

@@ -119,7 +119,7 @@ const PlayerTvClock: React.FC = () => {
     }, [hour24]);
 
     return (
-        <div className="player-tv-clock" aria-hidden>
+        <div className={`player-tv-clock${settings.clockBackground === false ? ' player-tv-clock--plain' : ''}`} aria-hidden>
             {label}
         </div>
     );
