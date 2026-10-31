@@ -356,7 +356,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
             /* ignore */
         }
         if (isTv) {
-            if (variant === 'toolbar' && triggerRef.current) {
+            if (variant === 'toolbar' && !hideTrigger && triggerRef.current) {
                 triggerRef.current.focus({ preventScroll: true });
                 return;
             }

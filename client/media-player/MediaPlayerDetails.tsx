@@ -3745,11 +3745,13 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                 document.body,
             ) : null}
             {heldMenuItem && item && String(heldMenuItem.ratingKey) === String(item.ratingKey) ? (
-                // The title this page is about: exactly what its ⋯ button offers.
+                // The title this page is about: the very same menu as its ⋯ button.
                 <PlayerItemMenu
                     ref={heldMenuRef}
+                    variant="toolbar"
                     hideTrigger
-                    item={heldMenuItem}
+                    item={item}
+                    onOpenItem={onOpenItem}
                     isAdmin={isAdmin}
                     playlistsEnabled={playlistsEnabled && settings.showPlaylists}
                     mediaIndex={mediaIndex}
