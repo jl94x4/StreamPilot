@@ -73,6 +73,16 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.515': [
+        {
+            title: 'Libraries',
+            items: [
+                'Opening a studio or network from Studios now lists its titles (it was always empty on TV)',
+                'Studios loads more reliably on slower servers and offers a retry instead of showing only a few tiles',
+                'The library tabs highlight like the side menu: a white pill with dark text',
+            ],
+        },
+    ],
     '1.0.514': [
         {
             title: 'Libraries',

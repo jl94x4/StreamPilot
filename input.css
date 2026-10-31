@@ -6532,3 +6532,18 @@ html[data-tv="1"] [data-tv-library-scroll="1"] {
 html[data-tv="1"] [data-tv-library-scroll="1"]::-webkit-scrollbar {
   display: none;
 }
+
+/* Library tabs (Recommended / Browse / Collections / Studios): focus like the side nav,
+   a white pill with dark text instead of the glow ring. */
+html[data-tv="1"] .player-library-header [data-tv-library-tabs="1"] button[data-tv-action="1"]:focus,
+html[data-tv="1"] .player-library-header [data-tv-library-tabs="1"] button[data-tv-action="1"]:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+  background: #fff !important;
+  color: #18181b !important;
+  border-radius: 9999px !important;
+}
+html[data-tv="1"] .player-library-header [data-tv-library-tabs="1"] button[data-tv-action="1"][aria-current="page"]:focus::after,
+html[data-tv="1"] .player-library-header [data-tv-library-tabs="1"] button[data-tv-action="1"][aria-current="page"]:focus-visible::after {
+  background: #18181b;
+}

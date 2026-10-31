@@ -6361,19 +6361,19 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
             if (sectionType === 'artist') return { networks: [], studios: [] };
             const pinnedType = sectionAllType(sectionType);
             const typeQs = pinnedType ? `type=${encodeURIComponent(pinnedType)}&` : '';
-            const facet = (name: string) => (
-                pms(
-                    `/library/sections/${encodeURIComponent(section)}/${name}?${typeQs}X-Plex-Container-Size=${STUDIO_FACET_FETCH}`,
-                    server,
-                    12000,
-                )
-                    .then((data) => mapFilterFacet(data, name, STUDIO_FACET_FETCH))
-                    .catch(() => [] as Array<{ key: string; title: string }>)
-            );
-            const [studioFacet, networkFacet] = await Promise.all([
-                facet('studio'),
-                facet('network'),
-            ]);
+            // The full A–Z tag lists are big; fetch them one at a time (gentle on small servers) and
+            // retry once before giving up.
+            const facetOnce = (name: string) => pms(
+                `/library/sections/${encodeURIComponent(section)}/${name}?${typeQs}X-Plex-Container-Size=${STUDIO_FACET_FETCH}`,
+                server,
+                25000,
+            ).then((data) => mapFilterFacet(data, name, STUDIO_FACET_FETCH));
+            const facet = (name: string) => facetOnce(name).catch(() => facetOnce(name));
+            // A failed studio list must surface (retry panel), not render as "no studios".
+            const studioFacet = await facet('studio');
+            const networkFacet = sectionType === 'show'
+                ? await facet('network').catch(() => [] as Array<{ key: string; title: string }>)
+                : [] as Array<{ key: string; title: string }>;
             let studios: Array<ReturnType<typeof pickStudioBrowseCards>[number] & { facet?: 'studio' | 'network' }> = pickStudioBrowseCards(studioFacet, DISCOVER_STUDIOS, DISCOVER_STUDIOS_EXTRA);
             let networks: typeof studios = pickStudioBrowseCards(networkFacet, DISCOVER_NETWORKS, DISCOVER_NETWORKS_EXTRA);
             let networkParam = 'network';
@@ -6404,6 +6404,33 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                 fillStudioBrowseArt(studios, sampleFor('studio'), STUDIO_BROWSE_ART_CONCURRENCY),
             ]);
             return { networks, studios };
+        });
+    }
+    const studioPage = path.match(/^\/api\/media-player\/studio\/([^/]+)$/);
+    if (studioPage && method === 'GET') {
+        const studioKey = decodeURIComponent(studioPage[1]);
+        const name = String(query.get('name') || '').trim() || studioKey;
+        const mediaType = query.get('type') === 'show' ? 'show' : query.get('type') === 'movie' ? 'movie' : '';
+        const studio = { key: studioKey, name };
+        const { server, section } = splitLibraryKey(String(query.get('section') || ''));
+        if (!server || !section || !studioKey) return { studio, items: [] };
+        return withMapServer(server, async () => {
+            const sections = mapSections(await pms('/library/sections', server).catch(() => null));
+            const sectionType = String(sections.find((row) => row.key === section)?.type || mediaType);
+            const pinnedType = sectionAllType(sectionType);
+            const typeQs = pinnedType ? `type=${encodeURIComponent(pinnedType)}&` : '';
+            // Shows are filed by network, movies by studio (streamers included); try the likely one first.
+            const params = sectionType === 'show' ? ['network', 'studio'] : ['studio', 'network'];
+            for (const param of params) {
+                const data = await pms(
+                    `/library/sections/${encodeURIComponent(section)}/all?${typeQs}${param}=${encodeURIComponent(studioKey)}&sort=titleSort:asc&includeGuids=1&X-Plex-Container-Start=0&X-Plex-Container-Size=500`,
+                    server,
+                    15000,
+                ).catch(() => null);
+                const items = mapList(data);
+                if (items.length) return { studio, items };
+            }
+            return { studio, items: [] };
         });
     }
     const collectionPath = path.match(/^\/api\/media-player\/collection\/([^/]+)$/);
@@ -7731,6 +7758,7 @@ export const handlePlexDirectRequest = async (url: string, options: RequestInit 
             (path === '/api/media-player/home' && parsed.searchParams.get('full') !== '1')
             || path === '/api/media-player/home-hero'
             || path === '/api/media-player/libraries'
+            || /^\/api\/media-player\/libraries\/[^/]+\/studios$/.test(path)
         );
         const cacheKey = cacheable ? `${path}?${parsed.searchParams.toString()}` : '';
         if (cacheKey) {
