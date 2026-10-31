@@ -4169,6 +4169,52 @@ html[data-tv="1"] .player-tv-screensaver-slide--enter {
 html[data-tv="1"] .player-tv-screensaver-slide--exit {
   animation: player-tv-screensaver-out 1.4s ease both;
 }
+/* Settings → Screensaver style: Pan and zoom. One GPU transform per picture. */
+html[data-tv="1"] .player-tv-screensaver-slide--pan-a {
+  animation: player-tv-screensaver-pan-a var(--ss-slide-ms, 14s) linear both;
+}
+html[data-tv="1"] .player-tv-screensaver-slide--pan-b {
+  animation: player-tv-screensaver-pan-b var(--ss-slide-ms, 14s) linear both;
+}
+html[data-tv="1"] .player-tv-screensaver-slide--enter.player-tv-screensaver-slide--pan-a {
+  animation: player-tv-screensaver-in 1.4s ease both, player-tv-screensaver-pan-a var(--ss-slide-ms, 14s) linear both;
+}
+html[data-tv="1"] .player-tv-screensaver-slide--enter.player-tv-screensaver-slide--pan-b {
+  animation: player-tv-screensaver-in 1.4s ease both, player-tv-screensaver-pan-b var(--ss-slide-ms, 14s) linear both;
+}
+@keyframes player-tv-screensaver-pan-a {
+  from { transform: scale(1.02) translate3d(-1.2%, 0, 0); }
+  to { transform: scale(1.12) translate3d(1.2%, -1%, 0); }
+}
+@keyframes player-tv-screensaver-pan-b {
+  from { transform: scale(1.12) translate3d(1.2%, 1%, 0); }
+  to { transform: scale(1.02) translate3d(-1.2%, 0, 0); }
+}
+html[data-tv="1"][data-reduce-motion="1"] .player-tv-screensaver-slide--pan-a,
+html[data-tv="1"][data-reduce-motion="1"] .player-tv-screensaver-slide--pan-b {
+  animation: none;
+}
+/* Settings → Screensaver style: Clock. Black screen, clock moves with the burn-in nudge. */
+html[data-tv="1"] .player-tv-screensaver--clock {
+  background: #000;
+}
+html[data-tv="1"] .player-tv-screensaver--clock .player-tv-screensaver-slide,
+html[data-tv="1"] .player-tv-screensaver--clock .player-tv-screensaver-scrim,
+html[data-tv="1"] .player-tv-screensaver--clock .player-tv-screensaver-logo,
+html[data-tv="1"] .player-tv-screensaver--clock .player-tv-screensaver-title,
+html[data-tv="1"] .player-tv-screensaver--clock .player-tv-screensaver-watermark {
+  display: none;
+}
+html[data-tv="1"] .player-tv-screensaver--clock .player-tv-screensaver-footer {
+  left: 50%;
+  top: 50%;
+  bottom: auto;
+  transform: translate(-50%, -50%);
+}
+html[data-tv="1"] .player-tv-screensaver--clock .player-tv-screensaver-clock {
+  font-size: clamp(6rem, 13vw, 10rem);
+  color: rgb(255 255 255 / 0.82);
+}
 @keyframes player-tv-screensaver-in {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -4841,10 +4887,10 @@ html[data-tv="1"] [data-tv-library-filters="1"] [data-tv-item="1"] {
 }
 html[data-tv="1"] [data-tv-library-filters="1"] {
   /* Keep focus ring inside the overflow clip on the horizontal filter scroller. */
-  padding-top: calc(6px / var(--tv-zoom, 1));
-  padding-bottom: calc(6px / var(--tv-zoom, 1));
-  padding-left: calc(6px / var(--tv-zoom, 1));
-  padding-right: calc(6px / var(--tv-zoom, 1));
+  padding-top: calc(var(--tv-poster-radius, 6px) / var(--tv-zoom, 1));
+  padding-bottom: calc(var(--tv-poster-radius, 6px) / var(--tv-zoom, 1));
+  padding-left: calc(var(--tv-poster-radius, 6px) / var(--tv-zoom, 1));
+  padding-right: calc(var(--tv-poster-radius, 6px) / var(--tv-zoom, 1));
 }
 .player-library-filter-select button {
   border-radius: 999px !important;
@@ -5155,7 +5201,7 @@ html[data-tv="1"] [data-tv-poster-btn="1"] {
   padding: 0;
   margin: 0;
   border: none;
-  border-radius: calc(6px / var(--tv-zoom, 1));
+  border-radius: calc(var(--tv-poster-radius, 6px) / var(--tv-zoom, 1));
   transition: transform 0.24s cubic-bezier(0.22, 1, 0.36, 1);
 }
 

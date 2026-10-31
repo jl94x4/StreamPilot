@@ -25,7 +25,9 @@
         var vw = window.innerWidth || document.documentElement.clientWidth || TARGET;
         if (vw < 2) return;
         document.documentElement.dataset.tv = '1';
-        document.documentElement.style.fontSize = '20px';
+        // Settings → Text size sets --tv-text-scale; keep it when the zoom re-runs on resize.
+        var textScale = parseFloat(document.documentElement.style.getPropertyValue('--tv-text-scale')) || 1;
+        document.documentElement.style.fontSize = (20 * textScale) + 'px';
         // Narrow CSS viewport → zoom out so desktop density fits the screen.
         // Very wide CSS viewport (4K 1x) → zoom toward a 1920 design width.
         var zoom = '1';
@@ -409,7 +411,7 @@
     }
     html[data-tv="1"] {
       -webkit-tap-highlight-color: transparent;
-      font-size: 20px;
+      font-size: calc(20px * var(--tv-text-scale, 1));
       --color-text: 255 255 255;
       --color-muted: 255 255 255;
       --tv-page-surface: 6 10 16;
@@ -441,7 +443,7 @@
     html[data-tv="1"] [data-tv-poster-btn="1"] + div [class*="font-semibold"],
     html[data-tv="1"] .player-poster-caption .text-text,
     html[data-tv="1"] .player-poster-caption [class*="font-semibold"] {
-      font-size: 17px !important;
+      font-size: calc(17px * var(--tv-text-scale, 1)) !important;
       line-height: 1.25 !important;
       font-weight: 500;
     }
@@ -449,7 +451,7 @@
     html[data-tv="1"] .player-poster-caption [class*="text-muted"],
     html[data-tv="1"] [data-tv-poster-btn="1"] + div .text-muted,
     html[data-tv="1"] [data-tv-poster-btn="1"] + div [class*="text-muted"] {
-      font-size: 14px !important;
+      font-size: calc(14px * var(--tv-text-scale, 1)) !important;
       font-weight: 500;
     }
     /* All home / library / details rail headers — Satoshi + plex accent mark. */
@@ -539,13 +541,13 @@
     html[data-tv="1"] .player-home-rows [data-tv-poster-btn="1"] + div [class*="font-semibold"],
     html[data-tv="1"] .player-home-rows .player-poster-caption .text-text,
     html[data-tv="1"] .player-home-rows .player-poster-caption [class*="font-semibold"] {
-      font-size: 16px !important;
+      font-size: calc(16px * var(--tv-text-scale, 1)) !important;
     }
     html[data-tv="1"] .player-home-rows .player-poster-caption .text-muted,
     html[data-tv="1"] .player-home-rows .player-poster-caption [class*="text-muted"],
     html[data-tv="1"] .player-home-rows [data-tv-poster-btn="1"] + div .text-muted,
     html[data-tv="1"] .player-home-rows [data-tv-poster-btn="1"] + div [class*="text-muted"] {
-      font-size: 13px !important;
+      font-size: calc(13px * var(--tv-text-scale, 1)) !important;
     }
     html[data-tv="1"] body {
       -webkit-text-size-adjust: 100%;
@@ -699,10 +701,10 @@
       overflow-x: auto !important;
       overflow-y: hidden !important;
       /* overflow clips box-shadow — pad so the focus ring stays inside the scrollport. */
-      padding-top: calc(6px / var(--tv-zoom, 1)) !important;
-      padding-bottom: calc(6px / var(--tv-zoom, 1)) !important;
-      padding-left: calc(6px / var(--tv-zoom, 1)) !important;
-      padding-right: calc(6px / var(--tv-zoom, 1)) !important;
+      padding-top: calc(var(--tv-poster-radius, 6px) / var(--tv-zoom, 1)) !important;
+      padding-bottom: calc(var(--tv-poster-radius, 6px) / var(--tv-zoom, 1)) !important;
+      padding-left: calc(var(--tv-poster-radius, 6px) / var(--tv-zoom, 1)) !important;
+      padding-right: calc(var(--tv-poster-radius, 6px) / var(--tv-zoom, 1)) !important;
       margin-left: calc(-6px / var(--tv-zoom, 1)) !important;
       margin-right: calc(-6px / var(--tv-zoom, 1)) !important;
       scrollbar-width: none !important;
@@ -849,7 +851,7 @@
       overflow: visible !important;
       appearance: none;
       -webkit-appearance: none;
-      border-radius: calc(6px / var(--tv-zoom, 1)) !important;
+      border-radius: calc(var(--tv-poster-radius, 6px) / var(--tv-zoom, 1)) !important;
     }
     html[data-tv="1"] [data-tv-season-poster-btn="1"],
     html[data-tv="1"] [data-tv-season-poster-btn="1"]:focus,
@@ -880,7 +882,7 @@
       outline: none !important;
       position: relative !important;
       z-index: 6 !important;
-      border-radius: calc(6px / var(--tv-zoom, 1)) !important;
+      border-radius: calc(var(--tv-poster-radius, 6px) / var(--tv-zoom, 1)) !important;
       box-shadow: var(--tv-focus-glow) !important;
     }
     html[data-tv="1"] [data-tv-season-poster-btn="1"][data-tv-focused="1"]:focus > [data-tv-season-art="1"],
@@ -896,7 +898,7 @@
       outline: none !important;
       position: relative !important;
       z-index: 6 !important;
-      border-radius: calc(6px / var(--tv-zoom, 1)) !important;
+      border-radius: calc(var(--tv-poster-radius, 6px) / var(--tv-zoom, 1)) !important;
       box-shadow: var(--tv-focus-glow) !important;
     }
     html[data-tv="1"] [data-tv-extra-btn="1"][data-tv-focused="1"]:focus > [data-tv-extra-art="1"],
@@ -915,7 +917,7 @@
       outline: none !important;
       position: relative !important;
       z-index: 8 !important;
-      border-radius: calc(6px / var(--tv-zoom, 1)) !important;
+      border-radius: calc(var(--tv-poster-radius, 6px) / var(--tv-zoom, 1)) !important;
       box-shadow: var(--tv-focus-glow) !important;
       transform: scale(1.042);
     }
@@ -971,7 +973,7 @@
       font-size: 0 !important;
       padding: 0 !important;
       margin: 0 !important;
-      border-radius: calc(6px / var(--tv-zoom, 1)) !important;
+      border-radius: calc(var(--tv-poster-radius, 6px) / var(--tv-zoom, 1)) !important;
       transition-property: transform !important;
       -webkit-tap-highlight-color: transparent;
     }
@@ -991,7 +993,7 @@
     html[data-tv="1"] .player-poster-frame > img {
       border: none !important;
       border-width: 0 !important;
-      border-radius: calc(6px / var(--tv-zoom, 1)) !important;
+      border-radius: calc(var(--tv-poster-radius, 6px) / var(--tv-zoom, 1)) !important;
       overflow: hidden !important;
     }
     html[data-tv="1"] .player-view-more-card {
@@ -1083,8 +1085,8 @@
       height: calc(11px / var(--tv-zoom, 1)) !important;
     }
     html[data-tv="1"] .player-watched-tick svg {
-      width: calc(6px / var(--tv-zoom, 1)) !important;
-      height: calc(6px / var(--tv-zoom, 1)) !important;
+      width: calc(var(--tv-poster-radius, 6px) / var(--tv-zoom, 1)) !important;
+      height: calc(var(--tv-poster-radius, 6px) / var(--tv-zoom, 1)) !important;
     }
     html[data-tv="1"] [data-tv-poster="1"].aspect-square {
       aspect-ratio: 1 / 1 !important;
@@ -1109,7 +1111,7 @@
       position: relative !important;
       z-index: 6 !important;
       overflow: visible !important;
-      border-radius: calc(6px / var(--tv-zoom, 1)) !important;
+      border-radius: calc(var(--tv-poster-radius, 6px) / var(--tv-zoom, 1)) !important;
       box-shadow: var(--tv-focus-glow) !important;
       transform: scale(1.042);
     }
@@ -2466,7 +2468,7 @@
       margin-top: 0 !important;
     }
     html[data-tv="1"] .media-details-cast {
-      padding-top: calc(6px / var(--tv-zoom, 1)) !important;
+      padding-top: calc(var(--tv-poster-radius, 6px) / var(--tv-zoom, 1)) !important;
       border-top-width: 0 !important;
     }
     html[data-tv="1"] .media-details-cast > div:first-child {
@@ -2742,7 +2744,7 @@
       scroll-margin-bottom: 0;
     }
     html[data-tv="1"] .player-home-hero {
-      border-radius: calc(6px / var(--tv-zoom, 1)) !important;
+      border-radius: calc(var(--tv-poster-radius, 6px) / var(--tv-zoom, 1)) !important;
       border: 1px solid rgba(255, 255, 255, 0.08) !important;
       scroll-margin-top: 1.35rem;
       background-color: #07090d !important;
@@ -2869,7 +2871,7 @@
       max-width: 48%;
     }
     html[data-tv="1"] [data-tv-home-hero="1"] {
-      border-radius: calc(6px / var(--tv-zoom, 1)) !important;
+      border-radius: calc(var(--tv-poster-radius, 6px) / var(--tv-zoom, 1)) !important;
     }
     html[data-tv="1"] [data-tv-home-hero="1"]:focus,
     html[data-tv="1"] [data-tv-home-hero="1"]:focus-visible {

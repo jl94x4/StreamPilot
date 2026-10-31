@@ -128,6 +128,11 @@ public class PlayerActivity extends AppCompatActivity {
     public static final String EXTRA_AUTO_SKIP_CREDITS = "autoSkipCredits";
     /** Settings → Accent colour (gold, orange, red, pink, purple, blue, teal, green). */
     public static final String EXTRA_ACCENT = "accent";
+    /** Settings → Skip back / forward (seconds), controls timeout (seconds), clock. */
+    public static final String EXTRA_SEEK_BACK_SEC = "seekBackSec";
+    public static final String EXTRA_SEEK_FORWARD_SEC = "seekForwardSec";
+    public static final String EXTRA_CONTROLS_TIMEOUT_SEC = "controlsTimeoutSec";
+    public static final String EXTRA_SHOW_CLOCK = "showClock";
     public static final String EXTRA_ENDED = "ended";
     public static final String EXTRA_POSITION_MS = "positionMs";
     public static final String EXTRA_ERROR = "error";
@@ -374,13 +379,22 @@ public class PlayerActivity extends AppCompatActivity {
             return PlayerActivity.this.trySkipFromRemote();
         }
     });
+    private long seekBackMs = 10_000L;
+    private long seekForwardMs = 10_000L;
+    private long controlsTimeoutMs = 5_000L;
+    private boolean showClock = true;
+
+    private long seekStepMs(int direction) {
+        return direction < 0 ? seekBackMs : seekForwardMs;
+    }
+
     private int seekHoldDirection;
     private final Runnable seekHoldRunnable = new Runnable() {
         @Override
         public void run() {
             if (seekHoldDirection == 0) return;
             // Move the clock only. One seek is applied when the key is released.
-            previewSeekBy(seekHoldDirection * 10_000L);
+            previewSeekBy(seekHoldDirection * seekStepMs(seekHoldDirection));
             flashSeek(seekHoldDirection);
             mainHandler.postDelayed(this, 350);
         }
@@ -823,6 +837,7 @@ public class PlayerActivity extends AppCompatActivity {
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         // Before super/inflate: drawables read ?attr/playerAccent from this overlay.
         applyAccentOverlay(getIntent() == null ? null : getIntent().getStringExtra(EXTRA_ACCENT));
+        readUserPreferences(getIntent());
         super.onCreate(savedInstanceState);
         overridePendingTransition(0, 0);
         PlayerBridge.get().attachActivity(this);
@@ -1216,9 +1231,9 @@ public class PlayerActivity extends AppCompatActivity {
         if (nextEpisodeBtn != null) nextEpisodeBtn.setOnClickListener(v -> finishForPlayNext());
         if (settingsBtn != null) settingsBtn.setOnClickListener(v -> showSettingsRoot());
         View seekBack = findViewById(R.id.player_seek_back);
-        if (seekBack != null) seekBack.setOnClickListener(v -> seekByWithFlash(-10_000));
+        if (seekBack != null) seekBack.setOnClickListener(v -> seekByWithFlash(-seekBackMs));
         View seekFwd = findViewById(R.id.player_seek_fwd);
-        if (seekFwd != null) seekFwd.setOnClickListener(v -> seekByWithFlash(10_000));
+        if (seekFwd != null) seekFwd.setOnClickListener(v -> seekByWithFlash(seekForwardMs));
         if (skipIntroBtn != null) skipIntroBtn.setOnClickListener(v -> doSkipIntro());
         if (skipCreditsBtn != null) skipCreditsBtn.setOnClickListener(v -> doSkipCredits());
         View upNextPlay = findViewById(R.id.player_up_next_play);
@@ -4008,7 +4023,7 @@ public class PlayerActivity extends AppCompatActivity {
         bumpChrome();
         seekFlashView.animate().cancel();
         seekFlashView.setAlpha(1f);
-        seekFlashView.setText(direction < 0 ? "−10" : "+10");
+        seekFlashView.setText((direction < 0 ? "−" : "+") + (seekStepMs(direction) / 1000L));
         seekFlashView.setVisibility(View.VISIBLE);
         mainHandler.removeCallbacks(hideSeekFlashRunnable);
         mainHandler.postDelayed(hideSeekFlashRunnable, 650);
@@ -4039,7 +4054,7 @@ public class PlayerActivity extends AppCompatActivity {
 
     private void startSeekHold(int direction) {
         seekHoldDirection = direction < 0 ? -1 : 1;
-        previewSeekBy(seekHoldDirection * 10_000L);
+        previewSeekBy(seekHoldDirection * seekStepMs(seekHoldDirection));
         flashSeek(seekHoldDirection);
         mainHandler.removeCallbacks(seekHoldRunnable);
         mainHandler.postDelayed(seekHoldRunnable, 420);
@@ -4691,7 +4706,7 @@ public class PlayerActivity extends AppCompatActivity {
     private void bumpChrome() {
         setChromeVisible(true);
         mainHandler.removeCallbacks(hideChromeRunnable);
-        mainHandler.postDelayed(hideChromeRunnable, 5000);
+        mainHandler.postDelayed(hideChromeRunnable, controlsTimeoutMs);
     }
 
     private void restoreAvPrefs() {
@@ -5398,7 +5413,7 @@ public class PlayerActivity extends AppCompatActivity {
 
     private void setClockVisible(boolean visible) {
         if (clockView == null) return;
-        clockView.setVisibility(visible && !inPictureInPicture() ? View.VISIBLE : View.GONE);
+        clockView.setVisibility(visible && showClock && !inPictureInPicture() ? View.VISIBLE : View.GONE);
     }
 
     @Override
@@ -5449,6 +5464,18 @@ public class PlayerActivity extends AppCompatActivity {
         if (settingsBtn != null) {
             settingsBtn.setNextFocusLeftId(hasNext ? R.id.player_next_episode : R.id.player_play_pause);
         }
+    }
+
+    private void readUserPreferences(@Nullable Intent intent) {
+        if (intent == null) return;
+        seekBackMs = clampSeconds(intent.getIntExtra(EXTRA_SEEK_BACK_SEC, 10), 5, 60, 10) * 1000L;
+        seekForwardMs = clampSeconds(intent.getIntExtra(EXTRA_SEEK_FORWARD_SEC, 10), 5, 60, 10) * 1000L;
+        controlsTimeoutMs = clampSeconds(intent.getIntExtra(EXTRA_CONTROLS_TIMEOUT_SEC, 5), 3, 15, 5) * 1000L;
+        showClock = intent.getBooleanExtra(EXTRA_SHOW_CLOCK, true);
+    }
+
+    private static int clampSeconds(int value, int min, int max, int fallback) {
+        return value < min || value > max ? fallback : value;
     }
 
     private void applyAccentOverlay(@Nullable String accent) {

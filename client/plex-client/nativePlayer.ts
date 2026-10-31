@@ -251,6 +251,7 @@ export const installNativeMediaPlayerBridge = () => {
                 }
             },
             open: async (opts) => {
+                const playerPrefs = readPlayerSettings();
                 const result = await CapNativeMediaPlayer.open({
                     url: opts.url,
                     title: opts.title,
@@ -262,7 +263,11 @@ export const installNativeMediaPlayerBridge = () => {
                     autoSkipIntro: opts.autoSkipIntro === true,
                     autoSkipCredits: opts.autoSkipCredits === true,
                     // Settings → Accent colour; the player picks its theme overlay from it.
-                    accent: readPlayerSettings().accentColor,
+                    accent: playerPrefs.accentColor,
+                    seekBackSec: playerPrefs.seekBackSec,
+                    seekForwardSec: playerPrefs.seekForwardSec,
+                    controlsTimeoutSec: playerPrefs.controlsTimeoutSec,
+                    showClock: playerPrefs.showClock,
                     sessionJson: opts.session ? JSON.stringify(opts.session) : '',
                 });
                 return {

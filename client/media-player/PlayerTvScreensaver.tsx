@@ -4,7 +4,7 @@ import { fetchMediaPlayerScreensaver, fetchMediaPlayerWatchlist } from './api';
 import { buildPlayDeck } from './screensaverDeck.js';
 import { plexLogoUrl, plexScreensaverBackdropUrl } from './playerUtils';
 import { PlayerClearLogo } from './PlayerClearLogo';
-import type { PlayerScreensaverSource } from './playerSettings';
+import type { PlayerScreensaverSource, PlayerScreensaverStyle } from './playerSettings';
 import type { PlayerItem } from './types';
 
 const IDLE_MS = 120_000;
@@ -89,6 +89,12 @@ type Props = {
     sourceLabel: string;
     /** Nudge the clock on each slide. Off leaves it stationary. */
     shiftClock?: boolean;
+    /** Idle time before it starts (Settings → Screensaver delay). */
+    delayMs?: number;
+    /** How long each picture stays up. */
+    slideMs?: number;
+    /** Crossfading art, slow pan and zoom, or a clock on black. */
+    look?: PlayerScreensaverStyle;
 };
 
 /** useTvRemote fires this when the native Back arrives while the screensaver is up. */
@@ -107,6 +113,9 @@ export const PlayerTvScreensaver: React.FC<Props> = ({
     source,
     sourceLabel,
     shiftClock = false,
+    delayMs = IDLE_MS,
+    slideMs = SLIDE_MS,
+    look = 'slideshow',
 }) => {
     const [remoteItems, setRemoteItems] = useState<PlayerItem[]>([]);
     const fetchGen = useRef(0);
@@ -228,7 +237,7 @@ export const PlayerTvScreensaver: React.FC<Props> = ({
                 currentKeyRef.current = start.key;
                 setFrame({ current: start, outgoing: null, gen: 0 });
                 setActive(true);
-            }, IDLE_MS);
+            }, delayMs);
         };
 
         const dismiss = () => {
@@ -306,7 +315,7 @@ export const PlayerTvScreensaver: React.FC<Props> = ({
             window.removeEventListener('wheel', onActivity, true);
             document.removeEventListener('visibilitychange', onVisibility);
         };
-    }, [enabled, slides.length]);
+    }, [enabled, slides.length, delayMs]);
 
     // Walk the shuffled deck. A finished pass is shuffled again and does not
     // repeat the slide that just played. Source order is never the play order.
@@ -341,9 +350,9 @@ export const PlayerTvScreensaver: React.FC<Props> = ({
                 outgoing: outgoing || prev?.current || null,
                 gen: (prev?.gen || 0) + 1,
             }));
-        }, SLIDE_MS);
+        }, slideMs);
         return () => window.clearInterval(id);
-    }, [active, slides.length]);
+    }, [active, slides.length, slideMs]);
 
     // Drop the outgoing layer after the crossfade finishes.
     useEffect(() => {
@@ -403,11 +412,13 @@ export const PlayerTvScreensaver: React.FC<Props> = ({
     const clockNudge = shiftClock ? CLOCK_NUDGES[Math.abs(gen) % CLOCK_NUDGES.length] : null;
 
     // Portal to <body>: inside Home a parent stacking context let the nav rail draw on top.
+    // --ss-slide-ms: pan and zoom lasts exactly one picture (its direction alternates per slide).
     return createPortal((
         <div
-            className="player-tv-screensaver"
+            className={`player-tv-screensaver player-tv-screensaver--${look}`}
             data-tv-screensaver="1"
             aria-hidden
+            style={{ '--ss-slide-ms': `${slideMs}ms` } as React.CSSProperties}
         >
             {outgoing ? (
                 <img
@@ -421,7 +432,9 @@ export const PlayerTvScreensaver: React.FC<Props> = ({
             <img
                 key={`cur-${current.key}-${gen}`}
                 alt=""
-                className={`player-tv-screensaver-slide${outgoing ? ' player-tv-screensaver-slide--enter' : ''}`}
+                className={`player-tv-screensaver-slide${outgoing ? ' player-tv-screensaver-slide--enter' : ''}${
+                    look === 'panZoom' ? (gen % 2 ? ' player-tv-screensaver-slide--pan-b' : ' player-tv-screensaver-slide--pan-a') : ''
+                }`}
                 src={current.artUrl}
                 draggable={false}
             />

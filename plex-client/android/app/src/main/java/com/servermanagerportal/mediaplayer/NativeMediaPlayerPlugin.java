@@ -53,6 +53,10 @@ public class NativeMediaPlayerPlugin extends Plugin {
         }
     }
 
+    private static int intOr(Integer value, int fallback) {
+        return value == null ? fallback : value;
+    }
+
     @PluginMethod
     public void isAvailable(PluginCall call) {
         JSObject ret = new JSObject();
@@ -95,6 +99,11 @@ public class NativeMediaPlayerPlugin extends Plugin {
         intent.putExtra(PlayerActivity.EXTRA_AUTO_SKIP_INTRO, autoSkipIntro != null && autoSkipIntro);
 
         intent.putExtra(PlayerActivity.EXTRA_ACCENT, call.getString("accent", "gold"));
+        intent.putExtra(PlayerActivity.EXTRA_SEEK_BACK_SEC, intOr(call.getInt("seekBackSec"), 10));
+        intent.putExtra(PlayerActivity.EXTRA_SEEK_FORWARD_SEC, intOr(call.getInt("seekForwardSec"), 10));
+        intent.putExtra(PlayerActivity.EXTRA_CONTROLS_TIMEOUT_SEC, intOr(call.getInt("controlsTimeoutSec"), 5));
+        Boolean showClock = call.getBoolean("showClock", true);
+        intent.putExtra(PlayerActivity.EXTRA_SHOW_CLOCK, showClock == null || showClock);
 
         Boolean autoSkipCredits = call.getBoolean("autoSkipCredits", false);
         intent.putExtra(PlayerActivity.EXTRA_AUTO_SKIP_CREDITS, autoSkipCredits != null && autoSkipCredits);

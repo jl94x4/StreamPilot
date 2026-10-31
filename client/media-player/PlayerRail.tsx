@@ -284,9 +284,9 @@ const PlayerRailImpl: React.FC<{
                     const landscape = cardAspect === '16/9';
                     const square = cardAspect === 'square';
                     const cardWidth = landscape
-                        ? { width: `${posterGridScaleRem(density) * 1.85}rem` }
+                        ? { width: `calc(${posterGridScaleRem(density) * 1.85}rem / var(--tv-text-scale, 1))` }
                         : (square && tvShell
-                            ? { width: `${posterGridScaleRem(density) * 1.25}rem` }
+                            ? { width: `calc(${posterGridScaleRem(density) * 1.25}rem / var(--tv-text-scale, 1))` }
                             : posterGridCardWidthStyle(density));
                     return (
                         <div
@@ -331,9 +331,9 @@ const PlayerRailImpl: React.FC<{
                     <div
                         className={`${aspect === '16/9' ? 'player-rail-landscape' : aspect === 'square' ? 'player-rail-square' : discoverRowCardWidthClass(density)} relative z-0 flex-shrink-0 snap-start hover:z-20 focus-within:z-20`}
                         style={aspect === '16/9'
-                            ? { width: `${posterGridScaleRem(density) * 1.85}rem` }
+                            ? { width: `calc(${posterGridScaleRem(density) * 1.85}rem / var(--tv-text-scale, 1))` }
                             : (aspect === 'square' && tvShell
-                                ? { width: `${posterGridScaleRem(density) * 1.25}rem` }
+                                ? { width: `calc(${posterGridScaleRem(density) * 1.25}rem / var(--tv-text-scale, 1))` }
                                 : posterGridCardWidthStyle(density))}
                     >
                         <PlayerViewMoreCard

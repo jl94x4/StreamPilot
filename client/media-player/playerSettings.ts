@@ -122,6 +122,45 @@ export const isPlayerNavigationSound = (value: unknown): value is PlayerNavigati
     PLAYER_NAVIGATION_SOUNDS.includes(String(value || '') as PlayerNavigationSound)
 );
 
+/** Poster and episode card corners. 'rounded' is the original look. */
+export type PlayerPosterCorners = 'square' | 'slight' | 'rounded';
+export const PLAYER_POSTER_CORNERS: PlayerPosterCorners[] = ['square', 'slight', 'rounded'];
+export const isPlayerPosterCorners = (value: unknown): value is PlayerPosterCorners => (
+    PLAYER_POSTER_CORNERS.includes(String(value || '') as PlayerPosterCorners)
+);
+
+/** App text size on TV. 'medium' is the original size. */
+export type PlayerTextSize = 'small' | 'medium' | 'large';
+export const PLAYER_TEXT_SIZES: PlayerTextSize[] = ['small', 'medium', 'large'];
+export const isPlayerTextSize = (value: unknown): value is PlayerTextSize => (
+    PLAYER_TEXT_SIZES.includes(String(value || '') as PlayerTextSize)
+);
+
+/** TV side menu when opened: icons with labels (original) or icons only. */
+export type PlayerNavStyle = 'labels' | 'icons';
+export const isPlayerNavStyle = (value: unknown): value is PlayerNavStyle => value === 'labels' || value === 'icons';
+
+/** Player skip (seconds) for Left / Right. */
+export const PLAYER_SEEK_STEPS = [5, 10, 15, 30, 60] as const;
+/** Seconds the player controls stay up before fading. */
+export const PLAYER_CONTROLS_TIMEOUTS = [3, 5, 10, 15] as const;
+/** Minutes of no remote use before the TV screensaver starts. */
+export const PLAYER_SCREENSAVER_DELAYS = [1, 2, 5, 10, 15, 30] as const;
+/** Seconds each screensaver picture stays up. */
+export const PLAYER_SCREENSAVER_SLIDE_SECONDS = [8, 14, 30, 60] as const;
+
+/** Screensaver look: crossfading art (original), slow pan and zoom, or a clock on black. */
+export type PlayerScreensaverStyle = 'slideshow' | 'panZoom' | 'clock';
+export const PLAYER_SCREENSAVER_STYLES: PlayerScreensaverStyle[] = ['slideshow', 'panZoom', 'clock'];
+export const isPlayerScreensaverStyle = (value: unknown): value is PlayerScreensaverStyle => (
+    PLAYER_SCREENSAVER_STYLES.includes(String(value || '') as PlayerScreensaverStyle)
+);
+
+const pickNumber = (value: unknown, allowed: readonly number[], fallback: number) => {
+    const n = Number(value);
+    return allowed.includes(n) ? n : fallback;
+};
+
 /** Subtitle size choices (%), shared by Settings and the native in-player menu. */
 export const PLAYER_SUBTITLE_SIZES = [50, 60, 75, 100, 125, 150, 200];
 
@@ -443,6 +482,17 @@ export type PlayerSettings = {
     accentColor: PlayerAccentColor;
     /** Remote navigation sounds; 'off' by default. */
     navigationSound: PlayerNavigationSound;
+    posterCorners: PlayerPosterCorners;
+    textSize: PlayerTextSize;
+    navStyle: PlayerNavStyle;
+    /** Clock in the corner of the app (and in the player with its controls). */
+    showClock: boolean;
+    seekBackSec: number;
+    seekForwardSec: number;
+    controlsTimeoutSec: number;
+    screensaverDelayMin: number;
+    screensaverStyle: PlayerScreensaverStyle;
+    screensaverSlideSec: number;
     showPlaylists: boolean;
     showBecauseYouWatched: boolean;
     /** Watchlist hub on Home, under Continue Watching. */
@@ -823,6 +873,16 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
     rowMarker: 'play',
     accentColor: 'gold',
     navigationSound: 'off',
+    posterCorners: 'rounded',
+    textSize: 'medium',
+    navStyle: 'labels',
+    showClock: true,
+    seekBackSec: 10,
+    seekForwardSec: 10,
+    controlsTimeoutSec: 5,
+    screensaverDelayMin: 2,
+    screensaverStyle: 'slideshow',
+    screensaverSlideSec: 14,
     showPlaylists: true,
     showBecauseYouWatched: true,
     showWatchlist: true,
@@ -897,6 +957,16 @@ export const normalizePlayerSettings = (raw: Partial<PlayerSettings> | Record<st
         rowMarker: isPlayerRowMarker(raw?.rowMarker) ? raw.rowMarker : 'play',
         accentColor: isPlayerAccentColor(raw?.accentColor) ? raw.accentColor : 'gold',
         navigationSound: isPlayerNavigationSound(raw?.navigationSound) ? raw.navigationSound : 'off',
+        posterCorners: isPlayerPosterCorners(raw?.posterCorners) ? raw.posterCorners : 'rounded',
+        textSize: isPlayerTextSize(raw?.textSize) ? raw.textSize : 'medium',
+        navStyle: isPlayerNavStyle(raw?.navStyle) ? raw.navStyle : 'labels',
+        showClock: raw?.showClock !== false,
+        seekBackSec: pickNumber(raw?.seekBackSec, PLAYER_SEEK_STEPS, 10),
+        seekForwardSec: pickNumber(raw?.seekForwardSec, PLAYER_SEEK_STEPS, 10),
+        controlsTimeoutSec: pickNumber(raw?.controlsTimeoutSec, PLAYER_CONTROLS_TIMEOUTS, 5),
+        screensaverDelayMin: pickNumber(raw?.screensaverDelayMin, PLAYER_SCREENSAVER_DELAYS, 2),
+        screensaverStyle: isPlayerScreensaverStyle(raw?.screensaverStyle) ? raw.screensaverStyle : 'slideshow',
+        screensaverSlideSec: pickNumber(raw?.screensaverSlideSec, PLAYER_SCREENSAVER_SLIDE_SECONDS, 14),
         showPlaylists: raw?.showPlaylists !== false,
         showBecauseYouWatched: raw?.showBecauseYouWatched !== false,
         showWatchlist: raw?.showWatchlist !== false,
@@ -995,6 +1065,16 @@ export const playerSettingsEqual = (a: PlayerSettings, b: PlayerSettings) => (
     && a.rowMarker === b.rowMarker
     && a.accentColor === b.accentColor
     && a.navigationSound === b.navigationSound
+    && a.posterCorners === b.posterCorners
+    && a.textSize === b.textSize
+    && a.navStyle === b.navStyle
+    && a.showClock === b.showClock
+    && a.seekBackSec === b.seekBackSec
+    && a.seekForwardSec === b.seekForwardSec
+    && a.controlsTimeoutSec === b.controlsTimeoutSec
+    && a.screensaverDelayMin === b.screensaverDelayMin
+    && a.screensaverStyle === b.screensaverStyle
+    && a.screensaverSlideSec === b.screensaverSlideSec
     && a.showPlaylists === b.showPlaylists
     && a.showBecauseYouWatched === b.showBecauseYouWatched
     && a.showWatchlist === b.showWatchlist

@@ -73,6 +73,31 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.488': [
+        {
+            title: 'Make it yours (Settings → Display)',
+            items: [
+                'Poster corners: square, slightly rounded or rounded',
+                'Text size: small, medium or large (posters keep their size)',
+                'Side menu: icons and names, or icons only',
+                'Show or hide the clock',
+            ],
+        },
+        {
+            title: 'Player (Settings → Playback)',
+            items: [
+                'Choose how far Left and Right skip: 5, 10, 15, 30 or 60 seconds, set separately',
+                'Choose how long the controls stay up: 3, 5, 10 or 15 seconds',
+            ],
+        },
+        {
+            title: 'Screensaver',
+            items: [
+                'New styles: Pan and zoom, and Clock only',
+                'Choose when it starts (1 to 30 minutes) and how long each picture stays up',
+            ],
+        },
+    ],
     '1.0.487': [
         {
             title: 'Make it yours',

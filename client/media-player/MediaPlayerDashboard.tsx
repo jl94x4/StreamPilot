@@ -1341,13 +1341,16 @@ export const MediaPlayerDashboard: React.FC = () => {
     const activeLibraryKey = view.kind === 'library' || view.kind === 'collection' ? view.sectionKey : undefined;
     const isItemView = view.kind === 'item';
     const phoneNav = !tvShell && navPage !== 'other';
+    // TV icons-only menu (Settings → Side menu) opens without widening, so content stays put.
+    const navIconsOnly = tvShell && settings.navStyle === 'icons';
+    const navWide = navExpanded && !navIconsOnly;
     const navContentInset = tvShell
-        ? (navExpanded ? '18.5rem' : '6.75rem')
-        : (navExpanded ? '18.25rem' : '6.5rem');
+        ? (navWide ? '18.5rem' : '6.75rem')
+        : (navWide ? '18.25rem' : '6.5rem');
 
     return (
         <div className="relative flex h-full min-h-0 w-full flex-col">
-            {tvShell && !playSession && !(view.kind === 'library' && view.tab === 'browse') ? <PlayerTvClock /> : null}
+            {tvShell && settings.showClock && !playSession && !(view.kind === 'library' && view.tab === 'browse') ? <PlayerTvClock /> : null}
             <MediaPlayerNav
                 libraries={libraries}
                 libraryOrder={settings.libraryNavOrder}
@@ -1367,6 +1370,7 @@ export const MediaPlayerDashboard: React.FC = () => {
                 // Don't use navigator.onLine on TV — WebViews lie; per-server status is enough.
                 offline={false}
                 offlineServerIds={offlineServerIds}
+                iconsOnly={navIconsOnly}
             />
             <div
                 id={PLAYER_SCROLL_ID}
@@ -1378,7 +1382,7 @@ export const MediaPlayerDashboard: React.FC = () => {
                         : `${tvShell ? 'pr-4' : 'px-4'} py-4 md:py-6 md:pr-6 ${
                             phoneNav ? 'player-scroll-phone-nav' : ''
                         } ${
-                            navExpanded
+                            navWide
                                 ? (tvShell ? 'pl-[18.5rem]' : 'md:pl-[18.25rem]')
                                 : (tvShell ? 'pl-[6.75rem]' : 'md:pl-[6.5rem]')
                         }`

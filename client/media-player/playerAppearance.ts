@@ -3,7 +3,9 @@ import {
     PLAYER_SETTINGS_EVENT,
     readPlayerSettings,
     type PlayerAccentColor,
+    type PlayerPosterCorners,
     type PlayerSettings,
+    type PlayerTextSize,
 } from './playerSettings';
 
 type Rgb = [number, number, number];
@@ -45,18 +47,47 @@ export const applyPlayerAccent = (accent: PlayerAccentColor) => {
     root.dataset.accent = accent;
 };
 
+const POSTER_RADIUS: Record<PlayerPosterCorners, string> = { square: '0px', slight: '3px', rounded: '6px' };
+const TEXT_SCALE: Record<PlayerTextSize, number> = { small: 0.9, medium: 1, large: 1.15 };
+/** index.html sets the TV root to this before any script; text size scales from it. */
+const TV_ROOT_FONT_PX = 20;
+
+let appliedLook = '';
+
 /**
- * TV / phone app only: follow the saved accent from boot. Settings drafts preview live;
+ * Poster corners and text size. Both are CSS variables, so the web portal (which never
+ * sets them) keeps its defaults. Poster widths divide by the text scale, so bigger text
+ * does not also mean bigger posters (that is the poster size setting).
+ */
+export const applyPlayerLook = (corners: PlayerPosterCorners, textSize: PlayerTextSize) => {
+    if (typeof document === 'undefined') return;
+    const key = `${corners}:${textSize}`;
+    if (key === appliedLook) return;
+    appliedLook = key;
+    const root = document.documentElement;
+    const scale = TEXT_SCALE[textSize] || 1;
+    root.style.setProperty('--tv-poster-radius', POSTER_RADIUS[corners] || '6px');
+    root.style.setProperty('--tv-text-scale', String(scale));
+    if (root.dataset.tv === '1') root.style.fontSize = `${TV_ROOT_FONT_PX * scale}px`;
+};
+
+const applyAll = (settings: Pick<PlayerSettings, 'accentColor' | 'posterCorners' | 'textSize'>) => {
+    applyPlayerAccent(settings.accentColor);
+    applyPlayerLook(settings.posterCorners, settings.textSize);
+};
+
+/**
+ * TV / phone app only: follow the saved look from boot. Settings drafts preview live;
  * a save or discard publishes again, so an unsaved pick does not stick.
  */
 export const installPlayerAppearance = () => {
     if (typeof window === 'undefined') return;
-    const sync = () => applyPlayerAccent(readPlayerSettings().accentColor);
+    const sync = () => applyAll(readPlayerSettings());
     sync();
     window.addEventListener(PLAYER_SETTINGS_EVENT, sync);
     window.addEventListener('storage', sync);
     window.addEventListener(PLAYER_SETTINGS_DRAFT_EVENT, (event) => {
         const draft = (event as CustomEvent<PlayerSettings>).detail;
-        if (draft?.accentColor) applyPlayerAccent(draft.accentColor);
+        if (draft?.accentColor) applyAll(draft);
     });
 };

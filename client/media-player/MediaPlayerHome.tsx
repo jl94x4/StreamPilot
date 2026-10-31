@@ -2796,6 +2796,9 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                     source={settings.screensaverSource}
                     sourceLabel={t(PLAYER_SCREENSAVER_SOURCE_LABEL_KEYS[settings.screensaverSource])}
                     shiftClock={settings.screensaverShiftClock}
+                    delayMs={settings.screensaverDelayMin * 60_000}
+                    slideMs={settings.screensaverSlideSec * 1000}
+                    look={settings.screensaverStyle}
                 />
             ) : null}
         </div>

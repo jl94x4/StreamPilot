@@ -14,6 +14,13 @@ import {
     PLAYER_ROW_MARKERS,
     PLAYER_ACCENT_COLORS,
     PLAYER_NAVIGATION_SOUNDS,
+    PLAYER_POSTER_CORNERS,
+    PLAYER_TEXT_SIZES,
+    PLAYER_SEEK_STEPS,
+    PLAYER_CONTROLS_TIMEOUTS,
+    PLAYER_SCREENSAVER_DELAYS,
+    PLAYER_SCREENSAVER_SLIDE_SECONDS,
+    PLAYER_SCREENSAVER_STYLES,
     PLAYER_SUBTITLE_SIZES,
     applyHomeRowOrder,
     applyLibraryNavOrder,
@@ -24,6 +31,10 @@ import {
     type PlayerRowMarker,
     type PlayerAccentColor,
     type PlayerNavigationSound,
+    type PlayerPosterCorners,
+    type PlayerTextSize,
+    type PlayerNavStyle,
+    type PlayerScreensaverStyle,
     type PlayerScreensaverSource,
     type PlayerSubtitleMode,
 } from './playerSettings';
@@ -649,6 +660,30 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
         value: sound,
         label: t(`mediaPlayerPage.navigationSound_${sound}`),
     })), [t]);
+    const posterCornerOptions = useMemo(() => PLAYER_POSTER_CORNERS.map((value) => ({
+        value,
+        label: t(`mediaPlayerPage.posterCorners_${value}`),
+    })), [t]);
+    const textSizeOptions = useMemo(() => PLAYER_TEXT_SIZES.map((value) => ({
+        value,
+        label: t(`mediaPlayerPage.textSize_${value}`),
+    })), [t]);
+    const navStyleOptions = useMemo(() => ([
+        { value: 'labels', label: t('mediaPlayerPage.navStyle_labels') },
+        { value: 'icons', label: t('mediaPlayerPage.navStyle_icons') },
+    ]), [t]);
+    const secondsOptions = (values: readonly number[]) => values.map((value) => ({
+        value: String(value),
+        label: t('mediaPlayerPage.secondsValue', { count: value }),
+    }));
+    const screensaverDelayOptions = useMemo(() => PLAYER_SCREENSAVER_DELAYS.map((value) => ({
+        value: String(value),
+        label: t('mediaPlayerPage.minutesValue', { count: value }),
+    })), [t]);
+    const screensaverStyleOptions = useMemo(() => PLAYER_SCREENSAVER_STYLES.map((value) => ({
+        value,
+        label: t(`mediaPlayerPage.screensaverStyle_${value}`),
+    })), [t]);
     const chooseNavigationSound = (value: string) => {
         const sound = value as PlayerNavigationSound;
         updateSettings({ navigationSound: sound });
@@ -1148,6 +1183,27 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
 
                 {settingsTab === 'playback' ? (
                 <section className="flex flex-col gap-3">
+                    <TvChoiceRow
+                        title={t('mediaPlayerPage.seekBackSec')}
+                        description={t('mediaPlayerPage.seekBackSecHint')}
+                        value={String(settings.seekBackSec)}
+                        options={secondsOptions(PLAYER_SEEK_STEPS)}
+                        onChange={(value) => updateSettings({ seekBackSec: Number(value) })}
+                    />
+                    <TvChoiceRow
+                        title={t('mediaPlayerPage.seekForwardSec')}
+                        description={t('mediaPlayerPage.seekForwardSecHint')}
+                        value={String(settings.seekForwardSec)}
+                        options={secondsOptions(PLAYER_SEEK_STEPS)}
+                        onChange={(value) => updateSettings({ seekForwardSec: Number(value) })}
+                    />
+                    <TvChoiceRow
+                        title={t('mediaPlayerPage.controlsTimeoutSec')}
+                        description={t('mediaPlayerPage.controlsTimeoutSecHint')}
+                        value={String(settings.controlsTimeoutSec)}
+                        options={secondsOptions(PLAYER_CONTROLS_TIMEOUTS)}
+                        onChange={(value) => updateSettings({ controlsTimeoutSec: Number(value) })}
+                    />
                     <TvToggleRow
                         title={t('mediaPlayerPage.autoplayNext')}
                         description={t('mediaPlayerPage.autoplayNextHint')}
@@ -1366,6 +1422,33 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                                 options={navigationSoundOptions}
                                 onChange={chooseNavigationSound}
                             />
+                            <TvChoiceRow
+                                title={t('mediaPlayerPage.posterCorners')}
+                                description={t('mediaPlayerPage.posterCornersHint')}
+                                value={settings.posterCorners}
+                                options={posterCornerOptions}
+                                onChange={(value) => updateSettings({ posterCorners: value as PlayerPosterCorners })}
+                            />
+                            <TvChoiceRow
+                                title={t('mediaPlayerPage.textSize')}
+                                description={t('mediaPlayerPage.textSizeHint')}
+                                value={settings.textSize}
+                                options={textSizeOptions}
+                                onChange={(value) => updateSettings({ textSize: value as PlayerTextSize })}
+                            />
+                            <TvChoiceRow
+                                title={t('mediaPlayerPage.navStyle')}
+                                description={t('mediaPlayerPage.navStyleHint')}
+                                value={settings.navStyle}
+                                options={navStyleOptions}
+                                onChange={(value) => updateSettings({ navStyle: value as PlayerNavStyle })}
+                            />
+                            <TvToggleRow
+                                title={t('mediaPlayerPage.showClock')}
+                                description={t('mediaPlayerPage.showClockHint')}
+                                checked={settings.showClock}
+                                onChange={(checked) => updateSettings({ showClock: checked })}
+                            />
                         </>
                     ) : null}
                     <TvToggleRow
@@ -1437,6 +1520,27 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         description={t('mediaPlayerPage.screensaverShiftClockHint')}
                         checked={settings.screensaverShiftClock}
                         onChange={(checked) => updateSettings({ screensaverShiftClock: checked })}
+                    />
+                    <TvChoiceRow
+                        title={t('mediaPlayerPage.screensaverStyle')}
+                        description={t('mediaPlayerPage.screensaverStyleHint')}
+                        value={settings.screensaverStyle}
+                        options={screensaverStyleOptions}
+                        onChange={(value) => updateSettings({ screensaverStyle: value as PlayerScreensaverStyle })}
+                    />
+                    <TvChoiceRow
+                        title={t('mediaPlayerPage.screensaverDelayMin')}
+                        description={t('mediaPlayerPage.screensaverDelayMinHint')}
+                        value={String(settings.screensaverDelayMin)}
+                        options={screensaverDelayOptions}
+                        onChange={(value) => updateSettings({ screensaverDelayMin: Number(value) })}
+                    />
+                    <TvChoiceRow
+                        title={t('mediaPlayerPage.screensaverSlideSec')}
+                        description={t('mediaPlayerPage.screensaverSlideSecHint')}
+                        value={String(settings.screensaverSlideSec)}
+                        options={secondsOptions(PLAYER_SCREENSAVER_SLIDE_SECONDS)}
+                        onChange={(value) => updateSettings({ screensaverSlideSec: Number(value) })}
                     />
                 </section>
                 ) : null}

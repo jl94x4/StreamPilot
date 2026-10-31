@@ -56,6 +56,8 @@ type Props = {
     offline?: boolean;
     /** Server ids currently unreachable — orange ! on matching library rows. */
     offlineServerIds?: string[];
+    /** TV: open the menu as icons only (Settings → Side menu). */
+    iconsOnly?: boolean;
 };
 
 /** Fixed slot so every row’s glyph shares one vertical column (Lucide viewBoxes differ). */
@@ -134,6 +136,7 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
     playlistsEnabled = true,
     offline = false,
     offlineServerIds = [],
+    iconsOnly = false,
 }: Props) {
     const { t } = useDiscoverI18n();
     const [mobileOpen, setMobileOpen] = useState(false);
@@ -305,7 +308,8 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
         }
     };
 
-    const renderNav = (showLabels: boolean, desktop = false) => {
+    // showAll: every entry (libraries, sign out). Icons-only TV menus show all without labels.
+    const renderNav = (showLabels: boolean, desktop = false, showAll = showLabels) => {
         // Collapsed: Home / Search / Settings / avatar only. Libraries + logout appear when expanded.
         const compact = !showLabels;
         return (
@@ -395,12 +399,13 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                 </button>
             </div>
 
-            {showLabels && (orderedLibraries.length || (playlistsEnabled && onOpenPlaylists)) ? (
+            {showAll && (orderedLibraries.length || (playlistsEnabled && onOpenPlaylists)) ? (
                 <div
                     data-tv-nav-libraries="1"
-                    className="flex min-h-0 flex-1 flex-col gap-1"
+                    className={`flex min-h-0 flex-1 flex-col gap-1 ${showLabels ? '' : 'items-center'}`}
                 >
-                    {orderedLibraries.length ? (
+                    {!showLabels ? <div className="my-1 h-px w-5 bg-white/15" /> : null}
+                    {showLabels && orderedLibraries.length ? (
                         <div className="flex shrink-0 items-center gap-2 px-3 pb-1 pt-1">
                             <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/40">
                                 {t('mediaPlayerPage.navLibraries')}
@@ -410,7 +415,7 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                     ) : null}
                     <div
                         data-tv-nav-libraries-scroll="1"
-                        className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto hide-scrollbar py-0.5"
+                        className={`flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto hide-scrollbar py-0.5 ${showLabels ? '' : 'items-center'}`}
                     >
                         {orderedLibraries.map((section) => {
                             const Icon = libraryIcon(section.type);
@@ -430,8 +435,8 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                                     aria-label={label}
                                 >
                                     <NavIcon><Icon className={NAV_ICON_CLASS} /></NavIcon>
-                                    <span className="player-nav-label min-w-0 flex-1 truncate">{section.title}</span>
-                                    {serverOffline ? (
+                                    {showLabels ? <span className="player-nav-label min-w-0 flex-1 truncate">{section.title}</span> : null}
+                                    {serverOffline && showLabels ? (
                                         <CircleAlert
                                             className="h-4 w-4 shrink-0 text-amber-400"
                                             aria-hidden
@@ -449,7 +454,7 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                                 title={t('mediaPlayerPage.playlists')}
                             >
                                 <NavIcon><ListMusic className={NAV_ICON_CLASS} /></NavIcon>
-                                <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.playlists')}</span>
+                                {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.playlists')}</span> : null}
                             </button>
                         ) : null}
                     </div>
@@ -470,7 +475,7 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                     <NavIcon><Settings className={NAV_ICON_CLASS} /></NavIcon>
                     {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.navSettings')}</span> : null}
                 </button>
-                {showLabels && isPlexClient ? (
+                {showAll && isPlexClient ? (
                     <button
                         type="button"
                         {...tvNavProps(isTvShell, expanded, false)}
@@ -479,7 +484,7 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                         title={t('mediaPlayerPage.logOut')}
                     >
                         <NavIcon><LogOut className={NAV_ICON_CLASS} /></NavIcon>
-                        <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.logOut')}</span>
+                        {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.logOut')}</span> : null}
                     </button>
                 ) : null}
                 {showLabels && !isTvShell && !isPlexClient ? (
@@ -551,10 +556,10 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                     } ${
                         isTvShell ? 'overflow-x-visible overflow-y-auto' : 'overflow-hidden'
                     } ${
-                        expanded ? 'w-[16.25rem]' : 'w-[4.25rem]'
+                        expanded && !iconsOnly ? 'w-[16.25rem]' : 'w-[4.25rem]'
                     }`}
                 >
-                    {renderNav(expanded, true)}
+                    {renderNav(expanded && !iconsOnly, true, expanded)}
                 </div>
             </aside>
 
