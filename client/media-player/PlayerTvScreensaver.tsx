@@ -136,9 +136,16 @@ export const PlayerTvScreensaver: React.FC<Props> = ({
         };
 
         if (source === 'continue_watching') {
-            // The Home row is the user's Continue Watching. The screensaver endpoint
-            // can substitute another library when On Deck is slow.
+            // Start on the Home row straight away, then swap in the screensaver pool: it carries
+            // each show's current background (the Home cards can hold art from an earlier load).
+            // An empty or failed pool keeps the Home row, never another library.
             apply(continueWatchingRef.current);
+            void fetchMediaPlayerScreensaver(source)
+                .then((data) => {
+                    const items = data?.items || [];
+                    if (items.length) apply(items);
+                })
+                .catch(() => undefined);
             return () => { cancelled = true; };
         }
         if (source === 'recommended' && recommendedRef.current.length) apply(recommendedRef.current);

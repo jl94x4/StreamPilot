@@ -5221,8 +5221,9 @@ const refreshScreensaverArt = async <T extends {
         const key = screensaverArtOwnerKey(item);
         const server = resolveServer(item.serverId, key);
         const art = server?.id && key ? artByOwner.get(`${server.id}:${key}`) : '';
-        if (!art || art === item.art) return item;
-        return { ...item, art, backdropArt: art };
+        if (!art) return item;
+        // The Plex background wins over a Trending candidate's TMDB backdrop too.
+        return { ...item, art, backdropArt: art, heroBackdropUrl: null };
     });
 };
 
