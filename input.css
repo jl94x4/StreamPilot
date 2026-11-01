@@ -6001,7 +6001,8 @@ html[data-reduce-motion="1"] .media-details-trailer-up {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: 70% 30%;
+  /* The panel is a short, wide strip: frame the top band of the backdrop, where faces sit. */
+  object-position: 70% 15%;
   opacity: 0.6;
 }
 /* Backdrops can arrive a moment after the panel: ease them in rather than pop. */
