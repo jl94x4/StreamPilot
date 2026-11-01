@@ -448,6 +448,125 @@ const seedTvSeasonEpisodes = (row: PlayerItem | null | undefined, sid: string): 
         .map((child) => applyRememberedProgress(child));
 };
 
+type EpisodeCardActions = {
+    spotlight: (key: string, immediate?: boolean) => void;
+    play: (row: PlayerItem) => void;
+};
+
+const sameFields = (a: object, b: object) => {
+    if (a === b) return true;
+    const keys = Object.keys(a);
+    if (keys.length !== Object.keys(b).length) return false;
+    return keys.every((key) => (a as Record<string, unknown>)[key] === (b as Record<string, unknown>)[key]);
+};
+
+type DetailsEpisodeCardProps = {
+    row: PlayerItem;
+    isCurrent: boolean;
+    isTvShell: boolean;
+    playLabel: string;
+    settings: ReturnType<typeof usePlayerSettings>[0];
+    locale: string;
+    actions: React.MutableRefObject<EpisodeCardActions>;
+};
+
+/**
+ * One card in the details episode rail. Rows are compared field by field (remembered progress
+ * makes a fresh copy each render), so moving focus re-renders only the two cards whose
+ * highlight changes instead of the whole season.
+ */
+const DetailsEpisodeCard = React.memo(({ row, isCurrent, isTvShell, playLabel, settings, locale, actions }: DetailsEpisodeCardProps) => {
+    const { t } = useDiscoverI18n();
+    const filePills = settings.showEpisodeFilePills ? fileInfoPills(row) : [];
+    return (
+                <div className={`media-details-episode-card group w-[17rem] shrink-0 snap-start sm:w-[20rem]${isCurrent ? ' is-current' : ''}`}>
+                    <button
+                        type="button"
+                        data-tv-item="1"
+                        data-tv-episode-btn="1"
+                        data-tv-watched={row.watched ? '1' : '0'}
+                        data-tv-key={row.ratingKey}
+                        onFocus={() => {
+                            if (isTvShell) actions.current.spotlight(String(row.ratingKey));
+                        }}
+                        onClick={() => {
+                            if (isTvShell) actions.current.spotlight(String(row.ratingKey), true);
+                            actions.current.play(row);
+                        }}
+                        className="relative z-0 block w-full overflow-visible rounded-[12px] border-0 bg-transparent p-0 text-left outline-none"
+                        aria-label={`${playLabel}: ${row.title}`}
+                    >
+                        <div
+                            data-tv-episode-art="1"
+                            className="player-poster-frame relative overflow-hidden rounded-[12px] border border-white/10 bg-black/30"
+                        >
+                            {row.thumb ? (
+                                <FadeImg
+                                    src={plexImageUrl(row.thumb, 720, 405, { quality: PLAYER_POSTER_QUALITY })}
+                                    alt=""
+                                    className={`aspect-video w-full object-cover transition-transform group-hover:scale-[1.03]${
+                                        hideEpisodeSpoilers(settings, row) ? ' player-spoiler-img' : ''
+                                    }`}
+                                />
+                            ) : (
+                                <div className="flex aspect-video items-center justify-center text-[10px] font-bold uppercase tracking-widest text-muted">
+                                    {t('mediaPlayerPage.episodes')}
+                                </div>
+                            )}
+                            {isTvShell && row.index != null ? (
+                                <span className="player-episode-index">E{row.index}</span>
+                            ) : null}
+                            {row.watched ? (
+                                <span
+                                    title={t('mediaPlayerPage.watched')}
+                                    className="player-watched-tick absolute right-1.5 top-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-plex text-zinc-950 shadow-md"
+                                >
+                                    <Check className="h-3 w-3 stroke-[2.5]" />
+                                </span>
+                            ) : null}
+                            {progressPercent(row) > 0 ? (
+                                <div className="player-watch-bar absolute inset-x-0 bottom-0 z-10 h-0.5 bg-black/50">
+                                    <div className="h-full bg-progress" style={{ width: `${progressPercent(row)}%` }} />
+                                </div>
+                            ) : null}
+                        </div>
+                    </button>
+                    <div className="player-episode-title mt-2 truncate text-sm font-bold text-text group-hover:text-plex group-focus-within:text-plex">{row.title}</div>
+                    {(row.index != null || row.durationMs || row.originallyAvailableAt) ? (
+                        // Wraps instead of truncating, so a full date in any format is never cut off.
+                        <div className="player-episode-meta mt-0.5 text-sm font-bold leading-snug text-text">
+                            {joinMeta([
+                                row.index != null ? `Episode ${row.index}` : '',
+                                row.durationMs ? formatPlayerDuration(row.durationMs) : '',
+                                airdateNode(row.originallyAvailableAt, locale),
+                            ], ' · ')}
+                        </div>
+                    ) : null}
+                    {filePills.length ? (
+                        <div
+                            className="player-file-pills"
+                            aria-label={filePills.map((pill) => pill.label).join(' ')}
+                        >
+                            {filePills.map((pill) => (
+                                <span
+                                    key={pill.key}
+                                    className={`player-file-pill player-file-pill--${pill.tone}`}
+                                >
+                                    {pill.label}
+                                </span>
+                            ))}
+                        </div>
+                    ) : null}
+                </div>
+    );
+}, (prev, next) => prev.isCurrent === next.isCurrent
+    && prev.isTvShell === next.isTvShell
+    && prev.playLabel === next.playLabel
+    && prev.settings === next.settings
+    && prev.locale === next.locale
+    && prev.actions === next.actions
+    && sameFields(prev.row, next.row));
+
 /** Same 16:9 still size as TV episode cards (titles are hidden on TV). */
 const TvEpisodeRailSkeleton: React.FC<{ label: string }> = ({ label }) => (
     <section
@@ -585,6 +704,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         seedTvSeasonEpisodes(readPlayerItemCache(ratingKey, serverId)?.item, serverId).length > 0
     ));
     const [spotlightKey, setSpotlightKey] = useState('');
+    const episodeCardActions = useRef<EpisodeCardActions>({ spotlight: () => undefined, play: () => undefined });
     const [spotlightDetail, setSpotlightDetail] = useState<PlayerItem | null>(null);
     const openingSeasonRef = useRef('');
     const episodeDetailCache = useRef(new Map<string, PlayerItem>());
@@ -1872,6 +1992,8 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             window.clearTimeout(timer);
         };
     }, [isTvShell, settings.detailsArtworkTint, episodeHubBackdropUrl, homeHandoff, handoffSurface]);
+
+    episodeCardActions.current = { spotlight: queueTvSpotlight, play: playEpisodeTile };
 
     if (loading && !hasDetailsHero(item)) {
         if (isTvShell) {
@@ -3437,91 +3559,19 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                         <Carousel posterRow flush>
                             {tvEpisodeRows.map((raw) => {
                                 const row = raw.type === 'episode' ? applyRememberedProgress(raw) : raw;
-                                const filePills = settings.showEpisodeFilePills ? fileInfoPills(row) : [];
-                                const isCurrentEpisode = isTvShell && String(row.ratingKey) === String(spotlightKey || item.ratingKey);
-                                const rowPlayLabel = shouldOfferResume(row)
-                                    ? t('mediaPlayerPage.resume')
-                                    : (isTvShell && !musicItem ? t('mediaPlayerPage.watch') : t('mediaPlayerPage.play'));
                                 return (
-                                <div key={row.ratingKey} className={`media-details-episode-card group w-[17rem] shrink-0 snap-start sm:w-[20rem]${isCurrentEpisode ? ' is-current' : ''}`}>
-                                    <button
-                                        type="button"
-                                        data-tv-item="1"
-                                        data-tv-episode-btn="1"
-                                        data-tv-watched={row.watched ? '1' : '0'}
-                                        data-tv-key={row.ratingKey}
-                                        onFocus={() => {
-                                            if (isTvShell) queueTvSpotlight(String(row.ratingKey));
-                                        }}
-                                        onClick={() => {
-                                            if (isTvShell) queueTvSpotlight(String(row.ratingKey), true);
-                                            playEpisodeTile(row);
-                                        }}
-                                        className="relative z-0 block w-full overflow-visible rounded-[12px] border-0 bg-transparent p-0 text-left outline-none"
-                                        aria-label={`${rowPlayLabel}: ${row.title}`}
-                                    >
-                                        <div
-                                            data-tv-episode-art="1"
-                                            className="player-poster-frame relative overflow-hidden rounded-[12px] border border-white/10 bg-black/30"
-                                        >
-                                            {row.thumb ? (
-                                                <FadeImg
-                                                    src={plexImageUrl(row.thumb, 720, 405, { quality: PLAYER_POSTER_QUALITY })}
-                                                    alt=""
-                                                    className={`aspect-video w-full object-cover transition-transform group-hover:scale-[1.03]${
-                                                        hideEpisodeSpoilers(settings, row) ? ' player-spoiler-img' : ''
-                                                    }`}
-                                                />
-                                            ) : (
-                                                <div className="flex aspect-video items-center justify-center text-[10px] font-bold uppercase tracking-widest text-muted">
-                                                    {t('mediaPlayerPage.episodes')}
-                                                </div>
-                                            )}
-                                            {isTvShell && row.index != null ? (
-                                                <span className="player-episode-index">E{row.index}</span>
-                                            ) : null}
-                                            {row.watched ? (
-                                                <span
-                                                    title={t('mediaPlayerPage.watched')}
-                                                    className="player-watched-tick absolute right-1.5 top-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-plex text-zinc-950 shadow-md"
-                                                >
-                                                    <Check className="h-3 w-3 stroke-[2.5]" />
-                                                </span>
-                                            ) : null}
-                                            {progressPercent(row) > 0 ? (
-                                                <div className="player-watch-bar absolute inset-x-0 bottom-0 z-10 h-0.5 bg-black/50">
-                                                    <div className="h-full bg-progress" style={{ width: `${progressPercent(row)}%` }} />
-                                                </div>
-                                            ) : null}
-                                        </div>
-                                    </button>
-                                    <div className="player-episode-title mt-2 truncate text-sm font-bold text-text group-hover:text-plex group-focus-within:text-plex">{row.title}</div>
-                                    {(row.index != null || row.durationMs || row.originallyAvailableAt) ? (
-                                        // Wraps instead of truncating, so a full date in any format is never cut off.
-                                        <div className="player-episode-meta mt-0.5 text-sm font-bold leading-snug text-text">
-                                            {joinMeta([
-                                                row.index != null ? `Episode ${row.index}` : '',
-                                                row.durationMs ? formatPlayerDuration(row.durationMs) : '',
-                                                airdateNode(row.originallyAvailableAt, locale),
-                                            ], ' · ')}
-                                        </div>
-                                    ) : null}
-                                    {filePills.length ? (
-                                        <div
-                                            className="player-file-pills"
-                                            aria-label={filePills.map((pill) => pill.label).join(' ')}
-                                        >
-                                            {filePills.map((pill) => (
-                                                <span
-                                                    key={pill.key}
-                                                    className={`player-file-pill player-file-pill--${pill.tone}`}
-                                                >
-                                                    {pill.label}
-                                                </span>
-                                            ))}
-                                        </div>
-                                    ) : null}
-                                </div>
+                                    <DetailsEpisodeCard
+                                        key={row.ratingKey}
+                                        row={row}
+                                        isCurrent={isTvShell && String(row.ratingKey) === String(spotlightKey || item.ratingKey)}
+                                        isTvShell={isTvShell}
+                                        playLabel={shouldOfferResume(row)
+                                            ? t('mediaPlayerPage.resume')
+                                            : (isTvShell && !musicItem ? t('mediaPlayerPage.watch') : t('mediaPlayerPage.play'))}
+                                        settings={settings}
+                                        locale={locale}
+                                        actions={episodeCardActions}
+                                    />
                                 );
                             })}
                         </Carousel>

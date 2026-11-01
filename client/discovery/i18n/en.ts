@@ -334,7 +334,7 @@ export const en = {
         showWatchlist: 'Show Watchlist',
         showWatchlistHint: 'Keep the Watchlist row on Home, under Continue Watching.',
         perfOverlay: 'Performance meter',
-        perfOverlayHint: 'Diagnostics: shows the slowest frame and dropped frames each time you move up or down a row.',
+        perfOverlayHint: 'Diagnostics: shows the slowest frame and dropped frames after each press of the remote, on any page.',
         perfNoBillboard: 'Hide billboard art (test)',
         perfNoBillboardHint: 'Diagnostics: turns off the big background picture, to compare smoothness.',
         perfNoFocusFx: 'No poster grow (test)',

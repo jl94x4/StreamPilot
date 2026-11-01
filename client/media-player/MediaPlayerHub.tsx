@@ -149,12 +149,13 @@ export const MediaPlayerHub: React.FC<Props> = ({
                 ) : null}
             </div>
 
-            {loading && !shownItems.length && !tvShell ? (
+            {loading && !shownItems.length ? (
                 <PosterGridSkeleton
                     className={upgraderPosterGridClass(gridSize)}
                     style={upgraderPosterGridStyle(gridSize)}
+                    {...(tvShell ? { count: 24, variant: 'home' as const } : {})}
                 />
-            ) : loading && !shownItems.length ? null : error && !shownItems.length ? (
+            ) : error && !shownItems.length ? (
                 <div className={discoveryTheme.emptyState}>
                     <p className={discoveryTheme.emptyTitle}>{error}</p>
                 </div>

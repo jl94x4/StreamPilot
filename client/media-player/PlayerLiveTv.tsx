@@ -143,6 +143,8 @@ const hasWideLiveArt = (item: PlayerItem | null) => {
 const heroBackdrops = new Map<string, string | null>();
 /** Wait for focus to settle before looking a title up, so flicking through the guide stays light. */
 const HERO_BACKDROP_DELAY_MS = 400;
+/** The text follows every press; the big art waits this long, so flicking never decodes a backdrop per step. */
+const HERO_ART_SETTLE_MS = 180;
 
 /**
  * The big panel at the top of Live TV: whatever is focused below (a poster or a guide cell).
@@ -155,14 +157,24 @@ const LiveHero = React.memo(forwardRef<HeroHandle, { initial: PlayerItem | null;
         const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
         useImperativeHandle(ref, () => ({ show: (next) => { if (next) setAiring(next); } }), []);
         useEffect(() => { if (initial && !airing) setAiring(initial); }, [initial, airing]);
+        const [artAiring, setArtAiring] = useState<PlayerItem | null>(initial);
+        useEffect(() => {
+            if (!artAiring) {
+                setArtAiring(airing);
+                return undefined;
+            }
+            const timer = window.setTimeout(() => setArtAiring(airing), HERO_ART_SETTLE_MS);
+            return () => window.clearTimeout(timer);
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [airing]);
         useEffect(() => {
             const id = window.setInterval(() => setNowSec(Math.floor(Date.now() / 1000)), 30_000);
             return () => window.clearInterval(id);
         }, []);
         // Guide titles often have only a poster: fetch the show's wide backdrop for behind it.
-        const hasWideArt = hasWideLiveArt(airing);
-        const isShow = Boolean(airing?.showTitle || airing?.episodeTitle);
-        const lookupTitle = airing ? String((isShow ? airing.showTitle : '') || airing.title || '').trim() : '';
+        const hasWideArt = hasWideLiveArt(artAiring);
+        const isShow = Boolean(artAiring?.showTitle || artAiring?.episodeTitle);
+        const lookupTitle = artAiring ? String((isShow ? artAiring.showTitle : '') || artAiring.title || '').trim() : '';
         const lookupKey = `${isShow ? 'tv' : 'movie'}:${lookupTitle.toLowerCase()}`;
         const [backdrop, setBackdrop] = useState<string | null>(null);
         useEffect(() => {
@@ -176,7 +188,7 @@ const LiveHero = React.memo(forwardRef<HeroHandle, { initial: PlayerItem | null;
             }
             setBackdrop(null);
             let cancelled = false;
-            const year = airing?.year;
+            const year = artAiring?.year;
             const timer = window.setTimeout(() => {
                 void fetchLiveTvBackdrop(lookupTitle, isShow, year)
                     .then((res) => res?.url || null)
@@ -220,8 +232,8 @@ const LiveHero = React.memo(forwardRef<HeroHandle, { initial: PlayerItem | null;
                     No backdrop yet, or none at all: the panel stays plain, never the poster. */}
                 {hasWideArt || backdrop ? (
                     <LiveImg
-                        key={hasWideArt ? airing.art : backdrop}
-                        src={hasWideArt ? airing.art : backdrop}
+                        key={hasWideArt ? artAiring?.art : backdrop}
+                        src={hasWideArt ? artAiring?.art : backdrop}
                         className="smp-live-hero-art"
                     />
                 ) : null}

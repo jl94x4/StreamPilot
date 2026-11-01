@@ -44,6 +44,8 @@ export const writePerfFlags = (patch: Partial<PerfFlags>) => {
 
 /** Fired by the TV remote on Up / Down between Home or library rows. */
 const ROW_EVENT = 'smp-tv-home-row';
+/** Every D-pad move is timed too, so any page (details, Live TV guide) can be measured. */
+const ARROW_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
 const SAMPLE_MS = 800;
 const FRAME_MS = 1000 / 60;
 
@@ -99,8 +101,15 @@ export const PlayerPerfOverlay: React.FC = () => {
             };
             requestAnimationFrame(tick);
         };
+        const onKey = (event: KeyboardEvent) => {
+            if (ARROW_KEYS.has(event.key) && !event.repeat) onRow();
+        };
         window.addEventListener(ROW_EVENT, onRow);
-        return () => window.removeEventListener(ROW_EVENT, onRow);
+        window.addEventListener('keydown', onKey, true);
+        return () => {
+            window.removeEventListener(ROW_EVENT, onRow);
+            window.removeEventListener('keydown', onKey, true);
+        };
     }, [flags.overlay]);
 
     if (!flags.overlay) return null;
@@ -109,7 +118,7 @@ export const PlayerPerfOverlay: React.FC = () => {
     );
     return (
         <div className="smp-perf-overlay" aria-hidden>
-            <p className="smp-perf-title">Row change</p>
+            <p className="smp-perf-title">Remote press</p>
             {last ? (
                 <>
                     <p>
@@ -120,7 +129,7 @@ export const PlayerPerfOverlay: React.FC = () => {
                     </p>
                 </>
             ) : (
-                <p>Move up or down a row…</p>
+                <p>Press a direction on the remote…</p>
             )}
             <p className="smp-perf-flags">
                 {flags.noBillboard ? 'Billboard off · ' : ''}

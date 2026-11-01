@@ -781,13 +781,20 @@
       color: #18181b !important;
       stroke: #18181b !important;
     }
-    /* Action buttons: orange ring. Watch/Play uses fill change instead of a ring. */
-    html[data-tv="1"] [data-tv-action="1"]:not([data-tv-play="1"]):focus,
-    html[data-tv="1"] [data-tv-action="1"]:not([data-tv-play="1"]):focus-visible {
+    /* Action buttons: white fill, black text and icons (like the nav). Watch/Play has its own fill. */
+    html[data-tv="1"] [data-tv-action="1"]:not([data-tv-play="1"]):not([data-tv-episode-neighbor-btn="1"]):focus,
+    html[data-tv="1"] [data-tv-action="1"]:not([data-tv-play="1"]):not([data-tv-episode-neighbor-btn="1"]):focus-visible {
       outline: none !important;
       outline-offset: 0;
-      box-shadow: var(--tv-focus-glow) !important;
+      background: #fff !important;
+      color: #0b0b0d !important;
+      border-color: #fff !important;
+      box-shadow: none !important;
       z-index: 6;
+    }
+    html[data-tv="1"] [data-tv-action="1"]:not([data-tv-play="1"]):not([data-tv-episode-neighbor-btn="1"]):focus *:not(.smp-version-res):not(.smp-version-detail):not(.smp-version-rate),
+    html[data-tv="1"] [data-tv-action="1"]:not([data-tv-play="1"]):not([data-tv-episode-neighbor-btn="1"]):focus-visible *:not(.smp-version-res):not(.smp-version-detail):not(.smp-version-rate) {
+      color: #0b0b0d !important;
     }
     html[data-tv="1"] [data-tv-library-tabs="1"] button {
       min-height: 2.6rem !important;
@@ -1006,14 +1013,18 @@
     html[data-tv="1"] [data-tv-menu-item="1"]:focus,
     html[data-tv="1"] [data-tv-menu-item="1"]:focus-visible {
       outline: none !important;
-      box-shadow: var(--tv-focus-glow-cover) !important;
-      background: transparent !important;
-      color: rgb(var(--tv-accent)) !important;
+      box-shadow: none !important;
+      background: #fff !important;
+      color: #0b0b0d !important;
+    }
+    html[data-tv="1"] [data-tv-menu-item="1"]:focus *,
+    html[data-tv="1"] [data-tv-menu-item="1"]:focus-visible * {
+      color: #0b0b0d !important;
     }
     html[data-tv="1"] [data-tv-menu-item="1"]:focus svg,
     html[data-tv="1"] [data-tv-menu-item="1"]:focus-visible svg {
-      color: rgb(var(--tv-accent)) !important;
-      stroke: rgb(var(--tv-accent)) !important;
+      color: #0b0b0d !important;
+      stroke: #0b0b0d !important;
     }
     /* Season / episode / extra: glow the card button, never the title under it.
        Outer glow must live on the button — overflow-hidden on the art clips a child glow. */
@@ -1668,11 +1679,15 @@
     html[data-tv="1"] [data-tv-season-pill="1"]:focus-visible {
       outline: none !important;
       border-radius: 999px !important;
-      box-shadow: var(--tv-focus-glow) !important;
+      background: #fff !important;
+      color: #111 !important;
+      box-shadow: none !important;
       z-index: 6;
     }
-    html[data-tv="1"] .media-details-season-pill.is-active {
-      color: #111 !important;
+    /* Picked season: soft fill, so only the focused pill is white. */
+    html[data-tv="1"] .media-details-season-pill.is-active:not(:focus) {
+      background: rgba(255, 255, 255, 0.2) !important;
+      color: #fff !important;
     }
     html[data-tv="1"] .media-details-episode-heading {
       margin: 0.4rem 0 0;
@@ -2414,9 +2429,9 @@
     html[data-tv="1"] .player-tv-home-pin-key:focus,
     html[data-tv="1"] .player-tv-home-pin-key:focus-visible {
       outline: none !important;
-      background: #e5a00d !important;
+      background: #fff !important;
       color: #111 !important;
-      box-shadow: 0 0 0 4px rgba(229, 160, 13, 0.25) !important;
+      box-shadow: none !important;
       transform: scale(1.06);
     }
     html[data-tv="1"] .player-tv-home-pin-back {
@@ -2428,7 +2443,7 @@
     html[data-tv="1"] .player-tv-home-pin-back:focus-visible {
       outline: none !important;
       color: #111 !important;
-      background: #e5a00d !important;
+      background: #fff !important;
     }
     html[data-tv="1"] .player-tv-home-pin img,
     html[data-tv="1"] .player-tv-home-pin > span > span {
@@ -2787,7 +2802,7 @@
       background: #ffffff !important;
       color: #111111 !important;
       border-color: #ffffff !important;
-      box-shadow: var(--tv-focus-glow-cover) !important;
+      box-shadow: none !important;
       transform: scale(1.04);
     }
     html[data-tv="1"] [data-tv-settings-save="1"]:focus svg,
@@ -4132,12 +4147,13 @@
     html[data-tv="1"] .smp-choice-close:focus,
     html[data-tv="1"] .smp-choice-close:focus-visible {
       outline: none !important;
-      box-shadow: var(--tv-focus-glow-cover) !important;
+      box-shadow: none !important;
+      background: #fff !important;
+      color: #0b0b0d !important;
     }
-    html[data-tv="1"] .smp-choice-option:focus,
-    html[data-tv="1"] .smp-choice-option:focus-visible {
-      background: rgba(255, 255, 255, 0.1);
-      color: #fff;
+    html[data-tv="1"] .smp-choice-option:focus *:not(.smp-choice-mark):not(.smp-choice-mark *),
+    html[data-tv="1"] .smp-choice-close:focus * {
+      color: #0b0b0d !important;
     }
 
     /* Phone shell. data-phone (native/touch), not max-width 767. */

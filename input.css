@@ -1664,7 +1664,7 @@ html[data-theme="light"] .media-details-hero-scrim-left {
 .smp-resume-btn.is-primary:hover {
   background: #f1f1f1;
 }
-/* Remote focus: white fill and a gold ring, a little larger (wins over the generic TV ring). */
+/* Remote focus: white fill, a little larger (wins over the generic TV focus). */
 .smp-resume .smp-resume-btn:focus-visible,
 html[data-tv="1"] .smp-resume .smp-resume-btn:focus,
 html[data-tv="1"] .smp-resume .smp-resume-btn:focus-visible {
@@ -1672,7 +1672,7 @@ html[data-tv="1"] .smp-resume .smp-resume-btn:focus-visible {
   background: #fff !important;
   color: #0b0b0d !important;
   outline: none !important;
-  box-shadow: 0 0 0 3px rgb(var(--color-plex)), 0 10px 26px rgba(0, 0, 0, 0.45) !important;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.45) !important;
   transform: scale(1.05);
 }
 /* Live TV: header with pill tabs, then a guide grid (channels down the side, time across,
@@ -1737,7 +1737,7 @@ html[data-tv="1"] .smp-live-tabs button:focus {
   background: #fff !important;
   color: #0b0b0d !important;
   outline: none !important;
-  box-shadow: 0 0 0 3px rgb(var(--color-plex)) !important;
+  box-shadow: none !important;
 }
 .smp-live-empty {
   display: flex;
@@ -1944,7 +1944,7 @@ html[data-tv="1"] .smp-live .smp-live-cell:focus-visible {
   background: #fff !important;
   color: #0b0b0d !important;
   outline: none !important;
-  box-shadow: 0 0 0 3px rgb(var(--color-plex)), 0 10px 26px rgba(0, 0, 0, 0.45) !important;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.45) !important;
 }
 .smp-live-cell:focus-visible .smp-live-cell-time,
 html[data-tv="1"] .smp-live .smp-live-cell:focus .smp-live-cell-time {
@@ -2046,7 +2046,7 @@ html[data-tv="1"] .smp-resume .smp-version-row:focus-visible {
   background: #fff !important;
   color: #0b0b0d !important;
   outline: none !important;
-  box-shadow: 0 0 0 3px rgb(var(--color-plex)), 0 10px 26px rgba(0, 0, 0, 0.45) !important;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.45) !important;
   transform: scale(1.02);
 }
 .smp-version-row:focus-visible .smp-version-detail,
@@ -3371,12 +3371,15 @@ html[data-tv="1"] [data-tv-season-pill="1"]:focus,
 html[data-tv="1"] [data-tv-season-pill="1"]:focus-visible {
   outline: none !important;
   border-radius: 999px !important;
-  box-shadow: var(--tv-focus-glow) !important;
+  background: #fff !important;
+  color: #111 !important;
+  box-shadow: none !important;
   z-index: 6;
 }
-html[data-tv="1"] .media-details-season-pill.is-active {
-  background: #fff;
-  color: #111 !important;
+/* The picked season is a soft fill so it never looks focused next to the white focus pill. */
+html[data-tv="1"] .media-details-season-pill.is-active:not(:focus) {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff !important;
 }
 html[data-tv="1"] .media-details-episode-heading {
   margin: 0.4rem 0 0;
@@ -5119,9 +5122,9 @@ html[data-tv="1"] .player-tv-home-pin-key.is-del {
 html[data-tv="1"] .player-tv-home-pin-key:focus,
 html[data-tv="1"] .player-tv-home-pin-key:focus-visible {
   outline: none !important;
-  background: rgb(var(--color-plex)) !important;
+  background: #fff !important;
   color: #111 !important;
-  box-shadow: 0 0 0 4px rgb(var(--color-plex) / 0.25) !important;
+  box-shadow: none !important;
   transform: none;
 }
 html[data-tv="1"] .player-tv-home-pin-key:disabled {
@@ -5141,7 +5144,7 @@ html[data-tv="1"] .player-tv-home-pin-back:focus,
 html[data-tv="1"] .player-tv-home-pin-back:focus-visible {
   outline: none !important;
   color: #111 !important;
-  background: rgb(var(--color-plex)) !important;
+  background: #fff !important;
 }
 html[data-tv="1"] .player-tv-home-pin img,
 html[data-tv="1"] .player-tv-home-pin > span > span {

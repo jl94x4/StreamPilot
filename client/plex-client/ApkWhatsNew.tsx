@@ -73,6 +73,29 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.577': [
+        {
+            title: 'Loading',
+            items: [
+                'Collections, single playlists, "view all" pages and cast pages show skeletons while they load on TV instead of a blank screen',
+            ],
+        },
+        {
+            title: 'Focus',
+            items: [
+                'Buttons, menus, season tabs, choice sheets, the PIN pad and Live TV now highlight with a white fill and black text, like the nav, instead of an orange ring',
+                'The picked season tab is a soft grey when not focused, so only the focused tab is white',
+            ],
+        },
+        {
+            title: 'Speed',
+            items: [
+                'Moving along a season\'s episodes only redraws the two cards that change, not the whole season',
+                'Live TV: the info updates on every press, but the big background waits until you stop, so flicking through the guide stays smooth',
+                'The performance meter (Settings → Display) now times every remote press on any page',
+            ],
+        },
+    ],
     '1.0.576': [
         {
             title: 'Playlists',

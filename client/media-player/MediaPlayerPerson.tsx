@@ -3,6 +3,7 @@ import { ArrowLeft, Cake, Calendar, ChevronDown, Clapperboard, Film, MapPin, Spa
 import {
     DiscoverGridSizeSelect,
     discoveryTheme,
+    PlayerHomeRowSkeleton,
     PosterGridSkeleton,
     upgraderPosterGridClass,
     upgraderPosterGridStyle,
@@ -349,7 +350,7 @@ export const MediaPlayerPerson: React.FC<Props> = ({ actorId, name, thumb, onBac
                         <div className="player-person-portrait overflow-hidden rounded-full bg-white/5">
                             {photoUrl ? (
                                 <img src={photoUrl} alt={title} className="h-full w-full object-cover" />
-                            ) : loading && !isTvShell ? (
+                            ) : loading ? (
                                 <div className="h-full w-full animate-pulse bg-white/10" />
                             ) : (
                                 <div className="flex h-full w-full items-center justify-center text-sm font-bold text-white/35">
@@ -364,7 +365,7 @@ export const MediaPlayerPerson: React.FC<Props> = ({ actorId, name, thumb, onBac
                             </span>
                         ) : null}
                     </div>
-                    {loading && !title && !isTvShell ? (
+                    {loading && !title ? (
                         <div className="player-person-name-under mt-5 h-10 w-40 animate-pulse rounded-lg bg-white/10" aria-hidden />
                     ) : (
                         <h1 className="player-person-name player-person-name-under mt-5 text-center font-black tracking-tight text-white">
@@ -465,7 +466,9 @@ export const MediaPlayerPerson: React.FC<Props> = ({ actorId, name, thumb, onBac
             {/* On this server */}
             <section className="player-person-server relative z-10 flex w-full flex-col gap-4">
                 {isTvShell ? (
-                    loading ? null : error ? (
+                    loading ? (
+                        <PlayerHomeRowSkeleton />
+                    ) : error ? (
                         <div className={discoveryTheme.emptyState}>
                             <p className={discoveryTheme.emptyTitle}>{error}</p>
                         </div>
