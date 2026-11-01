@@ -1146,7 +1146,8 @@ const mapItem = (meta: PlexMeta) => {
         type,
         year: meta.year ? Number(meta.year) : null,
         summary: String(meta.summary || ''),
-        thumb: imageUrl(meta.thumb || meta.parentThumb || meta.grandparentThumb, 300, music ? 300 : 450),
+        // Playlists rarely have a poster; Plex builds a `composite` mosaic of their items instead.
+        thumb: imageUrl(meta.thumb || meta.parentThumb || meta.grandparentThumb || meta.composite, 300, music ? 300 : 450),
         ...(music ? { cardAspect: 'square' as '2/3' | 'square' } : {}),
         art: imageUrl(meta.art || meta.grandparentArt, 1920, 1080),
         heroArt: coverArtUrl(meta) || null,
