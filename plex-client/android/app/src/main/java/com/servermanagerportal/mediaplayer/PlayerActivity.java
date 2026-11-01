@@ -1836,7 +1836,8 @@ public class PlayerActivity extends AppCompatActivity {
     private void sizeLogoForShape(Bitmap bitmap) {
         if (logoView == null || bitmap == null || bitmap.getHeight() < 1) return;
         float ratio = bitmap.getWidth() / (float) bitmap.getHeight();
-        float scale = ratio > LOGO_FULL_RATIO ? (float) Math.sqrt(LOGO_FULL_RATIO / ratio) : 1f;
+        // Steeper than an area match: very wide wordmarks shrink well below a 2:1 mark.
+        float scale = ratio > LOGO_FULL_RATIO ? (float) Math.pow(LOGO_FULL_RATIO / ratio, 0.75) : 1f;
         int height = Math.round(LOGO_SLOT_DP * scale * getResources().getDisplayMetrics().density);
         ViewGroup.LayoutParams params = logoView.getLayoutParams();
         if (params != null && params.height != height) {
