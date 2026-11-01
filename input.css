@@ -1823,7 +1823,8 @@ html[data-tv="1"] .smp-live-tabs button:focus {
 }
 .smp-live-row {
   display: flex;
-  min-height: 4.6rem;
+  /* Room for a two-line programme name plus its time. */
+  min-height: 5rem;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 .smp-live-row:last-child {
@@ -1903,12 +1904,19 @@ html[data-tv="1"] .smp-live-tabs button:focus {
   border-color: rgb(var(--color-plex) / 0.35);
   background: rgb(var(--color-plex) / 0.12);
 }
+/* Up to two lines so longer names show in full (the row height already fits two + time). */
 .smp-live-cell-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   overflow: hidden;
   font-size: 1rem;
   font-weight: 500;
+  line-height: 1.12;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .smp-live-cell-time {
   overflow: hidden;
