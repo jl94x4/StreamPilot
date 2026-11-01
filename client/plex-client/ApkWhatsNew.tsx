@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.568': [
+        {
+            title: 'Player',
+            items: [
+                'Very wide title logos in the player (like Gogglebox) are now sized the same way as on title pages instead of spanning half the screen',
+            ],
+        },
+    ],
     '1.0.567': [
         {
             title: 'Home',

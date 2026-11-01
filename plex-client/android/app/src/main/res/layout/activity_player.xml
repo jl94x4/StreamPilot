@@ -144,7 +144,7 @@
                     android:id="@+id/player_logo"
                     android:layout_width="wrap_content"
                     android:layout_height="58dp"
-                    android:layout_gravity="center_horizontal"
+                    android:layout_gravity="center"
                     android:adjustViewBounds="true"
                     android:contentDescription="@null"
                     android:focusable="false"

@@ -1809,6 +1809,7 @@ public class PlayerActivity extends AppCompatActivity {
                         showTitleText();
                         return;
                     }
+                    sizeLogoForShape(ready);
                     logoView.setImageBitmap(ready);
                     logoView.setContentDescription(titleText);
                     logoView.setVisibility(View.VISIBLE);
@@ -1821,6 +1822,26 @@ public class PlayerActivity extends AppCompatActivity {
             Log.w(TAG, "Clear logo load skipped", e);
             pendingLogoUrl = "";
             showTitleText();
+        }
+    }
+
+    /** Logo slot height (activity_player.xml) and the widest shape that still fills it. */
+    private static final float LOGO_SLOT_DP = 58f;
+    private static final float LOGO_FULL_RATIO = 3f;
+
+    /**
+     * Same rule as the app's title pages: marks up to 3:1 fill the slot; wider wordmarks
+     * (Gogglebox) shrink so they cover about the same area instead of spanning the screen.
+     */
+    private void sizeLogoForShape(Bitmap bitmap) {
+        if (logoView == null || bitmap == null || bitmap.getHeight() < 1) return;
+        float ratio = bitmap.getWidth() / (float) bitmap.getHeight();
+        float scale = ratio > LOGO_FULL_RATIO ? (float) Math.sqrt(LOGO_FULL_RATIO / ratio) : 1f;
+        int height = Math.round(LOGO_SLOT_DP * scale * getResources().getDisplayMetrics().density);
+        ViewGroup.LayoutParams params = logoView.getLayoutParams();
+        if (params != null && params.height != height) {
+            params.height = height;
+            logoView.setLayoutParams(params);
         }
     }
 
