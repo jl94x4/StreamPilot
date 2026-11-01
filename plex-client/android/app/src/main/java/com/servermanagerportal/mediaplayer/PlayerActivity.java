@@ -1827,10 +1827,10 @@ public class PlayerActivity extends AppCompatActivity {
 
     /** Logo slot height (activity_player.xml) and the widest shape that still fills it. */
     private static final float LOGO_SLOT_DP = 58f;
-    private static final float LOGO_FULL_RATIO = 3f;
+    private static final float LOGO_FULL_RATIO = 2f;
 
     /**
-     * Same rule as the app's title pages: marks up to 3:1 fill the slot; wider wordmarks
+     * Like the title pages, but stricter (the player logo sits over the picture): marks up to 2:1 fill the slot; wider wordmarks
      * (Gogglebox) shrink so they cover about the same area instead of spanning the screen.
      */
     private void sizeLogoForShape(Bitmap bitmap) {
