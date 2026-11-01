@@ -1844,6 +1844,14 @@ public class PlayerActivity extends AppCompatActivity {
             params.height = height;
             logoView.setLayoutParams(params);
         }
+        // The slot (58dp min height) shrinks with the mark so the info lines sit right under it.
+        setLogoSlotMinHeight(height);
+    }
+
+    private void setLogoSlotMinHeight(int px) {
+        if (logoView == null || !(logoView.getParent() instanceof View)) return;
+        View slot = (View) logoView.getParent();
+        if (slot.getMinimumHeight() != px) slot.setMinimumHeight(px);
     }
 
     private void applyArtChrome() {
@@ -2047,6 +2055,7 @@ public class PlayerActivity extends AppCompatActivity {
         if (logoView != null) {
             logoView.setVisibility(View.GONE);
             logoView.setImageDrawable(null);
+            setLogoSlotMinHeight(Math.round(LOGO_SLOT_DP * getResources().getDisplayMetrics().density));
         }
         if (titleView != null) titleView.setVisibility(View.VISIBLE);
     }
