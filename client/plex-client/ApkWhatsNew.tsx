@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.567': [
+        {
+            title: 'Home',
+            items: [
+                'Continue Watching catches up after you stop watching: it checks Plex again a few seconds later, so finished episodes drop off and progress updates even on slower servers',
+            ],
+        },
+    ],
     '1.0.566': [
         {
             title: 'Screensaver',

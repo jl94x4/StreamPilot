@@ -2103,16 +2103,23 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
     const progressRefreshRef = useRef<{ refresh: typeof refreshHome; active: boolean }>({ refresh: refreshHome, active });
     progressRefreshRef.current = { refresh: refreshHome, active };
     useEffect(() => {
-        let refreshTimer = 0;
+        // Plex (small servers especially) can still be applying the stop / scrobble when the
+        // first refetch lands, which repainted the old Continue Watching. Check again later.
+        const REFRESH_AFTER_MS = [2500, 10_000, 25_000];
+        let refreshTimers: number[] = [];
+        const clearRefreshTimers = () => {
+            refreshTimers.forEach((id) => window.clearTimeout(id));
+            refreshTimers = [];
+        };
         const onProgress = (event: Event) => {
             const detail = (event as CustomEvent<{ ratingKey?: string; item?: PlayerItem; dropContinue?: boolean; watched?: boolean; continueWith?: PlayerItem | null; advanceContinue?: boolean; restoreContinue?: PlayerItem | null }>).detail;
             const key = String(detail?.ratingKey || '');
             if (!key) return;
-            window.clearTimeout(refreshTimer);
-            refreshTimer = window.setTimeout(() => {
+            clearRefreshTimers();
+            refreshTimers = REFRESH_AFTER_MS.map((delay) => window.setTimeout(() => {
                 const { refresh, active: homeActive } = progressRefreshRef.current;
                 if (homeActive) void refresh({ force: true, quietRetry: true });
-            }, 2500);
+            }, delay));
             const drop = detail?.dropContinue === true;
             const advance = detail?.advanceContinue === true;
             const restore = detail?.watched === false ? (detail.restoreContinue || null) : null;
@@ -2169,7 +2176,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         };
         window.addEventListener(PLAYER_PROGRESS_EVENT, onProgress);
         return () => {
-            window.clearTimeout(refreshTimer);
+            clearRefreshTimers();
             window.removeEventListener(PLAYER_PROGRESS_EVENT, onProgress);
         };
     }, []);
