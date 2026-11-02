@@ -2,7 +2,6 @@ package com.servermanagerportal.mediaplayer;
 
 import android.content.Context;
 import android.graphics.Canvas;
-import android.graphics.DashPathEffect;
 import android.graphics.Paint;
 import android.graphics.RectF;
 import android.graphics.Typeface;
@@ -17,11 +16,10 @@ import java.util.Locale;
 
 /**
  * Draws "Who's on screen" over the paused video: a circle round each recognised face with the
- * actor and character under it, plus (test build) timings and the near-misses with their scores.
+ * actor and character under it, plus (test build) the timings.
  */
 public class FaceLabelsView extends View {
     private final Paint ring = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint missRing = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint pill = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint panel = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint nameText = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -45,10 +43,6 @@ public class FaceLabelsView extends View {
         ring.setStrokeWidth(3 * dp);
         ring.setColor(0xFFFFFFFF);
         ring.setShadowLayer(6 * dp, 0, 0, 0x99000000);
-        missRing.setStyle(Paint.Style.STROKE);
-        missRing.setStrokeWidth(1.5f * dp);
-        missRing.setColor(0x99FFFFFF);
-        missRing.setPathEffect(new DashPathEffect(new float[] { 6 * dp, 5 * dp }, 0));
         pill.setColor(0xFFFFFFFF);
         panel.setColor(0xCC000000);
         nameText.setColor(0xFF0B0B0D);
@@ -117,12 +111,8 @@ public class FaceLabelsView extends View {
         float cy = (top + bottom) / 2f;
         float radius = Math.max(right - left, bottom - top) * 0.62f;
         int pct = Math.round(face.score * 100);
-        if (face.person == null) {
-            canvas.drawCircle(cx, cy, radius, missRing);
-            String guess = face.bestGuess == null ? "?" : "? " + face.bestGuess + " " + pct + "%";
-            drawLabel(canvas, cx, cy + radius + 6 * dp, guess, null, 0.75f);
-            return;
-        }
+        // Only confident names are drawn: a dashed "?" guess cluttered the picture.
+        if (face.person == null) return;
         canvas.drawCircle(cx, cy, radius, ring);
         String role = face.person.role == null || face.person.role.isEmpty()
             ? pct + "%"

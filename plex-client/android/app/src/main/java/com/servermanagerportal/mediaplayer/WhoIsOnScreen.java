@@ -47,7 +47,8 @@ final class WhoIsOnScreen {
     private static final String TAG = "WhoIsOnScreen";
     private static final String MODEL_ASSET = "models/facenet.tflite";
     /** Cosine similarity a face needs to get a name, and its lead over the runner-up. */
-    static final float MATCH_MIN = 0.55f;
+    // 0.55 left correct names at ~51% (eyes closed, looking down) as guesses.
+    static final float MATCH_MIN = 0.48f;
     static final float MATCH_MARGIN = 0.04f;
 
     static final class Person {
@@ -303,7 +304,11 @@ final class WhoIsOnScreen {
             if (castWithoutFace.contains(person.thumb)) continue;
             if (progress != null) progress.onStatus("Who's on screen (test): learning the cast " + index + "/" + cast.size());
             Bitmap raw = loader.load(person.thumb);
-            if (raw == null) continue;
+            if (raw == null) {
+                // Not saved to disk (it may load next time), but not retried on every pause either.
+                castWithoutFace.add(person.thumb);
+                continue;
+            }
             Bitmap photo = shrinkPhoto(raw);
             List<Face> faces = detectPhoto(photo);
             Face largest = null;

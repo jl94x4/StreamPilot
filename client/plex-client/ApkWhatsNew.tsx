@@ -73,6 +73,16 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.591': [
+        {
+            title: 'Who\'s on screen (test)',
+            items: [
+                'Only confident names are shown, all in the same clean style: no more dashed "?" guesses',
+                'Names faces a little more readily, so people looking down or with eyes closed still get named',
+                'Cast photos that fail to load are no longer re-downloaded on every pause',
+            ],
+        },
+    ],
     '1.0.590': [
         {
             title: 'Who\'s on screen (test)',
