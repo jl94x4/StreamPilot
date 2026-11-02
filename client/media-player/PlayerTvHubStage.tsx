@@ -115,8 +115,10 @@ export const PlayerTvFocusStill: React.FC<{
             return;
         }
         const img = new Image();
-        img.onload = commit;
         img.src = next;
+        // decode() finishes off the main thread, so the swap frame does not decode a full image.
+        if (typeof img.decode === 'function') img.decode().then(commit, commit);
+        else img.onload = commit;
     }, []);
 
     const showTimerRef = useRef(0);

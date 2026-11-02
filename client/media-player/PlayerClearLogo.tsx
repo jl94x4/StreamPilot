@@ -179,6 +179,8 @@ export const PlayerClearLogo: React.FC<Props> = ({ src, alt, className, onError,
             src={ready ? visual.src : src}
             alt={alt}
             className={className}
+            // Hidden until measured, so decoding off the main thread never shows a gap.
+            decoding="async"
             ref={(node) => {
                 imgRef.current = node;
                 if (node?.complete && node.naturalWidth > 0) onImgLoad(node);

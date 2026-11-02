@@ -27,10 +27,15 @@ export const MediaPlayerNowPlayingChip: React.FC<Props> = ({ active = true }) =>
         if (!nowPlaying || nowPlaying.paused) return undefined;
         const startedAt = Date.now();
         const base = nowPlaying.positionMs;
-        const id = window.setInterval(() => {
-            setLocalMs(Math.min(nowPlaying.durationMs || base, base + (Date.now() - startedAt)));
-        }, 250);
-        return () => window.clearInterval(id);
+        // The clock shows whole seconds: tick just after each one rolls over, not 4× a second.
+        let id = 0;
+        const tick = () => {
+            const pos = Math.min(nowPlaying.durationMs || base, base + (Date.now() - startedAt));
+            setLocalMs(pos);
+            id = window.setTimeout(tick, 1000 - (pos % 1000) + 5);
+        };
+        id = window.setTimeout(tick, 1000 - (base % 1000) + 5);
+        return () => window.clearTimeout(id);
     }, [nowPlaying?.positionMs, nowPlaying?.paused, nowPlaying?.item.ratingKey, nowPlaying?.durationMs]);
 
     if (!active || !nowPlaying) return null;
