@@ -5,6 +5,17 @@
  * blob URLs. Away from that LAN they can't load at all and callers fall back to a placeholder.
  */
 const cache = new Map<string, Promise<string>>();
+/** Most recently used blobs kept (a full guide's worth); older ones are released. */
+const LAN_IMAGE_CAP = 300;
+
+const trimCache = () => {
+    while (cache.size > LAN_IMAGE_CAP) {
+        const oldest = cache.keys().next().value as string;
+        const hit = cache.get(oldest);
+        cache.delete(oldest);
+        hit?.then((url) => URL.revokeObjectURL(url), () => undefined);
+    }
+};
 
 export const isLanHttpImage = (src?: string | null) => /^http:\/\//i.test(String(src || ''));
 
@@ -13,12 +24,17 @@ export const isDirectImageSrc = (src?: string | null) => /^(https?:|blob:|data:)
 
 export const loadLanImage = (src: string): Promise<string> => {
     let hit = cache.get(src);
-    if (!hit) {
+    if (hit) {
+        // Re-insert so the map's order is least recently used first.
+        cache.delete(src);
+        cache.set(src, hit);
+    } else {
         hit = fetch(src)
             .then((res) => (res.ok ? res.blob() : Promise.reject(new Error(String(res.status)))))
             .then((blob) => URL.createObjectURL(blob));
         hit.catch(() => cache.delete(src));
         cache.set(src, hit);
+        trimCache();
     }
     return hit;
 };
