@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.602': [
+        {
+            title: 'More than one server',
+            items: [
+                'Fixed libraries opening as "This library is empty" with more than one server: the library address was read without decoding, so the app asked the wrong server for it',
+            ],
+        },
+    ],
     '1.0.601': [
         {
             title: 'More than one server',

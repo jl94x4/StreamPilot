@@ -152,6 +152,14 @@ type PendingResume = {
     subtitleStreamId?: string | null;
 };
 
+const decodePathPart = (part: string) => {
+    try {
+        return decodeURIComponent(part);
+    } catch {
+        return part;
+    }
+};
+
 const readPlayerView = (): PlayerView => {
     const href = typeof window !== 'undefined' ? window.location : { pathname: PLAYER_APP_BASE, search: '' };
     const parts = stripBasePath(href.pathname)
@@ -159,13 +167,16 @@ const readPlayerView = (): PlayerView => {
         .filter(Boolean);
     const params = new URLSearchParams(href.search || '');
     if (parts[1] === 'library' && parts[2]) {
+        // With more than one server the key is , which arrives as %3A%3A.
+        // Undecoded it matched no server and asked your own for a library that doesn't exist.
+        const sectionKey = decodePathPart(parts[2]);
         if (parts[3] === 'collection' && parts[4]) {
-            return { kind: 'collection', sectionKey: parts[2], ratingKey: parts[4] };
+            return { kind: 'collection', sectionKey, ratingKey: decodePathPart(parts[4]) };
         }
         const tab = parts[3] === 'browse' || parts[3] === 'collections' || parts[3] === 'studios'
             ? parts[3]
             : 'home';
-        return { kind: 'library', sectionKey: parts[2], tab };
+        return { kind: 'library', sectionKey, tab };
     }
     if (parts[1] === 'collection' && parts[2]) {
         return { kind: 'collection', sectionKey: '', ratingKey: parts[2] };
