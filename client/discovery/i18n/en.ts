@@ -760,7 +760,7 @@ export const en = {
         nightMode: 'Night mode',
         nightModeHint: 'Soften loud peaks for quieter late-night playback.',
         whoIsOnScreen: "Who's on screen (test)",
-        whoIsOnScreenHint: 'When you pause, circle the actors in the picture using the cast photos. Experimental: Direct Play only, and the first pause in a title takes a few seconds.',
+        whoIsOnScreenHint: 'When you pause, circle the actors in the picture using the cast photos. Experimental: takes effect from the next film you start, and the first pause in a title takes a few seconds.',
         matchFrameRate: 'Match display refresh rate',
         matchFrameRateHint: 'Match the TV refresh rate to the video (23.976 / 24 / 25 / 50 / 59.94) when the device allows it.',
         subtitleSize: 'Subtitle size',

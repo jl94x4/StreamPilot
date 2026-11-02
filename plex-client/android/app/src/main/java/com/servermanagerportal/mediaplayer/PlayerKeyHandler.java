@@ -92,6 +92,17 @@ final class PlayerKeyHandler {
         /** OK on a visible skip-intro / skip-credits chip. */
         boolean trySkipFromRemote();
 
+        /**
+         * Controls showing but nothing visible has focus (the remote would go nowhere): put it
+         * on Play/Pause. True when it moved focus.
+         */
+        boolean ensureControlFocus();
+
+        /** Who's on screen labels are drawn over the paused picture. */
+        boolean facesVisible();
+
+        void clearFaces();
+
         /** Cast strip under the transport row (second Down). */
         boolean castStripVisible();
 
@@ -172,6 +183,10 @@ final class PlayerKeyHandler {
             if (host.castStripVisible()) {
                 host.hideCastStrip();
                 host.bumpChrome();
+                return Result.HANDLED;
+            }
+            if (!host.chromeVisible() && host.facesVisible()) {
+                host.clearFaces();
                 return Result.HANDLED;
             }
             if (host.chromeVisible()) {
@@ -311,6 +326,15 @@ final class PlayerKeyHandler {
                 || confirm) {
                 return Result.SUPER;
             }
+        }
+
+        boolean dpad = keyCode == KeyEvent.KEYCODE_DPAD_UP
+            || keyCode == KeyEvent.KEYCODE_DPAD_DOWN
+            || keyCode == KeyEvent.KEYCODE_DPAD_LEFT
+            || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT;
+        if (dpad && host.ensureControlFocus()) {
+            host.bumpChrome();
+            return Result.HANDLED;
         }
 
         // Cast strip: a second Down from the transport row opens it; Up, Down or Back close it.

@@ -4,8 +4,6 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Rect;
 import android.graphics.RectF;
-import android.media.MediaMetadataRetriever;
-import android.os.Build;
 import android.os.SystemClock;
 import android.util.Log;
 
@@ -34,9 +32,10 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * "Who's on screen" (test): on pause, decode the exact frame from the file on the server,
- * find faces with ML Kit (offline), and match each one to the title's cast by comparing FaceNet
- * embeddings with ones made from the cast photos Plex already has. Everything runs on the TV.
+ * "Who's on screen" (test): on pause, take the picture on screen, find faces with ML Kit
+ * (offline), and match each one to the title's cast by comparing FaceNet embeddings with ones
+ * made from the cast photos Plex already has. Everything runs on the TV. It never opens a second
+ * video decoder: on TVs that allow one 4K decoder, that took the player's away mid-film.
  */
 final class WhoIsOnScreen {
     private static final String TAG = "WhoIsOnScreen";
@@ -117,23 +116,15 @@ final class WhoIsOnScreen {
         worker.shutdownNow();
     }
 
-    void run(String url, Map<String, String> headers, long positionMs, List<Person> cast,
-             ImageLoader loader, Callback callback) {
+    /** frame: the paused picture copied off the video surface; frameMs: how long that copy took. */
+    void run(Bitmap frame, long frameMs, List<Person> cast, ImageLoader loader, Callback callback) {
         final int run = ++generation;
         worker.execute(() -> {
             Result result = new Result();
             try {
                 ensureModels();
                 if (run != generation) return;
-
-                long t0 = SystemClock.elapsedRealtime();
-                Bitmap frame = grabFrame(url, headers, positionMs);
-                result.frameMs = SystemClock.elapsedRealtime() - t0;
-                if (frame == null) {
-                    result.error = "Couldn't read this frame from the file";
-                    callback.onResult(result);
-                    return;
-                }
+                result.frameMs = frameMs;
                 result.frameWidth = frame.getWidth();
                 result.frameHeight = frame.getHeight();
                 if (run != generation) return;
@@ -196,34 +187,6 @@ final class WhoIsOnScreen {
             direct.put(bytes);
             direct.rewind();
             return direct;
-        }
-    }
-
-    /** The paused frame itself, decoded from the file (tunneled video can't be read off screen). */
-    @Nullable
-    private static Bitmap grabFrame(String url, Map<String, String> headers, long positionMs) {
-        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
-        try {
-            retriever.setDataSource(url, headers);
-            long us = Math.max(0, positionMs) * 1000L;
-            Bitmap frame = Build.VERSION.SDK_INT >= 27
-                ? retriever.getScaledFrameAtTime(us, MediaMetadataRetriever.OPTION_CLOSEST, 1280, 720)
-                : retriever.getFrameAtTime(us, MediaMetadataRetriever.OPTION_CLOSEST);
-            if (frame != null && frame.getConfig() != Bitmap.Config.ARGB_8888) {
-                Bitmap argb = frame.copy(Bitmap.Config.ARGB_8888, false);
-                frame.recycle();
-                frame = argb;
-            }
-            return frame;
-        } catch (Throwable error) {
-            Log.w(TAG, "Frame grab failed", error);
-            return null;
-        } finally {
-            try {
-                retriever.release();
-            } catch (Throwable ignored) {
-                /* already released */
-            }
         }
     }
 

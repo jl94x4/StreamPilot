@@ -388,6 +388,25 @@ public class PlayerActivity extends AppCompatActivity {
         }
 
         @Override
+        public boolean ensureControlFocus() {
+            if (!chromeVisible || isOptionDialogShowing() || isUpNextVisible() || playPauseBtn == null) return false;
+            View focus = getCurrentFocus();
+            if (focus != null && focus.isShown() && focus.getId() != R.id.player_root) return false;
+            setChromeSubtreeFocusable(true);
+            return playPauseBtn.requestFocus();
+        }
+
+        @Override
+        public boolean facesVisible() {
+            return facesView != null && facesView.getVisibility() == View.VISIBLE;
+        }
+
+        @Override
+        public void clearFaces() {
+            cancelWhoIsOnScreen();
+        }
+
+        @Override
         public boolean castStripVisible() {
             return isCastStripVisible();
         }
@@ -1019,7 +1038,9 @@ public class PlayerActivity extends AppCompatActivity {
             // TV: tunneled video+audio keeps lip-sync on many SoCs (Plex-style). Phone
             // stays untunneled — overlays and some codecs are happier without it.
             DefaultTrackSelector trackSelector = new DefaultTrackSelector(this);
-            if (isTelevision()) {
+            // Who's on screen (test) copies the paused picture off the surface, which tunneled
+            // video never fills, so the test plays untunneled.
+            if (isTelevision() && !whoIsOnScreen) {
                 trackSelector.setParameters(
                     trackSelector.buildUponParameters().setTunnelingEnabled(true)
                 );
@@ -1510,8 +1531,10 @@ public class PlayerActivity extends AppCompatActivity {
 
             @Override
             public void onIsPlayingChanged(boolean isPlaying) {
+                // Only a pause the viewer chose: the moments before a film starts are "not playing"
+                // too, and the test must never run while the player is still setting up.
                 if (isPlaying || (player != null && player.getPlayWhenReady())) cancelWhoIsOnScreen();
-                else scheduleWhoIsOnScreen();
+                else if (userPaused) scheduleWhoIsOnScreen();
                 if (isPlaying) {
                     armPlayThenSeek();
                     releasePauseSuppressSoon();
@@ -1538,7 +1561,7 @@ public class PlayerActivity extends AppCompatActivity {
                 // A seek while paused shows a new frame: drop the old names and look again.
                 if (facesView != null && facesView.getVisibility() == View.VISIBLE) {
                     cancelWhoIsOnScreen();
-                    if (player != null && !player.getPlayWhenReady()) scheduleWhoIsOnScreen();
+                    if (player != null && !player.getPlayWhenReady() && userPaused) scheduleWhoIsOnScreen();
                 }
             }
 
@@ -2331,11 +2354,8 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void runWhoIsOnScreen() {
-        if (player == null || player.getPlayWhenReady() || finishing || facesView == null) return;
-        if (currentUrl == null || currentUrl.isEmpty() || PlaybackUrls.isTranscodeUrl(currentUrl)) {
-            facesView.showStatus("Who's on screen (test) needs Direct Play");
-            return;
-        }
+        if (player == null || player.getPlayWhenReady() || !userPaused || finishing || facesView == null) return;
+        if (player.getPlaybackState() != Player.STATE_READY) return;
         List<WhoIsOnScreen.Person> people = new ArrayList<>();
         for (CastMember member : castMembers) {
             people.add(new WhoIsOnScreen.Person(member.id, member.name, member.role, member.thumb));
@@ -2345,15 +2365,51 @@ public class PlayerActivity extends AppCompatActivity {
             return;
         }
         if (faceEngine == null) faceEngine = new WhoIsOnScreen(this);
+        PlayerView playerView = findViewById(R.id.player_view);
+        View surface = playerView == null ? null : playerView.getVideoSurfaceView();
+        if (!(surface instanceof SurfaceView) || surface.getWidth() < 16 || surface.getHeight() < 16) {
+            facesView.showStatus("Who's on screen (test): no picture to read");
+            return;
+        }
         facesView.showStatus("Who's on screen (test): looking…");
-        final long positionMs = player.getCurrentPosition();
-        final Map<String, String> headers = headersWithCookies(currentUrl, PlaybackUrls.parseHeaders(headersJson));
-        faceEngine.run(currentUrl, headers, positionMs, people,
-            url -> downloadLogoBitmap(url, headersForImageUrl(url)),
-            result -> mainHandler.post(() -> {
+        // Copy the paused picture off the surface (no second decoder), at most 1280 wide.
+        int width = Math.min(1280, surface.getWidth());
+        int height = Math.max(1, Math.round(surface.getHeight() * (width / (float) surface.getWidth())));
+        final Bitmap frame = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        final long copyStarted = android.os.SystemClock.elapsedRealtime();
+        try {
+            android.view.PixelCopy.request((SurfaceView) surface, frame, copyResult -> {
                 if (finishing || player == null || player.getPlayWhenReady() || facesView == null) return;
-                facesView.showResult(result, videoRectInFaces(result));
-            }));
+                if (copyResult != android.view.PixelCopy.SUCCESS || looksBlank(frame)) {
+                    facesView.showStatus("Who's on screen (test): couldn't read the picture."
+                        + " Start the film again with the test on.");
+                    return;
+                }
+                long frameMs = android.os.SystemClock.elapsedRealtime() - copyStarted;
+                faceEngine.run(frame, frameMs, people,
+                    url -> downloadLogoBitmap(url, headersForImageUrl(url)),
+                    result -> mainHandler.post(() -> {
+                        if (finishing || player == null || player.getPlayWhenReady() || facesView == null) return;
+                        facesView.showResult(result, videoRectInFaces(result));
+                    }));
+            }, mainHandler);
+        } catch (Throwable error) {
+            Log.w(TAG, "Who's on screen frame copy failed", error);
+            facesView.showStatus("Who's on screen (test): couldn't read the picture");
+        }
+    }
+
+    /** Tunneled playback (test turned on mid-film) leaves the copied picture black. */
+    private static boolean looksBlank(Bitmap frame) {
+        int stepX = Math.max(1, frame.getWidth() / 16);
+        int stepY = Math.max(1, frame.getHeight() / 9);
+        for (int y = stepY / 2; y < frame.getHeight(); y += stepY) {
+            for (int x = stepX / 2; x < frame.getWidth(); x += stepX) {
+                int p = frame.getPixel(x, y);
+                if (((p >> 16) & 0xFF) > 12 || ((p >> 8) & 0xFF) > 12 || (p & 0xFF) > 12) return false;
+            }
+        }
+        return true;
     }
 
     /** Where the picture sits inside the faces overlay: surface box (zoom included), then fit or fill. */
@@ -5005,6 +5061,10 @@ public class PlayerActivity extends AppCompatActivity {
 
     private void setChromeVisible(boolean visible) {
         boolean wasHidden = chrome == null || chrome.getVisibility() != View.VISIBLE;
+        // A menu blocks focus on the controls while it is open. If one ever closed without
+        // undoing that, the cog and seek bar could not be reached again: undo it whenever the
+        // controls show with no menu up.
+        if (visible && !isOptionDialogShowing()) setChromeSubtreeFocusable(true);
         chromeVisible = visible;
         int vis = visible ? View.VISIBLE : View.GONE;
         if (chrome != null) chrome.setVisibility(vis);

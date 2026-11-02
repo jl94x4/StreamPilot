@@ -73,6 +73,23 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.587': [
+        {
+            title: 'Who\'s on screen (test) fix',
+            items: [
+                'Fixed 4K films failing with a decoding error while the test was on: it decoded the film a second time, and TVs that allow one 4K decoder took the player\'s away',
+                'It now copies the paused picture straight off the screen, only after you pause (never while a film is starting), and works with any stream, not just Direct Play',
+                'With the test on, the player skips tunneled playback so the picture can be read; it takes effect from the next film you start',
+            ],
+        },
+        {
+            title: 'Player controls',
+            items: [
+                'If the controls ever stop responding (cog and seek bar unreachable), they now recover on the next press instead of staying stuck',
+                'Back while the face labels are showing clears them instead of leaving the player',
+            ],
+        },
+    ],
     '1.0.586': [
         {
             title: 'Playback fix',
