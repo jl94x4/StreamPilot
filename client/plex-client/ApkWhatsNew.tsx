@@ -73,6 +73,16 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.593': [
+        {
+            title: 'Player memory',
+            items: [
+                'Fixed the app restarting when you left the player after Who\'s on screen: it used so much memory that Android threw away the main screen',
+                'Cast photos (strip and face matching) are now loaded at the size they\'re shown instead of full size, and the face model is read straight from the app rather than copied into memory',
+                'The face model is unloaded when you leave the player',
+            ],
+        },
+    ],
     '1.0.592': [
         {
             title: 'Who\'s on screen',

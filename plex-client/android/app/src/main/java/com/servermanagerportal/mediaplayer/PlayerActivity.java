@@ -633,6 +633,10 @@ public class PlayerActivity extends AppCompatActivity {
     private WhoIsOnScreen faceEngine;
     private FaceLabelsView facesView;
     private final Runnable whoIsOnScreenRunnable = this::runWhoIsOnScreen;
+    /** Cast strip photos are 72dp circles; this is plenty and keeps two dozen of them small. */
+    private static final int CAST_PHOTO_MAX_SIDE = 240;
+    /** Who's on screen reads faces from photos shrunk to 320; decode a little above that. */
+    private static final int FACE_PHOTO_MAX_SIDE = 480;
     /** Wait this long after a pause, so a quick pause and play never starts the work. */
     private static final long WHO_IS_ON_SCREEN_DELAY_MS = 700L;
     /** Consecutive seconds in STATE_BUFFERING while play-when-ready (stall nudge). */
@@ -2332,7 +2336,7 @@ public class PlayerActivity extends AppCompatActivity {
         final Map<String, String> imageHeaders = headersForImageUrl(url);
         try {
             logoExecutor.execute(() -> {
-                Bitmap raw = downloadLogoBitmap(url, imageHeaders);
+                Bitmap raw = downloadLogoBitmap(url, imageHeaders, CAST_PHOTO_MAX_SIDE);
                 // Portrait headshots: a square from just above the middle keeps the face.
                 Bitmap square = null;
                 if (raw != null && raw.getWidth() > 8 && raw.getHeight() > 8) {
@@ -2403,7 +2407,7 @@ public class PlayerActivity extends AppCompatActivity {
                 }
                 long frameMs = android.os.SystemClock.elapsedRealtime() - copyStarted;
                 faceEngine.run(frame, frameMs, people,
-                    url -> downloadLogoBitmap(url, headersForImageUrl(url)),
+                    url -> downloadLogoBitmap(url, headersForImageUrl(url), FACE_PHOTO_MAX_SIDE),
                     (index, total) -> mainHandler.post(() -> {
                         if (finishing || player == null || player.getPlayWhenReady() || facesView == null) return;
                         facesView.showStatus(getString(R.string.player_faces_learning, index, total));
@@ -2486,6 +2490,15 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private Bitmap downloadLogoBitmap(String url, Map<String, String> headers) {
+        return downloadLogoBitmap(url, headers, 0);
+    }
+
+    /**
+     * maxSide > 0 decodes already shrunk (power-of-two sampling) so the longest side lands at
+     * maxSide..2×maxSide. A full TMDB headshot decoded at full size is ~24 MB; two dozen of those
+     * pushed Android to throw away the app's main screen while the player was open.
+     */
+    private Bitmap downloadLogoBitmap(String url, Map<String, String> headers, int maxSide) {
         HttpURLConnection conn = null;
         try {
             URL parsed = new URL(url);
@@ -2518,6 +2531,15 @@ public class PlayerActivity extends AppCompatActivity {
                 if (data.length < 32) return null;
                 BitmapFactory.Options opts = new BitmapFactory.Options();
                 opts.inPreferredConfig = Bitmap.Config.ARGB_8888;
+                if (maxSide > 0) {
+                    BitmapFactory.Options bounds = new BitmapFactory.Options();
+                    bounds.inJustDecodeBounds = true;
+                    BitmapFactory.decodeByteArray(data, 0, data.length, bounds);
+                    int longest = Math.max(bounds.outWidth, bounds.outHeight);
+                    int sample = 1;
+                    while (longest / (sample * 2) >= maxSide) sample *= 2;
+                    opts.inSampleSize = sample;
+                }
                 return BitmapFactory.decodeByteArray(data, 0, data.length, opts);
             }
         } catch (Exception e) {
@@ -6192,6 +6214,9 @@ public class PlayerActivity extends AppCompatActivity {
     protected void onDestroy() {
         PlayerBridge.get().detachActivity(this);
         if (faceEngine != null) faceEngine.shutdown();
+        // The face model and detectors are only for the player: free them for browsing.
+        WhoIsOnScreen.release();
+        castPhotos.clear();
         logoLoadGeneration += 1;
         pendingLogoUrl = "";
         loadedLogoUrl = "";

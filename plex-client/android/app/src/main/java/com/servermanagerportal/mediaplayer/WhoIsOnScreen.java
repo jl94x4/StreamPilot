@@ -181,7 +181,7 @@ final class WhoIsOnScreen {
     private void ensureModels() throws Exception {
         synchronized (WhoIsOnScreen.class) {
             if (interpreter == null) {
-                ByteBuffer model = readAsset(MODEL_ASSET);
+                ByteBuffer model = mapAsset(MODEL_ASSET);
                 Interpreter.Options options = new Interpreter.Options();
                 options.setNumThreads(4);
                 interpreter = new Interpreter(model, options);
@@ -201,6 +201,38 @@ final class WhoIsOnScreen {
                     .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
                     .setMinFaceSize(0.2f)
                     .build());
+            }
+        }
+    }
+
+    /**
+     * The model is stored uncompressed in the APK (noCompress 'tflite'), so it can be mapped in
+     * place: no copy on the heap. Reading it whole made three 24 MB copies at once.
+     */
+    private ByteBuffer mapAsset(String name) throws Exception {
+        try (android.content.res.AssetFileDescriptor fd = context.getAssets().openFd(name);
+             FileInputStream in = new FileInputStream(fd.getFileDescriptor())) {
+            return in.getChannel().map(java.nio.channels.FileChannel.MapMode.READ_ONLY,
+                fd.getStartOffset(), fd.getDeclaredLength());
+        } catch (Exception compressed) {
+            return readAsset(name);
+        }
+    }
+
+    /** Leaving the player: close the model and detectors (learned faces stay on disk). */
+    static void release() {
+        synchronized (WhoIsOnScreen.class) {
+            if (interpreter != null) {
+                interpreter.close();
+                interpreter = null;
+            }
+            if (detector != null) {
+                detector.close();
+                detector = null;
+            }
+            if (photoDetector != null) {
+                photoDetector.close();
+                photoDetector = null;
             }
         }
     }
