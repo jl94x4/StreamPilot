@@ -35,7 +35,7 @@ public class FaceLabelsView extends View {
     private final float dp;
 
     @Nullable private String status;
-    /** Named faces, left to right, in the order Left / Right step through them. */
+    /** Every face found, left to right, in the order Left / Right step through them (named or not). */
     private final List<WhoIsOnScreen.FoundFace> named = new ArrayList<>();
     private int selected = -1;
     /** Where the video picture sits in this view (letterbox / zoom aware). */
@@ -84,9 +84,8 @@ public class FaceLabelsView extends View {
         selected = -1;
         video.set(videoRect);
         if (next.faces != null) {
-            for (WhoIsOnScreen.FoundFace face : next.faces) {
-                if (face.person != null) named.add(face);
-            }
+            // Unnamed faces stay up too, as "Who is this?", so they can be named and learned.
+            named.addAll(next.faces);
         }
         Collections.sort(named, (a, b) -> Float.compare(a.box.centerX(), b.box.centerX()));
         if (named.isEmpty()) {
@@ -109,7 +108,8 @@ public class FaceLabelsView extends View {
         setVisibility(GONE);
     }
 
-    int namedCount() {
+    /** Faces up for picking (named and "Who is this?"). */
+    int faceCount() {
         return getVisibility() == VISIBLE ? named.size() : 0;
     }
 
@@ -123,7 +123,20 @@ public class FaceLabelsView extends View {
 
     @Nullable
     WhoIsOnScreen.Person selectedPerson() {
-        return selected >= 0 && selected < named.size() ? named.get(selected).person : null;
+        WhoIsOnScreen.FoundFace face = selectedFace();
+        return face == null ? null : face.person;
+    }
+
+    @Nullable
+    WhoIsOnScreen.FoundFace selectedFace() {
+        return selected >= 0 && selected < named.size() ? named.get(selected) : null;
+    }
+
+    /** A "Who is this?" answer: the label changes straight away. */
+    void nameFace(WhoIsOnScreen.FoundFace face, WhoIsOnScreen.Person person) {
+        face.person = person;
+        face.bestGuess = null;
+        invalidate();
     }
 
     @Override
@@ -147,6 +160,14 @@ public class FaceLabelsView extends View {
         boolean picked = selected == index;
         boolean dim = selected >= 0 && !picked;
         ring.setStrokeWidth((picked ? 5 : 3) * dp);
+        if (face.person == null) {
+            // Not recognised: a fainter ring and "Who is this?", dim unless it is the one picked.
+            ring.setAlpha(picked ? 255 : 110);
+            canvas.drawCircle(cx, cy, radius, ring);
+            drawLabel(canvas, cx, cy + radius + 6 * dp,
+                getContext().getString(R.string.player_faces_unknown), null, !picked);
+            return;
+        }
         ring.setAlpha(dim ? 140 : 255);
         canvas.drawCircle(cx, cy, radius, ring);
         String role = face.person.role == null || face.person.role.isEmpty() ? null : face.person.role;

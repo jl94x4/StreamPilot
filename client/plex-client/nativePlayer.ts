@@ -43,6 +43,8 @@ export type NativePlayerSessionPayload = {
     relatedItems?: Array<{ ratingKey: string; title: string; thumb?: string }>;
     /** Second Down on the OSD: who is in this title (episode guests first, then the show's cast). */
     cast?: NativePlayerCastMember[];
+    /** Who's on screen: the longer list it matches faces against (the strip uses `cast`). */
+    faceCast?: NativePlayerCastMember[];
     /** Per-show A/V delay in ms. */
     audioDelayMs?: number;
     playbackMode?: 'directPlay' | 'directStream' | 'transcode' | string;

@@ -18,7 +18,9 @@
     <string name="player_faces_learning">Getting to know the cast… %1$d/%2$d</string>
     <string name="player_faces_none">No one recognised in this shot</string>
     <string name="player_faces_failed">Couldn\'t read this shot</string>
-    <string name="player_faces_hint">◀ ▶ pick someone · OK to see their page</string>
+    <string name="player_faces_hint">◀ ▶ pick someone · OK: their page · hold OK: change name</string>
+    <string name="player_faces_unknown">Who is this?</string>
+    <string name="player_faces_learned">Got it: %1$s will be recognised from now on</string>
     <string name="player_playback_options">Playback Options</string>
     <string name="player_ends_at">Ends %1$s</string>
     <string name="player_quality">Quality</string>

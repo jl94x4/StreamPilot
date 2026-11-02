@@ -109,6 +109,9 @@ final class PlayerKeyHandler {
         /** OK on a picked face. False when none is picked (OK then resumes as usual). */
         boolean openPickedFace();
 
+        /** Hold OK on a picked face: "Who is this?" to name or correct it. */
+        boolean tagPickedFace();
+
         void clearFaces();
 
         /** Cast strip under the transport row (second Down). */
@@ -217,6 +220,10 @@ final class PlayerKeyHandler {
     }
 
     Result onKeyLongPress(int keyCode) {
+        if (isConfirm(keyCode) && host.facesNamed() && host.tagPickedFace()) {
+            confirmLongPress = true;
+            return Result.HANDLED;
+        }
         if (isConfirm(keyCode) || keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) {
             confirmLongPress = true;
             host.toggleStatsOverlay();

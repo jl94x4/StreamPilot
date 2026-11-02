@@ -398,7 +398,7 @@ public class PlayerActivity extends AppCompatActivity {
 
         @Override
         public boolean facesNamed() {
-            return !chromeVisible && facesView != null && facesView.namedCount() > 0;
+            return !chromeVisible && facesView != null && facesView.faceCount() > 0;
         }
 
         @Override
@@ -409,6 +409,11 @@ public class PlayerActivity extends AppCompatActivity {
         @Override
         public boolean openPickedFace() {
             return PlayerActivity.this.openPickedFace();
+        }
+
+        @Override
+        public boolean tagPickedFace() {
+            return PlayerActivity.this.tagPickedFace();
         }
 
         @Override
@@ -618,6 +623,12 @@ public class PlayerActivity extends AppCompatActivity {
         }
     }
     private final List<CastMember> castMembers = new ArrayList<>();
+    /**
+     * Who's on screen's list: the show's whole cast (the strip shows 24). Anyone missing from it
+     * can never be named, which is most of the roster on a wrestling show. Falls back to castMembers.
+     */
+    private final List<CastMember> faceCastMembers = new ArrayList<>();
+    private static final int FACE_CAST_MAX = 100;
     private View castPanel;
     private LinearLayout castRow;
     /** Names the cards were built from; rebuild only when the cast changes. */
@@ -1812,6 +1823,23 @@ public class PlayerActivity extends AppCompatActivity {
                 }
                 if (isCastStripVisible()) buildCastCards();
             }
+            if (root.has("faceCast")) {
+                faceCastMembers.clear();
+                JSONArray faceCast = root.optJSONArray("faceCast");
+                if (faceCast != null) {
+                    for (int i = 0; i < faceCast.length() && faceCastMembers.size() < FACE_CAST_MAX; i++) {
+                        JSONObject row = faceCast.optJSONObject(i);
+                        if (row == null) continue;
+                        String name = row.optString("name", "").trim();
+                        if (name.isEmpty()) continue;
+                        faceCastMembers.add(new CastMember(
+                            row.optString("id", name),
+                            name,
+                            row.optString("role", "").trim(),
+                            row.optString("thumb", "").trim()));
+                    }
+                }
+            }
             if (root.has("relatedItems")) {
                 relatedItems.clear();
                 JSONArray related = root.optJSONArray("relatedItems");
@@ -2407,7 +2435,7 @@ public class PlayerActivity extends AppCompatActivity {
         if (player == null || player.getPlayWhenReady() || !userPaused || finishing || facesView == null) return;
         if (player.getPlaybackState() != Player.STATE_READY) return;
         List<WhoIsOnScreen.Person> people = new ArrayList<>();
-        for (CastMember member : castMembers) {
+        for (CastMember member : faceCastMembers.isEmpty() ? castMembers : faceCastMembers) {
             people.add(new WhoIsOnScreen.Person(member.id, member.name, member.role, member.thumb));
         }
         if (people.isEmpty()) return;
@@ -2454,11 +2482,50 @@ public class PlayerActivity extends AppCompatActivity {
         facesView.showResult(failed, new RectF());
     }
 
-    /** OK on a picked face: leave the player (place saved, as on Back) for that person's page. */
+    /**
+     * OK on a picked face: a named one leaves the player (place saved, as on Back) for that
+     * person's page; an unnamed one asks "Who is this?".
+     */
     private boolean openPickedFace() {
-        WhoIsOnScreen.Person person = facesView == null ? null : facesView.selectedPerson();
-        if (person == null) return false;
+        WhoIsOnScreen.FoundFace face = facesView == null ? null : facesView.selectedFace();
+        if (face == null) return false;
+        if (face.person == null) return askWhoIsThis(face);
+        WhoIsOnScreen.Person person = face.person;
         openCastPerson(new CastMember(person.id, person.name, person.role, person.thumb));
+        return true;
+    }
+
+    /** Hold OK on a picked face: correct its name. */
+    private boolean tagPickedFace() {
+        WhoIsOnScreen.FoundFace face = facesView == null ? null : facesView.selectedFace();
+        return face != null && askWhoIsThis(face);
+    }
+
+    /**
+     * Everyone in the cast, closest match first. The pick names the face now and is kept as one
+     * more reference for that person, so they are recognised in later scans and other titles.
+     */
+    private boolean askWhoIsThis(WhoIsOnScreen.FoundFace face) {
+        if (face.ranked.isEmpty() || faceEngine == null) {
+            toast(getString(R.string.player_no_options));
+            return true;
+        }
+        final List<WhoIsOnScreen.Person> people = new ArrayList<>(face.ranked);
+        String[] labels = new String[people.size()];
+        int checked = 0;
+        for (int i = 0; i < people.size(); i++) {
+            WhoIsOnScreen.Person person = people.get(i);
+            labels[i] = person.role == null || person.role.isEmpty()
+                ? person.name
+                : person.name + "  ·  " + person.role;
+            if (person == face.person) checked = i;
+        }
+        showOptionSheet(getString(R.string.player_faces_unknown), labels, checked, which -> {
+            WhoIsOnScreen.Person picked = people.get(which);
+            if (facesView != null) facesView.nameFace(face, picked);
+            faceEngine.learn(picked, face.vector);
+            toast(getString(R.string.player_faces_learned, picked.name));
+        }, PlayerMenuNav.Return.CLOSE);
         return true;
     }
 

@@ -2,6 +2,11 @@ package com.servermanagerportal.mediaplayer;
 
 import android.content.Context;
 import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Matrix;
+import android.graphics.Paint;
+import android.graphics.PointF;
 import android.graphics.Rect;
 import android.graphics.RectF;
 import android.os.SystemClock;
@@ -15,6 +20,7 @@ import com.google.mlkit.vision.face.Face;
 import com.google.mlkit.vision.face.FaceDetection;
 import com.google.mlkit.vision.face.FaceDetector;
 import com.google.mlkit.vision.face.FaceDetectorOptions;
+import com.google.mlkit.vision.face.FaceLandmark;
 
 import org.tensorflow.lite.Interpreter;
 
@@ -29,9 +35,11 @@ import java.security.MessageDigest;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
@@ -74,6 +82,10 @@ final class WhoIsOnScreen {
         @Nullable Person person;
         float score;
         @Nullable String bestGuess;
+        /** This face's embedding, kept so a "Who is this?" pick can be learned from it. */
+        @Nullable float[] vector;
+        /** Everyone it was compared with, closest first: the order the picker lists them in. */
+        final List<Person> ranked = new ArrayList<>();
 
         FoundFace(RectF box) {
             this.box = box;
@@ -118,6 +130,13 @@ final class WhoIsOnScreen {
     private static FaceDetector photoDetector;
     private static final Map<String, float[]> castEmbeddings = new HashMap<>();
     private static final Set<String> castWithoutFace = new HashSet<>();
+    /**
+     * Faces you named with "Who is this?", per person (by name, so they carry across titles
+     * and servers): screen shots of them are far better references than one promo photo.
+     * Only touched on the worker thread.
+     */
+    private static final Map<String, List<float[]>> learnedFaces = new HashMap<>();
+    private static final int LEARNED_MAX = 16;
 
     private final Context context;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
@@ -129,6 +148,83 @@ final class WhoIsOnScreen {
 
     void cancel() {
         generation++;
+    }
+
+    /** "Who is this?" answered: keep this face as one more reference for that person. */
+    void learn(Person person, @Nullable float[] vector) {
+        if (vector == null || vector.length == 0) return;
+        final float[] copy = vector.clone();
+        worker.execute(() -> {
+            String key = personKey(person);
+            if (key.isEmpty()) return;
+            List<float[]> refs = new ArrayList<>(learnedFor(person));
+            refs.add(copy);
+            while (refs.size() > LEARNED_MAX) refs.remove(0);
+            learnedFaces.put(key, refs);
+            writeLearned(key, refs);
+        });
+    }
+
+    private static String personKey(Person person) {
+        return person.name == null ? "" : person.name.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private List<float[]> learnedFor(Person person) {
+        String key = personKey(person);
+        if (key.isEmpty()) return new ArrayList<>();
+        List<float[]> known = learnedFaces.get(key);
+        if (known == null) {
+            known = readLearned(key);
+            learnedFaces.put(key, known);
+        }
+        return known;
+    }
+
+    @Nullable
+    private File learnedFile(String key) {
+        try {
+            MessageDigest sha = MessageDigest.getInstance("SHA-1");
+            StringBuilder hex = new StringBuilder();
+            for (byte b : sha.digest(key.getBytes("UTF-8"))) hex.append(String.format("%02x", b));
+            File dir = new File(context.getFilesDir(), "face-learned-v2");
+            if (!dir.exists() && !dir.mkdirs()) return null;
+            return new File(dir, hex + ".vecs");
+        } catch (Exception error) {
+            return null;
+        }
+    }
+
+    private List<float[]> readLearned(String key) {
+        List<float[]> out = new ArrayList<>();
+        File file = learnedFile(key);
+        if (file == null || !file.exists()) return out;
+        try (DataInputStream in = new DataInputStream(new FileInputStream(file))) {
+            int count = in.readInt();
+            int size = in.readInt();
+            if (count < 0 || count > LEARNED_MAX || size <= 0 || size > 4096) return out;
+            for (int n = 0; n < count; n++) {
+                float[] vector = new float[size];
+                for (int i = 0; i < size; i++) vector[i] = in.readFloat();
+                out.add(vector);
+            }
+        } catch (Exception error) {
+            out.clear();
+        }
+        return out;
+    }
+
+    private void writeLearned(String key, List<float[]> refs) {
+        File file = learnedFile(key);
+        if (file == null || refs.isEmpty()) return;
+        try (DataOutputStream out = new DataOutputStream(new FileOutputStream(file))) {
+            out.writeInt(refs.size());
+            out.writeInt(refs.get(0).length);
+            for (float[] vector : refs) {
+                for (float v : vector) out.writeFloat(v);
+            }
+        } catch (Exception ignored) {
+            /* the in-memory copy still works this session */
+        }
     }
 
     void shutdown() {
@@ -161,7 +257,7 @@ final class WhoIsOnScreen {
                 }
 
                 long t2 = SystemClock.elapsedRealtime();
-                Map<Person, float[]> castVectors = castVectors(cast, loader, run, progress);
+                Map<Person, List<float[]>> castVectors = castVectors(cast, loader, run, progress);
                 result.castMs = SystemClock.elapsedRealtime() - t2;
                 result.castTotal = cast.size();
                 result.castWithFaces = castVectors.size();
@@ -196,12 +292,14 @@ final class WhoIsOnScreen {
             if (detector == null) {
                 detector = FaceDetection.getClient(new FaceDetectorOptions.Builder()
                     .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
+                    .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
                     .setMinFaceSize(0.05f)
                     .build());
             }
             if (photoDetector == null) {
                 photoDetector = FaceDetection.getClient(new FaceDetectorOptions.Builder()
                     .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
+                    .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
                     .setMinFaceSize(0.2f)
                     .build());
             }
@@ -282,7 +380,8 @@ final class WhoIsOnScreen {
             MessageDigest sha = MessageDigest.getInstance("SHA-1");
             StringBuilder hex = new StringBuilder();
             for (byte b : sha.digest(url.getBytes("UTF-8"))) hex.append(String.format("%02x", b));
-            File dir = new File(context.getFilesDir(), "face-cast");
+            // v2: aligned + mirrored embeddings. The older unaligned ones don't compare.
+            File dir = new File(context.getFilesDir(), "face-cast-v2");
             if (!dir.exists() && !dir.mkdirs()) return null;
             return new File(dir, hex + ".vec");
         } catch (Exception error) {
@@ -317,53 +416,68 @@ final class WhoIsOnScreen {
         }
     }
 
-    /** Cast photo embeddings: memory, then disk, then learned from the photo (and saved). */
-    private Map<Person, float[]> castVectors(List<Person> cast, ImageLoader loader, int run, Progress progress) throws Exception {
-        Map<Person, float[]> out = new HashMap<>();
+    /**
+     * Each person's references: their cast photo (memory, then disk, then learned and saved)
+     * plus any faces you named. Someone whose photo has no usable face still counts if named.
+     */
+    private Map<Person, List<float[]>> castVectors(List<Person> cast, ImageLoader loader, int run, Progress progress) throws Exception {
+        Map<Person, List<float[]>> out = new HashMap<>();
         int index = 0;
         for (Person person : cast) {
             index++;
             if (run != generation) break;
-            if (person.thumb == null || person.thumb.isEmpty()) continue;
-            float[] known = castEmbeddings.get(person.thumb);
-            if (known == null && !castWithoutFace.contains(person.thumb)) {
-                float[] saved = readCastCache(person.thumb);
-                if (saved != null && saved.length == 0) castWithoutFace.add(person.thumb);
-                else if (saved != null) castEmbeddings.put(person.thumb, saved);
-                known = saved != null && saved.length > 0 ? saved : null;
-            }
-            if (known != null) {
-                out.put(person, known);
-                continue;
-            }
-            if (castWithoutFace.contains(person.thumb)) continue;
-            if (progress != null) progress.onLearning(index, cast.size());
-            Bitmap raw = loader.load(person.thumb);
-            if (raw == null) {
-                // Not saved to disk (it may load next time), but not retried on every pause either.
-                castWithoutFace.add(person.thumb);
-                continue;
-            }
-            Bitmap photo = shrinkPhoto(raw);
-            List<Face> faces = detectPhoto(photo);
-            Face largest = null;
-            for (Face face : faces) {
-                if (largest == null || area(face.getBoundingBox()) > area(largest.getBoundingBox())) largest = face;
-            }
-            if (largest == null) {
-                castWithoutFace.add(person.thumb);
-                writeCastCache(person.thumb, new float[0]);
-                continue;
-            }
-            float[] vector = embed(photo, largest.getBoundingBox());
-            castEmbeddings.put(person.thumb, vector);
-            writeCastCache(person.thumb, vector);
-            out.put(person, vector);
+            List<float[]> refs = new ArrayList<>(learnedFor(person));
+            float[] photo = photoVector(person, loader, index, cast.size(), progress);
+            if (photo != null) refs.add(0, photo);
+            if (!refs.isEmpty()) out.put(person, refs);
         }
         return out;
     }
 
-    private static void match(Bitmap frame, List<Face> faces, Map<Person, float[]> castVectors, Result result) {
+    @Nullable
+    private float[] photoVector(Person person, ImageLoader loader, int index, int total, Progress progress) throws Exception {
+        if (person.thumb == null || person.thumb.isEmpty()) return null;
+        float[] known = castEmbeddings.get(person.thumb);
+        if (known == null && !castWithoutFace.contains(person.thumb)) {
+            float[] saved = readCastCache(person.thumb);
+            if (saved != null && saved.length == 0) castWithoutFace.add(person.thumb);
+            else if (saved != null) castEmbeddings.put(person.thumb, saved);
+            known = saved != null && saved.length > 0 ? saved : null;
+        }
+        if (known != null) return known;
+        if (castWithoutFace.contains(person.thumb)) return null;
+        if (progress != null) progress.onLearning(index, total);
+        Bitmap raw = loader.load(person.thumb);
+        if (raw == null) {
+            // Not saved to disk (it may load next time), but not retried on every pause either.
+            castWithoutFace.add(person.thumb);
+            return null;
+        }
+        Bitmap photo = shrinkPhoto(raw);
+        List<Face> faces = detectPhoto(photo);
+        Face largest = null;
+        for (Face face : faces) {
+            if (largest == null || area(face.getBoundingBox()) > area(largest.getBoundingBox())) largest = face;
+        }
+        if (largest == null) {
+            castWithoutFace.add(person.thumb);
+            writeCastCache(person.thumb, new float[0]);
+            return null;
+        }
+        float[] vector = embed(photo, largest);
+        castEmbeddings.put(person.thumb, vector);
+        writeCastCache(person.thumb, vector);
+        return vector;
+    }
+
+    /** A face against one person: the closest of their photo and the faces you named. */
+    private static float bestScore(float[] face, List<float[]> refs) {
+        float best = -1f;
+        for (float[] ref : refs) best = Math.max(best, cosine(face, ref));
+        return best;
+    }
+
+    private static void match(Bitmap frame, List<Face> faces, Map<Person, List<float[]>> castVectors, Result result) {
         List<float[]> vectors = new ArrayList<>();
         for (Face face : faces) {
             Rect box = face.getBoundingBox();
@@ -372,8 +486,10 @@ final class WhoIsOnScreen {
                 clamp01((float) box.top / frame.getHeight()),
                 clamp01((float) box.right / frame.getWidth()),
                 clamp01((float) box.bottom / frame.getHeight())));
+            float[] vector = embed(frame, face);
+            found.vector = vector;
             result.faces.add(found);
-            vectors.add(embed(frame, box));
+            vectors.add(vector);
         }
         // Greedy: the strongest face/person pairs first, so one person never names two faces.
         Set<Person> taken = new HashSet<>();
@@ -384,9 +500,9 @@ final class WhoIsOnScreen {
             float bestScore = -1f;
             for (int i = 0; i < vectors.size(); i++) {
                 if (named[i]) continue;
-                for (Map.Entry<Person, float[]> entry : castVectors.entrySet()) {
+                for (Map.Entry<Person, List<float[]>> entry : castVectors.entrySet()) {
                     if (taken.contains(entry.getKey())) continue;
-                    float score = cosine(vectors.get(i), entry.getValue());
+                    float score = bestScore(vectors.get(i), entry.getValue());
                     if (score > bestScore) {
                         bestScore = score;
                         bestFace = i;
@@ -396,9 +512,9 @@ final class WhoIsOnScreen {
             }
             if (bestFace < 0 || bestScore < MATCH_MIN) break;
             float runnerUp = -1f;
-            for (Map.Entry<Person, float[]> entry : castVectors.entrySet()) {
+            for (Map.Entry<Person, List<float[]>> entry : castVectors.entrySet()) {
                 if (entry.getKey() == bestPerson || taken.contains(entry.getKey())) continue;
-                runnerUp = Math.max(runnerUp, cosine(vectors.get(bestFace), entry.getValue()));
+                runnerUp = Math.max(runnerUp, bestScore(vectors.get(bestFace), entry.getValue()));
             }
             named[bestFace] = true;
             FoundFace found = result.faces.get(bestFace);
@@ -414,25 +530,76 @@ final class WhoIsOnScreen {
         for (int i = 0; i < vectors.size(); i++) {
             FoundFace found = result.faces.get(i);
             if (found.person != null || found.bestGuess != null) continue;
-            for (Map.Entry<Person, float[]> entry : castVectors.entrySet()) {
-                float score = cosine(vectors.get(i), entry.getValue());
+            for (Map.Entry<Person, List<float[]>> entry : castVectors.entrySet()) {
+                float score = bestScore(vectors.get(i), entry.getValue());
                 if (score > found.score) {
                     found.score = score;
                     found.bestGuess = entry.getKey().name;
                 }
             }
         }
+        // Everyone, closest first, for "Who is this?" (photo-less cast last, in cast order).
+        for (int i = 0; i < vectors.size(); i++) {
+            final float[] vector = vectors.get(i);
+            List<Person> order = new ArrayList<>(castVectors.keySet());
+            Collections.sort(order, (a, b) -> Float.compare(
+                bestScore(vector, castVectors.get(b)), bestScore(vector, castVectors.get(a))));
+            result.faces.get(i).ranked.addAll(order);
+        }
     }
 
-    /** FaceNet: a margin round the face, 160×160, per-image standardised, L2-normalised out. */
-    private static float[] embed(Bitmap source, Rect box) {
-        int margin = Math.round(Math.max(box.width(), box.height()) * 0.12f);
-        int left = Math.max(0, box.left - margin);
-        int top = Math.max(0, box.top - margin);
-        int right = Math.min(source.getWidth(), box.right + margin);
-        int bottom = Math.min(source.getHeight(), box.bottom + margin);
-        Bitmap crop = Bitmap.createBitmap(source, left, top, Math.max(1, right - left), Math.max(1, bottom - top));
-        Bitmap scaled = Bitmap.createScaledBitmap(crop, inputSize, inputSize, true);
+    /**
+     * FaceNet input for one face, compared twice: the face straightened so the eyes are level
+     * (the model expects aligned faces; a tilted head scored low against a straight headshot),
+     * and its mirror image. The two are averaged, which steadies angled shots.
+     */
+    private static float[] embed(Bitmap source, Face face) {
+        Rect box = face.getBoundingBox();
+        float tilt = eyeTiltDegrees(face);
+        float[] a = embedPixels(alignedCrop(source, box, tilt, false));
+        float[] b = embedPixels(alignedCrop(source, box, tilt, true));
+        float[] vector = new float[a.length];
+        for (int i = 0; i < a.length; i++) vector[i] = a[i] + b[i];
+        return normalize(vector);
+    }
+
+    /** Angle of the line between the eyes, 0 when ML Kit gave no eye landmarks. */
+    private static float eyeTiltDegrees(Face face) {
+        FaceLandmark left = face.getLandmark(FaceLandmark.LEFT_EYE);
+        FaceLandmark right = face.getLandmark(FaceLandmark.RIGHT_EYE);
+        if (left == null || right == null) return 0f;
+        PointF a = left.getPosition();
+        PointF b = right.getPosition();
+        // Left to right on screen, whichever eye ML Kit calls left.
+        PointF first = a.x <= b.x ? a : b;
+        PointF second = a.x <= b.x ? b : a;
+        float degrees = (float) Math.toDegrees(Math.atan2(second.y - first.y, second.x - first.x));
+        // Past ~40° the landmarks are usually wrong (profile, occlusion): don't spin the face.
+        return Math.abs(degrees) > 40f ? 0f : degrees;
+    }
+
+    /**
+     * The same framing as before (the box plus a 12% margin, centred on the box) drawn straight
+     * into the model's input size, rotated by -tilt round the box centre and optionally mirrored.
+     * Outside the picture stays black.
+     */
+    private static Bitmap alignedCrop(Bitmap source, Rect box, float tilt, boolean mirror) {
+        float side = Math.max(box.width(), box.height()) * 1.24f;
+        float scale = inputSize / Math.max(1f, side);
+        Matrix m = new Matrix();
+        m.postTranslate(-box.exactCenterX(), -box.exactCenterY());
+        m.postRotate(-tilt);
+        m.postScale(mirror ? -scale : scale, scale);
+        m.postTranslate(inputSize / 2f, inputSize / 2f);
+        Bitmap out = Bitmap.createBitmap(inputSize, inputSize, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(out);
+        canvas.drawColor(Color.BLACK);
+        canvas.drawBitmap(source, m, new Paint(Paint.FILTER_BITMAP_FLAG));
+        return out;
+    }
+
+    /** One model run on an inputSize² face: per-image standardised in, L2-normalised out. */
+    private static float[] embedPixels(Bitmap scaled) {
         int count = inputSize * inputSize;
         int[] pixels = new int[count];
         scaled.getPixels(pixels, 0, inputSize, 0, 0, inputSize, inputSize);
@@ -459,15 +626,17 @@ final class WhoIsOnScreen {
         synchronized (WhoIsOnScreen.class) {
             interpreter.run(input, output);
         }
-        float[] vector = output[0];
+        scaled.recycle();
+        return normalize(output[0]);
+    }
+
+    private static float[] normalize(float[] vector) {
         double norm = 0;
         for (float v : vector) norm += v * v;
         norm = Math.sqrt(norm);
         if (norm > 0) {
             for (int i = 0; i < vector.length; i++) vector[i] = (float) (vector[i] / norm);
         }
-        if (crop != source) crop.recycle();
-        scaled.recycle();
         return vector;
     }
 

@@ -414,9 +414,11 @@ const CAST_FETCH_DELAY_MS = 30_000;
 
 /** Native cast strip: up to 24 people, photos sized for its round cards. */
 const NATIVE_CAST_MAX = 24;
-const nativeCastPayload = (people: PlayerPersonCredit[]) => people
+/** Who's on screen compares against this many (the strip still shows 24): a show's whole roster. */
+const NATIVE_FACE_CAST_MAX = 100;
+const nativeCastPayload = (people: PlayerPersonCredit[], max = NATIVE_CAST_MAX) => people
     .filter((row) => row?.name)
-    .slice(0, NATIVE_CAST_MAX)
+    .slice(0, max)
     .map((row) => ({
         id: String(row.id || row.name),
         name: row.name,
@@ -1003,6 +1005,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
             })),
             markers: session.markers || { intro: null, credits: null },
             cast: nativeCastPayload(castRef.current),
+            faceCast: nativeCastPayload(castRef.current, NATIVE_FACE_CAST_MAX),
             nextItem: nativeNextItemPayload(item),
             previousItem: nativeNextItemPayload(previousItemRef.current),
             relatedItems: relatedItemsRef.current.slice(0, 5).map((row) => ({
@@ -2320,11 +2323,16 @@ export const MediaPlayerVideo: React.FC<Props> = ({
         castRef.current = mergeCast(cachedOwn, cachedShow);
         const publish = () => {
             if (cancelled || !castRef.current.length || !nativeExclusiveRef.current) return;
-            void updateNativePlayerSession({ cast: nativeCastPayload(castRef.current) });
+            void updateNativePlayerSession({
+                cast: nativeCastPayload(castRef.current),
+                faceCast: nativeCastPayload(castRef.current, NATIVE_FACE_CAST_MAX),
+            });
         };
         publish();
-        const needOwn = !cachedOwn.length;
-        const needShow = Boolean(showKey) && !cachedShow.length;
+        // A page's cast stops at 24. A full one was probably cut short: re-read it (up to 100)
+        // so Who's on screen gets the whole roster.
+        const needOwn = !cachedOwn.length || cachedOwn.length >= NATIVE_CAST_MAX;
+        const needShow = Boolean(showKey) && (!cachedShow.length || cachedShow.length >= NATIVE_CAST_MAX);
         if (!needOwn && !needShow) return () => { cancelled = true; };
         const timer = window.setTimeout(() => {
             void (async () => {
