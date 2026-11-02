@@ -1253,6 +1253,13 @@ public class PlayerActivity extends AppCompatActivity {
         });
         facesView = findViewById(R.id.player_faces);
         castRow = findViewById(R.id.player_cast_row);
+        View castScroll = findViewById(R.id.player_cast_scroll);
+        if (castScroll != null) {
+            // Swiping through the cast on a phone: same, don't hide mid-scroll.
+            castScroll.setOnScrollChangeListener((v, x, y, oldX, oldY) -> {
+                if (chromeVisible && x != oldX) bumpChrome();
+            });
+        }
         upNextArt = findViewById(R.id.player_up_next_art);
         upNextArtFrame = findViewById(R.id.player_up_next_art_frame);
         upNextRing = findViewById(R.id.player_up_next_ring);
@@ -5240,20 +5247,10 @@ public class PlayerActivity extends AppCompatActivity {
         if (prefs.contains(key + ":delay")) {
             audioDelayMs = Math.max(0, Math.min(1000, prefs.getInt(key + ":delay", audioDelayMs)));
         }
-        String savedAudio = prefs.getString(key + ":audio", null);
-        String savedSub = prefs.getString(key + ":sub", null);
-        String savedAudioLang = prefs.getString(key + ":audioLang", "");
-        String savedSubLang = prefs.getString(key + ":subLang", null);
-        String matchedAudio = matchTrackIdByLang(audioTracks, savedAudioLang);
-        if (matchedAudio != null) audioStreamId = matchedAudio;
-        if (savedSubLang != null) {
-            if (savedSubLang.isEmpty() || "off".equalsIgnoreCase(savedSubLang)) {
-                subtitleStreamId = "";
-            } else {
-                String matchedSub = matchTrackIdByLang(subtitles, savedSubLang);
-                if (matchedSub != null) subtitleStreamId = matchedSub;
-            }
-        }
+        // Audio and subtitles come from the session: the title page sends its pick, and the
+        // app already remembers in-player changes per title (writeAvChoiceFromTracks). Matching
+        // a saved language here overrode that pick every time, so a page choice was ignored
+        // and a title stuck on whatever was saved (the first track, after an earlier bug).
     }
 
     private void saveAvPrefs() {
@@ -5620,15 +5617,6 @@ public class PlayerActivity extends AppCompatActivity {
         flashModeChip();
         toast(getString(R.string.player_quality_auto_lowered, qualityLadderLabel(next)));
         requestStreamChange(next, audioStreamId, subtitleStreamId, mediaIndex);
-    }
-
-    private static String matchTrackIdByLang(List<OptionItem> tracks, String langKey) {
-        String want = TrackRules.trackLangKey(langKey);
-        if (want.isEmpty() || tracks == null || tracks.isEmpty()) return null;
-        for (OptionItem track : tracks) {
-            if (want.equals(TrackRules.trackLangKey(track.label))) return track.id;
-        }
-        return null;
     }
 
     private String prefsKey() {
@@ -6191,6 +6179,8 @@ public class PlayerActivity extends AppCompatActivity {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
+        // Moving along the cast strip is activity: keep the controls (and the strip) up.
+        if (event.getAction() == KeyEvent.ACTION_DOWN && isCastStripFocused()) bumpChrome();
         PlayerKeyHandler.Result result = keyHandler.dispatchKeyEvent(event);
         if (result == PlayerKeyHandler.Result.SUPER) return super.dispatchKeyEvent(event);
         return result == PlayerKeyHandler.Result.HANDLED;

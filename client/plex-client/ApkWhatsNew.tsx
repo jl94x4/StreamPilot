@@ -73,6 +73,16 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.605': [
+        {
+            title: 'Player',
+            items: [
+                'Audio and subtitles picked on the title page are the ones that play, instead of a language remembered by the player',
+                'The controls stay up while you scroll through the cast strip',
+                'Who\'s on screen only names someone when it is sure, so people missing from the cast list are no longer given a cast member\'s name',
+            ],
+        },
+    ],
     '1.0.604': [
         {
             title: 'Subtitles',

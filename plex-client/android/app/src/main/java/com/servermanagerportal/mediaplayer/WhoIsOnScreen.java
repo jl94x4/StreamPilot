@@ -47,9 +47,12 @@ final class WhoIsOnScreen {
     private static final String TAG = "WhoIsOnScreen";
     private static final String MODEL_ASSET = "models/facenet.tflite";
     /** Cosine similarity a face needs to get a name, and its lead over the runner-up. */
-    // 0.55 left correct names at ~51% (eyes closed, looking down) as guesses.
-    static final float MATCH_MIN = 0.48f;
-    static final float MATCH_MARGIN = 0.04f;
+    // Only the title's Plex cast can be named, so someone missing from it (common on WWE and
+    // other thin cast lists) took the nearest-looking cast member's name at 0.48 / 0.04.
+    // No name beats a wrong one: some real cast in poor shots (eyes closed, looking down)
+    // go unnamed again, as they did at 0.55.
+    static final float MATCH_MIN = 0.58f;
+    static final float MATCH_MARGIN = 0.08f;
 
     static final class Person {
         final String id;
