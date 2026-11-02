@@ -2459,13 +2459,56 @@ const kickTranscodeStart = async (server: PlexServer | null, src: string) => {
     }
 };
 
+/**
+ * mapServer is one global that pms(), image URLs, theme and playback URLs fall back to. Work for
+ * two servers at once (Home loads every server in parallel; Home, hero and libraries load together)
+ * overwrote it mid-request: posters and lists were built against the other server's address and
+ * token, so with a friend's server added nothing loaded from any server. Different servers now
+ * take turns; work for the same server still runs together.
+ */
+let mapServerHolds = 0;
+let mapServerWaiters: Array<() => void> = [];
+/** A wait this long means work for one server started work for another inside it: go ahead. */
+const MAP_SERVER_WAIT_MS = 4000;
+
+const waitForMapServer = (id: string) => new Promise<void>((resolve) => {
+    let done = false;
+    const finish = () => {
+        if (done) return;
+        done = true;
+        window.clearTimeout(timer);
+        resolve();
+    };
+    const timer = window.setTimeout(() => {
+        console.warn(`[plexDirect] server ${id || '(none)'} waited ${MAP_SERVER_WAIT_MS}ms for another server; continuing`);
+        mapServerWaiters = mapServerWaiters.filter((row) => row !== finish);
+        finish();
+    }, MAP_SERVER_WAIT_MS);
+    mapServerWaiters.push(finish);
+});
+
 const withMapServer = async <T,>(server: PlexServer | null, run: () => Promise<T>) => {
+    const id = server?.id || '';
+    const waitStarted = Date.now();
+    while (mapServerHolds > 0 && (mapServer?.id || '') !== id && Date.now() - waitStarted < MAP_SERVER_WAIT_MS) {
+        await waitForMapServer(id);
+    }
     const previous = mapServer;
     mapServer = server;
+    mapServerHolds += 1;
     try {
         return await run();
     } finally {
-        mapServer = previous;
+        mapServerHolds -= 1;
+        // Restore only when this was the last holder: another holder's restore must not wipe ours.
+        if (mapServerHolds === 0) {
+            mapServer = null;
+            const waiting = mapServerWaiters;
+            mapServerWaiters = [];
+            for (const wake of waiting) wake();
+        } else if (mapServer === server && previous) {
+            mapServer = previous;
+        }
     }
 };
 
