@@ -46,6 +46,8 @@ import {
     type PlayerScreensaverStyle,
     type PlayerScreensaverSource,
     type PlayerSubtitleMode,
+    PLAYER_NAV_ITEMS,
+    type PlayerNavItem,
 } from './playerSettings';
 import { usePlayerSettings } from './usePlayerSettings';
 import { formatPlayerDate } from './playerUtils';
@@ -654,6 +656,25 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
         ...qualityOptions.map((row) => ({ value: row.id, label: row.label })),
     ];
     // Each shape shows next to its name, drawn the way row headers will draw it.
+    // Settings → Sidebar items: one switch per item, on = shown. Downloads only exists off TV.
+    const sidebarItemLabels: Record<PlayerNavItem, string> = {
+        watchlist: t('mediaPlayerPage.navWatchlist'),
+        history: t('mediaPlayerPage.navHistory'),
+        livetv: t('mediaPlayerPage.navLiveTv'),
+        downloads: t('mediaPlayerPage.navDownloads'),
+        search: t('mediaPlayerPage.navSearch'),
+    };
+    const sidebarItemRows = PLAYER_NAV_ITEMS
+        .filter((item) => !(tvShell && item === 'downloads'))
+        .map((item) => ({
+            item,
+            title: t('mediaPlayerPage.sidebarItemShow', { name: sidebarItemLabels[item] }),
+            shown: !settings.hiddenNavItems.includes(item),
+        }));
+    const setSidebarItemShown = (item: PlayerNavItem, shown: boolean) => {
+        const hidden = settings.hiddenNavItems.filter((row) => row !== item);
+        updateSettings({ hiddenNavItems: shown ? hidden : [...hidden, item] });
+    };
     const rowMarkerOptions = useMemo(() => PLAYER_ROW_MARKERS.map((marker) => ({
         value: marker,
         label: t(`mediaPlayerPage.rowMarker_${marker}`),
@@ -1443,6 +1464,15 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         checked={settings.clock24Hour}
                         onChange={(checked) => updateSettings({ clock24Hour: checked })}
                     />
+                    {sidebarItemRows.map((row) => (
+                        <TvToggleRow
+                            key={row.item}
+                            title={row.title}
+                            description={t('mediaPlayerPage.sidebarItemsHint')}
+                            checked={row.shown}
+                            onChange={(checked) => setSidebarItemShown(row.item, checked)}
+                        />
+                    ))}
                     <PerfDiagnosticsRows />
                     <TvChoiceRow
                         title={t('mediaPlayerPage.dateFormat')}
@@ -2068,6 +2098,15 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                                 options={rowMarkerOptions.map(({ value, label }) => ({ value, label }))}
                             />
                         </div>
+                        {sidebarItemRows.map((row) => (
+                            <SettingsToggleRow
+                                key={row.item}
+                                title={row.title}
+                                description={t('mediaPlayerPage.sidebarItemsHint')}
+                                checked={row.shown}
+                                onChange={(checked) => setSidebarItemShown(row.item, checked)}
+                            />
+                        ))}
                         {isPlexDirectMode() ? (
                             <div className="py-4">
                                 <label className="mb-2 block text-sm font-bold text-text" htmlFor="media-player-accent-color">
