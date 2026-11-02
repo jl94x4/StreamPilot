@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.603': [
+        {
+            title: 'Libraries',
+            items: [
+                'All of a library\'s pinned rows load again: rows such as Recently Released, Top Rated or a genre were left out',
+            ],
+        },
+    ],
     '1.0.602': [
         {
             title: 'More than one server',

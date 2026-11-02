@@ -3817,7 +3817,7 @@ const enrichThinRecentHubs = async <T extends {
     return out;
 };
 
-const fillPlexHomeHub = async (hub: PlexMeta, server: PlexServer, many: boolean) => {
+const fillPlexHomeHub = async (hub: PlexMeta, server: PlexServer, many: boolean, sectionType = '') => {
     const ready = hubsFrom({ MediaContainer: { Hub: [hub] } }, server, many)[0];
     const recentHub = isRecentListHub(hub);
     // Any inline row is enough to paint. Refetching it blocked every other pin.
@@ -3857,6 +3857,14 @@ const fillPlexHomeHub = async (hub: PlexMeta, server: PlexServer, many: boolean)
     }
     if (isRandomOrderSource(hub) && !parsed.searchParams.get('sort')) {
         parsed.searchParams.set('sort', 'random');
+    }
+    // Library rows such as Recently Released / Top Rated / a genre point at the section's
+    // /all list without type=. guardSectionAll refuses those (an untyped /all walks every
+    // episode), so the row came back empty and vanished. Use the row's type, else the library's.
+    if (/^\/library\/sections\/[^/]+\/all$/.test(path) && !parsed.searchParams.get('type')) {
+        const listType = sectionAllType(String(hub.type || '').toLowerCase())
+            || sectionAllType(String(sectionType || '').toLowerCase());
+        if (listType) parsed.searchParams.set('type', listType);
     }
     const query = parsed.searchParams.toString();
     const storedPath = `${path}${query ? `?${query}` : ''}`;
@@ -4488,10 +4496,10 @@ const pinnedHubs = async (data: any, server: PlexServer, many: boolean, extra: P
 };
 
 /** Every pinned library hub, including ones Plex listed without inline items. */
-const sectionPinnedHubs = async (data: any, server: PlexServer, many: boolean) => {
+const sectionPinnedHubs = async (data: any, server: PlexServer, many: boolean, sectionType = '') => {
     const shells = asList<PlexMeta>(containerOf(data).Hub);
     if (!shells.length) return [];
-    const filled = await mapPool(shells, 6, (hub) => fillPlexHomeHub(hub, server, many));
+    const filled = await mapPool(shells, 6, (hub) => fillPlexHomeHub(hub, server, many, sectionType));
     return uniquifyHubs(filled.filter((hub): hub is NonNullable<typeof hub> => !!hub && hub.items.length > 0));
 };
 
@@ -6393,13 +6401,13 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
             }),
         ]);
         let hubs = earlyMeta.answered
-            ? await withMapServer(active, () => sectionPinnedHubs(earlyMeta.data, active, many))
+            ? await withMapServer(active, () => sectionPinnedHubs(earlyMeta.data, active, many, sectionRow?.type))
             : [];
         let metaAnswered = earlyMeta.answered;
         if (!hubs.some(contentHomeHub)) {
             const plain = await plainP;
             if (plain.answered) {
-                const retry = await withMapServer(active, () => sectionPinnedHubs(plain.data, active, many));
+                const retry = await withMapServer(active, () => sectionPinnedHubs(plain.data, active, many, sectionRow?.type));
                 if (retry.some(contentHomeHub) || retry.length > hubs.length) hubs = retry;
             }
         }
@@ -6407,7 +6415,7 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
             const late = await requestedP;
             metaAnswered = late.answered;
             if (late.answered) {
-                const retry = await withMapServer(active, () => sectionPinnedHubs(late.data, active, many));
+                const retry = await withMapServer(active, () => sectionPinnedHubs(late.data, active, many, sectionRow?.type));
                 if (retry.some(contentHomeHub) || retry.length > hubs.length) hubs = retry;
             }
         }
