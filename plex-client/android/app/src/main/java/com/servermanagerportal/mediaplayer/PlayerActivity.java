@@ -991,6 +991,7 @@ public class PlayerActivity extends AppCompatActivity {
             currentUrl = currentUrl.trim();
             absorbTimelineFromUrl(currentUrl);
             applyTitleChrome();
+            syncSidecarToSelectedSubtitle();
 
             Map<String, String> headers = headersWithCookies(currentUrl, PlaybackUrls.parseHeaders(headersJson));
             headers.put("Accept-Encoding", "identity");
@@ -4008,6 +4009,26 @@ public class PlayerActivity extends AppCompatActivity {
         updateChipLabels();
         // Rebuild without image burn (Off or prior text track).
         requestStreamChange(qualityId, audioStreamId, subtitleStreamId, mediaIndex);
+    }
+
+    /**
+     * Plex's pick (or the one remembered for this show) can be an external file such as
+     * "English (SRT External)". Only the menu loaded those, so at start the player looked
+     * for it inside the file, found nothing, and showed the first in-file track instead.
+     * Direct Play only: a transcode gets its subtitles from the server.
+     */
+    private void syncSidecarToSelectedSubtitle() {
+        if (!PlaybackUrls.isDirectPlayUrl(currentUrl)) return;
+        if (subtitleStreamId == null || subtitleStreamId.isEmpty()) {
+            sidecarSubtitleUrl = "";
+            sidecarSubtitleCodec = "";
+            return;
+        }
+        OptionItem row = findSubtitleOption(subtitleStreamId);
+        if (row == null) return;
+        boolean sidecar = row.url != null && !row.url.trim().isEmpty();
+        sidecarSubtitleUrl = sidecar ? row.url : "";
+        sidecarSubtitleCodec = sidecar ? row.codec : "";
     }
 
     @Nullable

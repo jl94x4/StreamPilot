@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.604': [
+        {
+            title: 'Subtitles',
+            items: [
+                'A title set to an external subtitle file (such as English SRT External) now plays with it, instead of the first subtitle inside the file',
+            ],
+        },
+    ],
     '1.0.603': [
         {
             title: 'Libraries',
