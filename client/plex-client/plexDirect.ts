@@ -6785,6 +6785,14 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
             return { available: false, speechMs: [] as number[] };
         }
     }
+    // Player cast strip: the title's own metadata only (one request), never the full details load.
+    const itemCast = path.match(/^\/api\/media-player\/item\/([^/]+)\/cast$/);
+    if (itemCast && method === 'GET') {
+        const key = decodeURIComponent(itemCast[1]);
+        const server = resolveServer(query.get('server'), key);
+        const meta = await metadata(key, server).catch(() => null);
+        return { cast: meta ? (mapItem(meta).cast || []) : [] };
+    }
     const itemMore = path.match(/^\/api\/media-player\/item\/([^/]+)\/more$/);
     if (itemMore && method === 'GET') {
         const key = decodeURIComponent(itemMore[1]);

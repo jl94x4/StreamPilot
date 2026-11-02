@@ -15,9 +15,9 @@ android {
         applicationId "com.streampilot.mediaplayer"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 585
+        versionCode 586
         // Settings shows this versionName. `npm run build:apk` auto-bumps both.
-        versionName "1.0.585"
+        versionName "1.0.586"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             // TVs and phones are ARM. The face test's native libraries doubled the APK with x86 copies.

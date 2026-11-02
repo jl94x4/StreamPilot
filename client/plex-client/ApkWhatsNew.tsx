@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.586': [
+        {
+            title: 'Playback fix',
+            items: [
+                'Fixed "This title cannot be played" and stuttering playback: starting a film or episode no longer loads the whole details page (seasons, extras and more) in the background for the cast strip',
+                'The cast strip now uses the cast the app already has, and fetches any missing names with one small request 30 seconds into playback',
+            ],
+        },
+    ],
     '1.0.585': [
         {
             title: 'Who\'s on screen (test)',

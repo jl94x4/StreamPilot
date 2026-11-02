@@ -34,6 +34,7 @@ import type {
     PlayerLibraryStudios,
     PlayerPlaySession,
     PlayerPersonBundle,
+    PlayerPersonCredit,
     PlayerPersonCreditRow,
     PlayerPersonPage,
     PlayerPersonProfile,
@@ -694,6 +695,20 @@ export const fetchMediaPlayerNeighbors = (ratingKey: string, serverId?: string |
 );
 
 const itemInflight = new Map<string, Promise<PlayerItemPage>>();
+
+const castCache = new Map<string, PlayerPersonCredit[]>();
+
+/** Cast only (one small metadata read), remembered for the session. For the player's cast strip. */
+export const fetchMediaPlayerCast = async (ratingKey: string, serverId?: string | null): Promise<PlayerPersonCredit[]> => {
+    const key = `${serverId || ''}|${ratingKey}`;
+    const hit = castCache.get(key);
+    if (hit) return hit;
+    const qs = serverId ? `?server=${encodeURIComponent(serverId)}` : '';
+    const data = await apiFetch(`${PLAYER_API_ROOT}/item/${encodeURIComponent(ratingKey)}/cast${qs}`) as { cast?: PlayerPersonCredit[] };
+    const cast = Array.isArray(data?.cast) ? data.cast : [];
+    castCache.set(key, cast);
+    return cast;
+};
 
 export const fetchMediaPlayerItem = (ratingKey: string, opts: { core?: boolean; serverId?: string | null } = {}) => {
     const key = `${opts.serverId || ''}|${ratingKey}|${opts.core ? '1' : '0'}`;

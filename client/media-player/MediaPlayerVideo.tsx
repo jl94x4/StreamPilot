@@ -55,7 +55,7 @@ import {
     audioStreamIdFromSrc,
     subtitleStreamIdFromSrc,
 } from './playerUtils';
-import { downloadMediaPlayerSubtitle, fetchLiveTvSources, fetchMediaPlayerItem, fetchMediaPlayerItemMore,fetchMediaPlayerNeighbors, fetchMediaPlayerSubtitleSearch, fetchMediaPlayerVoiceActivity, pausePlayerBackgroundLoads, reportMediaPlayerTimeline, resumePlayerBackgroundLoads, saveMediaPlayerSettings, setMediaPlayerWatched, startMediaPlayerPlayback, stopMediaPlayerTranscode } from './api';
+import { downloadMediaPlayerSubtitle, fetchLiveTvSources, fetchMediaPlayerCast, fetchMediaPlayerItem, fetchMediaPlayerItemMore,fetchMediaPlayerNeighbors, fetchMediaPlayerSubtitleSearch, fetchMediaPlayerVoiceActivity, pausePlayerBackgroundLoads, reportMediaPlayerTimeline, resumePlayerBackgroundLoads, saveMediaPlayerSettings, setMediaPlayerWatched, startMediaPlayerPlayback, stopMediaPlayerTranscode } from './api';
 import { usePlayerSettings } from './usePlayerSettings';
 import { normalizePlayerSettings, readPlayerSettings, writePlayerSettings } from './playerSettings';
 import { computeSubtitleSyncOffsetMs, parseSrtCueStartsMs } from './subtitleAutoSync.js';
@@ -70,6 +70,7 @@ import {
     writeAvChoiceFromTracks,
     writeMediaIndexChoice,
     readMiniPlayerWidth,
+    readPlayerItemCache,
     writeLocalPlaybackPrefs,
     writeMiniPlayerWidth,
 } from './playerMemory';
@@ -405,6 +406,9 @@ const skipChapter = (
     const previous = [...starts].reverse().find((ms) => ms < posMs - 1200);
     video.currentTime = (previous != null ? previous : 0) / 1000;
 };
+
+/** Missing cast is fetched this long into playback, never while the stream is starting. */
+const CAST_FETCH_DELAY_MS = 30_000;
 
 /** Native cast strip: up to 24 people, photos sized for its round cards. */
 const NATIVE_CAST_MAX = 24;
@@ -2299,31 +2303,39 @@ export const MediaPlayerVideo: React.FC<Props> = ({
         return () => window.clearInterval(timer);
     }, [showUpNext, autoplayNext, upNextItem]);
 
-    // Cast strip: the title's own cast (play sessions can start from a thin card), plus the
-    // show's main cast for an episode. Both reads hit the item cache the details page fills.
+    // Cast strip: the title's own cast plus, for an episode, the show's. Taken from what the details
+    // page already loaded. Anything missing is one small cast-only read each, and only once playback
+    // has settled: the full item load here hit the server as the stream started and broke playback.
     useEffect(() => {
         let cancelled = false;
         const item = session.item;
-        castRef.current = item.cast || [];
         const showKey = item.type === 'episode' ? String(item.grandparentRatingKey || '') : '';
-        void (async () => {
-            const own = item.cast?.length
-                ? item.cast
-                : await fetchMediaPlayerItem(item.ratingKey, { serverId: item.serverId })
-                    .then((page) => page?.item?.cast || [])
-                    .catch(() => []);
-            const show = showKey
-                ? await fetchMediaPlayerItem(showKey, { serverId: item.serverId })
-                    .then((page) => page?.item?.cast || [])
-                    .catch(() => [])
-                : [];
-            if (cancelled) return;
-            const merged = mergeCast(own, show);
-            if (!merged.length) return;
-            castRef.current = merged;
-            if (nativeExclusiveRef.current) void updateNativePlayerSession({ cast: nativeCastPayload(merged) });
-        })();
-        return () => { cancelled = true; };
+        const cachedOwn = item.cast?.length
+            ? item.cast
+            : (readPlayerItemCache(item.ratingKey, item.serverId)?.item?.cast || []);
+        const cachedShow = showKey ? (readPlayerItemCache(showKey, item.serverId)?.item?.cast || []) : [];
+        castRef.current = mergeCast(cachedOwn, cachedShow);
+        const publish = () => {
+            if (cancelled || !castRef.current.length || !nativeExclusiveRef.current) return;
+            void updateNativePlayerSession({ cast: nativeCastPayload(castRef.current) });
+        };
+        publish();
+        const needOwn = !cachedOwn.length;
+        const needShow = Boolean(showKey) && !cachedShow.length;
+        if (!needOwn && !needShow) return () => { cancelled = true; };
+        const timer = window.setTimeout(() => {
+            void (async () => {
+                const own = needOwn ? await fetchMediaPlayerCast(item.ratingKey, item.serverId).catch(() => []) : cachedOwn;
+                const show = needShow ? await fetchMediaPlayerCast(showKey, item.serverId).catch(() => []) : cachedShow;
+                if (cancelled) return;
+                castRef.current = mergeCast(own, show);
+                publish();
+            })();
+        }, CAST_FETCH_DELAY_MS);
+        return () => {
+            cancelled = true;
+            window.clearTimeout(timer);
+        };
     }, [session.item.ratingKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Prefetch related hubs near the end for “More like this” (prefer show key for episodes).
