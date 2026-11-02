@@ -1988,10 +1988,15 @@ const discoverServers = async (token: string) => {
     } finally {
         if (timer) window.clearTimeout(timer);
     }
+    const isOwned = (resource: PlexMeta) => resource.owned === true || String(resource.owned) === '1';
+    // Your own servers first. The first server is the fallback for anything without a server
+    // attached (images, item lookups, library links saved before a second server appeared);
+    // plex.tv's order could put a friend's slow or unreachable server there, and then nothing
+    // loaded from any server.
     const resources = asList<PlexMeta>(data).filter((resource) => (
         String(resource.provides || '').includes('server')
         && String(resource.product || '') === 'Plex Media Server'
-    ));
+    )).sort((a, b) => Number(isOwned(b)) - Number(isOwned(a)));
     const previous = readServerList();
     const gen = ++discoveryGen;
     const knownUri = (resource: PlexMeta) => {
@@ -2011,11 +2016,15 @@ const discoverServers = async (token: string) => {
     const allDone = Promise.all(jobs);
     // An offline / slow server costs up to ~20s of probes. Go on once one server answered and
     // the rest had a short grace; late ones join the list when they turn up.
+    // Wait for one of your own servers, not just any: a friend's server answering first started
+    // the app on that server alone while yours was still connecting.
+    const ownsAny = resources.some(isOwned);
     const oneThenGrace = new Promise<void>((resolve) => {
         let started = false;
-        jobs.forEach((job) => {
+        jobs.forEach((job, index) => {
             void job.then((server) => {
                 if (!server || started) return;
+                if (ownsAny && !isOwned(resources[index])) return;
                 started = true;
                 window.setTimeout(resolve, 1500);
             });

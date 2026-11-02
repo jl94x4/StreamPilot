@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.599': [
+        {
+            title: 'More than one server',
+            items: [
+                'Your own servers now always come first; a friend\'s server listed first became the default for posters, item lookups and saved library links, and if it was slow or out of reach they all came back empty',
+                'On start-up the app waits for one of your own servers instead of the first server to answer, so it no longer starts on a friend\'s server alone',
+            ],
+        },
+    ],
     '1.0.598': [
         {
             title: 'More than one server',
