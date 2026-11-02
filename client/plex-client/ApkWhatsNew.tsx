@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.594': [
+        {
+            title: 'Player Back button',
+            items: [
+                'Back with the controls showing now hides them instead of leaving the film, on newer Android (16) too, where Back skipped the player and went straight to the overview',
+                'The same fix makes Back close menus, the cast strip and the face labels one step at a time again',
+            ],
+        },
+    ],
     '1.0.593': [
         {
             title: 'Player memory',

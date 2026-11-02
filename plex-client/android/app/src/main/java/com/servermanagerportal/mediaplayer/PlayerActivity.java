@@ -1237,6 +1237,13 @@ public class PlayerActivity extends AppCompatActivity {
         externalBtn = findViewById(R.id.player_external);
         upNextRow = findViewById(R.id.player_up_next);
         castPanel = findViewById(R.id.player_cast_panel);
+        // Android 16 no longer sends Back as a key: take it from the dispatcher, same logic.
+        getOnBackPressedDispatcher().addCallback(this, new androidx.activity.OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                keyHandler.onBack();
+            }
+        });
         facesView = findViewById(R.id.player_faces);
         castRow = findViewById(R.id.player_cast_row);
         upNextArt = findViewById(R.id.player_up_next_art);

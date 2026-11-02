@@ -169,6 +169,53 @@ final class PlayerKeyHandler {
         return Result.SUPER;
     }
 
+    /**
+     * Back from the remote. Older Android sends it as a key (onKeyDown); Android 16 apps get it
+     * only through the back dispatcher, which by default just closed the player: the controls,
+     * menus, cast strip and face labels never got their Back. Both paths land here.
+     */
+    Result onBack() {
+        if (host.isOptionDialogShowing()) {
+            host.popMenuOrClose();
+            return Result.HANDLED;
+        }
+        host.stopSeekHold();
+        if (host.castStripVisible()) {
+            host.hideCastStrip();
+            host.bumpChrome();
+            return Result.HANDLED;
+        }
+        if (!host.chromeVisible() && host.facesVisible()) {
+            host.clearFaces();
+            return Result.HANDLED;
+        }
+        if (host.chromeVisible()) {
+            host.setChromeVisible(false);
+            if (host.isUpNextVisible()) host.focusUpNextControls();
+            return Result.HANDLED;
+        }
+        if (host.playbackEndedNow()) {
+            host.finishWithResult(true, false);
+            return Result.HANDLED;
+        }
+        if (host.statsVisible()) {
+            host.hideStatsOverlay();
+            return Result.HANDLED;
+        }
+        // Up next / More like this: Back leaves the player for the episode overview.
+        // "Watch credits" on the card is the path to keep playing through the end.
+        if (host.isUpNextVisible()) {
+            host.finishWithResult(true, false);
+            return Result.HANDLED;
+        }
+        if (host.musicMode()) {
+            host.minimizeToBrowse();
+            return Result.HANDLED;
+        }
+        host.finishWithResult(false, false);
+        return Result.HANDLED;
+    }
+
     Result onKeyLongPress(int keyCode) {
         if (isConfirm(keyCode) || keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) {
             confirmLongPress = true;
@@ -187,41 +234,7 @@ final class PlayerKeyHandler {
             return Result.SUPER;
         }
         if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE) {
-            host.stopSeekHold();
-            if (host.castStripVisible()) {
-                host.hideCastStrip();
-                host.bumpChrome();
-                return Result.HANDLED;
-            }
-            if (!host.chromeVisible() && host.facesVisible()) {
-                host.clearFaces();
-                return Result.HANDLED;
-            }
-            if (host.chromeVisible()) {
-                host.setChromeVisible(false);
-                if (host.isUpNextVisible()) host.focusUpNextControls();
-                return Result.HANDLED;
-            }
-            if (host.playbackEndedNow()) {
-                host.finishWithResult(true, false);
-                return Result.HANDLED;
-            }
-            if (host.statsVisible()) {
-                host.hideStatsOverlay();
-                return Result.HANDLED;
-            }
-            // Up next / More like this: Back leaves the player for the episode overview.
-            // "Watch credits" on the card is the path to keep playing through the end.
-            if (host.isUpNextVisible()) {
-                host.finishWithResult(true, false);
-                return Result.HANDLED;
-            }
-            if (host.musicMode()) {
-                host.minimizeToBrowse();
-                return Result.HANDLED;
-            }
-            host.finishWithResult(false, false);
-            return Result.HANDLED;
+            return onBack();
         }
 
         boolean mediaToggle = keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE;
