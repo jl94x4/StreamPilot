@@ -1555,7 +1555,7 @@ const accountToken = () => getSessionToken();
 
 const pms = async (
     pathAndQuery: string,
-    server: PlexServer | null = mapServer || readServer(),
+    server: PlexServer | null = readServer(),
     timeoutMs = 8000,
     extraHeaders?: Record<string, string>,
 ) => {
@@ -1587,7 +1587,7 @@ const pms = async (
 
 const pmsPost = async (
     pathAndQuery: string,
-    server: PlexServer | null = mapServer || readServer(),
+    server: PlexServer | null = readServer(),
     timeoutMs = 20000,
 ) => {
     if (!server) throw new Error('No Plex server selected');
@@ -2469,33 +2469,11 @@ const kickTranscodeStart = async (server: PlexServer | null, src: string) => {
 };
 
 /**
- * mapServer is one global that pms(), image URLs, theme and playback URLs fall back to. Work for
- * two servers at once (Home loads every server in parallel; Home, hero and libraries load together)
- * overwrote it mid-request: posters and lists were built against the other server's address and
- * token, so with a friend's server added nothing loaded from any server. Different servers now
- * take turns; work for the same server still runs together.
+ * mapServer is one global that image, theme and playback URLs and item serverIds are built from.
+ * Several servers load at once (Home, hero and libraries load together), so it can name another
+ * server mid-flight. Requests never rely on it (pms falls back to your own server), and each
+ * server's results are bound to that server on the way out (rebindToServer below).
  */
-let mapServerHolds = 0;
-let mapServerWaiters: Array<() => void> = [];
-/** A wait this long means work for one server started work for another inside it: go ahead. */
-const MAP_SERVER_WAIT_MS = 4000;
-
-const waitForMapServer = (id: string) => new Promise<void>((resolve) => {
-    let done = false;
-    const finish = () => {
-        if (done) return;
-        done = true;
-        window.clearTimeout(timer);
-        resolve();
-    };
-    const timer = window.setTimeout(() => {
-        console.warn(`[plexDirect] server ${id || '(none)'} waited ${MAP_SERVER_WAIT_MS}ms for another server; continuing`);
-        mapServerWaiters = mapServerWaiters.filter((row) => row !== finish);
-        finish();
-    }, MAP_SERVER_WAIT_MS);
-    mapServerWaiters.push(finish);
-});
-
 /**
  * Point one server's results at that server. Image URLs and item serverIds are built from the
  * mapServer global, which another server's work can still overwrite mid-flight (a slow remote
@@ -2510,6 +2488,7 @@ const rebindToServer = <T,>(value: T, server: PlexServer | null): T => {
     try { own = new URL(server.uri).origin; } catch { return value; }
     const others = readServerList().servers.filter((row) => row.id !== server.id);
     if (!others.length) return value;
+    // (Each title seen below is also recorded as this server's, overriding mapList's guess.)
     const otherOrigins: string[] = [];
     for (const row of others) {
         try { otherOrigins.push(new URL(row.uri).origin); } catch { /* skip */ }
@@ -2542,6 +2521,8 @@ const rebindToServer = <T,>(value: T, server: PlexServer | null): T => {
             return changed ? out : node;
         }
         const record = node as Record<string, unknown>;
+        const ratingKey = typeof record.ratingKey === 'string' ? record.ratingKey : '';
+        if (ratingKey && record.serverId !== undefined) itemOwners.set(ratingKey, server.id);
         let copy: Record<string, unknown> | null = null;
         for (const [key, row] of Object.entries(record)) {
             const next = key === 'serverId' && typeof row === 'string' && otherIds.has(row)
@@ -2558,27 +2539,13 @@ const rebindToServer = <T,>(value: T, server: PlexServer | null): T => {
 };
 
 const withMapServer = async <T,>(server: PlexServer | null, run: () => Promise<T>) => {
-    const id = server?.id || '';
-    const waitStarted = Date.now();
-    while (mapServerHolds > 0 && (mapServer?.id || '') !== id && Date.now() - waitStarted < MAP_SERVER_WAIT_MS) {
-        await waitForMapServer(id);
-    }
     const previous = mapServer;
     mapServer = server;
-    mapServerHolds += 1;
     try {
         return rebindToServer(await run(), server);
     } finally {
-        mapServerHolds -= 1;
-        // Restore only when this was the last holder: another holder's restore must not wipe ours.
-        if (mapServerHolds === 0) {
-            mapServer = null;
-            const waiting = mapServerWaiters;
-            mapServerWaiters = [];
-            for (const wake of waiting) wake();
-        } else if (mapServer === server && previous) {
-            mapServer = previous;
-        }
+        // Only undo our own setting: another server's work may have set it since.
+        if (mapServer === server) mapServer = previous;
     }
 };
 
