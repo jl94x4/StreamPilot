@@ -5,6 +5,7 @@ import { fetchLiveTvBackdrop, fetchLiveTvGuide, fetchLiveTvOnNow, fetchLiveTvSou
 import { plexImageUrl } from './playerUtils';
 import { isLivePosterArtUrl } from '../../lib/media-player/liveTv.js';
 import { isLanHttpImage, loadLanImage } from './lanImage';
+import { PlayerTvStatusPanel } from './PlayerTvStatusPanel';
 import type { PlayerItem, PlayerPlayOptions } from './types';
 
 type GuideRow = {
@@ -522,7 +523,9 @@ export const PlayerLiveTv: React.FC<{
                 </div>
             </header>
 
-            {error && !rows.length && !loading ? (
+            {error && !rows.length && !loading && isTvShell ? (
+                <PlayerTvStatusPanel title={error} onRetry={() => { void load(); }} onBack={onBack} />
+            ) : error && !rows.length && !loading ? (
                 <div className="smp-live-empty">
                     <span className="smp-live-empty-icon"><Radio className="h-7 w-7" /></span>
                     <p>{error}</p>

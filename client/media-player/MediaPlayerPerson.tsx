@@ -21,6 +21,7 @@ import {
 import { PlayerBackdropImage } from './PlayerBackdropImage';
 import { PlayerPosterCard } from './PlayerPosterCard';
 import { PlayerRail } from './PlayerRail';
+import { PlayerTvStatusPanel } from './PlayerTvStatusPanel';
 import { formatPersonDate, personAgeYears, splitBiography } from '../discovery/personCredits';
 import { safeImageSrc } from '../shared/safeUrl';
 import type { PlayerItem, PlayerPersonCreditRow, PlayerPersonProfile, PlayerPlayOptions } from './types';
@@ -84,6 +85,7 @@ export const MediaPlayerPerson: React.FC<Props> = ({ actorId, name, thumb, onBac
     const [filmography, setFilmography] = useState<PlayerPersonCreditRow[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [attempt, setAttempt] = useState(0);
     const [bioExpanded, setBioExpanded] = useState(false);
     const [backdropFailed, setBackdropFailed] = useState(false);
     const bioBodyRef = useRef<HTMLParagraphElement | null>(null);
@@ -154,7 +156,7 @@ export const MediaPlayerPerson: React.FC<Props> = ({ actorId, name, thumb, onBac
                 if (!cancelled) setLoading(false);
             });
         return () => { cancelled = true; };
-    }, [actorId, name, t, thumb]);
+    }, [actorId, name, t, thumb, attempt]);
 
     useEffect(() => {
         prefetchPlayerImages(items.slice(0, 12).map((item) => playerCardImageUrl(item.thumb)), 12);
@@ -469,9 +471,11 @@ export const MediaPlayerPerson: React.FC<Props> = ({ actorId, name, thumb, onBac
                     loading ? (
                         <PlayerHomeRowSkeleton />
                     ) : error ? (
-                        <div className={discoveryTheme.emptyState}>
-                            <p className={discoveryTheme.emptyTitle}>{error}</p>
-                        </div>
+                        <PlayerTvStatusPanel
+                            title={error}
+                            onRetry={() => setAttempt((n) => n + 1)}
+                            onBack={onBack}
+                        />
                     ) : items.length ? (
                         <PlayerRail
                             title={t('mediaPlayerPage.onThisServer')}

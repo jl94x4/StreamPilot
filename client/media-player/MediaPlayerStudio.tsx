@@ -11,6 +11,7 @@ import {
 } from './host';
 import { fetchMediaPlayerStudio, setMediaPlayerWatched } from './api';
 import { PlayerPosterCard } from './PlayerPosterCard';
+import { PlayerTvStatusPanel } from './PlayerTvStatusPanel';
 import type { PlayerItem, PlayerPlayOptions } from './types';
 
 type Props = {
@@ -41,6 +42,8 @@ export const MediaPlayerStudio: React.FC<Props> = ({
     const [items, setItems] = useState<PlayerItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [attempt, setAttempt] = useState(0);
+    const retry = () => setAttempt((n) => n + 1);
     const tvShell = typeof document !== 'undefined' && (
         document.documentElement?.dataset?.tv === '1' || window.__PLEX_CLIENT__?.isTv === true
     );
@@ -67,7 +70,7 @@ export const MediaPlayerStudio: React.FC<Props> = ({
                 if (!cancelled) setLoading(false);
             });
         return () => { cancelled = true; };
-    }, [altList, eyebrow, mediaType, name, sectionKey, studioKey, t]);
+    }, [altList, eyebrow, mediaType, name, sectionKey, studioKey, t, attempt]);
 
     const toggleWatched = async (item: PlayerItem) => {
         const next = !item.watched;
@@ -107,6 +110,8 @@ export const MediaPlayerStudio: React.FC<Props> = ({
                     style={upgraderPosterGridStyle(gridSize)}
                     {...(tvShell ? { count: 24, variant: 'home' as const } : {})}
                 />
+            ) : error && tvShell ? (
+                <PlayerTvStatusPanel title={error} onRetry={retry} onBack={onBack} />
             ) : error ? (
                 <div className={discoveryTheme.emptyState}>
                     <p className={discoveryTheme.emptyTitle}>{error}</p>

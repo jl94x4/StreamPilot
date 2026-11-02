@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.578': [
+        {
+            title: 'Errors',
+            items: [
+                'Collections, studio and network pages, cast pages and Live TV now show Retry and Back buttons when something fails to load, instead of a line of text with nothing to select',
+            ],
+        },
+    ],
     '1.0.577': [
         {
             title: 'Loading',
