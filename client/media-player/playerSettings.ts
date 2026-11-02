@@ -437,7 +437,7 @@ export const sortContinueWatchingItems = <T extends {
     durationMs?: number | null;
 }>(items: T[] | null | undefined, sort: unknown): T[] => {
     const list = Array.isArray(items) ? items : [];
-    const mode = isPlayerContinueWatchingSort(sort) ? sort : 'releaseDate';
+    const mode = isPlayerContinueWatchingSort(sort) ? sort : 'plex';
     if (mode === 'plex' || list.length < 2) return list.slice();
     const ranked = list.map((item, index) => ({ item, index }));
     ranked.sort((a, b) => compareContinueWatching(a.item, b.item, mode) || a.index - b.index);
@@ -462,7 +462,7 @@ export const stabilizeContinueWatchingOrder = <T extends {
     durationMs?: number | null;
 }>(items: T[] | null | undefined, sort: unknown, previousKeys?: string[] | null): { items: T[]; keys: string[] } => {
     const sorted = sortContinueWatchingItems(items, sort);
-    const mode = isPlayerContinueWatchingSort(sort) ? sort : 'releaseDate';
+    const mode = isPlayerContinueWatchingSort(sort) ? sort : 'plex';
     const prior = Array.isArray(previousKeys)
         ? previousKeys.map((key) => String(key || '').trim()).filter(Boolean)
         : [];
@@ -545,6 +545,8 @@ export type PlayerSettings = {
     continueWatchingLayout: PlayerContinueWatchingLayout;
     /** How Continue Watching cards are ordered. */
     continueWatchingSort: PlayerContinueWatchingSort;
+    /** 2: moved to Match Plex once (1.0.582); after that the stored choice is kept. */
+    continueWatchingSortVersion: number;
     /** Airdate / date style, e.g. "October 21, 2026" or "21st October 2026". */
     dateFormat: PlayerDateFormat;
     /** Shape before row titles; 'none' lets the title start where the mark was. */
@@ -981,6 +983,7 @@ const QUALITY_IDS = new Set(['auto', ...PLAYER_QUALITY_CHOICES.map((row) => row.
 const SUBTITLE_MODES = new Set<PlayerSubtitleMode>(['off', 'forced', 'always']);
 
 export const PLAYER_SETTINGS_KEY = 'portal-media-player-settings';
+const CONTINUE_WATCHING_SORT_VERSION = 2;
 export const PLAYER_SETTINGS_EVENT = 'portal-media-player-settings';
 /** Live draft preview (e.g. library nav order) before Save. */
 export const PLAYER_SETTINGS_DRAFT_EVENT = 'portal-media-player-settings-draft';
@@ -996,7 +999,8 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
     stillWatchingAfter: 3,
     showContinueWatching: true,
     continueWatchingLayout: 'poster',
-    continueWatchingSort: 'releaseDate',
+    continueWatchingSort: 'plex',
+    continueWatchingSortVersion: CONTINUE_WATCHING_SORT_VERSION,
     dateFormat: 'long',
     rowMarker: 'play',
     accentColor: 'gold',
@@ -1085,9 +1089,12 @@ export const normalizePlayerSettings = (raw: Partial<PlayerSettings> | Record<st
         continueWatchingLayout: isPlayerContinueWatchingLayout(raw?.continueWatchingLayout)
             ? raw.continueWatchingLayout
             : 'poster',
-        continueWatchingSort: isPlayerContinueWatchingSort(raw?.continueWatchingSort)
+        // Older devices defaulted to Latest released, which hid Plex's own order: switch once.
+        continueWatchingSort: raw?.continueWatchingSortVersion === CONTINUE_WATCHING_SORT_VERSION
+            && isPlayerContinueWatchingSort(raw?.continueWatchingSort)
             ? raw.continueWatchingSort
-            : 'releaseDate',
+            : 'plex',
+        continueWatchingSortVersion: CONTINUE_WATCHING_SORT_VERSION,
         dateFormat: isPlayerDateFormat(raw?.dateFormat) ? raw.dateFormat : 'long',
         rowMarker: isPlayerRowMarker(raw?.rowMarker) ? raw.rowMarker : 'play',
         accentColor: isPlayerAccentColor(raw?.accentColor) ? raw.accentColor : 'gold',
@@ -1278,7 +1285,13 @@ export const readPlayerSettings = (): PlayerSettings => {
     try {
         const raw = window.localStorage.getItem(PLAYER_SETTINGS_KEY);
         if (!raw) return { ...DEFAULT_PLAYER_SETTINGS };
-        return normalizePlayerSettings(JSON.parse(raw) || {});
+        const parsed = JSON.parse(raw) || {};
+        const settings = normalizePlayerSettings(parsed);
+        // Save the one-time Continue Watching switch, so the Plex data layer reads it too.
+        if (parsed.continueWatchingSortVersion !== CONTINUE_WATCHING_SORT_VERSION) {
+            window.localStorage.setItem(PLAYER_SETTINGS_KEY, JSON.stringify(settings));
+        }
+        return settings;
     } catch {
         return { ...DEFAULT_PLAYER_SETTINGS };
     }

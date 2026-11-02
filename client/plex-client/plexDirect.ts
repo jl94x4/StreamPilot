@@ -4712,7 +4712,7 @@ const stampShowLatestAired = async <T extends ReturnType<typeof mapItem>>(
     server: PlexServer,
     wait: boolean,
 ): Promise<T[]> => {
-    if (String(readPlayerSetting('continueWatchingSort', 'releaseDate')) !== 'releaseDate') return items;
+    if (String(readPlayerSetting('continueWatchingSort', 'plex')) !== 'releaseDate') return items;
     const showOf = (item: T) => String(
         item.type === 'episode' ? item.grandparentRatingKey || '' : (item.type === 'season' ? item.parentRatingKey || '' : ''),
     ).replace(/\D/g, '');
