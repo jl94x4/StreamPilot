@@ -27,7 +27,7 @@ import {
 import { discoveryLogoUrl } from '../discovery/discoveryLogoUtils';
 import { studioBrowsePlateBackground } from './studioBrowsePlate.js';
 import type { PlayerStudioBrowseCard } from './types';
-import { readLibraryBrowseState, readLibraryHomeCache, writeLibraryBrowseState, writeLibraryHomeCache } from './playerMemory';
+import { keepCurrentContinueItems, readLibraryBrowseState, readLibraryHomeCache, writeLibraryBrowseState, writeLibraryHomeCache } from './playerMemory';
 import { PLAYER_SCROLL_ID } from './paths';
 import { PlayerLibraryFilterSheet, type LibraryFilterGroup, type LibraryFilterToggle } from './PlayerLibraryFilterSheet';
 import { PlayerPosterCard } from './PlayerPosterCard';
@@ -309,7 +309,10 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
     const [labels, setLabels] = useState<FilterOption[]>([]);
     const homeHubs = useMemo(() => {
         let keptContinue = false;
-        return hubs.filter((hub) => {
+        return hubs.map((hub) => (
+            // Titles just removed (or finished) stay out even if this answer predates it.
+            isContinueWatchingHub(hub) ? { ...hub, items: keepCurrentContinueItems(hub.items) } : hub
+        )).filter((hub) => {
             if (!hub.items?.length) return false;
             if (!isContinueWatchingHub(hub)) return true;
             if (keptContinue) return false;

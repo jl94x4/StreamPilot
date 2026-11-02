@@ -50,7 +50,7 @@ import type { PlayerItem, PlayerPlayOptions } from './types';
 import { PlayerClearLogo } from './PlayerClearLogo';
 import { PlayerFileInfo } from './PlayerFileInfo';
 import { PlayerSeasonWatchDialog } from './PlayerSeasonWatchDialog';
-import { readPlayerItemCache } from './playerMemory';
+import { noteFinishedPlayback, readPlayerItemCache } from './playerMemory';
 import { readPlayerSettings } from './playerSettings';
 import { isSpoilerShow, spoilerShowKey, toggleSpoilerShow } from './spoilers';
 import { applyRememberedProgress, isMusicPlayerItem, plexLogoUrl, shouldOfferResume } from './playerUtils';
@@ -964,7 +964,10 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                     data-tv-menu-item="1"
                     className={itemClass}
                     onClick={() => choose(async () => {
-                        await removeMediaPlayerProgress(item.ratingKey);
+                        await removeMediaPlayerProgress(item.ratingKey, item.serverId);
+                        // Keep it out of Continue Watching even if a Home answer (or Home's saved
+                        // copy) from before the removal arrives later; watching it again brings it back.
+                        noteFinishedPlayback(item.ratingKey, item.serverId);
                         onRemovedFromContinueWatching?.(item);
                         toast(t('mediaPlayerPage.removedFromContinueWatching'));
                     })}

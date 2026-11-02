@@ -2208,13 +2208,16 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         setHome((prev) => {
             if (!prev) return prev;
             const filterItems = (list: PlayerItem[]) => list.filter((row) => row.ratingKey !== key);
-            return {
+            const next = {
                 ...prev,
                 continueWatching: filterItems(prev.continueWatching),
                 hubs: (prev.hubs || []).map((hub) => (
                     isContinueWatchingHub(hub) ? { ...hub, items: filterItems(hub.items) } : hub
                 )),
             };
+            // Home paints from this saved copy first: without it the card came straight back.
+            if (playerHomeHasRows(next)) writePlayerHomeCache(next);
+            return next;
         });
     }, []);
 

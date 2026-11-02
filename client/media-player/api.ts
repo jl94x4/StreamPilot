@@ -516,8 +516,9 @@ export const setSeasonEpisodesWatched = async (seasonKey: string, watched: boole
     return episodeKeys.length;
 };
 
-export const removeMediaPlayerProgress = (ratingKey: string) => (
-    apiFetch(`${PLAYER_API_ROOT}/progress/${encodeURIComponent(ratingKey)}`, {
+/** serverId: with several servers the same id exists on each, so say which one owns it. */
+export const removeMediaPlayerProgress = (ratingKey: string, serverId?: string | null) => (
+    apiFetch(`${PLAYER_API_ROOT}/progress/${encodeURIComponent(ratingKey)}${serverId ? `?server=${encodeURIComponent(serverId)}` : ''}`, {
         method: 'DELETE',
     })
 );

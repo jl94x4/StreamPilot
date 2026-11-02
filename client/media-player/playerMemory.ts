@@ -952,6 +952,11 @@ const continueCardIsCurrent = (row: PlayerItem) => {
     return viewedMs > at + 60_000;
 };
 
+/** Continue Watching cards minus titles just finished or removed (library pages use it too). */
+export const keepCurrentContinueItems = <T extends PlayerItem>(list: T[] | null | undefined): T[] => (
+    typeof window === 'undefined' || !finishedMap().size ? (list || []) : (list || []).filter(continueCardIsCurrent)
+);
+
 const withoutFinishedContinue = (data: PlayerHome | null): PlayerHome | null => {
     if (!data || typeof window === 'undefined' || !finishedMap().size) return data;
     const keep = (list: PlayerItem[] | null | undefined) => (list || []).filter(continueCardIsCurrent);

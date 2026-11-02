@@ -4594,6 +4594,8 @@ const LIVE_TIMELINE_STATES = new Set([5, 9]);
 const LIVE_REFRESH_DEBOUNCE_MS = 4000;
 const LIVE_RECONNECT_MS = [2000, 5000, 15000, 30000];
 const LIVE_SYNC_MS = 60_000;
+/** Backup check for the socket: newest additions + top of Continue Watching, per server. */
+const LIVE_POLL_MS = 90_000;
 
 /** True when a Plex notification changes what Home shows. */
 const liveNotificationMatters = (raw: string) => {
@@ -4631,7 +4633,12 @@ export const startPlexLiveUpdates = () => {
     let debounce = 0;
     const links = new Map<string, { ws: WebSocket | null; attempt: number; timer: number }>();
 
+    // Last seen "newest additions | top of Continue Watching" per server (the backup check).
+    const signatures = new Map<string, string>();
+
     const announce = () => {
+        // A refresh is coming anyway: the backup check starts over rather than fire again for it.
+        signatures.clear();
         window.clearTimeout(debounce);
         debounce = window.setTimeout(() => {
             if (stopped) return;
@@ -4716,14 +4723,53 @@ export const startPlexLiveUpdates = () => {
         sync();
     };
 
+    // Backup for the socket. It can fail to connect or stay connected (a ws:// address from the
+    // https app, the TV sleeping), Plex doesn't send every change, and friends' servers send you
+    // none, so new titles and Continue Watching waited for a manual refresh. While on screen, ask
+    // each server for its 3 newest additions and the top of Continue Watching (two tiny reads)
+    // and refresh Home only when either changed.
+    const sample = async (server: PlexServer) => {
+        const [recent, watching] = await Promise.all([
+            pms('/library/recentlyAdded?X-Plex-Container-Start=0&X-Plex-Container-Size=3', server, 8000).catch(() => null),
+            pms('/hubs/continueWatching/items?X-Plex-Container-Size=5', server, 8000).catch(() => null),
+        ]);
+        if (!recent && !watching) return null;
+        const part = (data: any, fields: string[]) => asList<PlexMeta>(containerOf(data).Metadata)
+            .map((row) => fields.map((field) => String(row?.[field] ?? '')).join(':'))
+            .join(',');
+        return `${part(recent, ['ratingKey', 'addedAt'])}|${part(watching, ['ratingKey', 'viewOffset', 'lastViewedAt'])}`;
+    };
+    let polling = false;
+    const poll = () => {
+        if (stopped || polling || document.visibilityState === 'hidden') return;
+        polling = true;
+        void ensureServers().then(async (servers) => {
+            let changed = false;
+            for (const server of servers) {
+                if (stopped || !server.uri || !server.accessToken) continue;
+                const signature = await sample(server);
+                if (signature == null) continue;
+                const before = signatures.get(server.id);
+                signatures.set(server.id, signature);
+                if (before !== undefined && before !== signature) changed = true;
+            }
+            if (changed && !stopped) announce();
+        }).catch(() => undefined).finally(() => {
+            polling = false;
+        });
+    };
+
     sync();
     const syncTimer = window.setInterval(sync, LIVE_SYNC_MS);
+    const pollTimer = window.setInterval(poll, LIVE_POLL_MS);
+    poll();
     document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener(PLAYER_SERVERS_EVENT, sync);
     liveStop = () => {
         stopped = true;
         window.clearTimeout(debounce);
         window.clearInterval(syncTimer);
+        window.clearInterval(pollTimer);
         document.removeEventListener('visibilitychange', onVisibility);
         window.removeEventListener(PLAYER_SERVERS_EVENT, sync);
         for (const key of Array.from(links.keys())) drop(key);
@@ -7603,7 +7649,8 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
         // to clearing the progress, like the portal does.
         const key = decodeURIComponent(progress[1]).replace(/\D/g, '');
         if (!key) throw new Error('Invalid title.');
-        const server = resolveServer('', key);
+        // The owning server when the app says (ids repeat across servers), else by item.
+        const server = resolveServer(query.get('server'), key);
         if (!server) throw new Error('No Plex server selected');
         const base = server.uri.endsWith('/') ? server.uri : `${server.uri}/`;
         const attempt = async (path: string, init: RequestInit) => {
@@ -7620,6 +7667,7 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
             || await attempt(`/:/progress?identifier=com.plexapp.plugins.library&key=${encodeURIComponent(key)}`, { method: 'DELETE' });
         // Home is cached between visits: drop it so the removed card can't return from the cache.
         clearPlayerGetCache();
+        homePinCache.clear();
         if (!removed) throw new Error('Plex would not remove this from Continue Watching.');
         return { ok: true };
     }
