@@ -32,8 +32,10 @@ type ShowHit = {
     ratingKey: string;
     title: string;
     year?: number | null;
+    type?: string;
     tmdbId?: string | null;
     tvdbId?: string | null;
+    thumb?: string | null;
 };
 
 type LibraryRow = { key: string; title: string; type?: string };
@@ -58,13 +60,23 @@ type ClearlogoPreviewRow = {
     candidates?: ClearlogoCandidate[];
     bestCandidate?: ClearlogoCandidate | null;
     selectedCandidate?: ClearlogoCandidate | null;
+    external?: {
+        url?: string;
+        filePath?: string;
+        language?: string | null;
+        source?: string;
+        tmdbId?: string | null;
+    } | null;
+    source?: string;
     hasLogoApplied?: boolean;
     applied?: boolean;
     dryRun?: boolean;
     error?: string | null;
 };
 
-type ClearlogoTableFilter = 'available' | 'hasLogo' | 'none' | 'all';
+type ClearlogoTableFilter = 'available' | 'externalAvailable' | 'hasLogo' | 'none' | 'all';
+
+type ClearlogoTitleHit = ShowHit & { type?: string };
 
 type HyphenTitlePreviewRow = {
     ratingKey: string;
@@ -121,6 +133,7 @@ type ClearlogoScanState = {
         scanned?: number;
         hasLogo?: number;
         available?: number;
+        externalAvailable?: number;
         none?: number;
         applied?: number;
         skipped?: number;
@@ -297,6 +310,10 @@ export const MetadataFillPage: React.FC = () => {
     const [clearlogoRowBusy, setClearlogoRowBusy] = useState('');
     /** Optional per-title clearlogo candidate ratingKey overrides. */
     const [clearlogoPicks, setClearlogoPicks] = useState<Record<string, string>>({});
+    const [clearlogoQuery, setClearlogoQuery] = useState('');
+    const [clearlogoHits, setClearlogoHits] = useState<ClearlogoTitleHit[]>([]);
+    const [clearlogoSearching, setClearlogoSearching] = useState(false);
+    const [clearlogoFillBusy, setClearlogoFillBusy] = useState('');
     const [hyphenDryRun, setHyphenDryRun] = useState(true);
     const [hyphenBusy, setHyphenBusy] = useState(false);
     const [hyphenLibraryKeys, setHyphenLibraryKeys] = useState<string[]>([]);
@@ -673,6 +690,60 @@ export const MetadataFillPage: React.FC = () => {
         }
     };
 
+    const runClearlogoSearch = async () => {
+        const q = clearlogoQuery.trim();
+        if (!q) return;
+        setClearlogoSearching(true);
+        setError('');
+        try {
+            const data = await apiFetch(
+                `/api/metadata-fill/search?q=${encodeURIComponent(q)}&types=movie,show`,
+            );
+            setClearlogoHits(Array.isArray(data?.items) ? data.items : []);
+        } catch (e: any) {
+            setError(e?.message || 'Clearlogo title search failed');
+            setClearlogoHits([]);
+        } finally {
+            setClearlogoSearching(false);
+        }
+    };
+
+    const fillClearlogoTitle = async (ratingKey: string, dryRun = false) => {
+        const busy = `${ratingKey}:${dryRun ? 'preview' : 'fill'}`;
+        setClearlogoFillBusy(busy);
+        setError('');
+        setNotice('');
+        try {
+            const result = await apiFetch('/api/metadata-fill/clearlogos/fill', {
+                method: 'POST',
+                body: JSON.stringify({ ratingKey, dryRun }),
+            });
+            if (dryRun) {
+                const statusLabel = String(result?.status || 'none');
+                if (statusLabel === 'hasLogo') {
+                    setNotice(`Preview: ${result?.title || 'Title'} already has a clearlogo.`);
+                } else if (statusLabel === 'available') {
+                    setNotice(`Preview: Plex has a clearlogo candidate for ${result?.title || 'title'} (not applied).`);
+                } else if (statusLabel === 'external') {
+                    setNotice(`Preview: TMDB PNG clearlogo available for ${result?.title || 'title'} (not applied).`);
+                } else {
+                    setNotice(`Preview: no clearlogo for ${result?.title || 'title'} (Plex or TMDB PNG).`);
+                }
+            } else if (result?.skipped) {
+                setNotice(`Skipped ${result?.title || 'title'}: ${result?.reason || result?.status || 'nothing to do'}.`);
+            } else if (result?.status === 'applied') {
+                const via = result?.source === 'tmdb' ? 'TMDB PNG upload' : 'Plex candidate';
+                setNotice(`Applied clearlogo for ${result?.title || 'title'} via ${via}.`);
+            } else {
+                setNotice(`Clearlogo fill finished (${result?.status || 'done'}).`);
+            }
+        } catch (e: any) {
+            setError(e?.message || 'Clearlogo fill failed');
+        } finally {
+            setClearlogoFillBusy('');
+        }
+    };
+
     const toggleHyphenLibraryKey = (key: string) => {
         setHyphenLibraryKeys((prev) => {
             if (prev.includes(key)) return prev.filter((k) => k !== key);
@@ -876,22 +947,26 @@ export const MetadataFillPage: React.FC = () => {
     const clearlogoCounts = useMemo(() => {
         const rows = clearlogoScan?.preview || [];
         let available = 0;
+        let externalAvailable = 0;
         let hasLogo = 0;
         let none = 0;
         for (const row of rows) {
             if (row.status === 'available' && !row.applied) available += 1;
+            else if (row.status === 'externalAvailable' && !row.applied) externalAvailable += 1;
             else if (row.status === 'hasLogo' || row.status === 'applied' || row.hasLogoApplied || row.applied) hasLogo += 1;
             else if (row.status === 'none') none += 1;
         }
-        return { available, hasLogo, none, all: rows.length };
+        return { available, externalAvailable, hasLogo, none, all: rows.length };
     }, [clearlogoScan?.preview]);
     const clearlogoTableRows = useMemo(() => {
         const rows = clearlogoScan?.preview || [];
         return rows.filter((row) => {
             const isAvailable = row.status === 'available' && !row.applied;
+            const isExternal = row.status === 'externalAvailable' && !row.applied;
             const isSet = row.status === 'hasLogo' || row.status === 'applied' || !!row.hasLogoApplied || !!row.applied;
             const isNone = row.status === 'none';
             if (clearlogoTableFilter === 'available') return isAvailable || row.status === 'failed';
+            if (clearlogoTableFilter === 'externalAvailable') return isExternal;
             if (clearlogoTableFilter === 'hasLogo') return isSet;
             if (clearlogoTableFilter === 'none') return isNone;
             return true;
@@ -914,6 +989,11 @@ export const MetadataFillPage: React.FC = () => {
         clearlogoCounts.available,
         Number(clearlogoStats?.available) || 0,
     );
+    const clearlogoExternalCount = Math.max(
+        clearlogoCounts.externalAvailable,
+        Number(clearlogoStats?.externalAvailable) || 0,
+    );
+    const clearlogoApplyAllCount = clearlogoAvailableCount + clearlogoExternalCount;
 
     const hyphenScan = status?.hyphenTitleScan;
     const hyphenStats = hyphenScan?.stats;
@@ -1618,9 +1698,79 @@ export const MetadataFillPage: React.FC = () => {
                 </div>
                 <p className="text-xs text-muted">
                     Find titles where Plex has clearlogo candidates but none is applied yet.
-                    Scan classifies each title as already set, available to apply, or none in Plex.
-                    Uses Plex’s own clearlogo providers only.
+                    When Plex has none, a TMDB PNG clearlogo can be uploaded (SVG/JPG are skipped).
+                    Or search one movie/show below without scanning the whole library.
                 </p>
+                {!status?.tmdbConfigured ? (
+                    <p className="text-[11px] text-amber-200/90">
+                        External PNG fallback needs a TMDB API key under Settings → Media Stack.
+                    </p>
+                ) : null}
+                <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3 space-y-2">
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-muted">Single title</p>
+                    <div className="flex flex-wrap gap-2">
+                        <input
+                            type="search"
+                            value={clearlogoQuery}
+                            onChange={(e) => setClearlogoQuery(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') void runClearlogoSearch();
+                            }}
+                            placeholder="Search movie or show…"
+                            disabled={!status?.enabled || clearlogoSearching}
+                            className="min-w-[12rem] flex-1 rounded-xl border border-white/10 bg-background/60 px-3 py-2 text-sm text-text placeholder:text-muted disabled:opacity-40"
+                        />
+                        <button
+                            type="button"
+                            disabled={!status?.enabled || clearlogoSearching || !clearlogoQuery.trim()}
+                            onClick={() => { void runClearlogoSearch(); }}
+                            className="inline-flex items-center gap-2 rounded-xl border border-white/15 px-3 py-2 text-sm font-semibold text-text disabled:opacity-40"
+                        >
+                            {clearlogoSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                            Search
+                        </button>
+                    </div>
+                    {clearlogoHits.length > 0 && (
+                        <ul className="divide-y divide-white/5 rounded-lg border border-white/5 overflow-hidden">
+                            {clearlogoHits.map((hit) => (
+                                <li key={hit.ratingKey} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-xs">
+                                    <div className="min-w-0">
+                                        <p className="truncate font-semibold text-text">
+                                            {hit.title}
+                                            {hit.year ? ` (${hit.year})` : ''}
+                                        </p>
+                                        <p className="text-muted">
+                                            {hit.type || 'title'}
+                                            {hit.tmdbId ? ` · TMDB ${hit.tmdbId}` : ''}
+                                        </p>
+                                    </div>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        <button
+                                            type="button"
+                                            disabled={!status?.enabled || !!clearlogoFillBusy}
+                                            onClick={() => { void fillClearlogoTitle(hit.ratingKey, true); }}
+                                            className="rounded-lg border border-white/15 px-2 py-1 font-semibold text-muted disabled:opacity-40"
+                                        >
+                                            {clearlogoFillBusy === `${hit.ratingKey}:preview` ? (
+                                                <Loader2 className="inline h-3.5 w-3.5 animate-spin" />
+                                            ) : 'Preview'}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            disabled={!status?.enabled || !!clearlogoFillBusy}
+                                            onClick={() => { void fillClearlogoTitle(hit.ratingKey, false); }}
+                                            className="rounded-lg border border-plex/40 bg-plex/15 px-2 py-1 font-bold text-plex disabled:opacity-40"
+                                        >
+                                            {clearlogoFillBusy === `${hit.ratingKey}:fill` ? (
+                                                <Loader2 className="inline h-3.5 w-3.5 animate-spin" />
+                                            ) : 'Apply clearlogo'}
+                                        </button>
+                                    </div>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                </div>
                 {(status?.clearlogoLibraries?.length || 0) > 0 ? (
                     <div className="flex flex-wrap gap-2">
                         {status?.clearlogoLibraries?.map((lib) => {
@@ -1706,14 +1856,14 @@ export const MetadataFillPage: React.FC = () => {
                             {clearlogoScan?.cancelRequested ? 'Cancelling…' : 'Cancel'}
                         </button>
                     )}
-                    {clearlogoAvailableCount > 0 && !clearlogoRunning && (
+                    {clearlogoApplyAllCount > 0 && !clearlogoRunning && (
                         <button
                             type="button"
                             disabled={!status?.enabled || clearlogoBusy}
                             onClick={() => { void applyClearlogos(); }}
                             className="inline-flex items-center gap-2 rounded-xl border border-plex/40 bg-plex/15 px-3 py-2 text-sm font-bold text-plex disabled:opacity-40"
                         >
-                            Apply all available ({clearlogoAvailableCount})
+                            Apply all available ({clearlogoApplyAllCount})
                         </button>
                     )}
                     {clearlogoAvailableCount > clearlogoCounts.available && clearlogoCounts.available > 0 ? (
@@ -1756,15 +1906,27 @@ export const MetadataFillPage: React.FC = () => {
                         </button>
                         <button
                             type="button"
+                            onClick={() => setClearlogoTableFilter('externalAvailable')}
+                            className={`rounded-lg border px-2.5 py-1 font-semibold ${
+                                clearlogoTableFilter === 'externalAvailable'
+                                    ? 'border-sky-400/60 bg-sky-400/20 text-sky-100'
+                                    : 'border-sky-400/30 bg-sky-400/10 text-sky-200'
+                            }`}
+                            title="No Plex candidates, but a TMDB PNG clearlogo is available to upload"
+                        >
+                            TMDB PNG {clearlogoStats?.externalAvailable || 0}
+                        </button>
+                        <button
+                            type="button"
                             onClick={() => setClearlogoTableFilter('none')}
                             className={`rounded-lg border px-2.5 py-1 ${
                                 clearlogoTableFilter === 'none'
                                     ? 'border-white/30 bg-white/10 text-text font-semibold'
                                     : 'border-white/10 bg-white/[0.03] text-muted'
                             }`}
-                            title="No clearlogo candidates in Plex"
+                            title="No clearlogo in Plex and no TMDB PNG found"
                         >
-                            None in Plex {clearlogoStats?.none || 0}
+                            None {clearlogoStats?.none || 0}
                         </button>
                         <button
                             type="button"
@@ -1796,9 +1958,9 @@ export const MetadataFillPage: React.FC = () => {
                     </div>
                 )}
                 <p className="text-[11px] text-muted">
-                    Default list is <span className="text-plex font-semibold">Available (not applied)</span> — the gaps you care about.
-                    Click a chip to review titles that already have a logo set, or none in Plex.
-                    Click a preview logo to choose it (optional); Apply uses your pick or the first agent candidate.
+                    Default list is <span className="text-plex font-semibold">Available (not applied)</span> — Plex candidates not selected yet.
+                    <span className="text-sky-200 font-semibold"> TMDB PNG</span> covers titles with no Plex candidates but an external PNG.
+                    Click a preview logo to choose it (optional); Apply uses your pick, the first agent candidate, or uploads the TMDB PNG.
                 </p>
                 {clearlogoTableRows.length > 0 && (
                     <div className="space-y-2">
@@ -1848,6 +2010,7 @@ export const MetadataFillPage: React.FC = () => {
                                 {pagedClearlogoRows.map((row) => {
                                     const poster = plexThumbUrl(row.thumb, 120, 180);
                                     const isAvailable = row.status === 'available' && !row.applied;
+                                    const isExternal = row.status === 'externalAvailable' && !row.applied;
                                     const isSet = row.status === 'hasLogo' || row.status === 'applied'
                                         || !!row.hasLogoApplied || !!row.applied;
                                     const isNone = row.status === 'none';
@@ -1865,18 +2028,25 @@ export const MetadataFillPage: React.FC = () => {
                                                     Not applied
                                                 </span>
                                             )
-                                            : (isNone
+                                            : (isExternal
                                                 ? (
-                                                    <span className="inline-flex rounded-md border border-white/15 bg-white/5 px-2 py-0.5 text-[11px] font-semibold text-muted">
-                                                        None in Plex
+                                                    <span className="inline-flex rounded-md border border-sky-400/40 bg-sky-400/15 px-2 py-0.5 text-[11px] font-bold text-sky-100">
+                                                        TMDB PNG
                                                     </span>
                                                 )
-                                                : (
-                                                    <span className="inline-flex rounded-md border border-red-400/30 bg-red-400/10 px-2 py-0.5 text-[11px] font-semibold text-red-300">
-                                                        Error
-                                                    </span>
-                                                )));
+                                                : (isNone
+                                                    ? (
+                                                        <span className="inline-flex rounded-md border border-white/15 bg-white/5 px-2 py-0.5 text-[11px] font-semibold text-muted">
+                                                            None
+                                                        </span>
+                                                    )
+                                                    : (
+                                                        <span className="inline-flex rounded-md border border-red-400/30 bg-red-400/10 px-2 py-0.5 text-[11px] font-semibold text-red-300">
+                                                            Error
+                                                        </span>
+                                                    ))));
                                     const setThumb = row.selectedCandidate?.thumb || row.selectedCandidate?.ratingKey || '';
+                                    const externalUrl = String(row.external?.url || '').trim();
                                     return (
                                         <tr key={row.ratingKey} className="border-b border-white/5 align-middle">
                                             <td className="px-3 py-3">
@@ -1967,13 +2137,25 @@ export const MetadataFillPage: React.FC = () => {
                                                             />
                                                         );
                                                     })}
-                                                    {!row.candidates?.length && !setThumb && (
+                                                    {isExternal && externalUrl ? (
+                                                        <div
+                                                            className="rounded-md border border-sky-400/40 bg-white/90 p-1.5 ring-1 ring-sky-400/30"
+                                                            title="TMDB PNG clearlogo preview"
+                                                        >
+                                                            <img
+                                                                src={externalUrl}
+                                                                alt=""
+                                                                className="h-10 w-[5.5rem] object-contain"
+                                                            />
+                                                        </div>
+                                                    ) : null}
+                                                    {!row.candidates?.length && !setThumb && !externalUrl && (
                                                         <span className="text-muted">—</span>
                                                     )}
                                                 </div>
                                             </td>
                                             <td className="px-3 py-3 text-right">
-                                                {isAvailable ? (
+                                                {(isAvailable || isExternal) ? (
                                                     <button
                                                         type="button"
                                                         disabled={!status?.enabled || clearlogoBusy || !!clearlogoRowBusy || clearlogoRunning}
@@ -1982,7 +2164,9 @@ export const MetadataFillPage: React.FC = () => {
                                                     >
                                                         {clearlogoRowBusy === `apply:${row.ratingKey}` ? (
                                                             <Loader2 className="inline h-3.5 w-3.5 animate-spin" />
-                                                        ) : (picked ? 'Apply selected' : 'Apply')}
+                                                        ) : (isExternal
+                                                            ? 'Upload PNG'
+                                                            : (picked ? 'Apply selected' : 'Apply'))}
                                                     </button>
                                                 ) : isSet ? (
                                                     <span className="text-[11px] font-semibold text-emerald-300/90">Logo set</span>
@@ -2023,12 +2207,14 @@ export const MetadataFillPage: React.FC = () => {
                 {clearlogoScan && !clearlogoTableRows.length && (clearlogoScan.status === 'done' || clearlogoScan.status === 'cancelled') && (
                     <p className="text-xs text-muted">
                         {clearlogoTableFilter === 'available'
-                            ? 'No titles with unapplied clearlogos in this scan. Try “Already set” or “None in Plex”.'
-                            : clearlogoTableFilter === 'hasLogo'
-                                ? 'No already-set clearlogos listed for this scan window.'
-                                : clearlogoTableFilter === 'none'
-                                    ? 'No titles without Plex clearlogo candidates in this scan window.'
-                                    : 'No clearlogo results listed yet.'}
+                            ? 'No titles with unapplied Plex clearlogos in this scan. Try “TMDB PNG” or “None”.'
+                            : clearlogoTableFilter === 'externalAvailable'
+                                ? 'No TMDB PNG fallbacks listed for this scan window.'
+                                : clearlogoTableFilter === 'hasLogo'
+                                    ? 'No already-set clearlogos listed for this scan window.'
+                                    : clearlogoTableFilter === 'none'
+                                        ? 'No titles without Plex or TMDB PNG clearlogos in this scan window.'
+                                        : 'No clearlogo results listed yet.'}
                     </p>
                 )}
             </section>
