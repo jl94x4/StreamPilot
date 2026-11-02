@@ -11,26 +11,36 @@ import android.view.View;
 import androidx.annotation.Nullable;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
-import java.util.Locale;
 
 /**
  * Draws "Who's on screen" over the paused video: a circle round each recognised face with the
- * actor and character under it, plus (test build) the timings.
+ * actor and character under it. Left / Right pick one (white box, black text, like the rest of
+ * the app; the others dim) and OK opens that person.
  */
 public class FaceLabelsView extends View {
+    /** A shot with nobody recognised says so briefly, then gets out of the way. */
+    private static final long NOTHING_FOUND_MS = 2500L;
+
     private final Paint ring = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint pill = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint dimPill = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint panel = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint nameText = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint roleText = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint dimNameText = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint dimRoleText = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint infoText = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final float dp;
 
-    @Nullable private WhoIsOnScreen.Result result;
     @Nullable private String status;
+    /** Named faces, left to right, in the order Left / Right step through them. */
+    private final List<WhoIsOnScreen.FoundFace> named = new ArrayList<>();
+    private int selected = -1;
     /** Where the video picture sits in this view (letterbox / zoom aware). */
     private final RectF video = new RectF();
+    private final Runnable hideRunnable = this::clear;
 
     public FaceLabelsView(Context context) {
         this(context, null);
@@ -40,69 +50,91 @@ public class FaceLabelsView extends View {
         super(context, attrs);
         dp = getResources().getDisplayMetrics().density;
         ring.setStyle(Paint.Style.STROKE);
-        ring.setStrokeWidth(3 * dp);
         ring.setColor(0xFFFFFFFF);
         ring.setShadowLayer(6 * dp, 0, 0, 0x99000000);
         pill.setColor(0xFFFFFFFF);
+        dimPill.setColor(0xCC0B0B0D);
         panel.setColor(0xCC000000);
         nameText.setColor(0xFF0B0B0D);
         nameText.setTextSize(15 * dp);
         nameText.setTypeface(Typeface.DEFAULT_BOLD);
         roleText.setColor(0xB30B0B0D);
         roleText.setTextSize(12 * dp);
+        dimNameText.set(nameText);
+        dimNameText.setColor(0xFFFFFFFF);
+        dimRoleText.set(roleText);
+        dimRoleText.setColor(0xB3FFFFFF);
         infoText.setColor(0xFFFFFFFF);
-        infoText.setTextSize(12 * dp);
+        infoText.setTextSize(13 * dp);
         setWillNotDraw(false);
     }
 
     void showStatus(String message) {
-        result = null;
+        removeCallbacks(hideRunnable);
+        named.clear();
+        selected = -1;
         status = message;
         setVisibility(VISIBLE);
         invalidate();
     }
 
     void showResult(WhoIsOnScreen.Result next, RectF videoRect) {
-        result = next;
-        status = null;
+        removeCallbacks(hideRunnable);
+        named.clear();
+        selected = -1;
         video.set(videoRect);
+        if (next.faces != null) {
+            for (WhoIsOnScreen.FoundFace face : next.faces) {
+                if (face.person != null) named.add(face);
+            }
+        }
+        Collections.sort(named, (a, b) -> Float.compare(a.box.centerX(), b.box.centerX()));
+        if (named.isEmpty()) {
+            status = next.error != null
+                ? getContext().getString(R.string.player_faces_failed)
+                : getContext().getString(R.string.player_faces_none);
+            postDelayed(hideRunnable, NOTHING_FOUND_MS);
+        } else {
+            status = null;
+        }
         setVisibility(VISIBLE);
         invalidate();
     }
 
     void clear() {
-        result = null;
+        removeCallbacks(hideRunnable);
+        named.clear();
+        selected = -1;
         status = null;
         setVisibility(GONE);
+    }
+
+    int namedCount() {
+        return getVisibility() == VISIBLE ? named.size() : 0;
+    }
+
+    /** Left / Right: the first press picks the nearest end, then it walks and stops at the ends. */
+    void step(int direction) {
+        if (named.isEmpty()) return;
+        if (selected < 0) selected = direction > 0 ? 0 : named.size() - 1;
+        else selected = Math.max(0, Math.min(named.size() - 1, selected + direction));
+        invalidate();
+    }
+
+    @Nullable
+    WhoIsOnScreen.Person selectedPerson() {
+        return selected >= 0 && selected < named.size() ? named.get(selected).person : null;
     }
 
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-        List<String> lines = new ArrayList<>();
-        if (status != null) lines.add(status);
-        WhoIsOnScreen.Result shown = result;
-        if (shown != null) {
-            if (shown.error != null) {
-                lines.add(shown.error);
-            } else {
-                int named = 0;
-                for (WhoIsOnScreen.FoundFace face : shown.faces) {
-                    drawFace(canvas, face);
-                    if (face.person != null) named++;
-                }
-                lines.add(shown.faces.isEmpty()
-                    ? "Who's on screen (test): no faces found in this shot"
-                    : String.format(Locale.US, "Who's on screen (test): %d face%s, %d named",
-                        shown.faces.size(), shown.faces.size() == 1 ? "" : "s", named));
-                lines.add(String.format(Locale.US, "Frame %d ms · Faces %d ms · Cast %d ms (%d/%d photos usable) · Match %d ms",
-                    shown.frameMs, shown.detectMs, shown.castMs, shown.castWithFaces, shown.castTotal, shown.matchMs));
-            }
-        }
-        drawInfo(canvas, lines);
+        for (int i = 0; i < named.size(); i++) drawFace(canvas, named.get(i), i);
+        if (status != null) drawStatus(canvas, status);
+        else if (!named.isEmpty()) drawHint(canvas);
     }
 
-    private void drawFace(Canvas canvas, WhoIsOnScreen.FoundFace face) {
+    private void drawFace(Canvas canvas, WhoIsOnScreen.FoundFace face, int index) {
         float left = video.left + face.box.left * video.width();
         float right = video.left + face.box.right * video.width();
         float top = video.top + face.box.top * video.height();
@@ -110,48 +142,58 @@ public class FaceLabelsView extends View {
         float cx = (left + right) / 2f;
         float cy = (top + bottom) / 2f;
         float radius = Math.max(right - left, bottom - top) * 0.62f;
-        int pct = Math.round(face.score * 100);
-        // Only confident names are drawn: a dashed "?" guess cluttered the picture.
-        if (face.person == null) return;
+        // Nothing picked: every label white (the look that tested best). One picked: it stays
+        // white with a heavier ring and the rest dim, so it reads as focused.
+        boolean picked = selected == index;
+        boolean dim = selected >= 0 && !picked;
+        ring.setStrokeWidth((picked ? 5 : 3) * dp);
+        ring.setAlpha(dim ? 140 : 255);
         canvas.drawCircle(cx, cy, radius, ring);
-        String role = face.person.role == null || face.person.role.isEmpty()
-            ? pct + "%"
-            : face.person.role + " · " + pct + "%";
-        drawLabel(canvas, cx, cy + radius + 6 * dp, face.person.name, role, 1f);
+        String role = face.person.role == null || face.person.role.isEmpty() ? null : face.person.role;
+        drawLabel(canvas, cx, cy + radius + 6 * dp, face.person.name, role, dim);
     }
 
-    private void drawLabel(Canvas canvas, float cx, float top, String name, @Nullable String role, float alpha) {
+    private void drawLabel(Canvas canvas, float cx, float top, String name, @Nullable String role, boolean dim) {
+        Paint box = dim ? dimPill : pill;
+        Paint nameP = dim ? dimNameText : nameText;
+        Paint roleP = dim ? dimRoleText : roleText;
         float padX = 10 * dp;
         float padY = 6 * dp;
-        float nameW = nameText.measureText(name);
-        float roleW = role == null ? 0 : roleText.measureText(role);
+        float nameW = nameP.measureText(name);
+        float roleW = role == null ? 0 : roleP.measureText(role);
         float width = Math.max(nameW, roleW) + padX * 2;
-        float nameH = nameText.getTextSize();
-        float roleH = role == null ? 0 : roleText.getTextSize() + 3 * dp;
+        float nameH = nameP.getTextSize();
+        float roleH = role == null ? 0 : roleP.getTextSize() + 3 * dp;
         float height = nameH + roleH + padY * 2;
         float left = Math.max(4 * dp, Math.min(getWidth() - width - 4 * dp, cx - width / 2f));
         float y = Math.min(top, getHeight() - height - 4 * dp);
-        int pillAlpha = Math.round(255 * alpha);
-        pill.setAlpha(pillAlpha);
-        canvas.drawRoundRect(new RectF(left, y, left + width, y + height), 10 * dp, 10 * dp, pill);
-        canvas.drawText(name, left + (width - nameW) / 2f, y + padY + nameH * 0.85f, nameText);
+        canvas.drawRoundRect(new RectF(left, y, left + width, y + height), 10 * dp, 10 * dp, box);
+        canvas.drawText(name, left + (width - nameW) / 2f, y + padY + nameH * 0.85f, nameP);
         if (role != null) {
-            canvas.drawText(role, left + (width - roleW) / 2f, y + padY + nameH + roleH * 0.85f, roleText);
+            canvas.drawText(role, left + (width - roleW) / 2f, y + padY + nameH + roleH * 0.85f, roleP);
         }
     }
 
-    private void drawInfo(Canvas canvas, List<String> lines) {
-        if (lines.isEmpty()) return;
+    /** Small pill, top left: working, or nothing found. */
+    private void drawStatus(Canvas canvas, String text) {
         float pad = 10 * dp;
-        float lineH = infoText.getTextSize() + 5 * dp;
-        float width = 0;
-        for (String line : lines) width = Math.max(width, infoText.measureText(line));
+        float width = infoText.measureText(text) + pad * 2;
+        float height = infoText.getTextSize() + pad * 1.6f;
         float left = 24 * dp;
         float top = 24 * dp;
-        canvas.drawRoundRect(new RectF(left, top, left + width + pad * 2, top + lineH * lines.size() + pad * 2 - 5 * dp),
-            10 * dp, 10 * dp, panel);
-        for (int i = 0; i < lines.size(); i++) {
-            canvas.drawText(lines.get(i), left + pad, top + pad + infoText.getTextSize() + i * lineH, infoText);
-        }
+        canvas.drawRoundRect(new RectF(left, top, left + width, top + height), height / 2f, height / 2f, panel);
+        canvas.drawText(text, left + pad, top + height / 2f + infoText.getTextSize() * 0.35f, infoText);
+    }
+
+    /** Bottom centre, once names are up: how to use them. */
+    private void drawHint(Canvas canvas) {
+        String text = getContext().getString(R.string.player_faces_hint);
+        float pad = 12 * dp;
+        float width = infoText.measureText(text) + pad * 2;
+        float height = infoText.getTextSize() + pad * 1.4f;
+        float left = (getWidth() - width) / 2f;
+        float top = getHeight() - height - 28 * dp;
+        canvas.drawRoundRect(new RectF(left, top, left + width, top + height), height / 2f, height / 2f, panel);
+        canvas.drawText(text, left + pad, top + height / 2f + infoText.getTextSize() * 0.35f, infoText);
     }
 }

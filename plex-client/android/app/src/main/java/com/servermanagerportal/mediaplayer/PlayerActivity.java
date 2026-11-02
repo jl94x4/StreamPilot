@@ -397,6 +397,21 @@ public class PlayerActivity extends AppCompatActivity {
         }
 
         @Override
+        public boolean facesNamed() {
+            return !chromeVisible && facesView != null && facesView.namedCount() > 0;
+        }
+
+        @Override
+        public void stepFace(int direction) {
+            if (facesView != null) facesView.step(direction);
+        }
+
+        @Override
+        public boolean openPickedFace() {
+            return PlayerActivity.this.openPickedFace();
+        }
+
+        @Override
         public boolean facesVisible() {
             return facesView != null && facesView.getVisibility() == View.VISIBLE;
         }
@@ -612,7 +627,7 @@ public class PlayerActivity extends AppCompatActivity {
     /** OK on a cast card: JSON {id,name,thumb} handed back to the app on close. */
     @Nullable
     private String openPersonJson;
-    /** Settings → Who's on screen (test): name the faces in the paused frame. */
+    /** Settings → Who's on screen: name the faces in the paused frame. */
     private boolean whoIsOnScreen;
     @Nullable
     private WhoIsOnScreen faceEngine;
@@ -1038,7 +1053,7 @@ public class PlayerActivity extends AppCompatActivity {
             // TV: tunneled video+audio keeps lip-sync on many SoCs (Plex-style). Phone
             // stays untunneled — overlays and some codecs are happier without it.
             DefaultTrackSelector trackSelector = new DefaultTrackSelector(this);
-            // Who's on screen (test) copies the paused picture off the surface, which tunneled
+            // Who's on screen copies the paused picture off the surface, which tunneled
             // video never fills, so the test plays untunneled.
             if (isTelevision() && !whoIsOnScreen) {
                 trackSelector.setParameters(
@@ -2349,8 +2364,6 @@ public class PlayerActivity extends AppCompatActivity {
         Log.i(TAG, "WhoIsOnScreen schedule: on=" + whoIsOnScreen + " live=" + liveStream + " music=" + musicMode
             + " view=" + (facesView != null) + " player=" + (player != null));
         if (!whoIsOnScreen || liveStream || musicMode || facesView == null || player == null) return;
-        // Show straight away that the test noticed the pause, so "nothing at all" is never ambiguous.
-        facesView.showStatus("Who's on screen (test): paused, starting…");
         mainHandler.postDelayed(whoIsOnScreenRunnable, WHO_IS_ON_SCREEN_DELAY_MS);
     }
 
@@ -2365,26 +2378,17 @@ public class PlayerActivity extends AppCompatActivity {
             + " userPaused=" + userPaused + " state=" + (player == null ? -1 : player.getPlaybackState())
             + " cast=" + castMembers.size());
         if (player == null || player.getPlayWhenReady() || !userPaused || finishing || facesView == null) return;
-        if (player.getPlaybackState() != Player.STATE_READY) {
-            facesView.showStatus("Who's on screen (test): waiting for the picture (state " + player.getPlaybackState() + ")");
-            return;
-        }
+        if (player.getPlaybackState() != Player.STATE_READY) return;
         List<WhoIsOnScreen.Person> people = new ArrayList<>();
         for (CastMember member : castMembers) {
             people.add(new WhoIsOnScreen.Person(member.id, member.name, member.role, member.thumb));
         }
-        if (people.isEmpty()) {
-            facesView.showStatus("Who's on screen (test): no cast for this title");
-            return;
-        }
+        if (people.isEmpty()) return;
         if (faceEngine == null) faceEngine = new WhoIsOnScreen(this);
         PlayerView playerView = findViewById(R.id.player_view);
         View surface = playerView == null ? null : playerView.getVideoSurfaceView();
-        if (!(surface instanceof SurfaceView) || surface.getWidth() < 16 || surface.getHeight() < 16) {
-            facesView.showStatus("Who's on screen (test): no picture to read");
-            return;
-        }
-        facesView.showStatus("Who's on screen (test): looking…");
+        if (!(surface instanceof SurfaceView) || surface.getWidth() < 16 || surface.getHeight() < 16) return;
+        facesView.showStatus(getString(R.string.player_faces_looking));
         // Copy the paused picture off the surface (no second decoder), at most 1280 wide.
         int width = Math.min(1280, surface.getWidth());
         int height = Math.max(1, Math.round(surface.getHeight() * (width / (float) surface.getWidth())));
@@ -2394,16 +2398,15 @@ public class PlayerActivity extends AppCompatActivity {
             android.view.PixelCopy.request((SurfaceView) surface, frame, copyResult -> {
                 if (finishing || player == null || player.getPlayWhenReady() || facesView == null) return;
                 if (copyResult != android.view.PixelCopy.SUCCESS || looksBlank(frame)) {
-                    facesView.showStatus("Who's on screen (test): couldn't read the picture."
-                        + " Start the film again with the test on.");
+                    showFacesFailed();
                     return;
                 }
                 long frameMs = android.os.SystemClock.elapsedRealtime() - copyStarted;
                 faceEngine.run(frame, frameMs, people,
                     url -> downloadLogoBitmap(url, headersForImageUrl(url)),
-                    message -> mainHandler.post(() -> {
+                    (index, total) -> mainHandler.post(() -> {
                         if (finishing || player == null || player.getPlayWhenReady() || facesView == null) return;
-                        facesView.showStatus(message);
+                        facesView.showStatus(getString(R.string.player_faces_learning, index, total));
                     }),
                     result -> mainHandler.post(() -> {
                         if (finishing || player == null || player.getPlayWhenReady() || facesView == null) return;
@@ -2412,8 +2415,24 @@ public class PlayerActivity extends AppCompatActivity {
             }, mainHandler);
         } catch (Throwable error) {
             Log.w(TAG, "Who's on screen frame copy failed", error);
-            facesView.showStatus("Who's on screen (test): couldn't read the picture");
+            showFacesFailed();
         }
+    }
+
+    /** A short "couldn't read this shot" that clears itself. */
+    private void showFacesFailed() {
+        if (facesView == null) return;
+        WhoIsOnScreen.Result failed = new WhoIsOnScreen.Result();
+        failed.error = "frame";
+        facesView.showResult(failed, new RectF());
+    }
+
+    /** OK on a picked face: leave the player (place saved, as on Back) for that person's page. */
+    private boolean openPickedFace() {
+        WhoIsOnScreen.Person person = facesView == null ? null : facesView.selectedPerson();
+        if (person == null) return false;
+        openCastPerson(new CastMember(person.id, person.name, person.role, person.thumb));
+        return true;
     }
 
     /** Tunneled playback (test turned on mid-film) leaves the copied picture black. */

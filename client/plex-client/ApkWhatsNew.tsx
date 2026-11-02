@@ -73,6 +73,17 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.592': [
+        {
+            title: 'Who\'s on screen',
+            items: [
+                'No longer a test: pause and the actors in the picture are circled and named (Settings → Playback → Who\'s on screen)',
+                'Left/Right pick someone (their label stays white, the rest dim) and OK opens their page; your place is saved',
+                'OK with no one picked still resumes, and Up/Down still bring back the controls for seeking',
+                'Cleaner look: no scores or timings, just a small "Finding who\'s on screen…" while it works and "No one recognised" when there\'s nobody to name',
+            ],
+        },
+    ],
     '1.0.591': [
         {
             title: 'Who\'s on screen (test)',

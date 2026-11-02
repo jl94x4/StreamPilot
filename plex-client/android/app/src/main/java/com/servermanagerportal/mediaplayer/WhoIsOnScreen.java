@@ -38,7 +38,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * "Who's on screen" (test): on pause, take the picture on screen, find faces with ML Kit
+ * "Who's on screen": on pause, take the picture on screen, find faces with ML Kit
  * (offline), and match each one to the title's cast by comparing FaceNet embeddings with ones
  * made from the cast photos Plex already has. Everything runs on the TV. It never opens a second
  * video decoder: on TVs that allow one 4K decoder, that took the player's away mid-film.
@@ -98,9 +98,9 @@ final class WhoIsOnScreen {
         void onResult(Result result);
     }
 
-    /** Progress text while it works ("learning the cast 5/17"), from the worker thread. */
+    /** First pause in a title: which cast photo it is learning, from the worker thread. */
     interface Progress {
-        void onStatus(String message);
+        void onLearning(int index, int total);
     }
 
     /** Cast photos are headshots: this size is plenty to find and read the face, and fast. */
@@ -302,7 +302,7 @@ final class WhoIsOnScreen {
                 continue;
             }
             if (castWithoutFace.contains(person.thumb)) continue;
-            if (progress != null) progress.onStatus("Who's on screen (test): learning the cast " + index + "/" + cast.size());
+            if (progress != null) progress.onLearning(index, cast.size());
             Bitmap raw = loader.load(person.thumb);
             if (raw == null) {
                 // Not saved to disk (it may load next time), but not retried on every pause either.

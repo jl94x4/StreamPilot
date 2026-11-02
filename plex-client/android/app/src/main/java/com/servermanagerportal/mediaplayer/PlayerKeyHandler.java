@@ -101,6 +101,14 @@ final class PlayerKeyHandler {
         /** Who's on screen labels are drawn over the paused picture. */
         boolean facesVisible();
 
+        /** Names are up and the controls hidden: Left / Right pick a face, OK opens it. */
+        boolean facesNamed();
+
+        void stepFace(int direction);
+
+        /** OK on a picked face. False when none is picked (OK then resumes as usual). */
+        boolean openPickedFace();
+
         void clearFaces();
 
         /** Cast strip under the transport row (second Down). */
@@ -258,6 +266,14 @@ final class PlayerKeyHandler {
             return Result.HANDLED;
         }
 
+        // Who's on screen: with names up, Left / Right walk between faces instead of seeking.
+        // Up / Down still bring the controls (and their seek bar) back.
+        if (host.facesNamed()
+            && (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT)) {
+            host.stepFace(keyCode == KeyEvent.KEYCODE_DPAD_LEFT ? -1 : 1);
+            return Result.HANDLED;
+        }
+
         boolean seekLeft = keyCode == KeyEvent.KEYCODE_MEDIA_REWIND || keyCode == KeyEvent.KEYCODE_DPAD_LEFT;
         boolean seekRight = keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT;
         // Hold already running: swallow key *repeats* so chrome focus cannot steal them.
@@ -408,6 +424,7 @@ final class PlayerKeyHandler {
             if (!host.isPlaybackConfirmTarget()) return Result.SUPER;
             if (!downSeen) return Result.HANDLED;
             if (!host.chromeVisible() && confirm && host.trySkipFromRemote()) return Result.HANDLED;
+            if (confirm && host.facesNamed() && host.openPickedFace()) return Result.HANDLED;
             host.togglePlayPause();
             return Result.HANDLED;
         }
