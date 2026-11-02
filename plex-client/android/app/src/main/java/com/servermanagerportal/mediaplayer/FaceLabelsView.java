@@ -97,8 +97,10 @@ public class FaceLabelsView extends View {
                     drawFace(canvas, face);
                     if (face.person != null) named++;
                 }
-                lines.add(String.format(Locale.US, "Who's on screen (test): %d face%s, %d named",
-                    shown.faces.size(), shown.faces.size() == 1 ? "" : "s", named));
+                lines.add(shown.faces.isEmpty()
+                    ? "Who's on screen (test): no faces found in this shot"
+                    : String.format(Locale.US, "Who's on screen (test): %d face%s, %d named",
+                        shown.faces.size(), shown.faces.size() == 1 ? "" : "s", named));
                 lines.add(String.format(Locale.US, "Frame %d ms · Faces %d ms · Cast %d ms (%d/%d photos usable) · Match %d ms",
                     shown.frameMs, shown.detectMs, shown.castMs, shown.castWithFaces, shown.castTotal, shown.matchMs));
             }

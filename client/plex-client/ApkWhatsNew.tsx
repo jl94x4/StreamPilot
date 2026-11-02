@@ -73,6 +73,16 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.590': [
+        {
+            title: 'Who\'s on screen (test)',
+            items: [
+                'Much faster first pause: cast photos are shrunk before reading and use the quick face finder, and a shot with no faces skips the cast entirely',
+                'Each actor\'s face is remembered on the device, so it is learned once ever rather than every time the app starts',
+                'Shows progress while it learns ("learning the cast 5/17")',
+            ],
+        },
+    ],
     '1.0.589': [
         {
             title: 'Settings',

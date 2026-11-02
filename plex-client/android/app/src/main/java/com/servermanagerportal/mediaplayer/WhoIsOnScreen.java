@@ -19,7 +19,13 @@ import com.google.mlkit.vision.face.FaceDetectorOptions;
 import org.tensorflow.lite.Interpreter;
 
 import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.security.MessageDigest;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
@@ -91,11 +97,21 @@ final class WhoIsOnScreen {
         void onResult(Result result);
     }
 
+    /** Progress text while it works ("learning the cast 5/17"), from the worker thread. */
+    interface Progress {
+        void onStatus(String message);
+    }
+
+    /** Cast photos are headshots: this size is plenty to find and read the face, and fast. */
+    private static final int PHOTO_MAX_SIDE = 320;
+
     /** One model, one detector and one set of cast embeddings for the whole app process. */
     private static Interpreter interpreter;
     private static int inputSize = 160;
     private static int embeddingSize = 128;
+    /** Frame: accurate, for small faces in a wide shot. Cast photos: fast, one big face each. */
     private static FaceDetector detector;
+    private static FaceDetector photoDetector;
     private static final Map<String, float[]> castEmbeddings = new HashMap<>();
     private static final Set<String> castWithoutFace = new HashSet<>();
 
@@ -117,7 +133,7 @@ final class WhoIsOnScreen {
     }
 
     /** frame: the paused picture copied off the video surface; frameMs: how long that copy took. */
-    void run(Bitmap frame, long frameMs, List<Person> cast, ImageLoader loader, Callback callback) {
+    void run(Bitmap frame, long frameMs, List<Person> cast, ImageLoader loader, Progress progress, Callback callback) {
         final int run = ++generation;
         worker.execute(() -> {
             Result result = new Result();
@@ -133,9 +149,15 @@ final class WhoIsOnScreen {
                 List<Face> faces = detect(frame);
                 result.detectMs = SystemClock.elapsedRealtime() - t1;
                 if (run != generation) return;
+                result.castTotal = cast.size();
+                if (faces.isEmpty()) {
+                    // Nobody in shot: no need to learn the cast at all.
+                    callback.onResult(result);
+                    return;
+                }
 
                 long t2 = SystemClock.elapsedRealtime();
-                Map<Person, float[]> castVectors = castVectors(cast, loader, run);
+                Map<Person, float[]> castVectors = castVectors(cast, loader, run, progress);
                 result.castMs = SystemClock.elapsedRealtime() - t2;
                 result.castTotal = cast.size();
                 result.castWithFaces = castVectors.size();
@@ -173,6 +195,12 @@ final class WhoIsOnScreen {
                     .setMinFaceSize(0.05f)
                     .build());
             }
+            if (photoDetector == null) {
+                photoDetector = FaceDetection.getClient(new FaceDetectorOptions.Builder()
+                    .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
+                    .setMinFaceSize(0.2f)
+                    .build());
+            }
         }
     }
 
@@ -194,32 +222,102 @@ final class WhoIsOnScreen {
         return Tasks.await(detector.process(InputImage.fromBitmap(bitmap, 0)));
     }
 
-    /** Cast photo embeddings, made once per photo and kept for the whole session. */
-    private Map<Person, float[]> castVectors(List<Person> cast, ImageLoader loader, int run) throws Exception {
+    private static List<Face> detectPhoto(Bitmap bitmap) throws Exception {
+        return Tasks.await(photoDetector.process(InputImage.fromBitmap(bitmap, 0)));
+    }
+
+    /** Full-size TMDB / Plex headshots can be thousands of pixels: shrink before any work. */
+    private static Bitmap shrinkPhoto(Bitmap photo) {
+        int longest = Math.max(photo.getWidth(), photo.getHeight());
+        Bitmap out = photo;
+        if (longest > PHOTO_MAX_SIDE) {
+            float scale = PHOTO_MAX_SIDE / (float) longest;
+            out = Bitmap.createScaledBitmap(photo,
+                Math.max(1, Math.round(photo.getWidth() * scale)),
+                Math.max(1, Math.round(photo.getHeight() * scale)), true);
+        }
+        if (out.getConfig() != Bitmap.Config.ARGB_8888) out = out.copy(Bitmap.Config.ARGB_8888, false);
+        return out;
+    }
+
+    /** Learned cast faces live on disk, so each person is learned once ever, not per session. */
+    private File castCacheFile(String url) {
+        try {
+            MessageDigest sha = MessageDigest.getInstance("SHA-1");
+            StringBuilder hex = new StringBuilder();
+            for (byte b : sha.digest(url.getBytes("UTF-8"))) hex.append(String.format("%02x", b));
+            File dir = new File(context.getFilesDir(), "face-cast");
+            if (!dir.exists() && !dir.mkdirs()) return null;
+            return new File(dir, hex + ".vec");
+        } catch (Exception error) {
+            return null;
+        }
+    }
+
+    /** null: not learned yet. Empty array: the photo has no usable face. */
+    @Nullable
+    private float[] readCastCache(String url) {
+        File file = castCacheFile(url);
+        if (file == null || !file.exists()) return null;
+        try (DataInputStream in = new DataInputStream(new FileInputStream(file))) {
+            int count = in.readInt();
+            if (count < 0 || count > 4096) return null;
+            float[] vector = new float[count];
+            for (int i = 0; i < count; i++) vector[i] = in.readFloat();
+            return vector;
+        } catch (Exception error) {
+            return null;
+        }
+    }
+
+    private void writeCastCache(String url, float[] vector) {
+        File file = castCacheFile(url);
+        if (file == null) return;
+        try (DataOutputStream out = new DataOutputStream(new FileOutputStream(file))) {
+            out.writeInt(vector.length);
+            for (float v : vector) out.writeFloat(v);
+        } catch (Exception ignored) {
+            /* the in-memory copy still works this session */
+        }
+    }
+
+    /** Cast photo embeddings: memory, then disk, then learned from the photo (and saved). */
+    private Map<Person, float[]> castVectors(List<Person> cast, ImageLoader loader, int run, Progress progress) throws Exception {
         Map<Person, float[]> out = new HashMap<>();
+        int index = 0;
         for (Person person : cast) {
+            index++;
             if (run != generation) break;
             if (person.thumb == null || person.thumb.isEmpty()) continue;
             float[] known = castEmbeddings.get(person.thumb);
+            if (known == null && !castWithoutFace.contains(person.thumb)) {
+                float[] saved = readCastCache(person.thumb);
+                if (saved != null && saved.length == 0) castWithoutFace.add(person.thumb);
+                else if (saved != null) castEmbeddings.put(person.thumb, saved);
+                known = saved != null && saved.length > 0 ? saved : null;
+            }
             if (known != null) {
                 out.put(person, known);
                 continue;
             }
             if (castWithoutFace.contains(person.thumb)) continue;
-            Bitmap photo = loader.load(person.thumb);
-            if (photo == null) continue;
-            if (photo.getConfig() != Bitmap.Config.ARGB_8888) photo = photo.copy(Bitmap.Config.ARGB_8888, false);
-            List<Face> faces = detect(photo);
+            if (progress != null) progress.onStatus("Who's on screen (test): learning the cast " + index + "/" + cast.size());
+            Bitmap raw = loader.load(person.thumb);
+            if (raw == null) continue;
+            Bitmap photo = shrinkPhoto(raw);
+            List<Face> faces = detectPhoto(photo);
             Face largest = null;
             for (Face face : faces) {
                 if (largest == null || area(face.getBoundingBox()) > area(largest.getBoundingBox())) largest = face;
             }
             if (largest == null) {
                 castWithoutFace.add(person.thumb);
+                writeCastCache(person.thumb, new float[0]);
                 continue;
             }
             float[] vector = embed(photo, largest.getBoundingBox());
             castEmbeddings.put(person.thumb, vector);
+            writeCastCache(person.thumb, vector);
             out.put(person, vector);
         }
         return out;

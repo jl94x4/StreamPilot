@@ -2401,6 +2401,10 @@ public class PlayerActivity extends AppCompatActivity {
                 long frameMs = android.os.SystemClock.elapsedRealtime() - copyStarted;
                 faceEngine.run(frame, frameMs, people,
                     url -> downloadLogoBitmap(url, headersForImageUrl(url)),
+                    message -> mainHandler.post(() -> {
+                        if (finishing || player == null || player.getPlayWhenReady() || facesView == null) return;
+                        facesView.showStatus(message);
+                    }),
                     result -> mainHandler.post(() -> {
                         if (finishing || player == null || player.getPlayWhenReady() || facesView == null) return;
                         facesView.showResult(result, videoRectInFaces(result));
