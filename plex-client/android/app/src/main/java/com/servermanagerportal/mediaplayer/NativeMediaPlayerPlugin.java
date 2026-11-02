@@ -288,6 +288,8 @@ public class NativeMediaPlayerPlugin extends Plugin {
             ret.put("previousRatingKey", previousRatingKey);
         }
         ret.put("watchedHandled", watchedHandled);
+        String openPerson = data != null ? data.getStringExtra(PlayerActivity.EXTRA_OPEN_PERSON) : null;
+        if (openPerson != null && !openPerson.isEmpty()) ret.put("openPerson", openPerson);
         call.resolve(ret);
     }
 }

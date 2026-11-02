@@ -73,6 +73,16 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.584': [
+        {
+            title: 'Player',
+            items: [
+                'Cast strip: with the controls showing, press Down again from the play/pause row to see who\'s in the film or episode, without pausing',
+                'Episodes show that episode\'s guest stars first, then the show\'s main cast',
+                'Left/Right move along it, Up, Down or Back close it, and OK opens that person\'s page (your place is saved)',
+            ],
+        },
+    ],
     '1.0.583': [
         {
             title: 'Continue Watching',

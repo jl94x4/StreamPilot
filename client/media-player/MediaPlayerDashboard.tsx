@@ -1692,6 +1692,8 @@ export const MediaPlayerDashboard: React.FC = () => {
                         if (getWatchTogetherClient().state?.inviteCode) {
                             discardWatchTogetherClient();
                         }
+                        // OK on a person in the player's cast strip.
+                        if (meta?.openPerson) openPerson(meta.openPerson);
                         // Stay on the screen that started playback (Home, library, details, …).
                         // Forcing openItem() pushed a duplicate /item URL so the next Back
                         // looked like a no-op and fell through to the last library.

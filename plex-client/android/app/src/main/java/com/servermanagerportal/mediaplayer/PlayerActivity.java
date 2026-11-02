@@ -35,6 +35,11 @@ import android.widget.Button;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.StateListDrawable;
+import android.content.res.ColorStateList;
+import androidx.core.graphics.drawable.RoundedBitmapDrawable;
+import androidx.core.graphics.drawable.RoundedBitmapDrawableFactory;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
@@ -141,6 +146,7 @@ public class PlayerActivity extends AppCompatActivity {
     public static final String EXTRA_PLAY_PREVIOUS = "playPrevious";
     public static final String EXTRA_WATCHED_HANDLED = "watchedHandled";
     public static final String EXTRA_PREVIOUS_RATING_KEY = "previousRatingKey";
+    public static final String EXTRA_OPEN_PERSON = "openPerson";
 
     private ExoPlayer player;
     private DefaultHttpDataSource.Factory httpFactory;
@@ -378,6 +384,31 @@ public class PlayerActivity extends AppCompatActivity {
         public boolean trySkipFromRemote() {
             return PlayerActivity.this.trySkipFromRemote();
         }
+
+        @Override
+        public boolean castStripVisible() {
+            return isCastStripVisible();
+        }
+
+        @Override
+        public boolean castStripFocused() {
+            return isCastStripFocused();
+        }
+
+        @Override
+        public boolean canOpenCastStrip() {
+            return PlayerActivity.this.canOpenCastStrip();
+        }
+
+        @Override
+        public void showCastStrip() {
+            PlayerActivity.this.showCastStrip();
+        }
+
+        @Override
+        public void hideCastStrip() {
+            PlayerActivity.this.hideCastStrip(true);
+        }
     });
     private long seekBackMs = 10_000L;
     private long seekForwardMs = 10_000L;
@@ -536,6 +567,30 @@ public class PlayerActivity extends AppCompatActivity {
     private boolean sleepEpisodeLimit;
     private boolean sleepAtCredits;
     private final List<OptionItem> relatedItems = new ArrayList<>();
+    /** One person in the cast strip (from the session's "cast"). */
+    private static final class CastMember {
+        final String id;
+        final String name;
+        final String role;
+        final String thumb;
+
+        CastMember(String id, String name, String role, String thumb) {
+            this.id = id;
+            this.name = name;
+            this.role = role;
+            this.thumb = thumb;
+        }
+    }
+    private final List<CastMember> castMembers = new ArrayList<>();
+    private View castPanel;
+    private LinearLayout castRow;
+    /** Names the cards were built from; rebuild only when the cast changes. */
+    private String castBuiltFor = "";
+    /** Cast photos already cropped round, by URL, so reopening the strip never refetches. */
+    private final Map<String, Bitmap> castPhotos = new HashMap<>();
+    /** OK on a cast card: JSON {id,name,thumb} handed back to the app on close. */
+    @Nullable
+    private String openPersonJson;
     /** Consecutive seconds in STATE_BUFFERING while play-when-ready (stall nudge). */
     private int bufferingStreakSec;
     private boolean qualityNudgeOffered;
@@ -1131,6 +1186,8 @@ public class PlayerActivity extends AppCompatActivity {
         sleepBtn = findViewById(R.id.player_sleep);
         externalBtn = findViewById(R.id.player_external);
         upNextRow = findViewById(R.id.player_up_next);
+        castPanel = findViewById(R.id.player_cast_panel);
+        castRow = findViewById(R.id.player_cast_row);
         upNextArt = findViewById(R.id.player_up_next_art);
         upNextArtFrame = findViewById(R.id.player_up_next_art_frame);
         upNextRing = findViewById(R.id.player_up_next_ring);
@@ -1642,6 +1699,24 @@ public class PlayerActivity extends AppCompatActivity {
                 streamContainer = source.optString("container", streamContainer);
                 streamResolution = source.optString("videoResolution", streamResolution);
             }
+            if (root.has("cast")) {
+                castMembers.clear();
+                JSONArray cast = root.optJSONArray("cast");
+                if (cast != null) {
+                    for (int i = 0; i < cast.length() && castMembers.size() < 24; i++) {
+                        JSONObject row = cast.optJSONObject(i);
+                        if (row == null) continue;
+                        String name = row.optString("name", "").trim();
+                        if (name.isEmpty()) continue;
+                        castMembers.add(new CastMember(
+                            row.optString("id", name),
+                            name,
+                            row.optString("role", "").trim(),
+                            row.optString("thumb", "").trim()));
+                    }
+                }
+                if (isCastStripVisible()) buildCastCards();
+            }
             if (root.has("relatedItems")) {
                 relatedItems.clear();
                 JSONArray related = root.optJSONArray("relatedItems");
@@ -2058,6 +2133,174 @@ public class PlayerActivity extends AppCompatActivity {
             setLogoSlotMinHeight(Math.round(LOGO_SLOT_DP * getResources().getDisplayMetrics().density));
         }
         if (titleView != null) titleView.setVisibility(View.VISIBLE);
+    }
+
+    private boolean hasCast() {
+        return castPanel != null && castRow != null && !castMembers.isEmpty() && !liveStream && !musicMode;
+    }
+
+    private boolean isCastStripVisible() {
+        return castPanel != null && castPanel.getVisibility() == View.VISIBLE;
+    }
+
+    private boolean isCastStripFocused() {
+        View focus = getCurrentFocus();
+        return focus != null && castRow != null && isCastStripVisible() && isDescendantOf(focus, castRow);
+    }
+
+    /** Down from the transport row (not the seek bar) opens the strip. */
+    private boolean canOpenCastStrip() {
+        if (!hasCast() || isCastStripVisible()) return false;
+        View focus = getCurrentFocus();
+        return focus != null && focus != seekBar && chrome != null && isDescendantOf(focus, chrome);
+    }
+
+    private void showCastStrip() {
+        if (!hasCast()) return;
+        buildCastCards();
+        castPanel.setVisibility(View.VISIBLE);
+        if (castRow.getChildCount() > 0) castRow.getChildAt(0).requestFocus();
+    }
+
+    private void hideCastStrip(boolean focusPlay) {
+        if (castPanel == null || !isCastStripVisible()) return;
+        boolean hadFocus = isCastStripFocused();
+        castPanel.setVisibility(View.GONE);
+        if ((focusPlay || hadFocus) && chromeVisible && playPauseBtn != null) playPauseBtn.requestFocus();
+    }
+
+    private void buildCastCards() {
+        if (castRow == null) return;
+        StringBuilder sig = new StringBuilder();
+        for (CastMember member : castMembers) sig.append(member.name).append('|');
+        if (sig.toString().equals(castBuiltFor) && castRow.getChildCount() == castMembers.size()) return;
+        castBuiltFor = sig.toString();
+        castRow.removeAllViews();
+        float dp = getResources().getDisplayMetrics().density;
+        // Same focus as the app: a white box with black text, nothing when not focused.
+        ColorStateList nameColors = new ColorStateList(
+            new int[][] { new int[] { android.R.attr.state_focused }, new int[] {} },
+            new int[] { 0xFF0B0B0D, 0xFFFFFFFF });
+        ColorStateList roleColors = new ColorStateList(
+            new int[][] { new int[] { android.R.attr.state_focused }, new int[] {} },
+            new int[] { 0xB30B0B0D, 0xB3FFFFFF });
+        int lastId = 0;
+        for (int i = 0; i < castMembers.size(); i++) {
+            final CastMember member = castMembers.get(i);
+            LinearLayout card = new LinearLayout(this);
+            card.setId(View.generateViewId());
+            card.setOrientation(LinearLayout.VERTICAL);
+            card.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
+            card.setFocusable(true);
+            card.setClickable(true);
+            card.setPadding((int) (8 * dp), (int) (8 * dp), (int) (8 * dp), (int) (8 * dp));
+            GradientDrawable focused = new GradientDrawable();
+            focused.setColor(0xFFFFFFFF);
+            focused.setCornerRadius(12 * dp);
+            StateListDrawable bg = new StateListDrawable();
+            bg.addState(new int[] { android.R.attr.state_focused }, focused);
+            bg.addState(new int[] {}, new android.graphics.drawable.ColorDrawable(0x00000000));
+            card.setBackground(bg);
+            LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams((int) (112 * dp), LinearLayout.LayoutParams.WRAP_CONTENT);
+            cardLp.setMarginEnd((int) (6 * dp));
+            card.setLayoutParams(cardLp);
+
+            ImageView photo = new ImageView(this);
+            int size = (int) (72 * dp);
+            photo.setLayoutParams(new LinearLayout.LayoutParams(size, size));
+            GradientDrawable blank = new GradientDrawable();
+            blank.setShape(GradientDrawable.OVAL);
+            blank.setColor(0x33FFFFFF);
+            photo.setImageDrawable(blank);
+            card.addView(photo);
+            loadCastPhoto(member.thumb, photo);
+
+            TextView name = new TextView(this);
+            name.setText(member.name);
+            name.setTextSize(13);
+            name.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            name.setTextColor(nameColors);
+            name.setDuplicateParentStateEnabled(true);
+            name.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
+            name.setMaxLines(2);
+            name.setEllipsize(TextUtils.TruncateAt.END);
+            LinearLayout.LayoutParams nameLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            nameLp.topMargin = (int) (6 * dp);
+            name.setLayoutParams(nameLp);
+            card.addView(name);
+
+            if (!member.role.isEmpty()) {
+                TextView role = new TextView(this);
+                role.setText(member.role);
+                role.setTextSize(11);
+                role.setTextColor(roleColors);
+                role.setDuplicateParentStateEnabled(true);
+                role.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
+                role.setMaxLines(2);
+                role.setEllipsize(TextUtils.TruncateAt.END);
+                card.addView(role);
+            }
+
+            card.setOnClickListener(v -> openCastPerson(member));
+            castRow.addView(card);
+            if (i == 0) card.setNextFocusLeftId(card.getId());
+            lastId = card.getId();
+        }
+        // The ends of the strip stay put instead of jumping up into the controls.
+        View last = castRow.getChildCount() > 0 ? castRow.getChildAt(castRow.getChildCount() - 1) : null;
+        if (last != null) last.setNextFocusRightId(lastId);
+    }
+
+    private void loadCastPhoto(String url, ImageView target) {
+        if (url == null || url.isEmpty()) return;
+        Bitmap cached = castPhotos.get(url);
+        if (cached != null) {
+            target.setImageDrawable(roundPhoto(cached));
+            return;
+        }
+        final Map<String, String> imageHeaders = headersForImageUrl(url);
+        try {
+            logoExecutor.execute(() -> {
+                Bitmap raw = downloadLogoBitmap(url, imageHeaders);
+                // Portrait headshots: a square from just above the middle keeps the face.
+                Bitmap square = null;
+                if (raw != null && raw.getWidth() > 8 && raw.getHeight() > 8) {
+                    int side = Math.min(raw.getWidth(), raw.getHeight());
+                    int x = (raw.getWidth() - side) / 2;
+                    int y = (raw.getHeight() - side) / 4;
+                    square = Bitmap.createBitmap(raw, x, y, side, side);
+                }
+                final Bitmap ready = square;
+                mainHandler.post(() -> {
+                    if (ready == null || isFinishing()) return;
+                    castPhotos.put(url, ready);
+                    target.setImageDrawable(roundPhoto(ready));
+                });
+            });
+        } catch (Exception e) {
+            Log.w(TAG, "Cast photo load skipped", e);
+        }
+    }
+
+    private RoundedBitmapDrawable roundPhoto(Bitmap bitmap) {
+        RoundedBitmapDrawable round = RoundedBitmapDrawableFactory.create(getResources(), bitmap);
+        round.setCircular(true);
+        return round;
+    }
+
+    /** OK on a cast card: leave the player (progress saved as on Back) and open that person. */
+    private void openCastPerson(CastMember member) {
+        try {
+            JSONObject person = new JSONObject();
+            person.put("id", member.id);
+            person.put("name", member.name);
+            person.put("thumb", member.thumb);
+            openPersonJson = person.toString();
+        } catch (Exception ignored) {
+            openPersonJson = null;
+        }
+        finishWithResult(false, false);
     }
 
     private Bitmap downloadLogoBitmap(String url, Map<String, String> headers) {
@@ -4675,6 +4918,8 @@ public class PlayerActivity extends AppCompatActivity {
         chromeVisible = visible;
         int vis = visible ? View.VISIBLE : View.GONE;
         if (chrome != null) chrome.setVisibility(vis);
+        // The cast strip is opened on demand: it never comes back with the controls by itself.
+        if (!visible && castPanel != null) castPanel.setVisibility(View.GONE);
         if (topBar != null) topBar.setVisibility(vis);
         View topEnd = findViewById(R.id.player_top_end);
         if (topEnd != null) topEnd.setVisibility(vis);
@@ -5641,6 +5886,7 @@ public class PlayerActivity extends AppCompatActivity {
         if (playPrevious && previousRatingKey != null && !previousRatingKey.isEmpty()) {
             closed.put("previousRatingKey", previousRatingKey);
         }
+        if (openPersonJson != null) closed.put("openPerson", openPersonJson);
         PlayerBridge.get().setPlayerForeground(false);
         PlayerBridge.get().keepHostWebViewAlive();
         PlayerBridge.get().emit("closed", closed);
@@ -5674,6 +5920,7 @@ public class PlayerActivity extends AppCompatActivity {
             data.putExtra(EXTRA_PREVIOUS_RATING_KEY, previousRatingKey);
         }
         data.putExtra(EXTRA_WATCHED_HANDLED, watchedHandled);
+        if (openPersonJson != null) data.putExtra(EXTRA_OPEN_PERSON, openPersonJson);
         setResult(RESULT_OK, data);
 
         // Always bring the WebView host forward before teardown — including

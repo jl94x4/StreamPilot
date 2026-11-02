@@ -598,6 +598,48 @@
                     android:src="@drawable/ic_player_settings" />
             </LinearLayout>
         </FrameLayout>
+
+        <!-- Second Down on the transport row: who is in this title. Lives in the chrome so
+             it hides with the controls. Cards are built in code from the session's cast. -->
+        <LinearLayout
+            android:id="@+id/player_cast_panel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:layout_marginBottom="4dp"
+                android:text="@string/player_cast"
+                android:textColor="@color/player_text_secondary"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+
+            <HorizontalScrollView
+                android:id="@+id/player_cast_scroll"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:clipChildren="false"
+                android:clipToPadding="false"
+                android:scrollbars="none">
+
+                <LinearLayout
+                    android:id="@+id/player_cast_row"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:clipChildren="false"
+                    android:clipToPadding="false"
+                    android:orientation="horizontal"
+                    android:paddingTop="4dp"
+                    android:paddingBottom="4dp" />
+            </HorizontalScrollView>
+        </LinearLayout>
     </LinearLayout>
 
     <!-- Outside chrome so Skip Intro/Credits can show with OSD hidden. -->

@@ -13,6 +13,7 @@
     <string name="player_seek_back">−10s</string>
     <string name="player_seek_fwd">+10s</string>
     <string name="player_settings">Settings</string>
+    <string name="player_cast">Cast</string>
     <string name="player_playback_options">Playback Options</string>
     <string name="player_ends_at">Ends %1$s</string>
     <string name="player_quality">Quality</string>

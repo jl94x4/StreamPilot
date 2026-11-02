@@ -91,6 +91,18 @@ final class PlayerKeyHandler {
 
         /** OK on a visible skip-intro / skip-credits chip. */
         boolean trySkipFromRemote();
+
+        /** Cast strip under the transport row (second Down). */
+        boolean castStripVisible();
+
+        boolean castStripFocused();
+
+        boolean canOpenCastStrip();
+
+        void showCastStrip();
+
+        /** Close the strip and put focus back on Play/Pause. */
+        void hideCastStrip();
     }
 
     private final Host host;
@@ -157,6 +169,11 @@ final class PlayerKeyHandler {
         }
         if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE) {
             host.stopSeekHold();
+            if (host.castStripVisible()) {
+                host.hideCastStrip();
+                host.bumpChrome();
+                return Result.HANDLED;
+            }
             if (host.chromeVisible()) {
                 host.setChromeVisible(false);
                 if (host.isUpNextVisible()) host.focusUpNextControls();
@@ -294,6 +311,19 @@ final class PlayerKeyHandler {
                 || confirm) {
                 return Result.SUPER;
             }
+        }
+
+        // Cast strip: a second Down from the transport row opens it; Up, Down or Back close it.
+        if (host.castStripFocused()) {
+            if (keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+                host.hideCastStrip();
+                host.bumpChrome();
+                return Result.HANDLED;
+            }
+        } else if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN && host.canOpenCastStrip()) {
+            host.showCastStrip();
+            host.bumpChrome();
+            return Result.HANDLED;
         }
 
         host.bumpChrome();

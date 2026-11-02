@@ -73,7 +73,7 @@ import {
     writeLocalPlaybackPrefs,
     writeMiniPlayerWidth,
 } from './playerMemory';
-import type { PlayerItem, PlayerPlayOptions, PlayerPlaySession } from './types';
+import type { PlayerItem, PlayerPersonCredit, PlayerPlayOptions, PlayerPlaySession } from './types';
 import { PlayerClearLogo } from './PlayerClearLogo';
 import {
     closeNativePlayer,
@@ -94,6 +94,8 @@ import { getWatchTogetherClient } from './watchTogetherClient';
 export type PlayerCloseMeta = {
     /** True when another episode/title is about to start. */
     playNext?: boolean;
+    /** Chosen from the native cast strip: open this person once the player closes. */
+    openPerson?: { id: string; name: string; thumb?: string | null };
     ended?: boolean;
     item?: PlayerItem;
 };
@@ -404,6 +406,35 @@ const skipChapter = (
     video.currentTime = (previous != null ? previous : 0) / 1000;
 };
 
+/** Native cast strip: up to 24 people, photos sized for its round cards. */
+const NATIVE_CAST_MAX = 24;
+const nativeCastPayload = (people: PlayerPersonCredit[]) => people
+    .filter((row) => row?.name)
+    .slice(0, NATIVE_CAST_MAX)
+    .map((row) => ({
+        id: String(row.id || row.name),
+        name: row.name,
+        role: row.role || '',
+        thumb: row.thumb
+            ? portalUrl(resizePlexArtUrl(plexImageUrl(row.thumb, 200, 300, { quality: PLAYER_POSTER_QUALITY }), 200, 300))
+            : '',
+    }));
+
+/** Episode guests first, then the show's main cast, one card per person. */
+const mergeCast = (...lists: Array<PlayerPersonCredit[] | null | undefined>) => {
+    const seen = new Set<string>();
+    const out: PlayerPersonCredit[] = [];
+    for (const list of lists) {
+        for (const row of list || []) {
+            const key = String(row?.name || '').trim().toLowerCase();
+            if (!key || seen.has(key)) continue;
+            seen.add(key);
+            out.push(row);
+        }
+    }
+    return out;
+};
+
 const nativeNextItemPayload = (item?: PlayerItem | null) => {
     if (!item?.ratingKey) return { ratingKey: '', title: '' as string | undefined, thumb: '' };
     const thumb = item.thumb
@@ -485,6 +516,8 @@ export const MediaPlayerVideo: React.FC<Props> = ({
     const [upNextIn, setUpNextIn] = useState(10);
     const [relatedItems, setRelatedItems] = useState<PlayerItem[]>([]);
     const relatedItemsRef = useRef<PlayerItem[]>([]);
+    /** Cast for the native strip; starts with the session item's own and grows with the show's. */
+    const castRef = useRef<PlayerPersonCredit[]>(session.item.cast || []);
     relatedItemsRef.current = relatedItems;
     const [controlsVisible, setControlsVisible] = useState(true);
     const currentMsRef = useRef(0);
@@ -963,6 +996,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                 mediaIndex: row.mediaIndex,
             })),
             markers: session.markers || { intro: null, credits: null },
+            cast: nativeCastPayload(castRef.current),
             nextItem: nativeNextItemPayload(item),
             previousItem: nativeNextItemPayload(previousItemRef.current),
             relatedItems: relatedItemsRef.current.slice(0, 5).map((row) => ({
@@ -1125,6 +1159,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                     playNext: willChain,
                     ended: !!result?.ended,
                     item: session.item,
+                    openPerson: !willChain && result?.openPerson ? result.openPerson : undefined,
                 });
                 sendStopped('stopped', reportMs, { ended: !!result?.ended, watchedHandled: !!result?.watchedHandled });
                 if (!willChain) return;
@@ -2262,6 +2297,33 @@ export const MediaPlayerVideo: React.FC<Props> = ({
         }, 1000);
         return () => window.clearInterval(timer);
     }, [showUpNext, autoplayNext, upNextItem]);
+
+    // Cast strip: the title's own cast (play sessions can start from a thin card), plus the
+    // show's main cast for an episode. Both reads hit the item cache the details page fills.
+    useEffect(() => {
+        let cancelled = false;
+        const item = session.item;
+        castRef.current = item.cast || [];
+        const showKey = item.type === 'episode' ? String(item.grandparentRatingKey || '') : '';
+        void (async () => {
+            const own = item.cast?.length
+                ? item.cast
+                : await fetchMediaPlayerItem(item.ratingKey, { serverId: item.serverId })
+                    .then((page) => page?.item?.cast || [])
+                    .catch(() => []);
+            const show = showKey
+                ? await fetchMediaPlayerItem(showKey, { serverId: item.serverId })
+                    .then((page) => page?.item?.cast || [])
+                    .catch(() => [])
+                : [];
+            if (cancelled) return;
+            const merged = mergeCast(own, show);
+            if (!merged.length) return;
+            castRef.current = merged;
+            if (nativeExclusiveRef.current) void updateNativePlayerSession({ cast: nativeCastPayload(merged) });
+        })();
+        return () => { cancelled = true; };
+    }, [session.item.ratingKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Prefetch related hubs near the end for “More like this” (prefer show key for episodes).
     useEffect(() => {

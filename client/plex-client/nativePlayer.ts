@@ -41,6 +41,8 @@ export type NativePlayerSessionPayload = {
     previousItem?: { ratingKey: string; title?: string; thumb?: string } | null;
     /** Credits-end “More like this” strip (native Up Next panel when no next episode). */
     relatedItems?: Array<{ ratingKey: string; title: string; thumb?: string }>;
+    /** Second Down on the OSD: who is in this title (episode guests first, then the show's cast). */
+    cast?: NativePlayerCastMember[];
     /** Per-show A/V delay in ms. */
     audioDelayMs?: number;
     playbackMode?: 'directPlay' | 'directStream' | 'transcode' | string;
@@ -149,7 +151,11 @@ export type NativePlayerOpenOptions = {
     onSubtitleAutoSync?: (event: { ratingKey?: string; subtitleStreamId?: string; sidecarUrl?: string }) => void;
 };
 
+export type NativePlayerCastMember = { id: string; name: string; role?: string; thumb?: string };
+
 export type NativePlayerCloseResult = {
+    /** OK on a cast card: leave the player for that person's page. */
+    openPerson?: NativePlayerCastMember;
     ended: boolean;
     positionMs: number;
     error?: boolean;
@@ -159,6 +165,18 @@ export type NativePlayerCloseResult = {
     previousRatingKey?: string;
     /** The native player marked it watched (or PMS already had): do not scrobble again. */
     watchedHandled?: boolean;
+};
+
+const parseOpenPerson = (raw: unknown): NativePlayerCastMember | undefined => {
+    if (!raw) return undefined;
+    try {
+        const row = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        const name = String(row?.name || '').trim();
+        if (!name) return undefined;
+        return { id: String(row?.id || name), name, thumb: row?.thumb ? String(row.thumb) : undefined };
+    } catch {
+        return undefined;
+    }
 };
 
 export type NativePlayerProgressEvent = {
@@ -278,6 +296,7 @@ export const installNativeMediaPlayerBridge = () => {
                     playPrevious: !!result?.playPrevious,
                     previousRatingKey: result?.previousRatingKey ? String(result.previousRatingKey) : undefined,
                     watchedHandled: !!result?.watchedHandled,
+                    openPerson: parseOpenPerson(result?.openPerson),
                 };
             },
             updateSrc: async (opts) => {
@@ -490,6 +509,7 @@ const attachTransientListeners = async (opts: NativePlayerOpenOptions) => {
                 playPrevious: !!data.playPrevious,
                 previousRatingKey: data.previousRatingKey ? String(data.previousRatingKey) : undefined,
                 watchedHandled: !!data.watchedHandled,
+                openPerson: parseOpenPerson(data.openPerson),
             });
         });
     }
