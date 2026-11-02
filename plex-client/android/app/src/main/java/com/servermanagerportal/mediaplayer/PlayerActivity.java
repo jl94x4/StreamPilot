@@ -35,6 +35,7 @@ import android.widget.Button;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.graphics.RectF;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.StateListDrawable;
 import android.content.res.ColorStateList;
@@ -47,6 +48,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 import android.webkit.CookieManager;
 
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
 import androidx.appcompat.app.AppCompatActivity;
@@ -591,6 +593,14 @@ public class PlayerActivity extends AppCompatActivity {
     /** OK on a cast card: JSON {id,name,thumb} handed back to the app on close. */
     @Nullable
     private String openPersonJson;
+    /** Settings → Who's on screen (test): name the faces in the paused frame. */
+    private boolean whoIsOnScreen;
+    @Nullable
+    private WhoIsOnScreen faceEngine;
+    private FaceLabelsView facesView;
+    private final Runnable whoIsOnScreenRunnable = this::runWhoIsOnScreen;
+    /** Wait this long after a pause, so a quick pause and play never starts the work. */
+    private static final long WHO_IS_ON_SCREEN_DELAY_MS = 700L;
     /** Consecutive seconds in STATE_BUFFERING while play-when-ready (stall nudge). */
     private int bufferingStreakSec;
     private boolean qualityNudgeOffered;
@@ -1187,6 +1197,7 @@ public class PlayerActivity extends AppCompatActivity {
         externalBtn = findViewById(R.id.player_external);
         upNextRow = findViewById(R.id.player_up_next);
         castPanel = findViewById(R.id.player_cast_panel);
+        facesView = findViewById(R.id.player_faces);
         castRow = findViewById(R.id.player_cast_row);
         upNextArt = findViewById(R.id.player_up_next_art);
         upNextArtFrame = findViewById(R.id.player_up_next_art_frame);
@@ -1499,6 +1510,8 @@ public class PlayerActivity extends AppCompatActivity {
 
             @Override
             public void onIsPlayingChanged(boolean isPlaying) {
+                if (isPlaying || (player != null && player.getPlayWhenReady())) cancelWhoIsOnScreen();
+                else scheduleWhoIsOnScreen();
                 if (isPlaying) {
                     armPlayThenSeek();
                     releasePauseSuppressSoon();
@@ -1515,6 +1528,18 @@ public class PlayerActivity extends AppCompatActivity {
                 updateResolutionChip();
                 updateCodecChips();
                 updateSubtitleChip();
+            }
+
+            @Override
+            public void onPositionDiscontinuity(
+                @NonNull Player.PositionInfo oldPosition,
+                @NonNull Player.PositionInfo newPosition,
+                int reason) {
+                // A seek while paused shows a new frame: drop the old names and look again.
+                if (facesView != null && facesView.getVisibility() == View.VISIBLE) {
+                    cancelWhoIsOnScreen();
+                    if (player != null && !player.getPlayWhenReady()) scheduleWhoIsOnScreen();
+                }
             }
 
             @Override
@@ -1698,6 +1723,10 @@ public class PlayerActivity extends AppCompatActivity {
                 streamAudioCodec = source.optString("audioCodec", streamAudioCodec);
                 streamContainer = source.optString("container", streamContainer);
                 streamResolution = source.optString("videoResolution", streamResolution);
+            }
+            if (root.has("whoIsOnScreen")) {
+                whoIsOnScreen = root.optBoolean("whoIsOnScreen", false);
+                if (!whoIsOnScreen) cancelWhoIsOnScreen();
             }
             if (root.has("cast")) {
                 castMembers.clear();
@@ -2287,6 +2316,67 @@ public class PlayerActivity extends AppCompatActivity {
         RoundedBitmapDrawable round = RoundedBitmapDrawableFactory.create(getResources(), bitmap);
         round.setCircular(true);
         return round;
+    }
+
+    private void scheduleWhoIsOnScreen() {
+        mainHandler.removeCallbacks(whoIsOnScreenRunnable);
+        if (!whoIsOnScreen || liveStream || musicMode || facesView == null || player == null) return;
+        mainHandler.postDelayed(whoIsOnScreenRunnable, WHO_IS_ON_SCREEN_DELAY_MS);
+    }
+
+    private void cancelWhoIsOnScreen() {
+        mainHandler.removeCallbacks(whoIsOnScreenRunnable);
+        if (faceEngine != null) faceEngine.cancel();
+        if (facesView != null) facesView.clear();
+    }
+
+    private void runWhoIsOnScreen() {
+        if (player == null || player.getPlayWhenReady() || finishing || facesView == null) return;
+        if (currentUrl == null || currentUrl.isEmpty() || PlaybackUrls.isTranscodeUrl(currentUrl)) {
+            facesView.showStatus("Who's on screen (test) needs Direct Play");
+            return;
+        }
+        List<WhoIsOnScreen.Person> people = new ArrayList<>();
+        for (CastMember member : castMembers) {
+            people.add(new WhoIsOnScreen.Person(member.id, member.name, member.role, member.thumb));
+        }
+        if (people.isEmpty()) {
+            facesView.showStatus("Who's on screen (test): no cast for this title");
+            return;
+        }
+        if (faceEngine == null) faceEngine = new WhoIsOnScreen(this);
+        facesView.showStatus("Who's on screen (test): looking…");
+        final long positionMs = player.getCurrentPosition();
+        final Map<String, String> headers = headersWithCookies(currentUrl, PlaybackUrls.parseHeaders(headersJson));
+        faceEngine.run(currentUrl, headers, positionMs, people,
+            url -> downloadLogoBitmap(url, headersForImageUrl(url)),
+            result -> mainHandler.post(() -> {
+                if (finishing || player == null || player.getPlayWhenReady() || facesView == null) return;
+                facesView.showResult(result, videoRectInFaces(result));
+            }));
+    }
+
+    /** Where the picture sits inside the faces overlay: surface box (zoom included), then fit or fill. */
+    private RectF videoRectInFaces(WhoIsOnScreen.Result result) {
+        RectF out = new RectF(0, 0, facesView.getWidth(), facesView.getHeight());
+        PlayerView playerView = findViewById(R.id.player_view);
+        View surface = playerView == null ? null : playerView.getVideoSurfaceView();
+        if (surface == null || surface.getWidth() == 0 || !(surface.getParent() instanceof View)) return out;
+        RectF box = new RectF(0, 0, surface.getWidth(), surface.getHeight());
+        surface.getMatrix().mapRect(box);
+        box.offset(surface.getLeft(), surface.getTop());
+        int[] parentAt = new int[2];
+        int[] overlayAt = new int[2];
+        ((View) surface.getParent()).getLocationInWindow(parentAt);
+        facesView.getLocationInWindow(overlayAt);
+        box.offset(parentAt[0] - overlayAt[0], parentAt[1] - overlayAt[1]);
+        if (result.frameWidth <= 0 || result.frameHeight <= 0) return box;
+        float frameAspect = (float) result.frameWidth / result.frameHeight;
+        float boxAspect = box.width() / Math.max(1f, box.height());
+        boolean fitWidth = videoFill ? frameAspect < boxAspect : frameAspect > boxAspect;
+        float w = fitWidth ? box.width() : box.height() * frameAspect;
+        float h = fitWidth ? box.width() / frameAspect : box.height();
+        return new RectF(box.centerX() - w / 2f, box.centerY() - h / 2f, box.centerX() + w / 2f, box.centerY() + h / 2f);
     }
 
     /** OK on a cast card: leave the player (progress saved as on Back) and open that person. */
@@ -5852,6 +5942,7 @@ public class PlayerActivity extends AppCompatActivity {
     private void finishWithResult(boolean ended, boolean playNext, boolean playPrevious) {
         if (finishing) return;
         finishing = true;
+        cancelWhoIsOnScreen();
         mainHandler.removeCallbacks(tickRunnable);
         mainHandler.removeCallbacks(progressEmitRunnable);
         mainHandler.removeCallbacks(frameRateResyncRunnable);
@@ -6004,6 +6095,7 @@ public class PlayerActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         PlayerBridge.get().detachActivity(this);
+        if (faceEngine != null) faceEngine.shutdown();
         logoLoadGeneration += 1;
         pendingLogoUrl = "";
         loadedLogoUrl = "";

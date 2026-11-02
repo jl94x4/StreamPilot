@@ -1365,6 +1365,12 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         checked={settings.nightMode}
                         onChange={(checked) => updateSettings({ nightMode: checked })}
                     />
+                    <TvToggleRow
+                        title={t('mediaPlayerPage.whoIsOnScreen')}
+                        description={t('mediaPlayerPage.whoIsOnScreenHint')}
+                        checked={settings.whoIsOnScreen}
+                        onChange={(checked) => updateSettings({ whoIsOnScreen: checked })}
+                    />
                     <TvChoiceRow
                         title={t('mediaPlayerPage.subtitleMode')}
                         description={t('mediaPlayerPage.subtitleModeHint')}
@@ -2256,6 +2262,12 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                             description={t('mediaPlayerPage.nightModeHint')}
                             checked={settings.nightMode}
                             onChange={(checked) => updateSettings({ nightMode: checked })}
+                        />
+                        <SettingsToggleRow
+                            title={t('mediaPlayerPage.whoIsOnScreen')}
+                            description={t('mediaPlayerPage.whoIsOnScreenHint')}
+                            checked={settings.whoIsOnScreen}
+                            onChange={(checked) => updateSettings({ whoIsOnScreen: checked })}
                         />
                         <SettingsToggleRow
                             title={t('mediaPlayerPage.matchFrameRate')}

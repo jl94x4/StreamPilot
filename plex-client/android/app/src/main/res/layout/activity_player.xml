@@ -31,6 +31,16 @@
         android:focusable="false"
         android:importantForAccessibility="no" />
 
+    <!-- Who's on screen (test): circles and names over the paused picture, under the controls. -->
+    <com.servermanagerportal.mediaplayer.FaceLabelsView
+        android:id="@+id/player_faces"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clickable="false"
+        android:focusable="false"
+        android:importantForAccessibility="no"
+        android:visibility="gone" />
+
     <ImageView
         android:id="@+id/player_art"
         android:layout_width="324dp"

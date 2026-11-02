@@ -73,6 +73,16 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.585': [
+        {
+            title: 'Who\'s on screen (test)',
+            items: [
+                'New test setting under Playback: when you pause, the player looks at the picture and circles the actors it recognises from the cast photos, with their character',
+                'Everything runs on the TV with your own Plex data; it needs Direct Play, and the first pause in a title takes a few seconds while it learns the cast',
+                'A readout shows how long each step took, and faces it isn\'t sure of get a dashed circle with its best guess, so we can tune it',
+            ],
+        },
+    ],
     '1.0.584': [
         {
             title: 'Player',

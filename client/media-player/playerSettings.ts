@@ -638,6 +638,8 @@ export type PlayerSettings = {
     /** TV corner clock. On uses 15:36. Off uses 3:36 PM. */
     clock24Hour: boolean;
     nightMode: boolean;
+    /** Test: on pause, name the faces in the frame from the title's cast (TV player). */
+    whoIsOnScreen: boolean;
     matchFrameRate: boolean;
     /** HDMI bitstream of DD/DTS/TrueHD when the sink supports it. */
     audioPassthrough: boolean;
@@ -1057,6 +1059,7 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
     detailsArtworkTint: true,
     clock24Hour: true,
     nightMode: false,
+    whoIsOnScreen: false,
     matchFrameRate: true,
     audioPassthrough: false,
     autoQuality: false,
@@ -1172,6 +1175,7 @@ export const normalizePlayerSettings = (raw: Partial<PlayerSettings> | Record<st
         detailsArtworkTint: raw?.detailsArtworkTint !== false,
         clock24Hour: raw?.clock24Hour !== false,
         nightMode: raw?.nightMode === true,
+        whoIsOnScreen: raw?.whoIsOnScreen === true,
         matchFrameRate: raw?.matchFrameRate !== false,
         audioPassthrough: raw?.audioPassthrough === true,
         autoQuality: raw?.autoQuality === true,
@@ -1266,6 +1270,7 @@ export const playerSettingsEqual = (a: PlayerSettings, b: PlayerSettings) => (
     && a.detailsArtworkTint === b.detailsArtworkTint
     && a.clock24Hour === b.clock24Hour
     && a.nightMode === b.nightMode
+    && a.whoIsOnScreen === b.whoIsOnScreen
     && a.matchFrameRate === b.matchFrameRate
     && a.audioPassthrough === b.audioPassthrough
     && a.autoQuality === b.autoQuality

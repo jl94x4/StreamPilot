@@ -100,6 +100,7 @@ export type NativePlayerSessionPayload = {
     previewThumbTemplate?: string | null;
     frameRate?: number | null;
     nightMode?: boolean;
+    whoIsOnScreen?: boolean;
     matchFrameRate?: boolean;
     subtitleStyle?: {
         size?: number;

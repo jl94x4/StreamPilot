@@ -113,3 +113,6 @@ plex-client/android/keystore.properties
 *.keystore
 plex-client/android/**/capacitor-cordova-android-plugins/build/
 
+
+# Who's on screen (test): 24 MB FaceNet model, fetched by scripts/fetch-face-model.mjs
+plex-client/android/app/src/main/assets/models/

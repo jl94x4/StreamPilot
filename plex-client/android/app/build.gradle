@@ -15,10 +15,14 @@ android {
         applicationId "com.streampilot.mediaplayer"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 584
+        versionCode 585
         // Settings shows this versionName. `npm run build:apk` auto-bumps both.
-        versionName "1.0.584"
+        versionName "1.0.585"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        ndk {
+            // TVs and phones are ARM. The face test's native libraries doubled the APK with x86 copies.
+            abiFilters 'armeabi-v7a', 'arm64-v8a'
+        }
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
@@ -55,6 +59,10 @@ android {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
+    }
+    androidResources {
+        // FaceNet is read whole into a direct buffer; storing it uncompressed keeps that cheap.
+        noCompress 'tflite'
     }
     packaging {
         jniLibs {
@@ -97,6 +105,9 @@ dependencies {
     implementation "androidx.media3:media3-datasource:$media3Version"
     implementation "androidx.media3:media3-session:$media3Version"
     implementation "androidx.tvprovider:tvprovider:1.1.0"
+    // Who's on screen (test): offline face detection + FaceNet embeddings, all on the TV.
+    implementation "com.google.mlkit:face-detection:16.1.7"
+    implementation "org.tensorflow:tensorflow-lite:2.16.1"
     implementation project(':capacitor-android')
     testImplementation "junit:junit:$junitVersion"
     // Real android.net.Uri / org.json on the JVM for the player helper tests (.\gradlew.bat test).

@@ -1043,6 +1043,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
             previewThumbTemplate: session.previewThumbTemplate || null,
             frameRate: session.item.frameRate || null,
             nightMode: playerSettings.nightMode,
+            whoIsOnScreen: playerSettings.whoIsOnScreen,
             matchFrameRate: playerSettings.matchFrameRate,
             subtitleStyle: {
                 size: playerSettings.subtitleSize,
