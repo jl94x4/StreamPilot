@@ -1161,6 +1161,12 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         onChange={(checked) => updateSettings({ showPlaylists: checked })}
                     />
                     <TvToggleRow
+                        title={t('mediaPlayerPage.showHistory')}
+                        description={t('mediaPlayerPage.showHistoryHint')}
+                        checked={settings.showHistory}
+                        onChange={(checked) => updateSettings({ showHistory: checked })}
+                    />
+                    <TvToggleRow
                         title={t('mediaPlayerPage.showBecauseYouWatched')}
                         description={t('mediaPlayerPage.showBecauseYouWatchedHint')}
                         checked={settings.showBecauseYouWatched}
@@ -1857,6 +1863,12 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         description={t('mediaPlayerPage.showPlaylistsHint')}
                         checked={settings.showPlaylists}
                         onChange={(checked) => updateSettings({ showPlaylists: checked })}
+                    />
+                    <SettingsToggleRow
+                        title={t('mediaPlayerPage.showHistory')}
+                        description={t('mediaPlayerPage.showHistoryHint')}
+                        checked={settings.showHistory}
+                        onChange={(checked) => updateSettings({ showHistory: checked })}
                     />
                     <SettingsToggleRow
                         title={t('mediaPlayerPage.showWatchlist')}

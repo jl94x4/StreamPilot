@@ -73,6 +73,16 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.581': [
+        {
+            title: 'History',
+            items: [
+                'New History page in the side menu: everything this profile has watched, newest first, grouped into Today, Yesterday, This week, Earlier this month, then by month',
+                'TV shows appear once, dated by the last episode you watched',
+                'Hide it with Settings → Show history',
+            ],
+        },
+    ],
     '1.0.580': [
         {
             title: 'Memory',

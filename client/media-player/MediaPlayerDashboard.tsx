@@ -11,6 +11,7 @@ import { MediaPlayerHome } from './MediaPlayerHome';
 import { MediaPlayerWatchlist } from './MediaPlayerWatchlist';
 import { MediaPlayerDownloads } from './MediaPlayerDownloads';
 import { MediaPlayerPlaylists } from './MediaPlayerPlaylists';
+import { MediaPlayerHistory } from './MediaPlayerHistory';
 import { getMediaDownloadLocalUrl, isMediaDownloadsSupported } from '../plex-client/mediaDownloads';
 import { isPhoneUi } from '../plex-client/config';
 import { MediaPlayerCollection } from './MediaPlayerCollection';
@@ -136,6 +137,7 @@ type PlayerView =
     | { kind: 'person'; actorId: string; name?: string; thumb?: string | null }
     | { kind: 'studio'; studioKey: string; name?: string; sectionKey?: string; mediaType?: 'movie' | 'show'; alts?: string[] }
     | { kind: 'watchlist' }
+    | { kind: 'history' }
     | { kind: 'livetv' }
     | { kind: 'downloads' }
     | { kind: 'settings' }
@@ -169,6 +171,7 @@ const readPlayerView = (): PlayerView => {
         return { kind: 'collection', sectionKey: '', ratingKey: parts[2] };
     }
     if (parts[1] === 'playlists') return { kind: 'playlists' };
+    if (parts[1] === 'history') return { kind: 'history' };
     if (parts[1] === 'playlist' && parts[2]) {
         return { kind: 'playlist', ratingKey: parts[2] };
     }
@@ -250,6 +253,8 @@ const viewScreenMotionKey = (view: PlayerView): string => {
             return `collection:${view.ratingKey}`;
         case 'playlists':
             return 'playlists';
+        case 'history':
+            return 'history';
         case 'playlist':
             return `playlist:${view.ratingKey}`;
         case 'hub':
@@ -463,6 +468,7 @@ export const MediaPlayerDashboard: React.FC = () => {
             || view.kind === 'watchlist'
             || view.kind === 'downloads'
             || view.kind === 'playlists'
+            || view.kind === 'history'
             || view.kind === 'settings'
         ) {
             setKeepLibrary(null);
@@ -785,6 +791,10 @@ export const MediaPlayerDashboard: React.FC = () => {
 
     const goPlaylists = useCallback(() => {
         navigate(`${PLAYER_APP_BASE}/playlists`);
+    }, [navigate]);
+
+    const goHistory = useCallback(() => {
+        navigate(`${PLAYER_APP_BASE}/history`);
     }, [navigate]);
 
     const openSearch = useCallback(() => {
@@ -1332,6 +1342,8 @@ export const MediaPlayerDashboard: React.FC = () => {
         ? 'home'
         : view.kind === 'watchlist'
             ? 'watchlist'
+            : view.kind === 'history'
+                ? 'history'
             : view.kind === 'livetv'
                 ? 'livetv'
             : view.kind === 'downloads'
@@ -1379,6 +1391,7 @@ export const MediaPlayerDashboard: React.FC = () => {
                 onToggleExpanded={toggleNavExpanded}
                 onHome={goHome}
                 onWatchlist={goWatchlist}
+                onHistory={settings.showHistory ? goHistory : undefined}
                 onLiveTv={hasLiveTv ? goLiveTv : undefined}
                 onDownloads={!tvShell && isPhoneUi() && isMediaDownloadsSupported() ? goDownloads : undefined}
                 onSearch={openSearch}
@@ -1465,6 +1478,19 @@ export const MediaPlayerDashboard: React.FC = () => {
             {view.kind === 'playlists' ? (
                 <div key="playlists" className={screenEnterClass(tvShell, tvScreenEnter)}>
                     <MediaPlayerPlaylists
+                        onBack={goHome}
+                        onOpenItem={openItem}
+                        onPlay={playItem}
+                        onPlayNext={enqueuePlayNext}
+                        onToast={notify}
+                        isAdmin={isAdmin}
+                        playlistsEnabled={settings.showPlaylists}
+                    />
+                </div>
+            ) : null}
+            {view.kind === 'history' ? (
+                <div key="history" className={screenEnterClass(tvShell, tvScreenEnter)}>
+                    <MediaPlayerHistory
                         onBack={goHome}
                         onOpenItem={openItem}
                         onPlay={playItem}

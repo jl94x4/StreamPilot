@@ -574,6 +574,8 @@ export type PlayerSettings = {
     screensaverStyle: PlayerScreensaverStyle;
     screensaverSlideSec: number;
     showPlaylists: boolean;
+    /** History page in the side menu. */
+    showHistory: boolean;
     showBecauseYouWatched: boolean;
     /** Watchlist hub on Home, under Continue Watching. */
     showWatchlist: boolean;
@@ -1016,6 +1018,7 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
     screensaverStyle: 'slideshow',
     screensaverSlideSec: 14,
     showPlaylists: true,
+    showHistory: true,
     showBecauseYouWatched: true,
     showWatchlist: true,
     showOnNowHome: false,
@@ -1106,6 +1109,7 @@ export const normalizePlayerSettings = (raw: Partial<PlayerSettings> | Record<st
         screensaverStyle: isPlayerScreensaverStyle(raw?.screensaverStyle) ? raw.screensaverStyle : 'slideshow',
         screensaverSlideSec: pickNumber(raw?.screensaverSlideSec, PLAYER_SCREENSAVER_SLIDE_SECONDS, 14),
         showPlaylists: raw?.showPlaylists !== false,
+        showHistory: raw?.showHistory !== false,
         showBecauseYouWatched: raw?.showBecauseYouWatched !== false,
         showWatchlist: raw?.showWatchlist !== false,
         showOnNowHome: raw?.showOnNowHome === true,
@@ -1220,6 +1224,7 @@ export const playerSettingsEqual = (a: PlayerSettings, b: PlayerSettings) => (
     && a.screensaverStyle === b.screensaverStyle
     && a.screensaverSlideSec === b.screensaverSlideSec
     && a.showPlaylists === b.showPlaylists
+    && a.showHistory === b.showHistory
     && a.showBecauseYouWatched === b.showBecauseYouWatched
     && a.showWatchlist === b.showWatchlist
     && a.showOnNowHome === b.showOnNowHome

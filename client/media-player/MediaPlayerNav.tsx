@@ -4,6 +4,7 @@ import {
     CircleAlert,
     Clapperboard,
     Bookmark,
+    History,
     Download,
     Home,
     Image as ImageIcon,
@@ -35,7 +36,7 @@ import { PLAYER_TV_NAV_EVENT } from './paths';
 import type { PlayerProfile, PlayerSection } from './types';
 import { focusTvContent, hasRememberedTvFocus, restoreTvFocusWhenReady } from '../plex-client/useTvRemote';
 
-type NavPage = 'home' | 'watchlist' | 'livetv' | 'downloads' | 'playlists' | 'library' | 'settings' | 'other';
+type NavPage = 'home' | 'watchlist' | 'history' | 'livetv' | 'downloads' | 'playlists' | 'library' | 'settings' | 'other';
 
 type Props = {
     libraries: PlayerSection[];
@@ -46,6 +47,8 @@ type Props = {
     onToggleExpanded: () => void;
     onHome: () => void;
     onWatchlist: () => void;
+    /** History page; omitted when hidden in Settings. */
+    onHistory?: () => void;
     onLiveTv?: () => void;
     onDownloads?: () => void;
     onSearch: () => void;
@@ -129,6 +132,7 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
     onToggleExpanded,
     onHome,
     onWatchlist,
+    onHistory,
     onLiveTv,
     onDownloads,
     onSearch,
@@ -367,6 +371,18 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                     <NavIcon><Bookmark className={NAV_ICON_CLASS} /></NavIcon>
                     {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.navWatchlist')}</span> : null}
                 </button>
+                {onHistory ? (
+                    <button
+                        type="button"
+                        {...tvNavProps(isTvShell, expanded, page === 'history')}
+                        className={navButtonClass(page === 'history', showLabels, isTvShell)}
+                        onClick={() => go(onHistory)}
+                        title={t('mediaPlayerPage.navHistory')}
+                    >
+                        <NavIcon><History className={NAV_ICON_CLASS} /></NavIcon>
+                        {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.navHistory')}</span> : null}
+                    </button>
+                ) : null}
                 {onLiveTv ? (
                     <button
                         type="button"

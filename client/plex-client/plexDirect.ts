@@ -3397,6 +3397,10 @@ const hubsFrom = (data: any, server: PlexServer, many: boolean) => {
     }
 };
 
+/** Watch history: most recent titles read per library, and the most shown in all. */
+const HISTORY_PER_SECTION = 60;
+const HISTORY_MAX = 240;
+
 const mapPool = async <T, R>(rows: T[], limit: number, run: (row: T) => Promise<R>): Promise<R[]> => {
     const out = new Array<R>(rows.length);
     let cursor = 0;
@@ -7641,6 +7645,22 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
             return [...people, ...media];
         })));
         return { results: groups.flat().filter(Boolean) };
+    }
+    if (path === '/api/media-player/history') {
+        // Plex's own history log is owner-only, so every profile reads its libraries sorted by its
+        // last-viewed time instead. Shows, not episodes: episode-wide lists stall weak servers.
+        const sections = mapSections(await pms('/library/sections'))
+            .filter((section) => section.type === 'movie' || section.type === 'show');
+        const lists = await mapPool(sections, 2, (section) => pms(
+            `/library/sections/${encodeURIComponent(section.key)}/all?type=${section.type === 'show' ? 2 : 1}&sort=lastViewedAt:desc&X-Plex-Container-Start=0&X-Plex-Container-Size=${HISTORY_PER_SECTION}`,
+            undefined,
+            15000,
+        ).then(mapList).catch(() => [] as ReturnType<typeof mapList>));
+        const items = lists.flat()
+            .filter((item) => Number(item.lastViewedAt) > 0)
+            .sort((a, b) => Number(b.lastViewedAt) - Number(a.lastViewedAt))
+            .slice(0, HISTORY_MAX);
+        return { items };
     }
     if (path === '/api/media-player/playlists') {
         const items = await pms('/playlists?playlistType=video').then(mapList).catch(() => []);

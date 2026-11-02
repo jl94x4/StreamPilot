@@ -385,6 +385,17 @@ export const fetchMediaPlayerHub = (path: string, opts: { title?: string; identi
     return promise;
 };
 
+let historyInflight: Promise<{ items: PlayerItem[] }> | null = null;
+
+/** This profile's watch history, newest first (one request per library, never cached). */
+export const fetchMediaPlayerHistory = () => {
+    if (historyInflight) return historyInflight;
+    historyInflight = apiFetch(`${PLAYER_API_ROOT}/history`)
+        .then((data: { items?: PlayerItem[] }) => ({ items: Array.isArray(data?.items) ? data.items : [] }))
+        .finally(() => { historyInflight = null; });
+    return historyInflight;
+};
+
 let playlistsInflight: Promise<{ items: PlayerItem[] }> | null = null;
 let playlistsCache: { at: number; items: PlayerItem[] } | null = null;
 const PLAYLISTS_CACHE_TTL_MS = 60_000;
