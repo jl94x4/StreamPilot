@@ -289,6 +289,11 @@ export const MediaPlayerDashboard: React.FC = () => {
     useEffect(() => preloadScreensWhenIdle([MediaPlayerDetails, MediaPlayerLibrary, MediaPlayerSettings, MediaPlayerPerson, MediaPlayerVideo, PlayerLiveTv]), []);
     const [settings] = usePlayerSettings();
     const [view, setView] = useState<PlayerView>(() => readPlayerView());
+    /**
+     * An actor opened from the player (cast strip or Who's on screen). Back from their page to the
+     * page the film was playing over resumes it where it stopped; going anywhere else drops it.
+     */
+    const resumeAfterPersonRef = useRef<{ item: PlayerItem; offsetMs: number; returnPath: string; armed: boolean } | null>(null);
     const [libraries, setLibraries] = useState<PlayerSection[]>(() => readPlayerLibrariesCache());
     const [offlineServerIds, setOfflineServerIds] = useState<string[]>([]);
     const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -1266,6 +1271,21 @@ export const MediaPlayerDashboard: React.FC = () => {
         await startPlayback(target, nextOpts);
     }, [navigate, settings.cinemaTrailerCount, settings.stillWatchingAfter, startPlayback, t]);
 
+    // Back from the actor page to where the film was playing: carry on watching, no prompt.
+    useEffect(() => {
+        const pending = resumeAfterPersonRef.current;
+        if (!pending) return;
+        // Armed once the actor page is open, so a re-render before it opens never resumes early.
+        if (view.kind === 'person') {
+            pending.armed = true;
+            return;
+        }
+        if (!pending.armed) return;
+        resumeAfterPersonRef.current = null;
+        if (`${window.location.pathname}${window.location.search}` !== pending.returnPath) return;
+        void playItem(pending.item, { offsetMs: pending.offsetMs, skipResume: true });
+    }, [view, playItem]);
+
     useEffect(() => {
         if (playSession) {
             playNextBridgeRef.current = false;
@@ -1693,7 +1713,17 @@ export const MediaPlayerDashboard: React.FC = () => {
                             discardWatchTogetherClient();
                         }
                         // OK on a person in the player's cast strip.
-                        if (meta?.openPerson) openPerson(meta.openPerson);
+                        if (meta?.openPerson) {
+                            if (meta.item) {
+                                resumeAfterPersonRef.current = {
+                                    item: meta.item,
+                                    offsetMs: Math.max(0, Math.floor(meta.positionMs || 0)),
+                                    returnPath: `${window.location.pathname}${window.location.search}`,
+                                    armed: false,
+                                };
+                            }
+                            openPerson(meta.openPerson);
+                        }
                         // Stay on the screen that started playback (Home, library, details, …).
                         // Forcing openItem() pushed a duplicate /item URL so the next Back
                         // looked like a no-op and fell through to the last library.

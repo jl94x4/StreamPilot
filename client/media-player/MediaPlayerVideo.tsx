@@ -97,6 +97,8 @@ export type PlayerCloseMeta = {
     playNext?: boolean;
     /** Chosen from the native cast strip: open this person once the player closes. */
     openPerson?: { id: string; name: string; thumb?: string | null };
+    /** Where playback stopped (for resuming after a visit to a person's page). */
+    positionMs?: number;
     ended?: boolean;
     item?: PlayerItem;
 };
@@ -1165,6 +1167,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                     ended: !!result?.ended,
                     item: session.item,
                     openPerson: !willChain && result?.openPerson ? result.openPerson : undefined,
+                    positionMs: reportMs,
                 });
                 sendStopped('stopped', reportMs, { ended: !!result?.ended, watchedHandled: !!result?.watchedHandled });
                 if (!willChain) return;

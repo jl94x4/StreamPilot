@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.597': [
+        {
+            title: 'Who\'s on screen & cast strip',
+            items: [
+                'After opening an actor from the player, Back takes you straight back into the film where you left off (no resume prompt)',
+                'Going somewhere else from the actor\'s page instead (another film, say) doesn\'t restart it',
+            ],
+        },
+    ],
     '1.0.596': [
         {
             title: '4K playback fix',
