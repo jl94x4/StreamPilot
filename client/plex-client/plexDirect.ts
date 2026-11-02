@@ -4865,6 +4865,13 @@ const plexContinueWatchingItems = (data: any, seasonPoster: boolean) => {
     });
 };
 
+/**
+ * The last Home each server answered with pinned rows. With more than one server, a pass where
+ * yours timed out (a busy server misses the pin list's few seconds) still had a friend's rows, so
+ * Home looked complete, never retried, and showed only the friend's rows until a relaunch.
+ */
+const lastServerHome = new Map<string, Awaited<ReturnType<typeof loadServerHome>>>();
+
 const loadServerHome = async (server: PlexServer, many: boolean, full = false) => withMapServer(server, async () => {
     const seasonPoster = readHeroConfig().continueWatchingSeasonPoster;
     // Shell list (no includeMeta) is the pin directory and stays small enough to answer.
@@ -5699,6 +5706,11 @@ const resolveWatchTogetherLocal = async (query: URLSearchParams) => {
     return { item: null };
 };
 
+/** Friend-server Watchlist matches, by server and plex.tv key (null: not on that server). */
+const watchlistFriendMatches = new Map<string, { at: number; item: ReturnType<typeof mapItem> | null }>();
+const WATCHLIST_FRIEND_TTL_MS = 10 * 60_000;
+const WATCHLIST_FRIEND_WAIT_MS = 2500;
+
 const loadWatchlist = async () => {
     const token = accountToken() || readOwnerToken();
     if (!token) return { items: [] as ReturnType<typeof mapItem>[] };
@@ -5706,23 +5718,65 @@ const loadWatchlist = async () => {
     const data = await plexFetch(url, token).catch(() => null);
     const rows = asList<PlexMeta>(containerOf(data).Metadata);
     const servers = enabledServers();
-    const mapped = await mapPool(rows, 3, async (row) => {
-        const discoverKey = String(row.ratingKey || '');
-        const title = String(row.title || '');
-        const type = String(row.type || '');
-        const year = row.year != null ? String(row.year) : '';
-        let local: ReturnType<typeof mapItem> | null = null;
-        for (const server of servers) {
-            local = await withMapServer(server, () => matchLibraryByGuids(itemGuids(row), title, year, type, server));
-            if (local?.ratingKey) break;
-        }
-        if (!local?.ratingKey) return null;
-        return {
-            ...local,
-            watchlisted: true,
-            discoverRatingKey: discoverKey || null,
+    const matchOn = (row: PlexMeta, server: PlexServer) => withMapServer(server, () => matchLibraryByGuids(
+        itemGuids(row),
+        String(row.title || ''),
+        row.year != null ? String(row.year) : '',
+        String(row.type || ''),
+        server,
+    )).catch(() => null);
+    const asWatchlisted = (row: PlexMeta, local: ReturnType<typeof mapItem> | null) => (
+        local?.ratingKey
+            ? { ...local, watchlisted: true, discoverRatingKey: String(row.ratingKey || '') || null }
+            : null
+    );
+    // Your own server (sorted first) for every title, as with one server.
+    const own = servers[0];
+    const mapped = own
+        ? await mapPool(rows, 3, async (row) => asWatchlisted(row, await matchOn(row, own)))
+        : rows.map(() => null);
+    const others = servers.slice(1);
+    const missing = rows.map((row, index) => (mapped[index] ? -1 : index)).filter((index) => index >= 0);
+    if (others.length && missing.length) {
+        // Titles you don't have: a friend's server, several at a time and remembered. Asking it for
+        // each title in turn kept the whole Watchlist waiting on that slower remote server.
+        const lookup = async (row: PlexMeta) => {
+            const key = String(row.ratingKey || row.guid || row.title || '');
+            for (const server of others) {
+                const cacheKey = `${server.id}|${key}`;
+                const cached = watchlistFriendMatches.get(cacheKey);
+                if (cached && Date.now() - cached.at < WATCHLIST_FRIEND_TTL_MS) {
+                    if (cached.item) return cached.item;
+                    continue;
+                }
+                const local = await matchOn(row, server);
+                watchlistFriendMatches.set(cacheKey, { at: Date.now(), item: local?.ratingKey ? local : null });
+                if (local?.ratingKey) return local;
+            }
+            return null;
         };
-    });
+        const work = mapPool(missing.map((index) => rows[index]), 6, lookup);
+        // Keep going after the deadline: whatever lands is remembered for the next open.
+        const done = await Promise.race([
+            work,
+            new Promise<null>((resolve) => { window.setTimeout(() => resolve(null), WATCHLIST_FRIEND_WAIT_MS); }),
+        ]);
+        missing.forEach((rowIndex, position) => {
+            const row = rows[rowIndex];
+            let local = done ? done[position] : null;
+            if (!done) {
+                const key = String(row.ratingKey || row.guid || row.title || '');
+                for (const server of others) {
+                    const cached = watchlistFriendMatches.get(`${server.id}|${key}`);
+                    if (cached?.item) {
+                        local = cached.item;
+                        break;
+                    }
+                }
+            }
+            mapped[rowIndex] = asWatchlisted(row, local);
+        });
+    }
     const items: ReturnType<typeof mapItem>[] = [];
     const seen = new Set<string>();
     for (const item of mapped) {
@@ -6093,8 +6147,46 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
         const servers = enabledServers();
         const many = servers.length > 1;
         const full = query.get('full') === '1';
-        const loaded = await Promise.all(servers.map((server) => loadServerHome(server, many, full).catch(() => null)));
-        const rows = loaded.filter((row): row is NonNullable<typeof row> => !!row);
+        const started = servers.map((server) => loadServerHome(server, many, full).catch(() => null));
+        // Answers that arrive after Home went out still become each server's last good rows.
+        started.forEach((pending, index) => {
+            void pending.then((row) => {
+                if (row && row.hubs.some(contentHomeHub)) lastServerHome.set(servers[index].id, row);
+            });
+        });
+        let loaded: Array<Awaited<(typeof started)[number]> | 'late'>;
+        if (!many) {
+            loaded = await Promise.all(started);
+        } else {
+            // Your own server (sorted first) is waited for; the others get a short grace after it.
+            // Waiting on every server made Home as slow as the slowest friend's server: your own
+            // rows, which used to show at once, sat behind a remote one. Late servers show their
+            // last rows and the result is partial, so the app fetches again for the rest.
+            const own = await started[0];
+            const grace = new Promise<'late'>((resolve) => {
+                window.setTimeout(() => resolve('late'), full ? 4000 : 1500);
+            });
+            const others = await Promise.all(started.slice(1).map((pending) => Promise.race([pending, grace])));
+            loaded = [own, ...others];
+        }
+        let anyLate = false;
+        // A server that came back without its pins, failed or was late keeps its last good rows,
+        // marked partial so the app tries the full pass again.
+        const rows = loaded.map((answer, index) => {
+            const server = servers[index];
+            const last = lastServerHome.get(server.id);
+            const late = answer === 'late';
+            if (late) anyLate = true;
+            const row = late ? null : answer;
+            if (row && row.hubs.some(contentHomeHub)) {
+                lastServerHome.set(server.id, row);
+                return row;
+            }
+            if (!many || !last) return row;
+            const keptPins = last.hubs.filter((hub) => !continueHub(hub));
+            if (!row) return { ...last, hubs: keptPins, partial: true };
+            return { ...row, hubs: uniquifyHubs([...row.hubs, ...keptPins]), partial: true };
+        }).filter((row): row is NonNullable<typeof row> => !!row);
         if (!rows.length) {
             return {
                 libraries: [],
@@ -6124,7 +6216,7 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
             recentByLibrary: rows.flatMap((row) => row.recentByLibrary),
             playlists: [],
             hubs,
-            partial: rows.some((row) => row.partial),
+            partial: anyLate || rows.some((row) => row.partial),
             becauseAttached: rows.every((row) => row.becauseAttached === true),
         };
     }
@@ -6879,7 +6971,17 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
         const key = decodeURIComponent(itemCast[1]);
         const server = resolveServer(query.get('server'), key);
         const meta = await metadata(key, server).catch(() => null);
-        return { cast: meta ? (mapItem(meta).cast || []) : [] };
+        if (!meta) return { cast: [] };
+        // The player's cast read: up to 100 (Who's on screen matches against a show's whole
+        // roster; the strip still shows 24). Pages keep mapItem's 24.
+        return {
+            cast: asList<PlexMeta>(meta.Role).slice(0, 100).map((row) => ({
+                id: String(row.id || row.tag || ''),
+                name: String(row.tag || ''),
+                role: String(row.role || ''),
+                thumb: imageUrl(row.thumb, 300, 450),
+            })),
+        };
     }
     const itemMore = path.match(/^\/api\/media-player\/item\/([^/]+)\/more$/);
     if (itemMore && method === 'GET') {

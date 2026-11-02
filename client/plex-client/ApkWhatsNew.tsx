@@ -73,6 +73,28 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.606': [
+        {
+            title: 'More than one server',
+            items: [
+                'Home and the Watchlist are quick again: your own server\'s rows no longer wait for a friend\'s slower server, whose rows fill in moments later',
+            ],
+        },
+        {
+            title: 'Who\'s on screen',
+            items: [
+                'Faces it doesn\'t know show as "Who is this?": press OK to pick the person, and they\'re recognised from then on',
+                'Hold OK on a name to correct it',
+                'Matches against the show\'s whole cast, and lines faces up before comparing, so more people are named correctly',
+            ],
+        },
+        {
+            title: 'Settings',
+            items: [
+                'Turn off sidebar items you don\'t use: Watchlist, History, Live TV, Downloads and Search',
+            ],
+        },
+    ],
     '1.0.605': [
         {
             title: 'Player',

@@ -1033,7 +1033,9 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             return fetchMediaPlayerHomeFull()
                 .then((full) => {
                     applyFull(full, base, live);
-                    return playerHomeHasContentHubs(full) ? undefined : retry();
+                    // partial: a server answered without its pinned rows. With several servers the
+                    // others' rows made it look complete, so yours stayed missing until a relaunch.
+                    return playerHomeHasContentHubs(full) && !full?.partial ? undefined : retry();
                 })
                 .catch(() => retry());
         };
