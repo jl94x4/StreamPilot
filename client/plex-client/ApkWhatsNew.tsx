@@ -73,6 +73,21 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.595': [
+        {
+            title: 'Gentler on your server',
+            items: [
+                'Playback progress is reported to Plex at most every 3 seconds (always with the latest position); skipping through a film sent up to one report a second, which can stall a weak server',
+                'Stopping still reports straight away',
+            ],
+        },
+        {
+            title: 'Emulator',
+            items: [
+                'The Android TV emulator runs the app natively again (the face libraries had forced it into ARM translation), which is the likely cause of 4K failing there',
+            ],
+        },
+    ],
     '1.0.594': [
         {
             title: 'Player Back button',

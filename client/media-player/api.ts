@@ -1370,7 +1370,7 @@ export const takePreparedMediaPlayerPlayback = (ratingKey: string, opts: Playbac
     return existing.promise;
 };
 
-export const reportMediaPlayerTimeline = (payload: {
+type TimelinePayload = {
     ratingKey: string;
     sessionId: string;
     state: 'playing' | 'paused' | 'buffering' | 'stopped';
@@ -1379,13 +1379,50 @@ export const reportMediaPlayerTimeline = (payload: {
     audioStreamId?: string | null;
     subtitleStreamId?: string | null;
     serverId?: string | null;
-}) => (
-    apiFetch(`${PLAYER_API_ROOT}/timeline`, {
-        method: 'POST',
-        body: JSON.stringify(payload),
-        keepalive: true,
-    }).catch(() => undefined)
-);
+};
+
+/**
+ * One timeline report per session at most this often. Skipping through a film sent buffering,
+ * playing and paused for every step (up to ~1 a second), and a weak server falls over under
+ * that. In between, only the latest state is kept and sent when the gap is up.
+ */
+const TIMELINE_MIN_GAP_MS = 3000;
+const timelineLanes = new Map<string, { sentAt: number; pending: TimelinePayload | null; timer: number }>();
+
+const postTimeline = (payload: TimelinePayload) => apiFetch(`${PLAYER_API_ROOT}/timeline`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+    keepalive: true,
+}).catch(() => undefined);
+
+export const reportMediaPlayerTimeline = (payload: TimelinePayload): Promise<unknown> => {
+    const key = `${payload.sessionId}|${payload.ratingKey}`;
+    const lane = timelineLanes.get(key) || { sentAt: 0, pending: null, timer: 0 };
+    timelineLanes.set(key, lane);
+    // Stopped always goes now (it ends the session on the server) and drops anything queued.
+    if (payload.state === 'stopped') {
+        if (lane.timer) window.clearTimeout(lane.timer);
+        timelineLanes.delete(key);
+        return postTimeline(payload);
+    }
+    const wait = lane.sentAt + TIMELINE_MIN_GAP_MS - Date.now();
+    if (wait <= 0 && !lane.timer) {
+        lane.sentAt = Date.now();
+        return postTimeline(payload);
+    }
+    lane.pending = payload;
+    if (!lane.timer) {
+        lane.timer = window.setTimeout(() => {
+            lane.timer = 0;
+            const next = lane.pending;
+            lane.pending = null;
+            if (!next || !timelineLanes.has(key)) return;
+            lane.sentAt = Date.now();
+            void postTimeline(next);
+        }, Math.max(0, wait));
+    }
+    return Promise.resolve(undefined);
+};
 
 export const stopMediaPlayerTranscode = (
     sessionId?: string | null,

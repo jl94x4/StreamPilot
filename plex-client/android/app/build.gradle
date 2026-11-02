@@ -15,13 +15,14 @@ android {
         applicationId "com.streampilot.mediaplayer"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 594
+        versionCode 595
         // Settings shows this versionName. `npm run build:apk` auto-bumps both.
-        versionName "1.0.594"
+        versionName "1.0.595"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         ndk {
-            // TVs and phones are ARM. The face test's native libraries doubled the APK with x86 copies.
-            abiFilters 'armeabi-v7a', 'arm64-v8a'
+            // TVs and phones are ARM. x86 is kept for the Android TV emulator: without it the whole
+            // app ran under ARM translation there, and 4K playback failed. x86_64 is left out (~5 MB).
+            abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86'
         }
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
