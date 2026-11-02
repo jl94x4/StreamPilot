@@ -52,6 +52,7 @@ import {
     prefetchPlayerImages,
     replaceFamilyContinueSlot,
     restoreContinueSlot,
+    continueWatchingRowFocused,
     stampFamilyLastViewed,
     watchTargetTouches,
     withShowPoster,
@@ -208,6 +209,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
     }
     const layoutContinueWatching = useCallback(
         (items: PlayerItem[]) => {
+            if (!continueWatchingRowFocused()) cwOrderKeysRef.current = [];
             if (cwOrderSortRef.current !== settings.continueWatchingSort) {
                 cwOrderKeysRef.current = [];
                 cwOrderSortRef.current = settings.continueWatchingSort;
@@ -329,6 +331,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
     }, [hubs, settings.hideWatchedFromRecents, settings.recentlyAddedSeasonPoster]);
 
     const freezeContinueWatching = useCallback((items: PlayerItem[]) => {
+        if (!continueWatchingRowFocused()) cwOrderKeysRef.current = [];
         if (cwOrderSortRef.current !== settings.continueWatchingSort) {
             cwOrderKeysRef.current = [];
             cwOrderSortRef.current = settings.continueWatchingSort;

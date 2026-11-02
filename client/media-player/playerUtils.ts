@@ -914,6 +914,18 @@ export const noteFamilyLastViewed = (
 };
 
 /** The next episode often has no view time of its own. Keep the show's. */
+/**
+ * The remote is in a Continue Watching row. Its order holds still only then, so cards never
+ * jump under the cursor; anywhere else the row follows Plex as soon as new data lands.
+ */
+export const continueWatchingRowFocused = () => {
+    if (typeof document === 'undefined') return false;
+    const row = (document.activeElement as HTMLElement | null)
+        ?.closest?.('[data-tv-row-id]')
+        ?.getAttribute('data-tv-row-id') || '';
+    return /continue/i.test(row);
+};
+
 export const stampFamilyLastViewed = <T extends PlayerItem>(item: T): T => {
     let best = 0;
     for (const key of familyKeysOf(item)) {

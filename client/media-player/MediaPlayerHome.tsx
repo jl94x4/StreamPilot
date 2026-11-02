@@ -79,7 +79,7 @@ import { PlayerServiceBrandMark } from './PlayerServiceBrandMark';
 import { PlayerTvScreensaver } from './PlayerTvScreensaver';
 import { PlayerTvSearch, PlayerTvSearchHistory, PlayerTvSearchNotice, TV_SEARCH_FIRST_KEY } from './PlayerTvSearch';
 import { itemHasBillboardBrandMeta } from './studioLogo.js';
-import { applyRememberedProgress, asRecentlyAddedPlayerItem, rememberBillboardBackdrop, formatPlayerDate, formatPlayerDuration, isFuturePlayerDate, heroRowCardItem, hideWatchedPlayerItems, isMusicPlayerItem, isPlayerBackdropReady, keepContinueWatchingPoster, mapContinueWatchingItemsForLayout, pickRicherSummary, pinTvNeighborBackdrops, playerItemBackdropUrl, plexBackdropUrl, plexLogoUrl, PLAYER_PROGRESS_EVENT, prefetchContinueWatchingImages, prefetchHomeRowPosters, primeNearbyTvBillboard, replaceFamilyContinueSlot, restoreContinueSlot, shufflePlayerItems, stampFamilyLastViewed, warmPlayerBackdrop, watchTargetTouches, withShowPoster } from './playerUtils';
+import { applyRememberedProgress, asRecentlyAddedPlayerItem, rememberBillboardBackdrop, formatPlayerDate, formatPlayerDuration, isFuturePlayerDate, heroRowCardItem, hideWatchedPlayerItems, isMusicPlayerItem, isPlayerBackdropReady, keepContinueWatchingPoster, mapContinueWatchingItemsForLayout, pickRicherSummary, pinTvNeighborBackdrops, playerItemBackdropUrl, plexBackdropUrl, plexLogoUrl, PLAYER_PROGRESS_EVENT, prefetchContinueWatchingImages, prefetchHomeRowPosters, primeNearbyTvBillboard, replaceFamilyContinueSlot, restoreContinueSlot, shufflePlayerItems, continueWatchingRowFocused, stampFamilyLastViewed, warmPlayerBackdrop, watchTargetTouches, withShowPoster } from './playerUtils';
 import { usePlayerSettings } from './usePlayerSettings';
 import { peekSurfaceColor, sampleBackdropSurfaceColor } from '../shared/imageFocalPoint';
 import { TV_FLOOR_RGB, tvTintSurfaceRgb } from './tvSurface';
@@ -1424,6 +1424,9 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
     if (active && !cwWasActiveRef.current) cwOrderKeysRef.current = [];
     cwWasActiveRef.current = active;
     const freezeContinueWatching = useCallback((items: PlayerItem[]) => {
+        // Watching on TV opens the native player, so Home never counts as left: without this
+        // the order stayed frozen until a setting change.
+        if (!continueWatchingRowFocused()) cwOrderKeysRef.current = [];
         if (cwOrderSortRef.current !== settings.continueWatchingSort) {
             cwOrderKeysRef.current = [];
             cwOrderSortRef.current = settings.continueWatchingSort;

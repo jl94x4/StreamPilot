@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.583': [
+        {
+            title: 'Continue Watching',
+            items: [
+                'Continue Watching updates live again: after you watch something, or a new episode lands, it reorders to match Plex without touching Settings',
+                'It only holds still while you\'re moving along the row, so cards never jump under the cursor',
+            ],
+        },
+    ],
     '1.0.582': [
         {
             title: 'Continue Watching',
