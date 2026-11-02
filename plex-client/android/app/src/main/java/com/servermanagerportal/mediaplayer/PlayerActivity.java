@@ -1533,6 +1533,8 @@ public class PlayerActivity extends AppCompatActivity {
             public void onIsPlayingChanged(boolean isPlaying) {
                 // Only a pause the viewer chose: the moments before a film starts are "not playing"
                 // too, and the test must never run while the player is still setting up.
+                Log.i(TAG, "WhoIsOnScreen playing=" + isPlaying + " playWhenReady="
+                    + (player != null && player.getPlayWhenReady()) + " userPaused=" + userPaused);
                 if (isPlaying || (player != null && player.getPlayWhenReady())) cancelWhoIsOnScreen();
                 else if (userPaused) scheduleWhoIsOnScreen();
                 if (isPlaying) {
@@ -1749,6 +1751,7 @@ public class PlayerActivity extends AppCompatActivity {
             }
             if (root.has("whoIsOnScreen")) {
                 whoIsOnScreen = root.optBoolean("whoIsOnScreen", false);
+                Log.i(TAG, "WhoIsOnScreen setting from session: " + whoIsOnScreen);
                 if (!whoIsOnScreen) cancelWhoIsOnScreen();
             }
             if (root.has("cast")) {
@@ -2343,7 +2346,11 @@ public class PlayerActivity extends AppCompatActivity {
 
     private void scheduleWhoIsOnScreen() {
         mainHandler.removeCallbacks(whoIsOnScreenRunnable);
+        Log.i(TAG, "WhoIsOnScreen schedule: on=" + whoIsOnScreen + " live=" + liveStream + " music=" + musicMode
+            + " view=" + (facesView != null) + " player=" + (player != null));
         if (!whoIsOnScreen || liveStream || musicMode || facesView == null || player == null) return;
+        // Show straight away that the test noticed the pause, so "nothing at all" is never ambiguous.
+        facesView.showStatus("Who's on screen (test): paused, starting…");
         mainHandler.postDelayed(whoIsOnScreenRunnable, WHO_IS_ON_SCREEN_DELAY_MS);
     }
 
@@ -2354,8 +2361,14 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void runWhoIsOnScreen() {
+        Log.i(TAG, "WhoIsOnScreen run: playWhenReady=" + (player != null && player.getPlayWhenReady())
+            + " userPaused=" + userPaused + " state=" + (player == null ? -1 : player.getPlaybackState())
+            + " cast=" + castMembers.size());
         if (player == null || player.getPlayWhenReady() || !userPaused || finishing || facesView == null) return;
-        if (player.getPlaybackState() != Player.STATE_READY) return;
+        if (player.getPlaybackState() != Player.STATE_READY) {
+            facesView.showStatus("Who's on screen (test): waiting for the picture (state " + player.getPlaybackState() + ")");
+            return;
+        }
         List<WhoIsOnScreen.Person> people = new ArrayList<>();
         for (CastMember member : castMembers) {
             people.add(new WhoIsOnScreen.Person(member.id, member.name, member.role, member.thumb));

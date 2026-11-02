@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.588': [
+        {
+            title: 'Who\'s on screen (test)',
+            items: [
+                'Shows a message the moment you pause ("paused, starting…") and at every later step, so it\'s clear where it stops',
+                'Writes each step to the device log for troubleshooting',
+            ],
+        },
+    ],
     '1.0.587': [
         {
             title: 'Who\'s on screen (test) fix',
