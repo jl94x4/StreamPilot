@@ -629,6 +629,8 @@ public class PlayerActivity extends AppCompatActivity {
     private String openPersonJson;
     /** Settings → Who's on screen: name the faces in the paused frame. */
     private boolean whoIsOnScreen;
+    /** The player was built untunneled for the faces (false on TV for 4K: they can't run there). */
+    private boolean facesUntunneled;
     @Nullable
     private WhoIsOnScreen faceEngine;
     private FaceLabelsView facesView;
@@ -1057,9 +1059,13 @@ public class PlayerActivity extends AppCompatActivity {
             // TV: tunneled video+audio keeps lip-sync on many SoCs (Plex-style). Phone
             // stays untunneled — overlays and some codecs are happier without it.
             DefaultTrackSelector trackSelector = new DefaultTrackSelector(this);
-            // Who's on screen copies the paused picture off the surface, which tunneled
-            // video never fills, so the test plays untunneled.
-            if (isTelevision() && !whoIsOnScreen) {
+            // Who's on screen copies the paused picture off the surface, which tunneled video never
+            // fills, so it plays untunneled, but never for 4K / HDR / Dolby Vision: those can need
+            // tunneling to decode at all (4K Dolby Vision failed with Error 0xe without it).
+            // Playback always wins; on those files the faces simply don't run.
+            boolean bigVideo = streamHeight > 1100 || "4k".equalsIgnoreCase(streamResolution);
+            facesUntunneled = whoIsOnScreen && !bigVideo;
+            if (isTelevision() && !facesUntunneled) {
                 trackSelector.setParameters(
                     trackSelector.buildUponParameters().setTunnelingEnabled(true)
                 );
@@ -2375,6 +2381,8 @@ public class PlayerActivity extends AppCompatActivity {
         Log.i(TAG, "WhoIsOnScreen schedule: on=" + whoIsOnScreen + " live=" + liveStream + " music=" + musicMode
             + " view=" + (facesView != null) + " player=" + (player != null));
         if (!whoIsOnScreen || liveStream || musicMode || facesView == null || player == null) return;
+        // Tunneled (TV, 4K): the picture can't be read, so stay quiet rather than fail every pause.
+        if (isTelevision() && !facesUntunneled) return;
         mainHandler.postDelayed(whoIsOnScreenRunnable, WHO_IS_ON_SCREEN_DELAY_MS);
     }
 

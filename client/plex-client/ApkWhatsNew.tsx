@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.596': [
+        {
+            title: '4K playback fix',
+            items: [
+                'Fixed 4K (including Dolby Vision) failing with a decoding error while Who\'s on screen was on: the feature switched off the TV\'s tunneled video mode, which some 4K files need to play',
+                'Who\'s on screen now leaves 4K films alone (they always play in the TV\'s best mode) and simply doesn\'t run on them; it still works on 1080p and below',
+            ],
+        },
+    ],
     '1.0.595': [
         {
             title: 'Gentler on your server',

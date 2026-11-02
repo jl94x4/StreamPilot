@@ -760,7 +760,7 @@ export const en = {
         nightMode: 'Night mode',
         nightModeHint: 'Soften loud peaks for quieter late-night playback.',
         whoIsOnScreen: "Who's on screen",
-        whoIsOnScreenHint: 'When you pause, name the actors in the picture. Left/Right pick one, OK opens them. Takes effect from the next film you start; the first pause in a title takes a little longer while it learns the cast.',
+        whoIsOnScreenHint: 'When you pause, name the actors in the picture. Left/Right pick one, OK opens them. Takes effect from the next film you start; the first pause in a title takes a little longer while it learns the cast. Not available on 4K films, which always play in the TV's best mode.',
         matchFrameRate: 'Match display refresh rate',
         matchFrameRateHint: 'Match the TV refresh rate to the video (23.976 / 24 / 25 / 50 / 59.94) when the device allows it.',
         subtitleSize: 'Subtitle size',
