@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.600': [
+        {
+            title: 'More than one server',
+            items: [
+                'Fixed missing backdrops, clear logos and screensaver art with a friend\'s server added: your titles\' images were being pointed at the other server',
+                'Every server\'s results now always link to that server\'s own address and access',
+            ],
+        },
+    ],
     '1.0.599': [
         {
             title: 'More than one server',

@@ -2496,6 +2496,67 @@ const waitForMapServer = (id: string) => new Promise<void>((resolve) => {
     mapServerWaiters.push(finish);
 });
 
+/**
+ * Point one server's results at that server. Image URLs and item serverIds are built from the
+ * mapServer global, which another server's work can still overwrite mid-flight (a slow remote
+ * server outlasts the wait above): a friend's server then got your titles' backdrops, clear logos
+ * and screensaver art, and none of them loaded. URLs on another known server's address get this
+ * server's address and token; serverIds naming another known server get this one. A no-op with
+ * one server.
+ */
+const rebindToServer = <T,>(value: T, server: PlexServer | null): T => {
+    if (!server?.uri || !server.id) return value;
+    let own = '';
+    try { own = new URL(server.uri).origin; } catch { return value; }
+    const others = readServerList().servers.filter((row) => row.id !== server.id);
+    if (!others.length) return value;
+    const otherOrigins: string[] = [];
+    for (const row of others) {
+        try { otherOrigins.push(new URL(row.uri).origin); } catch { /* skip */ }
+    }
+    const otherIds = new Set(others.map((row) => row.id));
+    const fixString = (text: string) => {
+        for (const origin of otherOrigins) {
+            if (!text.startsWith(origin)) continue;
+            try {
+                const url = new URL(text);
+                const next = new URL(`${url.pathname}${url.search}${url.hash}`, own);
+                if (next.searchParams.has('X-Plex-Token')) next.searchParams.set('X-Plex-Token', server.accessToken);
+                return next.toString();
+            } catch {
+                return text;
+            }
+        }
+        return text;
+    };
+    const walk = (node: unknown, depth: number): unknown => {
+        if (typeof node === 'string') return fixString(node);
+        if (!node || typeof node !== 'object' || depth > 6) return node;
+        if (Array.isArray(node)) {
+            let changed = false;
+            const out = node.map((row) => {
+                const next = walk(row, depth + 1);
+                if (next !== row) changed = true;
+                return next;
+            });
+            return changed ? out : node;
+        }
+        const record = node as Record<string, unknown>;
+        let copy: Record<string, unknown> | null = null;
+        for (const [key, row] of Object.entries(record)) {
+            const next = key === 'serverId' && typeof row === 'string' && otherIds.has(row)
+                ? server.id
+                : walk(row, depth + 1);
+            if (next !== row) {
+                copy = copy || { ...record };
+                copy[key] = next;
+            }
+        }
+        return copy || node;
+    };
+    return walk(value, 0) as T;
+};
+
 const withMapServer = async <T,>(server: PlexServer | null, run: () => Promise<T>) => {
     const id = server?.id || '';
     const waitStarted = Date.now();
@@ -2506,7 +2567,7 @@ const withMapServer = async <T,>(server: PlexServer | null, run: () => Promise<T
     mapServer = server;
     mapServerHolds += 1;
     try {
-        return await run();
+        return rebindToServer(await run(), server);
     } finally {
         mapServerHolds -= 1;
         // Restore only when this was the last holder: another holder's restore must not wipe ours.
