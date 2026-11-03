@@ -48,6 +48,7 @@ const SupportInbox = lazy(() => import('./support/SupportInbox').then(m => ({ de
 const ChatRoom = lazy(() => import('./chat/ChatRoom').then(m => ({ default: m.ChatRoom })));
 const OpenAppletsHost = lazy(() => import('./custom/CustomExternalTabPage').then(m => ({ default: m.OpenAppletsHost })));
 const PreferencesPage = lazy(() => import('./preferences/PreferencesPage').then(m => ({ default: m.PreferencesPage })));
+const HelpPage = lazy(() => import('./help/HelpPage').then(m => ({ default: m.HelpPage })));
 const ProfilePage = lazy(() => import('./profile/ProfilePage').then(m => ({ default: m.ProfilePage })));
 const DiscoveryDashboard = lazy(() => import('./discovery/DiscoveryDashboard').then(m => ({ default: m.DiscoveryDashboard })));
 const MediaPlayerDashboard = lazy(() => import('./media-player').then(m => ({ default: m.MediaPlayerDashboard })));
@@ -166,7 +167,7 @@ export const MainApp: React.FC = () => {
         closeConfirm();
     };
 
-    const [currentRoute, setCurrentRoute] = useState<'login' | 'admin' | 'user' | 'users' | 'status' | 'dashboard' | 'settings' | 'logs' | 'analytics' | 'achievements' | 'support' | 'chat' | 'downloads' | 'mediastack' | 'maintenance' | 'upgrader' | 'collexions' | 'spotify-sync' | 'metadata-fill' | 'scanner' | 'media-automation' | 'poster-sets' | 'overlays' | 'editions' | 'watch-sync' | 'requests' | 'discovery' | 'media-player' | 'about' | 'preferences' | 'profile' | 'invite' | 'onboarding' | 'external' | 'loading'>('loading');
+    const [currentRoute, setCurrentRoute] = useState<'login' | 'admin' | 'user' | 'users' | 'status' | 'dashboard' | 'settings' | 'logs' | 'analytics' | 'achievements' | 'support' | 'chat' | 'downloads' | 'mediastack' | 'maintenance' | 'upgrader' | 'collexions' | 'spotify-sync' | 'metadata-fill' | 'scanner' | 'media-automation' | 'poster-sets' | 'overlays' | 'editions' | 'watch-sync' | 'requests' | 'discovery' | 'media-player' | 'about' | 'preferences' | 'help' | 'profile' | 'invite' | 'onboarding' | 'external' | 'loading'>('loading');
     const [profilePath, setProfilePath] = useState(() => (
         typeof window !== 'undefined' ? stripBasePath(window.location.pathname) : '/profile'
     ));
@@ -377,7 +378,7 @@ export const MainApp: React.FC = () => {
         setShowWhatsNew(false);
     }, [publicConfig?.appVersion]);
 
-    const setRoute = useCallback((route: 'login' | 'admin' | 'user' | 'users' | 'status' | 'dashboard' | 'settings' | 'logs' | 'analytics' | 'achievements' | 'support' | 'chat' | 'downloads' | 'mediastack' | 'maintenance' | 'upgrader' | 'collexions' | 'spotify-sync' | 'metadata-fill' | 'scanner' | 'media-automation' | 'poster-sets' | 'overlays' | 'editions' | 'watch-sync' | 'requests' | 'discovery' | 'media-player' | 'about' | 'preferences' | 'profile' | 'invite' | 'onboarding' | 'external' | 'loading', options?: { hash?: string; reviewId?: number; path?: string }) => {
+    const setRoute = useCallback((route: 'login' | 'admin' | 'user' | 'users' | 'status' | 'dashboard' | 'settings' | 'logs' | 'analytics' | 'achievements' | 'support' | 'chat' | 'downloads' | 'mediastack' | 'maintenance' | 'upgrader' | 'collexions' | 'spotify-sync' | 'metadata-fill' | 'scanner' | 'media-automation' | 'poster-sets' | 'overlays' | 'editions' | 'watch-sync' | 'requests' | 'discovery' | 'media-player' | 'about' | 'preferences' | 'help' | 'profile' | 'invite' | 'onboarding' | 'external' | 'loading', options?: { hash?: string; reviewId?: number; path?: string }) => {
         const session = sessionInfoRef.current;
         if (session?.needsOnboarding && !session?.session?.isAdmin && route !== 'login' && route !== 'loading' && route !== 'invite' && route !== 'onboarding') {
             route = 'onboarding';
@@ -453,6 +454,7 @@ export const MainApp: React.FC = () => {
             }
             if (route === 'about') path = '/about';
             if (route === 'preferences') path = '/preferences';
+            if (route === 'help') path = '/help';
             if (route === 'profile') {
                 const custom = String(options?.path || '').trim();
                 path = custom.startsWith('/profile') ? custom : '/profile';
@@ -674,6 +676,11 @@ export const MainApp: React.FC = () => {
             else if (path.startsWith('/about')) bounceExpiredHome();
             else if (path.startsWith('/preferences') && allowExpiredPath('preferences')) setCurrentRoute('preferences');
             else if (path.startsWith('/preferences')) bounceExpiredHome();
+            else if (path.startsWith('/help') && data.navFeatures?.help && allowExpiredPath('help')) setCurrentRoute('help');
+            else if (path.startsWith('/help')) {
+                window.history.replaceState({}, '', portalUrl('/portal'));
+                setCurrentRoute('user');
+            }
             else if (path.startsWith('/profile') && allowExpiredPath('profile')) {
                 setCurrentRoute('profile');
                 setProfilePath(stripBasePath(window.location.pathname));
@@ -1126,6 +1133,13 @@ export const MainApp: React.FC = () => {
             return (
                 <Suspense fallback={<Loader isLoading={true} isCinematic={!!publicConfig?.useCinematicLoading} />}>
                     <PreferencesPage sessionInfo={sessionInfo} refreshSession={checkSession} publicConfig={publicConfig} />
+                </Suspense>
+            );
+        }
+        if (currentRoute === 'help') {
+            return (
+                <Suspense fallback={<Loader isLoading={true} isCinematic={!!publicConfig?.useCinematicLoading} />}>
+                    <HelpPage />
                 </Suspense>
             );
         }

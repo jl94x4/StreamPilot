@@ -12292,7 +12292,7 @@ export const MaintenanceDashboard: React.FC = () => {
 interface NavigationProps {
     currentRoute: string;
     onNavigate: (
-        route: 'admin' | 'user' | 'status' | 'dashboard' | 'settings' | 'logs' | 'analytics' | 'downloads' | 'mediastack' | 'maintenance' | 'upgrader' | 'collexions' | 'spotify-sync' | 'scanner' | 'media-automation' | 'poster-sets' | 'overlays' | 'editions' | 'watch-sync' | 'requests' | 'discovery' | 'about' | 'achievements' | 'support' | 'chat' | 'preferences' | 'profile' | 'external',
+        route: 'admin' | 'user' | 'status' | 'dashboard' | 'settings' | 'logs' | 'analytics' | 'downloads' | 'mediastack' | 'maintenance' | 'upgrader' | 'collexions' | 'spotify-sync' | 'scanner' | 'media-automation' | 'poster-sets' | 'overlays' | 'editions' | 'watch-sync' | 'requests' | 'discovery' | 'about' | 'achievements' | 'support' | 'chat' | 'preferences' | 'help' | 'profile' | 'external',
         options?: { hash?: string; reviewId?: number; path?: string },
     ) => void;
     onLogout: () => void;
@@ -12725,6 +12725,7 @@ export const Navigation: React.FC<NavigationProps> = ({ currentRoute, onNavigate
         'achievements': { label: t('navigation.achievements'), icon: Trophy, route: 'achievements', adminOnly: false },
         'chat': { label: t('navigation.chat'), icon: MessageSquare, route: 'chat', adminOnly: false },
         'support': { label: t('navigation.support'), icon: LifeBuoy, route: 'support', adminOnly: false },
+        'help': { label: t('navigation.help'), icon: BookOpen, route: 'help', adminOnly: false },
         'downloads': { label: t('navigation.downloads'), icon: DownloadCloud, route: 'downloads', adminOnly: false },
         'mediastack': { label: t('navigation.calendar'), icon: Calendar, route: 'mediastack', adminOnly: false },
         'maintenance': { label: t('navigation.cleaner'), icon: Shield, route: 'maintenance', adminOnly: true },

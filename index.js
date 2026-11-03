@@ -120,6 +120,7 @@ import {
 } from './lib/watch-together/index.js';
 import { startOverlaysScheduler, startOverlaysBundleScheduler, runOverlaysScheduledJob } from './lib/overlays/scheduler.js';
 import { decidePlexHeavyJob } from './lib/plexHeavyJobGate.js';
+import { buildMemberCalendarEvents, renderIcs } from './lib/memberCalendar.js';
 import {
     normalizeSharePermissions,
     parseXmlAttrs,
@@ -6425,13 +6426,14 @@ app.get('/api/users/me', requireAuth, async (req, res) => {
         requestsQueue: portalRequestNav || requestAppService.isRequestAppConfigured(config),
         downloads: config.downloadsVisibleToMembers !== false,
         mediaPlayer: isPlexMediaServer && config.mediaPlayerEnabled !== false,
+        help: config.helpPage?.enabled === true && !!String(config.helpPage?.body || '').trim(),
     };
 
     // Non-admin expired members: restrict to support / chat / profile / preferences (#187).
     const accessExpired = !isAdmin && !!localUser && isAccessExpired(localUser);
     if (accessExpired) {
         Object.keys(navFeatures).forEach((key) => {
-            if (key === 'support' || key === 'chat') return;
+            if (key === 'support' || key === 'chat' || key === 'help') return;
             navFeatures[key] = false;
         });
         navFeatures.support = config.supportTicketsEnabled !== false;
@@ -11105,6 +11107,194 @@ app.get('/api/me/referral-stats', requireAuth, requireMember, async (req, res) =
     } catch (e) {
         res.status(500).json({ error: 'Failed to load referral stats' });
     }
+});
+
+// ── Member release calendar (.ics) ─────────────────────────────────────────────
+// Each member gets a private feed URL their phone's calendar subscribes to: upcoming episodes of
+// shows they watch and release dates of what they requested. Sonarr / Radarr data is shared for an
+// hour; each member's feed is cached for three, so calendar apps polling it never hit Plex history.
+const MEMBER_CALENDAR_ARR_TTL_MS = 60 * 60 * 1000;
+const MEMBER_CALENDAR_FEED_TTL_MS = 3 * 60 * 60 * 1000;
+const MEMBER_CALENDAR_DAYS_AHEAD = 60;
+let memberCalendarArrCache = { at: 0, data: null, pending: null };
+const memberCalendarFeedCache = new Map();
+
+const fetchMemberCalendarArrData = async (config) => {
+    if (memberCalendarArrCache.data && Date.now() - memberCalendarArrCache.at < MEMBER_CALENDAR_ARR_TTL_MS) {
+        return memberCalendarArrCache.data;
+    }
+    if (memberCalendarArrCache.pending) return memberCalendarArrCache.pending;
+    const start = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const end = new Date(Date.now() + MEMBER_CALENDAR_DAYS_AHEAD * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const fetchCalendar = async (instance) => {
+        try {
+            const base = normalizeExternalBaseUrl(instance.url, { allowPrivate: true, allowHttp: true });
+            const endpoint = instance.type === 'radarr'
+                ? `/api/v3/calendar?start=${start}&end=${end}&unmonitored=true`
+                : `/api/v3/calendar?start=${start}&end=${end}&includeSeries=true&includeEpisode=true&unmonitored=true`;
+            const response = await fetch(new URL(endpoint, base).toString(), {
+                headers: { 'X-Api-Key': instance.apiKey },
+                signal: AbortSignal.timeout(15000),
+            });
+            if (!response.ok) return [];
+            const body = await response.json();
+            return Array.isArray(body) ? body : (Array.isArray(body?.records) ? body.records : []);
+        } catch {
+            return [];
+        }
+    };
+    memberCalendarArrCache.pending = (async () => {
+        const instances = getArrInstances(config, { enabledOnly: true }).filter((instance) => isArrInstanceReady(instance));
+        const results = await Promise.all(instances.map(async (instance) => ({ type: instance.type, items: await fetchCalendar(instance) })));
+        const data = {
+            sonarrItems: results.filter((row) => row.type !== 'radarr').flatMap((row) => row.items),
+            radarrItems: results.filter((row) => row.type === 'radarr').flatMap((row) => row.items),
+        };
+        memberCalendarArrCache = { at: Date.now(), data, pending: null };
+        return data;
+    })().catch((error) => {
+        memberCalendarArrCache.pending = null;
+        throw error;
+    });
+    return memberCalendarArrCache.pending;
+};
+
+/** Shows in a member's recent Plex history, by series title. */
+const fetchMemberWatchedShowTitles = async (config, user) => {
+    if (!config.plexToken) return [];
+    const uri = await getPlexConnectionUri(config);
+    if (!uri) return [];
+    let accountId = user?.plexAccountId ? String(user.plexAccountId) : '';
+    if (!accountId) {
+        const norm = (value) => String(value || '').trim().toLowerCase();
+        const { list } = await fetchPlexServerAccounts(uri, config);
+        const match = (list || []).find((account) => norm(account.name) === norm(user?.username))
+            || (user?.email ? (list || []).find((account) => norm(account.name) === norm(user.email) || norm(account.email) === norm(user.email)) : null);
+        if (match) accountId = String(match.id);
+    }
+    if (!accountId) return [];
+    try {
+        const response = await fetch(
+            `${uri}/status/sessions/history/all?accountID=${encodeURIComponent(accountId)}&sort=viewedAt:desc&X-Plex-Container-Start=0&X-Plex-Container-Size=300`,
+            { headers: plexClientHeaders(config.plexToken), signal: AbortSignal.timeout(15000) },
+        );
+        if (!response.ok) return [];
+        const body = await response.json();
+        const rows = body?.MediaContainer?.Metadata || [];
+        return [...new Set(rows.filter((row) => row?.type === 'episode').map((row) => row.grandparentTitle).filter(Boolean))];
+    } catch {
+        return [];
+    }
+};
+
+const buildMemberCalendarIcs = async (config, user) => {
+    const cached = memberCalendarFeedCache.get(user.id);
+    if (cached && Date.now() - cached.at < MEMBER_CALENDAR_FEED_TTL_MS) return cached.ics;
+    const [arr, watchedShowTitles, requests] = await Promise.all([
+        fetchMemberCalendarArrData(config),
+        fetchMemberWatchedShowTitles(config, user).catch(() => []),
+        getRequestEngine(config) === 'portal'
+            ? getPortalRequestService(config).store.list({ userId: String(user.id) }).catch(() => [])
+            : Promise.resolve([]),
+    ]);
+    const events = buildMemberCalendarEvents({ ...arr, requests, watchedShowTitles });
+    let domain = 'streampilot';
+    try {
+        domain = new URL(resolvePublicBaseUrlFromConfig(config) || 'http://streampilot').hostname || domain;
+    } catch { /* keep the default */ }
+    const serverName = String(config.serverName || config.brandName || 'StreamPilot').trim() || 'StreamPilot';
+    const ics = renderIcs(events, { calendarName: `${serverName} releases`, domain });
+    memberCalendarFeedCache.set(user.id, { at: Date.now(), ics });
+    return ics;
+};
+
+const memberCalendarUrl = (req, config, token) => {
+    const base = resolvePublicBaseUrlFromConfig(config) || `${req.protocol}://${req.get('host')}`;
+    return `${String(base).replace(/\/+$/, '')}/api/public/calendar/${token}.ics`;
+};
+
+const ensureMemberCalendarToken = async (req, { reset = false } = {}) => {
+    const users = await loadFile(USERS_PATH, []);
+    const me = findLocalUserForSession(users, req.user);
+    if (!me) return null;
+    if (!me.calendarToken || reset) {
+        me.calendarToken = randomBytes(24).toString('hex');
+        await saveFile(USERS_PATH, users);
+        memberCalendarFeedCache.delete(me.id);
+    }
+    return me.calendarToken;
+};
+
+app.get('/api/me/calendar', requireAuth, async (req, res) => {
+    try {
+        const config = await loadFile(CONFIG_PATH, {});
+        const token = await ensureMemberCalendarToken(req);
+        if (!token) return res.status(404).json({ error: 'No member account found for this session' });
+        res.json({ url: memberCalendarUrl(req, config, token) });
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to load your calendar link' });
+    }
+});
+
+app.post('/api/me/calendar/reset', requireAuth, async (req, res) => {
+    try {
+        const config = await loadFile(CONFIG_PATH, {});
+        const token = await ensureMemberCalendarToken(req, { reset: true });
+        if (!token) return res.status(404).json({ error: 'No member account found for this session' });
+        res.json({ url: memberCalendarUrl(req, config, token) });
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to reset your calendar link' });
+    }
+});
+
+app.get('/api/public/calendar/:token.ics', publicReadRateLimit, async (req, res) => {
+    try {
+        const token = String(req.params.token || '');
+        if (!/^[a-f0-9]{48}$/.test(token)) return res.status(404).end();
+        const users = await loadFile(USERS_PATH, []);
+        const user = users.find((row) => row?.calendarToken && row.calendarToken.length === token.length
+            && timingSafeEqual(Buffer.from(row.calendarToken), Buffer.from(token)));
+        if (!user || (user.plexAccessStatus && user.plexAccessStatus !== 'active' && !user.isAdmin)) return res.status(404).end();
+        const config = await loadFile(CONFIG_PATH, {});
+        const ics = await buildMemberCalendarIcs(config, user);
+        res.set('Content-Type', 'text/calendar; charset=utf-8');
+        res.set('Cache-Control', 'private, max-age=3600');
+        res.send(ics);
+    } catch (e) {
+        log(`Member calendar feed failed: ${e.message}`);
+        res.status(500).end();
+    }
+});
+
+// ── Members' Help page ───────────────────────────────────────────────────────────
+// One page the admin writes (how to install apps, house rules, who to contact), shown to members.
+const normalizeHelpPage = (raw = {}) => ({
+    enabled: raw?.enabled === true,
+    title: String(raw?.title || '').trim().slice(0, 120),
+    body: String(raw?.body || '').slice(0, 50000),
+});
+
+app.get('/api/help-page', requireAdmin, async (req, res) => {
+    const config = await loadFile(CONFIG_PATH, {});
+    res.json(normalizeHelpPage(config.helpPage));
+});
+
+app.put('/api/help-page', requireAdmin, async (req, res) => {
+    try {
+        const config = await loadFile(CONFIG_PATH, {});
+        const helpPage = normalizeHelpPage(req.body);
+        await saveFile(CONFIG_PATH, { ...config, helpPage });
+        appendAuditLog('help_page_updated', req.user, null, { enabled: helpPage.enabled });
+        res.json(helpPage);
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to save the Help page' });
+    }
+});
+
+app.get('/api/me/help-page', requireAuth, async (req, res) => {
+    const config = await loadFile(CONFIG_PATH, {});
+    const page = normalizeHelpPage(config.helpPage);
+    res.json(page.enabled ? page : { enabled: false, title: '', body: '' });
 });
 
 app.get('/api/onboarding', requireAdmin, async (req, res) => {

@@ -90,6 +90,7 @@ import {
 import { useDiscoverI18n } from '../discovery/i18n';
 import { BetaBadge, PosterSetsBetaBanner } from '../shared/BetaBadge';
 import { PlexShareDefaultsSection } from './PlexSharePermissions';
+import { HelpPageEditor } from '../help/HelpPage';
 
 const SETTINGS_TAB_BETA_NOTICE: Record<string, string> = {
     'poster-sets': 'posterSetsPage.betaNotice',
@@ -4398,6 +4399,7 @@ export const SettingsDashboard: React.FC = () => {
                             </div>
                         </div>
                     )}
+                    {activeTab === 'contact' && <HelpPageEditor addToast={addToast} />}
 
                     {activeTab === 'branding' && (
                         <div className="mb-8 animate-fade-in">
