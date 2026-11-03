@@ -11,6 +11,7 @@ import {
     writeDashboardSearchQuery,
 } from './dashboard/dashboardTitlePath';
 import { EmailSelectedUsersModal } from './settings/EmailSelectedUsersModal';
+import { PlexUserPermissions } from './settings/PlexSharePermissions';
 import { LibraryMaintenancePanel } from './maintenance/LibraryMaintenancePanel';
 import { appConfirm, askConfirm } from './shared/confirm';
 import { apiFetch, apiFetchShared } from './shared/api';
@@ -872,6 +873,12 @@ const UserModal: React.FC<{ isOpen: boolean; onClose: () => void; onSave: (user:
                         </div>
                     )}
                 </div>
+
+                {user?.id ? (
+                    <div className="mt-2 pt-4 border-t border-border">
+                        <PlexUserPermissions userId={user.id} />
+                    </div>
+                ) : null}
 
                 <div className="mt-2 pt-4 border-t border-border">
                     <h3 className="text-lg font-bold text-text mb-1">{t('navigation.requests')}</h3>

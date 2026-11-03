@@ -121,6 +121,13 @@ import {
 import { startOverlaysScheduler, startOverlaysBundleScheduler, runOverlaysScheduledJob } from './lib/overlays/scheduler.js';
 import { decidePlexHeavyJob } from './lib/plexHeavyJobGate.js';
 import {
+    normalizeSharePermissions,
+    parseXmlAttrs,
+    permissionsFromUserAttrs,
+    sharingSettingsBody,
+    sharingUpdateQuery,
+} from './lib/plex/sharePermissions.js';
+import {
     annotateKillRuleSessions,
     recountAfterStopped,
     sessionMatchesCondition,
@@ -3897,6 +3904,34 @@ const findPlexShare = async (user, config) => {
     }
 };
 
+/**
+ * This user's Plex friend entry (plex.tv /api/users): their Plex user id and share permissions
+ * (downloads, camera upload, channels, content restrictions). null when they are not a friend.
+ */
+const findPlexFriendPermissions = async (user, config) => {
+    if (!config?.plexToken) return null;
+    const identityIds = plexShareIdentityCandidates(user);
+    const email = String(user?.email || '').trim().toLowerCase();
+    const username = String(user?.username || '').trim().toLowerCase();
+    const res = await apiFetch(`${PLEX_API}/users`, config.plexToken);
+    if (!res.ok) throw new Error(`plex.tv users list failed (HTTP ${res.status})`);
+    const xmlText = await res.text();
+    const tags = xmlText.match(/<User\b[^>]*>/gi) || [];
+    for (const tag of tags) {
+        const attrs = parseXmlAttrs(tag);
+        const matches = identityIds.includes(String(attrs.id || ''))
+            || (email && String(attrs.email || '').trim().toLowerCase() === email)
+            || (username && String(attrs.username || '').trim().toLowerCase() === username);
+        if (!matches) continue;
+        return {
+            plexUserId: String(attrs.id || ''),
+            home: String(attrs.home || '') === '1',
+            permissions: permissionsFromUserAttrs(attrs),
+        };
+    }
+    return null;
+};
+
 const getPlexShareLibraryIds = async (user, config) => {
     const share = await findPlexShare(user, config);
     if (!share) return null;
@@ -4091,12 +4126,17 @@ const inviteUserToPlex = async (user, config, libraryIds = null) => {
 
         log(`Inviting user to Plex: ${user.username} (${invitedEmail || invitedId})${sharedServer.library_section_ids ? ` libs=${sharedServer.library_section_ids.join(',')}` : ' (all libraries)'}`);
 
+        const inviteBody = {
+            server_id: config.serverIdentifier,
+            shared_server: sharedServer,
+        };
+        // Only when defaults are set: otherwise Plex's own defaults apply, as before.
+        if (config.plexShareDefaults && typeof config.plexShareDefaults === 'object') {
+            inviteBody.sharing_settings = sharingSettingsBody(config.plexShareDefaults);
+        }
         const inviteRes = await apiFetch(`https://plex.tv/api/servers/${config.serverIdentifier}/shared_servers`, config.plexToken, {
             method: 'POST',
-            body: JSON.stringify({
-                server_id: config.serverIdentifier,
-                shared_server: sharedServer
-            }),
+            body: JSON.stringify(inviteBody),
             headers: { 'Content-Type': 'application/json' }
         });
 
@@ -16242,6 +16282,82 @@ app.get('/api/users/:id/share-libraries', requireAdmin, async (req, res) => {
     } catch (error) {
         log(`GET /api/users/:id/share-libraries failed: ${error.message}`);
         return res.status(500).json({ error: 'Failed to load share libraries.' });
+    }
+});
+
+// Plex share permissions (downloads, camera upload, channels, content restrictions) per user.
+app.get('/api/users/:id/plex-permissions', requireAdmin, async (req, res) => {
+    try {
+        const users = await loadFile(USERS_PATH, []);
+        const user = users.find((u) => u.id === req.params.id);
+        if (!user) return res.status(404).json({ error: 'User not found.' });
+        const config = await loadFile(CONFIG_PATH, {});
+        if (String(config.mediaServerType || 'plex').toLowerCase() !== 'plex') {
+            return res.json({ available: false, reason: 'Only available for Plex servers.' });
+        }
+        const friend = await findPlexFriendPermissions(user, config);
+        if (!friend) {
+            return res.json({ available: false, reason: 'No Plex share found for this user yet. Share libraries first.' });
+        }
+        if (friend.home) {
+            return res.json({ available: false, reason: 'This is a Plex Home user: set their restrictions in Plex (Settings → Plex Home).' });
+        }
+        return res.json({ available: true, permissions: friend.permissions });
+    } catch (error) {
+        log(`GET /api/users/:id/plex-permissions failed: ${error.message}`);
+        return res.status(502).json({ error: 'Could not read Plex permissions from plex.tv.' });
+    }
+});
+
+app.put('/api/users/:id/plex-permissions', requireAdmin, async (req, res) => {
+    try {
+        const users = await loadFile(USERS_PATH, []);
+        const user = users.find((u) => u.id === req.params.id);
+        if (!user) return res.status(404).json({ error: 'User not found.' });
+        const config = await loadFile(CONFIG_PATH, {});
+        const friend = await findPlexFriendPermissions(user, config);
+        if (!friend?.plexUserId || friend.home) {
+            return res.status(409).json({ error: 'No Plex share to update for this user.' });
+        }
+        const permissions = normalizeSharePermissions(req.body?.permissions);
+        const plexRes = await apiFetch(
+            `https://plex.tv/api/v2/sharings/${encodeURIComponent(friend.plexUserId)}?${sharingUpdateQuery(permissions)}`,
+            config.plexToken,
+            { method: 'PUT' },
+        );
+        if (!plexRes.ok) {
+            const text = await plexRes.text().catch(() => '');
+            log(`Plex permissions update for ${user.username} failed (${plexRes.status}): ${text.slice(0, 300)}`);
+            return res.status(502).json({ error: `Plex rejected the change (HTTP ${plexRes.status}).` });
+        }
+        await appendAuditLog('plex_permissions_updated', req.user, user, { permissions });
+        log(`Plex permissions updated for ${user.username}`);
+        return res.json({ success: true, permissions });
+    } catch (error) {
+        log(`PUT /api/users/:id/plex-permissions failed: ${error.message}`);
+        return res.status(500).json({ error: 'Failed to update Plex permissions.' });
+    }
+});
+
+/** Permissions every new Plex invite gets. null = not set (Plex's own defaults apply). */
+app.get('/api/plex-share-defaults', requireAdmin, async (req, res) => {
+    const config = await loadFile(CONFIG_PATH, {});
+    const stored = config.plexShareDefaults && typeof config.plexShareDefaults === 'object'
+        ? normalizeSharePermissions(config.plexShareDefaults)
+        : null;
+    res.json({ defaults: stored });
+});
+
+app.put('/api/plex-share-defaults', requireAdmin, async (req, res) => {
+    try {
+        const config = await loadFile(CONFIG_PATH, {});
+        const defaults = req.body?.defaults == null ? null : normalizeSharePermissions(req.body.defaults);
+        await saveFile(CONFIG_PATH, { ...config, plexShareDefaults: defaults });
+        await appendAuditLog('plex_share_defaults_updated', req.user, null, { defaults });
+        res.json({ success: true, defaults });
+    } catch (error) {
+        log(`PUT /api/plex-share-defaults failed: ${error.message}`);
+        res.status(500).json({ error: 'Failed to save defaults.' });
     }
 });
 

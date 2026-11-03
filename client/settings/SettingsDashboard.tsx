@@ -89,6 +89,7 @@ import {
 } from '../media-automation/types';
 import { useDiscoverI18n } from '../discovery/i18n';
 import { BetaBadge, PosterSetsBetaBanner } from '../shared/BetaBadge';
+import { PlexShareDefaultsSection } from './PlexSharePermissions';
 
 const SETTINGS_TAB_BETA_NOTICE: Record<string, string> = {
     'poster-sets': 'posterSetsPage.betaNotice',
@@ -2909,6 +2910,12 @@ export const SettingsDashboard: React.FC = () => {
                                     </>
                                 )}
                                 </div>
+
+                                {mediaServerType === 'plex' ? (
+                                    <section className="mb-6 mt-2 rounded-xl border border-border/70 p-4">
+                                        <PlexShareDefaultsSection />
+                                    </section>
+                                ) : null}
 
                                 <section id={getSettingsSectionElementId('home-hero')} className="mb-6 mt-2 scroll-mt-24 rounded-xl border border-border/70 p-4">
                                     <div className="flex flex-col lg:flex-row lg:items-start gap-4">
