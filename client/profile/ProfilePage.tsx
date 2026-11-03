@@ -11,7 +11,7 @@ import { discoverRowCardWidthClass } from '../shared/portalLayout';
 import { ShareWrapUpModal } from '../shared/ShareWrapUp';
 import { pushToast, ToastContainer, type ToastMessage } from '../shared/toast';
 import { WrapUpCardGrid } from '../shared/WrapUpCards';
-import { WrapUpCardsSkeleton } from '../shared/skeletons';
+import { ProfileBodySkeleton, ProfileHeaderSkeleton, WrapUpCardsSkeleton } from '../shared/skeletons';
 import { WrapUpModal } from '../shared/WrapUpModal';
 import { ProfileBadgeRack } from '../achievements/AchievementsDashboard';
 import { BadgeDetailDrawer } from '../achievements/BadgeDetailDrawer';
@@ -521,7 +521,10 @@ export const ProfilePage: React.FC<Props> = ({
                 <div className="pointer-events-none absolute -right-16 top-10 h-48 w-48 rounded-full bg-plex/15 blur-3xl" />
                 <div className="relative z-[1] px-5 sm:px-7 pt-6 pb-5">
                     {loading && (
-                        <p className="text-sm text-muted py-10 text-center">{t('profilePage.loading')}</p>
+                        <>
+                            <span className="sr-only" role="status">{t('profilePage.loading')}</span>
+                            <ProfileHeaderSkeleton />
+                        </>
                     )}
                     {error && !loading && (
                         <p className="text-sm text-red-300 py-10 text-center">{error}</p>
@@ -672,6 +675,8 @@ export const ProfilePage: React.FC<Props> = ({
                     )}
                 </div>
             </div>
+
+            {loading ? <ProfileBodySkeleton /> : null}
 
             {!loading && !error && data && (
                 <>

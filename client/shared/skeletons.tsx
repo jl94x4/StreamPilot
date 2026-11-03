@@ -510,3 +510,167 @@ export const TrendingSectionsSkeleton: React.FC<{ count?: number; sections?: num
         ))}
     </div>
 );
+
+const SKELETON_LINE_WIDTHS = [85, 60, 72, 45, 90, 55, 68, 40];
+
+/** Chat thread: avatar, name + time, one or two lines of message. */
+export const ChatMessagesSkeleton: React.FC<{ count?: number }> = ({ count = 6 }) => (
+    <div className="space-y-4" aria-hidden="true">
+        {Array.from({ length: count }, (_, i) => (
+            <div key={i} className="flex gap-3">
+                <SkeletonBlock className="h-8 w-8 shrink-0 rounded-full" />
+                <div className="min-w-0 flex-1 space-y-2 pt-0.5">
+                    <div className="flex items-center gap-2">
+                        <SkeletonBlock className="h-3 w-24" />
+                        <SkeletonBlock className="h-2.5 w-14" />
+                    </div>
+                    <SkeletonBlock className="h-3" style={{ width: `${SKELETON_LINE_WIDTHS[i % SKELETON_LINE_WIDTHS.length]}%` }} />
+                    {i % 3 === 0 ? <SkeletonBlock className="h-3 w-2/5" /> : null}
+                </div>
+            </div>
+        ))}
+    </div>
+);
+
+/** Chat page frame: channel list beside the thread and composer (matches ChatRoom's layout). */
+export const ChatPageSkeleton: React.FC = () => (
+    <div className="flex min-h-[60vh] flex-1 flex-col overflow-hidden rounded-2xl border border-white/10 bg-black/20 md:min-h-[80vh] lg:min-h-[calc(100dvh-13rem)] lg:flex-row" aria-hidden="true">
+        <aside className="flex w-full shrink-0 flex-col gap-2 border-b border-white/10 p-4 lg:w-64 lg:border-b-0 lg:border-r">
+            <SkeletonBlock className="mb-2 h-3 w-20" />
+            {Array.from({ length: 5 }, (_, i) => (
+                <SkeletonBlock key={i} className="h-8 w-full rounded-lg" />
+            ))}
+        </aside>
+        <div className="flex min-h-0 flex-1 flex-col">
+            <div className="border-b border-white/10 px-4 py-3">
+                <SkeletonBlock className="h-4 w-32" />
+            </div>
+            <div className="flex-1 px-4 py-4">
+                <ChatMessagesSkeleton />
+            </div>
+            <div className="border-t border-white/10 p-3 md:p-4">
+                <SkeletonBlock className="h-11 w-full rounded-xl" />
+            </div>
+        </div>
+    </div>
+);
+
+/** Support inbox list rows: avatar, subject + status pill, meta lines. */
+export const SupportTicketListSkeleton: React.FC<{ count?: number }> = ({ count = 6 }) => (
+    <div className="space-y-1.5" aria-hidden="true">
+        {Array.from({ length: count }, (_, i) => (
+            <div key={i} className="flex items-start gap-3 rounded-xl px-3 py-3">
+                <SkeletonBlock className="h-9 w-9 shrink-0 rounded-full" />
+                <div className="min-w-0 flex-1 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                        <SkeletonBlock className="h-3.5" style={{ width: `${SKELETON_LINE_WIDTHS[(i + 2) % SKELETON_LINE_WIDTHS.length]}%` }} />
+                        <SkeletonBlock className="h-4 w-14 shrink-0 rounded-full" />
+                    </div>
+                    <SkeletonBlock className="h-2.5 w-1/2" />
+                    <SkeletonBlock className="h-2.5 w-3/4" />
+                </div>
+            </div>
+        ))}
+    </div>
+);
+
+/** Badge cards: icon + name + two description lines (Achievements grids). */
+export const BadgeGridSkeleton: React.FC<{ count?: number }> = ({ count = 6 }) => (
+    <>
+        {Array.from({ length: count }, (_, i) => (
+            <div key={i} className="rounded-xl border border-white/10 p-3" aria-hidden="true">
+                <div className="flex items-start gap-2.5">
+                    <SkeletonBlock className="h-7 w-7 shrink-0 rounded-lg" />
+                    <div className="min-w-0 flex-1 space-y-2">
+                        <SkeletonBlock className="h-3.5 w-2/3" />
+                        <SkeletonBlock className="h-2.5 w-full" />
+                        <SkeletonBlock className="h-2.5 w-3/5" />
+                    </div>
+                </div>
+            </div>
+        ))}
+    </>
+);
+
+/** Leaderboard rows: rank, avatar, name, XP. */
+export const LeaderboardRowsSkeleton: React.FC<{ count?: number }> = ({ count = 5 }) => (
+    <div className="space-y-2" aria-hidden="true">
+        {Array.from({ length: count }, (_, i) => (
+            <div key={i} className="flex items-center gap-3 rounded-xl border border-white/5 px-3 py-2.5">
+                <SkeletonBlock className="h-4 w-6" />
+                <SkeletonBlock className="h-8 w-8 shrink-0 rounded-full" />
+                <SkeletonBlock className="h-3.5 flex-1" style={{ maxWidth: `${SKELETON_LINE_WIDTHS[i % SKELETON_LINE_WIDTHS.length] / 2}%` }} />
+                <SkeletonBlock className="ml-auto h-3.5 w-16" />
+            </div>
+        ))}
+    </div>
+);
+
+/** Achievements page: title + actions, level card, badge grid. */
+export const AchievementsPageSkeleton: React.FC = () => (
+    <div className="w-full space-y-6 pb-8" aria-hidden="true">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div className="space-y-2">
+                <SkeletonBlock className="h-2.5 w-24" />
+                <SkeletonBlock className="h-8 w-56" />
+                <SkeletonBlock className="h-3.5 w-64 max-w-full" />
+            </div>
+            <div className="flex flex-wrap gap-2">
+                <SkeletonBlock className="h-10 w-28 rounded-xl" />
+                <SkeletonBlock className="h-10 w-24 rounded-xl" />
+                <SkeletonBlock className="h-10 w-32 rounded-xl" />
+            </div>
+        </div>
+        <div className="glass-card space-y-3 p-5">
+            <div className="flex items-center justify-between gap-3">
+                <div className="space-y-2">
+                    <SkeletonBlock className="h-3 w-20" />
+                    <SkeletonBlock className="h-7 w-36" />
+                </div>
+                <SkeletonBlock className="h-10 w-10 rounded-full" />
+            </div>
+            <SkeletonBlock className="h-2.5 w-full rounded-full" />
+            <SkeletonBlock className="h-2.5 w-40" />
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <BadgeGridSkeleton count={6} />
+        </div>
+    </div>
+);
+
+/** Profile header: avatar, eyebrow, name, subtitle, chips and XP bar. */
+export const ProfileHeaderSkeleton: React.FC = () => (
+    <div className="flex items-start gap-4" aria-hidden="true">
+        <SkeletonBlock className="h-24 w-24 shrink-0 rounded-full sm:h-28 sm:w-28" />
+        <div className="min-w-0 flex-1 space-y-2.5 pt-1">
+            <SkeletonBlock className="h-2.5 w-24" />
+            <SkeletonBlock className="h-8 w-56 max-w-full" />
+            <SkeletonBlock className="h-3.5 w-72 max-w-full" />
+            <div className="flex flex-wrap gap-2 pt-1">
+                <SkeletonBlock className="h-6 w-16 rounded-lg" />
+                <SkeletonBlock className="h-6 w-20 rounded-lg" />
+                <SkeletonBlock className="h-6 w-14 rounded-lg" />
+            </div>
+            <SkeletonBlock className="mt-2 h-2 w-full max-w-md rounded-full" />
+        </div>
+    </div>
+);
+
+/** Profile body below the header: two panels of stat tiles. */
+export const ProfileBodySkeleton: React.FC = () => (
+    <div className="space-y-4" aria-hidden="true">
+        {[0, 1].map((panel) => (
+            <div key={panel} className="rounded-2xl border border-white/10 bg-[rgb(var(--color-card))] p-5">
+                <SkeletonBlock className="mb-4 h-4 w-40" />
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    {Array.from({ length: 4 }, (_, i) => (
+                        <div key={i} className="space-y-2 rounded-xl border border-white/5 p-3">
+                            <SkeletonBlock className="h-2.5 w-16" />
+                            <SkeletonBlock className="h-6 w-12" />
+                        </div>
+                    ))}
+                </div>
+            </div>
+        ))}
+    </div>
+);

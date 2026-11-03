@@ -7,6 +7,7 @@ import {
     CheckCircle2, Tv, type LucideIcon,
 } from 'lucide-react';
 import { apiFetch, apiFetchShared } from '../shared/api';
+import { AchievementsPageSkeleton, BadgeGridSkeleton, LeaderboardRowsSkeleton } from '../shared/skeletons';
 import { logoUrl, portalUrl, resolvePortalAssetUrl } from '../shared/basePath';
 import { ModalPortal } from '../shared/ModalPortal';
 import { ToastContainer, pushToast, type ToastMessage } from '../shared/toast';
@@ -872,9 +873,10 @@ export const AchievementsDashboard: React.FC<{
 
     if (loading) {
         return (
-            <div className="w-full py-10 text-center text-muted text-sm">
-                {tAchievements('page.loading')}
-            </div>
+            <>
+                <span className="sr-only" role="status">{tAchievements('page.loading')}</span>
+                <AchievementsPageSkeleton />
+            </>
         );
     }
 
@@ -1077,7 +1079,7 @@ export const AchievementsDashboard: React.FC<{
                         </button>
                     </div>
                     {!board ? (
-                        <p className="text-sm text-muted">{tAchievements('page.loading')}</p>
+                        <LeaderboardRowsSkeleton />
                     ) : !board.length ? (
                         <p className="text-sm text-muted">{tAchievements('page.noRankings')}</p>
                     ) : (
@@ -1330,7 +1332,7 @@ export const AchievementsDashboard: React.FC<{
             {expandLadders ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                     {!catalogReady ? (
-                        <p className="text-sm text-muted col-span-full">{tAchievements('page.loadingCatalog')}</p>
+                        <BadgeGridSkeleton count={6} />
                     ) : badges.map((badge: any) => (
                         <BadgeTile
                             key={badge.id}
@@ -1342,7 +1344,7 @@ export const AchievementsDashboard: React.FC<{
             ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                     {!catalogReady ? (
-                        <p className="text-sm text-muted col-span-full">{tAchievements('page.loadingCatalog')}</p>
+                        <BadgeGridSkeleton count={6} />
                     ) : families.map((family) => (
                         <LadderFamilyCard
                             key={family.key}
