@@ -121,6 +121,14 @@ import {
 import { startOverlaysScheduler, startOverlaysBundleScheduler, runOverlaysScheduledJob } from './lib/overlays/scheduler.js';
 import { decidePlexHeavyJob } from './lib/plexHeavyJobGate.js';
 import { createSessionRevocationStore } from './lib/sessionRevocation.js';
+import {
+    evaluateExtensionEligibility,
+    extendExpiryDate,
+    normalizeExtensionSettings,
+    pruneExtensionRequests,
+    sortExtensionRequests,
+} from './lib/extensionRequests.js';
+import { isOpsNotifyRecipient } from './lib/notifications/opsNotify.js';
 import { buildMemberCalendarEvents, renderIcs } from './lib/memberCalendar.js';
 import {
     normalizeSharePermissions,
@@ -2297,6 +2305,7 @@ const isExpiredPortalAllowedApiPath = (rawPath = '') => {
         '/api/me/onboarding',
         '/api/me/referral-stats',
         '/api/me/help-page',
+        '/api/me/extension',
     ];
     return prefixes.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
 };
@@ -11365,6 +11374,237 @@ app.get('/api/me/help-page', requireAuth, requireMember, async (req, res) => {
     const config = await loadFile(CONFIG_PATH, {});
     const page = normalizeHelpPage(config.helpPage);
     res.json(page.enabled ? page : { enabled: false, title: '', body: '' });
+});
+
+// ── Extension requests ──────────────────────────────────────────────────────────
+// Near (or after) their expiry a member asks for more time; admins approve or decline in one
+// click from Users, and approval extends the expiry (re-inviting to Plex when access was revoked).
+const EXTENSION_REQUESTS_PATH = path.join(CONFIG_DIR, 'extension-requests.json');
+
+const publicExtensionRequest = (row) => (row ? {
+    id: row.id,
+    userId: row.userId,
+    username: row.username,
+    months: row.months,
+    note: row.note || '',
+    status: row.status,
+    createdAt: row.createdAt,
+    decidedAt: row.decidedAt || null,
+    decidedMonths: row.decidedMonths || null,
+    adminNote: row.adminNote || '',
+    previousExpiryDate: row.previousExpiryDate || null,
+    newExpiryDate: row.newExpiryDate || null,
+} : null);
+
+const notifyAdminsOfExtensionRequest = async (config, request) => {
+    try {
+        const users = await loadFile(USERS_PATH, []);
+        const admins = users.filter((user) => isOpsNotifyRecipient(user, config));
+        const months = request.months === 1 ? '1 month' : `${request.months} months`;
+        for (const admin of admins) {
+            await createInAppNotification({
+                userId: admin.id,
+                type: 'extension_request',
+                title: `${request.username} asked for ${months} more`,
+                body: request.note || 'Approve or decline it from Users.',
+                href: '/users',
+                meta: { extensionRequestId: request.id, dedupe: false },
+            });
+        }
+    } catch (error) {
+        log(`Extension request admin notify failed: ${error.message}`);
+    }
+};
+
+app.get('/api/me/extension', requireAuth, requireMember, async (req, res) => {
+    try {
+        const config = await loadFile(CONFIG_PATH, {});
+        const settings = normalizeExtensionSettings(config.extensionRequests);
+        if (!settings.enabled || req.user?.isAdmin) return res.json({ enabled: false });
+        const users = await loadFile(USERS_PATH, []);
+        const me = findLocalUserForSession(users, req.user);
+        if (!me) return res.json({ enabled: false });
+        const requests = await loadFile(EXTENSION_REQUESTS_PATH, []);
+        const verdict = evaluateExtensionEligibility({ user: me, settings, requests });
+        const mine = requests.filter((row) => String(row.userId) === String(me.id));
+        const { pending, decided } = sortExtensionRequests(mine);
+        res.json({
+            enabled: true,
+            eligible: verdict.ok,
+            reason: verdict.reason || null,
+            daysLeft: verdict.daysLeft,
+            expiryDate: me.expiryDate || null,
+            monthOptions: settings.monthOptions,
+            pending: publicExtensionRequest(pending[0]),
+            latest: publicExtensionRequest(decided[0]),
+        });
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to load extension status' });
+    }
+});
+
+app.post('/api/me/extension', requireAuth, requireMember, async (req, res) => {
+    if (blockIfImpersonating(req, res)) return;
+    try {
+        const config = await loadFile(CONFIG_PATH, {});
+        const settings = normalizeExtensionSettings(config.extensionRequests);
+        const users = await loadFile(USERS_PATH, []);
+        const me = findLocalUserForSession(users, req.user);
+        if (!me || req.user?.isAdmin) return res.status(403).json({ error: 'Only members can ask for more time.' });
+        const months = Math.round(Number(req.body?.months));
+        if (!settings.monthOptions.includes(months)) return res.status(400).json({ error: 'Pick one of the offered lengths.' });
+        const note = String(req.body?.note || '').trim().slice(0, 500);
+        const created = await updateFile(EXTENSION_REQUESTS_PATH, [], (requests) => {
+            const verdict = evaluateExtensionEligibility({ user: me, settings, requests });
+            if (!verdict.ok) return { data: requests, result: { error: verdict.reason } };
+            const request = {
+                id: randomUUID(),
+                userId: String(me.id),
+                username: me.username || me.email || 'A member',
+                months,
+                note,
+                status: 'pending',
+                createdAt: new Date().toISOString(),
+                previousExpiryDate: me.expiryDate || null,
+            };
+            return { data: pruneExtensionRequests([...requests, request]), result: { request } };
+        });
+        if (created?.error) {
+            const messages = {
+                disabled: 'Extension requests are turned off.',
+                unlimited: 'Your access does not expire.',
+                too_early: 'You can ask for more time closer to your expiry date.',
+                pending: 'You already have a request waiting.',
+                cooldown: 'Your last request was declined recently. Try again tomorrow or contact the admin.',
+            };
+            return res.status(409).json({ error: messages[created.error] || 'You cannot ask for more time right now.', reason: created.error });
+        }
+        await appendAuditLog('extension_requested', req.user, me, { months, note: note || null });
+        await notifyAdminsOfExtensionRequest(config, created.request);
+        res.json({ request: publicExtensionRequest(created.request) });
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to send your request' });
+    }
+});
+
+app.delete('/api/me/extension', requireAuth, requireMember, async (req, res) => {
+    if (blockIfImpersonating(req, res)) return;
+    try {
+        const users = await loadFile(USERS_PATH, []);
+        const me = findLocalUserForSession(users, req.user);
+        if (!me) return res.status(404).json({ error: 'No member account found.' });
+        await updateFile(EXTENSION_REQUESTS_PATH, [], (requests) => requests.filter((row) => !(String(row.userId) === String(me.id) && row.status === 'pending')));
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to cancel your request' });
+    }
+});
+
+app.get('/api/extension-requests', requireAdmin, async (req, res) => {
+    try {
+        const config = await loadFile(CONFIG_PATH, {});
+        const requests = await loadFile(EXTENSION_REQUESTS_PATH, []);
+        const users = await loadFile(USERS_PATH, []);
+        const byId = new Map(users.map((user) => [String(user.id), user]));
+        const { pending, decided } = sortExtensionRequests(requests);
+        const withUser = (row) => {
+            const user = byId.get(String(row.userId));
+            return { ...publicExtensionRequest(row), currentExpiryDate: user?.expiryDate || null, thumb: user?.thumb || null, userExists: !!user };
+        };
+        res.json({
+            settings: normalizeExtensionSettings(config.extensionRequests),
+            pending: pending.map(withUser),
+            recent: decided.slice(0, 10).map(withUser),
+        });
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to load extension requests' });
+    }
+});
+
+app.put('/api/extension-requests/settings', requireAdmin, async (req, res) => {
+    try {
+        const config = await loadFile(CONFIG_PATH, {});
+        const extensionRequests = normalizeExtensionSettings(req.body);
+        await saveFile(CONFIG_PATH, { ...config, extensionRequests });
+        await appendAuditLog('extension_settings_updated', req.user, null, extensionRequests);
+        res.json(extensionRequests);
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to save extension settings' });
+    }
+});
+
+app.post('/api/extension-requests/:id/:decision', requireAdmin, async (req, res) => {
+    if (!['approve', 'decline'].includes(req.params.decision)) return res.status(404).json({ error: 'Unknown decision.' });
+    try {
+        const approve = req.params.decision === 'approve';
+        const config = await loadFile(CONFIG_PATH, {});
+        const adminNote = String(req.body?.note || '').trim().slice(0, 500);
+        const requests = await loadFile(EXTENSION_REQUESTS_PATH, []);
+        const request = requests.find((row) => row.id === req.params.id);
+        if (!request) return res.status(404).json({ error: 'Request not found.' });
+        if (request.status !== 'pending') return res.status(409).json({ error: 'This request was already handled.' });
+        const months = approve ? Math.max(1, Math.min(36, Math.round(Number(req.body?.months) || request.months))) : null;
+
+        let updatedUser = null;
+        let wasRevoked = false;
+        if (approve) {
+            updatedUser = await patchUserById(request.userId, (user) => {
+                wasRevoked = user.plexAccessStatus === 'revoked';
+                user.expiryDate = extendExpiryDate(user.expiryDate, months);
+                reconcileTrialAccessFlag(user);
+            });
+            if (!updatedUser) return res.status(404).json({ error: 'That member no longer exists.' });
+        }
+
+        const decided = await updateFile(EXTENSION_REQUESTS_PATH, [], (rows) => {
+            const row = rows.find((entry) => entry.id === req.params.id);
+            if (!row || row.status !== 'pending') return { data: rows, result: null };
+            row.status = approve ? 'approved' : 'declined';
+            row.decidedAt = new Date().toISOString();
+            row.decidedBy = req.user?.username || 'admin';
+            row.adminNote = adminNote;
+            if (approve) {
+                row.decidedMonths = months;
+                row.newExpiryDate = updatedUser.expiryDate;
+            }
+            return { data: rows, result: { ...row } };
+        });
+        if (!decided) return res.status(409).json({ error: 'This request was already handled.' });
+
+        const users = await loadFile(USERS_PATH, []);
+        const member = updatedUser || users.find((user) => String(user.id) === String(request.userId)) || { id: request.userId, username: request.username };
+        await appendAuditLog(approve ? 'extension_approved' : 'extension_declined', req.user, member, { months, adminNote: adminNote || null });
+
+        if (approve) {
+            const logoPath = path.join(process.cwd(), 'static', 'logo.png');
+            let hasLogo = false;
+            try { await fs.access(logoPath); hasLogo = true; } catch { /* no logo */ }
+            await sendAdjustmentEmail(config, updatedUser, hasLogo).catch(() => false);
+            if (wasRevoked) {
+                const inviteLibs = resolveInviteLibraryIds(updatedUser, config);
+                const invited = await inviteUserToPlex(updatedUser, config, inviteLibs.length > 0 ? inviteLibs : null).catch(() => false);
+                if (invited) {
+                    const patched = await patchUserById(updatedUser.id, (entry) => { entry.plexAccessStatus = 'pending'; });
+                    if (patched) await appendAuditLog('relink_invite_sent', req.user, patched);
+                }
+            }
+        }
+
+        const newDate = approve ? new Date(updatedUser.expiryDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
+        await createInAppNotification({
+            userId: request.userId,
+            type: 'extension_decision',
+            title: approve ? `More time approved: your access now runs to ${newDate}` : 'Your request for more time was declined',
+            body: adminNote || (approve ? 'Thanks for sticking around.' : 'Contact the admin if you have questions.'),
+            href: '/portal',
+            meta: { extensionRequestId: request.id, dedupe: false },
+        }).catch(() => null);
+
+        res.json({ request: publicExtensionRequest(decided) });
+    } catch (e) {
+        log(`Extension decision failed: ${e.message}`);
+        res.status(500).json({ error: 'Failed to save the decision' });
+    }
 });
 
 app.get('/api/onboarding', requireAdmin, async (req, res) => {

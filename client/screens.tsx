@@ -12,6 +12,7 @@ import {
 } from './dashboard/dashboardTitlePath';
 import { EmailSelectedUsersModal } from './settings/EmailSelectedUsersModal';
 import { PlexUserPermissions } from './settings/PlexSharePermissions';
+import { ExtensionRequestsAdmin } from './extension/ExtensionRequestsAdmin';
 import { LibraryMaintenancePanel } from './maintenance/LibraryMaintenancePanel';
 import { appConfirm, askConfirm } from './shared/confirm';
 import { apiFetch, apiFetchShared } from './shared/api';
@@ -6198,6 +6199,7 @@ export const AdminDashboard: React.FC<{ onLogout: () => void, onViewUserPortal: 
             />
 
             <main>
+                {isConfigured && <ExtensionRequestsAdmin addToast={addToast} onChanged={fetchUsers} />}
                 {isConfigured && (
                     <section className="mb-6">
                         <div className={`${statsCollapsed ? '' : 'mb-3'} flex items-center justify-between gap-3`}>
