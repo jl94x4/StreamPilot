@@ -2277,6 +2277,7 @@ const isExpiredPortalAllowedApiPath = (rawPath = '') => {
         '/api/auth/logout',
         '/api/me/onboarding',
         '/api/me/referral-stats',
+        '/api/me/help-page',
     ];
     return prefixes.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
 };
@@ -5352,12 +5353,6 @@ app.get('/api/auth/session', publicReadRateLimit, async (req, res) => {
     } catch {
         return res.json({ authenticated: false, reason: 'invalid_token' });
     }
-});
-
-app.post('/api/auth/session/token', requireAuth, (req, res) => {
-    const token = readSessionToken(req);
-    if (!token) return res.status(401).json({ error: 'Unauthorized' });
-    return res.json({ sessionToken: token });
 });
 
 app.post('/api/auth/plex/callback', authCallbackRateLimit, async (req, res) => {
@@ -11225,7 +11220,7 @@ const ensureMemberCalendarToken = async (req, { reset = false } = {}) => {
     return me.calendarToken;
 };
 
-app.get('/api/me/calendar', requireAuth, async (req, res) => {
+app.get('/api/me/calendar', requireAuth, requireMember, async (req, res) => {
     try {
         const config = await loadFile(CONFIG_PATH, {});
         const token = await ensureMemberCalendarToken(req);
@@ -11236,7 +11231,7 @@ app.get('/api/me/calendar', requireAuth, async (req, res) => {
     }
 });
 
-app.post('/api/me/calendar/reset', requireAuth, async (req, res) => {
+app.post('/api/me/calendar/reset', requireAuth, requireMember, async (req, res) => {
     try {
         const config = await loadFile(CONFIG_PATH, {});
         const token = await ensureMemberCalendarToken(req, { reset: true });
@@ -11291,7 +11286,7 @@ app.put('/api/help-page', requireAdmin, async (req, res) => {
     }
 });
 
-app.get('/api/me/help-page', requireAuth, async (req, res) => {
+app.get('/api/me/help-page', requireAuth, requireMember, async (req, res) => {
     const config = await loadFile(CONFIG_PATH, {});
     const page = normalizeHelpPage(config.helpPage);
     res.json(page.enabled ? page : { enabled: false, title: '', body: '' });
