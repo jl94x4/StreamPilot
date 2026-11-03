@@ -11,7 +11,7 @@ import type { PosterSetsSearchResult, PosterSetsSearchSet, PosterSetsSearchTitle
 export type FetchPosterSetsOptions = {
     dupePreference: 'mediux' | 'posterdb';
     mediaType?: 'show' | 'movie' | null;
-    libraryItem?: Pick<LibraryRecentItem, 'title' | 'year' | 'mediaType'>;
+    libraryItem?: Pick<LibraryRecentItem, 'title' | 'year' | 'mediaType' | 'tvdbId'>;
     /** Followed creators — title search floats these sets first. */
     preferredCreators?: string[] | null;
     /** Blocked creators — hidden and never image-cached. */
@@ -377,8 +377,8 @@ async function fetchBothSetsProgressive(
             if ((posterdbResult.sets?.length || 0) >= (late.sets?.length || 0)
                 && posterdbResult.fromCache === Boolean(late.fromCache)) {
                 // Already painted an equal-or-better result.
-                const alreadyHas = new Set((posterdbResult.sets || []).map((s) => s.id || s.url));
-                const addsNew = (late.sets || []).some((s) => !alreadyHas.has(s.id || s.url));
+                const alreadyHas = new Set((posterdbResult.sets || []).map((s) => s.setId || s.url));
+                const addsNew = (late.sets || []).some((s) => !alreadyHas.has(s.setId || s.url));
                 if (!addsNew) return;
             }
             posterdbResult = {
@@ -602,7 +602,7 @@ async function fetchPosterdbSets(
 }
 
 async function fetchMediuxSetsViaTmdbLookup(
-    libraryItem: Pick<LibraryRecentItem, 'title' | 'year' | 'mediaType'>,
+    libraryItem: Pick<LibraryRecentItem, 'title' | 'year' | 'mediaType' | 'tvdbId'>,
     fallbackMedia: 'show' | 'movie',
     tpdbConfigured?: boolean,
 ): Promise<PosterSetsSearchResult | null> {

@@ -1,14 +1,18 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     ChevronRight,
+    CircleAlert,
     Clapperboard,
     Bookmark,
+    History,
+    Download,
     Home,
     Image as ImageIcon,
     ListMusic,
     LogOut,
     Menu,
     Music,
+    Radio,
     Search,
     Settings,
     TvMinimal,
@@ -26,13 +30,13 @@ import {
     type PlexHomeProfile,
 } from './host';
 import { fetchMediaPlayerMe } from './api';
-import { applyLibraryNavOrder, PLAYER_SETTINGS_DRAFT_EVENT, PLAYER_SETTINGS_EVENT } from './playerSettings';
+import { applyLibraryNavOrder, PLAYER_SETTINGS_DRAFT_EVENT, PLAYER_SETTINGS_EVENT, readPlayerSettings, type PlayerNavItem, type PlayerSettings } from './playerSettings';
 import { clearHeroSlidesCache, clearPlayerLibrariesCache, invalidatePlayerHomeCache } from './playerMemory';
 import { PLAYER_TV_NAV_EVENT } from './paths';
 import type { PlayerProfile, PlayerSection } from './types';
-import { focusTvContent } from '../plex-client/useTvRemote';
+import { focusTvContent, hasRememberedTvFocus, restoreTvFocusWhenReady } from '../plex-client/useTvRemote';
 
-type NavPage = 'home' | 'watchlist' | 'playlists' | 'library' | 'settings' | 'other';
+type NavPage = 'home' | 'watchlist' | 'history' | 'livetv' | 'downloads' | 'playlists' | 'library' | 'settings' | 'other';
 
 type Props = {
     libraries: PlayerSection[];
@@ -43,12 +47,22 @@ type Props = {
     onToggleExpanded: () => void;
     onHome: () => void;
     onWatchlist: () => void;
+    /** History page; omitted when hidden in Settings. */
+    onHistory?: () => void;
+    onLiveTv?: () => void;
+    onDownloads?: () => void;
     onSearch: () => void;
     onOpenLibrary: (section: PlayerSection) => void;
     onOpenPlaylists?: () => void;
     onOpenSettings: () => void;
     playlistsEnabled?: boolean;
     offline?: boolean;
+    /** Server ids currently unreachable — orange ! on matching library rows. */
+    offlineServerIds?: string[];
+    /** TV: open the menu as icons only (Settings → Side menu). */
+    iconsOnly?: boolean;
+    /** TV: keep the dark panel behind the closed menu (Settings → Closed side menu). */
+    closedPanel?: boolean;
 };
 
 /** Fixed slot so every row’s glyph shares one vertical column (Lucide viewBoxes differ). */
@@ -97,7 +111,8 @@ const navButtonClass = (active: boolean, expanded: boolean, tv = false) => (
     } ${
         active && expanded && !tv
             ? 'bg-white text-zinc-900 shadow-lg shadow-black/25'
-            : 'text-white/80 hover:bg-white/10 hover:text-white'
+            // TV: no hover fill — Android WebView sticks :hover on library rows after D-pad.
+            : (tv ? 'text-white/80' : 'text-white/80 hover:bg-white/10 hover:text-white')
     }`
 );
 
@@ -117,17 +132,26 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
     onToggleExpanded,
     onHome,
     onWatchlist,
+    onHistory,
+    onLiveTv,
+    onDownloads,
     onSearch,
     onOpenLibrary,
     onOpenPlaylists,
     onOpenSettings,
     playlistsEnabled = true,
     offline = false,
+    offlineServerIds = [],
+    iconsOnly = false,
+    closedPanel = false,
 }: Props) {
     const { t } = useDiscoverI18n();
     const [mobileOpen, setMobileOpen] = useState(false);
     const [profile, setProfile] = useState<PlayerProfile | null>(null);
     const [draftLibraryOrder, setDraftLibraryOrder] = useState<string[] | null>(null);
+    // Settings → Sidebar items. Follows the unsaved draft too, so a toggle shows straight away.
+    const [hiddenNavItems, setHiddenNavItems] = useState<PlayerNavItem[]>(() => readPlayerSettings().hiddenNavItems);
+    const navShown = (item: PlayerNavItem) => !hiddenNavItems.includes(item);
     const [homeSwitchOpen, setHomeSwitchOpen] = useState(false);
     const [homeSwitchUsers, setHomeSwitchUsers] = useState<PlexHomeProfile[]>([]);
     const [homeSwitchCurrentId, setHomeSwitchCurrentId] = useState<string | null>(null);
@@ -137,6 +161,18 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
     const [homeSwitchError, setHomeSwitchError] = useState('');
     const isPlexClient = typeof window !== 'undefined' && Boolean(window.__PLEX_CLIENT__);
     const orderedLibraries = applyLibraryNavOrder(libraries, draftLibraryOrder || libraryOrder);
+    const offlineServerSet = useMemo(
+        () => new Set((offlineServerIds || []).map((id) => String(id || '').trim()).filter(Boolean)),
+        [offlineServerIds],
+    );
+    const libraryServerOffline = useCallback((section: PlayerSection) => {
+        if (offline) return true;
+        const fromKey = String(section.key || '').includes('::')
+            ? String(section.key).split('::')[0]
+            : '';
+        const serverId = String(section.serverId || fromKey || '').trim();
+        return serverId ? offlineServerSet.has(serverId) : false;
+    }, [offline, offlineServerSet]);
     const isTvShell = typeof document !== 'undefined' && (
         document.documentElement?.dataset?.tv === '1'
         || window.__PLEX_CLIENT__?.isTv === true
@@ -205,6 +241,20 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
     }, []);
 
     useEffect(() => {
+        const onDraft = (event: Event) => {
+            const detail = (event as CustomEvent<Partial<PlayerSettings>>).detail;
+            if (Array.isArray(detail?.hiddenNavItems)) setHiddenNavItems(detail.hiddenNavItems);
+        };
+        const onSaved = () => setHiddenNavItems(readPlayerSettings().hiddenNavItems);
+        window.addEventListener(PLAYER_SETTINGS_DRAFT_EVENT, onDraft);
+        window.addEventListener(PLAYER_SETTINGS_EVENT, onSaved);
+        return () => {
+            window.removeEventListener(PLAYER_SETTINGS_DRAFT_EVENT, onDraft);
+            window.removeEventListener(PLAYER_SETTINGS_EVENT, onSaved);
+        };
+    }, []);
+
+    useEffect(() => {
         setDraftLibraryOrder(null);
     }, [libraryOrder]);
 
@@ -233,8 +283,12 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                 /* ignore */
             }
             window.dispatchEvent(new CustomEvent(PLAYER_TV_NAV_EVENT, { detail: { action: 'close' } }));
-            // Next frame is enough — long timeouts make nav exits feel laggy on TV.
-            window.requestAnimationFrame(() => focusTvContent());
+            // Home reset remembers Continue Watching before this frame; wait for that
+            // poster instead of falling through to the hero while row 0 remounts.
+            window.requestAnimationFrame(() => {
+                if (hasRememberedTvFocus()) restoreTvFocusWhenReady();
+                else focusTvContent();
+            });
         }
     };
 
@@ -278,7 +332,8 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
         }
     };
 
-    const renderNav = (showLabels: boolean, desktop = false) => {
+    // showAll: every entry (libraries, sign out). Icons-only TV menus show all without labels.
+    const renderNav = (showLabels: boolean, desktop = false, showAll = showLabels) => {
         // Collapsed: Home / Search / Settings / avatar only. Libraries + logout appear when expanded.
         const compact = !showLabels;
         return (
@@ -323,7 +378,7 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                     <NavIcon><Home className={NAV_ICON_CLASS} /></NavIcon>
                     {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.navHome')}</span> : null}
                 </button>
-                <button
+                {navShown('watchlist') ? <button
                     type="button"
                     {...tvNavProps(isTvShell, expanded, page === 'watchlist')}
                     className={navButtonClass(page === 'watchlist', showLabels, isTvShell)}
@@ -332,8 +387,43 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                 >
                     <NavIcon><Bookmark className={NAV_ICON_CLASS} /></NavIcon>
                     {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.navWatchlist')}</span> : null}
-                </button>
-                <button
+                </button> : null}
+                {onHistory && navShown('history') ? (
+                    <button
+                        type="button"
+                        {...tvNavProps(isTvShell, expanded, page === 'history')}
+                        className={navButtonClass(page === 'history', showLabels, isTvShell)}
+                        onClick={() => go(onHistory)}
+                        title={t('mediaPlayerPage.navHistory')}
+                    >
+                        <NavIcon><History className={NAV_ICON_CLASS} /></NavIcon>
+                        {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.navHistory')}</span> : null}
+                    </button>
+                ) : null}
+                {onLiveTv && navShown('livetv') ? (
+                    <button
+                        type="button"
+                        {...tvNavProps(isTvShell, expanded, page === 'livetv')}
+                        className={navButtonClass(page === 'livetv', showLabels, isTvShell)}
+                        onClick={() => go(onLiveTv)}
+                        title={t('mediaPlayerPage.navLiveTv')}
+                    >
+                        <NavIcon><Radio className={NAV_ICON_CLASS} /></NavIcon>
+                        {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.navLiveTv')}</span> : null}
+                    </button>
+                ) : null}
+                {onDownloads && !isTvShell && navShown('downloads') ? (
+                    <button
+                        type="button"
+                        className={navButtonClass(page === 'downloads', showLabels, isTvShell)}
+                        onClick={() => go(onDownloads)}
+                        title={t('mediaPlayerPage.navDownloads')}
+                    >
+                        <NavIcon><Download className={NAV_ICON_CLASS} /></NavIcon>
+                        {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.navDownloads')}</span> : null}
+                    </button>
+                ) : null}
+                {navShown('search') ? <button
                     type="button"
                     {...tvNavProps(isTvShell, expanded, false)}
                     className={navButtonClass(false, showLabels, isTvShell)}
@@ -342,15 +432,16 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                 >
                     <NavIcon><Search className={NAV_ICON_CLASS} /></NavIcon>
                     {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.navSearch')}</span> : null}
-                </button>
+                </button> : null}
             </div>
 
-            {showLabels && (orderedLibraries.length || (playlistsEnabled && onOpenPlaylists)) ? (
+            {showAll && (orderedLibraries.length || (playlistsEnabled && onOpenPlaylists)) ? (
                 <div
                     data-tv-nav-libraries="1"
-                    className="flex min-h-0 flex-1 flex-col gap-1"
+                    className={`flex min-h-0 flex-1 flex-col gap-1 ${showLabels ? '' : 'items-center'}`}
                 >
-                    {orderedLibraries.length ? (
+                    {!showLabels ? <div className="my-1 h-px w-5 bg-white/15" /> : null}
+                    {showLabels && orderedLibraries.length ? (
                         <div className="flex shrink-0 items-center gap-2 px-3 pb-1 pt-1">
                             <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/40">
                                 {t('mediaPlayerPage.navLibraries')}
@@ -360,11 +451,15 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                     ) : null}
                     <div
                         data-tv-nav-libraries-scroll="1"
-                        className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto hide-scrollbar py-0.5"
+                        className={`flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto hide-scrollbar py-0.5 ${showLabels ? '' : 'items-center'}`}
                     >
                         {orderedLibraries.map((section) => {
                             const Icon = libraryIcon(section.type);
                             const active = page === 'library' && String(activeLibraryKey) === String(section.key);
+                            const serverOffline = libraryServerOffline(section);
+                            const label = serverOffline
+                                ? `${section.title} — ${t('mediaPlayerPage.libraryServerOffline')}`
+                                : section.title;
                             return (
                                 <button
                                     key={section.key}
@@ -372,10 +467,17 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                                     {...tvNavProps(isTvShell, expanded, active)}
                                     className={navButtonClass(active, showLabels, isTvShell)}
                                     onClick={() => go(() => onOpenLibrary(section))}
-                                    title={section.title}
+                                    title={label}
+                                    aria-label={label}
                                 >
                                     <NavIcon><Icon className={NAV_ICON_CLASS} /></NavIcon>
-                                    <span className="player-nav-label min-w-0 truncate">{section.title}</span>
+                                    {showLabels ? <span className="player-nav-label min-w-0 flex-1 truncate">{section.title}</span> : null}
+                                    {serverOffline && showLabels ? (
+                                        <CircleAlert
+                                            className="h-4 w-4 shrink-0 text-amber-400"
+                                            aria-hidden
+                                        />
+                                    ) : null}
                                 </button>
                             );
                         })}
@@ -388,7 +490,7 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                                 title={t('mediaPlayerPage.playlists')}
                             >
                                 <NavIcon><ListMusic className={NAV_ICON_CLASS} /></NavIcon>
-                                <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.playlists')}</span>
+                                {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.playlists')}</span> : null}
                             </button>
                         ) : null}
                     </div>
@@ -409,7 +511,7 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                     <NavIcon><Settings className={NAV_ICON_CLASS} /></NavIcon>
                     {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.navSettings')}</span> : null}
                 </button>
-                {showLabels && isPlexClient ? (
+                {showAll && isPlexClient ? (
                     <button
                         type="button"
                         {...tvNavProps(isTvShell, expanded, false)}
@@ -418,7 +520,7 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                         title={t('mediaPlayerPage.logOut')}
                     >
                         <NavIcon><LogOut className={NAV_ICON_CLASS} /></NavIcon>
-                        <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.logOut')}</span>
+                        {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.logOut')}</span> : null}
                     </button>
                 ) : null}
                 {showLabels && !isTvShell && !isPlexClient ? (
@@ -485,17 +587,19 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
             >
                 <div
                     data-tv-nav-root="1"
-                    className={`pointer-events-auto flex max-h-[calc(100%-3rem)] flex-col rounded-[28px] bg-[#0b1018]/80 backdrop-blur-2xl transition-[width] duration-200 ${
-                        isTvShell ? 'border-0 shadow-none' : 'border border-white shadow-[0_18px_50px_rgba(0,0,0,0.45)]'
+                    // TV: closed, the icons sit straight on the page unless Closed side menu is set to
+                    // the dark panel; opening the menu always brings the panel. Elsewhere it is always there.
+                    className={`pointer-events-auto flex max-h-[calc(100%-3rem)] flex-col rounded-[28px] ${
+                        !isTvShell || expanded || closedPanel ? 'bg-[#0b1018]/80 backdrop-blur-2xl' : 'bg-transparent'
+                    } ${
+                        isTvShell ? 'border-0 shadow-none' : 'border border-white shadow-[0_18px_50px_rgba(0,0,0,0.45)] transition-[width] duration-200'
                     } ${
                         isTvShell ? 'overflow-x-visible overflow-y-auto' : 'overflow-hidden'
                     } ${
-                        expanded
-                            ? `w-[16.25rem] ${isTvShell ? 'h-[calc(100%-3rem)]' : ''}`
-                            : 'w-[4.25rem]'
+                        expanded && !iconsOnly ? 'w-[16.25rem]' : 'w-[4.25rem]'
                     }`}
                 >
-                    {renderNav(expanded, true)}
+                    {renderNav(expanded && !iconsOnly, true, expanded)}
                 </div>
             </aside>
 

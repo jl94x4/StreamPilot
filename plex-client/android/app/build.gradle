@@ -1,16 +1,29 @@
 apply plugin: 'com.android.application'
 
+// Release signing key. keystore.properties (gitignored) sits next to settings.gradle;
+// see keystore.properties.example. Without it, assembleRelease builds unsigned.
+def releaseKeystorePropsFile = rootProject.file('keystore.properties')
+def releaseKeystoreProps = new Properties()
+if (releaseKeystorePropsFile.exists()) {
+    releaseKeystorePropsFile.withInputStream { releaseKeystoreProps.load(it) }
+}
+
 android {
     namespace "com.servermanagerportal.mediaplayer"
     compileSdk rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.servermanagerportal.mediaplayer"
+        applicationId "com.streampilot.mediaplayer"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 133
+        versionCode 608
         // Settings shows this versionName. `npm run build:apk` auto-bumps both.
-        versionName "1.0.133"
+        versionName "1.0.608"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        ndk {
+            // TVs and phones are ARM. x86 is kept for the Android TV emulator: without it the whole
+            // app ran under ARM translation there, and 4K playback failed. x86_64 is left out (~5 MB).
+            abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86'
+        }
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
@@ -23,6 +36,17 @@ android {
             v1SigningEnabled true
             v2SigningEnabled true
         }
+        release {
+            if (releaseKeystorePropsFile.exists()) {
+                // Relative paths resolve from plex-client/android, like keystore.properties.
+                storeFile rootProject.file(releaseKeystoreProps['storeFile'])
+                storePassword releaseKeystoreProps['storePassword']
+                keyAlias releaseKeystoreProps['keyAlias']
+                keyPassword releaseKeystoreProps['keyPassword']
+            }
+            v1SigningEnabled true
+            v2SigningEnabled true
+        }
     }
     buildTypes {
         debug {
@@ -30,20 +54,44 @@ android {
             signingConfig signingConfigs.debug
         }
         release {
+            // Same v1+v2 rule as debug: Fire OS rejects v2-only APKs.
+            if (releaseKeystorePropsFile.exists()) signingConfig signingConfigs.release
+            // R8 can strip Capacitor plugin classes found by reflection. Test before enabling.
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
+    }
+    androidResources {
+        // FaceNet is read whole into a direct buffer; storing it uncompressed keeps that cheap.
+        noCompress 'tflite'
     }
     packaging {
         jniLibs {
             useLegacyPackaging true
         }
     }
+    testOptions {
+        // Robolectric tests inflate the player menu row layouts.
+        unitTests.includeAndroidResources = true
+    }
 }
 
 repositories {
     flatDir{
         dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+// Media3 1.11's media3-session asks for lifecycle-service 2.8, which pulls all of AndroidX Lifecycle
+// to its Kotlin-multiplatform 2.8 line. With AGP 8.2 (Capacitor 6) Gradle then resolves the
+// *desktop* variants, and the app crashes on start (NoClassDefFoundError ReportFragment).
+// 2.6.2 is the last Android-only Lifecycle; Media3 only needs its long-stable LifecycleService.
+configurations.all {
+    resolutionStrategy.eachDependency { details ->
+        if (details.requested.group == 'androidx.lifecycle') {
+            details.useVersion '2.6.2'
+            details.because 'AGP 8.2 resolves Lifecycle 2.8 desktop variants (see above)'
+        }
     }
 }
 
@@ -56,8 +104,15 @@ dependencies {
     implementation "androidx.media3:media3-exoplayer-hls:$media3Version"
     implementation "androidx.media3:media3-ui:$media3Version"
     implementation "androidx.media3:media3-datasource:$media3Version"
+    implementation "androidx.media3:media3-session:$media3Version"
+    implementation "androidx.tvprovider:tvprovider:1.1.0"
+    // Who's on screen (test): offline face detection + FaceNet embeddings, all on the TV.
+    implementation "com.google.mlkit:face-detection:16.1.7"
+    implementation "org.tensorflow:tensorflow-lite:2.16.1"
     implementation project(':capacitor-android')
     testImplementation "junit:junit:$junitVersion"
+    // Real android.net.Uri / org.json on the JVM for the player helper tests (.\gradlew.bat test).
+    testImplementation "org.robolectric:robolectric:4.16.1"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')

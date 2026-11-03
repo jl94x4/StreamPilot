@@ -11,7 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageOps
 
 from kometa_detect import Winner
 
@@ -493,6 +493,30 @@ def select_compose_winners(
     return {family: winner for family, winner in best.values()}
 
 
+def fit_poster_frame(poster: Image.Image) -> Image.Image:
+    """Center-crop to 2:3 before badges are placed.
+
+    Cards and the Plex image proxy cover-crop every poster to 2:3. A badge
+    placed 1.5% in on a wider or taller file lands on the edge once that
+    crop runs. Cropping first keeps the inset on the frame people actually see.
+    """
+    img = ImageOps.exif_transpose(poster).convert("RGBA")
+    width, height = img.size
+    if width < 2 or height < 2:
+        return img
+    target = 2 / 3
+    current = width / height
+    if abs(current - target) <= 0.004:
+        return img
+    if current > target:
+        new_width = max(1, int(round(height * target)))
+        left = max(0, (width - new_width) // 2)
+        return img.crop((left, 0, left + new_width, height))
+    new_height = max(1, int(round(width / target)))
+    top = max(0, (height - new_height) // 2)
+    return img.crop((0, top, width, top + new_height))
+
+
 def compose_poster(
     poster: Image.Image,
     winners: dict[str, Winner],
@@ -505,6 +529,9 @@ def compose_poster(
 
     result = poster.convert("RGBA")
     selected = select_compose_winners(winners, config)
+    if not selected:
+        return result
+    result = fit_poster_frame(result)
     for family in FAMILY_RENDER_ORDER:
         winner = selected.get(family)
         if winner is None:

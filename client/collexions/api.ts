@@ -489,6 +489,38 @@ class CollexionsApiService {
         return apiFetch(base(`/mdblist/list?url=${encodeURIComponent(url)}`));
     }
 
+    async getJustWatchList(url: string): Promise<{ name?: string; items: any[] }> {
+        const data = await withTimeout(
+            cx(`/justwatch/list?url=${encodeURIComponent(url)}`),
+            120000,
+            'JustWatch list import',
+        );
+        if (Array.isArray(data)) return { items: data };
+        if (data && Array.isArray((data as any).items)) {
+            return {
+                name: String((data as any).name || '').trim() || undefined,
+                items: (data as any).items,
+            };
+        }
+        throw new Error((data as any)?.error || 'JustWatch list response was invalid.');
+    }
+
+    async getLetterboxdList(url: string): Promise<{ name?: string; items: any[] }> {
+        const data = await withTimeout(
+            cx(`/letterboxd/list?url=${encodeURIComponent(url)}`),
+            COLLEXIONS_LONG_MS,
+            'Letterboxd list import',
+        );
+        if (Array.isArray(data)) return { items: data };
+        if (data && Array.isArray((data as any).items)) {
+            return {
+                name: String((data as any).name || '').trim() || undefined,
+                items: (data as any).items,
+            };
+        }
+        throw new Error((data as any)?.error || 'Letterboxd list response was invalid.');
+    }
+
     async pinCollection(title: string, library: string): Promise<void> {
         await apiFetch(base('/collections/pin'), { method: 'POST', body: JSON.stringify({ title, library }) });
     }

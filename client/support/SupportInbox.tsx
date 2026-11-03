@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-    Check, ChevronLeft, Film, ImagePlus, LifeBuoy, Loader2, MessageSquare, Pencil, Plus, RotateCcw, Search, Send, SmilePlus, Trash2, X,
+    Check, ChevronLeft, Film, ImagePlus, LifeBuoy, MessageSquare, Pencil, Plus, RotateCcw, Search, Send, SmilePlus, Trash2, X,
 } from 'lucide-react';
 import { apiFetch, PORTAL_CSRF_HEADER, PORTAL_CSRF_VALUE } from '../shared/api';
+import { SupportTicketListSkeleton } from '../shared/skeletons';
 import { portalUrl } from '../shared/basePath';
 import { DashboardHero, DashboardPageShell } from '../shared/dashboard/DashboardChrome';
 import { formatDateTime } from '../shared/format';
@@ -537,9 +538,10 @@ export const SupportInbox: React.FC<{ sessionInfo?: any; onCountsChange?: () => 
                     <div className={`${activeId ? 'hidden lg:flex' : 'flex'} min-h-0 flex-col border-white/10 lg:border-r`}>
                         <div className="min-h-0 flex-1 overflow-y-auto p-2 space-y-1.5">
                             {loading ? (
-                                <div className="p-8 text-center text-muted text-sm">
-                                    <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2" /> {t('support.loading.tickets')}
-                                </div>
+                                <>
+                                    <span className="sr-only" role="status">{t('support.loading.tickets')}</span>
+                                    <SupportTicketListSkeleton />
+                                </>
                             ) : visibleTickets.length === 0 ? (
                                 <div className="p-8 text-center text-muted text-sm">
                                     {tickets.length === 0 ? t('support.empty.noTickets') : t('support.labels.noMatch')}

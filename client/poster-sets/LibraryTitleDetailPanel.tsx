@@ -678,7 +678,7 @@ export function LibraryTitleDetailPanel({
         try {
             const response = await posterSetsApi.preview(
                 target,
-                restrictTitleCards ? TITLE_CARD_ONLY_FILTERS : undefined,
+                restrictTitleCards ? { mediuxFilters: TITLE_CARD_ONLY_FILTERS } : undefined,
             );
             setPreview(response);
             if (!restrictTitleCards && inferRecentSetKindFromAssets(response.assets) === 'title_cards') {

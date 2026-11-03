@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Player accent (Settings → Accent colour). Drawables read these so one theme overlay recolours the player. -->
+    <attr name="playerAccent" format="color" />
+    <attr name="playerAccentDim" format="color" />
+    <attr name="playerAccentA18" format="color" />
+    <attr name="playerAccentA22" format="color" />
+    <attr name="playerAccentA28" format="color" />
+    <attr name="playerAccentA2A" format="color" />
+    <attr name="playerAccentA38" format="color" />
+    <attr name="playerAccentA40" format="color" />
+    <attr name="playerAccentA44" format="color" />
+    <attr name="playerAccentA55" format="color" />
+    <attr name="playerAccentA88" format="color" />
+</resources>

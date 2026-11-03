@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 460 80" role="img" aria-label="discovery+">
+  <title>discovery+</title>
+  <defs>
+    <!-- Candy spectrum on the D mark (official brand treatment) -->
+    <linearGradient id="dplus-spectrum" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F15BB5"/>
+      <stop offset="22%" stop-color="#FEE440"/>
+      <stop offset="45%" stop-color="#00F5D4"/>
+      <stop offset="68%" stop-color="#00BBF9"/>
+      <stop offset="100%" stop-color="#9B5DE5"/>
+    </linearGradient>
+  </defs>
+  <!-- Geometric D + circle (icon stays coloured; wordmark is white) -->
+  <path
+    fill="url(#dplus-spectrum)"
+    fill-rule="evenodd"
+    d="M8 6h36c19.882 0 36 16.118 36 36s-16.118 36-36 36H8V6zm36 14c-12.15 0-22 9.85-22 22s9.85 22 22 22 22-9.85 22-22-9.85-22-22-22z"
+  />
+  <text
+    x="98"
+    y="56"
+    fill="#FFFFFF"
+    font-family="Arial, Helvetica, sans-serif"
+    font-size="44"
+    font-weight="700"
+    letter-spacing="-0.5"
+  >discovery+</text>
+</svg>

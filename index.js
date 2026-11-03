@@ -28,6 +28,10 @@ import {
     resolvePortalPushIconUrl,
     resolvePortalPushBadgeUrl,
     resolvePortalPwaManifestIconHref,
+    resolveAppleTouchIconHref,
+    parseStampedPwaIconFileName,
+    homeScreenIconFileRev,
+    portalPwaIconDir,
     HOME_SCREEN_ICON_REV,
     SERVER_PWA_ICON_BADGE_SCALE,
     SERVER_PWA_MASKABLE_BADGE_SCALE,
@@ -88,6 +92,7 @@ import {
     spawnCommand,
 } from './lib/media-automation/index.js';
 import { createPosterSetsRouter, startPosterSetsWatcher, setPosterSetsNotifyDigest, schedulePosterSetsArrHook, startTpdbCacheDailyRefresh } from './lib/poster-sets/index.js';
+import { librariesForPosterSets } from './lib/poster-sets/config.js';
 import { createMetadataFillRouter, scheduleMetadataFillArrHook } from './lib/metadata-fill/index.js';
 import { createMediaPlayerRouter } from './lib/media-player/index.js';
 import { normalizePlayerSettings } from './lib/media-player/mapItem.js';
@@ -108,7 +113,37 @@ import { createWatchSyncRouter } from './lib/watch-sync/index.js';
 import { startWatchSyncScheduler } from './lib/watch-sync/scheduler.js';
 import { startLiveWatch } from './lib/watch-sync/watcher.js';
 import { startWatchSyncJob } from './lib/watch-sync/runtime.js';
+import {
+    attachWatchTogether,
+    getWatchTogetherRoomSummary,
+    resolveWatchTogetherHostStream,
+} from './lib/watch-together/index.js';
 import { startOverlaysScheduler, startOverlaysBundleScheduler, runOverlaysScheduledJob } from './lib/overlays/scheduler.js';
+import { decidePlexHeavyJob } from './lib/plexHeavyJobGate.js';
+import { createSessionRevocationStore } from './lib/sessionRevocation.js';
+import {
+    evaluateExtensionEligibility,
+    extendExpiryDate,
+    normalizeExtensionSettings,
+    pruneExtensionRequests,
+    sortExtensionRequests,
+} from './lib/extensionRequests.js';
+import { isOpsNotifyRecipient } from './lib/notifications/opsNotify.js';
+import { buildMemberCalendarEvents, renderIcs } from './lib/memberCalendar.js';
+import {
+    normalizeSharePermissions,
+    parseXmlAttrs,
+    permissionsFromUserAttrs,
+    sharingSettingsBody,
+    sharingUpdateQuery,
+} from './lib/plex/sharePermissions.js';
+import {
+    annotateKillRuleSessions,
+    recountAfterStopped,
+    sessionMatchesCondition,
+    VALID_KILL_RULE_FIELDS,
+    VALID_KILL_RULE_OPERATORS,
+} from './lib/killRules.js';
 import { registerAchievementsRoutes } from './lib/achievements/http.js';
 import { registerProfileRoutes } from './lib/profile/http.js';
 import { registerSupportTicketRoutes } from './lib/support-tickets/http.js';
@@ -154,6 +189,7 @@ import { applyShowEpisodeActivity, summarizeShowEpisodeActivity } from './lib/ma
 import {
     migrateLegacyBrandingAssets,
     parseBrandingPublicPath,
+    readBrandingAssetBuffer,
     readBrandingAssetByPublicPath,
     writeBrandingAsset,
 } from './lib/branding-storage.js';
@@ -759,6 +795,19 @@ if (!JWT_SECRET || JWT_SECRET.length < 32) {
     process.exit(1);
 }
 
+// Logout, "sign out everywhere" and deleted users revoke tokens before their 7 days are up.
+const sessionRevocations = createSessionRevocationStore({
+    filePath: path.join(CONFIG_DIR, 'session-revocations.json'),
+    log: (message) => console.error(message),
+});
+
+/** jwt.verify plus revocation. Throws like jwt.verify when the token must not be accepted. */
+const verifySessionToken = (token) => {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    if (sessionRevocations.isRevoked(token, decoded)) throw new Error('Session revoked');
+    return decoded;
+};
+
 let CLIENT_ID = process.env.CLIENT_ID || 'plex-expiry-manager-client-id'; // Now dynamically generated if missing
 
 const portalFrameSrcDirective = (hostname = '') => {
@@ -935,7 +984,12 @@ const hasValidSetupToken = (req) => {
 // Use the raw TCP peer address for setup authorization. req.ip honors the
 // client-supplied X-Forwarded-For header (trust proxy is enabled), which an
 // attacker could spoof to impersonate localhost during the unconfigured window.
-const canRunInitialSetup = (req) => hasValidSetupToken(req) || isLoopbackAddress(getSocketPeerIp(req));
+// A reverse proxy on the same machine makes every visitor look like localhost, so a request
+// that carries proxy headers never counts as local (use SETUP_TOKEN behind a proxy).
+const PROXY_HEADER_NAMES = ['x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto', 'x-real-ip', 'forwarded', 'cf-connecting-ip', 'true-client-ip'];
+const arrivedThroughProxy = (req) => PROXY_HEADER_NAMES.some((name) => req.headers?.[name] !== undefined);
+const canRunInitialSetup = (req) => hasValidSetupToken(req)
+    || (isLoopbackAddress(getSocketPeerIp(req)) && !arrivedThroughProxy(req));
 
 const normalizeHostnameForIpCheck = (hostname = '') => {
     let host = String(hostname || '').trim().toLowerCase();
@@ -2250,6 +2304,8 @@ const isExpiredPortalAllowedApiPath = (rawPath = '') => {
         '/api/auth/logout',
         '/api/me/onboarding',
         '/api/me/referral-stats',
+        '/api/me/help-page',
+        '/api/me/extension',
     ];
     return prefixes.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
 };
@@ -2761,11 +2817,21 @@ const readFileUnlocked = async (path, defaultContent) => {
     }
 };
 
-const writeFileUnlocked = async (path, data) => {
-    const tempPath = `${path}.tmp`;
-    await fs.writeFile(tempPath, JSON.stringify(data, null, 2));
-    await fs.rename(tempPath, path);
-    invalidateHotFileCache(path);
+const writeFileUnlocked = async (filePath, data) => {
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    const serialized = JSON.stringify(data, null, 2);
+    if (typeof serialized !== 'string') {
+        throw new Error(`Cannot save ${path.basename(filePath)}: value is not JSON.`);
+    }
+    const tempPath = `${filePath}.${process.pid}.tmp`;
+    await fs.writeFile(tempPath, serialized);
+    try {
+        await fs.rename(tempPath, filePath);
+    } catch {
+        await fs.writeFile(filePath, serialized);
+        await fs.unlink(tempPath).catch(() => {});
+    }
+    invalidateHotFileCache(filePath);
 };
 
 const loadFile = async (path, defaultContent) => {
@@ -3362,7 +3428,7 @@ const isJellyfinConfigured = (config = {}) => (
 const isPortalConfigured = (config = {}) => isPlexConfigured(config) || isJellyfinConfigured(config);
 const isPublicStatusVisible = (config = {}) => config.showPublicStatusMonitor !== false;
 const arePublicLibraryStatsVisible = (config = {}) => config.showPublicLibraryStats !== false;
-const normalizePwaIconSource = (value, fallback = 'server') => {
+const normalizePwaIconSource = (value, fallback = 'application') => {
     const normalized = String(value || '').trim().toLowerCase();
     return normalized === 'application' || normalized === 'server' ? normalized : fallback;
 };
@@ -3378,7 +3444,7 @@ const requireAuth = (req, res, next) => {
     const token = readSessionToken(req);
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
     try {
-        req.user = jwt.verify(token, JWT_SECRET);
+        req.user = verifySessionToken(token);
         next();
     } catch (e) {
         return res.status(401).json({ error: 'Invalid session' });
@@ -3425,7 +3491,7 @@ const requireAdmin = async (req, res, next) => {
     const token = readSessionToken(req);
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
     try {
-        req.user = jwt.verify(token, JWT_SECRET);
+        req.user = verifySessionToken(token);
     } catch (e) {
         return res.status(401).json({ error: 'Invalid session' });
     }
@@ -3868,6 +3934,34 @@ const findPlexShare = async (user, config) => {
     }
 };
 
+/**
+ * This user's Plex friend entry (plex.tv /api/users): their Plex user id and share permissions
+ * (downloads, camera upload, channels, content restrictions). null when they are not a friend.
+ */
+const findPlexFriendPermissions = async (user, config) => {
+    if (!config?.plexToken) return null;
+    const identityIds = plexShareIdentityCandidates(user);
+    const email = String(user?.email || '').trim().toLowerCase();
+    const username = String(user?.username || '').trim().toLowerCase();
+    const res = await apiFetch(`${PLEX_API}/users`, config.plexToken);
+    if (!res.ok) throw new Error(`plex.tv users list failed (HTTP ${res.status})`);
+    const xmlText = await res.text();
+    const tags = xmlText.match(/<User\b[^>]*>/gi) || [];
+    for (const tag of tags) {
+        const attrs = parseXmlAttrs(tag);
+        const matches = identityIds.includes(String(attrs.id || ''))
+            || (email && String(attrs.email || '').trim().toLowerCase() === email)
+            || (username && String(attrs.username || '').trim().toLowerCase() === username);
+        if (!matches) continue;
+        return {
+            plexUserId: String(attrs.id || ''),
+            home: String(attrs.home || '') === '1',
+            permissions: permissionsFromUserAttrs(attrs),
+        };
+    }
+    return null;
+};
+
 const getPlexShareLibraryIds = async (user, config) => {
     const share = await findPlexShare(user, config);
     if (!share) return null;
@@ -4062,12 +4156,17 @@ const inviteUserToPlex = async (user, config, libraryIds = null) => {
 
         log(`Inviting user to Plex: ${user.username} (${invitedEmail || invitedId})${sharedServer.library_section_ids ? ` libs=${sharedServer.library_section_ids.join(',')}` : ' (all libraries)'}`);
 
+        const inviteBody = {
+            server_id: config.serverIdentifier,
+            shared_server: sharedServer,
+        };
+        // Only when defaults are set: otherwise Plex's own defaults apply, as before.
+        if (config.plexShareDefaults && typeof config.plexShareDefaults === 'object') {
+            inviteBody.sharing_settings = sharingSettingsBody(config.plexShareDefaults);
+        }
         const inviteRes = await apiFetch(`https://plex.tv/api/servers/${config.serverIdentifier}/shared_servers`, config.plexToken, {
             method: 'POST',
-            body: JSON.stringify({
-                server_id: config.serverIdentifier,
-                shared_server: sharedServer
-            }),
+            body: JSON.stringify(inviteBody),
             headers: { 'Content-Type': 'application/json' }
         });
 
@@ -5266,7 +5365,7 @@ app.get('/api/auth/session', publicReadRateLimit, async (req, res) => {
     const token = readSessionToken(req);
     if (!token) return res.json({ authenticated: false });
     try {
-        const user = jwt.verify(token, JWT_SECRET);
+        const user = verifySessionToken(token);
         const config = await loadFile(CONFIG_PATH, {});
         const isAdmin = await resolveCurrentAdmin(user, config);
         return res.json({
@@ -5282,12 +5381,6 @@ app.get('/api/auth/session', publicReadRateLimit, async (req, res) => {
     } catch {
         return res.json({ authenticated: false, reason: 'invalid_token' });
     }
-});
-
-app.post('/api/auth/session/token', requireAuth, (req, res) => {
-    const token = readSessionToken(req);
-    if (!token) return res.status(401).json({ error: 'Unauthorized' });
-    return res.json({ sessionToken: token });
 });
 
 app.post('/api/auth/plex/callback', authCallbackRateLimit, async (req, res) => {
@@ -5375,7 +5468,7 @@ app.post('/api/auth/plex/home-switch', authRateLimit, async (req, res) => {
             pin,
         });
         if (resolved.needsPin) {
-            return res.status(401).json({ error: 'Enter the PIN for this profile.' });
+            return res.status(401).json({ error: pin ? 'Incorrect PIN. Try again.' : 'Enter the PIN for this profile.' });
         }
         if (!resolved.ok || !resolved.authToken || !resolved.userData) {
             return res.status(401).json({ error: 'Could not switch to that Plex Home profile.' });
@@ -5506,7 +5599,7 @@ app.post('/api/auth/plex/home-profiles/switch', authRateLimit, requireAuth, requ
             pin,
         });
         if (resolved.needsPin) {
-            return res.status(401).json({ error: 'Enter the PIN for this profile.' });
+            return res.status(401).json({ error: pin ? 'Incorrect PIN. Try again.' : 'Enter the PIN for this profile.' });
         }
         if (!resolved.ok || !resolved.authToken || !resolved.userData) {
             return res.status(401).json({ error: 'Could not switch to that Plex Home profile.' });
@@ -5589,8 +5682,18 @@ app.post('/api/setup/plex/callback', setupRateLimit, authRateLimit, async (req, 
 });
 
 app.post('/api/auth/logout', requireAuth, (req, res) => {
+    sessionRevocations.revokeToken(readSessionToken(req), req.user);
     clearSessionCookie(req, res);
     res.json({ message: 'Logged out' });
+});
+
+/** Sign out on every device: browsers, the TV app and installed apps all need to log in again. */
+app.post('/api/auth/logout-all', requireAuth, async (req, res) => {
+    const actor = getSessionActor(req.user);
+    sessionRevocations.revokeAccount(actor);
+    await appendAuditLog('sessions_revoked', actor, actor, { reason: 'sign_out_everywhere' });
+    clearSessionCookie(req, res);
+    res.json({ message: 'Signed out everywhere' });
 });
 
 app.post('/api/users/preferences', requireAuth, requireMember, async (req, res) => {
@@ -6356,13 +6459,14 @@ app.get('/api/users/me', requireAuth, async (req, res) => {
         requestsQueue: portalRequestNav || requestAppService.isRequestAppConfigured(config),
         downloads: config.downloadsVisibleToMembers !== false,
         mediaPlayer: isPlexMediaServer && config.mediaPlayerEnabled !== false,
+        help: config.helpPage?.enabled === true && !!String(config.helpPage?.body || '').trim(),
     };
 
     // Non-admin expired members: restrict to support / chat / profile / preferences (#187).
     const accessExpired = !isAdmin && !!localUser && isAccessExpired(localUser);
     if (accessExpired) {
         Object.keys(navFeatures).forEach((key) => {
-            if (key === 'support' || key === 'chat') return;
+            if (key === 'support' || key === 'chat' || key === 'help') return;
             navFeatures[key] = false;
         });
         navFeatures.support = config.supportTicketsEnabled !== false;
@@ -7014,7 +7118,7 @@ app.get('/api/config', requireAdmin, async (req, res) => {
                 customBadgeUrl: '',
                 brandingTheme: 'plex',
                 sidebarIdentityPosition: 'bottom',
-                pwaIconSource: 'server',
+                pwaIconSource: 'application',
                 backgroundImageUrl: '',
                 useScrollRevealAnimations: false,
                 useCinematicLoading: false,
@@ -7208,7 +7312,7 @@ app.post('/api/config', setupRateLimit, async (req, res) => {
             return res.status(403).json({ error: 'Forbidden: App is already configured. Please log in as admin to modify settings.' });
         }
         try {
-            const decoded = jwt.verify(sessionToken, JWT_SECRET);
+            const decoded = verifySessionToken(sessionToken);
             const isAdmin = await resolveCurrentAdmin(decoded, existingConfig);
             if (!isAdmin) {
                 return res.status(403).json({ error: 'Forbidden: Admins only.' });
@@ -7989,9 +8093,16 @@ app.post('/api/config', setupRateLimit, async (req, res) => {
     refreshRuntimePublicBaseUrl(spotifySyncConfig);
     syncIntegrationServicesInStatusConfig(spotifySyncConfig);
     const brandingProfile = await getAdminProfile(spotifySyncConfig);
-    void refreshPortalBrandingAssets(spotifySyncConfig, brandingProfile).catch((error) => {
+    try {
+        const brandingSync = await refreshPortalBrandingAssets(spotifySyncConfig, brandingProfile);
+        if (!brandingSync?.synced) {
+            log(`[Branding] settings-save icon sync did not write icons (mode=${brandingSync?.mode || 'unknown'})`);
+        } else {
+            log(`[Branding] settings-save icon sync ok (mode=${brandingSync.mode})`);
+        }
+    } catch (error) {
         log(`[Branding] settings-save icon sync failed: ${error.message}`);
-    });
+    }
     try {
         await saveFile(STATUS_CONFIG_PATH, statusConfig);
     } catch (e) {
@@ -8197,6 +8308,7 @@ async function fetchTmdbTrendingBackgrounds(apiKey) {
 app.get('/api/config/public', async (req, res) => {
     try {
         const config = (await loadFile(CONFIG_PATH, {})) || {};
+        const publicProfile = await getAdminProfile(config).catch(() => ({ serverName: 'StreamPilot', thumb: null }));
         res.json({
             mediaServerType: config.mediaServerType || 'plex',
             jellyfinAnalyticsProvider: normalizeJellyfinAnalyticsProvider(config.jellyfinAnalyticsProvider, config),
@@ -8208,6 +8320,8 @@ app.get('/api/config/public', async (req, res) => {
             brandingTheme: config.brandingTheme || 'plex',
             sidebarIdentityPosition: ['top', 'bottom'].includes(String(config.sidebarIdentityPosition || '').toLowerCase()) ? String(config.sidebarIdentityPosition).toLowerCase() : 'bottom',
             pwaIconSource: normalizePwaIconSource(config.pwaIconSource),
+            appleTouchIconHref: resolveAppleTouchIconHref(config, publicProfile, resolvePublicAssetHref),
+            homeScreenIconRev: HOME_SCREEN_ICON_REV,
             backgroundImageUrl: normalizeBrandingAssetForMediaServer(config.backgroundImageUrl, config.mediaServerType),
             useScrollRevealAnimations: !!config.useScrollRevealAnimations,
             useCinematicLoading: !!config.useCinematicLoading,
@@ -8252,7 +8366,7 @@ app.get('/api/config/public', async (req, res) => {
             customFaviconUrl: '',
             brandingTheme: 'plex',
             sidebarIdentityPosition: 'bottom',
-            pwaIconSource: 'server',
+            pwaIconSource: 'application',
             backgroundImageUrl: '',
             useScrollRevealAnimations: false,
             useCinematicLoading: false,
@@ -8613,7 +8727,7 @@ const assertIntegrationTestAccess = async (req, res) => {
             return false;
         }
         try {
-            const decoded = jwt.verify(sessionToken, JWT_SECRET);
+            const decoded = verifySessionToken(sessionToken);
             const isAdmin = await resolveCurrentAdmin(decoded, stored);
             if (!isAdmin) {
                 res.status(403).json({ error: 'Forbidden: admins only.' });
@@ -9406,20 +9520,38 @@ const getPlexConnectionUri = async (config) => {
     }
 };
 
-const listPlexLibrariesForConfig = async (config) => {
+const listPlexLibrariesForConfig = async (config, { strict = false } = {}) => {
     const uri = await getPlexConnectionUri(config);
     if (!uri) throw new Error('Cannot connect to Plex');
     const token = normalizePlexToken(config.plexToken);
     if (!token) throw new Error('Plex token is required');
 
-    const sectionsRes = await fetchWithTimeout(
+    const response = await fetchWithTimeout(
         `${uri}/library/sections?X-Plex-Token=${encodeURIComponent(token)}`,
         { headers: plexClientHeaders(config.plexToken) },
         15000,
-    ).then((r) => r.json()).catch(() => null);
-
-    const directories = sectionsRes?.MediaContainer?.Directory;
-    if (!Array.isArray(directories)) return [];
+    );
+    const text = await response.text();
+    if (!response.ok) {
+        if (strict) throw new Error(`Plex library list failed (HTTP ${response.status})`);
+        return [];
+    }
+    if (!String(text || '').trim()) {
+        if (strict) throw new Error('Unexpected end of JSON input');
+        return [];
+    }
+    let sectionsRes = null;
+    try {
+        sectionsRes = JSON.parse(text);
+    } catch (error) {
+        if (strict) throw new Error(error?.message || 'Plex library list was not valid JSON');
+        return [];
+    }
+    const raw = sectionsRes?.MediaContainer?.Directory;
+    const directories = Array.isArray(raw) ? raw : (raw && typeof raw === 'object' ? [raw] : []);
+    if (!directories.length && strict) {
+        throw new Error('Plex returned a library list with no sections.');
+    }
     return directories.map((section) => ({
         id: section.key,
         title: section.title,
@@ -9536,6 +9668,51 @@ const scheduleWarmDashboardCovers = (config, lists, source) => {
     });
 };
 
+// The poster proxy fetches with the owner token, so it sees every library. Members whose Plex
+// share is limited to some libraries only get artwork from those. Members shared everything
+// (most) skip the check entirely; lookups are cached so posters never wait on plex.tv twice.
+const PLEX_MEMBER_IMAGE_PATH = /^\/(?:library\/(?:metadata|collections|sections)\/\d+\/|playlists\/\d+\/|:\/resources\/)/;
+const MEMBER_LIBRARY_ACCESS_TTL_MS = 10 * 60 * 1000;
+const memberLibraryAccessCache = new Map();
+
+/** Library keys this member's Plex share covers; null = every library (or unknown: plex.tv down). */
+const getMemberAllowedLibraryKeys = (user, config) => {
+    const key = String(user?.id || user?.plexId || '');
+    const entry = memberLibraryAccessCache.get(key);
+    if (entry && Date.now() < entry.until) return entry.promise;
+    const promise = getPlexShareLibraryIds(user, config)
+        .then((ids) => (ids == null ? null : new Set(ids.map(String))))
+        .catch(() => {
+            memberLibraryAccessCache.set(key, { until: Date.now() + 60_000, promise: Promise.resolve(null) });
+            return null;
+        });
+    memberLibraryAccessCache.set(key, { until: Date.now() + MEMBER_LIBRARY_ACCESS_TTL_MS, promise });
+    return promise;
+};
+
+/** Library key an artwork path belongs to; null = not library content; undefined = unknown. */
+const plexImagePathLibraryKey = async (config, thumbPath) => {
+    const section = thumbPath.match(/^\/library\/sections\/(\d+)\//);
+    if (section) return section[1];
+    const item = thumbPath.match(/^\/library\/(?:metadata|collections)\/(\d+)\//);
+    if (!item) return null;
+    const uri = await getPlexConnectionUri(config);
+    if (!uri) return undefined;
+    const meta = await fetchPlexMetadataByPath(uri, config, `/library/metadata/${item[1]}`);
+    const id = meta?.librarySectionID ?? meta?.librarySectionId;
+    return id != null ? String(id) : undefined;
+};
+
+const memberMayViewPlexImage = async (req, config, thumbPath) => {
+    if (req.user?.isAdmin) return true;
+    if (!PLEX_MEMBER_IMAGE_PATH.test(thumbPath)) return false;
+    const allowed = await getMemberAllowedLibraryKeys(req.localUser || req.user, config);
+    if (!allowed) return true;
+    const libraryKey = await plexImagePathLibraryKey(config, thumbPath);
+    if (libraryKey === null) return true;
+    return !!libraryKey && allowed.has(libraryKey);
+};
+
 app.get('/api/plex/image', requireAuth, requireMember, async (req, res) => {
     const { path: thumbPath, width, height } = req.query;
     if (!thumbPath) return res.status(400).send('path required');
@@ -9553,6 +9730,7 @@ app.get('/api/plex/image', requireAuth, requireMember, async (req, res) => {
     };
     try {
         const config = await loadFile(CONFIG_PATH, {});
+        if (!(await memberMayViewPlexImage(req, config, String(thumbPath)))) return failImage(404);
         const transcodeWidth = Math.min(Math.max(parseInt(width, 10) || PLEX_POSTER_WIDTH, 16), PLEX_IMAGE_MAX_WIDTH);
         const transcodeHeight = Math.min(Math.max(parseInt(height, 10) || PLEX_POSTER_HEIGHT, 16), PLEX_IMAGE_MAX_HEIGHT);
         const fitContain = String(req.query.fit || '').toLowerCase() === 'contain';
@@ -10618,7 +10796,7 @@ app.post('/api/plex/servers', setupRateLimit, async (req, res) => {
             }
             let decoded;
             try {
-                decoded = jwt.verify(sessionToken, JWT_SECRET);
+                decoded = verifySessionToken(sessionToken);
             } catch (e) {
                 return res.status(403).json({ error: 'Forbidden: Invalid admin session.' });
             }
@@ -11007,6 +11185,425 @@ app.get('/api/me/referral-stats', requireAuth, requireMember, async (req, res) =
         });
     } catch (e) {
         res.status(500).json({ error: 'Failed to load referral stats' });
+    }
+});
+
+// ── Member release calendar (.ics) ─────────────────────────────────────────────
+// Each member gets a private feed URL their phone's calendar subscribes to: upcoming episodes of
+// shows they watch and release dates of what they requested. Sonarr / Radarr data is shared for an
+// hour; each member's feed is cached for three, so calendar apps polling it never hit Plex history.
+const MEMBER_CALENDAR_ARR_TTL_MS = 60 * 60 * 1000;
+const MEMBER_CALENDAR_FEED_TTL_MS = 3 * 60 * 60 * 1000;
+const MEMBER_CALENDAR_DAYS_AHEAD = 60;
+let memberCalendarArrCache = { at: 0, data: null, pending: null };
+const memberCalendarFeedCache = new Map();
+
+const fetchMemberCalendarArrData = async (config) => {
+    if (memberCalendarArrCache.data && Date.now() - memberCalendarArrCache.at < MEMBER_CALENDAR_ARR_TTL_MS) {
+        return memberCalendarArrCache.data;
+    }
+    if (memberCalendarArrCache.pending) return memberCalendarArrCache.pending;
+    const start = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const end = new Date(Date.now() + MEMBER_CALENDAR_DAYS_AHEAD * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const fetchCalendar = async (instance) => {
+        try {
+            const base = normalizeExternalBaseUrl(instance.url, { allowPrivate: true, allowHttp: true });
+            const endpoint = instance.type === 'radarr'
+                ? `/api/v3/calendar?start=${start}&end=${end}&unmonitored=true`
+                : `/api/v3/calendar?start=${start}&end=${end}&includeSeries=true&includeEpisode=true&unmonitored=true`;
+            const response = await fetch(new URL(endpoint, base).toString(), {
+                headers: { 'X-Api-Key': instance.apiKey },
+                signal: AbortSignal.timeout(15000),
+            });
+            if (!response.ok) return [];
+            const body = await response.json();
+            return Array.isArray(body) ? body : (Array.isArray(body?.records) ? body.records : []);
+        } catch {
+            return [];
+        }
+    };
+    memberCalendarArrCache.pending = (async () => {
+        const instances = getArrInstances(config, { enabledOnly: true }).filter((instance) => isArrInstanceReady(instance));
+        const results = await Promise.all(instances.map(async (instance) => ({ type: instance.type, items: await fetchCalendar(instance) })));
+        const data = {
+            sonarrItems: results.filter((row) => row.type !== 'radarr').flatMap((row) => row.items),
+            radarrItems: results.filter((row) => row.type === 'radarr').flatMap((row) => row.items),
+        };
+        memberCalendarArrCache = { at: Date.now(), data, pending: null };
+        return data;
+    })().catch((error) => {
+        memberCalendarArrCache.pending = null;
+        throw error;
+    });
+    return memberCalendarArrCache.pending;
+};
+
+/** Shows in a member's recent Plex history, by series title. */
+const fetchMemberWatchedShowTitles = async (config, user) => {
+    if (!config.plexToken) return [];
+    const uri = await getPlexConnectionUri(config);
+    if (!uri) return [];
+    let accountId = user?.plexAccountId ? String(user.plexAccountId) : '';
+    if (!accountId) {
+        const norm = (value) => String(value || '').trim().toLowerCase();
+        const { list } = await fetchPlexServerAccounts(uri, config);
+        const match = (list || []).find((account) => norm(account.name) === norm(user?.username))
+            || (user?.email ? (list || []).find((account) => norm(account.name) === norm(user.email) || norm(account.email) === norm(user.email)) : null);
+        if (match) accountId = String(match.id);
+    }
+    if (!accountId) return [];
+    try {
+        const response = await fetch(
+            `${uri}/status/sessions/history/all?accountID=${encodeURIComponent(accountId)}&sort=viewedAt:desc&X-Plex-Container-Start=0&X-Plex-Container-Size=300`,
+            { headers: plexClientHeaders(config.plexToken), signal: AbortSignal.timeout(15000) },
+        );
+        if (!response.ok) return [];
+        const body = await response.json();
+        const rows = body?.MediaContainer?.Metadata || [];
+        return [...new Set(rows.filter((row) => row?.type === 'episode').map((row) => row.grandparentTitle).filter(Boolean))];
+    } catch {
+        return [];
+    }
+};
+
+const buildMemberCalendarIcs = async (config, user) => {
+    const cached = memberCalendarFeedCache.get(user.id);
+    if (cached && Date.now() - cached.at < MEMBER_CALENDAR_FEED_TTL_MS) return cached.ics;
+    const [arr, watchedShowTitles, requests] = await Promise.all([
+        fetchMemberCalendarArrData(config),
+        fetchMemberWatchedShowTitles(config, user).catch(() => []),
+        getRequestEngine(config) === 'portal'
+            ? getPortalRequestService(config).store.list({ userId: String(user.id) }).catch(() => [])
+            : Promise.resolve([]),
+    ]);
+    const events = buildMemberCalendarEvents({ ...arr, requests, watchedShowTitles });
+    let domain = 'streampilot';
+    try {
+        domain = new URL(resolvePublicBaseUrlFromConfig(config) || 'http://streampilot').hostname || domain;
+    } catch { /* keep the default */ }
+    const serverName = String(config.serverName || config.brandName || 'StreamPilot').trim() || 'StreamPilot';
+    const ics = renderIcs(events, { calendarName: `${serverName} releases`, domain });
+    memberCalendarFeedCache.set(user.id, { at: Date.now(), ics });
+    return ics;
+};
+
+const memberCalendarUrl = (req, config, token) => {
+    const base = resolvePublicBaseUrlFromConfig(config) || `${req.protocol}://${req.get('host')}`;
+    return `${String(base).replace(/\/+$/, '')}/api/public/calendar/${token}.ics`;
+};
+
+const ensureMemberCalendarToken = async (req, { reset = false } = {}) => {
+    const users = await loadFile(USERS_PATH, []);
+    const me = findLocalUserForSession(users, req.user);
+    if (!me) return null;
+    if (!me.calendarToken || reset) {
+        me.calendarToken = randomBytes(24).toString('hex');
+        await saveFile(USERS_PATH, users);
+        memberCalendarFeedCache.delete(me.id);
+    }
+    return me.calendarToken;
+};
+
+app.get('/api/me/calendar', requireAuth, requireMember, async (req, res) => {
+    try {
+        const config = await loadFile(CONFIG_PATH, {});
+        const token = await ensureMemberCalendarToken(req);
+        if (!token) return res.status(404).json({ error: 'No member account found for this session' });
+        res.json({ url: memberCalendarUrl(req, config, token) });
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to load your calendar link' });
+    }
+});
+
+app.post('/api/me/calendar/reset', requireAuth, requireMember, async (req, res) => {
+    try {
+        const config = await loadFile(CONFIG_PATH, {});
+        const token = await ensureMemberCalendarToken(req, { reset: true });
+        if (!token) return res.status(404).json({ error: 'No member account found for this session' });
+        res.json({ url: memberCalendarUrl(req, config, token) });
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to reset your calendar link' });
+    }
+});
+
+app.get('/api/public/calendar/:token.ics', publicReadRateLimit, async (req, res) => {
+    try {
+        const token = String(req.params.token || '');
+        if (!/^[a-f0-9]{48}$/.test(token)) return res.status(404).end();
+        const users = await loadFile(USERS_PATH, []);
+        const user = users.find((row) => row?.calendarToken && row.calendarToken.length === token.length
+            && timingSafeEqual(Buffer.from(row.calendarToken), Buffer.from(token)));
+        if (!user || (user.plexAccessStatus && user.plexAccessStatus !== 'active' && !user.isAdmin)) return res.status(404).end();
+        const config = await loadFile(CONFIG_PATH, {});
+        const ics = await buildMemberCalendarIcs(config, user);
+        res.set('Content-Type', 'text/calendar; charset=utf-8');
+        res.set('Cache-Control', 'private, max-age=3600');
+        res.send(ics);
+    } catch (e) {
+        log(`Member calendar feed failed: ${e.message}`);
+        res.status(500).end();
+    }
+});
+
+// ── Members' Help page ───────────────────────────────────────────────────────────
+// One page the admin writes (how to install apps, house rules, who to contact), shown to members.
+const normalizeHelpPage = (raw = {}) => ({
+    enabled: raw?.enabled === true,
+    title: String(raw?.title || '').trim().slice(0, 120),
+    body: String(raw?.body || '').slice(0, 50000),
+});
+
+app.get('/api/help-page', requireAdmin, async (req, res) => {
+    const config = await loadFile(CONFIG_PATH, {});
+    res.json(normalizeHelpPage(config.helpPage));
+});
+
+app.put('/api/help-page', requireAdmin, async (req, res) => {
+    try {
+        const config = await loadFile(CONFIG_PATH, {});
+        const helpPage = normalizeHelpPage(req.body);
+        await saveFile(CONFIG_PATH, { ...config, helpPage });
+        appendAuditLog('help_page_updated', req.user, null, { enabled: helpPage.enabled });
+        res.json(helpPage);
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to save the Help page' });
+    }
+});
+
+app.get('/api/me/help-page', requireAuth, requireMember, async (req, res) => {
+    const config = await loadFile(CONFIG_PATH, {});
+    const page = normalizeHelpPage(config.helpPage);
+    res.json(page.enabled ? page : { enabled: false, title: '', body: '' });
+});
+
+// ── Extension requests ──────────────────────────────────────────────────────────
+// Near (or after) their expiry a member asks for more time; admins approve or decline in one
+// click from Users, and approval extends the expiry (re-inviting to Plex when access was revoked).
+const EXTENSION_REQUESTS_PATH = path.join(CONFIG_DIR, 'extension-requests.json');
+
+const publicExtensionRequest = (row) => (row ? {
+    id: row.id,
+    userId: row.userId,
+    username: row.username,
+    months: row.months,
+    note: row.note || '',
+    status: row.status,
+    createdAt: row.createdAt,
+    decidedAt: row.decidedAt || null,
+    decidedMonths: row.decidedMonths || null,
+    adminNote: row.adminNote || '',
+    previousExpiryDate: row.previousExpiryDate || null,
+    newExpiryDate: row.newExpiryDate || null,
+} : null);
+
+const notifyAdminsOfExtensionRequest = async (config, request) => {
+    try {
+        const users = await loadFile(USERS_PATH, []);
+        const admins = users.filter((user) => isOpsNotifyRecipient(user, config));
+        const months = request.months === 1 ? '1 month' : `${request.months} months`;
+        for (const admin of admins) {
+            await createInAppNotification({
+                userId: admin.id,
+                type: 'extension_request',
+                title: `${request.username} asked for ${months} more`,
+                body: request.note || 'Approve or decline it from Users.',
+                href: '/users',
+                meta: { extensionRequestId: request.id, dedupe: false },
+            });
+        }
+    } catch (error) {
+        log(`Extension request admin notify failed: ${error.message}`);
+    }
+};
+
+app.get('/api/me/extension', requireAuth, requireMember, async (req, res) => {
+    try {
+        const config = await loadFile(CONFIG_PATH, {});
+        const settings = normalizeExtensionSettings(config.extensionRequests);
+        if (!settings.enabled || req.user?.isAdmin) return res.json({ enabled: false });
+        const users = await loadFile(USERS_PATH, []);
+        const me = findLocalUserForSession(users, req.user);
+        if (!me) return res.json({ enabled: false });
+        const requests = await loadFile(EXTENSION_REQUESTS_PATH, []);
+        const verdict = evaluateExtensionEligibility({ user: me, settings, requests });
+        const mine = requests.filter((row) => String(row.userId) === String(me.id));
+        const { pending, decided } = sortExtensionRequests(mine);
+        res.json({
+            enabled: true,
+            eligible: verdict.ok,
+            reason: verdict.reason || null,
+            daysLeft: verdict.daysLeft,
+            expiryDate: me.expiryDate || null,
+            monthOptions: settings.monthOptions,
+            pending: publicExtensionRequest(pending[0]),
+            latest: publicExtensionRequest(decided[0]),
+        });
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to load extension status' });
+    }
+});
+
+app.post('/api/me/extension', requireAuth, requireMember, async (req, res) => {
+    if (blockIfImpersonating(req, res)) return;
+    try {
+        const config = await loadFile(CONFIG_PATH, {});
+        const settings = normalizeExtensionSettings(config.extensionRequests);
+        const users = await loadFile(USERS_PATH, []);
+        const me = findLocalUserForSession(users, req.user);
+        if (!me || req.user?.isAdmin) return res.status(403).json({ error: 'Only members can ask for more time.' });
+        const months = Math.round(Number(req.body?.months));
+        if (!settings.monthOptions.includes(months)) return res.status(400).json({ error: 'Pick one of the offered lengths.' });
+        const note = String(req.body?.note || '').trim().slice(0, 500);
+        const created = await updateFile(EXTENSION_REQUESTS_PATH, [], (requests) => {
+            const verdict = evaluateExtensionEligibility({ user: me, settings, requests });
+            if (!verdict.ok) return { data: requests, result: { error: verdict.reason } };
+            const request = {
+                id: randomUUID(),
+                userId: String(me.id),
+                username: me.username || me.email || 'A member',
+                months,
+                note,
+                status: 'pending',
+                createdAt: new Date().toISOString(),
+                previousExpiryDate: me.expiryDate || null,
+            };
+            return { data: pruneExtensionRequests([...requests, request]), result: { request } };
+        });
+        if (created?.error) {
+            const messages = {
+                disabled: 'Extension requests are turned off.',
+                unlimited: 'Your access does not expire.',
+                too_early: 'You can ask for more time closer to your expiry date.',
+                pending: 'You already have a request waiting.',
+                cooldown: 'Your last request was declined recently. Try again tomorrow or contact the admin.',
+            };
+            return res.status(409).json({ error: messages[created.error] || 'You cannot ask for more time right now.', reason: created.error });
+        }
+        await appendAuditLog('extension_requested', req.user, me, { months, note: note || null });
+        await notifyAdminsOfExtensionRequest(config, created.request);
+        res.json({ request: publicExtensionRequest(created.request) });
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to send your request' });
+    }
+});
+
+app.delete('/api/me/extension', requireAuth, requireMember, async (req, res) => {
+    if (blockIfImpersonating(req, res)) return;
+    try {
+        const users = await loadFile(USERS_PATH, []);
+        const me = findLocalUserForSession(users, req.user);
+        if (!me) return res.status(404).json({ error: 'No member account found.' });
+        await updateFile(EXTENSION_REQUESTS_PATH, [], (requests) => requests.filter((row) => !(String(row.userId) === String(me.id) && row.status === 'pending')));
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to cancel your request' });
+    }
+});
+
+app.get('/api/extension-requests', requireAdmin, async (req, res) => {
+    try {
+        const config = await loadFile(CONFIG_PATH, {});
+        const requests = await loadFile(EXTENSION_REQUESTS_PATH, []);
+        const users = await loadFile(USERS_PATH, []);
+        const byId = new Map(users.map((user) => [String(user.id), user]));
+        const { pending, decided } = sortExtensionRequests(requests);
+        const withUser = (row) => {
+            const user = byId.get(String(row.userId));
+            return { ...publicExtensionRequest(row), currentExpiryDate: user?.expiryDate || null, thumb: user?.thumb || null, userExists: !!user };
+        };
+        res.json({
+            settings: normalizeExtensionSettings(config.extensionRequests),
+            pending: pending.map(withUser),
+            recent: decided.slice(0, 10).map(withUser),
+        });
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to load extension requests' });
+    }
+});
+
+app.put('/api/extension-requests/settings', requireAdmin, async (req, res) => {
+    try {
+        const config = await loadFile(CONFIG_PATH, {});
+        const extensionRequests = normalizeExtensionSettings(req.body);
+        await saveFile(CONFIG_PATH, { ...config, extensionRequests });
+        await appendAuditLog('extension_settings_updated', req.user, null, extensionRequests);
+        res.json(extensionRequests);
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to save extension settings' });
+    }
+});
+
+app.post('/api/extension-requests/:id/:decision', requireAdmin, async (req, res) => {
+    if (!['approve', 'decline'].includes(req.params.decision)) return res.status(404).json({ error: 'Unknown decision.' });
+    try {
+        const approve = req.params.decision === 'approve';
+        const config = await loadFile(CONFIG_PATH, {});
+        const adminNote = String(req.body?.note || '').trim().slice(0, 500);
+        const requests = await loadFile(EXTENSION_REQUESTS_PATH, []);
+        const request = requests.find((row) => row.id === req.params.id);
+        if (!request) return res.status(404).json({ error: 'Request not found.' });
+        if (request.status !== 'pending') return res.status(409).json({ error: 'This request was already handled.' });
+        const months = approve ? Math.max(1, Math.min(36, Math.round(Number(req.body?.months) || request.months))) : null;
+
+        let updatedUser = null;
+        let wasRevoked = false;
+        if (approve) {
+            updatedUser = await patchUserById(request.userId, (user) => {
+                wasRevoked = user.plexAccessStatus === 'revoked';
+                user.expiryDate = extendExpiryDate(user.expiryDate, months);
+                reconcileTrialAccessFlag(user);
+            });
+            if (!updatedUser) return res.status(404).json({ error: 'That member no longer exists.' });
+        }
+
+        const decided = await updateFile(EXTENSION_REQUESTS_PATH, [], (rows) => {
+            const row = rows.find((entry) => entry.id === req.params.id);
+            if (!row || row.status !== 'pending') return { data: rows, result: null };
+            row.status = approve ? 'approved' : 'declined';
+            row.decidedAt = new Date().toISOString();
+            row.decidedBy = req.user?.username || 'admin';
+            row.adminNote = adminNote;
+            if (approve) {
+                row.decidedMonths = months;
+                row.newExpiryDate = updatedUser.expiryDate;
+            }
+            return { data: rows, result: { ...row } };
+        });
+        if (!decided) return res.status(409).json({ error: 'This request was already handled.' });
+
+        const users = await loadFile(USERS_PATH, []);
+        const member = updatedUser || users.find((user) => String(user.id) === String(request.userId)) || { id: request.userId, username: request.username };
+        await appendAuditLog(approve ? 'extension_approved' : 'extension_declined', req.user, member, { months, adminNote: adminNote || null });
+
+        if (approve) {
+            const logoPath = path.join(process.cwd(), 'static', 'logo.png');
+            let hasLogo = false;
+            try { await fs.access(logoPath); hasLogo = true; } catch { /* no logo */ }
+            await sendAdjustmentEmail(config, updatedUser, hasLogo).catch(() => false);
+            if (wasRevoked) {
+                const inviteLibs = resolveInviteLibraryIds(updatedUser, config);
+                const invited = await inviteUserToPlex(updatedUser, config, inviteLibs.length > 0 ? inviteLibs : null).catch(() => false);
+                if (invited) {
+                    const patched = await patchUserById(updatedUser.id, (entry) => { entry.plexAccessStatus = 'pending'; });
+                    if (patched) await appendAuditLog('relink_invite_sent', req.user, patched);
+                }
+            }
+        }
+
+        const newDate = approve ? new Date(updatedUser.expiryDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
+        await createInAppNotification({
+            userId: request.userId,
+            type: 'extension_decision',
+            title: approve ? `More time approved: your access now runs to ${newDate}` : 'Your request for more time was declined',
+            body: adminNote || (approve ? 'Thanks for sticking around.' : 'Contact the admin if you have questions.'),
+            href: '/portal',
+            meta: { extensionRequestId: request.id, dedupe: false },
+        }).catch(() => null);
+
+        res.json({ request: publicExtensionRequest(decided) });
+    } catch (e) {
+        log(`Extension decision failed: ${e.message}`);
+        res.status(500).json({ error: 'Failed to save the decision' });
     }
 });
 
@@ -15669,11 +16266,43 @@ const decryptBackupObject = (payload) => {
         Buffer.from(String(payload.iv), 'base64'),
     );
     decipher.setAuthTag(Buffer.from(String(payload.tag), 'base64'));
-    const plain = Buffer.concat([
-        decipher.update(Buffer.from(String(payload.ciphertext), 'base64')),
-        decipher.final(),
-    ]);
-    return JSON.parse(plain.toString('utf8'));
+    let plain;
+    try {
+        plain = Buffer.concat([
+            decipher.update(Buffer.from(String(payload.ciphertext), 'base64')),
+            decipher.final(),
+        ]);
+    } catch (error) {
+        const failed = new Error('This backup cannot be opened. It was sealed with a different server secret (JWT_SECRET), or the file was cut off while saving.');
+        failed.status = 400;
+        failed.cause = error;
+        throw failed;
+    }
+    try {
+        return JSON.parse(plain.toString('utf8'));
+    } catch (error) {
+        const failed = new Error('This backup decrypted, but the saved data inside it is not valid JSON.');
+        failed.status = 400;
+        failed.cause = error;
+        throw failed;
+    }
+};
+
+const parseStoredBackup = (raw, label = 'Backup') => {
+    const text = String(raw ?? '');
+    if (!text.trim()) {
+        const error = new Error(`${label} is empty. It was cut off while saving. Use an older backup, or create a new one.`);
+        error.status = 400;
+        throw error;
+    }
+    try {
+        return JSON.parse(text);
+    } catch (error) {
+        const failed = new Error(`${label} is incomplete or not valid JSON (${error?.message || 'parse failed'}). It was cut off while saving. Use an older backup, or create a new one.`);
+        failed.status = 400;
+        failed.cause = error;
+        throw failed;
+    }
 };
 
 const readBackupPayload = async () => {
@@ -15682,8 +16311,9 @@ const readBackupPayload = async () => {
         payload[target.key] = await loadFile(target.path, null);
     }
     try {
-        const logoPath = path.join(process.cwd(), 'static', 'logo.png');
-        const logoBuffer = await fs.readFile(logoPath);
+        // Custom logos live in the config volume; /app/static only holds the bundled default.
+        const logoBuffer = await readBrandingAssetBuffer(BRANDING_DIR, 'logo')
+            || await fs.readFile(path.join(process.cwd(), 'static', 'logo.png'));
         payload.logoPngBase64 = logoBuffer.toString('base64');
     } catch (e) {
         payload.logoPngBase64 = null;
@@ -15739,16 +16369,27 @@ const enforceBackupRetention = async (keepCount) => {
 
 const applyBackupPayload = async (backup) => {
     if (!backup || backup.schemaVersion !== BACKUP_SCHEMA_VERSION || !backup.data) {
-        throw new Error('Unsupported backup schema.');
+        const error = new Error('Unsupported backup schema.');
+        error.status = 400;
+        throw error;
     }
     for (const target of BACKUP_TARGETS) {
         if (backup.data[target.key] !== undefined) {
-            await saveFile(target.path, backup.data[target.key]);
+            try {
+                await saveFile(target.path, backup.data[target.key]);
+            } catch (error) {
+                throw new Error(`Could not restore ${target.key}: ${error?.message || error}`);
+            }
         }
     }
     if (backup.data.logoPngBase64 && typeof backup.data.logoPngBase64 === 'string') {
-        const logoPath = path.join(process.cwd(), 'static', 'logo.png');
-        await fs.writeFile(logoPath, Buffer.from(backup.data.logoPngBase64, 'base64'));
+        try {
+            // Write to the config volume (owned by PUID:PGID), never /app/static, which is
+            // image-owned and read-only for non-default PUIDs (EACCES on Unraid 99:100 etc).
+            await writeBrandingAsset(BRANDING_DIR, 'logo', Buffer.from(backup.data.logoPngBase64, 'base64'));
+        } catch (error) {
+            log(`Backup logo restore skipped: ${error?.message || error}`);
+        }
     }
 };
 
@@ -15757,7 +16398,15 @@ const writeBackupToFolder = async (backup) => {
     const filename = getBackupFilename(backup);
     const filePath = path.join(BACKUP_DIR, filename);
     const sealed = encryptBackupObject(backup);
-    await fs.writeFile(filePath, JSON.stringify(sealed, null, 2), 'utf8');
+    const body = JSON.stringify(sealed);
+    const tempPath = `${filePath}.${process.pid}.tmp`;
+    await fs.writeFile(tempPath, body, 'utf8');
+    try {
+        await fs.rename(tempPath, filePath);
+    } catch {
+        await fs.writeFile(filePath, body, 'utf8');
+        await fs.unlink(tempPath).catch(() => {});
+    }
     return { filename, filePath };
 };
 
@@ -15803,9 +16452,9 @@ app.post('/api/admin/backup/restore', requireAdmin, express.text({ type: '*/*', 
 
         let backup;
         try {
-            backup = decryptBackupObject(JSON.parse(rawBody));
+            backup = decryptBackupObject(parseStoredBackup(rawBody, 'Pasted backup'));
         } catch (e) {
-            return res.status(400).json({ error: e.message || 'Backup payload is not valid JSON.' });
+            return res.status(e.status || 400).json({ error: e.message || 'Backup payload is not valid JSON.' });
         }
 
         const confirmRestore = req.query.confirm === 'true' || req.headers['x-confirm-restore'] === 'true';
@@ -15834,7 +16483,7 @@ app.post('/api/admin/backups/restore-file', requireAdmin, async (req, res) => {
         }
         const filePath = path.join(BACKUP_DIR, filename);
         const raw = await fs.readFile(filePath, 'utf8');
-        const backup = decryptBackupObject(JSON.parse(raw));
+        const backup = decryptBackupObject(parseStoredBackup(raw, filename));
         await applyBackupPayload(backup);
         await appendAuditLog('backup_restored_file', req.user, null, {
             filename,
@@ -15843,7 +16492,11 @@ app.post('/api/admin/backups/restore-file', requireAdmin, async (req, res) => {
         });
         res.json({ success: true, message: 'Backup restored from file successfully.' });
     } catch (e) {
-        res.status(500).json({ error: `Failed to restore backup file: ${e.message}` });
+        const status = Number(e.status) || 500;
+        const message = e.message || 'Failed to restore backup file';
+        res.status(status).json({
+            error: status === 400 ? message : `Failed to restore backup file: ${message}`,
+        });
     }
 });
 
@@ -16132,6 +16785,82 @@ app.get('/api/users/:id/share-libraries', requireAdmin, async (req, res) => {
     }
 });
 
+// Plex share permissions (downloads, camera upload, channels, content restrictions) per user.
+app.get('/api/users/:id/plex-permissions', requireAdmin, async (req, res) => {
+    try {
+        const users = await loadFile(USERS_PATH, []);
+        const user = users.find((u) => u.id === req.params.id);
+        if (!user) return res.status(404).json({ error: 'User not found.' });
+        const config = await loadFile(CONFIG_PATH, {});
+        if (String(config.mediaServerType || 'plex').toLowerCase() !== 'plex') {
+            return res.json({ available: false, reason: 'Only available for Plex servers.' });
+        }
+        const friend = await findPlexFriendPermissions(user, config);
+        if (!friend) {
+            return res.json({ available: false, reason: 'No Plex share found for this user yet. Share libraries first.' });
+        }
+        if (friend.home) {
+            return res.json({ available: false, reason: 'This is a Plex Home user: set their restrictions in Plex (Settings → Plex Home).' });
+        }
+        return res.json({ available: true, permissions: friend.permissions });
+    } catch (error) {
+        log(`GET /api/users/:id/plex-permissions failed: ${error.message}`);
+        return res.status(502).json({ error: 'Could not read Plex permissions from plex.tv.' });
+    }
+});
+
+app.put('/api/users/:id/plex-permissions', requireAdmin, async (req, res) => {
+    try {
+        const users = await loadFile(USERS_PATH, []);
+        const user = users.find((u) => u.id === req.params.id);
+        if (!user) return res.status(404).json({ error: 'User not found.' });
+        const config = await loadFile(CONFIG_PATH, {});
+        const friend = await findPlexFriendPermissions(user, config);
+        if (!friend?.plexUserId || friend.home) {
+            return res.status(409).json({ error: 'No Plex share to update for this user.' });
+        }
+        const permissions = normalizeSharePermissions(req.body?.permissions);
+        const plexRes = await apiFetch(
+            `https://plex.tv/api/v2/sharings/${encodeURIComponent(friend.plexUserId)}?${sharingUpdateQuery(permissions)}`,
+            config.plexToken,
+            { method: 'PUT' },
+        );
+        if (!plexRes.ok) {
+            const text = await plexRes.text().catch(() => '');
+            log(`Plex permissions update for ${user.username} failed (${plexRes.status}): ${text.slice(0, 300)}`);
+            return res.status(502).json({ error: `Plex rejected the change (HTTP ${plexRes.status}).` });
+        }
+        await appendAuditLog('plex_permissions_updated', req.user, user, { permissions });
+        log(`Plex permissions updated for ${user.username}`);
+        return res.json({ success: true, permissions });
+    } catch (error) {
+        log(`PUT /api/users/:id/plex-permissions failed: ${error.message}`);
+        return res.status(500).json({ error: 'Failed to update Plex permissions.' });
+    }
+});
+
+/** Permissions every new Plex invite gets. null = not set (Plex's own defaults apply). */
+app.get('/api/plex-share-defaults', requireAdmin, async (req, res) => {
+    const config = await loadFile(CONFIG_PATH, {});
+    const stored = config.plexShareDefaults && typeof config.plexShareDefaults === 'object'
+        ? normalizeSharePermissions(config.plexShareDefaults)
+        : null;
+    res.json({ defaults: stored });
+});
+
+app.put('/api/plex-share-defaults', requireAdmin, async (req, res) => {
+    try {
+        const config = await loadFile(CONFIG_PATH, {});
+        const defaults = req.body?.defaults == null ? null : normalizeSharePermissions(req.body.defaults);
+        await saveFile(CONFIG_PATH, { ...config, plexShareDefaults: defaults });
+        await appendAuditLog('plex_share_defaults_updated', req.user, null, { defaults });
+        res.json({ success: true, defaults });
+    } catch (error) {
+        log(`PUT /api/plex-share-defaults failed: ${error.message}`);
+        res.status(500).json({ error: 'Failed to save defaults.' });
+    }
+});
+
 const applyBulkAction = (user, action, customDate) => {
     const baseDate = user.expiryDate ? new Date(user.expiryDate) : new Date();
 
@@ -16316,6 +17045,7 @@ app.delete('/api/users/:id', requireAdmin, async (req, res) => {
 
     await rememberDeletedUser(user, req.user);
     await saveFile(USERS_PATH, users.filter(u => u.id !== id));
+    sessionRevocations.revokeAccount(user);
     await appendAuditLog('user_deleted_blocked', req.user, user, { plexAccessRevoked: !!(config && config.serverIdentifier && config.plexToken) });
     res.status(204).send();
 });
@@ -16630,22 +17360,33 @@ const sendHomeScreenFaviconPng = async (res, buffer) => {
     return res.send(png);
 };
 
-const sendStaticHomeScreenIconFile = async (res, fileNames = []) => {
+const sendStaticHomeScreenIconFile = async (
+    res,
+    fileNames = [],
+    cacheControl = HOME_SCREEN_ICON_CACHE,
+    { allowPackagedFallback = true } = {},
+) => {
     const staticRoot = path.join(process.cwd(), 'static');
+    // Prefer config/branding/pwa (synced for the active pwaIconSource). Packaged
+    // static/ always ships StreamPilot marks and is restored on every image deploy —
+    // skip it when Server logo is selected so we never serve a stale app mark.
+    const searchRoots = [portalPwaIconDir(BRANDING_DIR)];
+    if (allowPackagedFallback) searchRoots.push(staticRoot);
     for (const name of fileNames) {
-        const filePath = path.join(staticRoot, name);
-        let buffer;
-        try {
-            buffer = await fs.readFile(filePath);
-        } catch {
-            // try next
-            continue;
+        for (const root of searchRoots.filter(Boolean)) {
+            let buffer;
+            try {
+                buffer = await fs.readFile(path.join(root, name));
+            } catch {
+                continue;
+            }
+            if (!buffer?.length) continue;
+            res.setHeader('Content-Type', 'image/png');
+            res.setHeader('Cache-Control', cacheControl);
+            res.setHeader('X-Content-Type-Options', 'nosniff');
+            res.send(buffer);
+            return true;
         }
-        res.setHeader('Content-Type', 'image/png');
-        res.setHeader('Cache-Control', HOME_SCREEN_ICON_CACHE);
-        res.setHeader('X-Content-Type-Options', 'nosniff');
-        res.send(buffer);
-        return true;
     }
     return false;
 };
@@ -16705,21 +17446,25 @@ const sendBrandingImageBuffer = async (res, buffer, contentTypeHint = '', pwaSiz
 app.get('/api/public/pwa-icon', async (req, res) => {
     const size = Number(req.query.size) >= 512 ? 512 : 192;
     const maskable = req.query.maskable === '1' || req.query.maskable === 'true';
-    // Prefer pre-synced static files so Cloudflare never waits on Plex branding.
-    if (maskable) {
-        const sentMaskable = await sendStaticHomeScreenIconFile(res, ['pwa-icon-maskable-512.png']);
-        if (sentMaskable) return sentMaskable;
-    } else {
-        const sentSized = await sendStaticHomeScreenIconFile(res, [
-            `pwa-icon-${size >= 512 ? 512 : 192}.png`,
-            'apple-touch-icon-192.png',
-            'apple-touch-icon.png',
-        ]);
-        if (sentSized) return sentSized;
-    }
     try {
         const config = await loadFile(CONFIG_PATH, {});
-        if (normalizePwaIconSource(config.pwaIconSource) === 'application') {
+        const useApplicationLogo = normalizePwaIconSource(config.pwaIconSource) === 'application';
+        const iconNames = maskable
+            ? ['pwa-icon-maskable-512.png']
+            : [
+                `pwa-icon-${size >= 512 ? 512 : 192}.png`,
+                'apple-touch-icon-192.png',
+                'apple-touch-icon.png',
+            ];
+        // Synced copy under config/branding/pwa, or packaged static only for Application logo.
+        const sentCached = await sendStaticHomeScreenIconFile(
+            res,
+            iconNames,
+            HOME_SCREEN_ICON_CACHE,
+            { allowPackagedFallback: useApplicationLogo },
+        );
+        if (sentCached) return sentCached;
+        if (useApplicationLogo) {
             return sendHomeScreenStaticLogoFallback(res);
         }
 
@@ -16736,6 +17481,10 @@ app.get('/api/public/pwa-icon', async (req, res) => {
             log('[Branding] PWA icon route: server branding unavailable, falling back to app logo');
             return sendHomeScreenStaticLogoFallback(res);
         }
+        // Persist for the next install / A2HS fetch (stamped /static URLs).
+        void refreshPortalBrandingAssets(config, profile || {}).catch((error) => {
+            log(`[Branding] PWA icon route sync failed: ${error.message}`);
+        });
 
         if (maskable) {
             const png = makeHomeScreenIconPng(buffer, size, {
@@ -16846,14 +17595,36 @@ const sendPortalBrandingIcon = async (req, res) => {
  * Do not attach publicReadRateLimit — a 429 JSON body makes iOS show a letter glyph.
  */
 const sendWellKnownAppleTouchIcon = async (req, res) => {
+    let allowPackagedFallback = true;
+    try {
+        const config = await loadFile(CONFIG_PATH, {});
+        allowPackagedFallback = normalizePwaIconSource(config.pwaIconSource) === 'application';
+    } catch {
+        // keep packaged fallback
+    }
     const sent = await sendStaticHomeScreenIconFile(res, [
+        `apple-touch-${homeScreenIconFileRev()}.png`,
         'apple-touch-icon.png',
+        'apple-touch-icon-180x180.png',
         'apple-touch-icon-precomposed.png',
         'apple-touch-icon-192.png',
         'pwa-icon-192.png',
-    ]);
+    ], HOME_SCREEN_ICON_CACHE, { allowPackagedFallback });
     if (sent) return sent;
-    return sendPortalBrandingIcon(req, res);
+    if (!allowPackagedFallback) {
+        return sendPortalBrandingIcon(req, res);
+    }
+    // Never fall through to slow/auth branding for Safari's root probe — generate
+    // the stacked application mark in-process so a missing static file cannot yield HTML/JSON.
+    try {
+        const buffer = await readApplicationLogoBuffer(path.join(process.cwd(), 'static'), {
+            preferAppIcon: true,
+        });
+        if (buffer) return sendHomeScreenFaviconPng(res, buffer);
+    } catch (error) {
+        log(`Well-known apple-touch fallback failed: ${error.message}`);
+    }
+    return sendHomeScreenStaticLogoFallback(res);
 };
 
 // No rate limit — Safari probes these during A2HS; 429/HTML ⇒ letter glyph (e.g. "B").
@@ -16903,6 +17674,82 @@ const fetchMediaPlayerOgMetadata = async (config, ratingKey) => {
 };
 
 let mediaPlayerTrendingWeekCache = null;
+const mediaPlayerServiceLogoCache = new Map();
+const MEDIA_PLAYER_SERVICE_LOGO_TTL_MS = 6 * 60 * 60 * 1000;
+
+/** Unauthenticated TMDB logos for the TV app (plex-direct + portal URL, no JWT). */
+app.get('/api/public/media-player/service-logos', publicReadRateLimit, async (req, res) => {
+    try {
+        const mediaType = String(req.query.mediaType || req.query.type || 'movie').toLowerCase() === 'tv'
+            ? 'tv'
+            : 'movie';
+        const tmdbId = Number(req.query.tmdbId || req.query.id || 0);
+        if (!Number.isFinite(tmdbId) || tmdbId <= 0) {
+            return res.status(400).json({ networks: [], productionCompanies: [], watchProviders: [], reason: 'bad-id' });
+        }
+        const cacheKey = `${mediaType}:${tmdbId}`;
+        const cached = mediaPlayerServiceLogoCache.get(cacheKey);
+        if (cached && Date.now() - cached.at < MEDIA_PLAYER_SERVICE_LOGO_TTL_MS) {
+            res.setHeader('Cache-Control', 'public, max-age=600');
+            return res.json(cached.payload);
+        }
+        const config = await loadFile(CONFIG_PATH, {});
+        const apiKey = String(config.tmdbApiKey || '').trim();
+        if (!apiKey || apiKey === '********') {
+            return res.status(503).json({ networks: [], productionCompanies: [], watchProviders: [], reason: 'missing-tmdb-key' });
+        }
+        const upstream = await fetch(
+            `https://api.themoviedb.org/3/${mediaType}/${encodeURIComponent(String(tmdbId))}`
+            + `?api_key=${encodeURIComponent(apiKey)}&append_to_response=${encodeURIComponent('watch/providers')}`,
+        ).catch(() => null);
+        if (!upstream?.ok) {
+            return res.status(502).json({ networks: [], productionCompanies: [], watchProviders: [], reason: 'tmdb-upstream' });
+        }
+        const json = await upstream.json().catch(() => null);
+        const providerResults = json?.['watch/providers']?.results || {};
+        const mapProviders = (rows = []) => [].concat(rows || []).map((row) => ({
+            id: row?.provider_id,
+            name: row?.provider_name,
+            logoPath: row?.logo_path,
+        })).filter((row) => row.name && row.logoPath);
+        const watchProviders = Object.entries(providerResults).map(([iso, provider]) => ({
+            iso_3166_1: iso,
+            link: provider?.link,
+            buy: mapProviders(provider?.buy),
+            flatrate: mapProviders(provider?.flatrate),
+            ads: mapProviders(provider?.ads),
+        }));
+        // Keep name-only networks/companies — the client fills bundled catalog logos (BBC, C4, …).
+        const networks = mediaType === 'tv'
+            ? [].concat(json?.networks || []).map((row) => ({
+                id: row?.id,
+                name: row?.name,
+                logoPath: row?.logo_path || '',
+            })).filter((row) => row.name)
+            : [];
+        const productionCompanies = [].concat(json?.production_companies || []).map((row) => ({
+            id: row?.id,
+            name: row?.name,
+            logoPath: row?.logo_path || '',
+        })).filter((row) => row.name);
+        const payload = { networks, productionCompanies, watchProviders, reason: 'ok' };
+        mediaPlayerServiceLogoCache.set(cacheKey, { at: Date.now(), payload });
+        if (mediaPlayerServiceLogoCache.size > 400) {
+            const oldest = mediaPlayerServiceLogoCache.keys().next().value;
+            if (oldest) mediaPlayerServiceLogoCache.delete(oldest);
+        }
+        res.setHeader('Cache-Control', 'public, max-age=600');
+        return res.json(payload);
+    } catch (error) {
+        return res.status(500).json({
+            networks: [],
+            productionCompanies: [],
+            watchProviders: [],
+            reason: 'error',
+            error: String(error?.message || error),
+        });
+    }
+});
 
 app.get('/api/public/media-player/trending-week', publicReadRateLimit, async (req, res) => {
     try {
@@ -17077,7 +17924,7 @@ app.get('/api/status', publicReadRateLimit, async (req, res) => {
     const token = req.cookies?.session;
     if (token) {
         try {
-            sessionUser = jwt.verify(token, JWT_SECRET);
+            sessionUser = verifySessionToken(token);
             const isRealAdmin = await resolveCurrentAdmin(getSessionActor(sessionUser), config);
             // Impersonation must see the member/public view — not the full admin service list.
             viewerIsAdmin = effectiveViewerIsAdmin(sessionUser, isRealAdmin);
@@ -22243,41 +23090,58 @@ if (BASE_PATH) {
     app.use(`${BASE_PATH}/static`, express.static(staticDir, staticAssetOptions));
 }
 
-const absolutizePublicHref = (href, baseUrl = '') => {
-    const trimmed = String(href || '').trim();
-    if (!trimmed) return trimmed;
-    if (/^https?:\/\//i.test(trimmed)) return trimmed;
-    const root = String(baseUrl || runtimePublicBaseUrl || '').replace(/\/+$/, '');
-    if (root && trimmed.startsWith('/')) return `${root}${trimmed}`;
-    return trimmed;
+/**
+ * Filename-stamped install icons (/static/pwa-icon-192-v<key>.png, /static/apple-touch-<rev>-v<key>.png).
+ * The stamp replaces ?v= query strings: iOS 26+ "Open as Web App" fetches manifest /
+ * apple-touch icons with Safari's own loader at add-time and rendered a letter glyph for
+ * every query-string URL, while bare .png paths work. Falls through to express.static
+ * first (no such file on disk), then maps the stamped name to its base file here.
+ * Must never answer with HTML/JSON — iOS treats that as "no icon".
+ */
+const sendStampedPwaIcon = async (req, res, next) => {
+    const baseFile = parseStampedPwaIconFileName(req.params.file);
+    if (!baseFile) return next();
+    let allowPackagedFallback = true;
+    try {
+        const config = await loadFile(CONFIG_PATH, {});
+        allowPackagedFallback = normalizePwaIconSource(config.pwaIconSource) === 'application';
+    } catch {
+        // keep packaged fallback
+    }
+    const sent = await sendStaticHomeScreenIconFile(
+        res,
+        [baseFile, 'apple-touch-icon.png', 'pwa-icon-192.png'],
+        'public, max-age=86400',
+        { allowPackagedFallback },
+    );
+    if (sent) return sent;
+    if (!allowPackagedFallback) {
+        // Server logo selected but persistent icons missing — generate live (same as branding-icon).
+        return sendPortalBrandingIcon(req, res);
+    }
+    return sendWellKnownAppleTouchIcon(req, res);
 };
+app.get('/static/:file', sendStampedPwaIcon);
+if (BASE_PATH) {
+    app.get(`${BASE_PATH}/static/:file`, sendStampedPwaIcon);
+}
 
 const buildPwaManifest = async () => {
     const config = await loadFile(CONFIG_PATH, {});
     const profile = await getAdminProfile(config);
     const serverName = profile.serverName || 'StreamPilot';
-    const publicBase = resolvePublicBaseUrlFromConfig(config) || runtimePublicBaseUrl || '';
     // App home is /portal when BASE_PATH is empty — matches login redirect + client router.
     const startUrl = BASE_PATH ? `${BASE_PATH}/` : '/portal';
     const scope = BASE_PATH ? `${BASE_PATH}/` : '/';
     // Always point install icons at /static PNGs (not well-known /apple-touch-icon.png).
-    // Absolute icon URLs are more reliable for iOS "Open as Web App" installs.
-    const icon192 = absolutizePublicHref(
-        resolvePortalPwaManifestIconHref(config, profile, resolvePublicAssetHref, { size: 192 }),
-        publicBase,
-    );
-    const icon512 = absolutizePublicHref(
-        resolvePortalPwaManifestIconHref(config, profile, resolvePublicAssetHref, { size: 512 }),
-        publicBase,
-    );
-    const iconMaskable = absolutizePublicHref(
-        resolvePortalPwaManifestIconHref(config, profile, resolvePublicAssetHref, { size: 512, maskable: true }),
-        publicBase,
-    );
-    const touchIcon = absolutizePublicHref(
-        `${resolvePublicAssetHref('/static/apple-touch-icon.png')}?v=${getPortalBrandingIconCacheKey(config, profile)}&hs=${HOME_SCREEN_ICON_REV}`,
-        publicBase,
-    );
+    // Keep this list textbook — iOS 26+ "Open as Web App" reads icons from here:
+    //  * same-origin relative srcs (absolute Public Base URL hosts may be unreachable
+    //    from the phone),
+    //  * NO query strings (stamp is in the filename — ?v= URLs produced a letter glyph),
+    //  * 192 + 512 purpose "any" (what iOS actually uses) plus a maskable for Android.
+    const icon192 = resolvePortalPwaManifestIconHref(config, profile, resolvePublicAssetHref, { size: 192 });
+    const icon512 = resolvePortalPwaManifestIconHref(config, profile, resolvePublicAssetHref, { size: 512 });
+    const iconMaskable = resolvePortalPwaManifestIconHref(config, profile, resolvePublicAssetHref, { size: 512, maskable: true });
     return {
         id: startUrl,
         name: `${serverName} Portal`,
@@ -22289,7 +23153,6 @@ const buildPwaManifest = async () => {
         background_color: '#0b0f19',
         theme_color: '#0b0f19',
         icons: [
-            { src: touchIcon, sizes: '180x180', type: 'image/png', purpose: 'any' },
             { src: icon192, sizes: '192x192', type: 'image/png', purpose: 'any' },
             { src: icon512, sizes: '512x512', type: 'image/png', purpose: 'any' },
             { src: iconMaskable, sizes: '512x512', type: 'image/png', purpose: 'maskable' }
@@ -22308,6 +23171,9 @@ const sendPwaManifest = async (_req, res) => {
 };
 
 app.get(['/manifest.webmanifest', '/manifest.json', '/site.webmanifest'], sendPwaManifest);
+// Public portal lives at /portal even when BASE_PATH is empty (reverse-proxy style).
+// Without these aliases, /portal/manifest.webmanifest falls through to the SPA HTML shell.
+app.get(['/portal/manifest.webmanifest', '/portal/manifest.json', '/portal/site.webmanifest'], sendPwaManifest);
 if (BASE_PATH) {
     app.get([
         `${BASE_PATH}/manifest.webmanifest`,
@@ -22318,7 +23184,7 @@ if (BASE_PATH) {
 
 // Chromium Android uses this for WebAPK installability. Firefox deliberately does not
 // register it (a bad SW makes Firefox Install silently no-op).
-const serviceWorkerScript = `/* portal-sw v11 */
+const serviceWorkerScript = `/* portal-sw v12 */
 self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
@@ -22327,12 +23193,25 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
 
-// Presence-only fetch listener — required for Chrome Android Install.
-// Do NOT event.respondWith(fetch(...)): proxying every request breaks
-// cross-origin posters (TMDB), fonts (Google), and Plex/user thumbs.
-self.addEventListener('fetch', () => {});
-
 const PORTAL_START = ${JSON.stringify(BASE_PATH ? `${BASE_PATH}/` : '/portal')};
+// Chrome's beforeinstallprompt heuristic ignores *empty* fetch handlers (sites used
+// them only to game installability). Keep this non-empty, but never proxy API/static/
+// cross-origin traffic — only soft-fail same-origin navigations when offline.
+self.addEventListener('fetch', (event) => {
+  if (event.request.mode !== 'navigate') return;
+  event.respondWith((async () => {
+    try {
+      return await fetch(event.request);
+    } catch (_) {
+      try {
+        return Response.redirect(new URL(PORTAL_START, self.registration.scope).href, 302);
+      } catch (_2) {
+        return new Response('Offline', { status: 503, statusText: 'Offline', headers: { 'Content-Type': 'text/plain' } });
+      }
+    }
+  })());
+});
+
 const PWA_ICON_PATH = ${JSON.stringify(withBasePath('/api/public/pwa-icon?size=192'))};
 const PWA_BADGE_PATH = ${JSON.stringify(withBasePath('/api/public/pwa-badge?size=96&m=sz3'))};
 
@@ -22399,6 +23278,7 @@ const sendServiceWorker = (_req, res) => {
 };
 
 app.get('/service-worker.js', sendServiceWorker);
+app.get('/portal/service-worker.js', sendServiceWorker);
 if (BASE_PATH) {
     app.get(`${BASE_PATH}/service-worker.js`, sendServiceWorker);
 }
@@ -22440,22 +23320,33 @@ const resolvePublicAssetHref = (url = '/static/logo.png') => {
 };
 
 const resolvePortalBrandingIconHref = (config = {}, profile = {}, baseUrl = '') => {
-    // Static file first (no API/rate-limit). Well-known /apple-touch-icon.png mirrors it.
-    const href = `${resolvePublicAssetHref('/static/apple-touch-icon.png')}?v=${getPortalBrandingIconCacheKey(config, profile)}&hs=${HOME_SCREEN_ICON_REV}`;
+    // Path includes HOME_SCREEN_ICON_REV so iOS A2HS cannot reuse a stale bitmap.
+    const href = resolveAppleTouchIconHref(config, profile, resolvePublicAssetHref);
     const root = String(baseUrl || '').replace(/\/+$/, '');
     if (root && href.startsWith('/')) return `${root}${href}`;
     return href;
 };
 
 const injectAppIconLinks = (html, iconHref) => {
-    const safeHref = escapeHtmlAttr(iconHref || resolvePublicAssetHref('/apple-touch-icon.png'));
+    const rawHref = String(iconHref || resolvePublicAssetHref(`/static/apple-touch-${homeScreenIconFileRev()}.png`)).trim();
+    const safeHref = escapeHtmlAttr(rawHref);
     const manifestHref = escapeHtmlAttr(withBasePath('/manifest.webmanifest'));
     const manifestTag = `<link rel="manifest" href="${manifestHref}" />`;
+    const bootScript = `<script>window.__APPLE_TOUCH_ICON_HREF__=${JSON.stringify(rawHref)};window.__HOME_SCREEN_ICON_REV__=${JSON.stringify(HOME_SCREEN_ICON_REV)};</script>`;
+    // Exactly one apple-touch-icon (same-origin, no query string). Extra precomposed
+    // links and ?hs= / ?v= query URLs made iOS 26+ install show a letter glyph.
+    // The file is 512px so the home-screen preview is not an upscaled 180px favicon.
+    // /apple-touch-icon.png is still served for probes.
+    const faviconHref = escapeHtmlAttr(resolvePublicAssetHref('/static/favicon-180.png'));
+    const favicon32Href = escapeHtmlAttr(resolvePublicAssetHref('/static/favicon-32.png'));
     const iconLinks = [
-        `<link rel="icon" type="image/png" href="${safeHref}" />`,
-        `<link rel="apple-touch-icon" href="${safeHref}" />`,
-        `<link rel="apple-touch-icon" sizes="180x180" href="${safeHref}" />`,
-        `<link rel="apple-touch-icon-precomposed" href="${safeHref}" />`,
+        bootScript.replace(
+            'window.__APPLE_TOUCH_ICON_HREF__=',
+            `window.__FAVICON_HREF__=${JSON.stringify(resolvePublicAssetHref('/static/favicon-180.png'))};window.__APPLE_TOUCH_ICON_HREF__=`,
+        ),
+        `<link rel="icon" type="image/png" sizes="32x32" href="${favicon32Href}" />`,
+        `<link rel="icon" type="image/png" sizes="180x180" href="${faviconHref}" />`,
+        `<link rel="apple-touch-icon" sizes="512x512" href="${safeHref}" />`,
     ].join('\n    ');
     let updated = html
         .replace(/<link\b(?=[^>]*\brel=["'][^"']*manifest[^"']*["'])[^>]*>\s*/gi, '')
@@ -22597,7 +23488,14 @@ const buildSocialMetaTags = async (req) => {
         card,
     });
 
-    return { title, tags, iconHref: resolvePortalBrandingIconHref(config, profile, baseUrl) };
+    return {
+        title,
+        tags,
+        // Absolute OK for Open Graph crawlers; apple-touch must stay same-origin relative
+        // (a wrong publicDomain absolute URL makes iOS show a letter glyph).
+        iconHref: resolvePortalBrandingIconHref(config, profile, baseUrl),
+        appleTouchHref: resolveAppleTouchIconHref(config, profile, resolvePublicAssetHref),
+    };
 };
 
 /**
@@ -22667,8 +23565,9 @@ const readPortalIndexHtml = async () => {
     return text;
 };
 
-// Serve the main index.html for SPA routes (after base-path strip, paths are root-relative)
-app.get(/^\/(?!api\/|static\/|manifest\.(?:webmanifest|json)|site\.webmanifest|service-worker\.js|apple-touch-icon(?:-precomposed)?(?:-\d+x\d+)?\.png$|favicon\.ico$).*$/, async (req, res) => {
+// Serve the main index.html for SPA routes (after base-path strip, paths are root-relative).
+// Exclude /portal/manifest + /portal/service-worker aliases used when BASE_PATH is empty.
+app.get(/^\/(?!api\/|static\/|(?:portal\/)?manifest\.(?:webmanifest|json)|(?:portal\/)?site\.webmanifest|(?:portal\/)?service-worker\.js|apple-touch-icon(?:-precomposed)?(?:-\d+x\d+)?\.png$|favicon\.ico$).*$/, async (req, res) => {
     if (!arePortalFrontendAssetsReady()) {
         res.status(503);
         res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -22680,7 +23579,7 @@ app.get(/^\/(?!api\/|static\/|manifest\.(?:webmanifest|json)|site\.webmanifest|s
         const socialMeta = await buildSocialMetaTags(req);
         const updatedHtml = injectBasePathHtml(injectAppIconLinks(html
             .replace(/<title>[\s\S]*?<\/title>/i, `<title>${escapeHtmlAttr(socialMeta.title)}</title>`)
-            .replace('</head>', `    ${socialMeta.tags}\n</head>`), socialMeta.iconHref));
+            .replace('</head>', `    ${socialMeta.tags}\n</head>`), socialMeta.appleTouchHref || socialMeta.iconHref));
         res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
         res.setHeader('Pragma', 'no-cache');
         res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -24145,6 +25044,12 @@ const pruneHealthRecord = (record, now) => {
         record.incidents = record.incidents.slice(-STATUS_INCIDENTS_MAX);
     }
 };
+
+/** Heavy scheduled jobs wait while the status page's Plex monitor says Plex is down or just back. */
+const plexHeavyJobGate = async () => decidePlexHeavyJob({
+    services: statusConfig?.services || [],
+    healthData,
+});
 
 async function runMonitorCycle() {
     if (!statusConfig.services || statusConfig.services.length === 0) return;
@@ -30090,7 +30995,11 @@ app.all(withWildcard('/api/collexions'), requireAdmin, requireCollexions, async 
             || suffix.startsWith('templates/franchise-search')
             || suffix === 'trending'
             || suffix === 'trakt/list'
-            || suffix.startsWith('trakt/list?');
+            || suffix.startsWith('trakt/list?')
+            || suffix === 'justwatch/list'
+            || suffix.startsWith('justwatch/list?')
+            || suffix === 'letterboxd/list'
+            || suffix.startsWith('letterboxd/list?');
         const timeoutMs = longSuffix ? COLLEXIONS_LONG_PROXY_MS : 20000;
         const upstream = await fetchWithTimeout(targetUrl.toString(), init, timeoutMs);
         const contentType = upstream.headers.get('content-type') || '';
@@ -30760,6 +31669,7 @@ app.use('/api/media-player', createMediaPlayerRouter({
     fetchImpl: fetch,
     clientId: CLIENT_ID,
     appVersion,
+    resolveWatchTogetherHostStream,
     resolveMemberPlexToken: async (req) => {
         const sessionUser = req?.user;
         if (!sessionUser) return null;
@@ -30885,25 +31795,22 @@ app.use('/api/poster-sets', createPosterSetsRouter({
         }
         let libraries = [];
         try {
-            libraries = await listPlexLibrariesForConfig(config);
+            libraries = await listPlexLibrariesForConfig(config, { strict: true });
         } catch (error) {
             throw new Error(`Could not list Plex libraries: ${error.message || error}`);
         }
-        const selectedIds = Array.isArray(config.defaultLibraryIds)
-            ? config.defaultLibraryIds.map((id) => String(id))
-            : [];
-        const scoped = selectedIds.length
-            ? libraries.filter((lib) => selectedIds.includes(String(lib.id)))
-            : libraries;
-        const source = selectedIds.length ? scoped : libraries;
-        const tv_library = source.filter((lib) => lib.type === 'show').map((lib) => lib.title).filter(Boolean);
-        const movie_library = source.filter((lib) => lib.type === 'movie').map((lib) => lib.title).filter(Boolean);
+        const picked = librariesForPosterSets(libraries);
+        if (!picked.tv_library.length && !picked.movie_library.length) {
+            const types = [...new Set(libraries.map((lib) => lib.type).filter(Boolean))].join(', ') || 'unknown';
+            throw new Error(`Plex returned ${libraries.length} libraries, but none are TV or movies (${types}).`);
+        }
         return {
             base_url: base_url.endsWith('/') ? base_url : `${base_url}/`,
             token,
-            tv_library,
-            movie_library,
-            librarySource: selectedIds.length ? 'default-libraries' : 'all-sections',
+            tv_library: picked.tv_library,
+            movie_library: picked.movie_library,
+            skipped: picked.skipped,
+            librarySource: picked.librarySource,
         };
     },
 }));
@@ -30986,6 +31893,13 @@ app.use('/api/watch-sync', createWatchSyncRouter({
     systemJob: systemJobs.watchSync,
     log,
 }));
+
+/** Watch Together room peek (invite code). No membership required — limited fields only. */
+app.get('/api/watch-together/room/:code', (req, res) => {
+    const summary = getWatchTogetherRoomSummary(req.params.code);
+    if (!summary) return res.status(404).json({ error: 'Room not found.' });
+    return res.json(summary);
+});
 
 const findMediaAutomationLibraryForPath = async (candidate) => {
     const absolute = path.resolve(String(candidate || ''));
@@ -33654,38 +34568,8 @@ function normalizeRuleResolution(rawResolution, isTranscoding, transcodeResoluti
     return normalizeBucket(rawResolution);
 }
 
-function sessionMatchesCondition(session, condition) {
-    const { field, operator, value } = condition;
-    let sessionVal;
-
-    switch (field) {
-        case 'isTranscoding': sessionVal = session.isTranscoding ? 'true' : 'false'; break;
-        case 'videoResolution': sessionVal = (session.resolution || '').toString().toLowerCase(); break;
-        case 'user': sessionVal = (session.user || '').toLowerCase(); break;
-        case 'bandwidth': sessionVal = Math.round((session.bandwidth || 0) / 1000); break; // in Mbps
-        case 'playerProduct': sessionVal = (session.playerProduct || '').toLowerCase(); break;
-        case 'state': sessionVal = (session.state || '').toLowerCase(); break;
-        case 'mediaType': sessionVal = (session.type || '').toLowerCase(); break;
-        case 'sessionLocation': sessionVal = (session.sessionLocation || '').toLowerCase(); break;
-        case 'playerTitle': sessionVal = (session.playerTitle || '').toLowerCase(); break;
-        case 'videoCodec': sessionVal = (session.videoCodec || '').toLowerCase(); break;
-        case 'audioCodec': sessionVal = (session.audioCodec || '').toLowerCase(); break;
-        case 'transcodeVideoDecision': sessionVal = (session.transcodeVideoDecision || '').toLowerCase(); break;
-        default: return false;
-    }
-
-    const compareVal = field === 'bandwidth' ? parseFloat(value) : (value || '').toString().toLowerCase();
-
-    switch (operator) {
-        case 'equals': return String(sessionVal) === String(compareVal);
-        case 'not_equals': return String(sessionVal) !== String(compareVal);
-        case 'contains': return String(sessionVal).includes(String(compareVal));
-        case 'not_contains': return !String(sessionVal).includes(String(compareVal));
-        case 'greater_than': return parseFloat(sessionVal) > parseFloat(compareVal);
-        case 'less_than': return parseFloat(sessionVal) < parseFloat(compareVal);
-        default: return false;
-    }
-}
+/** sessionId → when it was first seen paused, for the "paused for" condition. */
+const killRulePausedSince = new Map();
 
 async function evaluateKillRules(config, uri, sessions) {
     if (!sessions || sessions.length === 0) return;
@@ -33693,7 +34577,10 @@ async function evaluateKillRules(config, uri, sessions) {
     const enabledRules = rules.filter(r => r.enabled !== false);
     if (enabledRules.length === 0) return;
 
-    for (const session of sessions) {
+    const annotated = annotateKillRuleSessions(sessions, { pausedSince: killRulePausedSince });
+    const stopped = new Set();
+    for (const session of annotated) {
+        if (stopped.has(session.sessionId)) continue;
         for (const rule of enabledRules) {
             const { conditions, conditionLogic = 'AND', killMessage, name } = rule;
             if (!conditions || conditions.length === 0) continue;
@@ -33714,6 +34601,9 @@ async function evaluateKillRules(config, uri, sessions) {
                     if (killRes.ok || killRes.status === 204) {
                         log(`[KillRules] Terminated session for "${session.user || 'Unknown'}" via rule "${name || 'Unnamed'}". Reason: ${msg}`);
                         await appendAuditLog('stream_killed_by_rule', null, null, { user: session.user, rule: name, reason: msg });
+                        // A stream limit stops only what is over it: recount this user's others.
+                        stopped.add(session.sessionId);
+                        recountAfterStopped(annotated, stopped);
                     }
                 } catch (e) {
                     log(`[KillRules] Error terminating session: ${e.message}`);
@@ -33724,9 +34614,7 @@ async function evaluateKillRules(config, uri, sessions) {
     }
 }
 
-// --- Security: Schema validation for kill rules ---
-const VALID_KILL_RULE_FIELDS    = new Set(['isTranscoding', 'videoResolution', 'user', 'bandwidth', 'playerProduct', 'state', 'mediaType', 'sessionLocation', 'playerTitle', 'videoCodec', 'audioCodec', 'transcodeVideoDecision']);
-const VALID_KILL_RULE_OPERATORS = new Set(['equals', 'not_equals', 'contains', 'not_contains', 'greater_than', 'less_than']);
+// --- Security: Schema validation for kill rules (fields and operators: lib/killRules.js) ---
 
 const validateKillRulesSchema = (rules) => {
     if (!Array.isArray(rules)) throw new Error('Rules must be an array');
@@ -33797,6 +34685,9 @@ async function monitorConcurrentSessions() {
                     return {
                         sessionId: session.id || m.sessionKey,
                         user: m.User ? m.User.title : 'Unknown',
+                        userId: m.User ? String(m.User.id || '') : '',
+                        // Remote streams are told apart by public address (stream rules: places).
+                        address: player.remotePublicAddress || player.address || '',
                         isTranscoding: isTranscode,
                         sourceResolution: sourceResolution ? String(sourceResolution).toLowerCase() : null,
                         resolution: normalizeRuleResolution(sourceResolution, isTranscode, transcodeResolutionRaw),
@@ -33884,7 +34775,7 @@ app.use((err, req, res, next) => {
     return res.status(safeStatus).json({ error: message });
 });
 
-app.listen(PORT, BIND_HOST, async () => {
+const httpServer = app.listen(PORT, BIND_HOST, async () => {
     log(`--- StreamPilot Service starting on http://${BIND_HOST}:${PORT} ---`);
     log(`Runtime: CONFIG_DIR=${CONFIG_DIR}, FORCE_SECURE_COOKIES=${FORCE_SECURE_COOKIES}, BASE_PATH=${BASE_PATH || '/'}, appVersion=${appVersion}`);
     if (!arePortalFrontendAssetsReady()) {
@@ -34162,6 +35053,8 @@ app.listen(PORT, BIND_HOST, async () => {
             await sendGotifyAlert(config, title || 'Poster Sets watcher', message || '');
         });
         startPosterSetsWatcher({
+            plexReady: plexHeavyJobGate,
+            log,
             resolveFirstPassDelayMs: async () => {
                 const stored = await getJob(JOB_IDS.posterSetsWatcher);
                 const intervalMs = stored.intervalMs || 6 * 60 * 60 * 1000;
@@ -34192,6 +35085,7 @@ app.listen(PORT, BIND_HOST, async () => {
             },
             markTaskStart,
             markTaskEnd,
+            plexReady: plexHeavyJobGate,
         };
         startOverlaysScheduler({
             ...overlaysSchedDeps,
@@ -34217,6 +35111,7 @@ app.listen(PORT, BIND_HOST, async () => {
             markTaskEnd,
             systemJob: systemJobs.editionsProcess,
             log,
+            plexReady: plexHeavyJobGate,
         });
         log('[editions] Full-run scheduler started');
     } catch (error) {
@@ -34230,6 +35125,7 @@ app.listen(PORT, BIND_HOST, async () => {
             markTaskEnd,
             systemJob: systemJobs.watchSync,
             log,
+            plexReady: plexHeavyJobGate,
         });
         log('[watch-sync] Scheduler started');
         startLiveWatch({
@@ -34298,4 +35194,11 @@ app.listen(PORT, BIND_HOST, async () => {
             await runAutoBackupCycle('scheduled');
         }
     }, 60 * 60 * 1000);
+});
+
+attachWatchTogether(httpServer, {
+    jwtSecret: JWT_SECRET,
+    isSessionRevoked: (token, decoded) => sessionRevocations.isRevoked(token, decoded),
+    basePath: BASE_PATH,
+    log,
 });

@@ -3,6 +3,7 @@ import {
     ChevronLeft, ChevronRight, FileText, Loader2, Play, RefreshCw, RotateCcw, Search, Square, Unlock, Wand2,
 } from 'lucide-react';
 import { apiFetch } from '../shared/api';
+import { portalUrl } from '../shared/basePath';
 import { DashboardHero, DashboardPageShell } from '../shared/dashboard/DashboardChrome';
 
 type FillLogRow = {
@@ -31,11 +32,127 @@ type ShowHit = {
     ratingKey: string;
     title: string;
     year?: number | null;
+    type?: string;
     tmdbId?: string | null;
     tvdbId?: string | null;
+    thumb?: string | null;
 };
 
-type LibraryRow = { key: string; title: string };
+type LibraryRow = { key: string; title: string; type?: string };
+
+type ClearlogoCandidate = {
+    ratingKey?: string;
+    provider?: string;
+    thumb?: string;
+    selected?: boolean;
+};
+
+type ClearlogoPreviewRow = {
+    ratingKey: string;
+    title?: string;
+    year?: number | null;
+    type?: string;
+    libraryKey?: string;
+    libraryTitle?: string;
+    thumb?: string | null;
+    status?: string;
+    candidateCount?: number;
+    candidates?: ClearlogoCandidate[];
+    bestCandidate?: ClearlogoCandidate | null;
+    selectedCandidate?: ClearlogoCandidate | null;
+    external?: {
+        url?: string;
+        filePath?: string;
+        language?: string | null;
+        source?: string;
+        tmdbId?: string | null;
+    } | null;
+    source?: string;
+    hasLogoApplied?: boolean;
+    applied?: boolean;
+    dryRun?: boolean;
+    error?: string | null;
+};
+
+type ClearlogoTableFilter = 'available' | 'externalAvailable' | 'hasLogo' | 'none' | 'all';
+
+type ClearlogoTitleHit = ShowHit & { type?: string };
+
+type HyphenTitlePreviewRow = {
+    ratingKey: string;
+    plexTitle?: string;
+    tmdbTitle?: string | null;
+    tmdbId?: string | null;
+    year?: number | null;
+    thumb?: string | null;
+    libraryTitle?: string;
+    status?: 'available' | 'matched' | 'applied' | 'skipped' | 'noTmdbId' | 'failed' | string;
+    reason?: string;
+    applied?: boolean;
+    dryRun?: boolean;
+    error?: string | null;
+};
+
+type HyphenTitleTableFilter = 'available' | 'matched' | 'all';
+
+type HyphenTitleScanState = {
+    status?: string;
+    dryRun?: boolean;
+    cancelRequested?: boolean;
+    inProcess?: boolean;
+    cursor?: {
+        libraryIndex?: number;
+        itemStart?: number;
+        libraryTitle?: string;
+        title?: string | null;
+    } | null;
+    stats?: {
+        scanned?: number;
+        available?: number;
+        matched?: number;
+        skipped?: number;
+        applied?: number;
+        failed?: number;
+        noTmdbId?: number;
+    };
+    preview?: HyphenTitlePreviewRow[];
+    libraries?: LibraryRow[];
+    selectedLibraryKeys?: string[];
+    error?: string | null;
+    updatedAt?: string | null;
+    startedAt?: string | null;
+    finishedAt?: string | null;
+};
+
+type ClearlogoScanState = {
+    status?: string;
+    dryRun?: boolean;
+    inProcess?: boolean;
+    cancelRequested?: boolean;
+    stats?: {
+        scanned?: number;
+        hasLogo?: number;
+        available?: number;
+        externalAvailable?: number;
+        none?: number;
+        applied?: number;
+        skipped?: number;
+        failed?: number;
+    };
+    cursor?: {
+        libraryTitle?: string;
+        title?: string;
+        libraryIndex?: number;
+        itemStart?: number;
+    };
+    preview?: ClearlogoPreviewRow[];
+    libraries?: LibraryRow[];
+    selectedLibraryKeys?: string[];
+    error?: string | null;
+    startedAt?: string | null;
+    finishedAt?: string | null;
+    updatedAt?: string | null;
+};
 
 type FillFields = {
     title: boolean;
@@ -110,6 +227,8 @@ type Status = {
     requireTitleAgreement: boolean;
     libraryKeys: string[];
     libraries: LibraryRow[];
+    clearlogoLibraries: LibraryRow[];
+    movieLibraries: LibraryRow[];
     librariesError?: string | null;
     tmdbConfigured: boolean;
     tvdbConfigured: boolean;
@@ -117,6 +236,15 @@ type Status = {
     log: FillLogRow[];
     retryQueue: RetryItem[];
     scan: ScanState | null;
+    clearlogoScan: ClearlogoScanState | null;
+    hyphenTitleScan: HyphenTitleScanState | null;
+};
+
+const plexThumbUrl = (path?: string | null, width = 80, height = 120) => {
+    const raw = String(path || '').trim();
+    if (!raw) return '';
+    if (raw.startsWith('http://') || raw.startsWith('https://') || raw.startsWith('data:')) return raw;
+    return portalUrl(`/api/plex/image?path=${encodeURIComponent(raw)}&width=${width}&height=${height}`);
 };
 
 const defaultFields = (): FillFields => ({
@@ -129,6 +257,8 @@ type LogFilter = 'all' | 'filled' | 'failed' | 'preview' | 'skipped' | 'reverted
 type PreviewFilter = 'all' | 'ok' | 'failed' | 'skipped';
 
 const LOG_PAGE_SIZE = 25;
+const CLEARLOGO_PAGE_SIZE = 40;
+const HYPHEN_TITLE_PAGE_SIZE = 40;
 
 const reasonLabel = (reason?: string) => {
     switch (String(reason || '')) {
@@ -172,6 +302,24 @@ export const MetadataFillPage: React.FC = () => {
     const [busyToggle, setBusyToggle] = useState('');
     const [scanDryRun, setScanDryRun] = useState(true);
     const [scanBusy, setScanBusy] = useState(false);
+    const [clearlogoDryRun, setClearlogoDryRun] = useState(true);
+    const [clearlogoBusy, setClearlogoBusy] = useState(false);
+    const [clearlogoLibraryKeys, setClearlogoLibraryKeys] = useState<string[]>([]);
+    const [clearlogoTableFilter, setClearlogoTableFilter] = useState<ClearlogoTableFilter>('available');
+    const [clearlogoPage, setClearlogoPage] = useState(1);
+    const [clearlogoRowBusy, setClearlogoRowBusy] = useState('');
+    /** Optional per-title clearlogo candidate ratingKey overrides. */
+    const [clearlogoPicks, setClearlogoPicks] = useState<Record<string, string>>({});
+    const [clearlogoQuery, setClearlogoQuery] = useState('');
+    const [clearlogoHits, setClearlogoHits] = useState<ClearlogoTitleHit[]>([]);
+    const [clearlogoSearching, setClearlogoSearching] = useState(false);
+    const [clearlogoFillBusy, setClearlogoFillBusy] = useState('');
+    const [hyphenDryRun, setHyphenDryRun] = useState(true);
+    const [hyphenBusy, setHyphenBusy] = useState(false);
+    const [hyphenLibraryKeys, setHyphenLibraryKeys] = useState<string[]>([]);
+    const [hyphenTableFilter, setHyphenTableFilter] = useState<HyphenTitleTableFilter>('available');
+    const [hyphenPage, setHyphenPage] = useState(1);
+    const [hyphenRowBusy, setHyphenRowBusy] = useState('');
     const [retryBusy, setRetryBusy] = useState(false);
     const [logFilter, setLogFilter] = useState<LogFilter>('all');
     const [logQuery, setLogQuery] = useState('');
@@ -203,6 +351,8 @@ export const MetadataFillPage: React.FC = () => {
                 requireTitleAgreement: !!data?.requireTitleAgreement,
                 libraryKeys: Array.isArray(data?.libraryKeys) ? data.libraryKeys.map(String) : [],
                 libraries: Array.isArray(data?.libraries) ? data.libraries : [],
+                clearlogoLibraries: Array.isArray(data?.clearlogoLibraries) ? data.clearlogoLibraries : [],
+                movieLibraries: Array.isArray(data?.movieLibraries) ? data.movieLibraries : [],
                 librariesError: data?.librariesError ? String(data.librariesError) : null,
                 tmdbConfigured: !!data?.tmdbConfigured,
                 tvdbConfigured: !!data?.tvdbConfigured,
@@ -210,8 +360,18 @@ export const MetadataFillPage: React.FC = () => {
                 log: Array.isArray(data?.log) ? data.log : [],
                 retryQueue: Array.isArray(data?.retryQueue) ? data.retryQueue : [],
                 scan: data?.scan || null,
+                clearlogoScan: data?.clearlogoScan || null,
+                hyphenTitleScan: data?.hyphenTitleScan || null,
             });
             if (data?.scan?.dryRun != null) setScanDryRun(!!data.scan.dryRun);
+            if (data?.clearlogoScan?.dryRun != null) setClearlogoDryRun(!!data.clearlogoScan.dryRun);
+            if (Array.isArray(data?.clearlogoScan?.selectedLibraryKeys)) {
+                setClearlogoLibraryKeys(data.clearlogoScan.selectedLibraryKeys.map(String));
+            }
+            if (data?.hyphenTitleScan?.dryRun != null) setHyphenDryRun(!!data.hyphenTitleScan.dryRun);
+            if (Array.isArray(data?.hyphenTitleScan?.selectedLibraryKeys)) {
+                setHyphenLibraryKeys(data.hyphenTitleScan.selectedLibraryKeys.map(String));
+            }
         } catch (e: any) {
             setError(e?.message || 'Failed to load Metadata Fill');
             if (!silent) setStatus(null);
@@ -229,12 +389,20 @@ export const MetadataFillPage: React.FC = () => {
     const canResume = !scanRunning && !!status?.scan?.cursor && (
         ['interrupted', 'cancelled', 'running'].includes(String(status?.scan?.status || ''))
     );
+    const clearlogoRunning = !!status?.clearlogoScan?.inProcess;
+    const clearlogoCanResume = !clearlogoRunning && !!status?.clearlogoScan?.cursor && (
+        ['interrupted', 'cancelled', 'running'].includes(String(status?.clearlogoScan?.status || ''))
+    );
+    const hyphenRunning = !!status?.hyphenTitleScan?.inProcess;
+    const hyphenCanResume = !hyphenRunning && !!status?.hyphenTitleScan?.cursor && (
+        ['interrupted', 'cancelled', 'running'].includes(String(status?.hyphenTitleScan?.status || ''))
+    );
 
     useEffect(() => {
-        if (!scanRunning) return undefined;
+        if (!scanRunning && !clearlogoRunning && !hyphenRunning) return undefined;
         const id = window.setInterval(() => { void load(true); }, 2500);
         return () => window.clearInterval(id);
-    }, [scanRunning, load]);
+    }, [scanRunning, clearlogoRunning, hyphenRunning, load]);
 
     const saveSettings = async (patch: Record<string, unknown>, busyKey = 'settings') => {
         setBusyToggle(busyKey);
@@ -418,6 +586,235 @@ export const MetadataFillPage: React.FC = () => {
         }
     };
 
+    const toggleClearlogoLibraryKey = (key: string) => {
+        setClearlogoLibraryKeys((prev) => {
+            const set = new Set(prev);
+            if (set.has(key)) set.delete(key);
+            else set.add(key);
+            return [...set];
+        });
+    };
+
+    const startClearlogoScan = async (resume = false) => {
+        setClearlogoBusy(true);
+        setError('');
+        setNotice('');
+        try {
+            await apiFetch('/api/metadata-fill/clearlogos/scan/start', {
+                method: 'POST',
+                body: JSON.stringify({
+                    dryRun: clearlogoDryRun,
+                    resume,
+                    libraryKeys: clearlogoLibraryKeys.length ? clearlogoLibraryKeys : null,
+                }),
+            });
+            setNotice(resume
+                ? 'Resumed clearlogo scan.'
+                : (clearlogoDryRun ? 'Clearlogo coverage scan started (dry-run).' : 'Clearlogo scan started (will apply available logos).'));
+            await load(true);
+        } catch (e: any) {
+            setError(e?.message || 'Failed to start clearlogo scan');
+        } finally {
+            setClearlogoBusy(false);
+        }
+    };
+
+    const cancelClearlogoScan = async () => {
+        setClearlogoBusy(true);
+        setError('');
+        try {
+            await apiFetch('/api/metadata-fill/clearlogos/scan/cancel', { method: 'POST', body: '{}' });
+            setNotice('Cancel requested. Clearlogo scan will stop after the current title.');
+            setStatus((prev) => (prev?.clearlogoScan ? {
+                ...prev,
+                clearlogoScan: { ...prev.clearlogoScan, cancelRequested: true },
+            } : prev));
+            await load(true);
+        } catch (e: any) {
+            setError(e?.message || 'Failed to cancel clearlogo scan');
+        } finally {
+            setClearlogoBusy(false);
+        }
+    };
+
+    const toggleClearlogoPick = (titleKey: string, candidateKey: string) => {
+        const key = String(titleKey || '');
+        const cand = String(candidateKey || '').trim();
+        if (!key || !cand) return;
+        setClearlogoPicks((prev) => {
+            if (prev[key] === cand) {
+                const next = { ...prev };
+                delete next[key];
+                return next;
+            }
+            return { ...prev, [key]: cand };
+        });
+    };
+
+    const applyClearlogos = async (ratingKeys?: string[]) => {
+        const busyKey = ratingKeys?.length === 1 ? `apply:${ratingKeys[0]}` : 'apply-all';
+        if (ratingKeys?.length === 1) setClearlogoRowBusy(busyKey);
+        else setClearlogoBusy(true);
+        setError('');
+        setNotice('');
+        try {
+            const keys = ratingKeys?.length ? ratingKeys : undefined;
+            const candidates = Object.fromEntries(
+                Object.entries(clearlogoPicks).filter(([titleKey]) => (
+                    !keys || keys.includes(titleKey)
+                )),
+            );
+            const result = await apiFetch('/api/metadata-fill/clearlogos/scan/apply', {
+                method: 'POST',
+                body: JSON.stringify({
+                    ratingKeys: keys,
+                    candidates: Object.keys(candidates).length ? candidates : undefined,
+                }),
+            });
+            setNotice(`Applied ${result?.applied || 0} clearlogo(s)${result?.failed ? `, ${result.failed} failed` : ''}.`);
+            if (keys?.length) {
+                setClearlogoPicks((prev) => {
+                    const next = { ...prev };
+                    for (const k of keys) delete next[k];
+                    return next;
+                });
+            } else {
+                setClearlogoPicks({});
+            }
+            await load(true);
+        } catch (e: any) {
+            setError(e?.message || 'Failed to apply clearlogos');
+        } finally {
+            setClearlogoBusy(false);
+            setClearlogoRowBusy('');
+        }
+    };
+
+    const runClearlogoSearch = async () => {
+        const q = clearlogoQuery.trim();
+        if (!q) return;
+        setClearlogoSearching(true);
+        setError('');
+        try {
+            const data = await apiFetch(
+                `/api/metadata-fill/search?q=${encodeURIComponent(q)}&types=movie,show`,
+            );
+            setClearlogoHits(Array.isArray(data?.items) ? data.items : []);
+        } catch (e: any) {
+            setError(e?.message || 'Clearlogo title search failed');
+            setClearlogoHits([]);
+        } finally {
+            setClearlogoSearching(false);
+        }
+    };
+
+    const fillClearlogoTitle = async (ratingKey: string, dryRun = false) => {
+        const busy = `${ratingKey}:${dryRun ? 'preview' : 'fill'}`;
+        setClearlogoFillBusy(busy);
+        setError('');
+        setNotice('');
+        try {
+            const result = await apiFetch('/api/metadata-fill/clearlogos/fill', {
+                method: 'POST',
+                body: JSON.stringify({ ratingKey, dryRun }),
+            });
+            if (dryRun) {
+                const statusLabel = String(result?.status || 'none');
+                if (statusLabel === 'hasLogo') {
+                    setNotice(`Preview: ${result?.title || 'Title'} already has a clearlogo.`);
+                } else if (statusLabel === 'available') {
+                    setNotice(`Preview: Plex has a clearlogo candidate for ${result?.title || 'title'} (not applied).`);
+                } else if (statusLabel === 'external') {
+                    setNotice(`Preview: TMDB PNG clearlogo available for ${result?.title || 'title'} (not applied).`);
+                } else {
+                    setNotice(`Preview: no clearlogo for ${result?.title || 'title'} (Plex or TMDB PNG).`);
+                }
+            } else if (result?.skipped) {
+                setNotice(`Skipped ${result?.title || 'title'}: ${result?.reason || result?.status || 'nothing to do'}.`);
+            } else if (result?.status === 'applied') {
+                const via = result?.source === 'tmdb' ? 'TMDB PNG upload' : 'Plex candidate';
+                setNotice(`Applied clearlogo for ${result?.title || 'title'} via ${via}.`);
+            } else {
+                setNotice(`Clearlogo fill finished (${result?.status || 'done'}).`);
+            }
+        } catch (e: any) {
+            setError(e?.message || 'Clearlogo fill failed');
+        } finally {
+            setClearlogoFillBusy('');
+        }
+    };
+
+    const toggleHyphenLibraryKey = (key: string) => {
+        setHyphenLibraryKeys((prev) => {
+            if (prev.includes(key)) return prev.filter((k) => k !== key);
+            return [...prev, key];
+        });
+    };
+
+    const startHyphenTitleScan = async (resume = false) => {
+        setHyphenBusy(true);
+        setError('');
+        setNotice('');
+        try {
+            await apiFetch('/api/metadata-fill/hyphen-titles/scan/start', {
+                method: 'POST',
+                body: JSON.stringify({
+                    dryRun: hyphenDryRun,
+                    resume,
+                    libraryKeys: hyphenLibraryKeys.length ? hyphenLibraryKeys : null,
+                }),
+            });
+            setNotice(resume
+                ? 'Resumed hyphen title scan.'
+                : (hyphenDryRun
+                    ? 'Hyphen title scan started (dry-run).'
+                    : 'Hyphen title scan started (will lock matching TMDB titles).'));
+            await load(true);
+        } catch (e: any) {
+            setError(e?.message || 'Failed to start hyphen title scan');
+        } finally {
+            setHyphenBusy(false);
+        }
+    };
+
+    const cancelHyphenTitleScan = async () => {
+        setHyphenBusy(true);
+        setError('');
+        try {
+            await apiFetch('/api/metadata-fill/hyphen-titles/scan/cancel', { method: 'POST', body: '{}' });
+            setNotice('Cancel requested. Hyphen title scan will stop after the current movie.');
+            setStatus((prev) => (prev?.hyphenTitleScan ? {
+                ...prev,
+                hyphenTitleScan: { ...prev.hyphenTitleScan, cancelRequested: true },
+            } : prev));
+            await load(true);
+        } catch (e: any) {
+            setError(e?.message || 'Failed to cancel hyphen title scan');
+        } finally {
+            setHyphenBusy(false);
+        }
+    };
+
+    const applyHyphenTitles = async (ratingKeys?: string[]) => {
+        if (ratingKeys?.length === 1) setHyphenRowBusy(`hyphen:${ratingKeys[0]}`);
+        else setHyphenBusy(true);
+        setError('');
+        setNotice('');
+        try {
+            const result = await apiFetch('/api/metadata-fill/hyphen-titles/scan/apply', {
+                method: 'POST',
+                body: JSON.stringify({ ratingKeys: ratingKeys || null }),
+            });
+            setNotice(`Applied ${result?.applied || 0} hyphen title(s)${result?.failed ? `, ${result.failed} failed` : ''}.`);
+            await load(true);
+        } catch (e: any) {
+            setError(e?.message || 'Failed to apply hyphen titles');
+        } finally {
+            setHyphenBusy(false);
+            setHyphenRowBusy('');
+        }
+    };
+
     const processRetries = async () => {
         setRetryBusy(true);
         setError('');
@@ -537,6 +934,7 @@ export const MetadataFillPage: React.FC = () => {
     }, [logPage, logPageCount]);
 
     const scan = status?.scan;
+    const clearlogoScan = status?.clearlogoScan;
     const filteredPreview = useMemo(() => {
         const rows = scan?.preview || [];
         if (previewFilter === 'failed') return rows.filter((r) => r.ok === false);
@@ -545,6 +943,96 @@ export const MetadataFillPage: React.FC = () => {
         return rows;
     }, [scan?.preview, previewFilter]);
     const stats = scan?.stats;
+    const clearlogoStats = clearlogoScan?.stats;
+    const clearlogoCounts = useMemo(() => {
+        const rows = clearlogoScan?.preview || [];
+        let available = 0;
+        let externalAvailable = 0;
+        let hasLogo = 0;
+        let none = 0;
+        for (const row of rows) {
+            if (row.status === 'available' && !row.applied) available += 1;
+            else if (row.status === 'externalAvailable' && !row.applied) externalAvailable += 1;
+            else if (row.status === 'hasLogo' || row.status === 'applied' || row.hasLogoApplied || row.applied) hasLogo += 1;
+            else if (row.status === 'none') none += 1;
+        }
+        return { available, externalAvailable, hasLogo, none, all: rows.length };
+    }, [clearlogoScan?.preview]);
+    const clearlogoTableRows = useMemo(() => {
+        const rows = clearlogoScan?.preview || [];
+        return rows.filter((row) => {
+            const isAvailable = row.status === 'available' && !row.applied;
+            const isExternal = row.status === 'externalAvailable' && !row.applied;
+            const isSet = row.status === 'hasLogo' || row.status === 'applied' || !!row.hasLogoApplied || !!row.applied;
+            const isNone = row.status === 'none';
+            if (clearlogoTableFilter === 'available') return isAvailable || row.status === 'failed';
+            if (clearlogoTableFilter === 'externalAvailable') return isExternal;
+            if (clearlogoTableFilter === 'hasLogo') return isSet;
+            if (clearlogoTableFilter === 'none') return isNone;
+            return true;
+        });
+    }, [clearlogoScan?.preview, clearlogoTableFilter]);
+    const clearlogoPageCount = Math.max(1, Math.ceil(clearlogoTableRows.length / CLEARLOGO_PAGE_SIZE));
+    const safeClearlogoPage = Math.min(clearlogoPage, clearlogoPageCount);
+    const pagedClearlogoRows = useMemo(() => {
+        const start = (safeClearlogoPage - 1) * CLEARLOGO_PAGE_SIZE;
+        return clearlogoTableRows.slice(start, start + CLEARLOGO_PAGE_SIZE);
+    }, [clearlogoTableRows, safeClearlogoPage]);
+    useEffect(() => {
+        setClearlogoPage(1);
+    }, [clearlogoTableFilter, clearlogoScan?.updatedAt, clearlogoScan?.finishedAt]);
+    useEffect(() => {
+        if (clearlogoPage > clearlogoPageCount) setClearlogoPage(clearlogoPageCount);
+    }, [clearlogoPage, clearlogoPageCount]);
+    // Prefer full scan stats — preview used to be capped at 500 and under-counted Apply all.
+    const clearlogoAvailableCount = Math.max(
+        clearlogoCounts.available,
+        Number(clearlogoStats?.available) || 0,
+    );
+    const clearlogoExternalCount = Math.max(
+        clearlogoCounts.externalAvailable,
+        Number(clearlogoStats?.externalAvailable) || 0,
+    );
+    const clearlogoApplyAllCount = clearlogoAvailableCount + clearlogoExternalCount;
+
+    const hyphenScan = status?.hyphenTitleScan;
+    const hyphenStats = hyphenScan?.stats;
+    const hyphenCounts = useMemo(() => {
+        const rows = hyphenScan?.preview || [];
+        let available = 0;
+        let matched = 0;
+        for (const row of rows) {
+            if (row.status === 'available' && !row.applied) available += 1;
+            else if (row.status === 'matched' || row.status === 'applied' || row.applied) matched += 1;
+        }
+        return { available, matched, all: rows.length };
+    }, [hyphenScan?.preview]);
+    const hyphenTableRows = useMemo(() => {
+        const rows = hyphenScan?.preview || [];
+        return rows.filter((row) => {
+            const isAvailable = (row.status === 'available' || row.status === 'failed') && !row.applied;
+            const isMatched = row.status === 'matched' || row.status === 'applied' || !!row.applied;
+            if (hyphenTableFilter === 'available') return isAvailable;
+            if (hyphenTableFilter === 'matched') return isMatched;
+            return true;
+        });
+    }, [hyphenScan?.preview, hyphenTableFilter]);
+    const hyphenPageCount = Math.max(1, Math.ceil(hyphenTableRows.length / HYPHEN_TITLE_PAGE_SIZE));
+    const safeHyphenPage = Math.min(hyphenPage, hyphenPageCount);
+    const pagedHyphenRows = useMemo(() => {
+        const start = (safeHyphenPage - 1) * HYPHEN_TITLE_PAGE_SIZE;
+        return hyphenTableRows.slice(start, start + HYPHEN_TITLE_PAGE_SIZE);
+    }, [hyphenTableRows, safeHyphenPage]);
+    useEffect(() => {
+        setHyphenPage(1);
+    }, [hyphenTableFilter, hyphenScan?.updatedAt, hyphenScan?.finishedAt]);
+    useEffect(() => {
+        if (hyphenPage > hyphenPageCount) setHyphenPage(hyphenPageCount);
+    }, [hyphenPage, hyphenPageCount]);
+    const hyphenAvailableCount = Math.max(
+        hyphenCounts.available,
+        Number(hyphenStats?.available) || 0,
+    );
 
     return (
         <DashboardPageShell>
@@ -552,7 +1040,7 @@ export const MetadataFillPage: React.FC = () => {
                 accent="plex"
                 eyebrow="Metadata Fill"
                 title="Fill TBA episode metadata from TMDB, TVDB, and TVmaze"
-                description="When Plex is slow to scrape, write locked title, summary, and air date on Sonarr On Import, per show, or via a resumable library scan. Preview first, then apply; revert or unlock anytime."
+                description="When Plex is slow to scrape, write locked title, summary, and air date on Sonarr On Import, per show, or via a resumable library scan. Preview first, then apply; revert or unlock anytime. Also compare movie titles to TMDB when hyphens are involved."
                 icon={<Wand2 className="h-5 w-5" />}
                 secondaryBlob
                 actions={(
@@ -927,6 +1415,807 @@ export const MetadataFillPage: React.FC = () => {
                             )}
                         </ul>
                     </div>
+                )}
+            </section>
+
+            <section className="mt-6 rounded-2xl border border-white/10 bg-background/40 p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                    <h2 className="text-sm font-bold uppercase tracking-wider text-muted">Hyphen titles (movies)</h2>
+                    <label className="flex items-center gap-2 text-xs text-text">
+                        <input
+                            type="checkbox"
+                            checked={hyphenDryRun}
+                            disabled={hyphenRunning || !status?.enabled}
+                            onChange={(e) => setHyphenDryRun(e.target.checked)}
+                        />
+                        Dry-run / preview only
+                    </label>
+                </div>
+                <p className="text-xs text-muted">
+                    Compare Plex movie titles to TMDB. Only titles whose <span className="text-text">TMDB</span> name
+                    contains a hyphen (e.g. Z-O-M-B-I-E-S) and differs from Plex are listed — then lock that TMDB
+                    title onto Plex so Poster Sets can match.
+                </p>
+                {!status?.tmdbConfigured && (
+                    <p className="text-xs text-amber-300/90">Configure a TMDB API key in Settings before scanning.</p>
+                )}
+                {(status?.movieLibraries?.length || 0) > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                        {status?.movieLibraries?.map((lib) => {
+                            const key = String(lib.key);
+                            const explicitlyOn = hyphenLibraryKeys.includes(key);
+                            const selected = !hyphenLibraryKeys.length || explicitlyOn;
+                            return (
+                                <button
+                                    key={key}
+                                    type="button"
+                                    disabled={!status?.enabled || hyphenBusy || hyphenRunning}
+                                    onClick={() => { toggleHyphenLibraryKey(key); }}
+                                    className={`rounded-lg border px-2.5 py-1 text-xs font-semibold transition ${
+                                        (hyphenLibraryKeys.length ? explicitlyOn : selected)
+                                            ? 'border-plex/50 bg-plex/15 text-plex'
+                                            : 'border-white/10 bg-white/5 text-muted hover:bg-white/10'
+                                    }`}
+                                    title={hyphenLibraryKeys.length
+                                        ? 'Toggle library in hyphen title scan scope'
+                                        : 'Click to limit scan to selected libraries'}
+                                >
+                                    {lib.title}
+                                </button>
+                            );
+                        })}
+                        {hyphenLibraryKeys.length > 0 && (
+                            <button
+                                type="button"
+                                disabled={hyphenBusy || hyphenRunning}
+                                onClick={() => setHyphenLibraryKeys([])}
+                                className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-muted hover:bg-white/10"
+                            >
+                                All movie libraries
+                            </button>
+                        )}
+                    </div>
+                ) : (
+                    <p className="text-xs text-muted">
+                        {status?.librariesError
+                            ? `Could not load movie libraries from Plex: ${status.librariesError}`
+                            : 'No movie libraries loaded from Plex yet.'}
+                    </p>
+                )}
+                <div className="flex flex-wrap gap-2">
+                    <button
+                        type="button"
+                        disabled={!status?.enabled || !status?.tmdbConfigured || hyphenBusy || hyphenRunning}
+                        onClick={() => { void startHyphenTitleScan(false); }}
+                        className="inline-flex items-center gap-2 rounded-xl border border-plex/40 bg-plex/15 px-3 py-1.5 text-xs font-bold text-plex disabled:opacity-40"
+                    >
+                        {hyphenBusy && !hyphenRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                        {hyphenDryRun ? 'Scan movie libraries' : 'Scan & apply mismatches'}
+                    </button>
+                    {hyphenCanResume && (
+                        <button
+                            type="button"
+                            disabled={!status?.enabled || hyphenBusy || hyphenRunning}
+                            onClick={() => { void startHyphenTitleScan(true); }}
+                            className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-text hover:bg-white/10 disabled:opacity-40"
+                        >
+                            Resume
+                        </button>
+                    )}
+                    {hyphenRunning && (
+                        <button
+                            type="button"
+                            disabled={hyphenBusy || !!hyphenScan?.cancelRequested}
+                            onClick={() => { void cancelHyphenTitleScan(); }}
+                            className="inline-flex items-center gap-2 rounded-xl border border-red-400/40 bg-red-500/10 px-3 py-1.5 text-xs font-bold text-red-300 disabled:opacity-40"
+                        >
+                            <Square className="h-3.5 w-3.5" />
+                            {hyphenScan?.cancelRequested ? 'Cancelling…' : 'Cancel'}
+                        </button>
+                    )}
+                    {hyphenAvailableCount > 0 && !hyphenRunning && (
+                        <button
+                            type="button"
+                            disabled={!status?.enabled || hyphenBusy}
+                            onClick={() => { void applyHyphenTitles(); }}
+                            className="inline-flex items-center gap-2 rounded-xl border border-green-400/40 bg-green-500/10 px-3 py-1.5 text-xs font-bold text-green-300 disabled:opacity-40"
+                        >
+                            Apply all mismatches ({hyphenAvailableCount})
+                        </button>
+                    )}
+                </div>
+                {hyphenScan && (
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+                        <span>
+                            Status: <span className="font-semibold text-text">{hyphenScan.status || 'idle'}</span>
+                            {hyphenScan.dryRun ? ' · dry-run' : ' · write'}
+                            {hyphenScan.cancelRequested && hyphenRunning ? ' · cancelling' : ''}
+                        </span>
+                        <button
+                            type="button"
+                            onClick={() => setHyphenTableFilter('available')}
+                            className={`rounded-md border px-2 py-0.5 ${
+                                hyphenTableFilter === 'available'
+                                    ? 'border-plex/50 bg-plex/15 text-plex'
+                                    : 'border-white/10 text-muted'
+                            }`}
+                        >
+                            Need fix {hyphenStats?.available || 0}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setHyphenTableFilter('matched')}
+                            className={`rounded-md border px-2 py-0.5 ${
+                                hyphenTableFilter === 'matched'
+                                    ? 'border-plex/50 bg-plex/15 text-plex'
+                                    : 'border-white/10 text-muted'
+                            }`}
+                        >
+                            Already match {hyphenStats?.matched || 0}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setHyphenTableFilter('all')}
+                            className={`rounded-md border px-2 py-0.5 ${
+                                hyphenTableFilter === 'all'
+                                    ? 'border-plex/50 bg-plex/15 text-plex'
+                                    : 'border-white/10 text-muted'
+                            }`}
+                        >
+                            All listed {hyphenCounts.all}
+                        </button>
+                        <span>
+                            Scanned {hyphenStats?.scanned || 0}
+                            {(hyphenStats?.applied || 0) > 0 ? ` · applied ${hyphenStats?.applied}` : ''}
+                            {(hyphenStats?.failed || 0) > 0 ? ` · errors ${hyphenStats?.failed}` : ''}
+                            {(hyphenStats?.noTmdbId || 0) > 0 ? ` · no TMDB id ${hyphenStats?.noTmdbId}` : ''}
+                        </span>
+                        {(hyphenScan.cursor?.libraryTitle || hyphenScan.cursor?.title) && hyphenRunning && (
+                            <span>
+                                {hyphenScan.cursor.libraryTitle || 'Library'}
+                                {hyphenScan.cursor.title ? ` → ${hyphenScan.cursor.title}` : ''}
+                            </span>
+                        )}
+                        {hyphenScan.error ? (
+                            <span className="text-red-300/90">{hyphenScan.error}</span>
+                        ) : null}
+                    </div>
+                )}
+                {hyphenTableRows.length > 0 && (
+                    <div className="space-y-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
+                            <span>
+                                Showing {(safeHyphenPage - 1) * HYPHEN_TITLE_PAGE_SIZE + 1}
+                                –
+                                {Math.min(safeHyphenPage * HYPHEN_TITLE_PAGE_SIZE, hyphenTableRows.length)}
+                                {' '}of {hyphenTableRows.length}
+                            </span>
+                            {hyphenPageCount > 1 && (
+                                <div className="flex items-center gap-1">
+                                    <button
+                                        type="button"
+                                        disabled={safeHyphenPage <= 1}
+                                        onClick={() => setHyphenPage((p) => Math.max(1, p - 1))}
+                                        className="rounded border border-white/10 p-1 disabled:opacity-40"
+                                    >
+                                        <ChevronLeft className="h-3.5 w-3.5" />
+                                    </button>
+                                    <span>{safeHyphenPage} / {hyphenPageCount}</span>
+                                    <button
+                                        type="button"
+                                        disabled={safeHyphenPage >= hyphenPageCount}
+                                        onClick={() => setHyphenPage((p) => Math.min(hyphenPageCount, p + 1))}
+                                        className="rounded border border-white/10 p-1 disabled:opacity-40"
+                                    >
+                                        <ChevronRight className="h-3.5 w-3.5" />
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                        <ul className="space-y-1.5">
+                            {pagedHyphenRows.map((row) => {
+                                const isAvailable = row.status === 'available' && !row.applied;
+                                const thumb = plexThumbUrl(row.thumb, 60, 90);
+                                return (
+                                    <li
+                                        key={`hyphen-${row.ratingKey}`}
+                                        className="flex flex-wrap items-center gap-3 rounded-xl border border-white/5 bg-black/20 px-2.5 py-2"
+                                    >
+                                        {thumb ? (
+                                            <img src={thumb} alt="" className="h-14 w-9 shrink-0 rounded object-cover" />
+                                        ) : (
+                                            <div className="flex h-14 w-9 shrink-0 items-center justify-center rounded bg-white/5 text-[9px] text-muted">—</div>
+                                        )}
+                                        <div className="min-w-0 flex-1">
+                                            <div className="truncate text-sm font-semibold text-text">
+                                                {row.plexTitle || 'Untitled'}
+                                                {row.year ? ` (${row.year})` : ''}
+                                            </div>
+                                            <div className="truncate text-xs text-muted">
+                                                {row.libraryTitle || 'Library'}
+                                                {row.tmdbId ? ` · TMDB ${row.tmdbId}` : ''}
+                                            </div>
+                                            {row.tmdbTitle ? (
+                                                <div className="mt-0.5 truncate text-xs text-plex">
+                                                    TMDB: {row.tmdbTitle}
+                                                </div>
+                                            ) : null}
+                                            {row.error ? (
+                                                <div className="mt-0.5 text-xs text-red-300/90">{row.error}</div>
+                                            ) : null}
+                                        </div>
+                                        <div className="text-[11px] font-bold uppercase tracking-wider text-muted">
+                                            {row.status === 'applied' || row.applied
+                                                ? 'Applied'
+                                                : row.status === 'matched'
+                                                    ? 'Match'
+                                                    : row.status === 'available'
+                                                        ? 'Need fix'
+                                                        : row.status || ''}
+                                        </div>
+                                        {isAvailable && (
+                                            <button
+                                                type="button"
+                                                disabled={!status?.enabled || hyphenBusy || !!hyphenRowBusy || hyphenRunning}
+                                                onClick={() => { void applyHyphenTitles([row.ratingKey]); }}
+                                                className="inline-flex items-center gap-1.5 rounded-lg border border-green-400/40 bg-green-500/10 px-2.5 py-1 text-xs font-bold text-green-300 disabled:opacity-40"
+                                            >
+                                                {hyphenRowBusy === `hyphen:${row.ratingKey}` ? (
+                                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                                ) : null}
+                                                Apply
+                                            </button>
+                                        )}
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    </div>
+                )}
+                {hyphenScan && !hyphenTableRows.length && (hyphenScan.status === 'done' || hyphenScan.status === 'cancelled') && (
+                    <p className="text-xs text-muted">
+                        {hyphenTableFilter === 'available'
+                            ? 'No hyphen title mismatches in this scan.'
+                            : hyphenTableFilter === 'matched'
+                                ? 'No already-matching hyphen titles listed for this scan window.'
+                                : 'No hyphen title results listed yet.'}
+                    </p>
+                )}
+            </section>
+
+            <section className="mt-6 rounded-2xl border border-white/10 bg-background/40 p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                    <h2 className="text-sm font-bold uppercase tracking-wider text-muted">Clear logos</h2>
+                    <label className="flex items-center gap-2 text-xs text-text">
+                        <input
+                            type="checkbox"
+                            checked={clearlogoDryRun}
+                            disabled={clearlogoRunning || !status?.enabled}
+                            onChange={(e) => setClearlogoDryRun(e.target.checked)}
+                        />
+                        Dry-run / preview only
+                    </label>
+                </div>
+                <p className="text-xs text-muted">
+                    Find titles where Plex has clearlogo candidates but none is applied yet.
+                    When Plex has none, a TMDB PNG clearlogo can be uploaded (SVG/JPG are skipped).
+                    Or search one movie/show below without scanning the whole library.
+                </p>
+                {!status?.tmdbConfigured ? (
+                    <p className="text-[11px] text-amber-200/90">
+                        External PNG fallback needs a TMDB API key under Settings → Media Stack.
+                    </p>
+                ) : null}
+                <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3 space-y-2">
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-muted">Single title</p>
+                    <div className="flex flex-wrap gap-2">
+                        <input
+                            type="search"
+                            value={clearlogoQuery}
+                            onChange={(e) => setClearlogoQuery(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') void runClearlogoSearch();
+                            }}
+                            placeholder="Search movie or show…"
+                            disabled={!status?.enabled || clearlogoSearching}
+                            className="min-w-[12rem] flex-1 rounded-xl border border-white/10 bg-background/60 px-3 py-2 text-sm text-text placeholder:text-muted disabled:opacity-40"
+                        />
+                        <button
+                            type="button"
+                            disabled={!status?.enabled || clearlogoSearching || !clearlogoQuery.trim()}
+                            onClick={() => { void runClearlogoSearch(); }}
+                            className="inline-flex items-center gap-2 rounded-xl border border-white/15 px-3 py-2 text-sm font-semibold text-text disabled:opacity-40"
+                        >
+                            {clearlogoSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                            Search
+                        </button>
+                    </div>
+                    {clearlogoHits.length > 0 && (
+                        <ul className="divide-y divide-white/5 rounded-lg border border-white/5 overflow-hidden">
+                            {clearlogoHits.map((hit) => (
+                                <li key={hit.ratingKey} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-xs">
+                                    <div className="min-w-0">
+                                        <p className="truncate font-semibold text-text">
+                                            {hit.title}
+                                            {hit.year ? ` (${hit.year})` : ''}
+                                        </p>
+                                        <p className="text-muted">
+                                            {hit.type || 'title'}
+                                            {hit.tmdbId ? ` · TMDB ${hit.tmdbId}` : ''}
+                                        </p>
+                                    </div>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        <button
+                                            type="button"
+                                            disabled={!status?.enabled || !!clearlogoFillBusy}
+                                            onClick={() => { void fillClearlogoTitle(hit.ratingKey, true); }}
+                                            className="rounded-lg border border-white/15 px-2 py-1 font-semibold text-muted disabled:opacity-40"
+                                        >
+                                            {clearlogoFillBusy === `${hit.ratingKey}:preview` ? (
+                                                <Loader2 className="inline h-3.5 w-3.5 animate-spin" />
+                                            ) : 'Preview'}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            disabled={!status?.enabled || !!clearlogoFillBusy}
+                                            onClick={() => { void fillClearlogoTitle(hit.ratingKey, false); }}
+                                            className="rounded-lg border border-plex/40 bg-plex/15 px-2 py-1 font-bold text-plex disabled:opacity-40"
+                                        >
+                                            {clearlogoFillBusy === `${hit.ratingKey}:fill` ? (
+                                                <Loader2 className="inline h-3.5 w-3.5 animate-spin" />
+                                            ) : 'Apply clearlogo'}
+                                        </button>
+                                    </div>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                </div>
+                {(status?.clearlogoLibraries?.length || 0) > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                        {status?.clearlogoLibraries?.map((lib) => {
+                            const key = String(lib.key);
+                            const explicitlyOn = clearlogoLibraryKeys.includes(key);
+                            const selected = !clearlogoLibraryKeys.length || explicitlyOn;
+                            return (
+                                <button
+                                    key={key}
+                                    type="button"
+                                    disabled={!status?.enabled || clearlogoBusy || clearlogoRunning}
+                                    onClick={() => { toggleClearlogoLibraryKey(key); }}
+                                    className={`rounded-lg px-2.5 py-1.5 text-[11px] font-bold ${
+                                        (clearlogoLibraryKeys.length ? explicitlyOn : selected)
+                                            ? 'border border-plex/40 bg-plex/15 text-plex'
+                                            : 'border border-white/10 text-muted'
+                                    }`}
+                                    title={clearlogoLibraryKeys.length
+                                        ? 'Toggle library in clearlogo scan scope'
+                                        : 'Click to limit scan to selected libraries'}
+                                >
+                                    {lib.title}
+                                    {lib.type ? ` · ${lib.type}` : ''}
+                                </button>
+                            );
+                        })}
+                        {clearlogoLibraryKeys.length > 0 && (
+                            <button
+                                type="button"
+                                disabled={clearlogoBusy || clearlogoRunning}
+                                onClick={() => setClearlogoLibraryKeys([])}
+                                className="rounded-lg border border-white/10 px-2.5 py-1.5 text-[11px] font-semibold text-muted"
+                            >
+                                Clear (scan all)
+                            </button>
+                        )}
+                    </div>
+                ) : (
+                    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-400/25 bg-amber-400/5 px-3 py-2 text-xs text-amber-100">
+                        <span className="min-w-0 flex-1">
+                            {status?.librariesError
+                                ? `Could not load movie/TV libraries from Plex: ${status.librariesError}`
+                                : 'No movie/TV libraries loaded from Plex yet.'}
+                        </span>
+                        <button
+                            type="button"
+                            disabled={loading || clearlogoBusy}
+                            onClick={() => { void load(); }}
+                            className="rounded-lg border border-amber-400/40 px-2.5 py-1 text-[11px] font-bold text-amber-200 disabled:opacity-40"
+                        >
+                            Retry
+                        </button>
+                    </div>
+                )}
+                <div className="flex flex-wrap gap-2">
+                    <button
+                        type="button"
+                        disabled={!status?.enabled || clearlogoBusy || clearlogoRunning}
+                        onClick={() => { void startClearlogoScan(false); }}
+                        className="inline-flex items-center gap-2 rounded-xl bg-plex px-3 py-2 text-sm font-bold text-background disabled:opacity-40"
+                    >
+                        {clearlogoBusy && !clearlogoRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                        {clearlogoDryRun ? 'Scan libraries' : 'Scan & apply available'}
+                    </button>
+                    {clearlogoCanResume && (
+                        <button
+                            type="button"
+                            disabled={!status?.enabled || clearlogoBusy || clearlogoRunning}
+                            onClick={() => { void startClearlogoScan(true); }}
+                            className="inline-flex items-center gap-2 rounded-xl border border-white/15 px-3 py-2 text-sm font-semibold text-text disabled:opacity-40"
+                        >
+                            Resume
+                        </button>
+                    )}
+                    {clearlogoRunning && (
+                        <button
+                            type="button"
+                            disabled={clearlogoBusy || !!clearlogoScan?.cancelRequested}
+                            onClick={() => { void cancelClearlogoScan(); }}
+                            className="inline-flex items-center gap-2 rounded-xl border border-red-400/40 px-3 py-2 text-sm font-semibold text-red-300 disabled:opacity-50"
+                        >
+                            <Square className="h-3.5 w-3.5" />
+                            {clearlogoScan?.cancelRequested ? 'Cancelling…' : 'Cancel'}
+                        </button>
+                    )}
+                    {clearlogoApplyAllCount > 0 && !clearlogoRunning && (
+                        <button
+                            type="button"
+                            disabled={!status?.enabled || clearlogoBusy}
+                            onClick={() => { void applyClearlogos(); }}
+                            className="inline-flex items-center gap-2 rounded-xl border border-plex/40 bg-plex/15 px-3 py-2 text-sm font-bold text-plex disabled:opacity-40"
+                        >
+                            Apply all available ({clearlogoApplyAllCount})
+                        </button>
+                    )}
+                    {clearlogoAvailableCount > clearlogoCounts.available && clearlogoCounts.available > 0 ? (
+                        <p className="w-full text-[11px] text-amber-200/90">
+                            Scan stats show {clearlogoAvailableCount} available, but only {clearlogoCounts.available} are listed from this run’s saved preview.
+                            Re-scan to load the full gap list before Apply all.
+                        </p>
+                    ) : null}
+                </div>
+                {clearlogoScan && (
+                    <div className="flex flex-wrap gap-2 text-[11px]">
+                        <span className="rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1 text-muted">
+                            Status: <span className="font-semibold text-text">{clearlogoScan.status || 'idle'}</span>
+                            {clearlogoScan.dryRun ? ' · dry-run' : ' · write'}
+                            {clearlogoScan.cancelRequested && clearlogoRunning ? ' · cancelling' : ''}
+                        </span>
+                        <button
+                            type="button"
+                            onClick={() => setClearlogoTableFilter('hasLogo')}
+                            className={`rounded-lg border px-2.5 py-1 font-semibold ${
+                                clearlogoTableFilter === 'hasLogo'
+                                    ? 'border-emerald-400/50 bg-emerald-400/20 text-emerald-100'
+                                    : 'border-emerald-400/25 bg-emerald-400/10 text-emerald-200'
+                            }`}
+                            title="Titles that already have a clearlogo applied in Plex"
+                        >
+                            Already set {clearlogoStats?.hasLogo || 0}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setClearlogoTableFilter('available')}
+                            className={`rounded-lg border px-2.5 py-1 font-semibold ${
+                                clearlogoTableFilter === 'available'
+                                    ? 'border-plex/60 bg-plex/25 text-plex'
+                                    : 'border-plex/40 bg-plex/15 text-plex'
+                            }`}
+                            title="Plex has candidates, but no clearlogo is applied yet"
+                        >
+                            Available (not applied) {clearlogoStats?.available || 0}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setClearlogoTableFilter('externalAvailable')}
+                            className={`rounded-lg border px-2.5 py-1 font-semibold ${
+                                clearlogoTableFilter === 'externalAvailable'
+                                    ? 'border-sky-400/60 bg-sky-400/20 text-sky-100'
+                                    : 'border-sky-400/30 bg-sky-400/10 text-sky-200'
+                            }`}
+                            title="No Plex candidates, but a TMDB PNG clearlogo is available to upload"
+                        >
+                            TMDB PNG {clearlogoStats?.externalAvailable || 0}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setClearlogoTableFilter('none')}
+                            className={`rounded-lg border px-2.5 py-1 ${
+                                clearlogoTableFilter === 'none'
+                                    ? 'border-white/30 bg-white/10 text-text font-semibold'
+                                    : 'border-white/10 bg-white/[0.03] text-muted'
+                            }`}
+                            title="No clearlogo in Plex and no TMDB PNG found"
+                        >
+                            None {clearlogoStats?.none || 0}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setClearlogoTableFilter('all')}
+                            className={`rounded-lg border px-2.5 py-1 ${
+                                clearlogoTableFilter === 'all'
+                                    ? 'border-white/30 bg-white/10 text-text font-semibold'
+                                    : 'border-white/10 bg-white/[0.03] text-muted'
+                            }`}
+                        >
+                            All listed {clearlogoCounts.all}
+                        </button>
+                        <span className="rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1 text-muted">
+                            Scanned {clearlogoStats?.scanned || 0}
+                            {(clearlogoStats?.applied || 0) > 0 ? ` · applied ${clearlogoStats?.applied}` : ''}
+                            {(clearlogoStats?.failed || 0) > 0 ? ` · errors ${clearlogoStats?.failed}` : ''}
+                        </span>
+                        {(clearlogoScan.cursor?.libraryTitle || clearlogoScan.cursor?.title) && clearlogoRunning && (
+                            <span className="rounded-lg border border-white/10 px-2.5 py-1 text-muted">
+                                {clearlogoScan.cursor.libraryTitle || 'Library'}
+                                {clearlogoScan.cursor.title ? ` → ${clearlogoScan.cursor.title}` : ''}
+                            </span>
+                        )}
+                        {clearlogoScan.error ? (
+                            <span className="rounded-lg border border-red-400/30 px-2.5 py-1 text-red-300">
+                                {clearlogoScan.error}
+                            </span>
+                        ) : null}
+                    </div>
+                )}
+                <p className="text-[11px] text-muted">
+                    Default list is <span className="text-plex font-semibold">Available (not applied)</span> — Plex candidates not selected yet.
+                    <span className="text-sky-200 font-semibold"> TMDB PNG</span> covers titles with no Plex candidates but an external PNG.
+                    Click a preview logo to choose it (optional); Apply uses your pick, the first agent candidate, or uploads the TMDB PNG.
+                </p>
+                {clearlogoTableRows.length > 0 && (
+                    <div className="space-y-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted">
+                            <span>
+                                Showing {(safeClearlogoPage - 1) * CLEARLOGO_PAGE_SIZE + 1}
+                                –
+                                {Math.min(safeClearlogoPage * CLEARLOGO_PAGE_SIZE, clearlogoTableRows.length)}
+                                {' '}of {clearlogoTableRows.length}
+                            </span>
+                            <div className="flex items-center gap-1">
+                                <button
+                                    type="button"
+                                    disabled={safeClearlogoPage <= 1}
+                                    onClick={() => setClearlogoPage((p) => Math.max(1, p - 1))}
+                                    className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-2 py-1 font-bold text-text disabled:opacity-40"
+                                >
+                                    <ChevronLeft className="h-3.5 w-3.5" />
+                                    Prev
+                                </button>
+                                <span className="px-2 font-semibold text-text">
+                                    {safeClearlogoPage} / {clearlogoPageCount}
+                                </span>
+                                <button
+                                    type="button"
+                                    disabled={safeClearlogoPage >= clearlogoPageCount}
+                                    onClick={() => setClearlogoPage((p) => Math.min(clearlogoPageCount, p + 1))}
+                                    className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-2 py-1 font-bold text-text disabled:opacity-40"
+                                >
+                                    Next
+                                    <ChevronRight className="h-3.5 w-3.5" />
+                                </button>
+                            </div>
+                        </div>
+                    <div className="overflow-auto rounded-xl border border-white/5">
+                        <table className="w-full min-w-[760px] text-left text-xs">
+                            <thead className="border-b border-white/10 bg-white/[0.03] text-[11px] uppercase tracking-wider text-muted">
+                                <tr>
+                                    <th className="px-3 py-2.5 font-bold">Title</th>
+                                    <th className="px-3 py-2.5 font-bold">Status</th>
+                                    <th className="px-3 py-2.5 font-bold">Candidates</th>
+                                    <th className="px-3 py-2.5 font-bold">Preview</th>
+                                    <th className="px-3 py-2.5 font-bold text-right">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {pagedClearlogoRows.map((row) => {
+                                    const poster = plexThumbUrl(row.thumb, 120, 180);
+                                    const isAvailable = row.status === 'available' && !row.applied;
+                                    const isExternal = row.status === 'externalAvailable' && !row.applied;
+                                    const isSet = row.status === 'hasLogo' || row.status === 'applied'
+                                        || !!row.hasLogoApplied || !!row.applied;
+                                    const isNone = row.status === 'none';
+                                    const picked = clearlogoPicks[row.ratingKey] || '';
+                                    const defaultBest = String(row.bestCandidate?.ratingKey || '').trim();
+                                    const statusBadge = isSet
+                                        ? (
+                                            <span className="inline-flex rounded-md border border-emerald-400/35 bg-emerald-400/15 px-2 py-0.5 text-[11px] font-bold text-emerald-200">
+                                                {row.status === 'applied' || row.applied ? 'Applied this scan' : 'Already set'}
+                                            </span>
+                                        )
+                                        : (isAvailable
+                                            ? (
+                                                <span className="inline-flex rounded-md border border-plex/40 bg-plex/15 px-2 py-0.5 text-[11px] font-bold text-plex">
+                                                    Not applied
+                                                </span>
+                                            )
+                                            : (isExternal
+                                                ? (
+                                                    <span className="inline-flex rounded-md border border-sky-400/40 bg-sky-400/15 px-2 py-0.5 text-[11px] font-bold text-sky-100">
+                                                        TMDB PNG
+                                                    </span>
+                                                )
+                                                : (isNone
+                                                    ? (
+                                                        <span className="inline-flex rounded-md border border-white/15 bg-white/5 px-2 py-0.5 text-[11px] font-semibold text-muted">
+                                                            None
+                                                        </span>
+                                                    )
+                                                    : (
+                                                        <span className="inline-flex rounded-md border border-red-400/30 bg-red-400/10 px-2 py-0.5 text-[11px] font-semibold text-red-300">
+                                                            Error
+                                                        </span>
+                                                    ))));
+                                    const setThumb = row.selectedCandidate?.thumb || row.selectedCandidate?.ratingKey || '';
+                                    const externalUrl = String(row.external?.url || '').trim();
+                                    return (
+                                        <tr key={row.ratingKey} className="border-b border-white/5 align-middle">
+                                            <td className="px-3 py-3">
+                                                <div className="flex items-center gap-3 min-w-0">
+                                                    {poster ? (
+                                                        <img
+                                                            src={poster}
+                                                            alt=""
+                                                            className="h-[4.5rem] w-[3rem] shrink-0 rounded-md object-cover bg-black/30 ring-1 ring-white/10"
+                                                        />
+                                                    ) : (
+                                                        <div className="h-[4.5rem] w-[3rem] shrink-0 rounded-md bg-white/5 ring-1 ring-white/10" />
+                                                    )}
+                                                    <div className="min-w-0">
+                                                        <p className="truncate text-sm font-semibold text-text">
+                                                            {row.title || 'Untitled'}
+                                                            {row.year ? ` (${row.year})` : ''}
+                                                        </p>
+                                                        <p className="truncate text-[11px] text-muted">
+                                                            {row.libraryTitle || ''}
+                                                            {row.type ? ` · ${row.type}` : ''}
+                                                            {row.error ? ` · ${row.error}` : ''}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td className="px-3 py-3">
+                                                {statusBadge}
+                                            </td>
+                                            <td className="px-3 py-3 text-sm text-text">
+                                                {row.candidateCount ?? 0}
+                                            </td>
+                                            <td className="px-3 py-3">
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    {isSet && setThumb ? (
+                                                        <div
+                                                            className="rounded-md border border-emerald-400/40 bg-white/90 p-1.5 ring-2 ring-emerald-400/40"
+                                                            title="Currently applied clearlogo"
+                                                        >
+                                                            <img
+                                                                src={plexThumbUrl(setThumb, 240, 90)}
+                                                                alt=""
+                                                                className="h-10 w-[5.5rem] object-contain"
+                                                            />
+                                                        </div>
+                                                    ) : null}
+                                                    {(row.candidates || []).slice(0, 8).map((c, ci) => {
+                                                        const candKey = String(c.ratingKey || '').trim();
+                                                        if (isSet && candKey && candKey === String(row.selectedCandidate?.ratingKey || '')) {
+                                                            return null;
+                                                        }
+                                                        const src = plexThumbUrl(c.thumb || c.ratingKey, 240, 90);
+                                                        const isPicked = !!candKey && picked === candKey;
+                                                        const isDefault = !picked && !!candKey && candKey === defaultBest;
+                                                        const ring = isPicked
+                                                            ? 'ring-2 ring-plex border-plex/50'
+                                                            : (isDefault
+                                                                ? 'ring-1 ring-white/25 border-white/15'
+                                                                : 'ring-1 ring-white/10 border-transparent');
+                                                        return src ? (
+                                                            <button
+                                                                key={`${row.ratingKey}-c-${ci}`}
+                                                                type="button"
+                                                                disabled={!isAvailable || clearlogoBusy || clearlogoRunning}
+                                                                onClick={() => {
+                                                                    if (!isAvailable || !candKey) return;
+                                                                    toggleClearlogoPick(row.ratingKey, candKey);
+                                                                }}
+                                                                className={`rounded-md border bg-white/90 p-1.5 disabled:opacity-50 ${ring}`}
+                                                                title={
+                                                                    isPicked
+                                                                        ? `Selected · ${c.provider || 'logo'}`
+                                                                        : (isDefault
+                                                                            ? `Default pick · ${c.provider || 'logo'} (click to choose)`
+                                                                            : (c.provider || 'Select this logo'))
+                                                                }
+                                                            >
+                                                                <img
+                                                                    src={src}
+                                                                    alt=""
+                                                                    className="h-10 w-[5.5rem] object-contain"
+                                                                />
+                                                            </button>
+                                                        ) : (
+                                                            <div
+                                                                key={`${row.ratingKey}-c-${ci}`}
+                                                                className="h-10 w-[5.5rem] rounded-md bg-white/10"
+                                                            />
+                                                        );
+                                                    })}
+                                                    {isExternal && externalUrl ? (
+                                                        <div
+                                                            className="rounded-md border border-sky-400/40 bg-white/90 p-1.5 ring-1 ring-sky-400/30"
+                                                            title="TMDB PNG clearlogo preview"
+                                                        >
+                                                            <img
+                                                                src={externalUrl}
+                                                                alt=""
+                                                                className="h-10 w-[5.5rem] object-contain"
+                                                            />
+                                                        </div>
+                                                    ) : null}
+                                                    {!row.candidates?.length && !setThumb && !externalUrl && (
+                                                        <span className="text-muted">—</span>
+                                                    )}
+                                                </div>
+                                            </td>
+                                            <td className="px-3 py-3 text-right">
+                                                {(isAvailable || isExternal) ? (
+                                                    <button
+                                                        type="button"
+                                                        disabled={!status?.enabled || clearlogoBusy || !!clearlogoRowBusy || clearlogoRunning}
+                                                        onClick={() => { void applyClearlogos([row.ratingKey]); }}
+                                                        className="rounded-lg border border-plex/40 bg-plex/15 px-2.5 py-1.5 text-[11px] font-bold text-plex disabled:opacity-40"
+                                                    >
+                                                        {clearlogoRowBusy === `apply:${row.ratingKey}` ? (
+                                                            <Loader2 className="inline h-3.5 w-3.5 animate-spin" />
+                                                        ) : (isExternal
+                                                            ? 'Upload PNG'
+                                                            : (picked ? 'Apply selected' : 'Apply'))}
+                                                    </button>
+                                                ) : isSet ? (
+                                                    <span className="text-[11px] font-semibold text-emerald-300/90">Logo set</span>
+                                                ) : (
+                                                    <span className="text-muted">—</span>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                    {clearlogoTableRows.length > CLEARLOGO_PAGE_SIZE && (
+                        <div className="flex justify-end gap-1 text-[11px]">
+                            <button
+                                type="button"
+                                disabled={safeClearlogoPage <= 1}
+                                onClick={() => setClearlogoPage((p) => Math.max(1, p - 1))}
+                                className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-2 py-1 font-bold text-text disabled:opacity-40"
+                            >
+                                <ChevronLeft className="h-3.5 w-3.5" />
+                                Prev
+                            </button>
+                            <button
+                                type="button"
+                                disabled={safeClearlogoPage >= clearlogoPageCount}
+                                onClick={() => setClearlogoPage((p) => Math.min(clearlogoPageCount, p + 1))}
+                                className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-2 py-1 font-bold text-text disabled:opacity-40"
+                            >
+                                Next
+                                <ChevronRight className="h-3.5 w-3.5" />
+                            </button>
+                        </div>
+                    )}
+                    </div>
+                )}
+                {clearlogoScan && !clearlogoTableRows.length && (clearlogoScan.status === 'done' || clearlogoScan.status === 'cancelled') && (
+                    <p className="text-xs text-muted">
+                        {clearlogoTableFilter === 'available'
+                            ? 'No titles with unapplied Plex clearlogos in this scan. Try “TMDB PNG” or “None”.'
+                            : clearlogoTableFilter === 'externalAvailable'
+                                ? 'No TMDB PNG fallbacks listed for this scan window.'
+                                : clearlogoTableFilter === 'hasLogo'
+                                    ? 'No already-set clearlogos listed for this scan window.'
+                                    : clearlogoTableFilter === 'none'
+                                        ? 'No titles without Plex or TMDB PNG clearlogos in this scan window.'
+                                        : 'No clearlogo results listed yet.'}
+                    </p>
                 )}
             </section>
 

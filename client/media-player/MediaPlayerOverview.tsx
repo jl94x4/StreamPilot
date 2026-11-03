@@ -5,10 +5,11 @@ import { DiscoveryFactWidget } from '../discovery/DiscoveryFactWidget';
 import { apiFetch } from '../shared/api';
 import { DISCOVER_NETWORKS, DISCOVER_STUDIOS } from '../discovery/discoverConstants';
 import { shouldPreserveColorLogo } from '../discovery/discoveryLogoUtils';
-import { plexImageUrl, formatEpisodeCode, formatPlayerDate, formatPlayerDuration, progressPercent } from './playerUtils';
+import { plexImageUrl, PLAYER_POSTER_QUALITY, formatEpisodeCode, formatPlayerDate, formatPlayerDuration, progressPercent } from './playerUtils';
 import {
-    splitOverviewServiceLogos,
+    isStreamingBrandLabel,
     pickWatchProvidersForRegion,
+    splitOverviewServiceLogos,
 } from './studioLogo.js';
 import type { PlayerItem, PlayerPersonCredit } from './types';
 import { useDiscoveryPreferences } from '../discovery/useDiscoveryPreferences';
@@ -97,7 +98,7 @@ const StudioPill: React.FC<{
     const logoClass = brandColor
         ? 'h-5 max-w-[110px] sm:max-w-[130px] w-auto object-contain'
         : size === 'hero'
-        ? 'h-12 sm:h-14 lg:h-[4.25rem] max-w-[16rem] sm:max-w-[20rem] w-auto object-contain object-left drop-shadow-[0_10px_24px_rgba(0,0,0,0.45)]'
+        ? 'h-12 sm:h-14 lg:h-[4.25rem] max-w-[16rem] sm:max-w-[20rem] w-auto object-contain object-left'
         : size === 'toolbar'
             ? 'h-5 max-w-[4.5rem] w-auto object-contain opacity-95'
             : size === 'lg'
@@ -183,49 +184,159 @@ const NetworkLogoRow: React.FC<{
 };
 
 /** Studio, broadcast network, and streaming providers — separate stacked rows. */
-const useOverviewServiceLogos = (item: PlayerItem, region: string) => {
-    const plexName = String(item.studio || '').trim();
+export const useOverviewServiceLogos = (item: PlayerItem, region: string) => {
+    const isMovie = item.type === 'movie';
+    const networkLabels = Array.isArray(item.networkLabels)
+        ? item.networkLabels.map((row) => String(row || '').trim()).filter(Boolean)
+        : [];
+    const studioLabels = Array.isArray(item.studioLabels)
+        ? item.studioLabels.map((row) => String(row || '').trim()).filter(Boolean)
+        : [];
+    // TV logos = Plex Network tags (Advanced Filters). Soft-fill studio when hubs omit Network.
+    // Never soft-fill SVOD Labels (Netflix-on-C4) — only studio field + non-stream labels.
+    const softTvNames = (() => {
+        if (networkLabels.length) return networkLabels;
+        const out: string[] = [];
+        const push = (value: string) => {
+            const next = String(value || '').trim();
+            if (!next || out.some((row) => row.toLowerCase() === next.toLowerCase())) return;
+            out.push(next);
+        };
+        push(String(item.studio || '').trim());
+        studioLabels.forEach((name) => {
+            if (!isStreamingBrandLabel(name)) push(name);
+        });
+        return out;
+    })();
+    const plexName = isMovie
+        ? String(item.studio || '').trim()
+        : String(softTvNames[0] || '').trim();
+    const plexNames = isMovie ? studioLabels : softTvNames;
     const watchRegion = String(region || 'US').trim().toUpperCase() || 'US';
     const [tmdbNetworks, setTmdbNetworks] = useState<Array<{ id?: string | number; name?: string; logoPath?: string }>>([]);
+    const [tmdbCompanies, setTmdbCompanies] = useState<Array<{ id?: string | number; name?: string; logoPath?: string }>>([]);
     const [streamingProviders, setStreamingProviders] = useState<Array<{ name: string; logoPath: string; key: string }>>([]);
+    const plexKey = plexNames.join('|');
 
     useEffect(() => {
         setTmdbNetworks([]);
+        setTmdbCompanies([]);
         setStreamingProviders([]);
-    }, [item.type, item.tmdbId, item.externalIds?.tmdb, plexName]);
+    }, [item.type, item.tmdbId, item.externalIds?.tmdb, item.showTmdbId, plexName, plexKey]);
 
     useEffect(() => {
-        const tmdbId = Number(item.externalIds?.tmdb || item.tmdbId || 0);
-        if (!Number.isFinite(tmdbId) || tmdbId <= 0) return undefined;
-        // Episodes/seasons must resolve against the series id (server prefers show TMDB).
-        const mediaType = item.type === 'movie' ? 'movie' : 'tv';
+        // Episodes/seasons must resolve against the series id (show TMDB).
+        // Never use an episode-level TMDB id — /tv/{episodeId} 404s and clears logos.
+        const isTvChild = item.type === 'episode' || item.type === 'season';
+        let tmdbId = isMovie
+            ? Number(item.externalIds?.tmdb || item.tmdbId || 0)
+            : Number(
+                item.showTmdbId
+                || (!isTvChild ? (item.externalIds?.tmdb || item.tmdbId) : 0)
+                || 0,
+            );
+        const imdbId = String(item.externalIds?.imdb || '').trim();
+        const mediaType = isMovie ? 'movie' : 'tv';
         let cancelled = false;
-        apiFetch(`/api/discovery/proxy/${mediaType}/${tmdbId}`)
-            .then((details: any) => {
-                if (cancelled) return;
-                if (mediaType === 'tv') {
-                    setTmdbNetworks([].concat(details?.networks || []));
-                } else {
-                    setTmdbNetworks([]);
-                }
-                setStreamingProviders(pickWatchProvidersForRegion(details?.watchProviders || [], watchRegion));
-            })
+
+        const applyDetails = (details: any) => {
+            if (cancelled) return;
+            if (mediaType === 'tv') {
+                setTmdbNetworks([].concat(details?.networks || [])
+                    .map((row: any) => ({
+                        id: row?.id,
+                        name: row?.name,
+                        logoPath: row?.logoPath || row?.logo_path || '',
+                    }))
+                    // Keep name-only rows — catalog fills BBC/C4/ITVX static marks.
+                    .filter((row: { name?: string }) => row.name));
+            } else {
+                setTmdbNetworks([]);
+            }
+            setTmdbCompanies([].concat(details?.productionCompanies || details?.production_companies || [])
+                .map((row: any) => ({
+                    id: row?.id,
+                    name: row?.name,
+                    logoPath: row?.logoPath || row?.logo_path || '',
+                }))
+                .filter((row: { name?: string }) => row.name));
+            setStreamingProviders(pickWatchProvidersForRegion(details?.watchProviders || [], watchRegion));
+        };
+
+        const loadByTmdb = (id: number) => apiFetch(`/api/discovery/proxy/${mediaType}/${id}`)
+            .then(applyDetails)
             .catch(() => {
                 if (!cancelled) {
                     setTmdbNetworks([]);
+                    setTmdbCompanies([]);
                     setStreamingProviders([]);
                 }
             });
+
+        // Many Plex libraries only have imdb:// Guids — resolve TMDB so studio/network still load.
+        if ((!Number.isFinite(tmdbId) || tmdbId <= 0) && /^tt\d+$/i.test(imdbId)) {
+            void apiFetch(
+                `/api/discovery/proxy/find/${encodeURIComponent(imdbId)}?external_source=imdb_id`,
+            )
+                .then((found: any) => {
+                    if (cancelled) return null;
+                    const bucket = mediaType === 'tv'
+                        ? [].concat(found?.tv_results || found?.tvResults || [])
+                        : [].concat(found?.movie_results || found?.movieResults || []);
+                    const resolved = Number(bucket[0]?.id || found?.tmdbId || 0);
+                    if (!Number.isFinite(resolved) || resolved <= 0) return null;
+                    tmdbId = resolved;
+                    return loadByTmdb(resolved);
+                })
+                .catch(() => undefined);
+            return () => { cancelled = true; };
+        }
+
+        // TVDB fallback — many Plex TV libraries use thetvdb:// Guids with no IMDB or TMDB.
+        const tvdbId = String(item.externalIds?.tvdb || '').trim();
+        if ((!Number.isFinite(tmdbId) || tmdbId <= 0) && /^\d+$/.test(tvdbId)) {
+            void apiFetch(
+                `/api/discovery/proxy/find/${encodeURIComponent(tvdbId)}?external_source=tvdb_id`,
+            )
+                .then((found: any) => {
+                    if (cancelled) return null;
+                    const bucket = mediaType === 'tv'
+                        ? [].concat(found?.tv_results || found?.tvResults || [])
+                        : [].concat(found?.movie_results || found?.movieResults || []);
+                    const resolved = Number(bucket[0]?.id || found?.tmdbId || 0);
+                    if (!Number.isFinite(resolved) || resolved <= 0) return null;
+                    tmdbId = resolved;
+                    return loadByTmdb(resolved);
+                })
+                .catch(() => undefined);
+            return () => { cancelled = true; };
+        }
+
+        if (!Number.isFinite(tmdbId) || tmdbId <= 0) return undefined;
+        void loadByTmdb(tmdbId);
         return () => { cancelled = true; };
-    }, [item.externalIds?.tmdb, item.tmdbId, item.type, plexName, watchRegion]);
+    }, [
+        item.externalIds?.tmdb,
+        item.externalIds?.imdb,
+        item.externalIds?.tvdb,
+        item.tmdbId,
+        item.showTmdbId,
+        item.type,
+        isMovie,
+        plexName,
+        plexKey,
+        watchRegion,
+    ]);
 
     return splitOverviewServiceLogos({
         plexName,
+        plexNames,
         // Treat episodes/seasons as TV so Plex network labels land in Network, not Studio.
-        mediaType: item.type === 'movie' ? 'movie' : 'show',
+        mediaType: isMovie ? 'movie' : 'show',
         networks: DISCOVER_NETWORKS,
         studios: DISCOVER_STUDIOS,
         tmdbNetworks,
+        tmdbCompanies,
         streamingProviders,
     });
 };
@@ -235,9 +346,10 @@ export const OverviewSummary: React.FC<{ text: string }> = ({ text }) => {
     const [open, setOpen] = useState(false);
     const long = text.length > 420;
     const tvShell = isTvShell();
+    // TV preplay: always show the full synopsis — no clamp / read-more.
     return (
         <div className="media-overview-summary flex flex-col gap-2">
-            <p className={`text-sm sm:text-base lg:text-[17px] text-text leading-relaxed ${long && !open ? (tvShell ? 'line-clamp-3' : 'line-clamp-5') : ''}`}>
+            <p className={`text-sm sm:text-base lg:text-[17px] text-text leading-relaxed ${tvShell ? 'media-overview-summary-full' : (long && !open ? 'line-clamp-5' : '')}`}>
                 {text}
             </p>
             {long && !tvShell ? (
@@ -292,10 +404,17 @@ export const OverviewFactsSpotlight: React.FC<{
 }) => {
     const { t } = useDiscoverI18n();
     const { preferences } = useDiscoveryPreferences();
+    const [settings] = usePlayerSettings();
     const { studio, network, streaming } = useOverviewServiceLogos(item, preferences.discoverRegion || 'US');
-    const marks = [...studio, ...network, ...streaming].filter((row) => row.logoPath).filter((row, index, rows) => (
-        rows.findIndex((other) => other.key === row.key && other.name === row.name) === index
-    ));
+    // One tier: movies → studio, then streaming. Shows → network, then studio, then streaming.
+    const brandRows = item.type === 'movie'
+        ? (studio.length ? studio : streaming)
+        : (network.length ? network : (studio.length ? studio : streaming));
+    const marks = settings.showServiceBrandLogos === false
+        ? []
+        : brandRows.filter((row) => row.logoPath).filter((row, index, rows) => (
+            rows.findIndex((other) => other.key === row.key && other.name === row.name) === index
+        ));
     const showFact = Boolean(factMediaType) && (Number.isFinite(factMediaId) && factMediaId > 0 || Boolean(String(factTitle || '').trim()));
     const showNeighbors = Boolean((previous || next) && onOpenItem && onPlayNeighbor);
     if (!marks.length && !showFact && !showNeighbors) return null;
@@ -417,11 +536,13 @@ export const OverviewFacts: React.FC<{
     const watched = Number(item.viewedLeafCount || 0);
     const total = Number(item.leafCount || 0);
     const streamingMarks = tvShell ? streaming : streaming.filter((row) => row.wordmark !== false);
-    const serviceSections = [
-        studio.length ? { label: t('media.studio'), networks: studio, size: 'sm' as const, searchAllTypes: false } : null,
-        network.length && item.type !== 'episode' ? { label: t('mediaPlayerPage.network'), networks: network, size: 'sm' as const, searchAllTypes: false } : null,
-        streamingMarks.length ? { label: t('mediaPlayerPage.streaming'), networks: streamingMarks, size: 'sm' as const, searchAllTypes: true, brandColor: !tvShell } : null,
-    ].filter(Boolean) as Array<{ label: string; networks: NetworkLogo[]; size: 'sm' | 'md' | 'lg'; searchAllTypes: boolean }>;
+    const serviceSections = settings.showServiceBrandLogos === false
+        ? []
+        : ([
+            studio.length ? { label: t('media.studio'), networks: studio, size: 'sm' as const, searchAllTypes: false } : null,
+            network.length && item.type !== 'episode' ? { label: t('mediaPlayerPage.network'), networks: network, size: 'sm' as const, searchAllTypes: false } : null,
+            streamingMarks.length ? { label: t('mediaPlayerPage.streaming'), networks: streamingMarks, size: 'sm' as const, searchAllTypes: true, brandColor: !tvShell } : null,
+        ].filter(Boolean) as Array<{ label: string; networks: NetworkLogo[]; size: 'sm' | 'md' | 'lg'; searchAllTypes: boolean }>);
     const leadCredit = (people?: PlayerPersonCredit[]) => {
         const first = (people || []).find((person) => String(person?.name || '').trim());
         return first ? [first] : [];
@@ -597,8 +718,9 @@ export const OverviewFacts: React.FC<{
 
 export const OverviewLinks: React.FC<{ item: PlayerItem }> = ({ item }) => {
     const { t } = useDiscoverI18n();
-    // External browser links are useless on leanback — hide IMDb / TMDB / TVDB entirely.
+    // External browser links are useless on leanback, and phones match the TV app here.
     if (isTvShell()) return null;
+    if (typeof document !== 'undefined' && document.documentElement?.dataset?.phone === '1') return null;
     const ids = item.externalIds || { imdb: null, tmdb: item.tmdbId || null, tvdb: null };
     const tmdbType = item.type === 'movie' ? 'movie' : 'tv';
     const season = Number(item.parentIndex);
@@ -656,13 +778,13 @@ const EpisodeNeighborCard: React.FC<{
             >
                 <div className="player-episode-neighbor-thumb relative h-[3.85rem] w-[6.6rem] shrink-0 overflow-hidden rounded-lg bg-black/40">
                     {item.thumb ? (
-                        <img src={plexImageUrl(item.thumb, 426, 240, { quality: 60 })} alt="" className="h-full w-full object-cover" />
+                        <img src={plexImageUrl(item.thumb, 426, 240, { quality: PLAYER_POSTER_QUALITY })} alt="" className="h-full w-full object-cover" />
                     ) : (
                         <div className="flex h-full items-center justify-center text-muted">{icon}</div>
                     )}
                     {progressPercent(item) > 0 ? (
                         <div className="player-watch-bar absolute inset-x-0 bottom-0 h-0.5 bg-black/60">
-                            <div className="h-full bg-plex" style={{ width: `${progressPercent(item)}%` }} />
+                            <div className="h-full bg-progress" style={{ width: `${progressPercent(item)}%` }} />
                         </div>
                     ) : null}
                 </div>

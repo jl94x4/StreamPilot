@@ -11,6 +11,7 @@ import {
 } from './host';
 import { fetchMediaPlayerStudio, setMediaPlayerWatched } from './api';
 import { PlayerPosterCard } from './PlayerPosterCard';
+import { PlayerTvStatusPanel } from './PlayerTvStatusPanel';
 import type { PlayerItem, PlayerPlayOptions } from './types';
 
 type Props = {
@@ -18,6 +19,8 @@ type Props = {
     name?: string;
     sectionKey?: string;
     mediaType?: 'movie' | 'show';
+    /** Other Plex tags of the same brand, searched together. */
+    alts?: string[];
     onBack: () => void;
     onOpenItem: (item: PlayerItem) => void;
     onPlay: (item: PlayerItem, opts?: PlayerPlayOptions) => void;
@@ -28,6 +31,7 @@ export const MediaPlayerStudio: React.FC<Props> = ({
     name,
     sectionKey,
     mediaType,
+    alts,
     onBack,
     onOpenItem,
     onPlay,
@@ -38,15 +42,20 @@ export const MediaPlayerStudio: React.FC<Props> = ({
     const [items, setItems] = useState<PlayerItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [attempt, setAttempt] = useState(0);
+    const retry = () => setAttempt((n) => n + 1);
     const tvShell = typeof document !== 'undefined' && (
         document.documentElement?.dataset?.tv === '1' || window.__PLEX_CLIENT__?.isTv === true
     );
     const eyebrow = mediaType === 'show' ? t('mediaPlayerPage.network') : t('media.studio');
 
+    // Stable effect key for the alt tags (the array is rebuilt on every route read).
+    const altList = (alts || []).join('\n');
+
     useEffect(() => {
         let cancelled = false;
         setLoading(true);
-        fetchMediaPlayerStudio(studioKey, { name, sectionKey, mediaType })
+        fetchMediaPlayerStudio(studioKey, { name, sectionKey, mediaType, alts: altList ? altList.split('\n') : [] })
             .then((data) => {
                 if (cancelled) return;
                 setTitle(data.studio?.name || name || eyebrow);
@@ -61,7 +70,7 @@ export const MediaPlayerStudio: React.FC<Props> = ({
                 if (!cancelled) setLoading(false);
             });
         return () => { cancelled = true; };
-    }, [eyebrow, mediaType, name, sectionKey, studioKey, t]);
+    }, [altList, eyebrow, mediaType, name, sectionKey, studioKey, t, attempt]);
 
     const toggleWatched = async (item: PlayerItem) => {
         const next = !item.watched;
@@ -95,12 +104,15 @@ export const MediaPlayerStudio: React.FC<Props> = ({
                 <DiscoverGridSizeSelect value={gridSize} onChange={setGridSize} />
             </div>
 
-            {loading && !tvShell ? (
+            {loading ? (
                 <PosterGridSkeleton
                     className={upgraderPosterGridClass(gridSize)}
                     style={upgraderPosterGridStyle(gridSize)}
+                    {...(tvShell ? { count: 24, variant: 'home' as const } : {})}
                 />
-            ) : loading ? null : error ? (
+            ) : error && tvShell ? (
+                <PlayerTvStatusPanel title={error} onRetry={retry} onBack={onBack} />
+            ) : error ? (
                 <div className={discoveryTheme.emptyState}>
                     <p className={discoveryTheme.emptyTitle}>{error}</p>
                 </div>

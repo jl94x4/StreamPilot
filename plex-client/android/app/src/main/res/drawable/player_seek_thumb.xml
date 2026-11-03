@@ -1,20 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 28dp box in every state (constantSize). Resting: the old 18dp white dot with an orange
+     centre. Focused / pressed: bigger, with a soft white halo, so the scrubber is easy to spot. -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android" android:constantSize="true">
     <item android:state_pressed="true">
         <layer-list>
             <item>
                 <shape android:shape="oval">
-                    <size
-                        android:width="18dp"
-                        android:height="18dp" />
+                    <size android:width="28dp" android:height="28dp" />
+                    <solid android:color="#59FFFFFF" />
+                </shape>
+            </item>
+            <item android:bottom="3dp" android:left="3dp" android:right="3dp" android:top="3dp">
+                <shape android:shape="oval">
                     <solid android:color="#FFFFFFFF" />
                 </shape>
             </item>
-            <item
-                android:bottom="4dp"
-                android:left="4dp"
-                android:right="4dp"
-                android:top="4dp">
+            <item android:bottom="7dp" android:left="7dp" android:right="7dp" android:top="7dp">
                 <shape android:shape="oval">
                     <solid android:color="@color/player_accent" />
                 </shape>
@@ -25,17 +26,16 @@
         <layer-list>
             <item>
                 <shape android:shape="oval">
-                    <size
-                        android:width="18dp"
-                        android:height="18dp" />
+                    <size android:width="28dp" android:height="28dp" />
+                    <solid android:color="#59FFFFFF" />
+                </shape>
+            </item>
+            <item android:bottom="3dp" android:left="3dp" android:right="3dp" android:top="3dp">
+                <shape android:shape="oval">
                     <solid android:color="#FFFFFFFF" />
                 </shape>
             </item>
-            <item
-                android:bottom="4dp"
-                android:left="4dp"
-                android:right="4dp"
-                android:top="4dp">
+            <item android:bottom="7dp" android:left="7dp" android:right="7dp" android:top="7dp">
                 <shape android:shape="oval">
                     <solid android:color="@color/player_accent" />
                 </shape>
@@ -46,17 +46,16 @@
         <layer-list>
             <item>
                 <shape android:shape="oval">
-                    <size
-                        android:width="18dp"
-                        android:height="18dp" />
+                    <size android:width="28dp" android:height="28dp" />
+                    <solid android:color="@android:color/transparent" />
+                </shape>
+            </item>
+            <item android:bottom="5dp" android:left="5dp" android:right="5dp" android:top="5dp">
+                <shape android:shape="oval">
                     <solid android:color="#E6FFFFFF" />
                 </shape>
             </item>
-            <item
-                android:bottom="4dp"
-                android:left="4dp"
-                android:right="4dp"
-                android:top="4dp">
+            <item android:bottom="9dp" android:left="9dp" android:right="9dp" android:top="9dp">
                 <shape android:shape="oval">
                     <solid android:color="@color/player_accent" />
                 </shape>

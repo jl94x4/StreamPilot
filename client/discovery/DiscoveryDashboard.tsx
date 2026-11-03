@@ -223,7 +223,7 @@ const DiscoveryDashboardInner: React.FC<{
         const mediaId = mediaType === 'music'
             ? String(item?.mbid || item?.id || '').trim()
             : Number(item?.id || item?.tmdbId || 0);
-        if ((mediaType === 'music' && !mediaId) || (mediaType !== 'music' && (!Number.isFinite(mediaId) || mediaId <= 0))) {
+        if ((mediaType === 'music' && !mediaId) || (mediaType !== 'music' && (typeof mediaId !== 'number' || !Number.isFinite(mediaId) || mediaId <= 0))) {
             pushToast?.(t('quickActions.notifyBlocked'), 'error');
             return;
         }
@@ -304,7 +304,7 @@ const DiscoveryDashboardInner: React.FC<{
             actions.push({
                 id: 'plex',
                 label: t('quickActions.openInPlex'),
-                onClick: () => window.open(plexUrl, '_blank', 'noopener,noreferrer'),
+                onClick: () => { window.open(plexUrl, '_blank', 'noopener,noreferrer'); },
             });
         }
         if (item?.discoverKey) {
@@ -313,7 +313,7 @@ const DiscoveryDashboardInner: React.FC<{
                 id: 'hide',
                 label: hidden ? t('quickActions.unhide') : t('quickActions.hide'),
                 tone: hidden ? 'default' : 'danger',
-                onClick: () => toggleHiddenDiscoverItem(item),
+                onClick: () => { toggleHiddenDiscoverItem(item); },
             });
         }
         return actions;

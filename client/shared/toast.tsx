@@ -6,12 +6,12 @@ export const MAX_VISIBLE_TOASTS = 3;
 /** Success/error toasts auto-dismiss after this many ms (timer must not reset on parent re-renders). */
 export const TOAST_DISMISS_MS = 2500;
 
-export const pushToast = (prev: ToastMessage[], message: string, type: 'success' | 'error'): ToastMessage[] => {
+export const pushToast = (prev: ToastMessage[], message: string, type: ToastMessage['type']): ToastMessage[] => {
     const next = [...prev, { id: Date.now() + Math.random(), message, type }];
     return next.length > MAX_VISIBLE_TOASTS ? next.slice(-MAX_VISIBLE_TOASTS) : next;
 };
 
-export const Toast: React.FC<{ message: string; type: 'success' | 'error'; onDismiss: () => void }> = ({ message, type, onDismiss }) => {
+export const Toast: React.FC<{ message: string; type: ToastMessage['type']; onDismiss: () => void }> = ({ message, type, onDismiss }) => {
     const [isVisible, setIsVisible] = useState(false);
     const onDismissRef = useRef(onDismiss);
     onDismissRef.current = onDismiss;
@@ -30,7 +30,7 @@ export const Toast: React.FC<{ message: string; type: 'success' | 'error'; onDis
     return (
         <div
             className={`px-3 py-2 rounded-lg text-white text-sm font-medium shadow-lg transition-all duration-300 transform ${isVisible ? 'translate-y-0 opacity-100' : 'translate-y-2 opacity-0'
-                } ${type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}
+                } ${type === 'success' ? 'bg-green-600' : type === 'info' ? 'bg-zinc-700' : 'bg-red-600'}`}
         >
             {message}
         </div>
@@ -63,14 +63,14 @@ export const Loader: React.FC<{ isLoading: boolean; isCinematic?: boolean }> = (
                             style={{ animation: 'cinematic-draw 2s infinite cubic-bezier(0.4, 0, 0.2, 1)' }}
                             d="M 30 20 L 80 50 L 30 80 Z" 
                             fill="none" 
-                            stroke="var(--plex-color, #e5a00d)" 
+                            stroke="var(--plex-color, rgb(var(--color-plex)))" 
                             strokeWidth="3" 
                             strokeLinejoin="round" 
                             strokeLinecap="round" 
                         />
                         <path 
                             d="M 30 20 L 80 50 L 30 80 Z" 
-                            fill="var(--plex-color, #e5a00d)" 
+                            fill="var(--plex-color, rgb(var(--color-plex)))" 
                             className="animate-pulse opacity-50" 
                         />
                     </svg>

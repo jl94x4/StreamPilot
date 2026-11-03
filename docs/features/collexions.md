@@ -27,7 +27,7 @@ See also [Docker → ColleXions](/guide/docker#collexions-bundled).
 | Dashboard | Status overview for collections and sync health |
 | Gallery | Browse generated / managed collections |
 | Hubs | Hub layout management |
-| Creator | Build collections from Trending presets, Discover filters, Import Lists (MDBList, etc.), and custom recipes |
+| Creator | Build collections from Trending presets, Discover filters, Import Lists (Trakt, MDBList, JustWatch, Letterboxd), and custom recipes |
 | Jobs | Scheduled and manual sync jobs, including Run Now |
 | Stats | Collection and sync statistics |
 | Config | Worker settings, imports, and credentials |
@@ -37,7 +37,7 @@ See also [Docker → ColleXions](/guide/docker#collexions-bundled).
 
 - **Trending presets** — one-click catalogs such as weekly Top 10 movie/TV lists and other TMDB-backed recipes
 - **Discover filters** — richer TMDB Discover filters and saved presets for auto-sync
-- **Import lists** — bring in external lists (for example MDBList) and keep them on the Import List tab after create
+- **Import lists** — bring in external lists (Trakt, MDBList, JustWatch, Letterboxd) and keep them on the Import List tab after create
 - **Auto-sync** — recipes persist so scheduled jobs can refresh collections without rebuilding them by hand
 
 ## Requirements

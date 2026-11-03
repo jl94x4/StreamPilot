@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { focalFromFaces, formatBackgroundPosition, formatTvDetailsBackdropPosition, formatWebDetailsBackdropPosition, posterSurfaceFromRgba } from './imageFocalPoint.ts';
 
-const box = (x, y, width, height) => ({ boundingBox: { x, y, width, height } });
+const box = (x, y, width, height) => ({ boundingBox: { x, y, width, height } as DOMRectReadOnly });
 
 // Single face in upper third → focal sits near eye-line, not chin.
 {

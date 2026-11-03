@@ -1,12 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, Globe, Loader2 } from 'lucide-react';
+import { ArrowLeft, Film, History, Loader2, Lock, Play, Zap } from 'lucide-react';
 import { apiFetch } from '../shared/api';
 import { PlexHomeSwitchModal } from '../shared/PlexHomeSwitchModal';
 import {
     clearPlexClientPortal,
-    getPortalBaseUrl,
+    getPlexClientAppVersion,
     isAndroidTvUi,
-    normalizePortalBaseUrl,
     writeAuthMode,
     writeStoredPortalBaseUrl,
     writeStoredSessionToken,
@@ -21,6 +20,8 @@ type PinSession = {
     code: string;
     oauthState: string;
     clientId: string;
+    /** Phone one-tap: app.plex.tv/auth with the long code prefilled, nothing to type. */
+    authUrl?: string;
 };
 
 type HomeUser = {
@@ -34,89 +35,86 @@ type HomeUser = {
 };
 
 const LINK_URL = 'https://plex.tv/link';
-const POSTER_HUES = [24, 32, 18, 38, 28, 14, 42, 22, 35, 16, 30, 40, 20, 26, 12, 36, 19, 33];
 
-const displayHost = (raw: string) => {
-    const normalized = normalizePortalBaseUrl(raw);
-    if (!normalized.ok) return raw.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
-    try {
-        const url = new URL(normalized.url);
-        return url.host + (url.pathname !== '/' ? url.pathname.replace(/\/+$/, '') : '');
-    } catch {
-        return normalized.url.replace(/^https?:\/\//i, '');
-    }
+/** Plex's hosted sign-in for a strong PIN. Only the client that made the PIN can claim it. */
+const plexWebAuthUrl = (clientId: string, code: string) => {
+    const params = new URLSearchParams({
+        clientID: clientId,
+        code,
+        'context[device][product]': 'StreamPilot',
+    });
+    return `https://app.plex.tv/auth#?${params.toString()}`;
 };
 
-const AuthAtmosphere: React.FC<{ tv?: boolean }> = ({ tv }) => (
-    <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
-        <div className="absolute inset-0 bg-[#07080c]" />
-        {tv ? (
-            <div
-                className="absolute left-1/2 top-[46%] h-[42rem] w-[42rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-amber-500/[0.16] blur-[140px]"
-            />
-        ) : (
-            <>
-                <div className="absolute -top-32 -left-24 h-[34rem] w-[34rem] rounded-full bg-plex/20 blur-[140px]" />
-                <div className="absolute top-[18%] right-[-8%] h-[28rem] w-[28rem] rounded-full bg-amber-700/20 blur-[120px]" />
-                <div className="absolute bottom-[-18%] left-[22%] h-[24rem] w-[24rem] rounded-full bg-plex/10 blur-[110px]" />
-                <div
-                    className="absolute inset-0 opacity-90"
-                    style={{ backgroundImage: 'radial-gradient(ellipse 70% 55% at 18% 12%, rgba(229,160,13,0.16), transparent 58%)' }}
-                />
-                <div className="absolute inset-y-[-12%] right-[-6%] hidden w-[58%] rotate-[-11deg] md:block">
-                    <div className="grid h-full grid-cols-6 gap-3 opacity-[0.42]">
-                        {POSTER_HUES.map((hue, index) => (
+const openExternal = (url: string) => {
+    try { window.open(url, '_blank', 'noopener,noreferrer'); } catch { /* restricted WebView */ }
+};
+/** Cinematic duotones for the poster wall (no real art exists before sign-in). */
+const WALL_TONES: Array<[string, string]> = [
+    ['#1f3b73', '#0a1022'], ['#7a1f3d', '#18060e'], ['#0f5c55', '#04141a'], ['#9a6414', '#1c1004'],
+    ['#3d2a7a', '#0d0922'], ['#a3401a', '#1e0a04'], ['#1d5d8a', '#061523'], ['#5c1f6e', '#13061a'],
+    ['#2f6b2a', '#08170a'], ['#8a1f1f', '#1a0505'], ['#22406b', '#070d1c'], ['#6b4a12', '#170f03'],
+];
+const WALL_COLUMNS = 4;
+const WALL_TILES = 7;
+
+/**
+ * A slow, tilted wall of poster-shaped cards drifting up and down: reads as "media" at a
+ * glance. Only transforms animate (one layer per column), so it stays light on TV sticks.
+ */
+export const AuthMediaWall: React.FC = () => (
+    <div className="smp-auth-bg pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
+        <div className="smp-wall">
+            {Array.from({ length: WALL_COLUMNS }, (_, col) => {
+                const tiles = Array.from({ length: WALL_TILES }, (_, row) => WALL_TONES[(col * 5 + row * 3) % WALL_TONES.length]);
+                return (
+                    <div key={col} className="smp-wall-col" style={{ animationDuration: `${68 + col * 11}s` }}>
+                        {/* Twice over, so the loop seam never shows. */}
+                        {[...tiles, ...tiles].map(([light, dark], index) => (
                             <div
-                                key={`${hue}-${index}`}
-                                className="relative overflow-hidden rounded-xl border border-white/10 shadow-[0_18px_40px_rgba(0,0,0,0.45)]"
-                                style={{
-                                    marginTop: `${(index % 3) * 1.6}rem`,
-                                    background: `linear-gradient(165deg, hsl(${hue} 55% ${22 + (index % 4) * 4}%) 0%, hsl(${hue + 8} 40% 8%) 100%)`,
-                                }}
+                                key={index}
+                                className="smp-wall-tile"
+                                style={{ background: `linear-gradient(160deg, ${light} 0%, ${dark} 78%)` }}
                             >
-                                <div className="absolute inset-x-0 top-0 h-1/3 bg-gradient-to-b from-white/10 to-transparent" />
+                                <span className="smp-wall-orb" style={{ left: `${18 + ((index * 37) % 50)}%`, top: `${14 + ((index * 23) % 34)}%` }} />
+                                <span className="smp-wall-title" />
+                                <span className="smp-wall-sub" />
                             </div>
                         ))}
                     </div>
-                </div>
-                <div className="absolute inset-0 bg-gradient-to-r from-[#07080c] via-[#07080c]/88 to-[#07080c]/35" />
-                <div className="absolute inset-0 bg-gradient-to-t from-[#07080c] via-transparent to-[#07080c]/70" />
-                <div
-                    className="absolute inset-0 opacity-[0.04] mix-blend-overlay"
-                    style={{
-                        backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.35) 2px, rgba(255,255,255,0.35) 3px), repeating-linear-gradient(90deg, transparent, transparent 3px, rgba(255,255,255,0.2) 3px, rgba(255,255,255,0.2) 4px)',
-                    }}
-                />
-                <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_45%,rgba(0,0,0,0.55)_100%)]" />
-            </>
-        )}
+                );
+            })}
+        </div>
+        <div className="smp-auth-scrim" />
+        <div className="smp-auth-glow" />
     </div>
 );
 
 const LOGO_SRC = './logo.png';
 
-const AuthMark: React.FC<{ tv?: boolean }> = ({ tv }) => (
+export const AuthMark: React.FC<{ tv?: boolean }> = ({ tv }) => (
     <div className={`smp-auth-mark relative ${tv ? 'h-16 w-[min(100%,22rem)]' : 'h-12 w-[min(100%,18rem)] sm:h-14 sm:w-[22rem]'}`}>
         <img src={LOGO_SRC} alt="StreamPilot" className="relative h-full w-full object-contain object-left" />
     </div>
 );
 
-export const PlexClientBootSplash: React.FC = () => (
-    <div id="boot-splash">
-        <div className="boot-splash-mark">
-            <img src={LOGO_SRC} alt="StreamPilot" />
+export const PlexClientBootSplash: React.FC = () => {
+    const version = getPlexClientAppVersion();
+    return (
+        <div id="boot-splash">
+            <div className="boot-splash-mark">
+                <img src={LOGO_SRC} alt="StreamPilot" />
+            </div>
+            <div className="boot-splash-progress" aria-hidden><span /></div>
+            {version ? <p className="boot-splash-version">{version}</p> : null}
         </div>
-        <div className="boot-splash-progress" aria-hidden><span /></div>
-    </div>
-);
+    );
+};
 
 export const PlexClientAuthScreen: React.FC<Props> = ({ onAuthenticated }) => {
-    const [portalUrl, setPortalUrl] = useState(getPortalBaseUrl());
-    const [usePortal, setUsePortal] = useState(false);
     const [error, setError] = useState('');
     const [busy, setBusy] = useState(false);
     const [pin, setPin] = useState<PinSession | null>(null);
-    const [checkingPortal, setCheckingPortal] = useState(false);
     const [homeUsers, setHomeUsers] = useState<HomeUser[] | null>(null);
     const [homeSelectToken, setHomeSelectToken] = useState('');
     const [homeSwitchError, setHomeSwitchError] = useState('');
@@ -174,115 +172,50 @@ export const PlexClientAuthScreen: React.FC<Props> = ({ onAuthenticated }) => {
         }
     }, [finishWithToken, stopPoll]);
 
-    const applyPortalUrl = (raw: string) => {
-        const normalized = normalizePortalBaseUrl(raw);
-        if (!normalized.ok) {
-            setError(normalized.error);
-            return null;
-        }
-        writeStoredPortalBaseUrl(normalized.url);
-        setPortalUrl(normalized.url);
-        return normalized.url;
+    /** TV (or "Use a code instead") gets the short plex.tv/link PIN; phones sign in on Plex's page. */
+    const pinRequest = (linkCode: boolean, extra: Record<string, unknown> = {}) => (
+        linkCode ? { ...extra, linkCode: true } : { ...extra, strong: true }
+    );
+
+    const beginPin = (session: PinSession) => {
+        setPin(session);
+        if (!isTv) openExternal(session.authUrl || LINK_URL);
+        pollRef.current = window.setInterval(() => { void pollCallback(session); }, 2000);
+        void pollCallback(session);
     };
 
-    const startDirectLogin = async () => {
+    const startDirectLogin = async (forceLinkCode = false) => {
         setError('');
         setBusy(true);
         stopPoll();
         setPin(null);
         setHomeUsers(null);
+        // Plex sign-in only: this device talks to the Plex servers directly.
         writeAuthMode('plex');
         writeStoredPortalBaseUrl('');
+        const linkCode = isTv || forceLinkCode;
         try {
             const data = await apiFetch('/api/auth/plex/login', {
                 method: 'POST',
-                body: JSON.stringify({ linkCode: true }),
+                body: JSON.stringify(pinRequest(linkCode)),
             });
             const session: PinSession = {
                 pinId: String(data.id),
-                code: String(data.code || '').trim().toUpperCase(),
+                code: String(data.code || '').trim(),
                 oauthState: String(data.oauthState || 'direct'),
                 clientId: String(data.clientIdentifier || ''),
             };
             if (!session.pinId || !session.code) throw new Error('Plex did not return a link code');
-            if (session.code.length > 6) {
-                throw new Error('Plex returned a code that plex.tv/link will not accept. Try again.');
-            }
-            setPin(session);
-            if (!isTv) {
-                try { window.open(LINK_URL, '_blank', 'noopener,noreferrer'); } catch { /* tv */ }
-            }
-            pollRef.current = window.setInterval(() => { void pollCallback(session); }, 2000);
-            void pollCallback(session);
-        } catch (err: any) {
-            setError(err?.message || 'Failed to start Plex login');
-            setBusy(false);
-        }
-    };
-
-    const startPinLogin = async () => {
-        setError('');
-        setBusy(true);
-        stopPoll();
-        setPin(null);
-        setHomeUsers(null);
-        setHomeSelectToken('');
-        setHomeSwitchError('');
-
-        writeAuthMode('portal');
-        const url = applyPortalUrl(portalUrl);
-        if (!url) {
-            setBusy(false);
-            return;
-        }
-
-        setCheckingPortal(true);
-        try {
-            const diagnostics = await apiFetch('/api/auth/diagnostics').catch(() => null);
-            if (!diagnostics || diagnostics.configured === undefined) {
-                throw new Error('Could not reach StreamPilot at that URL. Check the address and that the portal is online.');
-            }
-        } catch (err: any) {
-            setError(err?.message || 'Portal not reachable');
-            setBusy(false);
-            setCheckingPortal(false);
-            return;
-        } finally {
-            setCheckingPortal(false);
-        }
-
-        try {
-            const data = await apiFetch('/api/auth/plex/login', {
-                method: 'POST',
-                body: JSON.stringify({ skipHomeRemember: true, linkCode: true }),
-            });
-            const rawCode = String(data.code || '').trim();
-            const session: PinSession = {
-                pinId: String(data.id),
-                code: rawCode.toUpperCase(),
-                oauthState: String(data.oauthState || ''),
-                clientId: String(data.clientIdentifier || data.clientId || ''),
-            };
-            if (!session.pinId || !session.oauthState) {
-                throw new Error('Portal did not return a PIN session (update StreamPilot if this persists).');
-            }
-            if (session.code.length > 6) {
-                throw new Error('Portal returned a long auth code. Update StreamPilot to a build that supports linkCode PINs.');
-            }
-            setPin(session);
-
-            if (!isTv) {
-                try {
-                    window.open(LINK_URL, '_blank', 'noopener,noreferrer');
-                } catch {
-                    /* restricted WebView */
+            if (linkCode) {
+                session.code = session.code.toUpperCase();
+                if (session.code.length > 6) {
+                    throw new Error('Plex returned a code that plex.tv/link will not accept. Try again.');
                 }
+            } else {
+                if (!session.clientId) throw new Error('Plex sign-in is missing a client id. Try again.');
+                session.authUrl = plexWebAuthUrl(session.clientId, session.code);
             }
-
-            pollRef.current = window.setInterval(() => {
-                void pollCallback(session);
-            }, 2000);
-            void pollCallback(session);
+            beginPin(session);
         } catch (err: any) {
             setError(err?.message || 'Failed to start Plex login');
             setBusy(false);
@@ -322,7 +255,7 @@ export const PlexClientAuthScreen: React.FC<Props> = ({ onAuthenticated }) => {
         }
     };
 
-    const changePortal = () => {
+    const startOver = () => {
         stopPoll();
         setPin(null);
         setHomeUsers(null);
@@ -331,11 +264,25 @@ export const PlexClientAuthScreen: React.FC<Props> = ({ onAuthenticated }) => {
         setBusy(false);
         setError('');
         clearPlexClientPortal();
-        setPortalUrl('');
     };
 
-    const hostLabel = displayHost(portalUrl);
     const stage = homeUsers ? 'home' : pin ? 'pin' : 'connect';
+    const webAuth = Boolean(pin?.authUrl);
+
+    // Android throttles the WebView while Plex's page is in front. Check the
+    // moment the user comes back instead of waiting for the next 2s tick.
+    useEffect(() => {
+        if (!pin) return undefined;
+        const onVisible = () => {
+            if (document.visibilityState === 'visible') void pollCallback(pin);
+        };
+        document.addEventListener('visibilitychange', onVisible);
+        window.addEventListener('focus', onVisible);
+        return () => {
+            document.removeEventListener('visibilitychange', onVisible);
+            window.removeEventListener('focus', onVisible);
+        };
+    }, [pin, pollCallback]);
 
     useEffect(() => {
         if (!isTv) return;
@@ -358,35 +305,59 @@ export const PlexClientAuthScreen: React.FC<Props> = ({ onAuthenticated }) => {
     const title = stage === 'home'
         ? 'Who’s watching?'
         : stage === 'pin'
-            ? 'Link this device'
+            ? (webAuth ? 'Finish on Plex' : 'Link this device')
             : 'Start watching';
     const subtitle = stage === 'home'
         ? 'Choose a Plex Home profile to continue.'
         : stage === 'pin'
-            ? 'On any phone or computer, open plex.tv/link and enter the code below.'
-            : usePortal
-                ? 'Connect once to your StreamPilot, then sign in with Plex.'
-                : 'Sign in with your Plex account. This device talks to your Plex server directly.';
+            ? (webAuth
+                ? 'Sign in on the Plex page that opened, then come back here.'
+                : 'On any phone or computer, open plex.tv/link and enter the code below.')
+            : 'Sign in with your Plex account. This device talks to your Plex server directly.';
 
     return (
-        <div className="relative min-h-screen overflow-hidden bg-[#07080c] text-zinc-100" data-tv-auth="1">
-            <AuthAtmosphere tv={isTv} />
-            <div className="smp-auth-shell relative z-10 flex min-h-screen items-center px-5 py-10 sm:px-10 lg:px-16">
-                <div className="w-full max-w-xl lg:max-w-[34rem]">
-                    <div className={`smp-auth-copy mb-8 space-y-5 ${isTv ? 'smp-tv-screen-enter' : ''}`}>
+        <div className="smp-auth relative min-h-screen overflow-x-hidden overflow-y-auto bg-[#06070b] text-zinc-100" data-tv-auth="1">
+            <AuthMediaWall />
+            <div className="smp-auth-shell relative z-10 flex min-h-screen items-end px-6 pb-8 pt-12 sm:items-center sm:px-12 sm:py-12 lg:px-20">
+                <div className="smp-auth-col w-full max-w-xl lg:max-w-[36rem]">
+                    <div className={`smp-auth-copy mb-8 space-y-6 ${isTv ? 'smp-tv-screen-enter' : ''}`}>
                         <AuthMark tv={isTv} />
-                        <div className="space-y-3">
-                            <h1 className="text-4xl font-black tracking-tight text-white sm:text-5xl">
-                                {title}
-                            </h1>
-                            <p className="max-w-md text-base leading-relaxed text-zinc-400">
-                                {subtitle}
-                            </p>
-                        </div>
+                        {stage === 'connect' ? (
+                            <div className="space-y-5">
+                                <span className="smp-auth-eyebrow">
+                                    <span className="smp-auth-eyebrow-dot" />
+                                    Your media, every screen
+                                </span>
+                                <h1 className="smp-auth-headline text-white">
+                                    Your whole library.
+                                    <span className="smp-auth-headline-accent">One beautiful app.</span>
+                                </h1>
+                                <p className="max-w-md text-base leading-relaxed text-zinc-400 sm:text-lg">
+                                    Films, shows and music from your Plex servers, streamed straight to this device.
+                                </p>
+                                <ul className="smp-auth-features">
+                                    <li><Film className="h-4 w-4" />4K, HDR and Dolby audio</li>
+                                    <li><Zap className="h-4 w-4" />Direct Play from your server</li>
+                                    <li><History className="h-4 w-4" />Pick up where you left off</li>
+                                </ul>
+                            </div>
+                        ) : (
+                            <div className="space-y-3">
+                                <h1 className="text-4xl font-black tracking-tight text-white sm:text-5xl">
+                                    {title}
+                                </h1>
+                                <p className="max-w-md text-base leading-relaxed text-zinc-400">
+                                    {subtitle}
+                                </p>
+                            </div>
+                        )}
                     </div>
 
-                    <div className={`rounded-[1.75rem] border border-white/10 bg-white/[0.035] p-5 shadow-[0_30px_80px_rgba(0,0,0,0.45)] backdrop-blur-2xl sm:p-7 ${isTv ? 'smp-tv-auth-panel-enter' : ''}`}>
-                        {stage === 'connect' && !usePortal ? (
+                    <div className={stage === 'connect'
+                        ? `smp-auth-cta ${isTv ? 'smp-tv-auth-panel-enter' : ''}`
+                        : `rounded-[1.75rem] border border-white/10 bg-black/45 p-5 shadow-[0_30px_80px_rgba(0,0,0,0.45)] backdrop-blur-xl sm:p-7 ${isTv ? 'smp-tv-auth-panel-enter' : ''}`}
+                    >
+                        {stage === 'connect' ? (
                             <div className="space-y-4" data-tv-rail="1">
                                 <button
                                     type="button"
@@ -394,109 +365,51 @@ export const PlexClientAuthScreen: React.FC<Props> = ({ onAuthenticated }) => {
                                     data-tv-action="1"
                                     data-tv-key="auth-plex"
                                     tabIndex={0}
-                                    className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-plex to-amber-400 px-5 py-3.5 text-base font-black text-zinc-950 shadow-[0_10px_30px_rgba(229,160,13,0.28)] transition hover:brightness-110 disabled:opacity-60"
+                                    className="smp-auth-button smp-auth-primary inline-flex w-full items-center justify-center gap-2.5 rounded-2xl px-6 py-4 text-lg text-zinc-950 transition disabled:opacity-60 sm:w-auto sm:min-w-[20rem]"
                                     disabled={busy}
                                     onClick={() => { void startDirectLogin(); }}
                                 >
-                                    {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                                    {busy
+                                        ? <Loader2 className="h-5 w-5 animate-spin" />
+                                        : <Play className="h-5 w-5" fill="currentColor" strokeWidth={0} />}
                                     Sign in with Plex
                                 </button>
-                                <button
-                                    type="button"
-                                    data-tv-item="1"
-                                    data-tv-key="auth-use-portal"
-                                    tabIndex={0}
-                                    className="inline-flex w-full items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-3 text-sm font-bold text-zinc-300 transition hover:border-white/20 hover:text-white"
-                                    onClick={() => {
-                                        writeAuthMode('portal');
-                                        setUsePortal(true);
-                                        setError('');
-                                    }}
-                                >
-                                    Use a StreamPilot portal
-                                </button>
+                                <p className="smp-auth-note">
+                                    <Lock className="h-3.5 w-3.5" />
+                                    Uses your Plex account. Nothing else to set up.
+                                </p>
                             </div>
-                        ) : null}
-
-                        {stage === 'connect' && usePortal ? (
-                            <form
-                                className="space-y-5"
-                                data-tv-rail="1"
-                                onSubmit={(event) => {
-                                    event.preventDefault();
-                                    void startPinLogin();
-                                }}
-                            >
-                                <label className="block space-y-2.5">
-                                    <span className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.18em] text-zinc-500">
-                                        <Globe className="h-3.5 w-3.5 text-plex" />
-                                        Portal address
-                                    </span>
-                                    <input
-                                        data-tv-item="1"
-                                        data-tv-key="auth-portal-url"
-                                        tabIndex={0}
-                                        className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3.5 text-base text-white outline-none transition placeholder:text-zinc-600 focus:border-plex/70 focus:ring-2 focus:ring-plex/25"
-                                        value={portalUrl}
-                                        onChange={(e) => setPortalUrl(e.target.value)}
-                                        placeholder="https://portal.example.com"
-                                        autoCapitalize="off"
-                                        autoCorrect="off"
-                                        spellCheck={false}
-                                        inputMode="url"
-                                        autoComplete="url"
-                                        disabled={busy}
-                                    />
-                                    <span className="block text-xs leading-relaxed text-zinc-500">
-                                        The address you open in a browser for StreamPilot.
-                                    </span>
-                                </label>
-                                <button
-                                    type="submit"
-                                    data-tv-item="1"
-                                    data-tv-action="1"
-                                    data-tv-key="auth-continue"
-                                    tabIndex={0}
-                                    className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-plex to-amber-400 px-5 py-3.5 text-base font-black text-zinc-950 shadow-[0_10px_30px_rgba(229,160,13,0.28)] transition hover:brightness-110 disabled:opacity-60"
-                                    disabled={busy}
-                                >
-                                    {checkingPortal ? (
-                                        <>
-                                            <Loader2 className="h-4 w-4 animate-spin" />
-                                            Checking portal…
-                                        </>
-                                    ) : (
-                                        <>
-                                            Continue with Plex
-                                        </>
-                                    )}
-                                </button>
-                                <button
-                                    type="button"
-                                    data-tv-item="1"
-                                    data-tv-key="auth-back-plex"
-                                    tabIndex={0}
-                                    className="inline-flex w-full items-center justify-center gap-2 rounded-2xl px-5 py-2 text-sm font-bold text-zinc-400 transition hover:text-white"
-                                    onClick={() => {
-                                        writeAuthMode('plex');
-                                        setUsePortal(false);
-                                        setError('');
-                                    }}
-                                >
-                                    <ArrowLeft className="h-4 w-4" />
-                                    Sign in with Plex instead
-                                </button>
-                            </form>
                         ) : null}
 
                         {stage === 'pin' && pin ? (
                             <div className="space-y-6" data-tv-rail="1">
-                                {hostLabel ? (
-                                    <div className="inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs font-semibold text-emerald-200">
-                                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
-                                        Connected to {hostLabel}
+                                {webAuth ? (
+                                    <div className="space-y-4 text-center">
+                                        <button
+                                            type="button"
+                                            data-tv-item="1"
+                                            data-tv-action="1"
+                                            tabIndex={0}
+                                            className="smp-auth-button inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-plex to-amber-400 px-5 py-3.5 text-lg text-zinc-950 shadow-[0_10px_30px_rgba(229,160,13,0.28)] transition hover:brightness-110"
+                                            onClick={() => openExternal(pin.authUrl || LINK_URL)}
+                                        >
+                                            Open Plex sign-in
+                                        </button>
+                                        <p className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                                            <Loader2 className="h-3.5 w-3.5 animate-spin text-plex" />
+                                            Waiting for Plex
+                                        </p>
+                                        <button
+                                            type="button"
+                                            data-tv-item="1"
+                                            tabIndex={0}
+                                            className="block w-full text-sm font-semibold text-zinc-400 transition hover:text-white"
+                                            onClick={() => void startDirectLogin(true)}
+                                        >
+                                            Use a code instead
+                                        </button>
                                     </div>
-                                ) : null}
+                                ) : (
                                 <div className="space-y-4 text-center">
                                     <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-zinc-500">Your code</p>
                                     <div className="flex justify-center gap-2.5">
@@ -518,18 +431,19 @@ export const PlexClientAuthScreen: React.FC<Props> = ({ onAuthenticated }) => {
                                         Waiting for Plex
                                     </p>
                                 </div>
+                                )}
                                 <button
                                     type="button"
                                     data-tv-item="1"
                                     data-tv-action="1"
                                     data-tv-auth-back="1"
-                                    data-tv-key="auth-change-portal"
+                                    data-tv-key="auth-start-over"
                                     tabIndex={0}
                                     className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-3 text-sm font-bold text-zinc-300 transition hover:border-white/20 hover:text-white"
-                                    onClick={changePortal}
+                                    onClick={startOver}
                                 >
                                     <ArrowLeft className="h-4 w-4" />
-                                    {usePortal ? 'Use a different portal' : 'Start over'}
+                                    Start over
                                 </button>
                             </div>
                         ) : null}
@@ -549,8 +463,8 @@ export const PlexClientAuthScreen: React.FC<Props> = ({ onAuthenticated }) => {
                                 busy={busy}
                                 error={homeSwitchError}
                                 onSelect={(user, pinValue) => void confirmHomeUser(user, pinValue)}
-                                onClose={changePortal}
-                                onUseDifferentAccount={changePortal}
+                                onClose={startOver}
+                                onUseDifferentAccount={startOver}
                             />
                         ) : null}
 
@@ -561,19 +475,6 @@ export const PlexClientAuthScreen: React.FC<Props> = ({ onAuthenticated }) => {
                         ) : null}
                     </div>
 
-                    {stage === 'connect' && getPortalBaseUrl() ? (
-                        <button
-                            type="button"
-                            data-tv-item="1"
-                            data-tv-auth-back="1"
-                            data-tv-key="auth-connect-change-portal"
-                            tabIndex={0}
-                            className="mt-5 text-sm font-semibold text-zinc-500 transition hover:text-zinc-300"
-                            onClick={changePortal}
-                        >
-                            Use a different portal
-                        </button>
-                    ) : null}
                 </div>
             </div>
         </div>

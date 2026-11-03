@@ -53,6 +53,10 @@ public class NativeMediaPlayerPlugin extends Plugin {
         }
     }
 
+    private static int intOr(Integer value, int fallback) {
+        return value == null ? fallback : value;
+    }
+
     @PluginMethod
     public void isAvailable(PluginCall call) {
         JSObject ret = new JSObject();
@@ -94,6 +98,13 @@ public class NativeMediaPlayerPlugin extends Plugin {
         Boolean autoSkipIntro = call.getBoolean("autoSkipIntro", false);
         intent.putExtra(PlayerActivity.EXTRA_AUTO_SKIP_INTRO, autoSkipIntro != null && autoSkipIntro);
 
+        intent.putExtra(PlayerActivity.EXTRA_ACCENT, call.getString("accent", "gold"));
+        intent.putExtra(PlayerActivity.EXTRA_SEEK_BACK_SEC, intOr(call.getInt("seekBackSec"), 10));
+        intent.putExtra(PlayerActivity.EXTRA_SEEK_FORWARD_SEC, intOr(call.getInt("seekForwardSec"), 10));
+        intent.putExtra(PlayerActivity.EXTRA_CONTROLS_TIMEOUT_SEC, intOr(call.getInt("controlsTimeoutSec"), 5));
+        Boolean showClock = call.getBoolean("showClock", true);
+        intent.putExtra(PlayerActivity.EXTRA_SHOW_CLOCK, showClock == null || showClock);
+
         Boolean autoSkipCredits = call.getBoolean("autoSkipCredits", false);
         intent.putExtra(PlayerActivity.EXTRA_AUTO_SKIP_CREDITS, autoSkipCredits != null && autoSkipCredits);
 
@@ -103,6 +114,8 @@ public class NativeMediaPlayerPlugin extends Plugin {
         }
         PlayerBridge.get().setPlayerForeground(true);
         startActivityForResult(call, intent, "onPlayerFinished");
+        android.app.Activity host = getActivity();
+        if (host != null) host.overridePendingTransition(0, 0);
     }
 
     @PluginMethod
@@ -126,8 +139,14 @@ public class NativeMediaPlayerPlugin extends Plugin {
         }
         JSObject headers = call.getObject("headers");
         String headersJson = headers != null ? headers.toString() : null;
-        Integer offset = call.getInt("offsetMs", 0);
-        long offsetMs = offset == null ? 0L : offset.longValue();
+        long offsetMs = 0L;
+        Double offsetDouble = call.getDouble("offsetMs");
+        if (offsetDouble != null) {
+            offsetMs = Math.max(0L, offsetDouble.longValue());
+        } else {
+            Integer offset = call.getInt("offsetMs", 0);
+            if (offset != null) offsetMs = Math.max(0, offset.longValue());
+        }
         boolean ok = PlayerBridge.get().updateSrc(url.trim(), headersJson, offsetMs);
 
         String sessionJson = call.getString("sessionJson", null);
@@ -250,8 +269,11 @@ public class NativeMediaPlayerPlugin extends Plugin {
         boolean ended = data != null && data.getBooleanExtra(PlayerActivity.EXTRA_ENDED, false);
         boolean error = data != null && data.getBooleanExtra(PlayerActivity.EXTRA_ERROR, false);
         boolean playNext = data != null && data.getBooleanExtra(PlayerActivity.EXTRA_PLAY_NEXT, false);
+        boolean playPrevious = data != null && data.getBooleanExtra(PlayerActivity.EXTRA_PLAY_PREVIOUS, false);
+        boolean watchedHandled = data != null && data.getBooleanExtra(PlayerActivity.EXTRA_WATCHED_HANDLED, false);
         long positionMs = data != null ? data.getLongExtra(PlayerActivity.EXTRA_POSITION_MS, 0L) : 0L;
         String nextRatingKey = data != null ? data.getStringExtra(PlayerActivity.EXTRA_NEXT_RATING_KEY) : null;
+        String previousRatingKey = data != null ? data.getStringExtra(PlayerActivity.EXTRA_PREVIOUS_RATING_KEY) : null;
 
         JSObject ret = new JSObject();
         ret.put("ended", ended);
@@ -261,6 +283,13 @@ public class NativeMediaPlayerPlugin extends Plugin {
         if (nextRatingKey != null && !nextRatingKey.isEmpty()) {
             ret.put("nextRatingKey", nextRatingKey);
         }
+        ret.put("playPrevious", playPrevious);
+        if (previousRatingKey != null && !previousRatingKey.isEmpty()) {
+            ret.put("previousRatingKey", previousRatingKey);
+        }
+        ret.put("watchedHandled", watchedHandled);
+        String openPerson = data != null ? data.getStringExtra(PlayerActivity.EXTRA_OPEN_PERSON) : null;
+        if (openPerson != null && !openPerson.isEmpty()) ret.put("openPerson", openPerson);
         call.resolve(ret);
     }
 }

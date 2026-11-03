@@ -1,9 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Loader2 } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import {
+    Carousel,
     CustomSelect,
     DiscoverGridSizeSelect,
+    DiscoverSectionHeader,
+    DiscoveryLogo,
     discoveryTheme,
+    PlayerHomeRowSkeleton,
     PosterGridSkeleton,
     homeRailPosterDensity,
     posterGridScaleRem,
@@ -17,11 +21,17 @@ import {
     fetchMediaPlayerLibrary,
     fetchMediaPlayerLibraryFilters,
     fetchMediaPlayerLibraryHome,
+    fetchMediaPlayerLibraryStudios,
     setMediaPlayerWatched,
 } from './api';
-import { readLibraryBrowseState, readLibraryHomeCache, writeLibraryBrowseState, writeLibraryHomeCache } from './playerMemory';
+import { discoveryLogoUrl } from '../discovery/discoveryLogoUtils';
+import { studioBrowsePlateBackground } from './studioBrowsePlate.js';
+import type { PlayerStudioBrowseCard } from './types';
+import { keepCurrentContinueItems, readLibraryBrowseState, readLibraryHomeCache, writeLibraryBrowseState, writeLibraryHomeCache } from './playerMemory';
 import { PLAYER_SCROLL_ID } from './paths';
+import { PlayerLibraryFilterSheet, type LibraryFilterGroup, type LibraryFilterToggle } from './PlayerLibraryFilterSheet';
 import { PlayerPosterCard } from './PlayerPosterCard';
+import { PlayerStudioTiles, PlayerStudioTilesSkeleton } from './PlayerStudioTiles';
 import { PlayerRail } from './PlayerRail';
 import { viewMoreShelfFromHub } from './PlayerViewMoreCard';
 import { PlayerTvHubStage, type PlayerTvHubStageRow } from './PlayerTvHubStage';
@@ -35,18 +45,21 @@ import {
     heroRowCardItem,
     hideWatchedPlayerItems,
     isMusicPlayerItem,
+    asRecentlyAddedPlayerItem,
     mapContinueWatchingItemsForLayout,
     playerCardImageUrl,
     PLAYER_PROGRESS_EVENT,
     prefetchPlayerImages,
     replaceFamilyContinueSlot,
     restoreContinueSlot,
+    continueWatchingRowFocused,
+    stampFamilyLastViewed,
     watchTargetTouches,
     withShowPoster,
 } from './playerUtils';
 import type { PlayerItem, PlayerLibraryHub, PlayerPlayOptions } from './types';
 
-type LibraryTab = 'home' | 'browse' | 'collections';
+type LibraryTab = 'home' | 'browse' | 'collections' | 'studios';
 
 type Props = {
     sectionKey: string;
@@ -56,6 +69,7 @@ type Props = {
     onOpenItem: (item: PlayerItem) => void;
     onOpenCollection: (sectionKey: string, item: PlayerItem) => void;
     onOpenHub?: (hub: PlayerLibraryHub) => void;
+    onOpenStudio?: (studio: { key: string; name: string; sectionKey?: string; mediaType?: 'movie' | 'show'; alts?: string[] }) => void;
     onChangeTab: (tab: LibraryTab) => void;
     onPlay: (item: PlayerItem, opts?: PlayerPlayOptions) => void;
     onPlayNext?: (item: PlayerItem) => void;
@@ -90,6 +104,12 @@ const estimateBrowseColumns = (size: Parameters<typeof posterGridScaleRem>[0]) =
     if (col <= 0) return 1;
     return Math.max(1, Math.floor((width + gap) / (col + gap)));
 };
+
+/** TV libraries scroll their own body under the pinned header; elsewhere the page scrolls. */
+const libraryScroller = () => (
+    document.querySelector<HTMLElement>('[data-tv-library-scroll="1"]')
+    || document.getElementById(PLAYER_SCROLL_ID)
+);
 
 const isContinueWatchingHub = (hub: PlayerLibraryHub) => (
     /continue\s*watch|ondeck|on[.\s_-]?deck|in[.\s_-]?progress/i.test(`${hub.identifier || ''} ${hub.title || ''}`)
@@ -168,6 +188,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
     onOpenItem,
     onOpenCollection,
     onOpenHub,
+    onOpenStudio,
     onChangeTab,
     onPlay,
     onPlayNext,
@@ -180,14 +201,21 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
     const continueWatchingAspect = continueWatchingRailAspect(settings.continueWatchingLayout);
     const cwOrderKeysRef = useRef<string[]>([]);
     const cwOrderSortRef = useRef(settings.continueWatchingSort);
+    // Re-sort Continue Watching when the page is opened again or switched to another library.
+    const cwOpenedRef = useRef(`${active}:${sectionKey}`);
+    if (cwOpenedRef.current !== `${active}:${sectionKey}`) {
+        if (active) cwOrderKeysRef.current = [];
+        cwOpenedRef.current = `${active}:${sectionKey}`;
+    }
     const layoutContinueWatching = useCallback(
         (items: PlayerItem[]) => {
+            if (!continueWatchingRowFocused()) cwOrderKeysRef.current = [];
             if (cwOrderSortRef.current !== settings.continueWatchingSort) {
                 cwOrderKeysRef.current = [];
                 cwOrderSortRef.current = settings.continueWatchingSort;
             }
             const frozen = stabilizeContinueWatchingOrder(
-                items,
+                items.map(stampFamilyLastViewed),
                 settings.continueWatchingSort,
                 cwOrderKeysRef.current,
             );
@@ -211,6 +239,8 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
     const [hubs, setHubs] = useState<PlayerLibraryHub[]>(() => readLibraryHomeCache(sectionKey)?.hubs || []);
     const [items, setItems] = useState<PlayerItem[]>([]);
     const [collections, setCollections] = useState<PlayerItem[]>([]);
+    const [studioNetworks, setStudioNetworks] = useState<PlayerStudioBrowseCard[]>([]);
+    const [studioStudios, setStudioStudios] = useState<PlayerStudioBrowseCard[]>([]);
     const [total, setTotal] = useState(0);
     const [loading, setLoading] = useState(() => tab === 'home' ? !readLibraryHomeCache(sectionKey)?.hubs?.length : true);
     const [loadingMore, setLoadingMore] = useState(false);
@@ -279,7 +309,10 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
     const [labels, setLabels] = useState<FilterOption[]>([]);
     const homeHubs = useMemo(() => {
         let keptContinue = false;
-        return hubs.filter((hub) => {
+        return hubs.map((hub) => (
+            // Titles just removed (or finished) stay out even if this answer predates it.
+            isContinueWatchingHub(hub) ? { ...hub, items: keepCurrentContinueItems(hub.items) } : hub
+        )).filter((hub) => {
             if (!hub.items?.length) return false;
             if (!isContinueWatchingHub(hub)) return true;
             if (keptContinue) return false;
@@ -291,17 +324,23 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
             const items = settings.hideWatchedFromRecents
                 ? hideWatchedPlayerItems(hub.items)
                 : (hub.items || []);
-            return { ...hub, items: items.map(withShowPoster) };
+            return {
+                ...hub,
+                items: items.map((item) => asRecentlyAddedPlayerItem(item, {
+                    preferSeasonPoster: settings.recentlyAddedSeasonPoster,
+                })),
+            };
         }).filter((hub) => hub.items?.length);
-    }, [hubs, settings.hideWatchedFromRecents]);
+    }, [hubs, settings.hideWatchedFromRecents, settings.recentlyAddedSeasonPoster]);
 
     const freezeContinueWatching = useCallback((items: PlayerItem[]) => {
+        if (!continueWatchingRowFocused()) cwOrderKeysRef.current = [];
         if (cwOrderSortRef.current !== settings.continueWatchingSort) {
             cwOrderKeysRef.current = [];
             cwOrderSortRef.current = settings.continueWatchingSort;
         }
         const next = stabilizeContinueWatchingOrder(
-            items,
+            items.map(stampFamilyLastViewed),
             settings.continueWatchingSort,
             cwOrderKeysRef.current,
         );
@@ -319,7 +358,11 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                 ? freezeContinueWatching(hub.items).map(withShowPoster)
                 : hero
                     ? hub.items.map(heroRowCardItem)
-                    : hub.items;
+                    : recent
+                        ? hub.items.map((item) => asRecentlyAddedPlayerItem(item, {
+                            preferSeasonPoster: settings.recentlyAddedSeasonPoster,
+                        }))
+                        : hub.items;
             if (!items.length) continue;
             rows.push({
                 id: hub.identifier || `hub:${hub.title}`,
@@ -343,7 +386,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
             });
         }
         return rows;
-    }, [freezeContinueWatching, homeHubs, musicLibrary, onOpenHub]);
+    }, [freezeContinueWatching, homeHubs, musicLibrary, onOpenHub, settings.recentlyAddedSeasonPoster]);
 
     const loadHome = useCallback(async () => {
         const seq = homeLoadRef.current + 1;
@@ -448,12 +491,15 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
             setBrowseHasMore(false);
             setLoading(true);
             if (activeRef.current) {
-                const scroller = document.getElementById(PLAYER_SCROLL_ID);
+                const scroller = libraryScroller();
                 if (scroller) scroller.scrollTop = 0;
             }
         }
         const gen = browseGenRef.current;
-        const pageSize = browsePageSize();
+        const fullPage = browsePageSize();
+        const pageSize = !append && !prepend
+            ? Math.min(fullPage, Math.max(8, (browseColumnsRef.current || 4) * 2))
+            : fullPage;
         const jumpLetter = !append && !prepend && sort === 'titleSort' ? letter : '';
         const fetchStart = prepend
             ? Math.max(0, browseAbsStartRef.current - pageSize)
@@ -596,6 +642,29 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
         }
     }, [sectionKey, t]);
 
+    const loadStudios = useCallback(async () => {
+        setLoading(true);
+        try {
+            const data = await fetchMediaPlayerLibraryStudios(sectionKey);
+            setTitle(t('mediaPlayerPage.studios'));
+            setStudioNetworks(data.networks || []);
+            setStudioStudios(data.studios || []);
+            setError(null);
+        } catch (err: any) {
+            setError(String(err?.message || t('mediaPlayerPage.loadError')));
+            setStudioNetworks([]);
+            setStudioStudios([]);
+        } finally {
+            setLoading(false);
+        }
+    }, [sectionKey, t]);
+
+    useEffect(() => {
+        if (musicLibrary && tab === 'studios') {
+            onChangeTab('home');
+        }
+    }, [musicLibrary, onChangeTab, tab]);
+
     useEffect(() => {
         if (tab !== 'browse') {
             browseGenRef.current += 1;
@@ -608,12 +677,13 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
         if (!hydrated) return;
         if (tab === 'home') void loadHome();
         else if (tab === 'collections') void loadCollections();
+        else if (tab === 'studios') void loadStudios();
         else {
             setItems([]);
             clearPrefetchedPlayerImages();
             void loadBrowse(0, false);
         }
-    }, [hydrated, loadBrowse, loadCollections, loadHome, tab]);
+    }, [hydrated, loadBrowse, loadCollections, loadHome, loadStudios, tab]);
 
     useEffect(() => {
         clearPrefetchedPlayerImages();
@@ -628,6 +698,18 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
             );
             return;
         }
+        if (tab === 'studios') {
+            const cards = [...studioNetworks, ...studioStudios].slice(0, 8);
+            if (!cards.length) return;
+            prefetchPlayerImages(
+                cards.flatMap((card) => [
+                    playerCardImageUrl(card.thumb || card.art, '2/3'),
+                    card.logoPath ? discoveryLogoUrl(card.logoPath, 300) : null,
+                ]),
+                8,
+            );
+            return;
+        }
         if (tab !== 'browse' || !items.length) return;
         const cols = Math.max(1, browseColumnsRef.current || estimateBrowseColumns(gridSize));
         const from = Math.max(0, browseFocusAbsRef.current);
@@ -637,11 +719,11 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
             slice.map((item) => playerCardImageUrl(item.thumb, item.type === 'episode' ? '16/9' : musicLibrary ? 'square' : '2/3')),
             Math.min(16, slice.length),
         );
-    }, [collections, gridSize, items, musicLibrary, tab]);
+    }, [collections, gridSize, items, musicLibrary, studioNetworks, studioStudios, tab]);
 
     useEffect(() => {
         if (!active || tab !== 'browse' || !browseHasMore || !items.length) return;
-        const el = document.getElementById(PLAYER_SCROLL_ID);
+        const el = libraryScroller();
         if (!el || el.scrollHeight > el.clientHeight + 8) return;
         const paintedEnd = browseAbsStartRef.current + items.length;
         if (browseCountRef.current > paintedEnd) return;
@@ -651,7 +733,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
 
     useEffect(() => {
         if (!active || tab !== 'browse' || !browseHasMore) return undefined;
-        const scroller = document.getElementById(PLAYER_SCROLL_ID);
+        const scroller = libraryScroller();
         let measuredCardCount = 0;
         let scrollRaf = 0;
         const measureColumns = (cards: HTMLElement[], force = false) => {
@@ -735,7 +817,9 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
             }
             maybeLoad(rowIndex, Math.ceil(loaded / cols), loaded, movingDown);
         };
-        const grid = document.querySelector<HTMLElement>('[data-tv-browse-grid="1"]');
+        // focusin bubbles: the grid only needs its own listener when the scroller doesn't hold it.
+        const found = document.querySelector<HTMLElement>('[data-tv-browse-grid="1"]');
+        const grid = found && !scroller?.contains(found) ? found : null;
         scroller?.addEventListener('scroll', onScroll, { passive: true });
         scroller?.addEventListener('focusin', onFocus);
         grid?.addEventListener('focusin', onFocus);
@@ -847,7 +931,9 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
         ? homeHubs.some((hub) => hub.items?.length)
         : tab === 'collections'
             ? collections.length > 0
-            : items.length > 0;
+            : tab === 'studios'
+                ? (studioNetworks.length + studioStudios.length) > 0
+                : items.length > 0;
 
     useEffect(() => {
         if (!isTvShell() || !posterReady) return undefined;
@@ -1047,6 +1133,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
         { id: 'home', label: t('mediaPlayerPage.libraryHome') },
         { id: 'browse', label: t('mediaPlayerPage.browse') },
         { id: 'collections', label: t('mediaPlayerPage.collections') },
+        ...(!musicLibrary ? [{ id: 'studios' as const, label: t('mediaPlayerPage.studios') }] : []),
     ];
 
     const sortLabels: Record<string, string> = {
@@ -1090,8 +1177,34 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
         bar.scrollTop = Math.max(0, top);
     }, [markedLetter, tab, alphaLetters.length]);
 
+    // A new tab or library starts the TV body back at the top.
+    useEffect(() => {
+        if (!tvShell || !active) return;
+        const body = document.querySelector<HTMLElement>('[data-tv-library-scroll="1"]');
+        if (body) body.scrollTop = 0;
+    }, [active, sectionKey, tab, tvShell]);
+
+    // Stop the page scrolling so only the body under the header does. Set on <html> rather than
+    // matched with :has() — older TV WebViews don't support it.
+    useEffect(() => {
+        if (!tvShell || !active || tab === 'home') return undefined;
+        const html = document.documentElement;
+        html.dataset.tvLibraryPinned = '1';
+        // The page can't scroll by hand, but focus moves can still nudge it; put it back.
+        const page = document.getElementById(PLAYER_SCROLL_ID);
+        const unnudge = () => {
+            if (page && page.scrollTop) page.scrollTop = 0;
+        };
+        unnudge();
+        page?.addEventListener('scroll', unnudge, { passive: true });
+        return () => {
+            page?.removeEventListener('scroll', unnudge);
+            delete html.dataset.tvLibraryPinned;
+        };
+    }, [active, tab, tvShell]);
+
     const libraryChrome = (
-        <>
+        <div className="player-library-header flex flex-col gap-5">
             <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
                     <button
@@ -1136,8 +1249,44 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                     );
                 })}
             </div>
-        </>
+        </div>
     );
+
+    // TV Browse: every filter lives in one Plex-style Filters sheet; active ones show as chips.
+    const opts = (rows: Array<{ key: string; title: string }>) => rows.map((row) => ({ value: row.key, label: row.title }));
+    const filterGroups: LibraryFilterGroup[] = [
+        { id: 'genre', label: t('mediaPlayerPage.genre'), allLabel: t('mediaPlayerPage.allGenres'), value: genre, options: opts(genres), onChange: setGenre },
+        { id: 'decade', label: t('mediaPlayerPage.decade'), allLabel: t('mediaPlayerPage.allDecades'), value: decade, options: opts(decades), onChange: (value: string) => { setDecade(value); if (value) setYear(''); } },
+        { id: 'year', label: t('mediaPlayerPage.filterBy_year'), allLabel: t('mediaPlayerPage.allYears'), value: year, options: opts(years), onChange: (value: string) => { setYear(value); if (value) setDecade(''); } },
+        { id: 'contentRating', label: t('mediaPlayerPage.filterBy_contentRating'), allLabel: t('mediaPlayerPage.allContentRatings'), value: contentRating, options: opts(contentRatings), onChange: setContentRating },
+        { id: 'resolution', label: t('mediaPlayerPage.resolution'), allLabel: t('mediaPlayerPage.allResolutions'), value: resolution, options: opts(resolutions), onChange: setResolution },
+        { id: 'network', label: t('mediaPlayerPage.filterBy_network'), allLabel: t('mediaPlayerPage.allNetworks'), value: network, options: opts(networks), onChange: setNetwork },
+        { id: 'studio', label: t('mediaPlayerPage.filterBy_studio'), allLabel: t('mediaPlayerPage.allStudios'), value: studio, options: opts(studios), onChange: setStudio },
+        { id: 'country', label: t('mediaPlayerPage.filterBy_country'), allLabel: t('mediaPlayerPage.allCountries'), value: country, options: opts(countries), onChange: setCountry },
+        { id: 'collection', label: t('mediaPlayerPage.filterBy_collection'), allLabel: t('mediaPlayerPage.allCollections'), value: collection, options: opts(collectionOptions), onChange: setCollection },
+        { id: 'audioLanguage', label: t('mediaPlayerPage.filterBy_audioLanguage'), allLabel: t('mediaPlayerPage.allAudioLanguages'), value: audioLanguage, options: opts(audioLanguages), onChange: setAudioLanguage },
+        { id: 'subtitleLanguage', label: t('mediaPlayerPage.filterBy_subtitleLanguage'), allLabel: t('mediaPlayerPage.allSubtitleLanguages'), value: subtitleLanguage, options: opts(subtitleLanguages), onChange: setSubtitleLanguage },
+        { id: 'actor', label: t('mediaPlayerPage.filterBy_actor'), allLabel: t('mediaPlayerPage.allActors'), value: actor, options: opts(actors), onChange: setActor },
+        { id: 'director', label: t('mediaPlayerPage.filterBy_director'), allLabel: t('mediaPlayerPage.allDirectors'), value: director, options: opts(directors), onChange: setDirector },
+        { id: 'writer', label: t('mediaPlayerPage.filterBy_writer'), allLabel: t('mediaPlayerPage.allWriters'), value: writer, options: opts(writers), onChange: setWriter },
+        { id: 'producer', label: t('mediaPlayerPage.filterBy_producer'), allLabel: t('mediaPlayerPage.allProducers'), value: producer, options: opts(producers), onChange: setProducer },
+        { id: 'label', label: t('mediaPlayerPage.filterBy_label'), allLabel: t('mediaPlayerPage.allLabels'), value: label, options: opts(labels), onChange: setLabel },
+    ].filter((row) => row.options.length || row.value);
+    const filterToggles: LibraryFilterToggle[] = [
+        { id: 'unwatched', label: t('mediaPlayerPage.unwatched'), on: unwatched, onToggle: () => { setUnwatched((prev) => !prev); setInProgress(false); } },
+        { id: 'inProgress', label: t('mediaPlayerPage.inProgress'), on: inProgress, onToggle: () => { setInProgress((prev) => !prev); setUnwatched(false); } },
+        ...(!musicLibrary ? [
+            { id: 'hdr', label: t('mediaPlayerPage.hdr'), on: hdr, onToggle: () => setHdr((prev) => !prev) },
+            { id: 'duplicates', label: t('mediaPlayerPage.duplicates'), on: duplicate, onToggle: () => setDuplicate((prev) => !prev) },
+        ] : []),
+    ];
+    const clearAllFilters = () => {
+        for (const row of filterGroups) row.onChange('');
+        setUnwatched(false);
+        setInProgress(false);
+        setHdr(false);
+        setDuplicate(false);
+    };
 
     if (tvShell && tab === 'home') {
         const homeBusy = loading && !tvRecommendedRows.length;
@@ -1165,10 +1314,35 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
     }
 
     return (
-        <div className="flex flex-col gap-5 pb-8" data-tv-library="1">
-            {libraryChrome}
-
+        <div className="flex flex-col gap-5 pb-8" data-tv-library="1" data-tv-library-pinned={tvShell ? '1' : undefined}>
+            {tvShell ? (
+                <div className="player-library-sticky flex flex-col gap-5" data-tv-sticky-header="1">
+                    {libraryChrome}
             {tab === 'browse' ? (
+                <div className="player-library-toolbar flex flex-wrap items-center" data-tv-library-filters="1">
+                    <CustomSelect
+                        compact
+                        value={sort}
+                        onChange={(value) => {
+                            setSort(value);
+                            if (value !== 'titleSort') setLetter('');
+                        }}
+                        dropdownClassName="player-filter-menu"
+                        className="player-library-filter-select"
+                        triggerProps={tvFilterTrigger('library-sort')}
+                        options={SORT_IDS.map((id) => ({ value: id, label: sortLabels[id] || id }))}
+                    />
+                    <PlayerLibraryFilterSheet groups={filterGroups} toggles={filterToggles} onClearAll={clearAllFilters} />
+                    {total > 0 ? (
+                        <span className="player-library-count">
+                            {t('mediaPlayerPage.itemCount', { count: total.toLocaleString() })}
+                        </span>
+                    ) : null}
+                </div>
+            ) : null}
+                </div>
+            ) : libraryChrome}
+            {!tvShell && tab === 'browse' ? (
                 <div className="flex flex-wrap items-center gap-2" data-tv-library-filters="1">
                     <CustomSelect
                         compact
@@ -1463,16 +1637,35 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                 </div>
             ) : null}
 
+            <div className="player-library-body flex flex-col gap-5" data-tv-library-scroll={tvShell ? '1' : undefined}>
             {loading && tab === 'home' && !homeHubs.length ? (
-                <div className="flex min-h-[40vh] w-full flex-col items-center justify-center gap-3">
-                    <Loader2 className="h-10 w-10 animate-spin text-white/70" aria-hidden />
-                    <p className="text-sm font-semibold text-muted">{t('mediaPlayerPage.loading')}</p>
+                <div className="flex w-full flex-col gap-6 py-2">
+                    <PlayerHomeRowSkeleton />
+                    <PlayerHomeRowSkeleton />
+                    <PlayerHomeRowSkeleton />
                 </div>
             ) : loading && tab === 'collections' && !collections.length && !tvShell ? (
                 <PosterGridSkeleton
                     className={upgraderPosterGridClass(gridSize)}
                     style={upgraderPosterGridStyle(gridSize)}
                 />
+            ) : loading && tab === 'studios' && !studioNetworks.length && !studioStudios.length ? (
+                tvShell ? (
+                    <PlayerStudioTilesSkeleton />
+                ) : (
+                    <div className="flex flex-col gap-8">
+                        <div className="flex gap-3 overflow-hidden">
+                            {Array.from({ length: 5 }).map((_, i) => (
+                                <div key={`net-skel-${i}`} className="h-52 w-36 flex-shrink-0 animate-pulse rounded-xl bg-white/5" />
+                            ))}
+                        </div>
+                        <div className="flex gap-3 overflow-hidden">
+                            {Array.from({ length: 4 }).map((_, i) => (
+                                <div key={`stu-skel-${i}`} className="h-28 w-52 flex-shrink-0 animate-pulse rounded-xl bg-white/5" />
+                            ))}
+                        </div>
+                    </div>
+                )
             ) : error && tab !== 'browse' ? (
                 tvShell ? (
                     <PlayerTvStatusPanel
@@ -1480,6 +1673,8 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                         onRetry={() => {
                             setError(null);
                             if (tab === 'collections') void loadCollections();
+                            else if (tab === 'studios') void loadStudios();
+                            else if (tab === 'home') void loadHome();
                             else void loadBrowse(0, false);
                         }}
                         onBack={onBack}
@@ -1556,6 +1751,161 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                         <p className={discoveryTheme.emptyTitle}>{t('mediaPlayerPage.emptyCollections')}</p>
                     </div>
                 )
+            ) : tab === 'studios' && tvShell && (studioNetworks.length || studioStudios.length) ? (
+                <div className="player-library-studios flex flex-col gap-12 pb-10">
+                    <PlayerStudioTiles
+                        title={t('mediaPlayerPage.browseByNetwork')}
+                        cards={studioNetworks}
+                        keyPrefix="studio-network"
+                        onOpen={(card) => onOpenStudio?.({
+                            key: card.key,
+                            name: card.title,
+                            sectionKey,
+                            mediaType: card.facet === 'studio' ? 'movie' : 'show',
+                            alts: card.alts,
+                        })}
+                    />
+                    <PlayerStudioTiles
+                        title={t('mediaPlayerPage.browseByStudio')}
+                        cards={studioStudios}
+                        keyPrefix="studio-studio"
+                        onOpen={(card) => onOpenStudio?.({
+                            key: card.key,
+                            name: card.title,
+                            sectionKey,
+                            mediaType: 'movie',
+                            alts: card.alts,
+                        })}
+                    />
+                </div>
+            ) : tab === 'studios' ? (
+                (studioNetworks.length || studioStudios.length) ? (
+                    <div className="player-library-studios tv-poster-rows player-home-rows flex flex-col gap-12 pb-10">
+                        {studioNetworks.length ? (
+                            <div
+                                data-tv-row="1"
+                                data-tv-row-id="lib:networks"
+                                className="flex min-w-0 max-w-full flex-col gap-3"
+                            >
+                                <DiscoverSectionHeader title={t('mediaPlayerPage.browseByNetwork')} />
+                                <Carousel posterRow flush>
+                                    {studioNetworks.map((card, index) => {
+                                        const artUrl = playerCardImageUrl(card.thumb || card.art, '2/3');
+                                        return (
+                                            <div
+                                                key={`net-${card.key}-${card.title}`}
+                                                className="player-studio-network-card relative z-0 w-[10.5rem] flex-shrink-0 snap-start sm:w-[12rem]"
+                                            >
+                                                <button
+                                                    type="button"
+                                                    data-tv-item={tvShell ? '1' : undefined}
+                                                    data-tv-key={tvShell ? `studio-network-${card.key}` : undefined}
+                                                    aria-label={card.title}
+                                                    onClick={() => onOpenStudio?.({
+                                                        key: card.key,
+                                                        name: card.title,
+                                                        sectionKey,
+                                                        mediaType: 'show',
+                                                    })}
+                                                    className="group flex w-full flex-col overflow-hidden rounded-[1.15rem] bg-[#141414] text-left shadow-[0_10px_28px_rgba(0,0,0,0.55)] transition focus:outline-none focus-visible:ring-2 focus-visible:ring-plex"
+                                                >
+                                                    {/* Vision: art plane on top, hard-cut dark logo strip — no wash/fade. */}
+                                                    <div className="aspect-[4/5] w-full overflow-hidden bg-[#0c0c0c]">
+                                                        {artUrl ? (
+                                                            <img
+                                                                src={artUrl}
+                                                                alt=""
+                                                                loading={index < 8 ? 'eager' : 'lazy'}
+                                                                className="h-full w-full object-cover"
+                                                            />
+                                                        ) : (
+                                                            <div
+                                                                className="h-full w-full"
+                                                                style={{ background: studioBrowsePlateBackground(card.title) }}
+                                                            />
+                                                        )}
+                                                    </div>
+                                                    <div className="flex h-[4.25rem] items-center justify-center bg-[#1a1a1a] px-4 sm:h-[4.6rem]">
+                                                        {card.logoPath ? (
+                                                            <DiscoveryLogo
+                                                                logoPath={card.logoPath}
+                                                                alt={card.title}
+                                                                width={300}
+                                                                tone="light"
+                                                                loading={index < 8 ? 'eager' : 'lazy'}
+                                                                className="max-h-[2.35rem] max-w-[88%] object-contain sm:max-h-[2.6rem]"
+                                                            />
+                                                        ) : (
+                                                            <span className="line-clamp-2 text-center text-xs font-bold tracking-wide text-white">
+                                                                {card.title}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </button>
+                                            </div>
+                                        );
+                                    })}
+                                </Carousel>
+                            </div>
+                        ) : null}
+                        {studioStudios.length ? (
+                            <div
+                                data-tv-row="1"
+                                data-tv-row-id="lib:studios"
+                                className="flex min-w-0 max-w-full flex-col gap-2"
+                            >
+                                <div className="flex flex-col gap-1">
+                                    <DiscoverSectionHeader title={t('mediaPlayerPage.browseByStudio')} />
+                                    <p className="player-studio-browse-subtitle pl-5 text-sm font-medium text-white/45">
+                                        {t('mediaPlayerPage.browseByStudioSubtitle')}
+                                    </p>
+                                </div>
+                                <Carousel posterRow flush>
+                                    {studioStudios.map((card, index) => (
+                                        <div
+                                            key={`stu-${card.key}-${card.title}`}
+                                            className="player-studio-plate-card relative z-0 w-[17.5rem] flex-shrink-0 snap-start sm:w-[20rem]"
+                                        >
+                                            <button
+                                                type="button"
+                                                data-tv-item={tvShell ? '1' : undefined}
+                                                data-tv-key={tvShell ? `studio-studio-${card.key}` : undefined}
+                                                aria-label={card.title}
+                                                onClick={() => onOpenStudio?.({
+                                                    key: card.key,
+                                                    name: card.title,
+                                                    sectionKey,
+                                                    mediaType: 'movie',
+                                                })}
+                                                className="group relative flex h-[9.75rem] w-full items-center justify-center overflow-hidden rounded-[1.15rem] px-6 shadow-[0_10px_28px_rgba(0,0,0,0.5)] transition focus:outline-none focus-visible:ring-2 focus-visible:ring-plex sm:h-[10.75rem]"
+                                                style={{ background: studioBrowsePlateBackground(card.title) }}
+                                            >
+                                                {card.logoPath ? (
+                                                    <DiscoveryLogo
+                                                        logoPath={card.logoPath}
+                                                        alt={card.title}
+                                                        width={780}
+                                                        tone="light"
+                                                        loading={index < 8 ? 'eager' : 'lazy'}
+                                                        className="relative z-10 max-h-[68%] max-w-[78%] object-contain drop-shadow-[0_6px_20px_rgba(0,0,0,0.4)]"
+                                                    />
+                                                ) : (
+                                                    <span className="relative z-10 line-clamp-2 text-center text-lg font-bold tracking-wide text-white">
+                                                        {card.title}
+                                                    </span>
+                                                )}
+                                            </button>
+                                        </div>
+                                    ))}
+                                </Carousel>
+                            </div>
+                        ) : null}
+                    </div>
+                ) : (
+                    <div className={discoveryTheme.emptyState}>
+                        <p className={discoveryTheme.emptyTitle}>{t('mediaPlayerPage.emptyStudios')}</p>
+                    </div>
+                )
             ) : (
                 <div data-tv-browse-layout="1">
                     {sort === 'titleSort' ? (
@@ -1594,12 +1944,14 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                         </div>
                     ) : null}
                     <div data-tv-browse-main="1">
-                        {loading && !tvShell ? (
+                        {loading ? (
                             <PosterGridSkeleton
                                 className={upgraderPosterGridClass(gridSize)}
                                 style={upgraderPosterGridStyle(gridSize)}
+                                aspect={musicLibrary ? 'square' : '2/3'}
+                                {...(tvShell ? { count: browseCols * 3, variant: 'home' as const } : {})}
                             />
-                        ) : loading ? null : error ? (
+                        ) : error ? (
                             tvShell ? (
                                 <PlayerTvStatusPanel
                                     title={error}
@@ -1657,6 +2009,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                     </div>
                 </div>
             )}
+            </div>
         </div>
     );
 };

@@ -1,59 +1,75 @@
-# StreamPilot (Play Store)
+# StreamPilot for Android TV
 
-Android / Android TV app that anyone can install and point at **their own** [StreamPilot](https://github.com/) install. The APK is not locked to one host.
+A living-room player for your own Plex server, built for Android TV, Google TV and NVIDIA Shield. If you've used the official Plex app it'll feel familiar, with the things a lot of us missed brought back and more control over how it all works.
 
-## Product model
+**You sign in with your normal Plex account. That's it.** Nothing to install on your server, and you do **not** need the StreamPilot portal (see [The portal is optional](#the-portal-is-optional)).
 
-| Concern | Behavior |
-|--------|----------|
-| Portal | User enters their StreamPilot URL on first launch (saved locally) |
-| Auth | Plex PIN via that portal → Bearer session token |
-| Playback | Portal `/api/media-player/*` + native ExoPlayer when available |
-| Switch server | “Use a different portal” clears URL + session |
+Not affiliated with Plex Inc.
 
-Do **not** bake `PLEX_CLIENT_PORTAL_URL` into Play Store binaries. That env var is only for private sideload / CI smoke tests.
+## Get it
 
-## Package identity
+| | |
+|---|---|
+| **Free: GitHub** | Download the APK from [Releases](../../releases) and sideload it. Same app, updated every so often. |
+| **Paid: Google Play** | Search **StreamPilot** on Google Play. Updates land there first, and buying it supports the project. |
 
-- Application ID: `com.servermanagerportal.mediaplayer` (change before first Play upload if you prefer your publisher domain)
-- Store listing name: **StreamPilot** (or your brand)
-- One APK: phone + Android TV (`LEANBACK_LAUNCHER`)
+To sideload on Android TV / Shield: install a file manager or the *Downloader* app, enable *Install unknown apps* for it, then open the APK.
 
-## Build web assets
+## Features
 
-From repo root:
+- **Direct Play the way the file was made**: native ExoPlayer, up to 4K, Dolby Vision, HDR10+, HDR10, HLG, HEVC, AV1, VP9. Match frame rate on by default, optional TrueHD / DTS passthrough.
+- **A Home you control**: choose which libraries appear, reorder the sidebar, hide watched items, and sort Continue Watching by latest release, On Deck, recently watched or title.
+- **Plex Home profiles and PINs** on launch; everyone keeps their own Continue Watching.
+- **Skip intro and credits** (off, prompt or automatic), autoplay next episode, and an optional "Still watching?" check.
+- **Player menu**: chapters, seek thumbnails, speed, zoom, A/V delay, sleep timer, night mode, audio boost, and a stats overlay (long-press OK).
+- **Subtitles**: size, colour, background, position, delay, auto-sync, and OpenSubtitles search from the player.
+- **Theme tunes, cinema trailers, a screensaver** made from your own artwork, and **Watch Together**.
+- **Multiple servers**, music, collections, studios, and actor pages showing what you have of theirs.
+- **Quality ladder** for when Direct Play can't work, with a separate quality for when you're away from home.
+
+## Feedback and feature requests
+
+Very welcome. Open an issue for bugs, ideas, or "Plex used to do X and I miss it". Please include your device (e.g. Shield 2019, Chromecast with Google TV) and the app version (shown at the bottom of **Settings**).
+
+## The portal is optional
+
+[StreamPilot portal](../README.md) is a separate, self-hosted web app for people who share their server with friends and family: invites, access expiry, requests, status, stats and more. The TV app works fully without it.
+
+- **Without a portal (default):** the app signs in to plex.tv with a PIN and talks to your Plex server directly.
+- **With a portal:** you can enter its address in **Settings → Account → Portal URL (optional)**.
+- **Watch Together** only needs a small sync relay (`npm run wt:relay` in this repo), set in **Settings → Account → Watch Together relay URL**. Everyone needs the title in their own Plex library; the video never leaves your server.
+
+## Building from source
+
+Everything is built from the repository root. You need Node.js, a JDK 17+ (`JAVA_HOME`) and the Android SDK.
 
 ```bash
-npm run build:css
-npm run build:plex-client
-```
-
-## Android project
-
-```bash
-cd plex-client
 npm install
-npx cap add android
-npx cap sync android
-npx cap open android
+npm run build:css
+npm run build:apk            # debug APK, copied to your Desktop
 ```
 
-Then apply leanback + ExoPlayer notes in `native/README.md`.
+| Command | What it does |
+|---|---|
+| `npm run build:plex-client` | Builds the web assets into `plex-client/dist` |
+| `npm run build:apk` | Bumps the version, builds, syncs Capacitor and assembles a debug APK |
+| `npm run build:apk:release` | Same, signed with `plex-client/android/keystore.properties` |
+| `npm run build:aab:release` | Signed Play App Bundle |
+| `node scripts/build-plex-client-apk.mjs --release --no-bump` | Rebuild without changing the version |
 
-## Play Store checklist (portal-backed)
+For a release build, copy `plex-client/android/keystore.properties.example` to `keystore.properties` and point it at your own keystore. Never commit it.
 
-- Privacy policy: app stores portal URL + session JWT on device; media streams via user portal
-- Data safety form: account login (Plex via portal), no selling data
-- TV: leanback screenshots, D-pad navigation, no required touchscreen
-- Cleartext optional only for LAN http portals (`allowMixedContent` / network security config)
-- Minimum portal version: needs CORS + `oauthState` on `/api/auth/plex/login` (this repo)
+`PLEX_CLIENT_PORTAL_URL` (build-time env) bakes a portal address into a private build. Leave it unset for anything you share or publish.
 
-## Status
+## Project layout
 
-- [x] Multi-tenant portal URL (Play Store)
-- [x] CORS + Bearer + oauthState on portal
-- [x] Auth UI + PIN poll (phone + TV)
-- [x] SPA build (`npm run build:plex-client`)
-- [ ] Capacitor Android + LEANBACK
-- [ ] ExoPlayer plugin
-- [ ] TV focus polish
+| Path | What's there |
+|---|---|
+| `client/plex-client/` | App shell: sign-in, profiles, What's New, config |
+| `client/media-player/` | Screens and player UI (shared with the portal's web player) |
+| `plex-client/android/` | Capacitor Android project, Leanback launcher, banner |
+| `plex-client/native/` | Native ExoPlayer plugin notes ([README](native/README.md)) |
+
+- Application ID: `com.streampilot.mediaplayer` (permanent on Google Play). The Java sources keep the `com.servermanagerportal.mediaplayer` package internally.
+- One APK covers phones and Android TV: touchscreen and Leanback are both optional features.
+- Minimum Android version: 7.0 (API 24).

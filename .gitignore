@@ -107,5 +107,12 @@ plex-client/android/app/build/
 plex-client/android/build/
 plex-client/android/captures/
 plex-client/android/local.properties
+# Release signing key and its passwords: never commit.
+plex-client/android/keystore.properties
+*.jks
+*.keystore
 plex-client/android/**/capacitor-cordova-android-plugins/build/
 
+
+# Who's on screen (test): 24 MB FaceNet model, fetched by scripts/fetch-face-model.mjs
+plex-client/android/app/src/main/assets/models/

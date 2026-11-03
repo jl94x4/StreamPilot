@@ -105,7 +105,7 @@ const directPlexImageUrl = (path: string): string => {
     url.searchParams.set('height', params.get('height') || '450');
     url.searchParams.set('minSize', '1');
     url.searchParams.set('upscale', '0');
-    url.searchParams.set('quality', params.get('quality') || '60');
+    url.searchParams.set('quality', params.get('quality') || '90');
     url.searchParams.set('url', imagePath.startsWith('/') ? imagePath : `/${imagePath}`);
     url.searchParams.set('X-Plex-Token', token);
     return url.toString();

@@ -19,6 +19,8 @@ const loadDiscoverAvailability = async () => {
         format: 'cjs',
         platform: 'node',
         write: false,
+        // Mirror build:js — Capacitor is only present in the native client build.
+        external: ['@capacitor/core', '@capacitor/preferences'],
     });
     const module = { exports: {} };
     vm.runInNewContext(result.outputFiles[0].text, {
@@ -105,6 +107,39 @@ test('resolveMediaAvailabilityState does not keep Requested on a still-airing sh
     assert.notEqual(state.kind, 'requested');
     assert.notEqual(state.kind, 'processing');
     assert.equal(state.kind, 'partial');
+});
+
+test('resolveMediaAvailabilityState keeps a partial show requestable when later seasons are missing', async () => {
+    const { resolveMediaAvailabilityState } = await loadDiscoverAvailability();
+    const state = resolveMediaAvailabilityState({
+        mediaType: 'tv',
+        tmdbId: 42,
+        status: 'Returning Series',
+        inProduction: true,
+        firstAirDate: '2020-01-01',
+        lastEpisodeToAir: { seasonNumber: 3, episodeNumber: 8 },
+        seasons: [
+            { seasonNumber: 1, episodeCount: 10 },
+            { seasonNumber: 2, episodeCount: 10 },
+            { seasonNumber: 3, episodeCount: 8 },
+        ],
+        mediaInfo: {
+            id: 9,
+            status: 4,
+            seasons: [{ seasonNumber: 1, status: 5 }],
+        },
+        sonarrLibraryStatus: {
+            matched: true,
+            showComplete: false,
+            hasActiveDownloads: false,
+            seriesStatus: 'continuing',
+            seasons: [
+                { seasonNumber: 1, airedTotal: 10, airedWithFile: 10, complete: true, withFile: 10, total: 10 },
+            ],
+        },
+    });
+    assert.equal(state.kind, 'partial');
+    assert.equal(state.label, 'Partially available');
 });
 
 test('resolveMediaAvailabilityState treats PROCESSING stamps as up to date when Sonarr is caught up', async () => {

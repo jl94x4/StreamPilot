@@ -23,6 +23,8 @@ export type NavFeatureFlags = {
     chat?: boolean;
     /** In-portal Plex client (Plex-only, default on). */
     mediaPlayer?: boolean;
+    /** Admin-written Help page (on when written and enabled). */
+    help?: boolean;
 };
 
 /** Default sidebar order matching Settings → Layout → Navigation stock layout. */
@@ -50,6 +52,7 @@ export const DEFAULT_NAV_ORDER = [
     'achievements',
     'chat',
     'support',
+    'help',
     'maintenance',
     'about',
     'profile',
@@ -71,6 +74,7 @@ export const NAV_ITEM_LABELS: Record<string, string> = {
     achievements: 'Achievements',
     chat: 'Chat',
     support: 'Support',
+    help: 'Help',
     users: 'Users',
     downloads: 'Downloads',
     upgrader: 'Upgrader',
@@ -245,6 +249,7 @@ export const EXPIRED_PORTAL_ALLOWED_NAV_KEYS = new Set([
     'home',
     'support',
     'chat',
+    'help',
     'preferences',
     'about',
 ]);
@@ -256,6 +261,7 @@ export const EXPIRED_PORTAL_ALLOWED_ROUTES = new Set([
     'chat',
     'profile',
     'preferences',
+    'help',
     'about',
 ]);
 
@@ -451,6 +457,7 @@ export const filterNavOrder = (
             if (key.startsWith('custom:')) return false;
             if (key === 'home') return true;
             return EXPIRED_PORTAL_ALLOWED_NAV_KEYS.has(key)
+                && !(key === 'help' && !features.help)
                 && !(key === 'support' && !supportEnabled)
                 && !(key === 'chat' && !chatEnabled);
         }
@@ -482,6 +489,7 @@ export const filterNavOrder = (
         if (key === 'achievements' && !achievementsEnabled) return false;
         if (key === 'support' && !supportEnabled) return false;
         if (key === 'chat' && !chatEnabled) return false;
+        if (key === 'help' && !features.help) return false;
         if (key === 'request' && !requestEnabled) return false;
         if (key === 'media-player' && !mediaPlayerEnabled) return false;
         return true;

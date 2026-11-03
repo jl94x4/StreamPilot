@@ -12,6 +12,7 @@ export { DiscoverSectionHeader } from '../discovery/DiscoverSectionHeader';
 export { Carousel } from '../discovery/Carousel';
 export { DiscoveryFactWidget } from '../discovery/DiscoveryFactWidget';
 export { DiscoveryLogo } from '../discovery/DiscoveryLogo';
+export { discoveryLogoUrl } from '../discovery/discoveryLogoUtils';
 export { MediaRatingPills } from '../discovery/MediaRatingPills';
 export type { CombinedRatings } from '../discovery/mediaDetailUtils';
 export { PersonProfileHeader } from '../discovery/PersonProfileHeader';
@@ -20,12 +21,15 @@ export {
     DiscoverHomeSkeleton,
     DiscoverHomeRowSkeleton,
     PlayerHomeHeroSkeleton,
+    PlayerHomeRowSkeleton,
     PlayerHomeSkeleton,
     PlayerTvHomeStageSkeleton,
     PosterGridSkeleton,
+    SkeletonBlock,
 } from '../shared/skeletons';
 export { MediaPlayerBetaBanner, MediaPlayerAlphaBanner } from '../shared/BetaBadge';
 export { NoPosterPlaceholder } from '../shared/NoPosterPlaceholder';
+export { RowHeaderMark } from '../shared/RowHeaderMark';
 export {
     discoverRowCardWidthClass,
     posterGridCardWidthStyle,

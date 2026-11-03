@@ -10,8 +10,10 @@ import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
+import android.graphics.Outline;
 import android.graphics.Typeface;
 import android.net.Uri;
+import android.text.TextUtils;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -19,17 +21,26 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Log;
 import android.util.Rational;
+import android.view.Display;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.Surface;
 import android.view.SurfaceView;
 import android.view.View;
+import android.view.ViewOutlineProvider;
 import android.view.ViewGroup;
+import android.view.Window;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.graphics.RectF;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.StateListDrawable;
+import android.content.res.ColorStateList;
+import androidx.core.graphics.drawable.RoundedBitmapDrawable;
+import androidx.core.graphics.drawable.RoundedBitmapDrawableFactory;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
@@ -37,15 +48,19 @@ import android.widget.TextView;
 import android.widget.Toast;
 import android.webkit.CookieManager;
 
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.content.ContextCompat;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
+import androidx.media3.common.ForwardingPlayer;
 import androidx.media3.common.Format;
 import androidx.media3.common.MediaItem;
+import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.VideoSize;
 import androidx.media3.common.audio.AudioProcessor;
 import androidx.media3.common.MimeTypes;
@@ -56,16 +71,22 @@ import androidx.media3.common.TrackSelectionOverride;
 import androidx.media3.common.TrackSelectionParameters;
 import androidx.media3.common.Tracks;
 import androidx.media3.common.util.UnstableApi;
+import androidx.media3.datasource.DefaultDataSource;
 import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.exoplayer.DefaultRenderersFactory;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.SeekParameters;
+import androidx.media3.exoplayer.Renderer;
 import androidx.media3.exoplayer.audio.AudioSink;
 import androidx.media3.exoplayer.audio.DefaultAudioSink;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
+import androidx.media3.exoplayer.text.TextOutput;
+import androidx.media3.exoplayer.text.TextRenderer;
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
 import androidx.media3.exoplayer.trackselection.TrackSelector;
 import androidx.media3.extractor.DefaultExtractorsFactory;
+import androidx.media3.session.MediaSession;
 import androidx.media3.ui.CaptionStyleCompat;
 import androidx.media3.ui.PlayerView;
 import androidx.media3.ui.SubtitleView;
@@ -92,10 +113,13 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicReference;
 
 @UnstableApi
 public class PlayerActivity extends AppCompatActivity {
     private static final String TAG = "SmpPlayerActivity";
+    /** Format id of the OpenSubtitles SubtitleConfiguration, so the selector can pin it. */
+    private static final String SIDECAR_TEXT_ID = "smp-sidecar";
     private static final String USER_AGENT = "StreamPilot-MediaPlayer/1.0 (Android TV; ExoPlayer)";
     private static final String PREFS = "smp_player_prefs";
 
@@ -109,11 +133,22 @@ public class PlayerActivity extends AppCompatActivity {
     public static final String EXTRA_AUTOPLAY_NEXT = "autoplayNext";
     public static final String EXTRA_AUTO_SKIP_INTRO = "autoSkipIntro";
     public static final String EXTRA_AUTO_SKIP_CREDITS = "autoSkipCredits";
+    /** Settings → Accent colour (gold, orange, red, pink, purple, blue, teal, green). */
+    public static final String EXTRA_ACCENT = "accent";
+    /** Settings → Skip back / forward (seconds), controls timeout (seconds), clock. */
+    public static final String EXTRA_SEEK_BACK_SEC = "seekBackSec";
+    public static final String EXTRA_SEEK_FORWARD_SEC = "seekForwardSec";
+    public static final String EXTRA_CONTROLS_TIMEOUT_SEC = "controlsTimeoutSec";
+    public static final String EXTRA_SHOW_CLOCK = "showClock";
     public static final String EXTRA_ENDED = "ended";
     public static final String EXTRA_POSITION_MS = "positionMs";
     public static final String EXTRA_ERROR = "error";
     public static final String EXTRA_PLAY_NEXT = "playNext";
     public static final String EXTRA_NEXT_RATING_KEY = "nextRatingKey";
+    public static final String EXTRA_PLAY_PREVIOUS = "playPrevious";
+    public static final String EXTRA_WATCHED_HANDLED = "watchedHandled";
+    public static final String EXTRA_PREVIOUS_RATING_KEY = "previousRatingKey";
+    public static final String EXTRA_OPEN_PERSON = "openPerson";
 
     private ExoPlayer player;
     private DefaultHttpDataSource.Factory httpFactory;
@@ -135,16 +170,28 @@ public class PlayerActivity extends AppCompatActivity {
     private ImageView artView;
     private TextView upNextLabel;
     private ImageButton playPauseBtn;
+    private ImageButton prevEpisodeBtn;
+    private ImageButton nextEpisodeBtn;
     private Button skipIntroBtn;
     private TextView upNextKicker;
     private TextView upNextCountdown;
     private ImageView upNextArt;
+    /** Holds the still, its fade and the countdown ring; shown only once the still loads. */
+    private View upNextArtFrame;
+    private CountdownRingView upNextRing;
+    private TextView upNextMeta;
+    private TextView upNextSummary;
     private Button upNextPlayBtn;
     private Button upNextCreditsBtn;
     private boolean watchCreditsChosen;
     private TextView statsView;
+    private TextView modeChipView;
+    private TextView resolutionChipView;
+    private TextView subtitleChipView;
+    private TextView videoCodecChipView;
+    private TextView audioCodecChipView;
+    private TextView bufferLabelView;
     private boolean statsVisible;
-    private boolean confirmLongPress;
     private TextView clockView;
     private String lastClockLabel = "";
     private Button skipCreditsBtn;
@@ -167,6 +214,280 @@ public class PlayerActivity extends AppCompatActivity {
     private TextView menuTitle;
     private ScrollView menuScroll;
     private LinearLayout menuList;
+    private TextView metaView;
+    private TextView remainingView;
+    private TextView endsAtView;
+    private TextView seekFlashView;
+    private ImageButton settingsBtn;
+    private String metaText = "";
+    private final PlayerMenuNav menuNav = new PlayerMenuNav();
+    private final PlayerKeyHandler keyHandler = new PlayerKeyHandler(new PlayerKeyHandler.Host() {
+        @Override
+        public boolean isOptionDialogShowing() {
+            return PlayerActivity.this.isOptionDialogShowing();
+        }
+
+        @Override
+        public void popMenuOrClose() {
+            PlayerActivity.this.popMenuOrClose();
+        }
+
+        @Override
+        public boolean isStatsKey(int keyCode) {
+            return PlayerActivity.this.isStatsKey(keyCode);
+        }
+
+        @Override
+        public boolean statsVisible() {
+            return statsVisible;
+        }
+
+        @Override
+        public void toggleStatsOverlay() {
+            PlayerActivity.this.toggleStatsOverlay();
+        }
+
+        @Override
+        public void hideStatsOverlay() {
+            PlayerActivity.this.hideStatsOverlay();
+        }
+
+        @Override
+        public boolean chromeVisible() {
+            return chromeVisible;
+        }
+
+        @Override
+        public void setChromeVisible(boolean visible) {
+            PlayerActivity.this.setChromeVisible(visible);
+        }
+
+        @Override
+        public void bumpChrome() {
+            PlayerActivity.this.bumpChrome();
+        }
+
+        @Override
+        public boolean seekHoldActive() {
+            return seekHoldDirection != 0;
+        }
+
+        @Override
+        public void startSeekHold(int direction) {
+            PlayerActivity.this.startSeekHold(direction);
+        }
+
+        @Override
+        public void stopSeekHold() {
+            PlayerActivity.this.stopSeekHold();
+        }
+
+        @Override
+        public boolean isUpNextVisible() {
+            return PlayerActivity.this.isUpNextVisible();
+        }
+
+        @Override
+        public boolean isUpNextFocused() {
+            return PlayerActivity.this.isUpNextFocused();
+        }
+
+        @Override
+        public void focusUpNextControls() {
+            PlayerActivity.this.focusUpNextControls();
+        }
+
+        @Override
+        public boolean playbackEndedNow() {
+            return playbackEnded || (player != null && player.getPlaybackState() == Player.STATE_ENDED);
+        }
+
+        @Override
+        public boolean musicMode() {
+            return musicMode;
+        }
+
+        @Override
+        public void finishWithResult(boolean ended, boolean playNext) {
+            PlayerActivity.this.finishWithResult(ended, playNext);
+        }
+
+        @Override
+        public void minimizeToBrowse() {
+            PlayerActivity.this.minimizeToBrowse();
+        }
+
+        @Override
+        public boolean isPlaybackConfirmTarget() {
+            return PlayerActivity.this.isPlaybackConfirmTarget();
+        }
+
+        @Override
+        public boolean hasChapters() {
+            return !chapters.isEmpty();
+        }
+
+        @Override
+        public void skipChapter(int direction) {
+            PlayerActivity.this.skipChapter(direction);
+        }
+
+        @Override
+        public void skipNextFromPlugin() {
+            PlayerActivity.this.skipNextFromPlugin();
+        }
+
+        @Override
+        public void finishForPlayPrevious() {
+            PlayerActivity.this.finishForPlayPrevious();
+        }
+
+        @Override
+        public boolean liveMode() {
+            return liveStream;
+        }
+
+        @Override
+        public void liveChannelStep(int direction) {
+            PlayerActivity.this.liveChannelStep(direction);
+        }
+
+        @Override
+        public void showSettingsRoot() {
+            PlayerActivity.this.showSettingsRoot();
+        }
+
+        @Override
+        public void applyPlayPause(boolean play) {
+            PlayerActivity.this.applyPlayPause(play);
+        }
+
+        @Override
+        public void togglePlayPause() {
+            PlayerActivity.this.togglePlayPause();
+        }
+
+        @Override
+        public void focusPlayPauseButton() {
+            if (playPauseBtn != null) playPauseBtn.requestFocus();
+        }
+
+        @Override
+        public boolean isSeekBarFocused() {
+            return getCurrentFocus() == seekBar;
+        }
+
+        @Override
+        public boolean hasSettingsButton() {
+            return settingsBtn != null;
+        }
+
+        @Override
+        public boolean trySkipFromRemote() {
+            return PlayerActivity.this.trySkipFromRemote();
+        }
+
+        @Override
+        public boolean ensureControlFocus() {
+            if (!chromeVisible || isOptionDialogShowing() || isUpNextVisible() || playPauseBtn == null) return false;
+            View focus = getCurrentFocus();
+            if (focus != null && focus.isShown() && focus.getId() != R.id.player_root) return false;
+            setChromeSubtreeFocusable(true);
+            return playPauseBtn.requestFocus();
+        }
+
+        @Override
+        public boolean facesNamed() {
+            return !chromeVisible && facesView != null && facesView.faceCount() > 0;
+        }
+
+        @Override
+        public void stepFace(int direction) {
+            if (facesView != null) facesView.step(direction);
+        }
+
+        @Override
+        public boolean openPickedFace() {
+            return PlayerActivity.this.openPickedFace();
+        }
+
+        @Override
+        public boolean tagPickedFace() {
+            return PlayerActivity.this.tagPickedFace();
+        }
+
+        @Override
+        public boolean facesVisible() {
+            return facesView != null && facesView.getVisibility() == View.VISIBLE;
+        }
+
+        @Override
+        public void clearFaces() {
+            cancelWhoIsOnScreen();
+        }
+
+        @Override
+        public boolean castStripVisible() {
+            return isCastStripVisible();
+        }
+
+        @Override
+        public boolean castStripFocused() {
+            return isCastStripFocused();
+        }
+
+        @Override
+        public boolean canOpenCastStrip() {
+            return PlayerActivity.this.canOpenCastStrip();
+        }
+
+        @Override
+        public void showCastStrip() {
+            PlayerActivity.this.showCastStrip();
+        }
+
+        @Override
+        public void hideCastStrip() {
+            PlayerActivity.this.hideCastStrip(true);
+        }
+    });
+    private long seekBackMs = 10_000L;
+    private long seekForwardMs = 10_000L;
+    private long controlsTimeoutMs = 5_000L;
+    private boolean showClock = true;
+
+    private long seekStepMs(int direction) {
+        return direction < 0 ? seekBackMs : seekForwardMs;
+    }
+
+    private int seekHoldDirection;
+    private final Runnable seekHoldRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (seekHoldDirection == 0) return;
+            // Move the clock only. One seek is applied when the key is released.
+            previewSeekBy(seekHoldDirection * seekStepMs(seekHoldDirection));
+            flashSeek(seekHoldDirection);
+            mainHandler.postDelayed(this, 350);
+        }
+    };
+    private final Runnable hideSeekFlashRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (seekFlashView == null) return;
+            seekFlashView.animate().cancel();
+            seekFlashView.animate()
+                .alpha(0f)
+                .setDuration(180)
+                .withEndAction(() -> {
+                    if (seekFlashView != null) {
+                        seekFlashView.setVisibility(View.GONE);
+                        seekFlashView.setAlpha(1f);
+                    }
+                })
+                .start();
+        }
+    };
 
     private boolean playbackEnded;
     private boolean playbackError;
@@ -178,8 +499,69 @@ public class PlayerActivity extends AppCompatActivity {
     private boolean chromeVisible = true;
     private boolean skippedIntro;
     private boolean skippedCredits;
-    private boolean skipFocusGiven;
+    /** Timed Skip Intro/Credits prompt (independent of OSD chrome). */
+    private static final long SKIP_CHIP_VISIBLE_MS = 10_000L;
+    /** True after we've offered the chip once for the current intro/credits visit. */
+    private boolean skipIntroPromptOffered;
+    private boolean skipCreditsPromptOffered;
+    private boolean skipIntroChipActive;
+    private boolean skipCreditsChipActive;
+    private final Runnable hideSkipIntroChipRunnable = () -> {
+        skipIntroChipActive = false;
+        applySkipChipVisibility(false, skipCreditsChipActive);
+    };
+    private final Runnable hideSkipCreditsChipRunnable = () -> {
+        skipCreditsChipActive = false;
+        applySkipChipVisibility(skipIntroChipActive, false);
+    };
+    @Nullable
+    private WatchNext.Entry watchNextEntry;
+    private long lastWatchNextAtMs;
+    private long lastWatchNextPosMs = -1;
+    private boolean watchNextRemoved;
+    private final PlayerSessionController sessionController = new PlayerSessionController(
+        this,
+        new PlayerSessionController.Host() {
+            @Override
+            public void applyPlayPause(boolean play) {
+                PlayerActivity.this.applyPlayPause(play);
+            }
+
+            @Override
+            public void seekToContent(long contentMs, boolean immediate) {
+                PlayerActivity.this.seekToContent(contentMs, immediate);
+            }
+
+            @Override
+            public void seekByWithFlash(long deltaMs) {
+                PlayerActivity.this.seekByWithFlash(deltaMs);
+            }
+
+            @Override
+            public long contentPositionMs() {
+                return PlayerActivity.this.contentPositionMs();
+            }
+
+            @Override
+            public long contentDurationMs() {
+                return PlayerActivity.this.contentDurationMs();
+            }
+
+            @Override
+            public long timelineOriginMs() {
+                return timelineOriginMs;
+            }
+        }
+    );
     private boolean userPaused;
+    /**
+     * Ignore the OK / Play press that opened the player, and audio-focus fights with
+     * the WebView theme, until the first real frames. Episodes (resume + PMS) often
+     * take longer than a movie to become READY, so a short window was not enough.
+     */
+    private long suppressPauseUntilElapsed;
+    private static final long PAUSE_SUPPRESS_MS = 8000L;
+    private static final long PAUSE_SUPPRESS_AFTER_PLAY_MS = 500L;
     private long lastToggleElapsedMs;
     private long pendingSeekMs;
     /** Content time already skipped by a transcode URL offset. Player time starts at 0. */
@@ -200,10 +582,89 @@ public class PlayerActivity extends AppCompatActivity {
     private boolean autoplayNext = true;
     private boolean autoSkipIntro;
     private boolean autoSkipCredits;
+    /** off | manual | auto — prefer over autoSkip* booleans. */
+    private String skipIntroMode = "manual";
+    private String skipCreditsMode = "manual";
+    private int rewindOnResumeSec;
+    private long pausePositionMs = -1;
+    private int audioBoost = 100;
+    private String burnSubtitles = "auto";
+    private int subtitleDelayMs;
+    /** Extra offset from voice-activity auto-sync (external SRT only). */
+    private int subtitleAutoSyncOffsetMs;
+    private boolean subtitleAutoSync;
+    private boolean subtitleAutoSyncAvailable;
+    private boolean audioPassthrough;
+    /** Settings → Auto-lower quality: step down by itself instead of asking once. */
+    private boolean autoQuality;
+    private long lastAutoQualityDropAt;
+    private static final long AUTO_QUALITY_COOLDOWN_MS = 20_000;
+    private int cinemaTrailerCount;
+    private final OffsettingSubtitleDecoderFactory subtitleDecoderFactory = new OffsettingSubtitleDecoderFactory();
     private long sleepUntilElapsedRealtime;
     private boolean sleepEndOfEpisode;
+    /** Remaining play-next transitions before sleep stops (persisted across episodes). */
+    private int sleepEpisodesRemaining;
+    private boolean sleepEpisodeLimit;
+    private boolean sleepAtCredits;
+    private final List<OptionItem> relatedItems = new ArrayList<>();
+    /** One person in the cast strip (from the session's "cast"). */
+    private static final class CastMember {
+        final String id;
+        final String name;
+        final String role;
+        final String thumb;
+
+        CastMember(String id, String name, String role, String thumb) {
+            this.id = id;
+            this.name = name;
+            this.role = role;
+            this.thumb = thumb;
+        }
+    }
+    private final List<CastMember> castMembers = new ArrayList<>();
+    /**
+     * Who's on screen's list: the show's whole cast (the strip shows 24). Anyone missing from it
+     * can never be named, which is most of the roster on a wrestling show. Falls back to castMembers.
+     */
+    private final List<CastMember> faceCastMembers = new ArrayList<>();
+    private static final int FACE_CAST_MAX = 100;
+    private View castPanel;
+    private LinearLayout castRow;
+    /** Names the cards were built from; rebuild only when the cast changes. */
+    private String castBuiltFor = "";
+    /** Cast photos already cropped round, by URL, so reopening the strip never refetches. */
+    private final Map<String, Bitmap> castPhotos = new HashMap<>();
+    /** OK on a cast card: JSON {id,name,thumb} handed back to the app on close. */
+    @Nullable
+    private String openPersonJson;
+    /** Settings → Who's on screen: name the faces in the paused frame. */
+    private boolean whoIsOnScreen;
+    /** The player was built untunneled for the faces (false on TV for 4K: they can't run there). */
+    private boolean facesUntunneled;
+    @Nullable
+    private WhoIsOnScreen faceEngine;
+    private FaceLabelsView facesView;
+    private final Runnable whoIsOnScreenRunnable = this::runWhoIsOnScreen;
+    /** Cast strip photos are 72dp circles; this is plenty and keeps two dozen of them small. */
+    private static final int CAST_PHOTO_MAX_SIDE = 240;
+    /** Who's on screen reads faces from photos shrunk to 320; decode a little above that. */
+    private static final int FACE_PHOTO_MAX_SIDE = 480;
+    /** Wait this long after a pause, so a quick pause and play never starts the work. */
+    private static final long WHO_IS_ON_SCREEN_DELAY_MS = 700L;
+    /** Consecutive seconds in STATE_BUFFERING while play-when-ready (stall nudge). */
+    private int bufferingStreakSec;
+    private boolean qualityNudgeOffered;
+    private static final String[] QUALITY_LADDER = {
+        "original", "1080-20", "1080-12", "1080-8", "720-4", "720-2", "480-1.5", "360-0.7"
+    };
 
     private String currentUrl = "";
+    /** What PMS reports this HLS session is doing ("Transcoding video, audio" / "Direct Stream"); empty until known. */
+    private String transcodeDetail = "";
+    /** The stream URL transcodeDetail belongs to; a new URL clears it and asks again. */
+    private String transcodeDetailUrl = "";
+    private int transcodeDetailGen = 0;
     private String headersJson = "";
     private String qualityId = "";
     private String audioStreamId = "";
@@ -215,10 +676,16 @@ public class PlayerActivity extends AppCompatActivity {
     private long creditsStartMs = -1;
     private long creditsEndMs = -1;
     private String nextRatingKey = "";
+    private String previousRatingKey = "";
     private String nextTitle = "";
     private String nextThumbUrl = "";
+    /** "S2 · E5 · 42m" and a short synopsis for the Up Next card. */
+    private String nextMeta = "";
+    private String nextSummary = "";
     private String loadedUpNextThumb = "";
     private String streamMode = "";
+    private boolean liveStream = false;
+    private String liveDebug = "";
     private int streamWidth;
     private int streamHeight;
     private int streamBitrate;
@@ -239,6 +706,22 @@ public class PlayerActivity extends AppCompatActivity {
     private String loadedArtUrl = "";
     private int logoLoadGeneration;
     private final ExecutorService logoExecutor = Executors.newSingleThreadExecutor();
+    /**
+     * Plex timeline / scrobble pings. App-wide, not shut down with the activity: the final
+     * "stopped" (and watched scrobble) is queued as the player closes for the next episode,
+     * and onDestroy's shutdownNow() on logoExecutor used to cancel it — so Plex kept showing
+     * the finished episode as playing until its session timed out.
+     */
+    private static final ExecutorService TIMELINE_EXECUTOR = Executors.newSingleThreadExecutor();
+    /**
+     * Newest routine timeline ping not yet sent. A slow server (4s timeouts) once let a ping
+     * every 5s queue up behind each other, so by the end of an episode the pings still going
+     * out were from ~2/3 through and Plex showed the last third unwatched. Only the newest
+     * waits; stop and scrobble skip it.
+     */
+    private static final AtomicReference<Runnable> PENDING_ROUTINE_PING = new AtomicReference<>();
+    /** Transcode seek decision calls: kept off the timeline queue so a slow ping can't delay one. */
+    private static final ExecutorService SEEK_EXECUTOR = Executors.newSingleThreadExecutor();
 
     private final List<OptionItem> qualities = new ArrayList<>();
     private final List<OptionItem> audioTracks = new ArrayList<>();
@@ -249,6 +732,22 @@ public class PlayerActivity extends AppCompatActivity {
     private float videoFrameRate;
     private boolean nightMode;
     private boolean matchFrameRate = true;
+    /** Last Surface/window frame-rate apply — avoid re-switching HDMI every session tick. */
+    private float appliedSurfaceFps = Float.NaN;
+    private boolean appliedSurfaceMatch;
+    /** Soft A/V resync after a display-mode switch settles. */
+    private final Runnable frameRateResyncRunnable = () -> {
+        if (player == null || finishing || userPaused || scrubTargetMs >= 0) return;
+        if (!player.isPlaying() && !player.getPlayWhenReady()) return;
+        try {
+            long pos = Math.max(0, player.getCurrentPosition());
+            player.seekTo(pos);
+        } catch (Throwable ignored) {
+            /* ignore */
+        }
+    };
+    /** ElapsedRealtime when mid-playback buffering began; 0 = not buffering. */
+    private long bufferingStartedAtMs;
     private int subtitleSizePct = 100;
     private String subtitleColor = "#ffffff";
     private String subtitleBackground = "none";
@@ -260,32 +759,70 @@ public class PlayerActivity extends AppCompatActivity {
     private int audioDelayMs;
     private int repeatMode;
     private String sidecarSubtitleUrl = "";
+    private String sidecarSubtitleCodec = "";
+    @Nullable private String pendingSidecarDownloadId;
     private boolean subtitleSearchPending;
     private boolean applyingTextTracks;
     private boolean applyingAudioTracks;
-    private String timelineOrigin = "";
-    private String timelineToken = "";
-    private String timelineClientId = "";
-    private String timelineProduct = "StreamPilot";
-    private String timelineVersion = "1.0.0";
-    private String timelinePlatform = "Android";
-    private String timelineDevice = "Android TV";
-    private String timelineDeviceName = "StreamPilot";
-    private String timelineSessionId = "";
-    private long lastTimelinePingElapsedMs;
-    private String lastTimelineState = "";
+    private final PlexTimelineReporter timelineReporter = new PlexTimelineReporter(USER_AGENT);
     private int timelineKeepAliveTicks;
 
     private final Runnable hideChromeRunnable = () -> {
         if (isOptionDialogShowing()) return;
         setChromeVisible(false);
     };
-    private final Runnable clearSwapRunnable = () -> streamSwapInFlight = false;
+    private final Runnable clearSwapRunnable = () -> {
+        streamSwapInFlight = false;
+        flushPendingTranscodeSeek();
+    };
+    /**
+     * Resume target. Opening the file already at this time shows that frame and
+     * then the clock never moves. Start at 0, and seek only after frames advance.
+     */
+    private long playThenSeekMs = -1;
+    private boolean playThenSeekArmed;
+    /** True once this open has produced a picture, even if isPlaying never flips. */
+    private boolean resumeFrameSeen;
+    private final Runnable playThenSeekRunnable = () -> {
+        if (player == null || finishing || playThenSeekMs <= 0) return;
+        if (userPaused) {
+            playThenSeekArmed = false;
+            return;
+        }
+        long target = playThenSeekMs;
+        playThenSeekMs = -1;
+        player.setSeekParameters(SeekParameters.CLOSEST_SYNC);
+        player.seekTo(target);
+        player.setSeekParameters(SeekParameters.DEFAULT);
+        player.setPlayWhenReady(true);
+        try {
+            player.play();
+        } catch (Throwable ignored) {
+            /* ignore */
+        }
+    };
     /** Position when the resume kick was armed — only remux if it stays frozen. */
     private long resumeKickArmPosMs = -1;
     /** After resume/seek, some SoCs show a still frame with playWhenReady stuck ineffective. */
     private final Runnable resumePlayKickRunnable = () -> {
-        if (player == null || userPaused || finishing) {
+        // A short focus loss (Assistant, notification) holds playback on purpose.
+        // The frozen clock is not a stuck decoder, so do not kick or remux.
+        if (player == null || userPaused || finishing || focusSuppressed()) {
+            resumeKickArmPosMs = -1;
+            return;
+        }
+        // isPlaying never arrived. The opening frame is enough — seek to the
+        // resume point on the file already open. Do not start another session.
+        if (playThenSeekMs > 0) {
+            player.setPlayWhenReady(true);
+            try {
+                player.play();
+            } catch (Throwable ignored) {
+                /* ignore */
+            }
+            if (!playThenSeekArmed && (resumeFrameSeen || player.getPlaybackState() == Player.STATE_READY)) {
+                armPlayThenSeek();
+            }
             resumeKickArmPosMs = -1;
             return;
         }
@@ -295,37 +832,62 @@ public class PlayerActivity extends AppCompatActivity {
         } catch (Throwable ignored) {
             /* ignore */
         }
-        long now = contentPositionMs();
-        // Seek buffering often leaves READY + !isPlaying briefly — do not remux yet.
-        if (player.isPlaying()
-            || player.getPlaybackState() == Player.STATE_BUFFERING
-            || (resumeKickArmPosMs >= 0 && Math.abs(now - resumeKickArmPosMs) > 800)) {
-            resumeKickArmPosMs = -1;
-            return;
-        }
-        // Still not advancing after a Direct Play resume — Direct Stream remux (copy audio).
-        if (player.getPlaybackState() == Player.STATE_READY
-            && isDirectPlayUrl(currentUrl)
-            && now >= 5000) {
-            Log.w(TAG, "Resume frozen on Direct Play — requesting HLS remux");
-            resumeKickArmPosMs = -1;
-            requestStreamChange(qualityId, audioStreamId, subtitleStreamId, mediaIndex, now, "seek");
-        } else {
-            resumeKickArmPosMs = -1;
-        }
+        resumeKickArmPosMs = -1;
     };
     private final Runnable directSeekRunnable = () -> {
         if (player == null || scrubTargetMs < 0) return;
         player.seekTo(Math.max(0, scrubTargetMs - timelineOriginMs));
         emitProgress("playing");
     };
+    /** A transcode seek paused playback to wait for the restarted stream. */
+    private boolean transcodeSeekWaiting;
+    private final Runnable seekHoldSafetyRunnable = () -> {
+        if (!transcodeSeekWaiting || player == null) return;
+        transcodeSeekWaiting = false;
+        if (!userPaused) player.setPlayWhenReady(true);
+    };
     private final Runnable transcodeSeekRunnable = () -> {
         long target = pendingTranscodeSeekMs;
         pendingTranscodeSeekMs = -1;
         if (target < 0) return;
         markStreamSwap();
-        requestStreamChange(qualityId, audioStreamId, subtitleStreamId, mediaIndex, target, "seek");
+        // Pause only. stop()/clear here left Exo idle with a spinner and no playlist
+        // while JS restarted PMS; the new URL never started playing.
+        if (player != null && !userPaused) {
+            transcodeSeekWaiting = true;
+            player.setPlayWhenReady(false);
+            mainHandler.removeCallbacks(seekHoldSafetyRunnable);
+            mainHandler.postDelayed(seekHoldSafetyRunnable, 20000);
+        }
+        if (!nativeTranscodeSeek(target)) {
+            requestStreamChange(qualityId, audioStreamId, subtitleStreamId, mediaIndex, target, "seek");
+        }
     };
+    /** Bumped per native transcode seek, so only the latest one swaps the stream. */
+    private int nativeSeekGen;
+
+    /**
+     * Restart the open transcode at the seek target from here, without the WebView. Behind
+     * this activity the page is hidden and its timers don't run, so a seek routed through JS
+     * often never came back (the picture froze, then jumped back). Same session, new offset,
+     * after PMS's decision call.
+     */
+    private boolean nativeTranscodeSeek(long targetMs) {
+        final String next = PlaybackUrls.withTranscodeOffset(currentUrl, Math.max(0L, targetMs) / 1000L);
+        final String decision = PlaybackUrls.transcodeDecisionUrl(next);
+        if (next == null || decision == null) return false;
+        final int gen = ++nativeSeekGen;
+        final String headers = headersJson;
+        setBufferingVisible(true);
+        SEEK_EXECUTOR.execute(() -> {
+            timelineReporter.httpPing(decision, null, "GET");
+            mainHandler.post(() -> {
+                if (gen != nativeSeekGen || finishing || player == null) return;
+                applyUpdateSrc(next, headers, targetMs, true);
+            });
+        });
+        return true;
+    }
     private final Runnable tickRunnable = new Runnable() {
         @Override
         public void run() {
@@ -335,6 +897,7 @@ public class PlayerActivity extends AppCompatActivity {
             maybeShowUpNext();
             if (statsVisible) refreshStatsOverlay();
             maybeSleepTimer();
+            maybeQualityNudge();
             String state = "paused";
             if (player != null && player.isPlaying()) state = "playing";
             else if (player != null && player.getPlaybackState() == Player.STATE_BUFFERING) state = "buffering";
@@ -362,6 +925,12 @@ public class PlayerActivity extends AppCompatActivity {
         final String url;
         final String language;
         final String codec;
+        /** Index among subtitles muxed into the file; -1 for sidecars / unknown. */
+        int embeddedOrdinal = -1;
+        /** OpenSubtitles hit PMS has yet to download; url is empty until JS resolves it. */
+        String downloadKey = "";
+        /** Audio: Plex channel count (6 = 5.1); 0 when unknown. */
+        int channels;
 
         OptionItem(String id, String label) {
             this(id, label, "", "", "");
@@ -382,7 +951,11 @@ public class PlayerActivity extends AppCompatActivity {
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
+        // Before super/inflate: drawables read ?attr/playerAccent from this overlay.
+        applyAccentOverlay(getIntent() == null ? null : getIntent().getStringExtra(EXTRA_ACCENT));
+        readUserPreferences(getIntent());
         super.onCreate(savedInstanceState);
+        overridePendingTransition(0, 0);
         PlayerBridge.get().attachActivity(this);
         try {
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -407,13 +980,19 @@ public class PlayerActivity extends AppCompatActivity {
             autoplayNext = intent.getBooleanExtra(EXTRA_AUTOPLAY_NEXT, true);
             autoSkipIntro = intent.getBooleanExtra(EXTRA_AUTO_SKIP_INTRO, false);
             autoSkipCredits = intent.getBooleanExtra(EXTRA_AUTO_SKIP_CREDITS, false);
+            skipIntroMode = autoSkipIntro ? "auto" : "manual";
+            skipCreditsMode = autoSkipCredits ? "auto" : "manual";
             applySessionJson(intent.getStringExtra(EXTRA_SESSION_JSON));
             String sessionAudio = audioStreamId;
             String sessionSub = subtitleStreamId;
             restoreAvPrefs();
+            restoreSleepPrefs();
+            bufferingStreakSec = 0;
+            qualityNudgeOffered = false;
             boolean avChanged = !String.valueOf(sessionAudio).equals(String.valueOf(audioStreamId))
                 || !String.valueOf(sessionSub).equals(String.valueOf(subtitleStreamId));
             PlayerBridge.get().keepHostWebViewAlive();
+            flashModeChip();
 
             if (currentUrl == null || currentUrl.trim().isEmpty()) {
                 Log.e(TAG, "Missing playback url");
@@ -423,8 +1002,9 @@ public class PlayerActivity extends AppCompatActivity {
             currentUrl = currentUrl.trim();
             absorbTimelineFromUrl(currentUrl);
             applyTitleChrome();
+            syncSidecarToSelectedSubtitle();
 
-            Map<String, String> headers = headersWithCookies(currentUrl, parseHeaders(headersJson));
+            Map<String, String> headers = headersWithCookies(currentUrl, PlaybackUrls.parseHeaders(headersJson));
             headers.put("Accept-Encoding", "identity");
 
             httpFactory = new DefaultHttpDataSource.Factory()
@@ -434,10 +1014,23 @@ public class PlayerActivity extends AppCompatActivity {
                 .setReadTimeoutMs(15_000)
                 .setDefaultRequestProperties(headers);
 
+            // DefaultDataSource covers file:// (offline downloads) and http(s).
+            DefaultDataSource.Factory dataSourceFactory = new DefaultDataSource.Factory(this, httpFactory);
+            boolean localPlayback = PlaybackUrls.isLocalPlaybackUrl(currentUrl);
+
+            // Direct Play of a 20–80 Mbps file only held ~1.5s / 4MB before, so a brief
+            // LAN hitch stalled playback for 2–3 seconds. Keep a real buffer on the
+            // network path; local files stay small. minBuffer must stay >= the
+            // playback / rebuffer start thresholds or LoadControl throws.
             DefaultLoadControl loadControl = new DefaultLoadControl.Builder()
-                .setBufferDurationsMs(1_500, 30_000, 250, 500)
-                .setTargetBufferBytes(4 * 1024 * 1024)
-                .setPrioritizeTimeOverSizeThresholds(true)
+                .setBufferDurationsMs(
+                    localPlayback ? 2_500 : 15_000,
+                    localPlayback ? 10_000 : 50_000,
+                    localPlayback ? 500 : 2_500,
+                    localPlayback ? 1_000 : 5_000
+                )
+                .setTargetBufferBytes(localPlayback ? 4 * 1024 * 1024 : 48 * 1024 * 1024)
+                .setPrioritizeTimeOverSizeThresholds(false)
                 .build();
 
             DefaultExtractorsFactory extractorsFactory = new DefaultExtractorsFactory();
@@ -455,6 +1048,17 @@ public class PlayerActivity extends AppCompatActivity {
                         .setAudioProcessors(new AudioProcessor[] { delayAudioProcessor })
                         .build();
                 }
+
+                @Override
+                protected void buildTextRenderers(
+                    Context context,
+                    TextOutput output,
+                    Looper outputLooper,
+                    int extensionRendererMode,
+                    ArrayList<Renderer> out
+                ) {
+                    out.add(new TextRenderer(output, outputLooper, subtitleDecoderFactory));
+                }
             }
                 .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
                 .setEnableDecoderFallback(true);
@@ -464,18 +1068,40 @@ public class PlayerActivity extends AppCompatActivity {
                 .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
                 .build();
 
+            // TV: tunneled video+audio keeps lip-sync on many SoCs (Plex-style). Phone
+            // stays untunneled — overlays and some codecs are happier without it.
+            DefaultTrackSelector trackSelector = new DefaultTrackSelector(this);
+            // Who's on screen copies the paused picture off the surface, which tunneled video never
+            // fills, so it plays untunneled, but never for 4K / HDR / Dolby Vision: those can need
+            // tunneling to decode at all (4K Dolby Vision failed with Error 0xe without it).
+            // Playback always wins; on those files the faces simply don't run.
+            boolean bigVideo = streamHeight > 1100 || "4k".equalsIgnoreCase(streamResolution);
+            facesUntunneled = whoIsOnScreen && !bigVideo;
+            if (isTelevision() && !facesUntunneled) {
+                trackSelector.setParameters(
+                    trackSelector.buildUponParameters().setTunnelingEnabled(true)
+                );
+            }
+
+            // handleAudioFocus: pause for calls / other apps / Assistant and duck for
+            // short prompts. Becoming noisy: pause when headphones or BT audio drop.
             player = new ExoPlayer.Builder(this, renderersFactory)
-                .setMediaSourceFactory(new DefaultMediaSourceFactory(httpFactory, extractorsFactory))
+                .setTrackSelector(trackSelector)
+                .setMediaSourceFactory(new DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory))
                 .setLoadControl(loadControl)
-                .setAudioAttributes(audioAttributes, false)
-                .setWakeMode(C.WAKE_MODE_NETWORK)
+                .setAudioAttributes(audioAttributes, true)
+                .setHandleAudioBecomingNoisy(true)
+                .setWakeMode(localPlayback ? C.WAKE_MODE_LOCAL : C.WAKE_MODE_NETWORK)
                 .build();
             player.setVideoScalingMode(C.VIDEO_SCALING_MODE_SCALE_TO_FIT);
+            // Snap to the nearest keyframe so a seek does not download a long gap.
+            player.setSeekParameters(SeekParameters.CLOSEST_SYNC);
             applySpeed(playbackSpeed);
             applyNightMode();
             applyRepeatMode();
             applyAudioDelay(false);
             applyVideoZoom();
+            applySubtitleDelay();
 
             PlayerView playerView = findViewById(R.id.player_view);
             playerView.setPlayer(player);
@@ -491,36 +1117,48 @@ public class PlayerActivity extends AppCompatActivity {
             boolean needsAvRebuild = false;
             if (avChanged) {
                 OptionItem restoredSub = findSubtitleOption(subtitleStreamId);
-                boolean burn = restoredSub != null && subtitleCodecNeedsBurn(restoredSub.codec);
+                boolean burn = subtitleNeedsBurn(restoredSub);
                 // Text subs on Direct Play only need a track select — safe to prepare now.
-                needsAvRebuild = burn || !isDirectPlayUrl(currentUrl);
+                needsAvRebuild = burn || !PlaybackUrls.isDirectPlayUrl(currentUrl);
             }
 
             wirePlayerListener();
+            sessionController.start(player);
             wireControls();
             updateActionVisibility();
             updateChipLabels();
             bumpChrome();
-            if (playPauseBtn != null) playPauseBtn.requestFocus();
+            // Do not focus Play yet: the OK that launched us is still in the queue.
+            if (playerView != null) playerView.requestFocus();
 
             if (needsAvRebuild) {
-                Log.i(TAG, "Deferring prepare for AV rebuild url=" + summarizeUrl(currentUrl));
+                Log.i(TAG, "Deferring prepare for AV rebuild url=" + PlaybackUrls.summarizeUrl(currentUrl));
                 userPaused = false;
+                armPauseSuppress();
                 player.setPlayWhenReady(true);
                 setBufferingVisible(true);
                 long offset = pendingSeekMs;
                 requestStreamChange(qualityId, audioStreamId, subtitleStreamId, mediaIndex, offset);
             } else {
-                Log.i(TAG, "Starting ExoPlayer url=" + summarizeUrl(currentUrl));
+                Log.i(TAG, "Starting ExoPlayer url=" + PlaybackUrls.summarizeUrl(currentUrl));
                 userPaused = false;
+                armPauseSuppress();
                 queueStartPosition(currentUrl, pendingSeekMs);
                 pendingSeekMs = 0;
                 player.setPlayWhenReady(true);
                 player.prepare();
+                try {
+                    player.play();
+                } catch (Throwable ignored) {
+                    /* prepare already has playWhenReady set */
+                }
                 applyAudioTrackPreference();
                 applyTextTrackPreference();
                 if (avChanged) notifyTracksOnlyChange();
             }
+            // A second start (new source, retry) must not add a second 1s loop beside the first.
+            mainHandler.removeCallbacks(tickRunnable);
+            mainHandler.removeCallbacks(progressEmitRunnable);
             mainHandler.post(tickRunnable);
             mainHandler.postDelayed(progressEmitRunnable, 5000);
             updatePipVisibility();
@@ -561,15 +1199,14 @@ public class PlayerActivity extends AppCompatActivity {
         }
         errorView = findViewById(R.id.player_error);
         titleView = findViewById(R.id.player_title);
+        modeChipView = findViewById(R.id.player_mode_chip);
+        resolutionChipView = findViewById(R.id.player_resolution_chip);
+        subtitleChipView = findViewById(R.id.player_subtitle_chip);
+        videoCodecChipView = findViewById(R.id.player_video_codec_chip);
+        audioCodecChipView = findViewById(R.id.player_audio_codec_chip);
+        bufferLabelView = findViewById(R.id.player_buffer_label);
+        statsView = findViewById(R.id.player_stats);
         clockView = findViewById(R.id.player_clock);
-        if (clockView != null) {
-            try {
-                Typeface clockFace = Typeface.createFromAsset(getAssets(), "fonts/satoshi_bold.ttf");
-                clockView.setTypeface(clockFace);
-            } catch (RuntimeException ignored) {
-                /* keep the XML face if the asset is missing */
-            }
-        }
         updateWallClock();
         logoView = findViewById(R.id.player_logo);
         artView = findViewById(R.id.player_art);
@@ -577,13 +1214,35 @@ public class PlayerActivity extends AppCompatActivity {
         if (seekBar != null) {
             seekBar.setBackground(null);
             seekBar.setSplitTrack(false);
+            // Focused seek bar: thicker, brighter track (the thumb grows via its state drawable).
+            seekBar.setOnFocusChangeListener((v, hasFocus) -> {
+                int progress = seekBar.getProgress();
+                int secondary = seekBar.getSecondaryProgress();
+                seekBar.setProgressDrawable(ContextCompat.getDrawable(this, hasFocus
+                    ? R.drawable.player_seek_progress_focus
+                    : R.drawable.player_seek_progress));
+                seekBar.setProgress(progress);
+                seekBar.setSecondaryProgress(secondary);
+                // Focus stolen mid-scrub often drops the key-up; clear the hold so
+                // Left/Right are not permanently swallowed by seekHoldActive.
+                if (!hasFocus && seekHoldDirection != 0) {
+                    stopSeekHold();
+                }
+            });
             if (Build.VERSION.SDK_INT >= 26) {
                 seekBar.setDefaultFocusHighlightEnabled(false);
             }
         }
         timeView = findViewById(R.id.player_time);
+        remainingView = findViewById(R.id.player_remaining);
+        endsAtView = findViewById(R.id.player_ends_at);
         speedLabel = findViewById(R.id.player_speed_label);
+        metaView = findViewById(R.id.player_meta);
+        seekFlashView = findViewById(R.id.player_seek_flash);
         playPauseBtn = findViewById(R.id.player_play_pause);
+        prevEpisodeBtn = findViewById(R.id.player_prev_episode);
+        nextEpisodeBtn = findViewById(R.id.player_next_episode);
+        settingsBtn = findViewById(R.id.player_settings);
         skipRow = findViewById(R.id.player_skip_row);
         skipIntroBtn = findViewById(R.id.player_skip_intro);
         skipCreditsBtn = findViewById(R.id.player_skip_credits);
@@ -595,19 +1254,63 @@ public class PlayerActivity extends AppCompatActivity {
         sleepBtn = findViewById(R.id.player_sleep);
         externalBtn = findViewById(R.id.player_external);
         upNextRow = findViewById(R.id.player_up_next);
+        castPanel = findViewById(R.id.player_cast_panel);
+        // Android 16 no longer sends Back as a key: take it from the dispatcher, same logic.
+        getOnBackPressedDispatcher().addCallback(this, new androidx.activity.OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                keyHandler.onBack();
+            }
+        });
+        facesView = findViewById(R.id.player_faces);
+        castRow = findViewById(R.id.player_cast_row);
+        View castScroll = findViewById(R.id.player_cast_scroll);
+        if (castScroll != null) {
+            // Swiping through the cast on a phone: same, don't hide mid-scroll.
+            castScroll.setOnScrollChangeListener((v, x, y, oldX, oldY) -> {
+                if (chromeVisible && x != oldX) bumpChrome();
+            });
+        }
         upNextArt = findViewById(R.id.player_up_next_art);
+        upNextArtFrame = findViewById(R.id.player_up_next_art_frame);
+        upNextRing = findViewById(R.id.player_up_next_ring);
+        upNextMeta = findViewById(R.id.player_up_next_meta);
+        upNextSummary = findViewById(R.id.player_up_next_summary);
+        if (upNextArtFrame != null) {
+            // Card is player_context_sheet (18dp, 6dp inset) — the still, its fade and the
+            // ring all follow its inner curve.
+            final float artRadius = 12f * getResources().getDisplayMetrics().density;
+            upNextArtFrame.setOutlineProvider(new ViewOutlineProvider() {
+                @Override
+                public void getOutline(View view, Outline outline) {
+                    outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), artRadius);
+                }
+            });
+            upNextArtFrame.setClipToOutline(true);
+        }
         upNextKicker = findViewById(R.id.player_up_next_kicker);
         upNextLabel = findViewById(R.id.player_up_next_label);
         upNextCountdown = findViewById(R.id.player_up_next_countdown);
         upNextPlayBtn = findViewById(R.id.player_up_next_play);
         upNextCreditsBtn = findViewById(R.id.player_up_next_credits);
-        statsView = findViewById(R.id.player_stats);
         zoomBtn = findViewById(R.id.player_zoom);
         delayBtn = findViewById(R.id.player_delay);
         repeatBtn = findViewById(R.id.player_repeat);
         chaptersBtn = findViewById(R.id.player_chapters);
         pipBtn = findViewById(R.id.player_pip);
         seekPreview = findViewById(R.id.player_seek_preview);
+        // Top-left title / episode line and the delivery + resolution badges: the app's clock
+        // face (medium Switzer), as on the TV Home and title pages.
+        applyAssetTypeface("fonts/switzer_medium.ttf", titleView, metaView, modeChipView, resolutionChipView, subtitleChipView, bufferLabelView);
+        applySatoshiTypeface(
+            timeView,
+            remainingView,
+            endsAtView,
+            seekFlashView,
+            clockView,
+            menuTitle,
+            speedLabel
+        );
 
         ImageButton close = findViewById(R.id.player_close);
         if (close != null) close.setOnClickListener(v -> finishWithResult(false, false));
@@ -615,6 +1318,9 @@ public class PlayerActivity extends AppCompatActivity {
             close,
             seekBar,
             playPauseBtn,
+            prevEpisodeBtn,
+            nextEpisodeBtn,
+            settingsBtn,
             findViewById(R.id.player_seek_back),
             findViewById(R.id.player_seek_fwd),
             skipIntroBtn,
@@ -636,6 +1342,22 @@ public class PlayerActivity extends AppCompatActivity {
         );
     }
 
+    private void applySatoshiTypeface(TextView... views) {
+        applyAssetTypeface("fonts/satoshi_bold.ttf", views);
+    }
+
+    private void applyAssetTypeface(String assetPath, TextView... views) {
+        Typeface face;
+        try {
+            face = Typeface.createFromAsset(getAssets(), assetPath);
+        } catch (RuntimeException ignored) {
+            return;
+        }
+        for (TextView view : views) {
+            if (view != null) view.setTypeface(face);
+        }
+    }
+
     private void disableTvFocusBox(View... views) {
         if (Build.VERSION.SDK_INT < 26) return;
         for (View view : views) {
@@ -645,10 +1367,13 @@ public class PlayerActivity extends AppCompatActivity {
 
     private void wireControls() {
         if (playPauseBtn != null) playPauseBtn.setOnClickListener(v -> togglePlayPause());
+        if (prevEpisodeBtn != null) prevEpisodeBtn.setOnClickListener(v -> finishForPlayPrevious());
+        if (nextEpisodeBtn != null) nextEpisodeBtn.setOnClickListener(v -> finishForPlayNext());
+        if (settingsBtn != null) settingsBtn.setOnClickListener(v -> showSettingsRoot());
         View seekBack = findViewById(R.id.player_seek_back);
-        if (seekBack != null) seekBack.setOnClickListener(v -> seekBy(-10_000));
+        if (seekBack != null) seekBack.setOnClickListener(v -> seekByWithFlash(-seekBackMs));
         View seekFwd = findViewById(R.id.player_seek_fwd);
-        if (seekFwd != null) seekFwd.setOnClickListener(v -> seekBy(10_000));
+        if (seekFwd != null) seekFwd.setOnClickListener(v -> seekByWithFlash(seekForwardMs));
         if (skipIntroBtn != null) skipIntroBtn.setOnClickListener(v -> doSkipIntro());
         if (skipCreditsBtn != null) skipCreditsBtn.setOnClickListener(v -> doSkipCredits());
         View upNextPlay = findViewById(R.id.player_up_next_play);
@@ -677,7 +1402,7 @@ public class PlayerActivity extends AppCompatActivity {
                 long duration = contentDurationMs();
                 if (duration <= 0) return;
                 long pos = (long) ((progress / 1000.0) * duration);
-                timeView.setText(formatClock(pos) + " / " + formatClock(duration));
+                setTimeLabels(pos, duration);
                 showSeekPreview(pos);
             }
 
@@ -713,11 +1438,16 @@ public class PlayerActivity extends AppCompatActivity {
                 || keyCode == KeyEvent.KEYCODE_MEDIA_REWIND
                 || keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD;
             if (!seekKey) return false;
-            if (event.getAction() != KeyEvent.ACTION_DOWN) return true;
-            if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_MEDIA_REWIND) {
-                seekBy(-10_000);
-            } else {
-                seekBy(10_000);
+            int direction = (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_MEDIA_REWIND)
+                ? -1
+                : 1;
+            if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                if (event.getRepeatCount() == 0) startSeekHold(direction);
+                return true;
+            }
+            if (event.getAction() == KeyEvent.ACTION_UP) {
+                stopSeekHold();
+                return true;
             }
             return true;
         });
@@ -727,17 +1457,39 @@ public class PlayerActivity extends AppCompatActivity {
         player.addListener(new Player.Listener() {
             @Override
             public void onPlaybackStateChanged(int playbackState) {
-                setBufferingVisible(playbackState == Player.STATE_BUFFERING);
+                boolean waitingToPlay = playbackState == Player.STATE_BUFFERING
+                    || (playbackState == Player.STATE_READY && !player.isPlaying() && !userPaused
+                        && !focusSuppressed());
+                setBufferingVisible(waitingToPlay);
+                if (playbackState == Player.STATE_BUFFERING) {
+                    if (bufferingStartedAtMs <= 0 && resumeFrameSeen && !userPaused) {
+                        bufferingStartedAtMs = android.os.SystemClock.elapsedRealtime();
+                    }
+                }
                 if (playbackState == Player.STATE_READY) {
+                    long bufferedForMs = bufferingStartedAtMs > 0
+                        ? android.os.SystemClock.elapsedRealtime() - bufferingStartedAtMs
+                        : 0;
+                    bufferingStartedAtMs = 0;
                     playbackError = false;
                     hideError();
                     hideBurnInProgress();
-                    if (pendingSeekMs > 0 && !isTranscodeUrl(currentUrl)) {
+                    if (pendingSeekMs > 0 && !PlaybackUrls.isTranscodeUrl(currentUrl)) {
                         long seekTo = pendingSeekMs;
                         pendingSeekMs = 0;
                         player.seekTo(seekTo);
                     } else {
                         pendingSeekMs = 0;
+                        // Long mid-playback rebuffer can leave audio clock ahead of video.
+                        // A same-position seek forces ExoPlayer to realign (Direct Play/remux).
+                        if (bufferedForMs >= 3500
+                            && resumeFrameSeen
+                            && scrubTargetMs < 0
+                            && !streamSwapInFlight
+                            && !PlaybackUrls.isTranscodeUrl(currentUrl)) {
+                            long pos = Math.max(0, player.getCurrentPosition());
+                            player.seekTo(pos);
+                        }
                     }
                     reconcileTranscodeOrigin();
                     long landed = timelineOriginMs + Math.max(0, player.getCurrentPosition());
@@ -752,7 +1504,7 @@ public class PlayerActivity extends AppCompatActivity {
                         } catch (Throwable ignored) {
                             /* ignore */
                         }
-                        if (isDirectPlayUrl(currentUrl)) applyAudioTrackPreference();
+                        if (PlaybackUrls.isDirectPlayUrl(currentUrl)) applyAudioTrackPreference();
                         mainHandler.removeCallbacks(resumePlayKickRunnable);
                         resumeKickArmPosMs = contentPositionMs();
                         mainHandler.postDelayed(resumePlayKickRunnable, 2500);
@@ -766,7 +1518,7 @@ public class PlayerActivity extends AppCompatActivity {
                 if (playbackState == Player.STATE_ENDED) {
                     playbackEnded = true;
                     if (sleepEndOfEpisode) {
-                        sleepEndOfEpisode = false;
+                        clearSleepPrefs();
                         finishWithResult(true, false);
                         return;
                     }
@@ -790,9 +1542,80 @@ public class PlayerActivity extends AppCompatActivity {
             }
 
             @Override
+            public void onRenderedFirstFrame() {
+                resumeFrameSeen = true;
+                View cover = findViewById(R.id.player_surface_cover);
+                if (cover != null) cover.setVisibility(View.GONE);
+                if (player != null && player.isPlaying()) setBufferingVisible(false);
+                // Some TVs paint the first frame and never report isPlaying.
+                // That used to leave resume stuck at the opening frame.
+                armPlayThenSeek();
+            }
+
+            @Override
+            public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
+                // Another app took audio focus for good, or headphones dropped. Treat it
+                // as a user pause, or the resume kicks would start playback again.
+                if (playWhenReady) return;
+                if (reason != Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS
+                    && reason != Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY) return;
+                if (pauseSuppressed()) {
+                    mainHandler.post(() -> {
+                        if (player == null || userPaused || finishing) return;
+                        player.setPlayWhenReady(true);
+                        try {
+                            player.play();
+                        } catch (Throwable ignored) {
+                            /* ignore */
+                        }
+                    });
+                    return;
+                }
+                pausePositionMs = contentPositionMs();
+                userPaused = true;
+                mainHandler.removeCallbacks(playThenSeekRunnable);
+                mainHandler.removeCallbacks(resumePlayKickRunnable);
+                setBufferingVisible(false);
+                updatePlayPauseLabel();
+                if (!minimized) bumpChrome();
+            }
+
+            @Override
             public void onIsPlayingChanged(boolean isPlaying) {
+                // Only a pause the viewer chose: the moments before a film starts are "not playing"
+                // too, and the test must never run while the player is still setting up.
+                Log.i(TAG, "WhoIsOnScreen playing=" + isPlaying + " playWhenReady="
+                    + (player != null && player.getPlayWhenReady()) + " userPaused=" + userPaused);
+                if (isPlaying || (player != null && player.getPlayWhenReady())) cancelWhoIsOnScreen();
+                else if (userPaused) scheduleWhoIsOnScreen();
+                if (isPlaying) {
+                    armPlayThenSeek();
+                    releasePauseSuppressSoon();
+                    if (playPauseBtn != null && getCurrentFocus() == null) {
+                        playPauseBtn.requestFocus();
+                    }
+                }
                 updatePlayPauseLabel();
                 emitProgress(isPlaying ? "playing" : "paused");
+            }
+
+            @Override
+            public void onVideoSizeChanged(VideoSize videoSize) {
+                updateResolutionChip();
+                updateCodecChips();
+                updateSubtitleChip();
+            }
+
+            @Override
+            public void onPositionDiscontinuity(
+                @NonNull Player.PositionInfo oldPosition,
+                @NonNull Player.PositionInfo newPosition,
+                int reason) {
+                // A seek while paused shows a new frame: drop the old names and look again.
+                if (facesView != null && facesView.getVisibility() == View.VISIBLE) {
+                    cancelWhoIsOnScreen();
+                    if (player != null && !player.getPlayWhenReady() && userPaused) scheduleWhoIsOnScreen();
+                }
             }
 
             @Override
@@ -808,8 +1631,13 @@ public class PlayerActivity extends AppCompatActivity {
                 if (!hasVideo && hasAudio) {
                     toast("Audio only — this file may need a transcode for this TV");
                 }
-                if (isDirectPlayUrl(currentUrl)) {
+                // Selected tracks set the codec pills (an audio switch changes one).
+                updateCodecChips();
+                updateSubtitleChip();
+                if (PlaybackUrls.isDirectPlayUrl(currentUrl)) {
                     applyAudioTrackPreference();
+                    applyTextTrackPreference();
+                } else if (sidecarSubtitleUrl != null && !sidecarSubtitleUrl.isEmpty()) {
                     applyTextTrackPreference();
                 }
             }
@@ -817,10 +1645,19 @@ public class PlayerActivity extends AppCompatActivity {
             @Override
             public void onPlayerError(PlaybackException error) {
                 Log.e(TAG, "ExoPlayer error " + error.getErrorCodeName(), error);
-                if (trySeekRecovery(error)) return;
-                if (tryStreamFallback(error)) return;
+                if (!liveStream && trySeekRecovery(error)) return;
+                if (!liveStream && tryStreamFallback(error)) return;
                 playbackError = true;
                 String message = "Playback error: " + error.getErrorCodeName();
+                // The underlying cause (socket reset, TLS, HTTP status …), so a screenshot says why.
+                String cause = PlaybackUrls.describeCause(error);
+                if (!cause.isEmpty()) message = message + "\n" + cause;
+                if (liveStream) {
+                    String extra = liveDebug != null && !liveDebug.isEmpty()
+                        ? liveDebug
+                        : PlaybackUrls.summarizeUrl(currentUrl);
+                    if (extra != null && !extra.isEmpty()) message = message + "\n" + extra;
+                }
                 toast(message);
                 showError(message);
                 JSObject data = new JSObject();
@@ -842,6 +1679,8 @@ public class PlayerActivity extends AppCompatActivity {
         if (sessionJson == null || sessionJson.trim().isEmpty()) return;
         try {
             JSONObject root = new JSONObject(sessionJson);
+            // Not "previousRatingKey": that field is the previous episode for the ⏮ button.
+            String ratingKeyBefore = ratingKey;
             ratingKey = root.optString("ratingKey", ratingKey);
             showKey = root.optString("showKey", showKey);
             String nextRating = root.optString("ratingKey", ratingKey);
@@ -854,6 +1693,46 @@ public class PlayerActivity extends AppCompatActivity {
             if (root.has("autoplayNext")) autoplayNext = root.optBoolean("autoplayNext", autoplayNext);
             if (root.has("autoSkipIntro")) autoSkipIntro = root.optBoolean("autoSkipIntro", autoSkipIntro);
             if (root.has("autoSkipCredits")) autoSkipCredits = root.optBoolean("autoSkipCredits", autoSkipCredits);
+            if (root.has("skipIntroMode")) {
+                skipIntroMode = normalizeSkipMode(root.optString("skipIntroMode", skipIntroMode), autoSkipIntro);
+                autoSkipIntro = "auto".equals(skipIntroMode);
+            } else if (root.has("autoSkipIntro")) {
+                skipIntroMode = autoSkipIntro ? "auto" : "manual";
+            }
+            if (root.has("skipCreditsMode")) {
+                skipCreditsMode = normalizeSkipMode(root.optString("skipCreditsMode", skipCreditsMode), autoSkipCredits);
+                autoSkipCredits = "auto".equals(skipCreditsMode);
+            } else if (root.has("autoSkipCredits")) {
+                skipCreditsMode = autoSkipCredits ? "auto" : "manual";
+            }
+            if (root.has("rewindOnResumeSec")) {
+                int n = root.optInt("rewindOnResumeSec", rewindOnResumeSec);
+                if (n == 0 || n == 5 || n == 10 || n == 15 || n == 20 || n == 30) rewindOnResumeSec = n;
+            }
+            if (root.has("audioBoost")) {
+                int n = root.optInt("audioBoost", audioBoost);
+                if (n == 100 || n == 200 || n == 300) audioBoost = n;
+            }
+            if (root.has("burnSubtitles")) {
+                String burn = root.optString("burnSubtitles", burnSubtitles);
+                if ("always".equals(burn) || "image".equals(burn) || "auto".equals(burn)) burnSubtitles = burn;
+            }
+            if (root.has("subtitleDelayMs")) {
+                subtitleDelayMs = Math.max(-5000, Math.min(5000, root.optInt("subtitleDelayMs", subtitleDelayMs)));
+            }
+            if (root.has("subtitleAutoSync")) subtitleAutoSync = root.optBoolean("subtitleAutoSync", subtitleAutoSync);
+            if (root.has("subtitleAutoSyncAvailable")) {
+                subtitleAutoSyncAvailable = root.optBoolean("subtitleAutoSyncAvailable", subtitleAutoSyncAvailable);
+            }
+            if (root.has("subtitleAutoSyncOffsetMs")) {
+                subtitleAutoSyncOffsetMs = Math.max(-5000, Math.min(5000,
+                    root.optInt("subtitleAutoSyncOffsetMs", subtitleAutoSyncOffsetMs)));
+            }
+            if (root.has("audioPassthrough")) audioPassthrough = root.optBoolean("audioPassthrough", audioPassthrough);
+            if (root.has("autoQuality")) autoQuality = root.optBoolean("autoQuality", autoQuality);
+            if (root.has("cinemaTrailerCount")) {
+                cinemaTrailerCount = Math.max(0, Math.min(5, root.optInt("cinemaTrailerCount", cinemaTrailerCount)));
+            }
             if (root.has("title")) {
                 String nextTitleText = root.optString("title", "").trim();
                 if (!nextTitleText.isEmpty()) titleText = nextTitleText;
@@ -861,11 +1740,20 @@ public class PlayerActivity extends AppCompatActivity {
             if (root.has("subtitle")) {
                 subtitleText = root.optString("subtitle", "").trim();
             }
+            if (root.has("meta")) {
+                metaText = root.optString("meta", "").trim();
+            }
             if (root.has("logoUrl")) {
                 logoUrl = root.optString("logoUrl", "").trim();
             }
             if (root.has("posterUrl")) {
                 artUrl = root.optString("posterUrl", "").trim();
+            }
+            if (root.has("watchNext")) {
+                applyWatchNextJson(root.optJSONObject("watchNext"));
+            } else if (!String.valueOf(ratingKeyBefore).equals(String.valueOf(ratingKey))) {
+                // A music / src update for another item without Watch Next data.
+                applyWatchNextJson(null);
             }
             if (root.has("music")) {
                 musicMode = root.optBoolean("music", musicMode);
@@ -890,8 +1778,18 @@ public class PlayerActivity extends AppCompatActivity {
                 nextRatingKey = next.optString("ratingKey", "");
                 nextTitle = next.optString("title", "");
                 nextThumbUrl = next.optString("thumb", "");
+                nextMeta = next.optString("meta", "").trim();
+                nextSummary = next.optString("summary", "").trim();
             }
+            JSONObject previous = root.optJSONObject("previousItem");
+            if (previous != null) {
+                previousRatingKey = previous.optString("ratingKey", "");
+            }
+            applyEpisodeNavButtons();
+            String prevMode = streamMode;
             if (root.has("playbackMode")) streamMode = root.optString("playbackMode", streamMode);
+            if (root.has("live")) liveStream = root.optBoolean("live", liveStream);
+            if (root.has("liveDebug")) liveDebug = root.optString("liveDebug", liveDebug);
             JSONObject source = root.optJSONObject("source");
             if (source != null) {
                 streamWidth = source.optInt("width", streamWidth);
@@ -902,11 +1800,68 @@ public class PlayerActivity extends AppCompatActivity {
                 streamContainer = source.optString("container", streamContainer);
                 streamResolution = source.optString("videoResolution", streamResolution);
             }
+            if (root.has("whoIsOnScreen")) {
+                whoIsOnScreen = root.optBoolean("whoIsOnScreen", false);
+                Log.i(TAG, "WhoIsOnScreen setting from session: " + whoIsOnScreen);
+                if (!whoIsOnScreen) cancelWhoIsOnScreen();
+            }
+            if (root.has("cast")) {
+                castMembers.clear();
+                JSONArray cast = root.optJSONArray("cast");
+                if (cast != null) {
+                    for (int i = 0; i < cast.length() && castMembers.size() < 24; i++) {
+                        JSONObject row = cast.optJSONObject(i);
+                        if (row == null) continue;
+                        String name = row.optString("name", "").trim();
+                        if (name.isEmpty()) continue;
+                        castMembers.add(new CastMember(
+                            row.optString("id", name),
+                            name,
+                            row.optString("role", "").trim(),
+                            row.optString("thumb", "").trim()));
+                    }
+                }
+                if (isCastStripVisible()) buildCastCards();
+            }
+            if (root.has("faceCast")) {
+                faceCastMembers.clear();
+                JSONArray faceCast = root.optJSONArray("faceCast");
+                if (faceCast != null) {
+                    for (int i = 0; i < faceCast.length() && faceCastMembers.size() < FACE_CAST_MAX; i++) {
+                        JSONObject row = faceCast.optJSONObject(i);
+                        if (row == null) continue;
+                        String name = row.optString("name", "").trim();
+                        if (name.isEmpty()) continue;
+                        faceCastMembers.add(new CastMember(
+                            row.optString("id", name),
+                            name,
+                            row.optString("role", "").trim(),
+                            row.optString("thumb", "").trim()));
+                    }
+                }
+            }
+            if (root.has("relatedItems")) {
+                relatedItems.clear();
+                JSONArray related = root.optJSONArray("relatedItems");
+                if (related != null) {
+                    for (int i = 0; i < related.length() && relatedItems.size() < 5; i++) {
+                        JSONObject row = related.optJSONObject(i);
+                        if (row == null) continue;
+                        String key = row.optString("ratingKey", "");
+                        String label = row.optString("title", "");
+                        if (key.isEmpty() || label.isEmpty()) continue;
+                        relatedItems.add(new OptionItem(key, label));
+                    }
+                }
+            }
             if (root.has("nightMode")) nightMode = root.optBoolean("nightMode", nightMode);
             if (root.has("matchFrameRate")) matchFrameRate = root.optBoolean("matchFrameRate", matchFrameRate);
             if (root.has("videoZoom")) videoZoom = (float) root.optDouble("videoZoom", videoZoom);
             if (root.has("videoFill")) videoFill = root.optBoolean("videoFill", videoFill);
             if (root.has("audioDelayMs")) audioDelayMs = Math.max(0, Math.min(1000, root.optInt("audioDelayMs", audioDelayMs)));
+            if (root.has("playbackMode") && streamMode != null && !streamMode.equals(prevMode)) {
+                flashModeChip();
+            }
             if (root.has("repeatMode")) {
                 String mode = root.optString("repeatMode", "");
                 if ("one".equalsIgnoreCase(mode) || "1".equals(mode)) repeatMode = Player.REPEAT_MODE_ONE;
@@ -916,27 +1871,7 @@ public class PlayerActivity extends AppCompatActivity {
             if (root.has("sidecarSubtitleUrl")) sidecarSubtitleUrl = root.optString("sidecarSubtitleUrl", sidecarSubtitleUrl);
             if (root.has("frameRate")) videoFrameRate = (float) root.optDouble("frameRate", videoFrameRate);
             previewThumbTemplate = root.optString("previewThumbTemplate", previewThumbTemplate);
-            JSONObject timeline = root.optJSONObject("timeline");
-            if (timeline != null) {
-                String origin = timeline.optString("origin", "").trim().replaceAll("/+$", "");
-                if (!origin.isEmpty()) timelineOrigin = origin;
-                String token = timeline.optString("token", "").trim();
-                if (!token.isEmpty()) timelineToken = token;
-                String clientId = timeline.optString("clientId", "").trim();
-                if (!clientId.isEmpty()) timelineClientId = clientId;
-                String product = timeline.optString("product", "").trim();
-                if (!product.isEmpty()) timelineProduct = product;
-                String version = timeline.optString("version", "").trim();
-                if (!version.isEmpty()) timelineVersion = version;
-                String platform = timeline.optString("platform", "").trim();
-                if (!platform.isEmpty()) timelinePlatform = platform;
-                String device = timeline.optString("device", "").trim();
-                if (!device.isEmpty()) timelineDevice = device;
-                String deviceName = timeline.optString("deviceName", "").trim();
-                if (!deviceName.isEmpty()) timelineDeviceName = deviceName;
-                String sessionId = timeline.optString("sessionId", "").trim();
-                if (!sessionId.isEmpty()) timelineSessionId = sessionId;
-            }
+            timelineReporter.applySessionTimeline(root.optJSONObject("timeline"));
             JSONObject subtitleStyle = root.optJSONObject("subtitleStyle");
             if (subtitleStyle != null) {
                 subtitleSizePct = subtitleStyle.optInt("size", subtitleSizePct);
@@ -975,7 +1910,18 @@ public class PlayerActivity extends AppCompatActivity {
                 versions.clear();
                 versions.addAll(parseOptions(root.optJSONArray("versions")));
             }
+            JSONObject sidecarResolved = root.optJSONObject("sidecarResolved");
             runOnUiThread(() -> {
+                if (sidecarResolved != null && pendingSidecarDownloadId != null
+                    && pendingSidecarDownloadId.equals(sidecarResolved.optString("id", ""))) {
+                    pendingSidecarDownloadId = null;
+                    OptionItem picked = findSubtitleOption(sidecarResolved.optString("id", ""));
+                    if (sidecarResolved.optBoolean("failed", false) || picked == null || picked.url.isEmpty()) {
+                        toast(getString(R.string.player_subs_download_failed));
+                    } else {
+                        applySubtitleChoice(picked);
+                    }
+                }
                 updateActionVisibility();
                 updateChipLabels();
                 applyTitleChrome();
@@ -985,10 +1931,15 @@ public class PlayerActivity extends AppCompatActivity {
                 applyRepeatMode();
                 applyAudioDelay(false);
                 applyVideoZoom();
+                applySubtitleDelay();
                 PlayerView view = findViewById(R.id.player_view);
                 if (view != null) {
                     applySubtitleLook(view);
                     applyFrameRate(view);
+                }
+                if (subtitleAutoSync && subtitleAutoSyncAvailable && externalSrtSelected()
+                    && subtitleAutoSyncOffsetMs == 0) {
+                    requestSubtitleAutoSync();
                 }
                 if (subtitleSearchPending) {
                     subtitleSearchPending = false;
@@ -1007,6 +1958,14 @@ public class PlayerActivity extends AppCompatActivity {
                 line = line.isEmpty() ? subtitleText.trim() : (line + "\n" + subtitleText.trim());
             }
             titleView.setText(line);
+        }
+        if (metaView != null) {
+            String meta = musicMode ? "" : (metaText == null ? "" : metaText.trim());
+            if (meta.isEmpty() && !musicMode && subtitleText != null && !subtitleText.trim().isEmpty()) {
+                meta = subtitleText.trim();
+            }
+            metaView.setText(meta);
+            metaView.setVisibility(meta.isEmpty() ? View.GONE : View.VISIBLE);
         }
         applyArtChrome();
         if (musicMode) {
@@ -1048,6 +2007,7 @@ public class PlayerActivity extends AppCompatActivity {
                         showTitleText();
                         return;
                     }
+                    sizeLogoForShape(ready);
                     logoView.setImageBitmap(ready);
                     logoView.setContentDescription(titleText);
                     logoView.setVisibility(View.VISIBLE);
@@ -1061,6 +2021,35 @@ public class PlayerActivity extends AppCompatActivity {
             pendingLogoUrl = "";
             showTitleText();
         }
+    }
+
+    /** Logo slot height (activity_player.xml) and the widest shape that still fills it. */
+    private static final float LOGO_SLOT_DP = 58f;
+    private static final float LOGO_FULL_RATIO = 2f;
+
+    /**
+     * Like the title pages, but stricter (the player logo sits over the picture): marks up to 2:1 fill the slot; wider wordmarks
+     * (Gogglebox) shrink so they cover about the same area instead of spanning the screen.
+     */
+    private void sizeLogoForShape(Bitmap bitmap) {
+        if (logoView == null || bitmap == null || bitmap.getHeight() < 1) return;
+        float ratio = bitmap.getWidth() / (float) bitmap.getHeight();
+        // Steeper than an area match: very wide wordmarks shrink well below a 2:1 mark.
+        float scale = ratio > LOGO_FULL_RATIO ? (float) Math.pow(LOGO_FULL_RATIO / ratio, 0.75) : 1f;
+        int height = Math.round(LOGO_SLOT_DP * scale * getResources().getDisplayMetrics().density);
+        ViewGroup.LayoutParams params = logoView.getLayoutParams();
+        if (params != null && params.height != height) {
+            params.height = height;
+            logoView.setLayoutParams(params);
+        }
+        // The slot (58dp min height) shrinks with the mark so the info lines sit right under it.
+        setLogoSlotMinHeight(height);
+    }
+
+    private void setLogoSlotMinHeight(int px) {
+        if (logoView == null || !(logoView.getParent() instanceof View)) return;
+        View slot = (View) logoView.getParent();
+        if (slot.getMinimumHeight() != px) slot.setMinimumHeight(px);
     }
 
     private void applyArtChrome() {
@@ -1095,16 +2084,26 @@ public class PlayerActivity extends AppCompatActivity {
         }
     }
 
+    private void setUpNextArtVisible(boolean visible) {
+        View target = upNextArtFrame != null ? upNextArtFrame : upNextArt;
+        if (target != null) target.setVisibility(visible ? View.VISIBLE : View.GONE);
+    }
+
+    private boolean isUpNextArtVisible() {
+        View target = upNextArtFrame != null ? upNextArtFrame : upNextArt;
+        return target != null && target.getVisibility() == View.VISIBLE;
+    }
+
     private void applyUpNextArt() {
         if (upNextArt == null) return;
         String url = nextThumbUrl == null ? "" : nextThumbUrl.trim();
         if (url.isEmpty()) {
-            upNextArt.setVisibility(View.GONE);
+            setUpNextArtVisible(false);
             upNextArt.setImageDrawable(null);
             loadedUpNextThumb = "";
             return;
         }
-        if (url.equals(loadedUpNextThumb) && upNextArt.getVisibility() == View.VISIBLE) return;
+        if (url.equals(loadedUpNextThumb) && isUpNextArtVisible()) return;
         final String fetchUrl = url;
         final Map<String, String> imageHeaders = headersForImageUrl(fetchUrl);
         try {
@@ -1114,11 +2113,11 @@ public class PlayerActivity extends AppCompatActivity {
                 mainHandler.post(() -> {
                     if (isFinishing() || upNextArt == null) return;
                     if (ready == null || ready.getWidth() < 8 || ready.getHeight() < 8) {
-                        upNextArt.setVisibility(View.GONE);
+                        setUpNextArtVisible(false);
                         return;
                     }
                     upNextArt.setImageBitmap(ready);
-                    upNextArt.setVisibility(View.VISIBLE);
+                    setUpNextArtVisible(true);
                     loadedUpNextThumb = fetchUrl;
                 });
             });
@@ -1145,13 +2144,19 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private String playbackModeLabel() {
+        if (liveStream) return getString(R.string.player_live);
         String mode = streamMode == null ? "" : streamMode.trim();
-        if (isTranscodeUrl(currentUrl) && !"directPlay".equalsIgnoreCase(mode)) {
-            return getString(R.string.player_transcode);
+        // The stream actually open decides: the JS mode stays "directPlay" when the player falls
+        // back to HLS or a lower quality itself, which left the badge stuck on Direct Play.
+        if (PlaybackUrls.isTranscodeUrl(currentUrl)) {
+            if (!transcodeDetail.isEmpty() && currentUrl.equals(transcodeDetailUrl)) return transcodeDetail;
+            return "directStream".equalsIgnoreCase(mode)
+                ? getString(R.string.player_direct_stream)
+                : getString(R.string.player_transcode);
         }
         if ("directPlay".equalsIgnoreCase(mode)) return getString(R.string.player_direct_play);
         if ("directStream".equalsIgnoreCase(mode)) return getString(R.string.player_direct_stream);
-        if ("transcode".equalsIgnoreCase(mode) || isTranscodeUrl(currentUrl)) {
+        if ("transcode".equalsIgnoreCase(mode) || PlaybackUrls.isTranscodeUrl(currentUrl)) {
             return getString(R.string.player_transcode);
         }
         if (currentUrl != null && (currentUrl.contains("/library/parts/") || currentUrl.contains("/file/"))) {
@@ -1248,11 +2253,342 @@ public class PlayerActivity extends AppCompatActivity {
         if (logoView != null) {
             logoView.setVisibility(View.GONE);
             logoView.setImageDrawable(null);
+            setLogoSlotMinHeight(Math.round(LOGO_SLOT_DP * getResources().getDisplayMetrics().density));
         }
         if (titleView != null) titleView.setVisibility(View.VISIBLE);
     }
 
+    private boolean hasCast() {
+        return castPanel != null && castRow != null && !castMembers.isEmpty() && !liveStream && !musicMode;
+    }
+
+    private boolean isCastStripVisible() {
+        return castPanel != null && castPanel.getVisibility() == View.VISIBLE;
+    }
+
+    private boolean isCastStripFocused() {
+        View focus = getCurrentFocus();
+        return focus != null && castRow != null && isCastStripVisible() && isDescendantOf(focus, castRow);
+    }
+
+    /** Down from the transport row (not the seek bar) opens the strip. */
+    private boolean canOpenCastStrip() {
+        if (!hasCast() || isCastStripVisible()) return false;
+        View focus = getCurrentFocus();
+        return focus != null && focus != seekBar && chrome != null && isDescendantOf(focus, chrome);
+    }
+
+    private void showCastStrip() {
+        if (!hasCast()) return;
+        buildCastCards();
+        castPanel.setVisibility(View.VISIBLE);
+        if (castRow.getChildCount() > 0) castRow.getChildAt(0).requestFocus();
+    }
+
+    private void hideCastStrip(boolean focusPlay) {
+        if (castPanel == null || !isCastStripVisible()) return;
+        boolean hadFocus = isCastStripFocused();
+        castPanel.setVisibility(View.GONE);
+        if ((focusPlay || hadFocus) && chromeVisible && playPauseBtn != null) playPauseBtn.requestFocus();
+    }
+
+    private void buildCastCards() {
+        if (castRow == null) return;
+        StringBuilder sig = new StringBuilder();
+        for (CastMember member : castMembers) sig.append(member.name).append('|');
+        if (sig.toString().equals(castBuiltFor) && castRow.getChildCount() == castMembers.size()) return;
+        castBuiltFor = sig.toString();
+        castRow.removeAllViews();
+        float dp = getResources().getDisplayMetrics().density;
+        // Same focus as the app: a white box with black text, nothing when not focused.
+        ColorStateList nameColors = new ColorStateList(
+            new int[][] { new int[] { android.R.attr.state_focused }, new int[] {} },
+            new int[] { 0xFF0B0B0D, 0xFFFFFFFF });
+        ColorStateList roleColors = new ColorStateList(
+            new int[][] { new int[] { android.R.attr.state_focused }, new int[] {} },
+            new int[] { 0xB30B0B0D, 0xB3FFFFFF });
+        int lastId = 0;
+        for (int i = 0; i < castMembers.size(); i++) {
+            final CastMember member = castMembers.get(i);
+            LinearLayout card = new LinearLayout(this);
+            card.setId(View.generateViewId());
+            card.setOrientation(LinearLayout.VERTICAL);
+            card.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
+            card.setFocusable(true);
+            card.setClickable(true);
+            card.setPadding((int) (8 * dp), (int) (8 * dp), (int) (8 * dp), (int) (8 * dp));
+            GradientDrawable focused = new GradientDrawable();
+            focused.setColor(0xFFFFFFFF);
+            focused.setCornerRadius(12 * dp);
+            StateListDrawable bg = new StateListDrawable();
+            bg.addState(new int[] { android.R.attr.state_focused }, focused);
+            bg.addState(new int[] {}, new android.graphics.drawable.ColorDrawable(0x00000000));
+            card.setBackground(bg);
+            LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams((int) (112 * dp), LinearLayout.LayoutParams.WRAP_CONTENT);
+            cardLp.setMarginEnd((int) (6 * dp));
+            card.setLayoutParams(cardLp);
+
+            ImageView photo = new ImageView(this);
+            int size = (int) (72 * dp);
+            photo.setLayoutParams(new LinearLayout.LayoutParams(size, size));
+            GradientDrawable blank = new GradientDrawable();
+            blank.setShape(GradientDrawable.OVAL);
+            blank.setColor(0x33FFFFFF);
+            photo.setImageDrawable(blank);
+            card.addView(photo);
+            loadCastPhoto(member.thumb, photo);
+
+            TextView name = new TextView(this);
+            name.setText(member.name);
+            name.setTextSize(13);
+            name.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            name.setTextColor(nameColors);
+            name.setDuplicateParentStateEnabled(true);
+            name.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
+            name.setMaxLines(2);
+            name.setEllipsize(TextUtils.TruncateAt.END);
+            LinearLayout.LayoutParams nameLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            nameLp.topMargin = (int) (6 * dp);
+            name.setLayoutParams(nameLp);
+            card.addView(name);
+
+            if (!member.role.isEmpty()) {
+                TextView role = new TextView(this);
+                role.setText(member.role);
+                role.setTextSize(11);
+                role.setTextColor(roleColors);
+                role.setDuplicateParentStateEnabled(true);
+                role.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
+                role.setMaxLines(2);
+                role.setEllipsize(TextUtils.TruncateAt.END);
+                card.addView(role);
+            }
+
+            card.setOnClickListener(v -> openCastPerson(member));
+            castRow.addView(card);
+            if (i == 0) card.setNextFocusLeftId(card.getId());
+            lastId = card.getId();
+        }
+        // The ends of the strip stay put instead of jumping up into the controls.
+        View last = castRow.getChildCount() > 0 ? castRow.getChildAt(castRow.getChildCount() - 1) : null;
+        if (last != null) last.setNextFocusRightId(lastId);
+    }
+
+    private void loadCastPhoto(String url, ImageView target) {
+        if (url == null || url.isEmpty()) return;
+        Bitmap cached = castPhotos.get(url);
+        if (cached != null) {
+            target.setImageDrawable(roundPhoto(cached));
+            return;
+        }
+        final Map<String, String> imageHeaders = headersForImageUrl(url);
+        try {
+            logoExecutor.execute(() -> {
+                Bitmap raw = downloadLogoBitmap(url, imageHeaders, CAST_PHOTO_MAX_SIDE);
+                // Portrait headshots: a square from just above the middle keeps the face.
+                Bitmap square = null;
+                if (raw != null && raw.getWidth() > 8 && raw.getHeight() > 8) {
+                    int side = Math.min(raw.getWidth(), raw.getHeight());
+                    int x = (raw.getWidth() - side) / 2;
+                    int y = (raw.getHeight() - side) / 4;
+                    square = Bitmap.createBitmap(raw, x, y, side, side);
+                }
+                final Bitmap ready = square;
+                mainHandler.post(() -> {
+                    if (ready == null || isFinishing()) return;
+                    castPhotos.put(url, ready);
+                    target.setImageDrawable(roundPhoto(ready));
+                });
+            });
+        } catch (Exception e) {
+            Log.w(TAG, "Cast photo load skipped", e);
+        }
+    }
+
+    private RoundedBitmapDrawable roundPhoto(Bitmap bitmap) {
+        RoundedBitmapDrawable round = RoundedBitmapDrawableFactory.create(getResources(), bitmap);
+        round.setCircular(true);
+        return round;
+    }
+
+    private void scheduleWhoIsOnScreen() {
+        mainHandler.removeCallbacks(whoIsOnScreenRunnable);
+        Log.i(TAG, "WhoIsOnScreen schedule: on=" + whoIsOnScreen + " live=" + liveStream + " music=" + musicMode
+            + " view=" + (facesView != null) + " player=" + (player != null));
+        if (!whoIsOnScreen || liveStream || musicMode || facesView == null || player == null) return;
+        // Tunneled (TV, 4K): the picture can't be read, so stay quiet rather than fail every pause.
+        if (isTelevision() && !facesUntunneled) return;
+        mainHandler.postDelayed(whoIsOnScreenRunnable, WHO_IS_ON_SCREEN_DELAY_MS);
+    }
+
+    private void cancelWhoIsOnScreen() {
+        mainHandler.removeCallbacks(whoIsOnScreenRunnable);
+        if (faceEngine != null) faceEngine.cancel();
+        if (facesView != null) facesView.clear();
+    }
+
+    private void runWhoIsOnScreen() {
+        Log.i(TAG, "WhoIsOnScreen run: playWhenReady=" + (player != null && player.getPlayWhenReady())
+            + " userPaused=" + userPaused + " state=" + (player == null ? -1 : player.getPlaybackState())
+            + " cast=" + castMembers.size());
+        if (player == null || player.getPlayWhenReady() || !userPaused || finishing || facesView == null) return;
+        if (player.getPlaybackState() != Player.STATE_READY) return;
+        List<WhoIsOnScreen.Person> people = new ArrayList<>();
+        for (CastMember member : faceCastMembers.isEmpty() ? castMembers : faceCastMembers) {
+            people.add(new WhoIsOnScreen.Person(member.id, member.name, member.role, member.thumb));
+        }
+        if (people.isEmpty()) return;
+        if (faceEngine == null) faceEngine = new WhoIsOnScreen(this);
+        PlayerView playerView = findViewById(R.id.player_view);
+        View surface = playerView == null ? null : playerView.getVideoSurfaceView();
+        if (!(surface instanceof SurfaceView) || surface.getWidth() < 16 || surface.getHeight() < 16) return;
+        facesView.showStatus(getString(R.string.player_faces_looking));
+        // Copy the paused picture off the surface (no second decoder), at most 1280 wide.
+        int width = Math.min(1280, surface.getWidth());
+        int height = Math.max(1, Math.round(surface.getHeight() * (width / (float) surface.getWidth())));
+        final Bitmap frame = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        final long copyStarted = android.os.SystemClock.elapsedRealtime();
+        try {
+            android.view.PixelCopy.request((SurfaceView) surface, frame, copyResult -> {
+                if (finishing || player == null || player.getPlayWhenReady() || facesView == null) return;
+                if (copyResult != android.view.PixelCopy.SUCCESS || looksBlank(frame)) {
+                    showFacesFailed();
+                    return;
+                }
+                long frameMs = android.os.SystemClock.elapsedRealtime() - copyStarted;
+                faceEngine.run(frame, frameMs, people,
+                    url -> downloadLogoBitmap(url, headersForImageUrl(url), FACE_PHOTO_MAX_SIDE),
+                    (index, total) -> mainHandler.post(() -> {
+                        if (finishing || player == null || player.getPlayWhenReady() || facesView == null) return;
+                        facesView.showStatus(getString(R.string.player_faces_learning, index, total));
+                    }),
+                    result -> mainHandler.post(() -> {
+                        if (finishing || player == null || player.getPlayWhenReady() || facesView == null) return;
+                        facesView.showResult(result, videoRectInFaces(result));
+                    }));
+            }, mainHandler);
+        } catch (Throwable error) {
+            Log.w(TAG, "Who's on screen frame copy failed", error);
+            showFacesFailed();
+        }
+    }
+
+    /** A short "couldn't read this shot" that clears itself. */
+    private void showFacesFailed() {
+        if (facesView == null) return;
+        WhoIsOnScreen.Result failed = new WhoIsOnScreen.Result();
+        failed.error = "frame";
+        facesView.showResult(failed, new RectF());
+    }
+
+    /**
+     * OK on a picked face: a named one leaves the player (place saved, as on Back) for that
+     * person's page; an unnamed one asks "Who is this?".
+     */
+    private boolean openPickedFace() {
+        WhoIsOnScreen.FoundFace face = facesView == null ? null : facesView.selectedFace();
+        if (face == null) return false;
+        if (face.person == null) return askWhoIsThis(face);
+        WhoIsOnScreen.Person person = face.person;
+        openCastPerson(new CastMember(person.id, person.name, person.role, person.thumb));
+        return true;
+    }
+
+    /** Hold OK on a picked face: correct its name. */
+    private boolean tagPickedFace() {
+        WhoIsOnScreen.FoundFace face = facesView == null ? null : facesView.selectedFace();
+        return face != null && askWhoIsThis(face);
+    }
+
+    /**
+     * Everyone in the cast, closest match first. The pick names the face now and is kept as one
+     * more reference for that person, so they are recognised in later scans and other titles.
+     */
+    private boolean askWhoIsThis(WhoIsOnScreen.FoundFace face) {
+        if (face.ranked.isEmpty() || faceEngine == null) {
+            toast(getString(R.string.player_no_options));
+            return true;
+        }
+        final List<WhoIsOnScreen.Person> people = new ArrayList<>(face.ranked);
+        String[] labels = new String[people.size()];
+        int checked = 0;
+        for (int i = 0; i < people.size(); i++) {
+            WhoIsOnScreen.Person person = people.get(i);
+            labels[i] = person.role == null || person.role.isEmpty()
+                ? person.name
+                : person.name + "  ·  " + person.role;
+            if (person == face.person) checked = i;
+        }
+        showOptionSheet(getString(R.string.player_faces_unknown), labels, checked, which -> {
+            WhoIsOnScreen.Person picked = people.get(which);
+            if (facesView != null) facesView.nameFace(face, picked);
+            faceEngine.learn(picked, face.vector);
+            toast(getString(R.string.player_faces_learned, picked.name));
+        }, PlayerMenuNav.Return.CLOSE);
+        return true;
+    }
+
+    /** Tunneled playback (test turned on mid-film) leaves the copied picture black. */
+    private static boolean looksBlank(Bitmap frame) {
+        int stepX = Math.max(1, frame.getWidth() / 16);
+        int stepY = Math.max(1, frame.getHeight() / 9);
+        for (int y = stepY / 2; y < frame.getHeight(); y += stepY) {
+            for (int x = stepX / 2; x < frame.getWidth(); x += stepX) {
+                int p = frame.getPixel(x, y);
+                if (((p >> 16) & 0xFF) > 12 || ((p >> 8) & 0xFF) > 12 || (p & 0xFF) > 12) return false;
+            }
+        }
+        return true;
+    }
+
+    /** Where the picture sits inside the faces overlay: surface box (zoom included), then fit or fill. */
+    private RectF videoRectInFaces(WhoIsOnScreen.Result result) {
+        RectF out = new RectF(0, 0, facesView.getWidth(), facesView.getHeight());
+        PlayerView playerView = findViewById(R.id.player_view);
+        View surface = playerView == null ? null : playerView.getVideoSurfaceView();
+        if (surface == null || surface.getWidth() == 0 || !(surface.getParent() instanceof View)) return out;
+        RectF box = new RectF(0, 0, surface.getWidth(), surface.getHeight());
+        surface.getMatrix().mapRect(box);
+        box.offset(surface.getLeft(), surface.getTop());
+        int[] parentAt = new int[2];
+        int[] overlayAt = new int[2];
+        ((View) surface.getParent()).getLocationInWindow(parentAt);
+        facesView.getLocationInWindow(overlayAt);
+        box.offset(parentAt[0] - overlayAt[0], parentAt[1] - overlayAt[1]);
+        if (result.frameWidth <= 0 || result.frameHeight <= 0) return box;
+        float frameAspect = (float) result.frameWidth / result.frameHeight;
+        float boxAspect = box.width() / Math.max(1f, box.height());
+        boolean fitWidth = videoFill ? frameAspect < boxAspect : frameAspect > boxAspect;
+        float w = fitWidth ? box.width() : box.height() * frameAspect;
+        float h = fitWidth ? box.width() / frameAspect : box.height();
+        return new RectF(box.centerX() - w / 2f, box.centerY() - h / 2f, box.centerX() + w / 2f, box.centerY() + h / 2f);
+    }
+
+    /** OK on a cast card: leave the player (progress saved as on Back) and open that person. */
+    private void openCastPerson(CastMember member) {
+        try {
+            JSONObject person = new JSONObject();
+            person.put("id", member.id);
+            person.put("name", member.name);
+            person.put("thumb", member.thumb);
+            openPersonJson = person.toString();
+        } catch (Exception ignored) {
+            openPersonJson = null;
+        }
+        finishWithResult(false, false);
+    }
+
     private Bitmap downloadLogoBitmap(String url, Map<String, String> headers) {
+        return downloadLogoBitmap(url, headers, 0);
+    }
+
+    /**
+     * maxSide > 0 decodes already shrunk (power-of-two sampling) so the longest side lands at
+     * maxSide..2×maxSide. A full TMDB headshot decoded at full size is ~24 MB; two dozen of those
+     * pushed Android to throw away the app's main screen while the player was open.
+     */
+    private Bitmap downloadLogoBitmap(String url, Map<String, String> headers, int maxSide) {
         HttpURLConnection conn = null;
         try {
             URL parsed = new URL(url);
@@ -1285,6 +2621,15 @@ public class PlayerActivity extends AppCompatActivity {
                 if (data.length < 32) return null;
                 BitmapFactory.Options opts = new BitmapFactory.Options();
                 opts.inPreferredConfig = Bitmap.Config.ARGB_8888;
+                if (maxSide > 0) {
+                    BitmapFactory.Options bounds = new BitmapFactory.Options();
+                    bounds.inJustDecodeBounds = true;
+                    BitmapFactory.decodeByteArray(data, 0, data.length, bounds);
+                    int longest = Math.max(bounds.outWidth, bounds.outHeight);
+                    int sample = 1;
+                    while (longest / (sample * 2) >= maxSide) sample *= 2;
+                    opts.inSampleSize = sample;
+                }
                 return BitmapFactory.decodeByteArray(data, 0, data.length, opts);
             }
         } catch (Exception e) {
@@ -1296,7 +2641,7 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private Map<String, String> headersForImageUrl(String url) {
-        Map<String, String> headers = headersWithCookies(url, parseHeaders(headersJson));
+        Map<String, String> headers = headersWithCookies(url, PlaybackUrls.parseHeaders(headersJson));
         try {
             URI video = new URI(currentUrl);
             URI image = new URI(url);
@@ -1353,8 +2698,67 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void applyNightMode() {
+        applyPlaybackVolume();
+    }
+
+    private void applyPlaybackVolume() {
         if (player == null) return;
-        player.setVolume(nightMode ? 0.55f : 1f);
+        float volume = nightMode ? 0.55f : 1f;
+        if (!nightMode && audioBoost > 100) {
+            // Soft nudge on Direct Play; real boost is the transcode audioBoost query.
+            volume = Math.min(1.35f, audioBoost / 100f);
+        }
+        player.setVolume(volume);
+    }
+
+    private static String normalizeSkipMode(@Nullable String raw, boolean legacyAuto) {
+        String mode = raw == null ? "" : raw.trim().toLowerCase(Locale.US);
+        if ("off".equals(mode) || "manual".equals(mode) || "auto".equals(mode)) return mode;
+        return legacyAuto ? "auto" : "manual";
+    }
+
+    private String skipModeLabel(String mode) {
+        if ("off".equals(mode)) return getString(R.string.player_skip_off);
+        if ("auto".equals(mode)) return getString(R.string.player_skip_auto);
+        return getString(R.string.player_skip_manual);
+    }
+
+    private void emitSettings() {
+        JSObject data = new JSObject();
+        data.put("skipIntroMode", skipIntroMode);
+        data.put("skipCreditsMode", skipCreditsMode);
+        data.put("autoSkipIntro", "auto".equals(skipIntroMode));
+        data.put("autoSkipCredits", "auto".equals(skipCreditsMode));
+        data.put("rewindOnResumeSec", rewindOnResumeSec);
+        data.put("audioBoost", audioBoost);
+        data.put("burnSubtitles", burnSubtitles);
+        data.put("subtitleDelayMs", subtitleDelayMs);
+        data.put("subtitleAutoSync", subtitleAutoSync);
+        data.put("audioPassthrough", audioPassthrough);
+        data.put("cinemaTrailerCount", cinemaTrailerCount);
+        data.put("cinemaTrailers", cinemaTrailerCount > 0);
+        data.put("autoplayNext", autoplayNext);
+        data.put("nightMode", nightMode);
+        data.put("matchFrameRate", matchFrameRate);
+        data.put("subtitleSize", subtitleSizePct);
+        data.put("subtitleColor", subtitleColor);
+        data.put("subtitleBackground", subtitleBackground);
+        data.put("subtitlePosition", subtitlePosition);
+        PlayerBridge.get().emit("settings", data);
+    }
+
+    private void rebuildStreamAfterSettings() {
+        mainHandler.postDelayed(
+            () -> requestStreamChange(qualityId, audioStreamId, subtitleStreamId, mediaIndex),
+            60
+        );
+    }
+
+    private boolean subtitlesCurrentlyBurned() {
+        if (subtitleStreamId == null || subtitleStreamId.isEmpty()) return false;
+        if (sidecarSubtitleUrl != null && !sidecarSubtitleUrl.isEmpty()) return false;
+        OptionItem row = findSubtitleOption(subtitleStreamId);
+        return subtitleNeedsBurn(row);
     }
 
     private void applySubtitleLook(PlayerView playerView) {
@@ -1376,7 +2780,9 @@ public class PlayerActivity extends AppCompatActivity {
             windowColor,
             CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW,
             Color.BLACK,
-            Typeface.DEFAULT_BOLD
+            // System sans-serif (Roboto) at regular weight, like Plex's player. Bold read
+            // heavier than people were used to. ASS/SSA styling and <b> tags still apply.
+            Typeface.create("sans-serif", Typeface.NORMAL)
         );
         subtitleView.setStyle(style);
         subtitleView.setFractionalTextSize(0.0533f * (Math.max(50, Math.min(200, subtitleSizePct)) / 100f));
@@ -1390,17 +2796,103 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void applyFrameRate(PlayerView playerView) {
-        if (!matchFrameRate || videoFrameRate <= 0 || playerView == null) return;
-        if (Build.VERSION.SDK_INT < 30) return;
-        View surfaceView = playerView.getVideoSurfaceView();
-        if (!(surfaceView instanceof SurfaceView)) return;
-        Surface surface = ((SurfaceView) surfaceView).getHolder().getSurface();
-        if (surface == null || !surface.isValid()) return;
-        try {
-            surface.setFrameRate(videoFrameRate, Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE);
-        } catch (Throwable ignored) {
-            /* older devices */
+        if (playerView == null) return;
+        boolean match = matchFrameRate && videoFrameRate > 0;
+        // Session JSON refreshes often — do not re-switch HDMI for the same fps.
+        if (match == appliedSurfaceMatch
+            && (!match || Math.abs(appliedSurfaceFps - videoFrameRate) < 0.01f)) {
+            return;
         }
+        float targetFps = match ? videoFrameRate : 0f;
+        // Non-seamless refresh changes belong on the window display mode. Using
+        // Surface.setFrameRate(..., CHANGE_FRAME_RATE_ALWAYS) forces an HDMI
+        // renegotiation that leaves audio out of sync on Google TV and many SoCs
+        // (with Match frame rate off, the same file stays in sync).
+        boolean modeChanged = false;
+        if (Build.VERSION.SDK_INT >= 23) {
+            modeChanged = applyDisplayModeForFrameRate(targetFps);
+        }
+        if (Build.VERSION.SDK_INT >= 31) {
+            View surfaceView = playerView.getVideoSurfaceView();
+            if (surfaceView instanceof SurfaceView) {
+                Surface surface = ((SurfaceView) surfaceView).getHolder().getSurface();
+                if (surface != null && surface.isValid()) {
+                    try {
+                        if (match) {
+                            // Hint only — ONLY_IF_SEAMLESS will not re-handshake HDMI.
+                            surface.setFrameRate(
+                                videoFrameRate,
+                                Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE,
+                                Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS);
+                        } else {
+                            surface.setFrameRate(
+                                0f,
+                                Surface.FRAME_RATE_COMPATIBILITY_DEFAULT,
+                                Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS);
+                        }
+                    } catch (Throwable ignored) {
+                        /* older devices */
+                    }
+                }
+            }
+        }
+        appliedSurfaceMatch = match;
+        appliedSurfaceFps = match ? videoFrameRate : 0f;
+        // After a real mode switch, ExoPlayer's audio clock can sit ahead of video
+        // until we nudge it once HDMI has settled.
+        mainHandler.removeCallbacks(frameRateResyncRunnable);
+        if (modeChanged && player != null && resumeFrameSeen) {
+            mainHandler.postDelayed(frameRateResyncRunnable, 450);
+        }
+    }
+
+    /**
+     * Pick a mode at the current resolution whose refresh is a whole multiple of fps.
+     * 0 = system default. Returns true when the preferred mode actually changed.
+     */
+    private boolean applyDisplayModeForFrameRate(float fps) {
+        if (Build.VERSION.SDK_INT < 23) return false;
+        try {
+            Window window = getWindow();
+            Display display = getWindowManager().getDefaultDisplay();
+            if (window == null || display == null) return false;
+            int wanted = 0;
+            if (fps > 0) {
+                wanted = DisplayModeMatcher.pickModeId(
+                    fps,
+                    DisplayModeMatcher.Mode.of(display.getMode()),
+                    DisplayModeMatcher.of(display.getSupportedModes())
+                );
+            }
+            WindowManager.LayoutParams params = window.getAttributes();
+            if (params.preferredDisplayModeId == wanted) return false;
+            params.preferredDisplayModeId = wanted;
+            window.setAttributes(params);
+            return true;
+        } catch (Throwable ignored) {
+            /* display mode switching is best-effort */
+            return false;
+        }
+    }
+
+    private void armPauseSuppress() {
+        suppressPauseUntilElapsed = android.os.SystemClock.elapsedRealtime() + PAUSE_SUPPRESS_MS;
+    }
+
+    private boolean pauseSuppressed() {
+        return android.os.SystemClock.elapsedRealtime() < suppressPauseUntilElapsed;
+    }
+
+    /** Keep a short tail so the opening OK key-up cannot pause after the first frame. */
+    private void releasePauseSuppressSoon() {
+        long until = android.os.SystemClock.elapsedRealtime() + PAUSE_SUPPRESS_AFTER_PLAY_MS;
+        if (suppressPauseUntilElapsed > until) suppressPauseUntilElapsed = until;
+    }
+
+    /** Playback is held by a short audio focus loss (Assistant, notification), not stuck. */
+    private boolean focusSuppressed() {
+        return player != null
+            && player.getPlaybackSuppressionReason() == Player.PLAYBACK_SUPPRESSION_REASON_TRANSIENT_AUDIO_FOCUS_LOSS;
     }
 
     private interface OptionPick {
@@ -1412,7 +2904,7 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void setChromeSubtreeFocusable(boolean focusable) {
-        View[] bars = { chrome, topBar };
+        View[] bars = { chrome, topBar, findViewById(R.id.player_top_end), skipRow };
         for (View bar : bars) {
             if (!(bar instanceof ViewGroup)) continue;
             ((ViewGroup) bar).setDescendantFocusability(
@@ -1421,14 +2913,322 @@ public class PlayerActivity extends AppCompatActivity {
         }
     }
 
+    private boolean focusSkipChipIfVisible() {
+        if (skipIntroChipActive && skipIntroBtn != null && skipIntroBtn.getVisibility() == View.VISIBLE) {
+            return skipIntroBtn.requestFocus();
+        }
+        if (skipCreditsChipActive && skipCreditsBtn != null && skipCreditsBtn.getVisibility() == View.VISIBLE) {
+            return skipCreditsBtn.requestFocus();
+        }
+        return false;
+    }
+
     private void hideOptionSheet() {
+        menuNav.reset();
+        View focused = getCurrentFocus();
+        if (focused != null && isDescendantOf(focused, menuScrim)) {
+            focused.clearFocus();
+        }
         if (menuList != null) menuList.removeAllViews();
-        if (menuScrim != null) menuScrim.setVisibility(View.GONE);
+        if (menuScrim != null) {
+            menuScrim.setVisibility(View.GONE);
+            menuScrim.clearFocus();
+        }
         setChromeSubtreeFocusable(true);
-        if (!finishing && !isFinishing() && !isDestroyed()) bumpChrome();
+        if (!finishing && !isFinishing() && !isDestroyed()) {
+            bumpChrome();
+            restoreChromeFocusAfterMenu();
+        }
+    }
+
+    private static boolean isDescendantOf(@Nullable View child, @Nullable View ancestor) {
+        return PlayerMenuRows.isDescendantOf(child, ancestor);
+    }
+
+    private void restoreChromeFocusAfterMenu() {
+        final View target = settingsBtn != null && settingsBtn.getVisibility() == View.VISIBLE
+            ? settingsBtn
+            : playPauseBtn;
+        if (target == null) return;
+        // Menu rows are removed before this runs; wait a frame so Leanback can
+        // attach focus to chrome controls again.
+        target.post(() -> {
+            if (finishing || isFinishing() || isDestroyed() || isOptionDialogShowing()) return;
+            setChromeSubtreeFocusable(true);
+            if (!target.requestFocus() && playPauseBtn != null && playPauseBtn != target) {
+                playPauseBtn.requestFocus();
+            }
+        });
+    }
+
+    private void popMenuOrClose() {
+        String top = menuNav.pop();
+        if (top == null) {
+            hideOptionSheet();
+            return;
+        }
+        if ("settings".equals(top)) {
+            showSettingsRoot();
+        } else if ("playback".equals(top)) {
+            showPlaybackOptionsMenu();
+        } else if ("subtitle".equals(top)) {
+            showSubtitlesRoot();
+        } else if ("subAppear".equals(top)) {
+            showSubtitleAppearanceMenu();
+        } else if ("subSync".equals(top)) {
+            showSubtitleSyncMenu();
+        } else {
+            hideOptionSheet();
+        }
+    }
+
+    private void showSettingsRoot() {
+        // Keep focus/scroll when rebuilding after an in-place toggle (not a fresh open).
+        final boolean retainPosition = isOptionDialogShowing()
+            && menuNav.topIs(PlayerMenuNav.SETTINGS);
+        final String retainFocusLabel = retainPosition ? currentMenuFocusLabel() : null;
+        final int retainScrollY = retainPosition && menuScroll != null ? menuScroll.getScrollY() : 0;
+
+        bumpChrome();
+        menuNav.openSettingsRoot();
+        if (menuScrim == null || menuList == null) return;
+        mainHandler.removeCallbacks(hideChromeRunnable);
+        setChromeVisible(true);
+        setChromeSubtreeFocusable(false);
+        menuTitle.setText(R.string.player_settings);
+        menuList.removeAllViews();
+        LayoutInflater inflater = LayoutInflater.from(this);
+
+        addSettingsRow(inflater, getString(R.string.player_quality), currentQualityLabel(),
+            qualities.size() > 1 || !currentQualityLabel().isEmpty(),
+            () -> {
+                menuNav.push("quality");
+                showOptionMenu(R.string.player_quality, "quality", qualities, qualityId);
+            });
+        String subId = subtitleStreamId == null ? "" : subtitleStreamId;
+        String subLabel = subId.isEmpty() ? getString(R.string.player_subs_off) : labelFor(subtitles, subId);
+        addSettingsRow(inflater, getString(R.string.player_subs), subLabel, !musicMode, () -> {
+            menuNav.push("subtitle");
+            showSubtitlesRoot();
+        });
+        addSettingsRow(inflater, getString(R.string.player_audio),
+            labelFor(audioTracks, audioStreamId == null ? "" : audioStreamId),
+            audioTracks.size() > 0,
+            () -> {
+                menuNav.push("audio");
+                showOptionMenu(R.string.player_audio, "audio", audioTracks, audioStreamId == null ? "" : audioStreamId);
+            });
+        if (!musicMode && versions.size() > 1) {
+            addSettingsRow(inflater, getString(R.string.player_version),
+                labelFor(versions, String.valueOf(mediaIndex)), true, () -> {
+                    menuNav.push("version");
+                    showOptionMenu(R.string.player_version, "version", versions, String.valueOf(mediaIndex));
+                });
+        }
+
+        addSettingsRow(inflater, getString(R.string.player_speed),
+            String.format(Locale.US, "%.2g×", playbackSpeed), true, () -> {
+                menuNav.push("speed");
+                showSpeedMenu();
+            });
+        if (!musicMode) {
+            String zoomLabel = videoFill
+                ? getString(R.string.player_zoom_fill)
+                : (Math.abs(videoZoom - 1f) < 0.01f
+                    ? getString(R.string.player_zoom_fit)
+                    : String.format(Locale.US, "%.2g×", videoZoom));
+            addSettingsRow(inflater, getString(R.string.player_zoom), zoomLabel, true, () -> {
+                menuNav.push("zoom");
+                showZoomMenu();
+            });
+            addSettingsRow(inflater, getString(R.string.player_delay),
+                audioDelayMs <= 0 ? getString(R.string.player_delay_off) : audioDelayMs + " ms",
+                true, () -> {
+                    menuNav.push("delay");
+                    showDelayMenu();
+                });
+            addSettingsRow(inflater, getString(R.string.player_audio_boost),
+                audioBoost + "%", true, () -> {
+                    menuNav.push("boost");
+                    showAudioBoostMenu();
+                });
+            addSettingsRow(inflater, getString(R.string.player_night_mode),
+                nightMode ? getString(R.string.player_on) : getString(R.string.player_off),
+                true, () -> {
+                    nightMode = !nightMode;
+                    applyNightMode();
+                    emitSettings();
+                    showSettingsRoot();
+                });
+            addSettingsRow(inflater, getString(R.string.player_audio_passthrough),
+                audioPassthrough ? getString(R.string.player_on) : getString(R.string.player_off),
+                true, () -> {
+                    audioPassthrough = !audioPassthrough;
+                    emitSettings();
+                    rebuildStreamAfterSettings();
+                    showSettingsRoot();
+                });
+            addSettingsRow(inflater, getString(R.string.player_match_frame_rate),
+                matchFrameRate ? getString(R.string.player_on) : getString(R.string.player_off),
+                true, () -> {
+                    matchFrameRate = !matchFrameRate;
+                    PlayerView view = findViewById(R.id.player_view);
+                    if (view != null) applyFrameRate(view);
+                    emitSettings();
+                    showSettingsRoot();
+                });
+            addSettingsRow(inflater, getString(R.string.player_skip_intro_mode),
+                skipModeLabel(skipIntroMode), true, () -> {
+                    menuNav.push("skipIntro");
+                    showSkipModeMenu(true);
+                });
+            addSettingsRow(inflater, getString(R.string.player_skip_credits_mode),
+                skipModeLabel(skipCreditsMode), true, () -> {
+                    menuNav.push("skipCredits");
+                    showSkipModeMenu(false);
+                });
+            String rewindLabel = rewindOnResumeSec <= 0
+                ? getString(R.string.player_rewind_off)
+                : rewindOnResumeSec + "s";
+            addSettingsRow(inflater, getString(R.string.player_rewind_resume), rewindLabel, true, () -> {
+                menuNav.push("rewind");
+                showRewindOnResumeMenu();
+            });
+            addSettingsRow(inflater, getString(R.string.player_autoplay_next),
+                autoplayNext ? getString(R.string.player_on) : getString(R.string.player_off),
+                true, () -> {
+                    autoplayNext = !autoplayNext;
+                    emitSettings();
+                    showSettingsRoot();
+                });
+            addSettingsRow(inflater, getString(R.string.player_cinema_trailers),
+                cinemaTrailerCount <= 0 ? getString(R.string.player_off) : String.valueOf(cinemaTrailerCount),
+                true, () -> {
+                    menuNav.push("cinema");
+                    showCinemaTrailersMenu();
+                });
+        }
+        int repeatRes = repeatMode == Player.REPEAT_MODE_ONE ? R.string.player_repeat_one
+            : repeatMode == Player.REPEAT_MODE_ALL ? R.string.player_repeat_all
+            : R.string.player_repeat_off;
+        addSettingsRow(inflater, getString(R.string.player_repeat), getString(repeatRes), true, () -> {
+            menuNav.push("repeat");
+            showRepeatMenu();
+        });
+        addSettingsRow(inflater, getString(R.string.player_sleep), currentSleepLabel(), true, () -> {
+            menuNav.push("sleep");
+            showSleepMenu();
+        });
+        if (!chapters.isEmpty()) {
+            addSettingsRow(inflater, getString(R.string.player_chapters),
+                String.valueOf(chapters.size()), true, () -> {
+                    menuNav.push("chapters");
+                    showChaptersMenu();
+                });
+        }
+        if (!musicMode) {
+            addSettingsRow(inflater, getString(R.string.player_media_info),
+                statsVisible ? getString(R.string.player_on) : getString(R.string.player_off),
+                true, () -> {
+                    toggleStatsOverlay();
+                    showSettingsRoot();
+                });
+        }
+        if (!isTelevision()) {
+            addSettingsRow(inflater, getString(R.string.player_external), "", true, () -> {
+                hideOptionSheet();
+                openExternalPlayer();
+            });
+        }
+        if (pipBtn != null && pipBtn.getVisibility() == View.VISIBLE) {
+            addSettingsRow(inflater, getString(R.string.player_pip), "", true, () -> {
+                hideOptionSheet();
+                enterPip();
+            });
+        }
+
+        menuScrim.setVisibility(View.VISIBLE);
+        if (retainFocusLabel != null && !retainFocusLabel.isEmpty()) {
+            focusMenuRow(retainFocusLabel, retainScrollY);
+        } else {
+            focusFirstMenuRow();
+        }
+    }
+
+    /** Back-stack alias — settings are flat on the root list now. */
+    private void showPlaybackOptionsMenu() {
+        showSettingsRoot();
+    }
+
+    @Nullable
+    private String currentMenuFocusLabel() {
+        return PlayerMenuRows.focusedRowLabel(menuList, getCurrentFocus());
+    }
+
+    private void focusMenuRow(@Nullable String label, int fallbackScrollY) {
+        PlayerMenuRows.focusRow(menuList, menuScroll, label, fallbackScrollY);
+    }
+
+    private String currentSleepLabel() {
+        if (sleepUntilElapsedRealtime > 0) {
+            long left = sleepUntilElapsedRealtime - SystemClock.elapsedRealtime();
+            if (left > 40 * 60_000L) return getString(R.string.player_sleep_45);
+            if (left > 25 * 60_000L) return getString(R.string.player_sleep_30);
+            if (left > 10 * 60_000L) return getString(R.string.player_sleep_15);
+        }
+        if (sleepEndOfEpisode) return getString(R.string.player_sleep_end);
+        if (sleepEpisodeLimit && sleepEpisodesRemaining == 1) return getString(R.string.player_sleep_after_1);
+        if (sleepEpisodeLimit && sleepEpisodesRemaining >= 2) return getString(R.string.player_sleep_after_2);
+        if (sleepAtCredits) return getString(R.string.player_sleep_credits);
+        return getString(R.string.player_sleep_off);
+    }
+
+    private void addSettingsRow(LayoutInflater inflater, String label, String value, boolean enabled, Runnable onClick) {
+        addSettingsRow(inflater, label, value, enabled, /* selectable= */ enabled, onClick);
+    }
+
+    private void addSettingsRow(
+        LayoutInflater inflater,
+        String label,
+        String value,
+        boolean visible,
+        boolean selectable,
+        Runnable onClick
+    ) {
+        PlayerMenuRows.addSettingsRow(menuList, inflater, label, value, visible, selectable, onClick);
+    }
+
+    private void focusFirstMenuRow() {
+        PlayerMenuRows.focusFirstRow(menuList, menuScroll);
+    }
+
+    private void afterMenuLeafPick(PlayerMenuNav.Return menuReturn) {
+        updateChipLabels();
+        if (menuReturn == PlayerMenuNav.Return.PLAYBACK) {
+            showSettingsRoot();
+            return;
+        }
+        if (menuReturn == PlayerMenuNav.Return.SUBTITLES) {
+            menuNav.trimToSubtitles();
+            showSubtitlesRoot();
+            return;
+        }
+        if (menuReturn == PlayerMenuNav.Return.SETTINGS_ROOT || (menuNav.settingsTreeActive() && menuReturn == PlayerMenuNav.Return.CLOSE)) {
+            showSettingsRoot();
+            return;
+        }
+        hideOptionSheet();
+    }
+
+    private PlayerMenuNav.Return leafReturnTarget() {
+        return menuNav.leafReturnTarget();
     }
 
     private void showOptionSheet(CharSequence title, String[] labels, int checkedIndex, OptionPick onPick) {
+        showOptionSheet(title, labels, checkedIndex, onPick, leafReturnTarget());
+    }
+
+    private void showOptionSheet(CharSequence title, String[] labels, int checkedIndex, OptionPick onPick, PlayerMenuNav.Return menuReturn) {
         if (menuScrim == null || menuList == null || labels == null || labels.length == 0) {
             toast(getString(R.string.player_no_options));
             return;
@@ -1450,28 +3250,21 @@ public class PlayerActivity extends AppCompatActivity {
             if (Build.VERSION.SDK_INT >= 26) row.setDefaultFocusHighlightEnabled(false);
             final int index = i;
             row.setOnClickListener(v -> {
-                hideOptionSheet();
                 if (onPick != null) onPick.onPick(index);
+                if (subtitleSearchPending || !isOptionDialogShowing()) {
+                    if (subtitleSearchPending) hideOptionSheet();
+                    return;
+                }
+                afterMenuLeafPick(menuReturn);
             });
             menuList.addView(row);
             if (selected) focusRow = row;
         }
         menuScrim.setVisibility(View.VISIBLE);
-        if (menuScroll != null) {
-            ViewGroup.LayoutParams scrollLp = menuScroll.getLayoutParams();
-            scrollLp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
-            menuScroll.setLayoutParams(scrollLp);
-        }
         final Button toFocus = focusRow != null ? focusRow : (Button) menuList.getChildAt(0);
         if (toFocus != null) {
             toFocus.post(() -> {
-                if (menuScroll != null && menuList != null) {
-                    int maxH = Math.round(getResources().getDisplayMetrics().heightPixels * 0.56f);
-                    if (menuList.getHeight() > maxH) {
-                        ViewGroup.LayoutParams scrollLp = menuScroll.getLayoutParams();
-                        scrollLp.height = maxH;
-                        menuScroll.setLayoutParams(scrollLp);
-                    }
+                if (menuScroll != null) {
                     menuScroll.scrollTo(0, Math.max(0, toFocus.getTop() - 24));
                 }
                 toFocus.requestFocus();
@@ -1482,6 +3275,7 @@ public class PlayerActivity extends AppCompatActivity {
     private void showChaptersMenu() {
         if (chapters.isEmpty()) {
             toast(getString(R.string.player_no_options));
+            menuNav.dropEmptyLeaf();
             return;
         }
         String[] labels = new String[chapters.size()];
@@ -1625,6 +3419,7 @@ public class PlayerActivity extends AppCompatActivity {
                 : R.string.player_repeat_off;
             setChipLabel(repeatBtn, R.string.player_repeat, getString(repeatRes));
         }
+        updateModeChip();
     }
 
     private static String labelFor(List<OptionItem> items, String id) {
@@ -1653,16 +3448,22 @@ public class PlayerActivity extends AppCompatActivity {
             JSONObject row = arr.optJSONObject(i);
             if (row == null) continue;
             String id = row.optString("id", "");
+            String codec = row.optString("codec", "");
             String label = row.optString("label", id);
             if (id.isEmpty() && row.has("mediaIndex")) {
                 id = String.valueOf(row.optInt("mediaIndex", i));
             }
-            if (!label.isEmpty()) {
-                String language = row.optString("languageTag", "");
-                if (language.isEmpty()) language = row.optString("language", "");
-                String codec = row.optString("codec", "");
-                out.add(new OptionItem(id, label, row.optString("url", ""), language, codec));
-            }
+            if (label.isEmpty() && !codec.isEmpty()) label = codec.toUpperCase(Locale.US);
+            if (id.isEmpty() && label.isEmpty()) continue;
+            if (id.isEmpty()) id = String.valueOf(i);
+            if (label.isEmpty()) label = id;
+            String language = row.optString("languageTag", "");
+            if (language.isEmpty()) language = row.optString("language", "");
+            OptionItem item = new OptionItem(id, label, row.optString("url", ""), language, codec);
+            item.embeddedOrdinal = row.optInt("embeddedOrdinal", -1);
+            item.downloadKey = row.optString("downloadKey", "");
+            item.channels = row.optInt("channels", 0);
+            out.add(item);
         }
         return out;
     }
@@ -1677,22 +3478,28 @@ public class PlayerActivity extends AppCompatActivity {
         final String previousUrl = currentUrl;
         currentUrl = url.trim();
         absorbTimelineFromUrl(currentUrl);
+        // A new stream: the badge re-reads what it is (Direct Play / Direct Stream / Transcoding …).
+        updateModeChip();
         if (nextHeadersJson != null && !nextHeadersJson.isEmpty()) {
             headersJson = nextHeadersJson;
         }
         if (httpFactory != null) {
-            httpFactory.setDefaultRequestProperties(headersWithCookies(currentUrl, parseHeaders(headersJson)));
+            httpFactory.setDefaultRequestProperties(headersWithCookies(currentUrl, PlaybackUrls.parseHeaders(headersJson)));
         }
         pendingSeekMs = 0;
         scrubTargetMs = -1;
         seekingUi = false;
+        bufferingStartedAtMs = 0;
+        // New surface/stream: allow frame-rate matching to run again.
+        appliedSurfaceFps = Float.NaN;
+        appliedSurfaceMatch = false;
         // Intentional JS rebuild resets the ladder; native DP→HLS→1080 must keep its stage.
         if (resetFallbackLadder) streamFallbackStage = 0;
         streamSwapInFlight = false;
         mainHandler.removeCallbacks(clearSwapRunnable);
         skippedIntro = false;
         skippedCredits = false;
-        skipFocusGiven = false;
+        clearSkipChips();
         playbackEnded = false;
         playbackError = false;
         hideError();
@@ -1700,10 +3507,11 @@ public class PlayerActivity extends AppCompatActivity {
         clearSubtitleCues();
         applyAudioTrackPreference();
         applyTextTrackPreference();
-        // HLS↔Direct Play needs a hard media reset — setMediaItem alone can leave Exo
-        // buffering on the old HLS pipeline after Original is selected again.
-        final boolean crossDelivery = (previousUrl != null && !previousUrl.isEmpty())
-            && (isTranscodeUrl(previousUrl) != isTranscodeUrl(currentUrl));
+        // HLS↔Direct Play and transcode→transcode both need a hard media reset.
+        // setMediaItem alone can leave Exo on the previous HLS period, so a seek
+        // keeps playing the old buffer instead of the restarted playlist.
+        final boolean hardReset = (previousUrl != null && !previousUrl.isEmpty())
+            && (PlaybackUrls.isTranscodeUrl(previousUrl) || PlaybackUrls.isTranscodeUrl(currentUrl));
         // stop() only when something is loaded — idle+stop left some TVs unable to play().
         if (player.getPlaybackState() != Player.STATE_IDLE || player.getMediaItemCount() > 0) {
             try {
@@ -1712,7 +3520,7 @@ public class PlayerActivity extends AppCompatActivity {
                 /* Media3 stop is best-effort before replacing the item. */
             }
         }
-        if (crossDelivery) {
+        if (hardReset) {
             try {
                 player.clearMediaItems();
             } catch (Throwable ignored) {
@@ -1720,9 +3528,11 @@ public class PlayerActivity extends AppCompatActivity {
             }
         }
         queueStartPosition(currentUrl, offsetMs);
+        transcodeSeekWaiting = false;
+        mainHandler.removeCallbacks(seekHoldSafetyRunnable);
         player.setPlayWhenReady(!userPaused);
         player.prepare();
-        if (!userPaused && offsetMs >= 5000) {
+        if (!userPaused && offsetMs > 0) {
             mainHandler.removeCallbacks(resumePlayKickRunnable);
             resumeKickArmPosMs = offsetMs;
             mainHandler.postDelayed(resumePlayKickRunnable, 2500);
@@ -1757,6 +3567,7 @@ public class PlayerActivity extends AppCompatActivity {
         bumpChrome();
         if (items.isEmpty()) {
             toast(getString(R.string.player_no_options));
+            menuNav.dropEmptyLeaf();
             return;
         }
         String currentLabel = labelFor(items, selectedId);
@@ -1823,12 +3634,374 @@ public class PlayerActivity extends AppCompatActivity {
         });
     }
 
+    private void showSubtitlesRoot() {
+        bumpChrome();
+        menuNav.openSubtitlesRoot();
+        if (menuScrim == null || menuList == null) return;
+        mainHandler.removeCallbacks(hideChromeRunnable);
+        setChromeVisible(true);
+        setChromeSubtreeFocusable(false);
+        menuTitle.setText(R.string.player_subs);
+        menuList.removeAllViews();
+        LayoutInflater inflater = LayoutInflater.from(this);
+        String subId = subtitleStreamId == null ? "" : subtitleStreamId;
+        String subLabel = subId.isEmpty() ? getString(R.string.player_subs_off) : labelFor(subtitles, subId);
+        addSettingsRow(inflater, getString(R.string.player_subs_tracks), subLabel, true, () -> {
+            menuNav.push("subTracks");
+            showSubtitleMenu();
+        });
+        addSettingsRow(inflater, getString(R.string.player_subs_appearance), "", true, () -> {
+            menuNav.push("subAppear");
+            showSubtitleAppearanceMenu();
+        });
+        String delayLabel = subtitlesCurrentlyBurned()
+            ? getString(R.string.player_subs_delay_burned)
+            : (subtitleDelayMs == 0 ? getString(R.string.player_delay_off) : subtitleDelayMs + " ms");
+        addSettingsRow(inflater, getString(R.string.player_subs_sync), delayLabel, true, () -> {
+            menuNav.push("subSync");
+            showSubtitleSyncMenu();
+        });
+        String burnLabel = "always".equals(burnSubtitles)
+            ? getString(R.string.player_burn_always)
+            : ("image".equals(burnSubtitles)
+                ? getString(R.string.player_burn_image)
+                : getString(R.string.player_burn_auto));
+        addSettingsRow(inflater, getString(R.string.player_subs_burn), burnLabel, true, () -> {
+            menuNav.push("subBurn");
+            showBurnSubtitlesMenu();
+        });
+        menuScrim.setVisibility(View.VISIBLE);
+        focusFirstMenuRow();
+    }
+
     private void showSubtitleMenu() {
         List<OptionItem> withOff = new ArrayList<>();
         withOff.add(new OptionItem("", getString(R.string.player_subs_off)));
         withOff.add(new OptionItem(SUBTITLE_SEARCH_ID, getString(R.string.player_subs_search)));
         withOff.addAll(subtitles);
         showOptionMenu(R.string.player_subs, "subtitle", withOff, subtitleStreamId == null ? "" : subtitleStreamId);
+    }
+
+    private void showSubtitleAppearanceMenu() {
+        bumpChrome();
+        if (menuScrim == null || menuList == null) return;
+        mainHandler.removeCallbacks(hideChromeRunnable);
+        setChromeVisible(true);
+        setChromeSubtreeFocusable(false);
+        menuTitle.setText(R.string.player_subs_appearance);
+        menuList.removeAllViews();
+        LayoutInflater inflater = LayoutInflater.from(this);
+        addSettingsRow(inflater, getString(R.string.player_subs_size), subtitleSizePct + "%", true, () -> {
+            menuNav.push("subSize");
+            showSubtitleSizeMenu();
+        });
+        addSettingsRow(inflater, getString(R.string.player_subs_color), subtitleColor, true, () -> {
+            menuNav.push("subColor");
+            showSubtitleColorMenu();
+        });
+        String bg = "dim".equals(subtitleBackground)
+            ? getString(R.string.player_bg_dim)
+            : ("solid".equals(subtitleBackground)
+                ? getString(R.string.player_bg_solid)
+                : getString(R.string.player_bg_none));
+        addSettingsRow(inflater, getString(R.string.player_subs_background), bg, true, () -> {
+            menuNav.push("subBg");
+            showSubtitleBackgroundMenu();
+        });
+        String pos = "top".equals(subtitlePosition)
+            ? getString(R.string.player_pos_top)
+            : ("middle".equals(subtitlePosition)
+                ? getString(R.string.player_pos_middle)
+                : getString(R.string.player_pos_bottom));
+        addSettingsRow(inflater, getString(R.string.player_subs_position), pos, true, () -> {
+            menuNav.push("subPos");
+            showSubtitlePositionMenu();
+        });
+        menuScrim.setVisibility(View.VISIBLE);
+        focusFirstMenuRow();
+    }
+
+    private void showSubtitleSizeMenu() {
+        // Keep in sync with PLAYER_SUBTITLE_SIZES (client/media-player/playerSettings.ts).
+        final int[] sizes = {50, 60, 75, 100, 125, 150, 200};
+        String[] labels = new String[sizes.length];
+        int checked = 3;
+        for (int i = 0; i < sizes.length; i++) {
+            labels[i] = sizes[i] + "%";
+            if (sizes[i] == subtitleSizePct) checked = i;
+        }
+        showOptionSheet(getString(R.string.player_subs_size), labels, checked, which -> {
+            subtitleSizePct = sizes[which];
+            PlayerView view = findViewById(R.id.player_view);
+            if (view != null) applySubtitleLook(view);
+            emitSettings();
+        }, PlayerMenuNav.Return.SUBTITLES);
+    }
+
+    private void showSubtitleColorMenu() {
+        final String[] colors = {"#ffffff", "#ffff00", "#00ffff", "#00ff00", "#ff9f1a", "#ff4d6d"};
+        String[] labels = {"White", "Yellow", "Cyan", "Green", "Orange", "Pink"};
+        int checked = 0;
+        for (int i = 0; i < colors.length; i++) {
+            if (colors[i].equalsIgnoreCase(subtitleColor)) checked = i;
+        }
+        showOptionSheet(getString(R.string.player_subs_color), labels, checked, which -> {
+            subtitleColor = colors[which];
+            PlayerView view = findViewById(R.id.player_view);
+            if (view != null) applySubtitleLook(view);
+            emitSettings();
+        }, PlayerMenuNav.Return.SUBTITLES);
+    }
+
+    private void showSubtitleBackgroundMenu() {
+        final String[] values = {"none", "dim", "solid"};
+        String[] labels = {
+            getString(R.string.player_bg_none),
+            getString(R.string.player_bg_dim),
+            getString(R.string.player_bg_solid),
+        };
+        int checked = 0;
+        for (int i = 0; i < values.length; i++) {
+            if (values[i].equals(subtitleBackground)) checked = i;
+        }
+        showOptionSheet(getString(R.string.player_subs_background), labels, checked, which -> {
+            subtitleBackground = values[which];
+            PlayerView view = findViewById(R.id.player_view);
+            if (view != null) applySubtitleLook(view);
+            emitSettings();
+        }, PlayerMenuNav.Return.SUBTITLES);
+    }
+
+    private void showSubtitlePositionMenu() {
+        final String[] values = {"bottom", "middle", "top"};
+        String[] labels = {
+            getString(R.string.player_pos_bottom),
+            getString(R.string.player_pos_middle),
+            getString(R.string.player_pos_top),
+        };
+        int checked = 0;
+        for (int i = 0; i < values.length; i++) {
+            if (values[i].equals(subtitlePosition)) checked = i;
+        }
+        showOptionSheet(getString(R.string.player_subs_position), labels, checked, which -> {
+            subtitlePosition = values[which];
+            PlayerView view = findViewById(R.id.player_view);
+            if (view != null) applySubtitleLook(view);
+            emitSettings();
+        }, PlayerMenuNav.Return.SUBTITLES);
+    }
+
+    private void showSubtitleSyncMenu() {
+        final boolean retainPosition = isOptionDialogShowing()
+            && menuNav.topIs("subSync");
+        final String retainFocusLabel = retainPosition ? currentMenuFocusLabel() : null;
+        final int retainScrollY = retainPosition && menuScroll != null ? menuScroll.getScrollY() : 0;
+
+        bumpChrome();
+        if (menuScrim == null || menuList == null) return;
+        mainHandler.removeCallbacks(hideChromeRunnable);
+        setChromeVisible(true);
+        setChromeSubtreeFocusable(false);
+        menuTitle.setText(R.string.player_subs_sync);
+        menuList.removeAllViews();
+        LayoutInflater inflater = LayoutInflater.from(this);
+        boolean burned = subtitlesCurrentlyBurned();
+        if (burned) {
+            addSettingsRow(inflater, getString(R.string.player_subs_delay),
+                getString(R.string.player_subs_delay_burned), true, () ->
+                    toast(getString(R.string.player_subs_delay_burned)));
+        } else {
+            String delayLabel = subtitleDelayMs == 0
+                ? getString(R.string.player_delay_off)
+                : subtitleDelayMs + " ms";
+            addSettingsRow(inflater, getString(R.string.player_subs_delay), delayLabel, true, () -> {
+                menuNav.push("subDelay");
+                showSubtitleDelayMenu();
+            });
+        }
+        boolean autoOk = subtitleAutoSyncAvailable && externalSrtSelected();
+        String autoLabel = !subtitleAutoSyncAvailable
+            ? getString(R.string.player_subs_auto_sync_unavailable)
+            : (!externalSrtSelected()
+                ? getString(R.string.player_subs_auto_sync_needs_srt)
+                : (subtitleAutoSync ? getString(R.string.player_on) : getString(R.string.player_off)));
+        addSettingsRow(inflater, getString(R.string.player_subs_auto_sync), autoLabel, true, autoOk, () -> {
+            if (!subtitleAutoSyncAvailable) {
+                toast(getString(R.string.player_subs_auto_sync_unavailable));
+                return;
+            }
+            if (!externalSrtSelected()) {
+                toast(getString(R.string.player_subs_auto_sync_needs_srt));
+                return;
+            }
+            subtitleAutoSync = !subtitleAutoSync;
+            if (subtitleAutoSync) {
+                requestSubtitleAutoSync();
+            } else {
+                subtitleAutoSyncOffsetMs = 0;
+                applySubtitleDelay();
+            }
+            emitSettings();
+            showSubtitleSyncMenu();
+        });
+        menuScrim.setVisibility(View.VISIBLE);
+        if (retainFocusLabel != null && !retainFocusLabel.isEmpty()) {
+            focusMenuRow(retainFocusLabel, retainScrollY);
+        } else {
+            focusFirstMenuRow();
+        }
+    }
+
+    private boolean externalSrtSelected() {
+        if (sidecarSubtitleUrl != null && !sidecarSubtitleUrl.isEmpty()) return true;
+        if (subtitleStreamId == null || subtitleStreamId.isEmpty()) return false;
+        if (subtitlesCurrentlyBurned()) return false;
+        OptionItem row = findSubtitleOption(subtitleStreamId);
+        if (row == null) return false;
+        String codec = row.codec == null ? "" : row.codec.trim().toLowerCase(Locale.US);
+        return codec.contains("srt") || codec.contains("subrip") || codec.equals("webvtt") || codec.equals("vtt");
+    }
+
+    private void requestSubtitleAutoSync() {
+        JSObject data = new JSObject();
+        data.put("ratingKey", ratingKey == null ? "" : ratingKey);
+        data.put("subtitleStreamId", subtitleStreamId == null ? "" : subtitleStreamId);
+        data.put("sidecarUrl", sidecarSubtitleUrl == null ? "" : sidecarSubtitleUrl);
+        PlayerBridge.get().emit("subtitleAutoSync", data);
+        toast(getString(R.string.player_subs_auto_sync_working));
+    }
+
+    private void showSubtitleDelayMenu() {
+        if (subtitlesCurrentlyBurned()) {
+            toast(getString(R.string.player_subs_delay_burned));
+            return;
+        }
+        final int[] delays = {-5000, -4000, -3000, -2000, -1000, -500, 0, 500, 1000, 2000, 3000, 4000, 5000};
+        String[] labels = new String[delays.length];
+        int checked = 6;
+        for (int i = 0; i < delays.length; i++) {
+            labels[i] = delays[i] == 0 ? getString(R.string.player_delay_off) : delays[i] + " ms";
+            if (delays[i] == subtitleDelayMs) checked = i;
+        }
+        showOptionSheet(getString(R.string.player_subs_delay), labels, checked, which -> {
+            subtitleDelayMs = delays[which];
+            applySubtitleDelay();
+            emitSettings();
+        }, PlayerMenuNav.Return.SUBTITLES);
+    }
+
+    private void showBurnSubtitlesMenu() {
+        final String[] values = {"auto", "always", "image"};
+        String[] labels = {
+            getString(R.string.player_burn_auto),
+            getString(R.string.player_burn_always),
+            getString(R.string.player_burn_image),
+        };
+        int checked = 0;
+        for (int i = 0; i < values.length; i++) {
+            if (values[i].equals(burnSubtitles)) checked = i;
+        }
+        showOptionSheet(getString(R.string.player_subs_burn), labels, checked, which -> {
+            burnSubtitles = values[which];
+            emitSettings();
+            if (subtitleStreamId != null && !subtitleStreamId.isEmpty()) {
+                rebuildStreamAfterSettings();
+            }
+        }, PlayerMenuNav.Return.SUBTITLES);
+    }
+
+    private void showAudioBoostMenu() {
+        final int[] values = {100, 200, 300};
+        String[] labels = {"100%", "200%", "300%"};
+        int checked = 0;
+        for (int i = 0; i < values.length; i++) {
+            if (values[i] == audioBoost) checked = i;
+        }
+        showOptionSheet(getString(R.string.player_audio_boost), labels, checked, which -> {
+            int previous = audioBoost;
+            audioBoost = values[which];
+            applyPlaybackVolume();
+            emitSettings();
+            if (audioBoost != previous && PlaybackUrls.isTranscodeUrl(currentUrl)) {
+                rebuildStreamAfterSettings();
+            }
+        });
+    }
+
+    private void showSkipModeMenu(boolean intro) {
+        final String[] values = {"off", "manual", "auto"};
+        String[] labels = {
+            getString(R.string.player_skip_off),
+            getString(R.string.player_skip_manual),
+            getString(R.string.player_skip_auto),
+        };
+        String current = intro ? skipIntroMode : skipCreditsMode;
+        int checked = 1;
+        for (int i = 0; i < values.length; i++) {
+            if (values[i].equals(current)) checked = i;
+        }
+        showOptionSheet(
+            getString(intro ? R.string.player_skip_intro_mode : R.string.player_skip_credits_mode),
+            labels,
+            checked,
+            which -> {
+                if (intro) {
+                    skipIntroMode = values[which];
+                    autoSkipIntro = "auto".equals(skipIntroMode);
+                } else {
+                    skipCreditsMode = values[which];
+                    autoSkipCredits = "auto".equals(skipCreditsMode);
+                }
+                emitSettings();
+            }
+        );
+    }
+
+    private void showRewindOnResumeMenu() {
+        final int[] values = {0, 5, 10, 15, 20, 30};
+        String[] labels = new String[values.length];
+        int checked = 0;
+        for (int i = 0; i < values.length; i++) {
+            labels[i] = values[i] <= 0 ? getString(R.string.player_rewind_off) : values[i] + "s";
+            if (values[i] == rewindOnResumeSec) checked = i;
+        }
+        showOptionSheet(getString(R.string.player_rewind_resume), labels, checked, which -> {
+            rewindOnResumeSec = values[which];
+            emitSettings();
+        });
+    }
+
+    private void showCinemaTrailersMenu() {
+        final int[] values = {0, 1, 2, 3, 4, 5};
+        String[] labels = new String[values.length];
+        int checked = 0;
+        for (int i = 0; i < values.length; i++) {
+            labels[i] = values[i] <= 0 ? getString(R.string.player_off) : String.valueOf(values[i]);
+            if (values[i] == cinemaTrailerCount) checked = i;
+        }
+        showOptionSheet(getString(R.string.player_cinema_trailers), labels, checked, which -> {
+            cinemaTrailerCount = values[which];
+            emitSettings();
+        });
+    }
+
+    private int effectiveSubtitleDelayMs() {
+        int auto = (subtitleAutoSync && subtitleAutoSyncAvailable) ? subtitleAutoSyncOffsetMs : 0;
+        return Math.max(-5000, Math.min(5000, subtitleDelayMs + auto));
+    }
+
+    private void applySubtitleDelay() {
+        long offsetUs = effectiveSubtitleDelayMs() * 1000L;
+        long previous = subtitleDecoderFactory.offsetUs();
+        subtitleDecoderFactory.setOffsetUs(offsetUs);
+        if (player == null || previous == offsetUs) return;
+        // Flush text decoder so the new offset applies without a full stream rebuild.
+        try {
+            long pos = Math.max(0, contentPositionMs() - timelineOriginMs);
+            player.seekTo(pos);
+        } catch (Throwable ignored) {
+            /* ignore */
+        }
     }
 
     private void requestSubtitleSearch() {
@@ -1840,11 +4013,24 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void applySubtitleChoice(OptionItem picked) {
+        if (picked.id != null && picked.id.startsWith("os:") && picked.url.isEmpty()) {
+            if (picked.downloadKey.isEmpty()) return;
+            // PMS downloads the hit first; JS answers with sessionJson.sidecarResolved.
+            pendingSidecarDownloadId = picked.id;
+            JSObject data = new JSObject();
+            data.put("ratingKey", ratingKey == null ? "" : ratingKey);
+            data.put("id", picked.id);
+            data.put("key", picked.downloadKey);
+            PlayerBridge.get().emit("subtitleDownload", data);
+            toast(getString(R.string.player_subs_downloading));
+            return;
+        }
         String previousSidecar = sidecarSubtitleUrl;
         String previousSubtitleId = subtitleStreamId == null ? "" : subtitleStreamId;
         subtitleStreamId = picked.id == null ? "" : picked.id;
-        boolean sidecar = picked.id != null && picked.id.startsWith("os:") && !picked.url.isEmpty();
+        boolean sidecar = picked.url != null && !picked.url.trim().isEmpty();
         sidecarSubtitleUrl = sidecar ? picked.url : "";
+        sidecarSubtitleCodec = sidecar ? picked.codec : "";
         saveAvPrefs();
         updateChipLabels();
         if (sidecar) {
@@ -1855,9 +4041,9 @@ public class PlayerActivity extends AppCompatActivity {
         }
         if (!previousSidecar.isEmpty()) reloadCurrentMedia();
         boolean off = subtitleStreamId.isEmpty();
-        boolean burn = !off && subtitleCodecNeedsBurn(picked.codec);
+        boolean burn = !off && subtitleNeedsBurn(picked);
         // Text / off on Direct Play: swap ExoPlayer text track — keep seekable bitstream.
-        if (!burn && isDirectPlayUrl(currentUrl)) {
+        if (!burn && PlaybackUrls.isDirectPlayUrl(currentUrl)) {
             hideBurnInProgress();
             applyTextTrackPreference();
             notifyTracksOnlyChange();
@@ -1899,6 +4085,26 @@ public class PlayerActivity extends AppCompatActivity {
         requestStreamChange(qualityId, audioStreamId, subtitleStreamId, mediaIndex);
     }
 
+    /**
+     * Plex's pick (or the one remembered for this show) can be an external file such as
+     * "English (SRT External)". Only the menu loaded those, so at start the player looked
+     * for it inside the file, found nothing, and showed the first in-file track instead.
+     * Direct Play only: a transcode gets its subtitles from the server.
+     */
+    private void syncSidecarToSelectedSubtitle() {
+        if (!PlaybackUrls.isDirectPlayUrl(currentUrl)) return;
+        if (subtitleStreamId == null || subtitleStreamId.isEmpty()) {
+            sidecarSubtitleUrl = "";
+            sidecarSubtitleCodec = "";
+            return;
+        }
+        OptionItem row = findSubtitleOption(subtitleStreamId);
+        if (row == null) return;
+        boolean sidecar = row.url != null && !row.url.trim().isEmpty();
+        sidecarSubtitleUrl = sidecar ? row.url : "";
+        sidecarSubtitleCodec = sidecar ? row.codec : "";
+    }
+
     @Nullable
     private OptionItem findSubtitleOption(@Nullable String id) {
         if (id == null || id.isEmpty()) return null;
@@ -1917,61 +4123,17 @@ public class PlayerActivity extends AppCompatActivity {
         return null;
     }
 
-    private static boolean subtitleCodecNeedsBurn(@Nullable String codec) {
-        if (codec == null || codec.trim().isEmpty()) return false;
-        return codec.matches("(?i)pgs|vobsub|dvd|dvdsub|image|bluray|dvbsub|xsub");
-    }
-
-    private static boolean isBitstreamAudioCodec(@Nullable String codec) {
-        if (codec == null || codec.trim().isEmpty()) return false;
-        return codec.matches("(?i)truehd|mlp|dca|dts|dtsc|dtsh|dtshd|dtsma|dtsl");
-    }
-
-    private static String normalizeLangTag(@Nullable String raw) {
-        if (raw == null) return "";
-        String lang = raw.trim().toLowerCase(Locale.US);
-        if (lang.isEmpty()) return "";
-        int dash = lang.indexOf('-');
-        int under = lang.indexOf('_');
-        int cut = dash > 0 ? dash : (under > 0 ? under : -1);
-        return cut > 0 ? lang.substring(0, cut) : lang;
-    }
-
-    private static String formatAudioCodec(@Nullable Format format) {
-        if (format == null) return "";
-        String mime = format.sampleMimeType == null ? "" : format.sampleMimeType.toLowerCase(Locale.US);
-        String codecs = format.codecs == null ? "" : format.codecs.toLowerCase(Locale.US);
-        String blob = mime + " " + codecs;
-        if (blob.contains("truehd") || blob.contains("mlp")) return "truehd";
-        if (blob.contains("eac3") || blob.contains("ec-3") || blob.contains("ec+3")) return "eac3";
-        if (blob.contains("ac3") || blob.contains("ac-3")) return "ac3";
-        if (blob.contains("dts") || blob.contains("dca")) return "dts";
-        if (blob.contains("flac")) return "flac";
-        if (blob.contains("opus")) return "opus";
-        if (blob.contains("mp4a") || blob.contains("aac")) return "aac";
-        if (blob.contains("mp3") || blob.contains("mpeg")) return "mp3";
-        return codecs.isEmpty() ? mime.replace("audio/", "") : codecs.split("[.,\\s]")[0];
-    }
-
-    private static boolean audioCodecMatches(String formatCodec, String wantCodec) {
-        String a = (formatCodec == null ? "" : formatCodec).toLowerCase(Locale.US);
-        String b = (wantCodec == null ? "" : wantCodec).toLowerCase(Locale.US)
-            .replace("ac-3", "ac3")
-            .replace("ec-3", "eac3")
-            .replace("ec+3", "eac3")
-            .replace("mp4a", "aac")
-            .replace("dca", "dts");
-        if (a.isEmpty() || b.isEmpty()) return false;
-        if (a.equals(b)) return true;
-        if (b.startsWith("eac3") && a.contains("eac3")) return true;
-        if (b.startsWith("ac3") && a.contains("ac3") && !a.contains("eac3")) return true;
-        if (b.startsWith("truehd") && (a.contains("truehd") || a.contains("mlp"))) return true;
-        if (b.startsWith("dts") && (a.contains("dts") || a.contains("dca"))) return true;
-        return a.contains(b) || b.contains(a);
-    }
-
-    private boolean isDirectPlayUrl(@Nullable String url) {
-        return url != null && !url.isEmpty() && !isTranscodeUrl(url);
+    /**
+     * ExoPlayer draws in-file PGS / VobSub / DVB on Direct Play, and overlays a sidecar
+     * file when we have a URL. Burn only when the codec cannot be drawn, the user asked
+     * to burn, or a picture track is on a transcode (HLS has no subtitle track).
+     */
+    private boolean subtitleNeedsBurn(@Nullable OptionItem row) {
+        if (row == null) return false;
+        if (row.url != null && !row.url.trim().isEmpty()) return false;
+        if (TrackRules.subtitleCodecNeedsBurn(row.codec, burnSubtitles)) return true;
+        if (!TrackRules.isImageSubtitle(row.codec)) return false;
+        return row.embeddedOrdinal < 0 || !PlaybackUrls.isDirectPlayUrl(currentUrl);
     }
 
     @Nullable
@@ -2005,7 +4167,7 @@ public class PlayerActivity extends AppCompatActivity {
         if (!(selector instanceof DefaultTrackSelector)) return;
         DefaultTrackSelector dts = (DefaultTrackSelector) selector;
         OptionItem want = findAudioOption(audioStreamId);
-        String wantLang = want != null ? normalizeLangTag(want.language) : "";
+        String wantLang = want != null ? TrackRules.normalizeLangTag(want.language) : "";
         String wantCodec = want != null && want.codec != null
             ? want.codec.trim().toLowerCase(Locale.US)
             : "";
@@ -2030,16 +4192,16 @@ public class PlayerActivity extends AppCompatActivity {
             for (int i = 0; i < group.length; i++) {
                 if (!group.isTrackSupported(i, false)) continue;
                 Format format = group.getTrackFormat(i);
-                String fmtCodec = formatAudioCodec(format);
-                String fmtLang = normalizeLangTag(format.language);
+                String fmtCodec = TrackRules.formatAudioCodec(format);
+                String fmtLang = TrackRules.normalizeLangTag(format.language);
                 int score = 0;
-                if (!wantCodec.isEmpty() && audioCodecMatches(fmtCodec, wantCodec)) score += 20;
+                if (!wantCodec.isEmpty() && TrackRules.audioCodecMatches(fmtCodec, wantCodec)) score += 20;
                 if (!wantLang.isEmpty() && !fmtLang.isEmpty() && fmtLang.equals(wantLang)) score += 10;
                 // Prefer decoded/compatible tracks over bitstream when we asked for AC3/AAC.
-                if (!wantCodec.isEmpty() && !isBitstreamAudioCodec(wantCodec) && isBitstreamAudioCodec(fmtCodec)) {
+                if (!wantCodec.isEmpty() && !TrackRules.isBitstreamAudioCodec(wantCodec) && TrackRules.isBitstreamAudioCodec(fmtCodec)) {
                     score -= 15;
                 }
-                if (wantCodec.isEmpty() && isBitstreamAudioCodec(fmtCodec)) score -= 5;
+                if (wantCodec.isEmpty() && TrackRules.isBitstreamAudioCodec(fmtCodec)) score -= 5;
                 if (score > bestScore) {
                     bestScore = score;
                     bestGroup = g;
@@ -2074,12 +4236,14 @@ public class PlayerActivity extends AppCompatActivity {
         if (!(selector instanceof DefaultTrackSelector)) return;
         DefaultTrackSelector dts = (DefaultTrackSelector) selector;
         TrackSelectionParameters.Builder builder = dts.getParameters().buildUpon();
+        builder.clearOverridesOfType(C.TRACK_TYPE_TEXT);
         boolean sidecar = sidecarSubtitleUrl != null && !sidecarSubtitleUrl.trim().isEmpty();
         boolean off = subtitleStreamId == null || subtitleStreamId.isEmpty() || subtitleStreamId.startsWith("os:");
         OptionItem subRow = findSubtitleOption(subtitleStreamId);
-        boolean burn = !off && subRow != null && subtitleCodecNeedsBurn(subRow.codec);
-        // HLS / burn-in already paints captions in-frame — keep Exo text off or they stack.
-        if (isTranscodeUrl(currentUrl) || burn) {
+        boolean burn = !off && subtitleNeedsBurn(subRow);
+        // Burn-in paints captions in-frame. Keep Exo text off then so they do not stack.
+        // HLS WebVTT (SRT transcode) still uses Exo text tracks.
+        if (burn) {
             builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true);
         } else if (off && !sidecar) {
             builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true);
@@ -2090,9 +4254,15 @@ public class PlayerActivity extends AppCompatActivity {
             if (lang != null && !lang.isEmpty()) {
                 builder.setPreferredTextLanguage(lang);
             }
+            // Language alone can't tell "Signs & Songs" from "Full" (common with ASS) and
+            // skips non-default tracks — pin the exact in-file track like audio does.
+            TrackSelectionOverride exact = embeddedTextOverride(subRow);
+            if (exact != null) builder.setOverrideForType(exact);
         } else {
-            // Sidecar SubtitleConfiguration owns captions — disable embedded text.
-            builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true);
+            // Sidecar SubtitleConfiguration owns captions — pin it over any embedded text.
+            builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false);
+            TrackSelectionOverride side = sidecarTextOverride();
+            if (side != null) builder.setOverrideForType(side);
         }
         applyingTextTracks = true;
         try {
@@ -2100,6 +4270,41 @@ public class PlayerActivity extends AppCompatActivity {
         } finally {
             applyingTextTracks = false;
         }
+    }
+
+    @Nullable
+    private TrackSelectionOverride sidecarTextOverride() {
+        if (player == null) return null;
+        for (Tracks.Group group : player.getCurrentTracks().getGroups()) {
+            if (group.getType() != C.TRACK_TYPE_TEXT) continue;
+            for (int i = 0; i < group.length; i++) {
+                String id = group.getTrackFormat(i).id;
+                if (id != null && id.endsWith(SIDECAR_TEXT_ID) && group.isTrackSupported(i, false)) {
+                    return new TrackSelectionOverride(group.getMediaTrackGroup(), i);
+                }
+            }
+        }
+        return null;
+    }
+
+    /** Exo text track at the Plex row's in-file position, or null when it can't be trusted. */
+    @Nullable
+    private TrackSelectionOverride embeddedTextOverride(@Nullable OptionItem row) {
+        if (player == null || row == null || row.embeddedOrdinal < 0) return null;
+        int seen = 0;
+        for (Tracks.Group group : player.getCurrentTracks().getGroups()) {
+            if (group.getType() != C.TRACK_TYPE_TEXT) continue;
+            for (int i = 0; i < group.length; i++) {
+                if (seen++ != row.embeddedOrdinal) continue;
+                if (!group.isTrackSupported(i, false)) return null;
+                String want = TrackRules.normalizeLangTag(row.language);
+                String have = TrackRules.normalizeLangTag(group.getTrackFormat(i).language);
+                boolean langClash = !want.isEmpty() && !have.isEmpty() && !"und".equals(have)
+                    && !want.startsWith(have) && !have.startsWith(want);
+                return langClash ? null : new TrackSelectionOverride(group.getMediaTrackGroup(), i);
+            }
+        }
+        return null;
     }
 
     private void notifyTracksOnlyChange() {
@@ -2149,6 +4354,7 @@ public class PlayerActivity extends AppCompatActivity {
             audioDelayMs = delays[which];
             applyAudioDelay(true);
             savePlayerLookPrefs();
+            saveAvPrefs();
             updateChipLabels();
         });
     }
@@ -2215,7 +4421,7 @@ public class PlayerActivity extends AppCompatActivity {
                 /* best-effort before replacing the item */
             }
         }
-        queueStartPosition(currentUrl, isTranscodeUrl(currentUrl) ? 0 : offset);
+        queueStartPosition(currentUrl, PlaybackUrls.isTranscodeUrl(currentUrl) ? 0 : offset);
         player.setPlayWhenReady(!userPaused);
         player.prepare();
     }
@@ -2237,14 +4443,38 @@ public class PlayerActivity extends AppCompatActivity {
             getString(R.string.player_sleep_30),
             getString(R.string.player_sleep_45),
             getString(R.string.player_sleep_end),
+            getString(R.string.player_sleep_after_1),
+            getString(R.string.player_sleep_after_2),
+            getString(R.string.player_sleep_credits),
         };
-        showOptionSheet(getString(R.string.player_sleep), labels, 0, which -> {
+        int checked = 0;
+        if (sleepUntilElapsedRealtime > 0) {
+            long left = sleepUntilElapsedRealtime - SystemClock.elapsedRealtime();
+            if (left > 40 * 60_000L) checked = 3;
+            else if (left > 25 * 60_000L) checked = 2;
+            else if (left > 10 * 60_000L) checked = 1;
+        }         else if (sleepEndOfEpisode) checked = 4;
+        else if (sleepEpisodeLimit && sleepEpisodesRemaining == 1) checked = 5;
+        else if (sleepEpisodeLimit && sleepEpisodesRemaining >= 2) checked = 6;
+        else if (sleepAtCredits) checked = 7;
+        showOptionSheet(getString(R.string.player_sleep), labels, checked, which -> {
             sleepEndOfEpisode = false;
             sleepUntilElapsedRealtime = 0;
-            if (which == 1) sleepUntilElapsedRealtime = android.os.SystemClock.elapsedRealtime() + 15 * 60_000L;
-            else if (which == 2) sleepUntilElapsedRealtime = android.os.SystemClock.elapsedRealtime() + 30 * 60_000L;
-            else if (which == 3) sleepUntilElapsedRealtime = android.os.SystemClock.elapsedRealtime() + 45 * 60_000L;
+            sleepEpisodesRemaining = 0;
+            sleepEpisodeLimit = false;
+            sleepAtCredits = false;
+            if (which == 1) sleepUntilElapsedRealtime = SystemClock.elapsedRealtime() + 15 * 60_000L;
+            else if (which == 2) sleepUntilElapsedRealtime = SystemClock.elapsedRealtime() + 30 * 60_000L;
+            else if (which == 3) sleepUntilElapsedRealtime = SystemClock.elapsedRealtime() + 45 * 60_000L;
             else if (which == 4) sleepEndOfEpisode = true;
+            else if (which == 5) {
+                sleepEpisodeLimit = true;
+                sleepEpisodesRemaining = 1;
+            } else if (which == 6) {
+                sleepEpisodeLimit = true;
+                sleepEpisodesRemaining = 2;
+            } else if (which == 7) sleepAtCredits = true;
+            persistSleepPrefs();
             toast(labels[which]);
         });
     }
@@ -2258,6 +4488,9 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void requestStreamChange(String q, String a, String s, int mi, long positionMs, @Nullable String reason) {
+        // A Direct Play seek must not open a new PMS session. That rebuild is what
+        // stacks transcodes until the server falls over.
+        if ("seek".equals(reason) && !PlaybackUrls.isTranscodeUrl(currentUrl)) return;
         // Coalesce with in-flight seek/quality rebuilds so PMS doesn't mint ghost sessions.
         markStreamSwap();
         JSObject data = new JSObject();
@@ -2325,13 +4558,38 @@ public class PlayerActivity extends AppCompatActivity {
 
     void applyPlayPause(boolean play) {
         if (player == null) return;
-        userPaused = !play;
-        player.setPlayWhenReady(play);
-        if (play && player.getPlaybackState() == Player.STATE_IDLE && player.getMediaItemCount() > 0) {
+        if (!play) {
+            if (pauseSuppressed()) return;
+            pausePositionMs = contentPositionMs();
+            userPaused = true;
+            mainHandler.removeCallbacks(playThenSeekRunnable);
+            player.setPlayWhenReady(false);
             try {
-                player.prepare();
+                player.pause();
             } catch (Throwable ignored) {
-                /* prepare after stop/idle is best-effort */
+                /* setPlayWhenReady is the source of truth */
+            }
+        } else {
+            if (userPaused && rewindOnResumeSec > 0 && pausePositionMs >= 0) {
+                long target = Math.max(0, pausePositionMs - (rewindOnResumeSec * 1000L));
+                pausePositionMs = -1;
+                seekToContent(target, true);
+            } else {
+                pausePositionMs = -1;
+            }
+            userPaused = false;
+            player.setPlayWhenReady(true);
+            try {
+                player.play();
+            } catch (Throwable ignored) {
+                /* some TVs ignore setPlayWhenReady until play() */
+            }
+            if (player.getPlaybackState() == Player.STATE_IDLE && player.getMediaItemCount() > 0) {
+                try {
+                    player.prepare();
+                } catch (Throwable ignored) {
+                    /* prepare after stop/idle is best-effort */
+                }
             }
         }
         updatePlayPauseLabel();
@@ -2343,27 +4601,164 @@ public class PlayerActivity extends AppCompatActivity {
         bumpChrome();
     }
 
+    private void seekByWithFlash(long deltaMs) {
+        seekBy(deltaMs);
+        flashSeek(deltaMs < 0 ? -1 : 1);
+    }
+
+    private void flashSeek(int direction) {
+        if (seekFlashView == null) return;
+        bumpChrome();
+        seekFlashView.animate().cancel();
+        seekFlashView.setAlpha(1f);
+        seekFlashView.setText((direction < 0 ? "−" : "+") + (seekStepMs(direction) / 1000L));
+        seekFlashView.setVisibility(View.VISIBLE);
+        mainHandler.removeCallbacks(hideSeekFlashRunnable);
+        mainHandler.postDelayed(hideSeekFlashRunnable, 650);
+    }
+
+    private void previewSeekBy(long deltaMs) {
+        long duration = contentDurationMs();
+        long base = scrubTargetMs >= 0 ? scrubTargetMs : contentPositionMs();
+        long target = Math.max(0, base + deltaMs);
+        if (duration > 0) target = Math.min(target, Math.max(0, duration - 1500));
+        scrubTargetMs = target;
+        seekingUi = true;
+        scrubHoldUntilMs = android.os.SystemClock.elapsedRealtime() + 1600;
+        if (duration > 0 && seekBar != null) {
+            seekBar.setProgress((int) Math.min(1000, Math.max(0, (target * 1000L) / duration)));
+        }
+        setTimeLabels(target, Math.max(0, duration));
+        bumpChrome();
+        // Move the picture on each step. Direct Play only — no new server session.
+        if (!shouldRestartForSeek()) {
+            lastSeekTargetMs = target;
+            lastSeekAtMs = android.os.SystemClock.elapsedRealtime();
+            if (!streamSwapInFlight) seekRecoveryUsed = false;
+            mainHandler.removeCallbacks(directSeekRunnable);
+            mainHandler.postDelayed(directSeekRunnable, 160);
+        }
+    }
+
+    private void startSeekHold(int direction) {
+        seekHoldDirection = direction < 0 ? -1 : 1;
+        previewSeekBy(seekHoldDirection * seekStepMs(seekHoldDirection));
+        flashSeek(seekHoldDirection);
+        mainHandler.removeCallbacks(seekHoldRunnable);
+        mainHandler.postDelayed(seekHoldRunnable, 420);
+    }
+
+    private void stopSeekHold() {
+        int direction = seekHoldDirection;
+        seekHoldDirection = 0;
+        mainHandler.removeCallbacks(seekHoldRunnable);
+        if (direction != 0 && scrubTargetMs >= 0 && player != null && !finishing) {
+            seekToContent(scrubTargetMs, true);
+        }
+    }
+
+    private void setTimeLabels(long pos, long duration) {
+        if (timeView != null) timeView.setText(formatClock(pos));
+        long remaining = Math.max(0, duration - pos);
+        if (remainingView != null) {
+            remainingView.setText(duration > 0 ? ("-" + formatClock(remaining)) : "");
+        }
+        if (endsAtView != null) {
+            if (duration <= 0 || remaining <= 0) {
+                endsAtView.setVisibility(View.GONE);
+            } else {
+                endsAtView.setText(getString(R.string.player_ends_at, formatEndsAt(remaining)));
+                endsAtView.setVisibility(View.VISIBLE);
+            }
+        }
+        if (speedLabel != null) {
+            boolean showSpeed = Math.abs(playbackSpeed - 1f) > 0.01f;
+            speedLabel.setVisibility(showSpeed ? View.VISIBLE : View.GONE);
+            if (showSpeed) {
+                speedLabel.setText(String.format(Locale.US, "%.2g×", playbackSpeed));
+            }
+        }
+    }
+
+    private static String formatEndsAt(long remainingMs) {
+        Calendar cal = Calendar.getInstance();
+        cal.setTimeInMillis(System.currentTimeMillis() + Math.max(0, remainingMs));
+        int hour = cal.get(Calendar.HOUR);
+        if (hour == 0) hour = 12;
+        int minute = cal.get(Calendar.MINUTE);
+        String amPm = cal.get(Calendar.AM_PM) == Calendar.AM ? "AM" : "PM";
+        return String.format(Locale.US, "%d:%02d %s", hour, minute, amPm);
+    }
+
     private void doSkipIntro() {
         if (introEndMs < 0) return;
         seekToContent(introEndMs, true);
         skippedIntro = true;
-        skipIntroBtn.setVisibility(View.GONE);
-        if (skipRow != null && (skipCreditsBtn == null || skipCreditsBtn.getVisibility() != View.VISIBLE)) {
-            skipRow.setVisibility(View.GONE);
-        }
+        dismissSkipIntroChip();
         emitProgress("playing");
     }
 
     private void doSkipCredits() {
         skippedCredits = true;
-        skipCreditsBtn.setVisibility(View.GONE);
-        if (skipRow != null && (skipIntroBtn == null || skipIntroBtn.getVisibility() != View.VISIBLE)) {
-            skipRow.setVisibility(View.GONE);
-        }
+        dismissSkipCreditsChip();
         if (autoplayNext && nextRatingKey != null && !nextRatingKey.isEmpty()) {
             finishForPlayNext();
         } else {
             finishWithResult(true, false);
+        }
+    }
+
+    private void clearSkipChips() {
+        mainHandler.removeCallbacks(hideSkipIntroChipRunnable);
+        mainHandler.removeCallbacks(hideSkipCreditsChipRunnable);
+        skipIntroPromptOffered = false;
+        skipCreditsPromptOffered = false;
+        skipIntroChipActive = false;
+        skipCreditsChipActive = false;
+        applySkipChipVisibility(false, false);
+    }
+
+    private void dismissSkipIntroChip() {
+        mainHandler.removeCallbacks(hideSkipIntroChipRunnable);
+        skipIntroChipActive = false;
+        applySkipChipVisibility(false, skipCreditsChipActive);
+    }
+
+    private void dismissSkipCreditsChip() {
+        mainHandler.removeCallbacks(hideSkipCreditsChipRunnable);
+        skipCreditsChipActive = false;
+        applySkipChipVisibility(skipIntroChipActive, false);
+    }
+
+    private void applySkipChipVisibility(boolean showIntro, boolean showCredits) {
+        if (skipIntroBtn != null) skipIntroBtn.setVisibility(showIntro ? View.VISIBLE : View.GONE);
+        if (skipCreditsBtn != null) skipCreditsBtn.setVisibility(showCredits ? View.VISIBLE : View.GONE);
+        if (skipRow != null) {
+            skipRow.setVisibility((showIntro || showCredits) ? View.VISIBLE : View.GONE);
+        }
+    }
+
+    private void armSkipIntroChip() {
+        if (skipIntroPromptOffered) return;
+        skipIntroPromptOffered = true;
+        skipIntroChipActive = true;
+        mainHandler.removeCallbacks(hideSkipIntroChipRunnable);
+        mainHandler.postDelayed(hideSkipIntroChipRunnable, SKIP_CHIP_VISIBLE_MS);
+        applySkipChipVisibility(true, skipCreditsChipActive);
+        if (skipIntroBtn != null && !isOptionDialogShowing()) {
+            skipIntroBtn.requestFocus();
+        }
+    }
+
+    private void armSkipCreditsChip() {
+        if (skipCreditsPromptOffered) return;
+        skipCreditsPromptOffered = true;
+        skipCreditsChipActive = true;
+        mainHandler.removeCallbacks(hideSkipCreditsChipRunnable);
+        mainHandler.postDelayed(hideSkipCreditsChipRunnable, SKIP_CHIP_VISIBLE_MS);
+        applySkipChipVisibility(skipIntroChipActive, true);
+        if (skipCreditsBtn != null && !isOptionDialogShowing() && !skipIntroChipActive) {
+            skipCreditsBtn.requestFocus();
         }
     }
 
@@ -2393,93 +4788,210 @@ public class PlayerActivity extends AppCompatActivity {
     private void maybeAutoSkip() {
         if (player == null) return;
         long pos = contentPositionMs();
-        if (autoSkipIntro && !skippedIntro && introStartMs >= 0 && introEndMs > introStartMs
+        boolean introAuto = "auto".equals(skipIntroMode) || autoSkipIntro;
+        boolean creditsAuto = "auto".equals(skipCreditsMode) || autoSkipCredits;
+        boolean introOff = "off".equals(skipIntroMode);
+        boolean creditsOff = "off".equals(skipCreditsMode);
+        if (introAuto && !skippedIntro && introStartMs >= 0 && introEndMs > introStartMs
             && pos >= introStartMs && pos < introEndMs) {
             doSkipIntro();
         }
-        if (autoSkipCredits && !skippedCredits && creditsStartMs >= 0 && pos >= creditsStartMs) {
+        if (creditsAuto && !skippedCredits && creditsStartMs >= 0 && pos >= creditsStartMs) {
             doSkipCredits();
         }
-        boolean inIntro = inIntroRange();
-        boolean inCredits = inCreditsRange();
-        skipIntroBtn.setVisibility(inIntro ? View.VISIBLE : View.GONE);
-        skipCreditsBtn.setVisibility(inCredits ? View.VISIBLE : View.GONE);
-        if (skipRow != null) {
-            skipRow.setVisibility((inIntro || inCredits) ? View.VISIBLE : View.GONE);
-        }
-        if (inIntro || inCredits) {
-            if (!skipFocusGiven) {
-                skipFocusGiven = true;
-                bumpChrome();
-                if (inIntro && skipIntroBtn != null) skipIntroBtn.requestFocus();
-                else if (inCredits && skipCreditsBtn != null) skipCreditsBtn.requestFocus();
-            }
+        boolean inIntro = !introOff && inIntroRange();
+        boolean inCredits = !creditsOff && inCreditsRange();
+        // Show for 10s from first entry, or until the skip window ends — whichever is sooner.
+        // Chips live outside chrome so they remain visible with OSD hidden.
+        if (inIntro) {
+            armSkipIntroChip();
         } else {
-            skipFocusGiven = false;
+            if (skipIntroChipActive) dismissSkipIntroChip();
+            skipIntroPromptOffered = false;
+        }
+        if (inCredits) {
+            armSkipCreditsChip();
+        } else {
+            if (skipCreditsChipActive) dismissSkipCreditsChip();
+            skipCreditsPromptOffered = false;
         }
     }
 
     private void maybeShowUpNext() {
         if (upNextRow == null) return;
-        if (watchCreditsChosen || nextRatingKey == null || nextRatingKey.isEmpty()) {
-            upNextRow.setVisibility(View.GONE);
-            return;
-        }
         long pos = contentPositionMs();
         long duration = contentDurationMs();
         boolean nearEnd = duration > 0 && pos >= Math.max(0, duration - 30_000);
         boolean inCredits = creditsStartMs >= 0 && pos >= creditsStartMs;
-        boolean show = nearEnd || inCredits;
+        boolean showWindow = nearEnd || inCredits;
+        boolean hasNext = nextRatingKey != null && !nextRatingKey.isEmpty();
+        boolean showNext = showWindow && hasNext && !watchCreditsChosen;
+        boolean showRelated = showWindow && !relatedItems.isEmpty() && (!hasNext || watchCreditsChosen);
+        boolean show = showNext || showRelated;
         boolean wasHidden = upNextRow.getVisibility() != View.VISIBLE;
         upNextRow.setVisibility(show ? View.VISIBLE : View.GONE);
         if (!show) return;
-        if (upNextLabel != null) {
-            upNextLabel.setText(nextTitle.isEmpty() ? getString(R.string.player_up_next) : nextTitle);
-        }
-        applyUpNextArt();
-        if (upNextCountdown != null) {
+        if (showRelated) {
+            OptionItem first = relatedItems.get(0);
+            if (upNextKicker != null) upNextKicker.setText(R.string.player_more_like_this);
+            if (upNextLabel != null) upNextLabel.setText(first.label);
+            setUpNextArtVisible(false);
+            if (upNextCountdown != null) upNextCountdown.setVisibility(View.GONE);
+            if (upNextMeta != null) upNextMeta.setVisibility(View.GONE);
+            if (upNextSummary != null) upNextSummary.setVisibility(View.GONE);
+            if (upNextRing != null) upNextRing.setVisibility(View.GONE);
+            if (upNextCreditsBtn != null) {
+                upNextCreditsBtn.setVisibility(relatedItems.size() > 1 ? View.VISIBLE : View.GONE);
+                upNextCreditsBtn.setText(R.string.player_more_like_this);
+                upNextCreditsBtn.setOnClickListener(v -> showRelatedMenu());
+            }
+            if (upNextPlayBtn != null) {
+                upNextPlayBtn.setText(R.string.player_play_now);
+                upNextPlayBtn.setOnClickListener(v -> playRelatedItem(first.id));
+            }
+        } else {
+            if (upNextKicker != null) upNextKicker.setText(R.string.player_up_next);
+            if (upNextLabel != null) {
+                upNextLabel.setText(nextTitle.isEmpty() ? getString(R.string.player_up_next) : nextTitle);
+            }
+            applyUpNextArt();
+            if (upNextMeta != null) {
+                upNextMeta.setText(nextMeta);
+                upNextMeta.setVisibility(nextMeta.isEmpty() ? View.GONE : View.VISIBLE);
+            }
+            if (upNextSummary != null) {
+                upNextSummary.setText(nextSummary);
+                upNextSummary.setVisibility(nextSummary.isEmpty() ? View.GONE : View.VISIBLE);
+            }
             int seconds = duration > pos ? (int) Math.max(1, Math.ceil((duration - pos) / 1000.0)) : 0;
-            if (autoplayNext && seconds > 0) {
-                upNextCountdown.setVisibility(View.VISIBLE);
-                upNextCountdown.setText(getString(R.string.player_up_next_in, seconds));
-            } else {
-                upNextCountdown.setVisibility(View.GONE);
+            boolean counting = autoplayNext && seconds > 0;
+            // The ring sits on the still; with no still, the line of text counts down instead.
+            boolean ring = counting && upNextRing != null && isUpNextArtVisible();
+            if (upNextRing != null) {
+                upNextRing.setVisibility(ring ? View.VISIBLE : View.GONE);
+                if (ring) {
+                    long windowStart = duration - 30_000;
+                    if (creditsStartMs >= 0) windowStart = Math.min(windowStart, creditsStartMs);
+                    long window = Math.max(1_000, duration - windowStart);
+                    upNextRing.setCountdown((duration - pos) / (float) window, seconds);
+                }
+            }
+            if (upNextCountdown != null) {
+                if (counting && !ring) {
+                    upNextCountdown.setVisibility(View.VISIBLE);
+                    upNextCountdown.setText(getString(R.string.player_up_next_in, seconds));
+                } else {
+                    upNextCountdown.setVisibility(View.GONE);
+                }
+            }
+            if (upNextCreditsBtn != null) {
+                upNextCreditsBtn.setVisibility(View.VISIBLE);
+                upNextCreditsBtn.setText(R.string.player_watch_credits);
+                upNextCreditsBtn.setOnClickListener(v -> dismissUpNextWatchCredits());
+            }
+            if (upNextPlayBtn != null) {
+                upNextPlayBtn.setText(R.string.player_play_now);
+                upNextPlayBtn.setOnClickListener(v -> finishForPlayNext());
             }
         }
-        if (wasHidden && upNextPlayBtn != null) upNextPlayBtn.requestFocus();
+        if (wasHidden) {
+            // Keep the card usable: hide OSD so D-pad does not open chrome, and focus Play now.
+            setChromeVisible(false);
+            focusUpNextControls();
+        } else if (isUpNextVisible() && !isUpNextFocused()) {
+            focusUpNextControls();
+        }
+    }
+
+    private boolean isUpNextVisible() {
+        return upNextRow != null && upNextRow.getVisibility() == View.VISIBLE;
+    }
+
+    private boolean isUpNextFocused() {
+        View focus = getCurrentFocus();
+        return focus != null && (focus == upNextPlayBtn || focus == upNextCreditsBtn);
+    }
+
+    private void focusUpNextControls() {
+        if (!isUpNextVisible()) return;
+        if (upNextPlayBtn != null && upNextPlayBtn.getVisibility() == View.VISIBLE) {
+            upNextPlayBtn.requestFocus();
+            return;
+        }
+        if (upNextCreditsBtn != null && upNextCreditsBtn.getVisibility() == View.VISIBLE) {
+            upNextCreditsBtn.requestFocus();
+        }
+    }
+
+    private void showRelatedMenu() {
+        if (relatedItems.isEmpty()) return;
+        bumpChrome();
+        String[] labels = new String[relatedItems.size()];
+        for (int i = 0; i < relatedItems.size(); i++) labels[i] = relatedItems.get(i).label;
+        showOptionSheet(getString(R.string.player_more_like_this), labels, 0, which -> {
+            if (which >= 0 && which < relatedItems.size()) {
+                playRelatedItem(relatedItems.get(which).id);
+            }
+        });
+    }
+
+    private void playRelatedItem(String ratingKey) {
+        if (ratingKey == null || ratingKey.isEmpty()) return;
+        JSObject data = new JSObject();
+        data.put("ratingKey", ratingKey);
+        PlayerBridge.get().emit("playRelated", data);
+        finishWithResult(true, false);
     }
 
     private void dismissUpNextWatchCredits() {
         watchCreditsChosen = true;
         autoplayNext = false;
         if (upNextRow != null) upNextRow.setVisibility(View.GONE);
+        // Re-evaluate so More like this can replace Up Next while credits roll.
+        maybeShowUpNext();
     }
 
     private void maybeSleepTimer() {
+        if (sleepAtCredits && inCreditsRange()) {
+            clearSleepPrefs();
+            if (player != null) player.pause();
+            toast(getString(R.string.player_sleep_fired));
+            finishWithResult(true, false);
+            return;
+        }
         if (sleepEndOfEpisode) return;
         if (sleepUntilElapsedRealtime <= 0) return;
-        if (android.os.SystemClock.elapsedRealtime() >= sleepUntilElapsedRealtime) {
-            sleepUntilElapsedRealtime = 0;
+        if (SystemClock.elapsedRealtime() >= sleepUntilElapsedRealtime) {
+            clearSleepPrefs();
             if (player != null) player.pause();
-            toast("Sleep timer");
+            toast(getString(R.string.player_sleep_fired));
             finishWithResult(false, false);
         }
+    }
+
+    /** After N more: remaining=1 allows one play-next, then stops when that episode ends. */
+    private boolean shouldStopForSleepEpisodes() {
+        if (!sleepEpisodeLimit) return false;
+        if (sleepEpisodesRemaining <= 0) return true;
+        sleepEpisodesRemaining -= 1;
+        return false;
     }
 
     private void updateProgressUi() {
         if (player == null) return;
         reconcileTranscodeOrigin();
+        updateBufferedProgress();
         if (scrubTargetMs >= 0) {
             long playerPos = Math.max(0, timelineOriginMs + Math.max(0, player.getCurrentPosition()));
             boolean caughtUp = Math.abs(playerPos - scrubTargetMs) < 1500;
             boolean holding = android.os.SystemClock.elapsedRealtime() < scrubHoldUntilMs;
-            if (!caughtUp && holding) {
+            if (seekHoldDirection != 0 || (!caughtUp && holding)) {
                 long duration = contentDurationMs();
                 if (duration > 0 && seekBar != null) {
                     seekBar.setProgress((int) Math.min(1000, Math.max(0, (scrubTargetMs * 1000L) / duration)));
                 }
-                if (timeView != null) {
-                    timeView.setText(formatClock(scrubTargetMs) + " / " + formatClock(Math.max(0, duration)));
+                if (timeView != null || remainingView != null || endsAtView != null) {
+                    setTimeLabels(scrubTargetMs, Math.max(0, duration));
                 }
                 return;
             }
@@ -2494,8 +5006,33 @@ public class PlayerActivity extends AppCompatActivity {
             int progress = (int) Math.min(1000, Math.max(0, (pos * 1000L) / duration));
             seekBar.setProgress(progress);
         }
-        timeView.setText(formatClock(pos) + " / " + formatClock(Math.max(0, duration)));
+        setTimeLabels(pos, Math.max(0, duration));
         updatePlayPauseLabel();
+    }
+
+    /** Lighter band on the seek bar: how far ahead of the playhead the player has buffered. */
+    private void updateBufferedProgress() {
+        if (player == null || seekBar == null) return;
+        long duration = contentDurationMs();
+        if (duration <= 0) {
+            seekBar.setSecondaryProgress(0);
+            return;
+        }
+        long buffered = Math.max(0, timelineOriginMs + Math.max(0, player.getBufferedPosition()));
+        seekBar.setSecondaryProgress((int) Math.min(1000, Math.max(0, (buffered * 1000L) / duration)));
+        if (bufferLabelView == null) return;
+        long position = Math.max(0, timelineOriginMs + Math.max(0, player.getCurrentPosition()));
+        long aheadSec = Math.max(0, buffered - position) / 1000;
+        boolean show = !musicMode && aheadSec >= 1 && buffered < duration - 1000;
+        if (!show) {
+            bufferLabelView.setVisibility(View.GONE);
+            return;
+        }
+        String ahead = aheadSec >= 60
+            ? String.format(Locale.US, "%dm %02ds", aheadSec / 60, aheadSec % 60)
+            : aheadSec + "s";
+        bufferLabelView.setText(getString(R.string.player_buffered_ahead, ahead));
+        bufferLabelView.setVisibility(View.VISIBLE);
     }
 
     private void updatePlayPauseLabel() {
@@ -2507,7 +5044,9 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void emitProgress(String state) {
-        pingPlexTimeline(state);
+        boolean seekBuffer = "buffering".equals(state)
+            && (seekingUi || android.os.SystemClock.elapsedRealtime() - lastSeekAtMs < 4_000);
+        if (!seekBuffer) pingPlexTimeline(state);
         if (player == null) return;
         JSObject data = new JSObject();
         data.put("state", state);
@@ -2516,48 +5055,73 @@ public class PlayerActivity extends AppCompatActivity {
         data.put("durationMs", Math.max(0, duration));
         data.put("ratingKey", ratingKey);
         PlayerBridge.get().emit("progress", data);
+        maybeUpdateWatchNext(state);
     }
 
-    private static String queryParam(Uri uri, String key) {
-        if (uri == null || key == null) return "";
-        try {
-            String value = uri.getQueryParameter(key);
-            return value == null ? "" : value.trim();
-        } catch (Throwable ignored) {
-            return "";
+    private void applyWatchNextJson(@Nullable JSONObject json) {
+        lastWatchNextAtMs = 0;
+        lastWatchNextPosMs = -1;
+        watchNextRemoved = false;
+        if (json == null) {
+            watchNextEntry = null;
+            return;
         }
+        WatchNext.Entry entry = new WatchNext.Entry();
+        entry.ratingKey = ratingKey == null ? "" : ratingKey;
+        entry.serverId = json.optString("serverId", "").trim();
+        entry.episode = "episode".equals(json.optString("type", ""));
+        entry.title = json.optString("title", "").trim();
+        entry.episodeTitle = json.optString("episodeTitle", "").trim();
+        entry.seasonNumber = json.optInt("seasonNumber", 0);
+        entry.episodeNumber = json.optInt("episodeNumber", 0);
+        entry.artUrl = json.optString("artUrl", "").trim();
+        JSONObject headers = json.optJSONObject("artHeaders");
+        if (headers != null) {
+            Map<String, String> map = new HashMap<>();
+            Iterator<String> keys = headers.keys();
+            while (keys.hasNext()) {
+                String key = keys.next();
+                map.put(key, headers.optString(key, ""));
+            }
+            entry.artHeaders = map;
+        }
+        watchNextEntry = entry.title.isEmpty() || entry.ratingKey.isEmpty() ? null : entry;
+    }
+
+    /**
+     * Keep the TV home "Continue Watching" row in step: write on pause / stop and
+     * once a minute while playing; drop the title once it counts as watched (90%,
+     * the same line Plex uses).
+     */
+    private void maybeUpdateWatchNext(String state) {
+        WatchNext.Entry entry = watchNextEntry;
+        if (entry == null || musicMode || player == null) return;
+        long duration = contentDurationMs();
+        if (duration <= 0) return;
+        long position = contentPositionMs();
+        if (playbackEnded || position >= duration * 9 / 10) {
+            if (!watchNextRemoved) {
+                watchNextRemoved = true;
+                WatchNext.remove(this, entry.serverId, entry.ratingKey);
+            }
+            return;
+        }
+        if (position < 30_000) return;
+        boolean settled = "paused".equals(state) || "stopped".equals(state);
+        long now = android.os.SystemClock.elapsedRealtime();
+        // The 1s tick re-sends "paused" while paused. Only write when the spot moved.
+        if (Math.abs(position - lastWatchNextPosMs) < 5_000) return;
+        if (!settled && lastWatchNextAtMs > 0 && now - lastWatchNextAtMs < 60_000) return;
+        lastWatchNextAtMs = now;
+        lastWatchNextPosMs = position;
+        watchNextRemoved = false;
+        entry.positionMs = position;
+        entry.durationMs = duration;
+        WatchNext.publish(this, entry);
     }
 
     private void absorbTimelineFromUrl(String url) {
-        if (url == null || url.isEmpty() || url.contains("/api/media-player/")) return;
-        try {
-            Uri parsed = Uri.parse(url);
-            String token = queryParam(parsed, "X-Plex-Token");
-            if (token.isEmpty()) token = queryParam(parsed, "access_token");
-            if (!token.isEmpty()) timelineToken = token;
-            String clientId = queryParam(parsed, "X-Plex-Client-Identifier");
-            if (!clientId.isEmpty()) timelineClientId = clientId;
-            String session = queryParam(parsed, "X-Plex-Session-Identifier");
-            if (session.isEmpty()) session = queryParam(parsed, "session");
-            if (!session.isEmpty()) timelineSessionId = session;
-            String product = queryParam(parsed, "X-Plex-Product");
-            if (!product.isEmpty()) timelineProduct = product;
-            String platform = queryParam(parsed, "X-Plex-Platform");
-            if (!platform.isEmpty()) timelinePlatform = platform;
-            String device = queryParam(parsed, "X-Plex-Device");
-            if (!device.isEmpty()) timelineDevice = device;
-            String deviceName = queryParam(parsed, "X-Plex-Device-Name");
-            if (!deviceName.isEmpty()) timelineDeviceName = deviceName;
-            if ((timelineOrigin == null || timelineOrigin.isEmpty())
-                    && parsed.getScheme() != null
-                    && parsed.getHost() != null) {
-                String origin = parsed.getScheme() + "://" + parsed.getHost();
-                if (parsed.getPort() != -1) origin += ":" + parsed.getPort();
-                timelineOrigin = origin;
-            }
-        } catch (Throwable ignored) {
-            /* malformed playback url */
-        }
+        timelineReporter.absorbFromUrl(url);
     }
 
     private boolean shouldMarkWatched(long positionMs, boolean ended) {
@@ -2568,27 +5132,50 @@ public class PlayerActivity extends AppCompatActivity {
         } catch (Throwable ignored) {
             durationMs = Math.max(0L, durationHintMs);
         }
-        if (creditsStartMs >= 0 && positionMs >= creditsStartMs) return true;
-        if (durationMs <= 0) return false;
-        if (positionMs >= (long) (durationMs * 0.9d)) return true;
-        return positionMs > Math.max(0L, durationMs - 15_000L);
+        return PlexTimelineReporter.isWatchedPosition(positionMs, durationMs, creditsStartMs);
     }
 
-    private void scrobbleWatched() {
-        absorbTimelineFromUrl(currentUrl);
-        if (ratingKey == null || ratingKey.trim().isEmpty()) return;
-        if (timelineOrigin == null || timelineOrigin.isEmpty() || timelineToken == null || timelineToken.isEmpty()) {
+    /** Routine pings replace the one still waiting; stop / scrobble drop it and always go. */
+    private static void queueTimelinePing(Runnable ping, boolean routine) {
+        if (!routine) {
+            PENDING_ROUTINE_PING.set(null);
+            TIMELINE_EXECUTOR.execute(ping);
             return;
         }
+        if (PENDING_ROUTINE_PING.getAndSet(ping) != null) return;
+        TIMELINE_EXECUTOR.execute(() -> {
+            Runnable latest = PENDING_ROUTINE_PING.getAndSet(null);
+            if (latest != null) latest.run();
+        });
+    }
+
+    /**
+     * PMS marks a title watched by itself once a timeline it accepted passes its threshold
+     * (90% or the credits, the same rule as {@link #shouldMarkWatched}). Scrobbling on top
+     * of that counted every finished episode as two or three plays.
+     */
+    private boolean serverMarkedWatched() {
+        long durationMs;
         try {
-            Uri.Builder builder = Uri.parse(timelineOrigin + "/:/scrobble").buildUpon();
-            builder.appendQueryParameter("identifier", "com.plexapp.plugins.library");
-            builder.appendQueryParameter("key", ratingKey);
-            builder.appendQueryParameter("X-Plex-Token", timelineToken);
-            final String pingUrl = builder.build().toString();
-            logoExecutor.execute(() -> httpPingTimeline(pingUrl, null, "GET"));
+            durationMs = contentDurationMs();
+        } catch (Throwable ignored) {
+            durationMs = Math.max(0L, durationHintMs);
+        }
+        long confirmed = timelineReporter.confirmedPositionMs();
+        return confirmed >= 0L && PlexTimelineReporter.isWatchedPosition(confirmed, durationMs, creditsStartMs);
+    }
+
+    /** True when the scrobble was queued. */
+    private boolean scrobbleWatched() {
+        absorbTimelineFromUrl(currentUrl);
+        try {
+            final String pingUrl = timelineReporter.buildScrobbleUrl(ratingKey);
+            if (pingUrl == null) return false;
+            queueTimelinePing(() -> timelineReporter.httpPing(pingUrl, null, "GET"), false);
+            return true;
         } catch (Throwable e) {
             Log.w(TAG, "Plex scrobble skipped", e);
+            return false;
         }
     }
 
@@ -2597,15 +5184,8 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void pingPlexTimeline(String rawState, long positionOverrideMs) {
-        String state = "playing";
-        if ("paused".equals(rawState) || "stopped".equals(rawState) || "buffering".equals(rawState)) {
-            state = rawState;
-        }
-        long now = SystemClock.elapsedRealtime();
-        boolean important = "stopped".equals(state) || "paused".equals(state) || !state.equals(lastTimelineState);
-        if (!important && now - lastTimelinePingElapsedMs < 5_000) return;
-        lastTimelinePingElapsedMs = now;
-        lastTimelineState = state;
+        String state = PlexTimelineReporter.normalizeState(rawState);
+        if (!timelineReporter.shouldPing(state, SystemClock.elapsedRealtime())) return;
         absorbTimelineFromUrl(currentUrl);
         if (ratingKey == null || ratingKey.trim().isEmpty()) return;
         long positionMs = 0L;
@@ -2620,136 +5200,26 @@ public class PlayerActivity extends AppCompatActivity {
         }
         if (positionOverrideMs >= 0L) positionMs = positionOverrideMs;
         final String pingState = state;
+        final boolean routine = !"stopped".equals(state);
         final long pingPosition = positionMs;
         final long pingDuration = durationMs;
-        if (timelineOrigin != null && !timelineOrigin.isEmpty() && timelineToken != null && !timelineToken.isEmpty()) {
-            final String pingUrl = buildPmsTimelineUrl(pingState, pingPosition, pingDuration);
+        if (timelineReporter.hasPmsCredentials()) {
+            final String pingUrl = timelineReporter.buildPmsTimelineUrl(
+                ratingKey, pingState, pingPosition, pingDuration, musicMode, audioStreamId, subtitleStreamId);
             if (pingUrl != null) {
-                logoExecutor.execute(() -> httpPingTimeline(pingUrl, null, "GET"));
+                queueTimelinePing(() -> {
+                    boolean ok = timelineReporter.httpPing(pingUrl, null, "GET");
+                    if (ok && routine) timelineReporter.notePositionConfirmed(pingPosition);
+                }, routine);
                 return;
             }
         }
-        final String portalUrl = buildPortalTimelineUrl();
+        final String portalUrl = PlexTimelineReporter.buildPortalTimelineUrl(currentUrl);
         if (portalUrl == null) return;
-        final String body = buildPortalTimelineBody(pingState, pingPosition, pingDuration);
+        final String body = timelineReporter.buildPortalTimelineBody(
+            ratingKey, pingState, pingPosition, pingDuration, audioStreamId, subtitleStreamId);
         if (body == null) return;
-        logoExecutor.execute(() -> httpPingTimeline(portalUrl, body, "POST"));
-    }
-
-    private String buildPmsTimelineUrl(String state, long positionMs, long durationMs) {
-        if (timelineOrigin == null || timelineOrigin.isEmpty() || timelineToken == null || timelineToken.isEmpty()) {
-            return null;
-        }
-        try {
-            Uri.Builder builder = Uri.parse(timelineOrigin + "/:/timeline").buildUpon();
-            builder.appendQueryParameter("ratingKey", ratingKey);
-            builder.appendQueryParameter("key", "/library/metadata/" + ratingKey);
-            builder.appendQueryParameter("identifier", "com.plexapp.plugins.library");
-            builder.appendQueryParameter("state", state);
-            builder.appendQueryParameter("time", String.valueOf(positionMs));
-            builder.appendQueryParameter("playbackTime", String.valueOf(positionMs));
-            builder.appendQueryParameter("duration", String.valueOf(Math.max(0L, durationMs)));
-            builder.appendQueryParameter("type", musicMode ? "music" : "video");
-            builder.appendQueryParameter("hasMDE", "1");
-            builder.appendQueryParameter("X-Plex-Token", timelineToken);
-            builder.appendQueryParameter("X-Plex-Client-Identifier",
-                    timelineClientId == null || timelineClientId.isEmpty() ? "streampilot-android" : timelineClientId);
-            builder.appendQueryParameter("X-Plex-Product", timelineProduct);
-            builder.appendQueryParameter("X-Plex-Version", timelineVersion);
-            builder.appendQueryParameter("X-Plex-Platform", timelinePlatform);
-            builder.appendQueryParameter("X-Plex-Device", timelineDevice);
-            builder.appendQueryParameter("X-Plex-Device-Name", timelineDeviceName);
-            builder.appendQueryParameter("X-Plex-Provides", "player,controller");
-            if (timelineSessionId != null && !timelineSessionId.isEmpty()) {
-                builder.appendQueryParameter("X-Plex-Session-Identifier", timelineSessionId);
-            }
-            String audioId = audioStreamId == null ? "" : audioStreamId.replaceAll("\\D", "");
-            if (!audioId.isEmpty()) builder.appendQueryParameter("audioStreamID", audioId);
-            String subId = subtitleStreamId == null ? "" : subtitleStreamId.replaceAll("\\D", "");
-            builder.appendQueryParameter("subtitleStreamID", subId.isEmpty() ? "0" : subId);
-            return builder.build().toString();
-        } catch (Throwable e) {
-            Log.w(TAG, "Plex timeline URL skipped", e);
-            return null;
-        }
-    }
-
-    @Nullable
-    private String buildPortalTimelineUrl() {
-        if (currentUrl == null || !currentUrl.contains("/api/media-player/")) return null;
-        try {
-            Uri parsed = Uri.parse(currentUrl);
-            if (parsed.getScheme() == null || parsed.getHost() == null) return null;
-            String origin = parsed.getScheme() + "://" + parsed.getHost();
-            if (parsed.getPort() != -1) origin += ":" + parsed.getPort();
-            return origin + "/api/media-player/timeline";
-        } catch (Throwable ignored) {
-            return null;
-        }
-    }
-
-    @Nullable
-    private String buildPortalTimelineBody(String state, long positionMs, long durationMs) {
-        try {
-            JSONObject body = new JSONObject();
-            body.put("ratingKey", ratingKey);
-            body.put("state", state);
-            body.put("timeMs", positionMs);
-            body.put("durationMs", Math.max(0L, durationMs));
-            if (timelineSessionId != null && !timelineSessionId.isEmpty()) {
-                body.put("sessionId", timelineSessionId);
-            }
-            if (audioStreamId != null && !audioStreamId.isEmpty()) body.put("audioStreamId", audioStreamId);
-            if (subtitleStreamId != null) body.put("subtitleStreamId", subtitleStreamId);
-            return body.toString();
-        } catch (Throwable ignored) {
-            return null;
-        }
-    }
-
-    private void httpPingTimeline(String url, @Nullable String body, String method) {
-        HttpURLConnection conn = null;
-        try {
-            conn = (HttpURLConnection) new URL(url).openConnection();
-            conn.setConnectTimeout(4_000);
-            conn.setReadTimeout(4_000);
-            conn.setInstanceFollowRedirects(true);
-            conn.setRequestMethod(method);
-            conn.setRequestProperty("Accept", "application/json, text/plain, */*");
-            conn.setRequestProperty("User-Agent", USER_AGENT);
-            if (timelineToken != null && !timelineToken.isEmpty()) {
-                conn.setRequestProperty("X-Plex-Token", timelineToken);
-            }
-            if (timelineClientId != null && !timelineClientId.isEmpty()) {
-                conn.setRequestProperty("X-Plex-Client-Identifier", timelineClientId);
-            }
-            if (timelineSessionId != null && !timelineSessionId.isEmpty()) {
-                conn.setRequestProperty("X-Plex-Session-Identifier", timelineSessionId);
-            }
-            conn.setRequestProperty("X-Plex-Product", timelineProduct);
-            conn.setRequestProperty("X-Plex-Device-Name", timelineDeviceName);
-            conn.setRequestProperty("X-Plex-Provides", "player,controller");
-            try {
-                String cookie = CookieManager.getInstance().getCookie(url);
-                if (cookie != null && !cookie.isEmpty()) conn.setRequestProperty("Cookie", cookie);
-            } catch (Throwable ignored) {
-                /* cookies optional for direct PMS */
-            }
-            if (body != null) {
-                byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
-                conn.setDoOutput(true);
-                conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
-                conn.setRequestProperty("X-Requested-With", "ServerManagerPortal");
-                try (OutputStream out = conn.getOutputStream()) {
-                    out.write(bytes);
-                }
-            }
-            conn.getResponseCode();
-        } catch (Throwable e) {
-            Log.w(TAG, "Plex timeline ping failed", e);
-        } finally {
-            if (conn != null) conn.disconnect();
-        }
+        queueTimelinePing(() -> timelineReporter.httpPing(portalUrl, body, "POST"), routine);
     }
 
     private void toggleChrome() {
@@ -2759,16 +5229,31 @@ public class PlayerActivity extends AppCompatActivity {
 
     private void setChromeVisible(boolean visible) {
         boolean wasHidden = chrome == null || chrome.getVisibility() != View.VISIBLE;
+        // A menu blocks focus on the controls while it is open. If one ever closed without
+        // undoing that, the cog and seek bar could not be reached again: undo it whenever the
+        // controls show with no menu up.
+        if (visible && !isOptionDialogShowing()) setChromeSubtreeFocusable(true);
         chromeVisible = visible;
         int vis = visible ? View.VISIBLE : View.GONE;
         if (chrome != null) chrome.setVisibility(vis);
+        // The cast strip is opened on demand: it never comes back with the controls by itself.
+        if (!visible && castPanel != null) castPanel.setVisibility(View.GONE);
         if (topBar != null) topBar.setVisibility(vis);
+        View topEnd = findViewById(R.id.player_top_end);
+        if (topEnd != null) topEnd.setVisibility(vis);
         setClockVisible(visible);
-        if (visible && wasHidden && playPauseBtn != null) {
-            playPauseBtn.requestFocus();
-        } else if (!visible && !isOptionDialogShowing()) {
-            View root = findViewById(R.id.player_root);
-            if (root != null) root.requestFocus();
+        if (visible && wasHidden && playPauseBtn != null && seekHoldDirection == 0) {
+            // Up-next owns the remote while visible — do not steal focus to Play/Pause.
+            // A seek-hold must keep the key, or the repeat is eaten as focus movement.
+            if (!isUpNextVisible()) playPauseBtn.requestFocus();
+        } else if (!visible && !isOptionDialogShowing() && seekHoldDirection == 0) {
+            // Same hold guard as show: hiding chrome mid-scrub must not CANCEL the SeekBar key.
+            if (isUpNextVisible()) {
+                focusUpNextControls();
+            } else if (!focusSkipChipIfVisible()) {
+                View root = findViewById(R.id.player_root);
+                if (root != null) root.requestFocus();
+            }
         }
     }
 
@@ -2785,8 +5270,8 @@ public class PlayerActivity extends AppCompatActivity {
         errorView.setVisibility(View.VISIBLE);
         setBufferingVisible(false);
         setChromeVisible(true);
-        View close = findViewById(R.id.player_close);
-        if (close != null) close.requestFocus();
+        // No close button any more (Back closes the player); keep the remote on the controls.
+        if (playPauseBtn != null) playPauseBtn.requestFocus();
     }
 
     private void hideError() {
@@ -2815,7 +5300,7 @@ public class PlayerActivity extends AppCompatActivity {
     private void bumpChrome() {
         setChromeVisible(true);
         mainHandler.removeCallbacks(hideChromeRunnable);
-        mainHandler.postDelayed(hideChromeRunnable, 5000);
+        mainHandler.postDelayed(hideChromeRunnable, controlsTimeoutMs);
     }
 
     private void restoreAvPrefs() {
@@ -2826,20 +5311,13 @@ public class PlayerActivity extends AppCompatActivity {
         repeatMode = prefs.getInt("repeatMode", repeatMode);
         if (ratingKey == null || ratingKey.isEmpty()) return;
         String key = prefsKey();
-        String savedAudio = prefs.getString(key + ":audio", null);
-        String savedSub = prefs.getString(key + ":sub", null);
-        String savedAudioLang = prefs.getString(key + ":audioLang", "");
-        String savedSubLang = prefs.getString(key + ":subLang", null);
-        String matchedAudio = matchTrackIdByLang(audioTracks, savedAudioLang);
-        if (matchedAudio != null) audioStreamId = matchedAudio;
-        if (savedSubLang != null) {
-            if (savedSubLang.isEmpty() || "off".equalsIgnoreCase(savedSubLang)) {
-                subtitleStreamId = "";
-            } else {
-                String matchedSub = matchTrackIdByLang(subtitles, savedSubLang);
-                if (matchedSub != null) subtitleStreamId = matchedSub;
-            }
+        if (prefs.contains(key + ":delay")) {
+            audioDelayMs = Math.max(0, Math.min(1000, prefs.getInt(key + ":delay", audioDelayMs)));
         }
+        // Audio and subtitles come from the session: the title page sends its pick, and the
+        // app already remembers in-player changes per title (writeAvChoiceFromTracks). Matching
+        // a saved language here overrode that pick every time, so a page choice was ignored
+        // and a title stuck on whatever was saved (the first track, after an earlier bug).
     }
 
     private void saveAvPrefs() {
@@ -2849,45 +5327,367 @@ public class PlayerActivity extends AppCompatActivity {
         prefs.edit()
             .putString(key + ":audio", audioStreamId == null ? "" : audioStreamId)
             .putString(key + ":sub", subtitleStreamId == null ? "" : subtitleStreamId)
-            .putString(key + ":audioLang", trackLangKey(labelFor(audioTracks, audioStreamId)))
+            .putString(key + ":audioLang", TrackRules.trackLangKey(labelFor(audioTracks, audioStreamId)))
             .putString(key + ":subLang", subtitleStreamId == null || subtitleStreamId.isEmpty()
                 ? "off"
-                : trackLangKey(labelFor(subtitles, subtitleStreamId)))
+                : TrackRules.trackLangKey(labelFor(subtitles, subtitleStreamId)))
+            .putInt(key + ":delay", audioDelayMs)
             .apply();
     }
 
-    private static String trackLangKey(String label) {
-        if (label == null) return "";
-        String text = label.trim().toLowerCase(Locale.US);
-        if (text.isEmpty()) return "";
-        int cut = text.length();
-        for (int i = 0; i < text.length(); i++) {
-            char ch = text.charAt(i);
-            if (ch == ' ' || ch == '·' || ch == '(' || ch == '|' || ch == '/') {
-                cut = i;
-                break;
-            }
-        }
-        return text.substring(0, cut).trim();
+    private void persistSleepPrefs() {
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+            .putLong("sleepUntil", sleepUntilElapsedRealtime)
+            .putBoolean("sleepEndOfEpisode", sleepEndOfEpisode)
+            .putInt("sleepEpisodesRemaining", sleepEpisodesRemaining)
+            .putBoolean("sleepEpisodeLimit", sleepEpisodeLimit)
+            .putBoolean("sleepAtCredits", sleepAtCredits)
+            .apply();
     }
 
-    private static String matchTrackIdByLang(List<OptionItem> tracks, String langKey) {
-        String want = trackLangKey(langKey);
-        if (want.isEmpty() || tracks == null || tracks.isEmpty()) return null;
-        for (OptionItem track : tracks) {
-            if (want.equals(trackLangKey(track.label))) return track.id;
+    private void restoreSleepPrefs() {
+        SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        sleepUntilElapsedRealtime = prefs.getLong("sleepUntil", 0);
+        if (sleepUntilElapsedRealtime > 0 && SystemClock.elapsedRealtime() >= sleepUntilElapsedRealtime) {
+            sleepUntilElapsedRealtime = 0;
+        }
+        sleepEndOfEpisode = prefs.getBoolean("sleepEndOfEpisode", false);
+        sleepEpisodesRemaining = prefs.getInt("sleepEpisodesRemaining", 0);
+        sleepEpisodeLimit = prefs.getBoolean("sleepEpisodeLimit", false);
+        sleepAtCredits = prefs.getBoolean("sleepAtCredits", false);
+    }
+
+    private void clearSleepPrefs() {
+        sleepUntilElapsedRealtime = 0;
+        sleepEndOfEpisode = false;
+        sleepEpisodesRemaining = 0;
+        sleepEpisodeLimit = false;
+        sleepAtCredits = false;
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+            .remove("sleepUntil")
+            .remove("sleepEndOfEpisode")
+            .remove("sleepEpisodesRemaining")
+            .remove("sleepEpisodeLimit")
+            .remove("sleepAtCredits")
+            .apply();
+    }
+
+    private void flashModeChip() {
+        updateModeChip();
+    }
+
+    /**
+     * Ask PMS what this HLS session transcodes (GET /transcode/sessions, JSON), then show it on
+     * the badge: "Transcoding video, audio, subs", or "Direct Stream" when everything is copied.
+     * A session can take a moment to appear, so it retries a few times.
+     */
+    private void refreshTranscodeDetail() {
+        final String url = currentUrl;
+        if (!PlaybackUrls.isTranscodeUrl(url) || url.equals(transcodeDetailUrl)) return;
+        transcodeDetailUrl = url;
+        transcodeDetail = "";
+        final int gen = ++transcodeDetailGen;
+        final Uri parsed;
+        try {
+            parsed = Uri.parse(url);
+        } catch (RuntimeException ignored) {
+            return;
+        }
+        final String token = firstNonEmpty(parsed.getQueryParameter("X-Plex-Token"), parsed.getQueryParameter("access_token"));
+        final String session = firstNonEmpty(parsed.getQueryParameter("session"), parsed.getQueryParameter("X-Plex-Session-Identifier"));
+        if (token.isEmpty() || session.isEmpty() || parsed.getScheme() == null || parsed.getAuthority() == null) return;
+        final String sessionsUrl = parsed.getScheme() + "://" + parsed.getAuthority()
+            + "/transcode/sessions?X-Plex-Token=" + Uri.encode(token);
+        fetchTranscodeDetail(sessionsUrl, session, gen, 0);
+    }
+
+    private void fetchTranscodeDetail(String sessionsUrl, String session, int gen, int attempt) {
+        TIMELINE_EXECUTOR.execute(() -> {
+            String label = null;
+            HttpURLConnection conn = null;
+            try {
+                conn = (HttpURLConnection) new URL(sessionsUrl).openConnection();
+                conn.setConnectTimeout(4000);
+                conn.setReadTimeout(4000);
+                conn.setRequestProperty("Accept", "application/json");
+                InputStream in = conn.getInputStream();
+                java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                in.close();
+                label = transcodeDetailLabel(new JSONObject(out.toString("UTF-8")), session);
+            } catch (Exception ignored) {
+                /* unknown: keep the generic badge */
+            } finally {
+                if (conn != null) conn.disconnect();
+            }
+            final String found = label;
+            mainHandler.post(() -> {
+                if (gen != transcodeDetailGen) return;
+                if (found != null) {
+                    transcodeDetail = found;
+                    updateModeChip();
+                } else if (attempt < 4) {
+                    mainHandler.postDelayed(() -> {
+                        if (gen == transcodeDetailGen) fetchTranscodeDetail(sessionsUrl, session, gen, attempt + 1);
+                    }, 2500);
+                }
+            });
+        });
+    }
+
+    /** Badge text for our session in a /transcode/sessions response, or null when it is not listed yet. */
+    @Nullable
+    private String transcodeDetailLabel(JSONObject root, String session) {
+        JSONObject container = root.optJSONObject("MediaContainer");
+        JSONArray rows = container == null ? null : container.optJSONArray("TranscodeSession");
+        if (rows == null) return null;
+        for (int i = 0; i < rows.length(); i++) {
+            JSONObject row = rows.optJSONObject(i);
+            if (row == null) continue;
+            String key = row.optString("key", "");
+            if (!key.endsWith("/" + session) && !key.equals(session)) continue;
+            List<String> parts = new ArrayList<>();
+            if ("transcode".equalsIgnoreCase(row.optString("videoDecision", ""))) parts.add(getString(R.string.player_transcode_video));
+            if ("transcode".equalsIgnoreCase(row.optString("audioDecision", ""))) parts.add(getString(R.string.player_transcode_audio));
+            String subs = row.optString("subtitleDecision", "");
+            if ("burn".equalsIgnoreCase(subs) || "transcode".equalsIgnoreCase(subs)) parts.add(getString(R.string.player_transcode_subs));
+            if (parts.isEmpty()) return getString(R.string.player_direct_stream);
+            return getString(R.string.player_transcoding_parts, TextUtils.join(", ", parts));
         }
         return null;
     }
 
-    private String prefsKey() {
-        return (showKey != null && !showKey.isEmpty()) ? ("show:" + showKey) : ("item:" + ratingKey);
+    private static String firstNonEmpty(@Nullable String a, @Nullable String b) {
+        if (a != null && !a.trim().isEmpty()) return a.trim();
+        if (b != null && !b.trim().isEmpty()) return b.trim();
+        return "";
     }
 
-    private boolean isTranscodeUrl(String url) {
-        if (url == null) return false;
-        String lower = url.toLowerCase(Locale.US);
-        return lower.contains(".m3u8") || lower.contains("/transcode/") || lower.contains("/hls/");
+    /** Persistent OSD badge: Direct Play / Direct Stream / Transcode (+ quality). */
+    private void updateModeChip() {
+        if (modeChipView == null) return;
+        refreshTranscodeDetail();
+        if (musicMode) {
+            modeChipView.setVisibility(View.GONE);
+            updateResolutionChip();
+            updateCodecChips();
+            updateSubtitleChip();
+            return;
+        }
+        String label = playbackModeLabel();
+        if (label == null || label.trim().isEmpty()) {
+            modeChipView.setVisibility(View.GONE);
+            updateResolutionChip();
+            updateCodecChips();
+            updateSubtitleChip();
+            return;
+        }
+        String quality = currentQualityLabel();
+        // Keep the pill short on the transport row — mode only; quality lives in Settings.
+        modeChipView.setText(label);
+        modeChipView.setVisibility(View.VISIBLE);
+        modeChipView.setContentDescription(quality.isEmpty() ? label : (label + " · " + quality));
+        updateResolutionChip();
+        updateCodecChips();
+        updateSubtitleChip();
+    }
+
+    /** Badge beside the delivery mode: resolution of the video actually playing (4K, 1080p, …). */
+    private void updateResolutionChip() {
+        if (resolutionChipView == null) return;
+        String label = musicMode || player == null ? "" : resolutionLabel(player.getVideoSize());
+        boolean modeShown = modeChipView != null && modeChipView.getVisibility() == View.VISIBLE;
+        if (label.isEmpty()) {
+            resolutionChipView.setVisibility(View.GONE);
+            return;
+        }
+        resolutionChipView.setText(label);
+        resolutionChipView.setVisibility(View.VISIBLE);
+        setChipStartMargin(resolutionChipView, modeShown);
+    }
+
+    /** Badges after resolution: the video and audio codecs actually playing (HEVC, EAC3 …). */
+    private void updateCodecChips() {
+        Format video = musicMode || player == null ? null : player.getVideoFormat();
+        Format audio = musicMode || player == null ? null : player.getAudioFormat();
+        setChip(videoCodecChipView, TrackRules.videoCodecBadge(video),
+            chipShown(modeChipView) || chipShown(resolutionChipView));
+        OptionItem row = musicMode ? null : findAudioOption(audioStreamId);
+        String audioLabel = TrackRules.audioCodecBadge(audio);
+        int channels = audio != null && audio.channelCount > 0 ? audio.channelCount : 0;
+        if (audioLabel.isEmpty() && row != null && row.codec != null && !row.codec.isEmpty()) {
+            // No decoder for it here (or not selected yet): name the Plex track we asked for.
+            audioLabel = TrackRules.audioCodecBadge(new Format.Builder().setCodecs(row.codec).build());
+            channels = 0;
+        }
+        if (channels <= 0 && row != null) channels = row.channels;
+        String layout = TrackRules.channelLayout(channels);
+        if (!audioLabel.isEmpty() && !layout.isEmpty()) audioLabel = audioLabel + " " + layout;
+        setChip(audioCodecChipView, audioLabel,
+            chipShown(modeChipView) || chipShown(resolutionChipView) || chipShown(videoCodecChipView));
+    }
+
+    private void setChip(@Nullable TextView chip, String label, boolean afterPrevious) {
+        if (chip == null) return;
+        if (label == null || label.isEmpty()) {
+            chip.setVisibility(View.GONE);
+            return;
+        }
+        chip.setText(label);
+        chip.setVisibility(View.VISIBLE);
+        setChipStartMargin(chip, afterPrevious);
+    }
+
+    private static boolean chipShown(@Nullable View chip) {
+        return chip != null && chip.getVisibility() == View.VISIBLE;
+    }
+
+    /** Badge after the codecs: SRT / PGS / … for the subtitle currently in use. Hidden when Off. */
+    private void updateSubtitleChip() {
+        if (subtitleChipView == null) return;
+        boolean modeShown = chipShown(modeChipView);
+        boolean resolutionShown = chipShown(resolutionChipView)
+            || chipShown(videoCodecChipView) || chipShown(audioCodecChipView);
+        String label = musicMode ? "" : currentSubtitleFormatBadge();
+        if (label.isEmpty()) {
+            subtitleChipView.setVisibility(View.GONE);
+            return;
+        }
+        subtitleChipView.setText(label);
+        subtitleChipView.setVisibility(View.VISIBLE);
+        setChipStartMargin(subtitleChipView, modeShown || resolutionShown);
+    }
+
+    private String currentSubtitleFormatBadge() {
+        if (subtitleStreamId == null || subtitleStreamId.isEmpty() || "0".equals(subtitleStreamId)) return "";
+        OptionItem row = findSubtitleOption(subtitleStreamId);
+        String codec = row != null ? row.codec : "";
+        if ((codec == null || codec.isEmpty()) && sidecarSubtitleUrl != null && !sidecarSubtitleUrl.isEmpty()) {
+            codec = sidecarSubtitleCodec;
+        }
+        String trackLabel = row != null ? row.label : "";
+        return TrackRules.subtitleFormatBadge(codec, trackLabel);
+    }
+
+    private void setChipStartMargin(@Nullable View view, boolean afterPrevious) {
+        if (view == null) return;
+        ViewGroup.LayoutParams params = view.getLayoutParams();
+        if (!(params instanceof ViewGroup.MarginLayoutParams)) return;
+        int start = afterPrevious ? Math.round(8 * getResources().getDisplayMetrics().density) : 0;
+        ((ViewGroup.MarginLayoutParams) params).setMarginStart(start);
+        view.setLayoutParams(params);
+    }
+
+    /** Wide frames (1920x800 scope) go by width, 4:3 HD (1440x1080) by height. */
+    static String resolutionLabel(@Nullable VideoSize size) {
+        if (size == null || size.width <= 0 || size.height <= 0) return "";
+        int w = size.width;
+        int h = size.height;
+        if (w >= 3200 || h >= 1800) return "4K";
+        if (w >= 2200 || h >= 1300) return "1440p";
+        if (w >= 1700 || h >= 900) return "1080p";
+        if (w >= 1100 || h >= 650) return "720p";
+        if (h >= 540) return "576p";
+        return "SD";
+    }
+
+    @Nullable
+    private String nextLowerQualityId() {
+        String current = qualityId == null || qualityId.isEmpty() ? "original" : qualityId.trim();
+        int idx = -1;
+        for (int i = 0; i < QUALITY_LADDER.length; i++) {
+            if (QUALITY_LADDER[i].equalsIgnoreCase(current)) {
+                idx = i;
+                break;
+            }
+        }
+        if (idx < 0) {
+            // Unknown / auto — first step down from original.
+            return "1080-12";
+        }
+        if (idx >= QUALITY_LADDER.length - 1) return null;
+        return QUALITY_LADDER[idx + 1];
+    }
+
+    private String qualityLadderLabel(String id) {
+        if (id == null || id.isEmpty()) return "";
+        for (OptionItem row : qualities) {
+            if (id.equals(row.id)) return row.label;
+        }
+        if ("original".equalsIgnoreCase(id)) return getString(R.string.player_direct_play);
+        return id.replace("-", " · ");
+    }
+
+    private void maybeQualityNudge() {
+        if (musicMode || player == null) return;
+        if (qualityNudgeOffered && !autoQuality) return;
+        // A seek buffer is not a reason to drop quality or start a transcode.
+        if (seekingUi || android.os.SystemClock.elapsedRealtime() - lastSeekAtMs < 12_000) {
+            bufferingStreakSec = 0;
+            return;
+        }
+        if (streamSwapInFlight || userPaused || !player.getPlayWhenReady()
+            || player.getPlaybackState() != Player.STATE_BUFFERING) {
+            bufferingStreakSec = 0;
+            return;
+        }
+        bufferingStreakSec += 1;
+        if (autoQuality) {
+            maybeAutoLowerQuality();
+            return;
+        }
+        if (bufferingStreakSec < 10) return;
+        String next = nextLowerQualityId();
+        if (next == null || next.equalsIgnoreCase(qualityId)) {
+            qualityNudgeOffered = true;
+            return;
+        }
+        qualityNudgeOffered = true;
+        bufferingStreakSec = 0;
+        final String dropTo = next;
+        String label = qualityLadderLabel(dropTo);
+        String[] choices = {
+            getString(R.string.player_quality_nudge_yes),
+            getString(R.string.player_quality_nudge_no),
+        };
+        toast(getString(R.string.player_quality_nudge_body, label));
+        showOptionSheet(
+            getString(R.string.player_quality_nudge_title),
+            choices,
+            0,
+            which -> {
+                if (which != 0) return;
+                qualityId = dropTo;
+                updateChipLabels();
+                flashModeChip();
+                requestStreamChange(dropTo, audioStreamId, subtitleStreamId, mediaIndex);
+            }
+        );
+    }
+
+    /**
+     * Auto-lower quality: after ~6s stuck buffering, drop one step on the ladder without
+     * asking. A cooldown lets the new stream settle before it can step down again.
+     */
+    private void maybeAutoLowerQuality() {
+        if (bufferingStreakSec < 6) return;
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (lastAutoQualityDropAt > 0 && now - lastAutoQualityDropAt < AUTO_QUALITY_COOLDOWN_MS) return;
+        String next = nextLowerQualityId();
+        if (next == null || next.equalsIgnoreCase(qualityId)) return;
+        lastAutoQualityDropAt = now;
+        bufferingStreakSec = 0;
+        qualityId = next;
+        updateChipLabels();
+        flashModeChip();
+        toast(getString(R.string.player_quality_auto_lowered, qualityLadderLabel(next)));
+        requestStreamChange(next, audioStreamId, subtitleStreamId, mediaIndex);
+    }
+
+    private String prefsKey() {
+        return (showKey != null && !showKey.isEmpty()) ? ("show:" + showKey) : ("item:" + ratingKey);
     }
 
     private long contentPositionMs() {
@@ -2904,10 +5704,9 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private boolean shouldRestartForSeek() {
-        // A transcode playlist is a live window. Seeking inside it 404s.
-        if (isTranscodeUrl(currentUrl)) return true;
-        if (player == null) return false;
-        return player.getPlaybackState() == Player.STATE_READY && !player.isCurrentMediaItemSeekable();
+        // Direct Play seeks inside the open file. Rebuilding the session on each
+        // scrub starts another transcode and is what takes the server down.
+        return PlaybackUrls.isTranscodeUrl(currentUrl);
     }
 
     /**
@@ -2915,7 +5714,7 @@ public class PlayerActivity extends AppCompatActivity {
      * Adding that same offset again shows 58:14 when the title was stopped at 29:07.
      */
     private void reconcileTranscodeOrigin() {
-        if (transcodeAnchorMs < 5000 || player == null || !isTranscodeUrl(currentUrl)) return;
+        if (transcodeAnchorMs < 5000 || player == null || !PlaybackUrls.isTranscodeUrl(currentUrl)) return;
         long playerPos = Math.max(0, player.getCurrentPosition());
         long anchor = transcodeAnchorMs;
         if (playerPos + 3000 < anchor) return;
@@ -2937,6 +5736,14 @@ public class PlayerActivity extends AppCompatActivity {
         mainHandler.postDelayed(clearSwapRunnable, 8000);
     }
 
+    /** Apply a seek that only updated pendingTranscodeSeekMs while a swap was in flight. */
+    private void flushPendingTranscodeSeek() {
+        if (pendingTranscodeSeekMs < 0 || !shouldRestartForSeek() || finishing) return;
+        if (streamSwapInFlight) return;
+        mainHandler.removeCallbacks(transcodeSeekRunnable);
+        mainHandler.postDelayed(transcodeSeekRunnable, 80);
+    }
+
     private boolean isSeekIoError(PlaybackException error) {
         int code = error.errorCode;
         return code == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS
@@ -2950,12 +5757,36 @@ public class PlayerActivity extends AppCompatActivity {
      */
     private boolean trySeekRecovery(PlaybackException error) {
         if (!isSeekIoError(error)) return false;
-        if (streamSwapInFlight) return true;
-        if (seekRecoveryUsed || lastSeekTargetMs < 0 || player == null) return false;
-        if (android.os.SystemClock.elapsedRealtime() - lastSeekAtMs > 8000) return false;
-        seekRecoveryUsed = true;
+        if (streamSwapInFlight && PlaybackUrls.isTranscodeUrl(currentUrl)) return true;
+        if (lastSeekTargetMs < 0 || player == null) return false;
+        if (android.os.SystemClock.elapsedRealtime() - lastSeekAtMs > 12000) return false;
         playbackError = false;
         hideError();
+        if (!PlaybackUrls.isTranscodeUrl(currentUrl)) {
+            // Stay on the file already open. A second session is what crashes PMS.
+            if (!seekRecoveryUsed) {
+                seekRecoveryUsed = true;
+                long target = Math.max(0, lastSeekTargetMs - timelineOriginMs);
+                player.setSeekParameters(SeekParameters.CLOSEST_SYNC);
+                player.seekTo(target);
+                try {
+                    player.prepare();
+                } catch (Throwable ignored) {
+                    /* already prepared */
+                }
+                if (!userPaused) {
+                    player.setPlayWhenReady(true);
+                    try {
+                        player.play();
+                    } catch (Throwable ignored) {
+                        /* ignore */
+                    }
+                }
+            }
+            return true;
+        }
+        if (seekRecoveryUsed) return true;
+        seekRecoveryUsed = true;
         long target = lastSeekTargetMs;
         scrubTargetMs = target;
         scrubHoldUntilMs = android.os.SystemClock.elapsedRealtime() + 8000;
@@ -2977,7 +5808,7 @@ public class PlayerActivity extends AppCompatActivity {
             seekBar.setProgress((int) Math.min(1000, Math.max(0, (target * 1000L) / duration)));
         }
         if (timeView != null) {
-            timeView.setText(formatClock(target) + " / " + formatClock(Math.max(0, duration)));
+            setTimeLabels(target, Math.max(0, duration));
         }
         bumpChrome();
         if (shouldRestartForSeek()) {
@@ -2985,7 +5816,8 @@ public class PlayerActivity extends AppCompatActivity {
             pendingTranscodeSeekMs = target;
             mainHandler.removeCallbacks(transcodeSeekRunnable);
             // Never stack stream rebuilds while one is in flight — that mints ghost
-            // Now Playing sessions on PMS. Coalesce to the latest target instead.
+            // Now Playing sessions on PMS. Coalesce to the latest target; clearSwapRunnable
+            // (or applyUpdateSrc) starts the rebuild once the current swap finishes.
             if (streamSwapInFlight) return;
             // Debounce even "immediate" scrub releases so rapid seeks share one restart.
             mainHandler.postDelayed(transcodeSeekRunnable, immediate ? 180 : 400);
@@ -2997,11 +5829,24 @@ public class PlayerActivity extends AppCompatActivity {
         else mainHandler.postDelayed(directSeekRunnable, 200);
     }
 
+    /** Seek the already-open file to the resume point. One arm only. */
+    private void armPlayThenSeek() {
+        if (player == null || finishing || userPaused) return;
+        if (playThenSeekMs <= 1500 || playThenSeekArmed) return;
+        playThenSeekArmed = true;
+        mainHandler.removeCallbacks(playThenSeekRunnable);
+        mainHandler.postDelayed(playThenSeekRunnable, 350);
+    }
+
     private void queueStartPosition(String url, long offsetMs) {
         if (player == null) return;
         MediaItem item = buildMediaItem(url);
         long start = Math.max(0, offsetMs);
-        if (isTranscodeUrl(url)) {
+        if (PlaybackUrls.isTranscodeUrl(url)) {
+            playThenSeekMs = -1;
+            playThenSeekArmed = false;
+            resumeFrameSeen = false;
+            mainHandler.removeCallbacks(playThenSeekRunnable);
             timelineOriginMs = start;
             transcodeAnchorMs = start;
             player.setMediaItem(item);
@@ -3009,22 +5854,44 @@ public class PlayerActivity extends AppCompatActivity {
         }
         timelineOriginMs = 0;
         transcodeAnchorMs = 0;
+        playThenSeekMs = -1;
+        playThenSeekArmed = false;
+        resumeFrameSeen = false;
+        mainHandler.removeCallbacks(playThenSeekRunnable);
+        // One range, at the resume offset. Opening at 0 and then seeking aborts
+        // that read and starts another; the player then treats the glitch as a
+        // failed Direct Play and opens a transcode on top of it. That second
+        // session is what crashes PMS.
         if (start > 0) player.setMediaItem(item, start);
         else player.setMediaItem(item);
     }
 
+    private static String sidecarSubtitleMime(String url, String codec) {
+        String lowerUrl = url == null ? "" : url.toLowerCase(Locale.US);
+        String c = codec == null ? "" : codec.toLowerCase(Locale.US);
+        if (lowerUrl.contains(".vtt") || c.equals("vtt") || c.equals("webvtt")) return MimeTypes.TEXT_VTT;
+        if (c.equals("ass") || c.equals("ssa")) return MimeTypes.TEXT_SSA;
+        if (c.contains("pgs") || lowerUrl.contains(".sup")) return MimeTypes.APPLICATION_PGS;
+        if (c.contains("vob") || c.contains("dvd")) return MimeTypes.APPLICATION_VOBSUB;
+        if (c.contains("dvb")) return MimeTypes.APPLICATION_DVBSUBS;
+        return MimeTypes.APPLICATION_SUBRIP;
+    }
+
     private MediaItem buildMediaItem(String url) {
-        MediaItem.Builder builder = new MediaItem.Builder().setUri(Uri.parse(url));
+        MediaItem.Builder builder = new MediaItem.Builder()
+            .setUri(Uri.parse(url))
+            .setMediaId(url + "|" + System.nanoTime())
+            .setMediaMetadata(sessionMetadata());
         String lower = url.toLowerCase(Locale.US);
         if (lower.contains(".m3u8") || lower.contains("/hls/")) {
             builder.setMimeType(MimeTypes.APPLICATION_M3U8);
         }
         if (sidecarSubtitleUrl != null && !sidecarSubtitleUrl.trim().isEmpty()) {
-            String mime = sidecarSubtitleUrl.toLowerCase(Locale.US).contains(".vtt")
-                ? MimeTypes.TEXT_VTT
-                : MimeTypes.APPLICATION_SUBRIP;
+            String codec = sidecarSubtitleCodec == null ? "" : sidecarSubtitleCodec.toLowerCase(Locale.US);
+            String mime = sidecarSubtitleMime(sidecarSubtitleUrl, codec);
             builder.setSubtitleConfigurations(Collections.singletonList(
                 new MediaItem.SubtitleConfiguration.Builder(Uri.parse(sidecarSubtitleUrl))
+                    .setId(SIDECAR_TEXT_ID)
                     .setMimeType(mime)
                     .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
                     .build()
@@ -3033,12 +5900,17 @@ public class PlayerActivity extends AppCompatActivity {
         return builder.build();
     }
 
+    private MediaMetadata sessionMetadata() {
+        return PlayerSessionController.metadata(titleText, subtitleText, artUrl);
+    }
+
     /**
      * ExoPlayer reports ERROR_CODE_IO_BAD_HTTP_STATUS when the portal returns JSON
      * (409 Direct Play refused, 502 transcode). Switch file→HLS, then Original→1080p.
      * plexDirect Direct Play uses /library/parts/ — rewrite that to a PMS HLS session.
      */
     private boolean tryStreamFallback(PlaybackException error) {
+        if (liveStream) return false;
         int code = error.errorCode;
         boolean io = code == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS
             || code == PlaybackException.ERROR_CODE_IO_UNSPECIFIED
@@ -3048,162 +5920,44 @@ public class PlayerActivity extends AppCompatActivity {
             || code == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED
             || code == PlaybackException.ERROR_CODE_DECODING_FAILED;
         if (!io || currentUrl == null || currentUrl.isEmpty()) return false;
+        // Direct Play stays on the open file. A decoder or seek glitch must not
+        // open /video/:/transcode/universal/start.m3u8 — that second session
+        // crashes PMS. Only an HTTP refusal (the server rejected the file) may
+        // move to HLS, and applyUpdateSrc stops the file read first.
+        if (!PlaybackUrls.isTranscodeUrl(currentUrl) && code != PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS) {
+            return false;
+        }
         String next = null;
         if (currentUrl.contains("/library/parts/") && streamFallbackStage < 1) {
             streamFallbackStage = 1;
             next = partsUrlToPmsHls(currentUrl, ratingKey, mediaIndex, contentPositionMs());
         } else if (currentUrl.contains("/file/") && streamFallbackStage < 1) {
             streamFallbackStage = 1;
-            next = fileUrlToHls(currentUrl);
+            next = PlaybackUrls.fileUrlToHls(currentUrl);
         } else if ((currentUrl.contains("/hls/") || currentUrl.contains(".m3u8")) && streamFallbackStage < 2) {
             streamFallbackStage = 2;
-            next = withHlsQuality(currentUrl, "1080-12");
+            next = PlaybackUrls.withHlsQuality(currentUrl, "1080-12");
         }
         // Already on a PMS transcode playlist with nowhere left to go.
         if (next == null && currentUrl.contains("/video/:/transcode/")) return false;
         if (next == null || next.equals(currentUrl)) return false;
-        Log.w(TAG, "Stream fallback → " + summarizeUrl(next));
+        Log.w(TAG, "Stream fallback → " + PlaybackUrls.summarizeUrl(next));
         long offset = contentPositionMs();
         applyUpdateSrc(next, headersJson, offset, false);
         return true;
     }
 
-    /**
-     * Build a PMS universal HLS URL from a failed Direct Play /library/parts/ stream.
-     * Uses timeline credentials when present; otherwise pulls token/host from the part URL.
-     */
+    /** Direct Play fallback to PMS HLS with this session's timeline credentials. See PlaybackUrls. */
+    @Nullable
     private String partsUrlToPmsHls(String partUrl, String key, int mediaIdx, long offsetMs) {
-        if (key == null || key.trim().isEmpty()) return null;
-        try {
-            Uri part = Uri.parse(partUrl);
-            String origin = timelineOrigin != null ? timelineOrigin.trim().replaceAll("/+$", "") : "";
-            if (origin.isEmpty()) {
-                String scheme = part.getScheme();
-                String authority = part.getAuthority();
-                if (scheme == null || authority == null) return null;
-                origin = scheme + "://" + authority;
-            }
-            String token = timelineToken != null ? timelineToken.trim() : "";
-            if (token.isEmpty()) {
-                token = part.getQueryParameter("X-Plex-Token");
-                if (token == null || token.isEmpty()) token = part.getQueryParameter("access_token");
-            }
-            if (token == null || token.isEmpty()) return null;
-            String clientId = timelineClientId != null && !timelineClientId.isEmpty()
-                ? timelineClientId
-                : part.getQueryParameter("X-Plex-Client-Identifier");
-            if (clientId == null || clientId.isEmpty()) clientId = "streampilot-android";
-            String sessionId = timelineSessionId != null && !timelineSessionId.isEmpty()
-                ? timelineSessionId
-                : part.getQueryParameter("X-Plex-Session-Identifier");
-            if (sessionId == null || sessionId.isEmpty()) {
-                sessionId = part.getQueryParameter("session");
-            }
-            if (sessionId == null || sessionId.isEmpty()) sessionId = "smp-fb-" + System.currentTimeMillis();
-            Uri.Builder builder = Uri.parse(origin + "/video/:/transcode/universal/start.m3u8").buildUpon();
-            builder.appendQueryParameter("hasMDE", "1");
-            builder.appendQueryParameter("path", "/library/metadata/" + key.trim());
-            builder.appendQueryParameter("mediaIndex", String.valueOf(Math.max(0, mediaIdx)));
-            builder.appendQueryParameter("partIndex", "0");
-            builder.appendQueryParameter("protocol", "hls");
-            builder.appendQueryParameter("fastSeek", "1");
-            builder.appendQueryParameter("directPlay", "0");
-            builder.appendQueryParameter("directStream", "1");
-            builder.appendQueryParameter("directStreamAudio", "1");
-            // Accept EAC3/AC3 on remux like official Plex — do not force AAC convert.
-            builder.appendQueryParameter("audioCodec", "aac,mp3,ac3,eac3,eac3_joc,flac,opus,mp4a");
-            builder.appendQueryParameter("subtitleSize", "0");
-            builder.appendQueryParameter("subtitles", "none");
-            builder.appendQueryParameter("advancedSubtitles", "none");
-            builder.appendQueryParameter("subtitleStreamID", "0");
-            builder.appendQueryParameter("audioBoost", "100");
-            builder.appendQueryParameter("videoQuality", "100");
-            builder.appendQueryParameter("videoResolution", "3840x2160");
-            builder.appendQueryParameter("maxVideoBitrate", "200000");
-            builder.appendQueryParameter("session", sessionId);
-            builder.appendQueryParameter("X-Plex-Platform", "Android");
-            builder.appendQueryParameter("X-Plex-Product", "StreamPilot");
-            builder.appendQueryParameter("X-Plex-Device", "Android TV");
-            builder.appendQueryParameter("X-Plex-Client-Identifier", clientId);
-            builder.appendQueryParameter("X-Plex-Session-Identifier", sessionId);
-            builder.appendQueryParameter("X-Plex-Token", token);
-            builder.appendQueryParameter("access_token", token);
-            if (offsetMs > 0) {
-                builder.appendQueryParameter("offset", String.valueOf(Math.max(0, offsetMs / 1000L)));
-            }
-            if (audioStreamId != null && !audioStreamId.isEmpty() && audioStreamId.matches("\\d+")) {
-                builder.appendQueryParameter("audioStreamID", audioStreamId);
-            }
-            return builder.build().toString();
-        } catch (Throwable ignored) {
-            return null;
-        }
-    }
-
-    static String fileUrlToHls(String url) {
-        String next = url.replaceFirst("/file/(\\d+)", "/hls/$1/master.m3u8");
-        if (next.equals(url)) return url;
-        Uri uri = Uri.parse(next);
-        Uri.Builder builder = uri.buildUpon().clearQuery();
-        for (String key : uri.getQueryParameterNames()) {
-            if ("hevc".equals(key) || "ac3".equals(key) || "client".equals(key)
-                || "textSubs".equals(key) || "download".equals(key)) {
-                continue;
-            }
-            String value = uri.getQueryParameter(key);
-            if (value != null) builder.appendQueryParameter(key, value);
-        }
-        if (uri.getQueryParameter("quality") == null) {
-            builder.appendQueryParameter("quality", "original");
-        }
-        return builder.build().toString();
-    }
-
-    static String withHlsQuality(String url, String qualityId) {
-        Uri uri = Uri.parse(url);
-        Uri.Builder builder = uri.buildUpon().clearQuery();
-        boolean wroteQuality = false;
-        for (String key : uri.getQueryParameterNames()) {
-            if ("quality".equals(key)) {
-                builder.appendQueryParameter("quality", qualityId);
-                wroteQuality = true;
-                continue;
-            }
-            String value = uri.getQueryParameter(key);
-            if (value != null) builder.appendQueryParameter(key, value);
-        }
-        if (!wroteQuality) builder.appendQueryParameter("quality", qualityId);
-        String next = builder.build().toString();
-        if (qualityId.equals(uri.getQueryParameter("quality"))) return url;
-        return next;
-    }
-
-    private static String summarizeUrl(String url) {
-        try {
-            Uri uri = Uri.parse(url);
-            return uri.getScheme() + "://" + uri.getHost() + uri.getPath();
-        } catch (Throwable ignored) {
-            return "(invalid)";
-        }
-    }
-
-    private Map<String, String> parseHeaders(@Nullable String json) {
-        Map<String, String> headers = new HashMap<>();
-        if (json == null || json.trim().isEmpty()) return headers;
-        try {
-            JSONObject obj = new JSONObject(json);
-            Iterator<String> keys = obj.keys();
-            while (keys.hasNext()) {
-                String key = keys.next();
-                String value = obj.optString(key, "");
-                if (key != null && !key.isEmpty() && value != null && !value.isEmpty()) {
-                    headers.put(key, value);
-                }
-            }
-        } catch (Exception ignored) {
-            /* keep empty */
-        }
-        return headers;
+        OptionItem sub = findSubtitleOption(subtitleStreamId);
+        boolean burnImage = sub != null && TrackRules.isImageSubtitle(sub.codec);
+        return PlaybackUrls.partsUrlToPmsHls(
+            partUrl, key, mediaIdx, offsetMs,
+            timelineReporter.origin, timelineReporter.token, timelineReporter.clientId,
+            timelineReporter.sessionId, audioStreamId,
+            subtitleStreamId, burnImage
+        );
     }
 
     private static String formatClock(long ms) {
@@ -3218,12 +5972,11 @@ public class PlayerActivity extends AppCompatActivity {
     private void updateWallClock() {
         if (clockView == null) return;
         Calendar cal = Calendar.getInstance();
-        String label = String.format(
-            Locale.US,
-            "%02d:%02d",
-            cal.get(Calendar.HOUR_OF_DAY),
-            cal.get(Calendar.MINUTE)
-        );
+        int hour = cal.get(Calendar.HOUR);
+        if (hour == 0) hour = 12;
+        int minute = cal.get(Calendar.MINUTE);
+        String amPm = cal.get(Calendar.AM_PM) == Calendar.AM ? "AM" : "PM";
+        String label = String.format(Locale.US, "%d:%02d %s", hour, minute, amPm);
         if (label.equals(lastClockLabel)) return;
         lastClockLabel = label;
         clockView.setText(label);
@@ -3235,7 +5988,7 @@ public class PlayerActivity extends AppCompatActivity {
 
     private void setClockVisible(boolean visible) {
         if (clockView == null) return;
-        clockView.setVisibility(visible && !inPictureInPicture() ? View.VISIBLE : View.GONE);
+        clockView.setVisibility(visible && showClock && !inPictureInPicture() ? View.VISIBLE : View.GONE);
     }
 
     @Override
@@ -3253,7 +6006,88 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void finishForPlayNext() {
+        if (nextRatingKey == null || nextRatingKey.isEmpty()) return;
+        if (shouldStopForSleepEpisodes()) {
+            clearSleepPrefs();
+            finishWithResult(true, false);
+            return;
+        }
+        persistSleepPrefs();
         finishWithResult(true, true);
+    }
+
+    private void finishForPlayPrevious() {
+        if (previousRatingKey == null || previousRatingKey.isEmpty()) return;
+        finishWithResult(false, false, true);
+    }
+
+    private void applyEpisodeNavButtons() {
+        boolean hasPrev = previousRatingKey != null && !previousRatingKey.isEmpty();
+        boolean hasNext = nextRatingKey != null && !nextRatingKey.isEmpty();
+        if (prevEpisodeBtn != null) {
+            prevEpisodeBtn.setVisibility(hasPrev ? View.VISIBLE : View.GONE);
+            prevEpisodeBtn.setEnabled(hasPrev);
+        }
+        if (nextEpisodeBtn != null) {
+            nextEpisodeBtn.setVisibility(hasNext ? View.VISIBLE : View.GONE);
+            nextEpisodeBtn.setEnabled(hasNext);
+        }
+        if (playPauseBtn != null) {
+            playPauseBtn.setNextFocusLeftId(hasPrev ? R.id.player_prev_episode : View.NO_ID);
+            playPauseBtn.setNextFocusRightId(hasNext ? R.id.player_next_episode : R.id.player_settings);
+        }
+        if (settingsBtn != null) {
+            settingsBtn.setNextFocusLeftId(hasNext ? R.id.player_next_episode : R.id.player_play_pause);
+        }
+    }
+
+    private void readUserPreferences(@Nullable Intent intent) {
+        if (intent == null) return;
+        seekBackMs = clampSeconds(intent.getIntExtra(EXTRA_SEEK_BACK_SEC, 10), 5, 60, 10) * 1000L;
+        seekForwardMs = clampSeconds(intent.getIntExtra(EXTRA_SEEK_FORWARD_SEC, 10), 5, 60, 10) * 1000L;
+        controlsTimeoutMs = clampSeconds(intent.getIntExtra(EXTRA_CONTROLS_TIMEOUT_SEC, 5), 3, 15, 5) * 1000L;
+        showClock = intent.getBooleanExtra(EXTRA_SHOW_CLOCK, true);
+    }
+
+    private static int clampSeconds(int value, int min, int max, int fallback) {
+        return value < min || value > max ? fallback : value;
+    }
+
+    private void applyAccentOverlay(@Nullable String accent) {
+        int style;
+        switch (accent == null ? "" : accent) {
+            case "orange": style = R.style.PlayerAccent_Orange; break;
+            case "red": style = R.style.PlayerAccent_Red; break;
+            case "pink": style = R.style.PlayerAccent_Pink; break;
+            case "purple": style = R.style.PlayerAccent_Purple; break;
+            case "blue": style = R.style.PlayerAccent_Blue; break;
+            case "teal": style = R.style.PlayerAccent_Teal; break;
+            case "green": style = R.style.PlayerAccent_Green; break;
+            case "white": style = R.style.PlayerAccent_White; break;
+            default: return; // gold: PlayerTheme already carries it
+        }
+        getTheme().applyStyle(style, true);
+    }
+
+    /**
+     * Live TV channel change. JS tunes the new channel and swaps it in with updateSrc;
+     * the old stream stops now, so the tuner is free and its end is not shown as an error.
+     */
+    void liveChannelStep(int direction) {
+        if (!liveStream || player == null) return;
+        errorGeneration++;
+        playbackError = false;
+        hideError();
+        try {
+            player.stop();
+        } catch (Throwable ignored) {
+            /* best-effort: the swap replaces the item anyway */
+        }
+        // OSD stays hidden so the next Up/Down keeps changing channel.
+        toast(getString(direction > 0 ? R.string.player_channel_up : R.string.player_channel_down));
+        JSObject data = new JSObject();
+        data.put("direction", direction > 0 ? 1 : -1);
+        PlayerBridge.get().emit("liveChannel", data);
     }
 
     private void requestPlayNextWithoutFinish() {
@@ -3311,10 +6145,16 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void finishWithResult(boolean ended, boolean playNext) {
+        finishWithResult(ended, playNext, false);
+    }
+
+    private void finishWithResult(boolean ended, boolean playNext, boolean playPrevious) {
         if (finishing) return;
         finishing = true;
+        cancelWhoIsOnScreen();
         mainHandler.removeCallbacks(tickRunnable);
         mainHandler.removeCallbacks(progressEmitRunnable);
+        mainHandler.removeCallbacks(frameRateResyncRunnable);
         hideStatsOverlay();
         mainHandler.removeCallbacks(hideChromeRunnable);
         long positionMs = 0L;
@@ -3330,27 +6170,42 @@ public class PlayerActivity extends AppCompatActivity {
         boolean endedOut = ended || playbackEnded;
         boolean errorOut = playbackError && !ended && !playbackEnded;
 
+        boolean markWatched = shouldMarkWatched(positionMs, endedOut);
+        // Mark watched once: PMS already did if it accepted a timeline past the threshold.
+        boolean watchedHandled = markWatched && (serverMarkedWatched() || scrobbleWatched());
         JSObject closed = new JSObject();
         closed.put("ended", endedOut);
+        closed.put("watchedHandled", watchedHandled);
         closed.put("positionMs", positionMs);
         closed.put("error", errorOut);
         closed.put("playNext", playNext);
         if (playNext && nextRatingKey != null && !nextRatingKey.isEmpty()) {
             closed.put("nextRatingKey", nextRatingKey);
         }
+        closed.put("playPrevious", playPrevious);
+        if (playPrevious && previousRatingKey != null && !previousRatingKey.isEmpty()) {
+            closed.put("previousRatingKey", previousRatingKey);
+        }
+        if (openPersonJson != null) closed.put("openPerson", openPersonJson);
         PlayerBridge.get().setPlayerForeground(false);
         PlayerBridge.get().keepHostWebViewAlive();
         PlayerBridge.get().emit("closed", closed);
-        if (shouldMarkWatched(positionMs, endedOut)) {
-            scrobbleWatched();
+        if (markWatched) {
             pingPlexTimeline("stopped", 0L);
         } else {
             pingPlexTimeline("stopped");
         }
 
-        // Do not detach PlayerView here. Clearing the surface while this activity
-        // is still foreground flashes a black frame on TV before the overview
-        // returns. onDestroy detaches/releases the player.
+        // Hide the surface immediately so the WebView behind is visible while
+        // Android tears this activity down — otherwise the user sees a lingering
+        // black screen for up to a second on TV.
+        PlayerView playerView = findViewById(R.id.player_view);
+        if (playerView != null) playerView.setVisibility(View.GONE);
+        View root = findViewById(android.R.id.content);
+        if (root != null) root.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+        try {
+            getWindow().getDecorView().setBackgroundColor(android.graphics.Color.TRANSPARENT);
+        } catch (Throwable ignored) { /* ignore */ }
 
         Intent data = new Intent();
         data.putExtra(EXTRA_ENDED, endedOut);
@@ -3360,12 +6215,18 @@ public class PlayerActivity extends AppCompatActivity {
         if (playNext && nextRatingKey != null) {
             data.putExtra(EXTRA_NEXT_RATING_KEY, nextRatingKey);
         }
+        data.putExtra(EXTRA_PLAY_PREVIOUS, playPrevious);
+        if (playPrevious && previousRatingKey != null) {
+            data.putExtra(EXTRA_PREVIOUS_RATING_KEY, previousRatingKey);
+        }
+        data.putExtra(EXTRA_WATCHED_HANDLED, watchedHandled);
+        if (openPersonJson != null) data.putExtra(EXTRA_OPEN_PERSON, openPersonJson);
         setResult(RESULT_OK, data);
 
-        // Movies / last episodes (no next): bring the WebView host forward first
-        // so the details/overview paints immediately instead of sitting on the
-        // black player window during teardown.
-        if (!playNext && !musicMode) {
+        // Always bring the WebView host forward before teardown — including
+        // autoplay-next — so binge chains are not stuck on a black player
+        // window while JS starts the next episode (Back was dead during that gap).
+        if (!musicMode) {
             try {
                 Intent home = new Intent(this, MainActivity.class);
                 home.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
@@ -3385,163 +6246,25 @@ public class PlayerActivity extends AppCompatActivity {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
-        int keyCode = event.getKeyCode();
-        if (isOptionDialogShowing()) {
-            if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE) {
-                if (event.getAction() == KeyEvent.ACTION_DOWN) hideOptionSheet();
-                return true;
-            }
-            return super.dispatchKeyEvent(event);
-        }
-        boolean confirm = keyCode == KeyEvent.KEYCODE_DPAD_CENTER
-            || keyCode == KeyEvent.KEYCODE_ENTER
-            || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER;
-        boolean mediaToggle = keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE;
-        if ((confirm || mediaToggle)
-            && event.getAction() == KeyEvent.ACTION_DOWN
-            && event.getRepeatCount() == 0) {
-            event.startTracking();
-        }
-        if (event.getAction() == KeyEvent.ACTION_DOWN && isStatsKey(keyCode)) {
-            toggleStatsOverlay();
-            return true;
-        }
-        return super.dispatchKeyEvent(event);
+        // Moving along the cast strip is activity: keep the controls (and the strip) up.
+        if (event.getAction() == KeyEvent.ACTION_DOWN && isCastStripFocused()) bumpChrome();
+        PlayerKeyHandler.Result result = keyHandler.dispatchKeyEvent(event);
+        if (result == PlayerKeyHandler.Result.SUPER) return super.dispatchKeyEvent(event);
+        return result == PlayerKeyHandler.Result.HANDLED;
     }
 
     @Override
     public boolean onKeyLongPress(int keyCode, KeyEvent event) {
-        boolean confirm = keyCode == KeyEvent.KEYCODE_DPAD_CENTER
-            || keyCode == KeyEvent.KEYCODE_ENTER
-            || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER;
-        if (confirm || keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) {
-            confirmLongPress = true;
-            toggleStatsOverlay();
-            return true;
-        }
-        return super.onKeyLongPress(keyCode, event);
+        PlayerKeyHandler.Result result = keyHandler.onKeyLongPress(keyCode);
+        if (result == PlayerKeyHandler.Result.SUPER) return super.onKeyLongPress(keyCode, event);
+        return result == PlayerKeyHandler.Result.HANDLED;
     }
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
-        if (isOptionDialogShowing()) {
-            if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE) {
-                hideOptionSheet();
-                return true;
-            }
-            return super.onKeyDown(keyCode, event);
-        }
-        if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE) {
-            if (chromeVisible) {
-                setChromeVisible(false);
-                return true;
-            }
-            boolean endedNow = playbackEnded
-                || (player != null && player.getPlaybackState() == Player.STATE_ENDED);
-            if (endedNow) {
-                finishWithResult(true, false);
-                return true;
-            }
-            if (statsVisible) {
-                hideStatsOverlay();
-                return true;
-            }
-            if (upNextRow != null && upNextRow.getVisibility() == View.VISIBLE) {
-                dismissUpNextWatchCredits();
-                return true;
-            }
-            if (musicMode) {
-                minimizeToBrowse();
-                return true;
-            }
-            finishWithResult(false, false);
-            return true;
-        }
-
-        boolean mediaToggle = keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE;
-        boolean mediaPlay = keyCode == KeyEvent.KEYCODE_MEDIA_PLAY;
-        boolean mediaPause = keyCode == KeyEvent.KEYCODE_MEDIA_PAUSE;
-        boolean confirm = keyCode == KeyEvent.KEYCODE_DPAD_CENTER
-            || keyCode == KeyEvent.KEYCODE_ENTER
-            || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER;
-
-        if ((confirm || mediaToggle) && isPlaybackConfirmTarget()) {
-            event.startTracking();
-            return true;
-        }
-
-        if (keyCode == KeyEvent.KEYCODE_MEDIA_STOP) {
-            finishWithResult(false, false);
-            return true;
-        }
-        if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == KeyEvent.KEYCODE_CHANNEL_UP) {
-            if (!chapters.isEmpty()) skipChapter(1);
-            else skipNextFromPlugin();
-            return true;
-        }
-        if (keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == KeyEvent.KEYCODE_CHANNEL_DOWN) {
-            if (!chapters.isEmpty()) skipChapter(-1);
-            return true;
-        }
-
-        if (!chromeVisible) {
-            if (mediaPause) {
-                applyPlayPause(false);
-                return true;
-            }
-            if (mediaPlay) {
-                applyPlayPause(true);
-                return true;
-            }
-            if (keyCode == KeyEvent.KEYCODE_MEDIA_REWIND || keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
-                seekBy(-10_000);
-                return true;
-            }
-            if (keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
-                seekBy(10_000);
-                return true;
-            }
-            if (keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN
-                || keyCode == KeyEvent.KEYCODE_MENU) {
-                bumpChrome();
-                if (playPauseBtn != null) playPauseBtn.requestFocus();
-                return true;
-            }
-            return super.onKeyDown(keyCode, event);
-        }
-
-        bumpChrome();
-        View focus = getCurrentFocus();
-        boolean seekFocused = focus == seekBar;
-        if (mediaPause) {
-            applyPlayPause(false);
-            return true;
-        }
-        if (mediaPlay) {
-            applyPlayPause(true);
-            return true;
-        }
-        if (mediaToggle) {
-            togglePlayPause();
-            return true;
-        }
-        if (seekFocused && (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_MEDIA_REWIND)) {
-            seekBy(-10_000);
-            return true;
-        }
-        if (seekFocused && (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT || keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD)) {
-            seekBy(10_000);
-            return true;
-        }
-        if (keyCode == KeyEvent.KEYCODE_MEDIA_REWIND) {
-            seekBy(-10_000);
-            return true;
-        }
-        if (keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD) {
-            seekBy(10_000);
-            return true;
-        }
-        return super.onKeyDown(keyCode, event);
+        PlayerKeyHandler.Result result = keyHandler.onKeyDown(keyCode, event);
+        if (result == PlayerKeyHandler.Result.SUPER) return super.onKeyDown(keyCode, event);
+        return result == PlayerKeyHandler.Result.HANDLED;
     }
 
     private boolean isPlaybackConfirmTarget() {
@@ -3554,22 +6277,9 @@ public class PlayerActivity extends AppCompatActivity {
 
     @Override
     public boolean onKeyUp(int keyCode, KeyEvent event) {
-        boolean mediaToggle = keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE;
-        boolean confirm = keyCode == KeyEvent.KEYCODE_DPAD_CENTER
-            || keyCode == KeyEvent.KEYCODE_ENTER
-            || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER;
-        if (confirm || mediaToggle) {
-            if (confirmLongPress) {
-                confirmLongPress = false;
-                return true;
-            }
-            if (isOptionDialogShowing()) return super.onKeyUp(keyCode, event);
-            if (!isPlaybackConfirmTarget()) return super.onKeyUp(keyCode, event);
-            if (!chromeVisible && confirm && trySkipFromRemote()) return true;
-            togglePlayPause();
-            return true;
-        }
-        return super.onKeyUp(keyCode, event);
+        PlayerKeyHandler.Result result = keyHandler.onKeyUp(keyCode);
+        if (result == PlayerKeyHandler.Result.SUPER) return super.onKeyUp(keyCode, event);
+        return result == PlayerKeyHandler.Result.HANDLED;
     }
 
     @Override
@@ -3596,6 +6306,10 @@ public class PlayerActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         PlayerBridge.get().detachActivity(this);
+        if (faceEngine != null) faceEngine.shutdown();
+        // The face model and detectors are only for the player: free them for browsing.
+        WhoIsOnScreen.release();
+        castPhotos.clear();
         logoLoadGeneration += 1;
         pendingLogoUrl = "";
         loadedLogoUrl = "";
@@ -3605,6 +6319,7 @@ public class PlayerActivity extends AppCompatActivity {
             /* ignore */
         }
         mainHandler.removeCallbacksAndMessages(null);
+        sessionController.release();
         PlayerView playerView = findViewById(R.id.player_view);
         if (playerView != null) playerView.setPlayer(null);
         if (menuScrim != null) menuScrim.setVisibility(View.GONE);

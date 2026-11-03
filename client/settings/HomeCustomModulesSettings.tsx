@@ -65,7 +65,7 @@ export const HomeCustomModulesSettings: React.FC<Props> = ({
         nextModules.splice(target, 0, moved);
         onChange(nextModules);
 
-        const orderedSectionIds = nextModules.map((module) => `customModule:${module.id}`);
+        const orderedSectionIds = nextModules.map((module) => `customModule:${module.id}` as const);
         const stockSections = dashboardLayout.sections.filter((id) => !id.startsWith('customModule:'));
         const recentlyAddedIndex = stockSections.indexOf('recentlyAdded');
         const merged = recentlyAddedIndex >= 0
@@ -207,13 +207,13 @@ export const HomeCustomModulesSettings: React.FC<Props> = ({
                                 )}
                                 <div className="md:col-span-2 space-y-2">
                                     <SettingsToggleRow
-                                        label={t('settings.homeModules.enabled')}
+                                        title={t('settings.homeModules.enabled')}
                                         description={t('settings.homeModules.enabledHint')}
                                         checked={module.enabled}
                                         onChange={(checked) => updateModule(module.id, { enabled: checked })}
                                     />
                                     <SettingsToggleRow
-                                        label={t('settings.homeModules.adminOnly')}
+                                        title={t('settings.homeModules.adminOnly')}
                                         description={t('settings.homeModules.adminOnlyHint')}
                                         checked={!!module.adminOnly}
                                         onChange={(checked) => updateModule(module.id, { adminOnly: checked })}

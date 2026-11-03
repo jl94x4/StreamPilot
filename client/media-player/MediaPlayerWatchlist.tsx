@@ -103,8 +103,20 @@ export const MediaPlayerWatchlist: React.FC<Props> = ({
         );
     }
 
+    if (tvShell && !loading && !items.length && !error) {
+        return (
+            <div className="flex flex-col gap-5 pb-8" data-tv-watchlist="1">
+                <h1 className={discoveryTheme.heading}>{t('mediaPlayerPage.navWatchlist')}</h1>
+                <PlayerTvStatusPanel
+                    title={t('mediaPlayerPage.watchlistEmpty')}
+                    onBack={onBack}
+                />
+            </div>
+        );
+    }
+
     return (
-        <div className="flex flex-col gap-5 pb-8">
+        <div className="flex flex-col gap-5 pb-8" data-tv-watchlist={tvShell ? '1' : undefined}>
             <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
                     {!tvShell ? (
@@ -124,12 +136,13 @@ export const MediaPlayerWatchlist: React.FC<Props> = ({
                 ) : null}
             </div>
 
-            {loading && !tvShell ? (
+            {loading ? (
                 <PosterGridSkeleton
                     className={upgraderPosterGridClass(gridSize)}
                     style={upgraderPosterGridStyle(gridSize)}
+                    {...(tvShell ? { count: 24, variant: 'home' as const } : {})}
                 />
-            ) : loading ? null : error ? (
+            ) : error ? (
                 <div className={discoveryTheme.emptyState}>
                     <p className={discoveryTheme.emptyTitle}>{error}</p>
                 </div>
@@ -141,8 +154,9 @@ export const MediaPlayerWatchlist: React.FC<Props> = ({
                 <div
                     className={upgraderPosterGridClass(gridSize)}
                     style={upgraderPosterGridStyle(gridSize)}
+                    data-tv-row={tvShell ? '1' : undefined}
                     data-tv-rail={tvShell ? '1' : undefined}
-                    data-tv-poster-rail={tvShell ? '1' : undefined}
+                    data-tv-poster-grid={tvShell ? '1' : undefined}
                 >
                     {items.map((item, index) => (
                         <PlayerPosterCard

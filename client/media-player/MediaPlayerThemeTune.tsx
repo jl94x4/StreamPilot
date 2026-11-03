@@ -6,6 +6,8 @@ const THEME_VOLUME = 0.4;
 
 type Props = {
     themeKey: string;
+    /** Ready-made URL (direct app). Wins over the portal /theme/:key route. */
+    themeUrl?: string | null;
     enabled: boolean;
     paused?: boolean;
     playLabel: string;
@@ -15,6 +17,7 @@ type Props = {
 
 export const MediaPlayerThemeTune: React.FC<Props> = ({
     themeKey,
+    themeUrl,
     enabled,
     paused = false,
     playLabel,
@@ -25,13 +28,15 @@ export const MediaPlayerThemeTune: React.FC<Props> = ({
     const [muted, setMuted] = useState(false);
     const [blocked, setBlocked] = useState(false);
     const [failed, setFailed] = useState(false);
+    const [finished, setFinished] = useState(false);
     const [hidden, setHidden] = useState(() => typeof document !== 'undefined' && document.hidden);
-    const src = enabled ? plexThemeUrl(themeKey) : '';
+    const src = enabled ? (themeUrl || plexThemeUrl(themeKey)) : '';
 
     useEffect(() => {
         setMuted(false);
         setBlocked(false);
         setFailed(false);
+        setFinished(false);
     }, [themeKey]);
 
     useEffect(() => {
@@ -43,9 +48,9 @@ export const MediaPlayerThemeTune: React.FC<Props> = ({
     useEffect(() => {
         const el = audioRef.current;
         if (!el) return;
-        el.loop = true;
+        el.loop = false;
         el.volume = THEME_VOLUME;
-        const shouldPlay = Boolean(src) && enabled && !paused && !muted && !failed && !hidden;
+        const shouldPlay = Boolean(src) && enabled && !paused && !muted && !failed && !finished && !hidden;
         if (!shouldPlay) {
             el.pause();
             return;
@@ -55,7 +60,7 @@ export const MediaPlayerThemeTune: React.FC<Props> = ({
             attempt.catch(() => setBlocked(true));
         }
         return () => { el.pause(); };
-    }, [src, enabled, paused, muted, failed, hidden]);
+    }, [src, enabled, paused, muted, failed, finished, hidden]);
 
     if (!src || failed) return null;
 
@@ -67,8 +72,8 @@ export const MediaPlayerThemeTune: React.FC<Props> = ({
                 ref={audioRef}
                 src={src}
                 preload="auto"
-                loop
                 onError={() => setFailed(true)}
+                onEnded={() => setFinished(true)}
                 onPlaying={() => setBlocked(false)}
             />
             <button
@@ -82,6 +87,7 @@ export const MediaPlayerThemeTune: React.FC<Props> = ({
                             attempt.then(() => {
                                 setBlocked(false);
                                 setMuted(false);
+                                setFinished(false);
                             }).catch(() => setBlocked(true));
                         }
                         return;

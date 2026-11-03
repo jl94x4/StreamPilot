@@ -21,7 +21,7 @@ declare global {
 }
 
 import { mirrorAuthToNativeStorage } from './authPersistence';
-import { STORAGE_AUTH_MODE, STORAGE_PLEX_HOME_USER, STORAGE_PLEX_OWNER_TOKEN, STORAGE_PORTAL, STORAGE_TOKEN } from './configStorageKeys';
+import { STORAGE_AUTH_MODE, STORAGE_PLEX_HOME_AUTO_SIGNIN, STORAGE_PLEX_HOME_USER, STORAGE_PLEX_OWNER_TOKEN, STORAGE_PORTAL, STORAGE_TOKEN, STORAGE_WT_RELAY } from './configStorageKeys';
 
 /** Desktop-like CSS layout width used by native TV density (MainActivity). */
 export const TV_LAYOUT_WIDTH = 1920;
@@ -100,6 +100,25 @@ export const writeStoredPortalBaseUrl = (url: string) => {
     }
 };
 
+export const readStoredWtRelayUrl = (): string => {
+    try {
+        return trimSlash(localStorage.getItem(STORAGE_WT_RELAY) || '');
+    } catch {
+        return '';
+    }
+};
+
+export const writeStoredWtRelayUrl = (url: string) => {
+    try {
+        const next = trimSlash(url);
+        if (next) localStorage.setItem(STORAGE_WT_RELAY, next);
+        else localStorage.removeItem(STORAGE_WT_RELAY);
+        void mirrorAuthToNativeStorage(STORAGE_WT_RELAY, next);
+    } catch {
+        /* ignore */
+    }
+};
+
 export const readStoredSessionToken = (): string => {
     try {
         return String(localStorage.getItem(STORAGE_TOKEN) || '').trim();
@@ -137,6 +156,25 @@ export const clearPlexClientPortal = () => {
         localStorage.removeItem(STORAGE_PLEX_HOME_USER);
         void mirrorAuthToNativeStorage(STORAGE_PLEX_OWNER_TOKEN, '');
         void mirrorAuthToNativeStorage(STORAGE_PLEX_HOME_USER, '');
+    } catch {
+        /* ignore */
+    }
+};
+
+/** Settings → "Sign in automatically": skip the launch profile PIN on this device. */
+export const readHomeAutoSignIn = (): boolean => {
+    try {
+        return localStorage.getItem(STORAGE_PLEX_HOME_AUTO_SIGNIN) === '1';
+    } catch {
+        return false;
+    }
+};
+
+export const writeHomeAutoSignIn = (on: boolean) => {
+    try {
+        if (on) localStorage.setItem(STORAGE_PLEX_HOME_AUTO_SIGNIN, '1');
+        else localStorage.removeItem(STORAGE_PLEX_HOME_AUTO_SIGNIN);
+        void mirrorAuthToNativeStorage(STORAGE_PLEX_HOME_AUTO_SIGNIN, on ? '1' : '');
     } catch {
         /* ignore */
     }

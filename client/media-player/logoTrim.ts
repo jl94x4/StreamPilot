@@ -3,6 +3,9 @@
 export type LogoInsets = {
     left: number;
     top: number;
+    /** Empty space on the right / bottom (older cached entries may lack them). */
+    right?: number;
+    bottom?: number;
 };
 
 const ALPHA = 20;
@@ -70,9 +73,41 @@ export const topOpaqueInset = (
     return 0;
 };
 
+const rightOpaqueInset = (data: Uint8ClampedArray | Uint8Array, width: number, height: number): number => {
+    if (!width || !height || data.length < width * height * 4) return 0;
+    const need = hitsNeeded(height);
+    for (let x = width - 1; x >= 0; x -= 1) {
+        let hits = 0;
+        for (let y = 0; y < height; y += 1) {
+            if (pixelIsContent(data, (y * width + x) * 4)) {
+                hits += 1;
+                if (hits >= need) return clamp((width - 1 - x) / width, MAX_LEFT);
+            }
+        }
+    }
+    return 0;
+};
+
+const bottomOpaqueInset = (data: Uint8ClampedArray | Uint8Array, width: number, height: number): number => {
+    if (!width || !height || data.length < width * height * 4) return 0;
+    const need = hitsNeeded(width);
+    for (let y = height - 1; y >= 0; y -= 1) {
+        let hits = 0;
+        for (let x = 0; x < width; x += 1) {
+            if (pixelIsContent(data, (y * width + x) * 4)) {
+                hits += 1;
+                if (hits >= need) return clamp((height - 1 - y) / height, MAX_LEFT);
+            }
+        }
+    }
+    return 0;
+};
+
 const insetsFromRgba = (data: Uint8ClampedArray | Uint8Array, width: number, height: number): LogoInsets => ({
     left: leftOpaqueInset(data, width, height),
     top: topOpaqueInset(data, width, height),
+    right: rightOpaqueInset(data, width, height),
+    bottom: bottomOpaqueInset(data, width, height),
 });
 
 export const peekLogoInsets = (url: string): LogoInsets | null => cache.get(url) || null;
@@ -268,6 +303,19 @@ export type ComposedLogo = {
 
 const STUDIO_BOOST = 1.45;
 const composedCache = new Map<string, ComposedLogo | null>();
+/** Most recently used composed logos kept; older blobs are released. */
+const COMPOSED_CAP = 80;
+
+const rememberComposed = (url: string, composed: ComposedLogo | null) => {
+    composedCache.delete(url);
+    composedCache.set(url, composed);
+    while (composedCache.size > COMPOSED_CAP) {
+        const oldest = composedCache.keys().next().value as string;
+        const stale = composedCache.get(oldest);
+        composedCache.delete(oldest);
+        if (stale) URL.revokeObjectURL(stale.url);
+    }
+};
 const composedInflight = new Map<string, Promise<ComposedLogo | null>>();
 
 const readLogoRaster = (source: CanvasImageSource, naturalWidth: number, naturalHeight: number) => {
@@ -388,24 +436,32 @@ const composeFromUrl = async (url: string): Promise<ComposedLogo | null> => {
 /** Redraw a stacked studio mark slightly larger and shift the title down to keep the gap. */
 export const composeBoostedStudioLogo = (url: string): Promise<ComposedLogo | null> => {
     if (!url || typeof document === 'undefined') return Promise.resolve(null);
-    if (composedCache.has(url)) return Promise.resolve(composedCache.get(url) || null);
+    if (composedCache.has(url)) {
+        const hit = composedCache.get(url) || null;
+        rememberComposed(url, hit);
+        return Promise.resolve(hit);
+    }
     const pending = composedInflight.get(url);
     if (pending) return pending;
     const next = composeFromUrl(url)
         .then((composed) => {
-            composedCache.set(url, composed);
+            rememberComposed(url, composed);
             composedInflight.delete(url);
             return composed;
         })
         .catch(() => {
             composedInflight.delete(url);
-            composedCache.set(url, null);
+            rememberComposed(url, null);
             return null;
         });
     composedInflight.set(url, next);
     return next;
 };
 
-export const peekComposedLogo = (url: string): ComposedLogo | null | undefined => (
-    composedCache.has(url) ? composedCache.get(url) : undefined
-);
+export const peekComposedLogo = (url: string): ComposedLogo | null | undefined => {
+    if (!composedCache.has(url)) return undefined;
+    const hit = composedCache.get(url) ?? null;
+    // A logo being drawn counts as used, so it is never the one released.
+    rememberComposed(url, hit);
+    return hit;
+};

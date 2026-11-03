@@ -212,7 +212,7 @@ const migrateMainGridOrder = (order: MainGridWidgetId[]): MainGridWidgetId[] => 
         achIdx === order.length - 1
         || (analyticsIdx >= 0 && achIdx === analyticsIdx + 1);
     if (!looksLikeOldDefault) return order;
-    const next = order.filter((id) => id !== 'achievements');
+    const next: MainGridWidgetId[] = order.filter((id) => id !== 'achievements');
     next.splice(next.indexOf('quickActions') + 1, 0, 'achievements');
     return next;
 };

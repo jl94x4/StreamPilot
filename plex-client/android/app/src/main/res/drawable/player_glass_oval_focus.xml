@@ -9,9 +9,9 @@
         <shape android:shape="oval">
             <gradient
                 android:angle="90"
-                android:centerColor="#38F59E0B"
-                android:endColor="#55F59E0B"
-                android:startColor="#22F59E0B"
+                android:centerColor="?attr/playerAccentA38"
+                android:endColor="?attr/playerAccentA55"
+                android:startColor="?attr/playerAccentA22"
                 android:type="linear" />
         </shape>
     </item>
@@ -33,7 +33,7 @@
             <solid android:color="@android:color/transparent" />
             <stroke
                 android:width="2dp"
-                android:color="@color/player_accent" />
+                android:color="?attr/playerAccent" />
         </shape>
     </item>
 </layer-list>

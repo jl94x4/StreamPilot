@@ -700,6 +700,7 @@ SOURCE_TYPE_MEDIA = {
     'trakt_anticipated_show': 'show',
     'trakt_recommended_movie': 'movie',
     'trakt_recommended_show': 'show',
+    'letterboxd_list': 'movie',
 }
 
 def normalize_media_kind(value):
@@ -1000,6 +1001,20 @@ def fetch_source_items(source_type, source_id, config):
                                 items.extend(parse_mdblist_items_payload(resp.json()))
             except Exception as e:
                 logging.error(f"Error parse/fetch mdblist: {e}")
+        elif source_type == 'justwatch_list':
+            try:
+                if source_id and (_is_justwatch_url(source_id) or re.fullmatch(r'tl-[a-z0-9-]+', str(source_id).strip(), flags=re.I)):
+                    _name, jw_items = _fetch_justwatch_list(source_id)
+                    items.extend(jw_items or [])
+            except Exception as e:
+                logging.error(f"Error parse/fetch justwatch list: {e}")
+        elif source_type == 'letterboxd_list':
+            try:
+                if source_id and _is_letterboxd_url(source_id):
+                    _name, lb_items = _fetch_letterboxd_list(source_id, tmdb_key=tmdb_key)
+                    items.extend(lb_items or [])
+            except Exception as e:
+                logging.error(f"Error parse/fetch letterboxd list: {e}")
         elif source_type == 'tmdb_collection':
             # Franchise / TMDB collection parts (movies only).
             collection_id = str(source_id or '').strip()
@@ -3601,6 +3616,426 @@ def _is_mdblist_url(value):
         raw = 'https://' + raw
     host = (urlparse(raw).hostname or '').lower()
     return host == 'mdblist.com' or host.endswith('.mdblist.com')
+
+
+def _is_justwatch_url(value):
+    """True when value's host is justwatch.com (or a subdomain)."""
+    from urllib.parse import urlparse
+    raw = str(value or '').strip()
+    if '://' not in raw:
+        raw = 'https://' + raw
+    host = (urlparse(raw).hostname or '').lower()
+    return host == 'justwatch.com' or host.endswith('.justwatch.com')
+
+
+def _is_letterboxd_url(value):
+    """True when value's host is letterboxd.com (or a subdomain)."""
+    from urllib.parse import urlparse
+    raw = str(value or '').strip()
+    if '://' not in raw:
+        raw = 'https://' + raw
+    host = (urlparse(raw).hostname or '').lower()
+    return host == 'letterboxd.com' or host.endswith('.letterboxd.com')
+
+
+def _parse_letterboxd_list_url(url):
+    """
+    Canonicalize a Letterboxd list URL.
+    Expected: https://letterboxd.com/{user}/list/{slug}/
+    Also accepts /detail/, /page/N/, trailing junk.
+    Returns (canonical_url, username, slug).
+    """
+    from urllib.parse import urlparse
+    import html as html_lib
+    raw = str(url or '').strip()
+    if not raw:
+        raise ValueError('Missing Letterboxd list URL.')
+    if '://' not in raw:
+        raw = 'https://' + raw
+    if not _is_letterboxd_url(raw):
+        raise ValueError('Not a valid Letterboxd URL. Must be from letterboxd.com')
+    parsed = urlparse(raw)
+    parts = [p for p in (parsed.path or '').split('/') if p]
+    if len(parts) >= 1 and parts[0].lower() == 'lists':
+        raise ValueError(
+            'Paste a specific Letterboxd list URL '
+            '(open a list from letterboxd.com/lists/ — path looks like /user/list/slug/).'
+        )
+    try:
+        list_idx = parts.index('list')
+    except ValueError as exc:
+        raise ValueError(
+            'Paste a Letterboxd list URL like https://letterboxd.com/user/list/list-name/'
+        ) from exc
+    if list_idx < 1 or list_idx + 1 >= len(parts):
+        raise ValueError('Could not parse username/list slug from Letterboxd URL.')
+    username = parts[list_idx - 1]
+    slug = parts[list_idx + 1]
+    if not username or not slug or slug.lower() in ('page', 'detail', 'rss'):
+        raise ValueError('Could not parse username/list slug from Letterboxd URL.')
+    canonical = f'https://letterboxd.com/{username}/list/{slug}/'
+    return canonical, username, slug
+
+
+def _parse_letterboxd_title_year(raw_name):
+    """Parse 'Harakiri (1962)' → (title, year)."""
+    import html as html_lib
+    name = html_lib.unescape(str(raw_name or '')).strip()
+    if not name:
+        return None, None
+    match = re.match(r'^(.*?)\s*\((\d{4})\)\s*$', name)
+    if match:
+        return match.group(1).strip(), match.group(2)
+    return name, None
+
+
+def _letterboxd_headers():
+    return {
+        'User-Agent': (
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+            'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        ),
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Referer': 'https://letterboxd.com/',
+        'Cache-Control': 'no-cache',
+    }
+
+
+def _tmdb_lookup_movie_id(title, year, api_key):
+    """Best-effort TMDB movie id for Letterboxd title/year enrichment."""
+    from urllib.parse import quote
+    if not api_key or not title:
+        return None
+    try:
+        params = f'api_key={api_key}&query={quote(title)}'
+        if year:
+            params += f'&year={quote(str(year))}'
+        resp = requests.get(
+            f'https://api.themoviedb.org/3/search/movie?{params}',
+            timeout=12,
+        )
+        if resp.status_code != 200:
+            return None
+        results = (resp.json() or {}).get('results') or []
+        if not results:
+            return None
+        year_s = str(year or '').strip()
+        if year_s:
+            for row in results:
+                release = str(row.get('release_date') or '')
+                if release.startswith(year_s) and row.get('id'):
+                    return int(row['id'])
+        return int(results[0]['id']) if results[0].get('id') else None
+    except Exception:
+        logging.debug('TMDB lookup failed for Letterboxd title', exc_info=True)
+        return None
+
+
+def _fetch_letterboxd_list(url, tmdb_key=None, max_pages=40):
+    """
+    Scrape a public Letterboxd list (paginated HTML).
+    Returns (list_name, items) with movie entries {title, year, tmdb_id, type}.
+    """
+    import html as html_lib
+    from urllib.parse import urljoin
+
+    canonical, _username, slug = _parse_letterboxd_list_url(url)
+    headers = _letterboxd_headers()
+    items = []
+    list_name = ''
+    seen = set()
+
+    for page in range(1, max(1, int(max_pages or 40)) + 1):
+        page_url = canonical if page == 1 else urljoin(canonical, f'page/{page}/')
+        resp = requests.get(page_url, headers=headers, timeout=30)
+        if resp.status_code == 404:
+            break
+        if resp.status_code != 200:
+            detail = (resp.text or '')[:200]
+            raise RuntimeError(f'Letterboxd error {resp.status_code}: {detail}')
+        text = resp.text or ''
+        if not list_name:
+            og = re.search(r'property="og:title"\s+content="([^"]+)"', text, flags=re.I)
+            if og:
+                list_name = html_lib.unescape(og.group(1)).strip()
+                # "Letterboxd's Top 500 Films, a list of films by …" → keep left side
+                list_name = re.split(r',\s*a list of films by\b', list_name, maxsplit=1)[0].strip()
+            if not list_name:
+                list_name = slug.replace('-', ' ').strip().title()
+
+        names = re.findall(r'data-item-name="([^"]+)"', text)
+        if not names:
+            # Some detail layouts use full display name only.
+            names = re.findall(r'data-item-full-display-name="([^"]+)"', text)
+        if not names:
+            break
+
+        for raw_name in names:
+            title, year = _parse_letterboxd_title_year(raw_name)
+            if not title:
+                continue
+            key = f'{title.lower()}|{year or ""}'
+            if key in seen:
+                continue
+            seen.add(key)
+            items.append({
+                'title': title,
+                'year': year or '',
+                'id': None,
+                'tmdb_id': None,
+                'type': 'movie',
+            })
+
+        # Stop when pagination claims we're past the end, or page repeated.
+        page_nums = [int(p) for p in re.findall(r'/page/(\d+)/', text)]
+        max_page = max(page_nums) if page_nums else page
+        if page >= max_page:
+            break
+
+    # Enrich with TMDB ids when possible — required for reliable matching on large lists.
+    api_key = str(tmdb_key or '').strip()
+    if api_key and items:
+        from concurrent.futures import ThreadPoolExecutor
+
+        def _enrich(row):
+            tid = _tmdb_lookup_movie_id(row.get('title'), row.get('year'), api_key)
+            if tid:
+                row['tmdb_id'] = tid
+                row['id'] = tid
+            return row
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            list(pool.map(_enrich, items))
+
+    return list_name or slug, items
+
+
+# JustWatch path locales → GraphQL Country enum (uk is the common exception).
+_JW_COUNTRY_MAP = {
+    'uk': 'GB',
+    'gb': 'GB',
+}
+
+
+def _justwatch_country_language(locale_code):
+    code = str(locale_code or 'us').strip().lower() or 'us'
+    country = _JW_COUNTRY_MAP.get(code, code.upper())
+    lang_by_country = {
+        'DE': 'de', 'AT': 'de', 'CH': 'de',
+        'FR': 'fr', 'BE': 'fr',
+        'ES': 'es', 'MX': 'es', 'AR': 'es',
+        'IT': 'it', 'PT': 'pt', 'BR': 'pt',
+        'NL': 'nl', 'PL': 'pl', 'TR': 'tr',
+        'JP': 'ja', 'KR': 'ko', 'RU': 'ru',
+    }
+    language = lang_by_country.get(country, 'en')
+    return country, language
+
+
+def _parse_justwatch_list_url(url):
+    """
+    Parse a JustWatch public list URL.
+    Expected: https://www.justwatch.com/{locale}/lists/...?list_id=tl-tu-12985
+    Also accepts bare list ids (tl-tu-…) with optional locale query.
+    Returns (list_id, country, language) or raises ValueError.
+    """
+    from urllib.parse import urlparse, parse_qs
+    raw = str(url or '').strip()
+    if not raw:
+        raise ValueError('Missing JustWatch list URL.')
+    if re.fullmatch(r'tl-[a-z0-9-]+', raw, flags=re.I):
+        country, language = _justwatch_country_language('us')
+        return raw, country, language
+    if '://' not in raw:
+        raw = 'https://' + raw
+    if not _is_justwatch_url(raw):
+        raise ValueError('Not a valid JustWatch URL. Must be from justwatch.com')
+    parsed = urlparse(raw)
+    qs = parse_qs(parsed.query or '')
+    list_id = ''
+    for key in ('list_id', 'listId', 'id'):
+        vals = qs.get(key) or []
+        if vals and str(vals[0]).strip():
+            list_id = str(vals[0]).strip()
+            break
+    if not list_id:
+        # Path form: /uk/lists/tl-tu-12985
+        parts = [p for p in (parsed.path or '').split('/') if p]
+        for part in reversed(parts):
+            if re.fullmatch(r'tl-[a-z0-9-]+', part, flags=re.I):
+                list_id = part
+                break
+    if not list_id:
+        raise ValueError(
+            'Paste a specific JustWatch list URL that includes list_id=… '
+            '(open a list from justwatch.com/…/lists/public-lists).'
+        )
+    if not re.fullmatch(r'tl-[a-z0-9-]+', list_id, flags=re.I):
+        raise ValueError('Unrecognized JustWatch list id.')
+    parts = [p for p in (parsed.path or '').split('/') if p]
+    locale = parts[0] if parts else 'us'
+    # Avoid treating "lists" as a locale when someone pastes a bare path.
+    if locale.lower() in ('lists', 'www'):
+        locale = 'us'
+    country, language = _justwatch_country_language(locale)
+    return list_id, country, language
+
+
+_JW_GENERIC_LIST_QUERY = """
+query GetGenericList(
+  $listId: ID!
+  $country: Country!
+  $language: Language!
+  $first: Int!
+  $filter: TitleFilter!
+  $sortBy: GenericTitleListSorting! = NATURAL
+  $sortRandomSeed: Int! = 0
+  $titleListAfterCursor: String
+) {
+  listDetails: node(id: $listId) {
+    ... on GenericTitleList {
+      id
+      content(country: $country, language: $language) {
+        name
+      }
+    }
+  }
+  genericTitleList(
+    id: $listId
+    country: $country
+    after: $titleListAfterCursor
+    first: $first
+    filter: $filter
+    sortBy: $sortBy
+    sortRandomSeed: $sortRandomSeed
+  ) {
+    pageInfo { endCursor hasNextPage }
+    totalCount
+    edges {
+      node {
+        __typename
+        id
+        objectId
+        objectType
+        content(country: $country, language: $language) {
+          title
+          originalReleaseYear
+          externalIds { tmdbId imdbId }
+        }
+      }
+    }
+  }
+}
+""".strip()
+
+
+def _normalize_justwatch_node(node):
+    """Map one JustWatch GraphQL title node into ColleXions external-item shape."""
+    if not isinstance(node, dict):
+        return None
+    content = node.get('content') if isinstance(node.get('content'), dict) else {}
+    title = content.get('title') or content.get('name')
+    if not title:
+        return None
+    ids = content.get('externalIds') if isinstance(content.get('externalIds'), dict) else {}
+    tmdb_raw = ids.get('tmdbId') or ids.get('tmdb_id') or ''
+    tmdb_id = None
+    if tmdb_raw is not None and str(tmdb_raw).strip():
+        digits = re.sub(r'\D', '', str(tmdb_raw))
+        tmdb_id = int(digits) if digits else None
+    object_type = str(node.get('objectType') or node.get('__typename') or '').upper()
+    media = 'show' if object_type in ('SHOW', 'TV_SHOW', 'SERIES') else 'movie'
+    year = content.get('originalReleaseYear') or ''
+    return {
+        'title': title,
+        'year': str(year) if year is not None else '',
+        'id': tmdb_id,
+        'tmdb_id': tmdb_id,
+        'type': media,
+        'imdb_id': ids.get('imdbId') or None,
+    }
+
+
+def _fetch_justwatch_list(url, max_pages=25, page_size=50):
+    """
+    Fetch a JustWatch public list via the public GraphQL API.
+    Returns (list_name, items).
+    """
+    list_id, country, language = _parse_justwatch_list_url(url)
+    empty_filter = {
+        'genres': [],
+        'packages': [],
+        'excludeIrrelevantTitles': False,
+        'ageCertifications': [],
+        'excludeGenres': [],
+        'productionCountries': [],
+        'excludeProductionCountries': [],
+        'subgenres': [],
+        'objectTypes': [],
+        'presentationTypes': [],
+        'monetizationTypes': [],
+    }
+    headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'User-Agent': (
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+            'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        ),
+        'Origin': 'https://www.justwatch.com',
+        'Referer': f'https://www.justwatch.com/{country.lower()}/lists/public-lists',
+    }
+    items = []
+    list_name = ''
+    cursor = None
+    for _ in range(max(1, int(max_pages or 25))):
+        variables = {
+            'listId': list_id,
+            'country': country,
+            'language': language,
+            'first': max(1, min(100, int(page_size or 50))),
+            'filter': empty_filter,
+            'sortBy': 'NATURAL',
+            'sortRandomSeed': 0,
+            'titleListAfterCursor': cursor,
+        }
+        resp = requests.post(
+            'https://apis.justwatch.com/graphql',
+            headers=headers,
+            json={
+                'operationName': 'GetGenericList',
+                'query': _JW_GENERIC_LIST_QUERY,
+                'variables': variables,
+            },
+            timeout=30,
+        )
+        if resp.status_code != 200:
+            detail = (resp.text or '')[:240]
+            raise RuntimeError(f'JustWatch API error {resp.status_code}: {detail}')
+        payload = resp.json() if resp.content else {}
+        if payload.get('errors'):
+            msg = payload['errors'][0].get('message') if isinstance(payload['errors'], list) else 'GraphQL error'
+            raise RuntimeError(f'JustWatch GraphQL error: {msg}')
+        data = payload.get('data') or {}
+        if not list_name:
+            details = data.get('listDetails') or {}
+            content = details.get('content') if isinstance(details, dict) else {}
+            if isinstance(content, dict):
+                list_name = str(content.get('name') or '').strip()
+        connection = data.get('genericTitleList') or {}
+        for edge in connection.get('edges') or []:
+            node = edge.get('node') if isinstance(edge, dict) else None
+            parsed = _normalize_justwatch_node(node)
+            if parsed:
+                items.append(parsed)
+        page_info = connection.get('pageInfo') or {}
+        if not page_info.get('hasNextPage'):
+            break
+        cursor = page_info.get('endCursor')
+        if not cursor:
+            break
+    return list_name or list_id, items
 
 
 def _describe_request_error(exc):
@@ -6946,6 +7381,39 @@ def get_mdblist():
             
     except Exception as e:
         return jsonify({"error": _client_error("Failed to fetch MDBList", e)}), 500
+
+
+@app.route('/api/justwatch/list')
+@require_auth
+def get_justwatch_list():
+    """Preview a JustWatch public list for Import Lists (no API key required)."""
+    url = request.args.get('url')
+    if not url:
+        return jsonify({"error": "Missing JustWatch list URL"}), 400
+    try:
+        name, items = _fetch_justwatch_list(url)
+        return jsonify({"name": name, "items": items})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": _client_error("Failed to fetch JustWatch list", e)}), 500
+
+
+@app.route('/api/letterboxd/list')
+@require_auth
+def get_letterboxd_list():
+    """Preview a Letterboxd public list for Import Lists (uses TMDB key when set)."""
+    config = load_config()
+    url = request.args.get('url')
+    if not url:
+        return jsonify({"error": "Missing Letterboxd list URL"}), 400
+    try:
+        name, items = _fetch_letterboxd_list(url, tmdb_key=config.get('tmdb_api_key'))
+        return jsonify({"name": name, "items": items})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": _client_error("Failed to fetch Letterboxd list", e)}), 500
 
 
 

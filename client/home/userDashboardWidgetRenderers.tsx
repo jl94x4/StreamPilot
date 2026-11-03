@@ -28,6 +28,7 @@ import { PendingRequestsHomeWidget } from '../requests/PendingRequestsHomeWidget
 import { CollexionsHomeWidget } from '../collexions/CollexionsHomeWidget';
 import { ScannerHomeWidget } from '../scanner/ScannerHomeWidget';
 import { SpotifySyncHomeWidget } from '../spotify-sync/SpotifySyncHomeWidget';
+import { ExtensionRequestCard } from '../extension/ExtensionRequestCard';
 import { MediaAutomationHomeWidget } from '../media-automation/MediaAutomationHomeWidget';
 import { AchievementsHomeWidget } from '../achievements/AchievementsDashboard';
 import { UnlockCelebration } from '../achievements/UnlockCelebration';
@@ -523,6 +524,7 @@ export const createMainGridWidgetRenderer = (deps: UserDashboardWidgetDeps) => {
                                             {t('homeDashboard.expiringSoonContactAdmin')}
                                         </p>
                                     )}
+                                    <ExtensionRequestCard className="mt-3" />
                                 </div>
                             )}
                         </div>

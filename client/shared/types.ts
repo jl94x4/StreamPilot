@@ -10,6 +10,10 @@ export interface User {
     joiningDate: string;
     expiryDate: string | null;
     plexAccessStatus: 'active' | 'pending' | 'revoked' | 'unknown';
+    /** The Plex server owner's own account (always has access). */
+    isServerOwner?: boolean;
+    /** A portal admin (shown as active regardless of Plex share state). */
+    isAdmin?: boolean;
     exemptFromCleanup?: boolean;
     isTrial?: boolean;
     optOutNewsletter?: boolean;
@@ -237,7 +241,7 @@ export interface PlexServer {
 export interface ToastMessage {
     id: number;
     message: string;
-    type: 'success' | 'error';
+    type: 'success' | 'error' | 'info';
 }
 
 export interface DeletedUser {

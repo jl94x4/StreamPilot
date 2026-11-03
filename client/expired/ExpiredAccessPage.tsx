@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { AlertTriangle, CalendarClock, LifeBuoy, LogOut, Mail, MessageCircle, UserRound } from 'lucide-react';
 import { useDiscoverI18n } from '../discovery/i18n';
 import { formatUkDate } from '../shared/format';
+import { ExtensionRequestCard } from '../extension/ExtensionRequestCard';
 
 type Props = {
     sessionInfo: any;
@@ -79,6 +80,8 @@ export const ExpiredAccessPage: React.FC<Props> = ({
                         </p>
                     </div>
                 </div>
+
+                <ExtensionRequestCard className="mt-6" />
 
                 <div className="mt-6 flex flex-col sm:flex-row flex-wrap gap-2">
                     {supportEnabled && (

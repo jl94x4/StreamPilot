@@ -2,7 +2,8 @@ import { useCallback } from 'react';
 import { useDiscoverI18n } from '../discovery/i18n';
 import { readDiscoverUiLocale, type DiscoverLocale } from '../discovery/i18n/types';
 
-const catalogs: Record<DiscoverLocale, Record<string, string>> = {
+// Locales without their own catalog fall back to English.
+const catalogs: Partial<Record<DiscoverLocale, Record<string, string>>> = {
     en: {
         'nav.label': 'Achievements',
         'page.eyebrow': 'Achievements',

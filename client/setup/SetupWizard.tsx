@@ -259,7 +259,8 @@ export const SetupWizard: React.FC<{ onComplete: () => void }> = ({ onComplete }
 
     const [step, setStep] = useState<StepId>(() => {
         if (isOAuthReturn) return 'plex';
-        const storedStep = storedPlex?.step === 'email' ? 'notifications' : storedPlex?.step;
+        // 'email' was the old name of the notifications step in saved progress.
+        const storedStep = (storedPlex?.step as string | undefined) === 'email' ? 'notifications' : storedPlex?.step;
         if (storedStep && STEPS.some((entry) => entry.id === storedStep)) return storedStep;
         if (storedPlex?.token) return 'plex';
         return 'welcome';

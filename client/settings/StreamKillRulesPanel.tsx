@@ -24,6 +24,11 @@ const RULE_FIELDS = [
     { value: 'user', type: 'text' as const },
     { value: 'playerProduct', type: 'text' as const },
     { value: 'playerTitle', type: 'text' as const },
+    // Read across all of a user's streams (worked out on the server each check).
+    { value: 'userStreamCount', type: 'number' as const },
+    { value: 'userLocationCount', type: 'number' as const },
+    { value: 'pausedMinutes', type: 'number' as const },
+    { value: 'hourOfDay', type: 'number' as const },
 ];
 const KR_OP_TEXT = [{ value: 'equals' }, { value: 'not_equals' }, { value: 'contains' }, { value: 'not_contains' }];
 const KR_OP_NUMBER = [{ value: 'equals' }, { value: 'not_equals' }, { value: 'greater_than' }, { value: 'less_than' }];
@@ -42,6 +47,10 @@ const KR_FIELD_LABEL_KEYS: Record<string, string> = {
     user: 'settings.streamKillRules.fields.user',
     playerProduct: 'settings.streamKillRules.fields.playerProduct',
     playerTitle: 'settings.streamKillRules.fields.playerTitle',
+    userStreamCount: 'settings.streamKillRules.fields.userStreamCount',
+    userLocationCount: 'settings.streamKillRules.fields.userLocationCount',
+    pausedMinutes: 'settings.streamKillRules.fields.pausedMinutes',
+    hourOfDay: 'settings.streamKillRules.fields.hourOfDay',
 };
 const KR_OPERATOR_LABEL_KEYS: Record<string, string> = {
     equals: 'settings.streamKillRules.operators.equals',
@@ -87,7 +96,7 @@ const KRConditionRow: React.FC<{ cond: any; onCh: (c: any) => void; onDel: () =>
         onCh({ ...cond, field: v, value: dv, operator: krGetOps(def)[0].value });
     };
     const fieldOptions = RULE_FIELDS.map(f => ({ label: t(KR_FIELD_LABEL_KEYS[f.value]), value: f.value }));
-    const opOptions = ops.map(o => ({ label: t('labelKey' in o ? o.labelKey : KR_OPERATOR_LABEL_KEYS[o.value]), value: o.value }));
+    const opOptions = ops.map(o => ({ label: t('labelKey' in o ? String(o.labelKey) : KR_OPERATOR_LABEL_KEYS[o.value]), value: o.value }));
     const boolOptions = [{ label: t('settings.streamKillRules.boolean.yesTrue'), value: 'true' }, { label: t('settings.streamKillRules.boolean.noFalse'), value: 'false' }];
     const selectOptions = ('options' in (fd ?? {}) && (fd as any).options)
         ? (fd as any).options.map((o: string) => ({ label: KR_OPTION_LABEL_KEYS[o] ? t(KR_OPTION_LABEL_KEYS[o]) : o.toUpperCase(), value: o }))

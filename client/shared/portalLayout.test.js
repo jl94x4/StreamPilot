@@ -59,7 +59,7 @@ test('posterGridDensityBand and grid style follow the numeric scale', async () =
     assert.equal(posterGridScaleRem(10), 10);
     assert.equal(homeRailPosterDensity(9.5), 11);
     assert.equal(homeRailPosterDensity('large'), 11);
-    assert.equal(upgraderPosterGridStyle(10).gridTemplateColumns, 'repeat(auto-fill, minmax(10rem, 1fr))');
+    assert.equal(upgraderPosterGridStyle(10).gridTemplateColumns, 'repeat(auto-fill, minmax(calc(10rem / var(--tv-text-scale, 1)), 1fr))');
     assert.equal(JSON.stringify(upgraderPosterGridStyle('list')), '{}');
     assert.equal(parsePosterGridValue('large', { presets: POSTER_SETS_GRID_PRESET_SCALE }), 13);
 });

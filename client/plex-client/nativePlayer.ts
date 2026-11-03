@@ -4,6 +4,8 @@
  * need @capacitor/core (that dep lives only under plex-client/).
  */
 
+import { readPlayerSettings } from '../media-player/playerSettings';
+
 export type NativePlayerTrackOption = {
     id: string;
     label: string;
@@ -11,6 +13,11 @@ export type NativePlayerTrackOption = {
     language?: string | null;
     languageTag?: string | null;
     codec?: string | null;
+    /** Audio only: Plex channel count (2, 6, 8 …) for the codec pill's 2.0 / 5.1 / 7.1. */
+    channels?: number | null;
+    embeddedOrdinal?: number | null;
+    /** OpenSubtitles hit PMS still has to download (url is empty until then). */
+    downloadKey?: string;
 };
 export type NativePlayerVersionOption = { id: string; label: string; mediaIndex?: number };
 
@@ -30,7 +37,16 @@ export type NativePlayerSessionPayload = {
         intro?: { startMs: number; endMs: number } | null;
         credits?: { startMs: number; endMs?: number } | null;
     };
-    nextItem?: { ratingKey: string; title?: string; thumb?: string } | null;
+    nextItem?: { ratingKey: string; title?: string; thumb?: string; meta?: string; summary?: string } | null;
+    previousItem?: { ratingKey: string; title?: string; thumb?: string } | null;
+    /** Credits-end “More like this” strip (native Up Next panel when no next episode). */
+    relatedItems?: Array<{ ratingKey: string; title: string; thumb?: string }>;
+    /** Second Down on the OSD: who is in this title (episode guests first, then the show's cast). */
+    cast?: NativePlayerCastMember[];
+    /** Who's on screen: the longer list it matches faces against (the strip uses `cast`). */
+    faceCast?: NativePlayerCastMember[];
+    /** Per-show A/V delay in ms. */
+    audioDelayMs?: number;
     playbackMode?: 'directPlay' | 'directStream' | 'transcode' | string;
     source?: {
         videoCodec?: string | null;
@@ -44,15 +60,49 @@ export type NativePlayerSessionPayload = {
     autoplayNext?: boolean;
     autoSkipIntro?: boolean;
     autoSkipCredits?: boolean;
+    skipIntroMode?: 'off' | 'manual' | 'auto';
+    skipCreditsMode?: 'off' | 'manual' | 'auto';
+    rewindOnResumeSec?: number;
+    audioBoost?: number;
+    burnSubtitles?: 'auto' | 'always' | 'image';
+    subtitleDelayMs?: number;
+    subtitleAutoSync?: boolean;
+    /** Reply to onSubtitleDownload: the picked hit's playable URL, or failed. */
+    sidecarResolved?: { id: string; url: string; failed?: boolean } | null;
+    /** Server has voice-activity data for this title (auto-sync usable). */
+    subtitleAutoSyncAvailable?: boolean;
+    /** Computed auto-sync offset applied on top of manual subtitleDelayMs. */
+    subtitleAutoSyncOffsetMs?: number;
+    audioPassthrough?: boolean;
+    /** Step quality down automatically when buffering (Settings → Playback). */
+    autoQuality?: boolean;
+    cinemaTrailerCount?: number;
     title?: string;
     subtitle?: string;
+    /** Episode/movie meta under the title, e.g. "S1 · E8 · Show · 1 hour 59 minutes". */
+    meta?: string;
     logoUrl?: string;
     posterUrl?: string;
+    /** Android TV home "Continue Watching" row. Native downloads artUrl once and serves it token-free. */
+    watchNext?: {
+        serverId?: string;
+        type: 'movie' | 'episode';
+        title: string;
+        episodeTitle?: string;
+        seasonNumber?: number;
+        episodeNumber?: number;
+        artUrl?: string;
+        artHeaders?: Record<string, string>;
+    } | null;
     music?: boolean;
+    /** Live TV tune — native OSD shows LIVE instead of Direct Play. */
+    live?: boolean;
+    liveDebug?: string;
     chapters?: Array<{ startMs: number; title?: string }>;
     previewThumbTemplate?: string | null;
     frameRate?: number | null;
     nightMode?: boolean;
+    whoIsOnScreen?: boolean;
     matchFrameRate?: boolean;
     subtitleStyle?: {
         size?: number;
@@ -89,19 +139,47 @@ export type NativePlayerOpenOptions = {
     onProgress?: (event: NativePlayerProgressEvent) => void;
     onStreamChange?: (event: NativePlayerStreamChangeEvent) => void | Promise<void>;
     onPlayNext?: (event: { ratingKey: string }) => void;
+    onPlayRelated?: (event: { ratingKey: string }) => void;
+    /** Live TV: CH+/CH- (or Up/Down) in the player. +1 next channel, -1 previous. */
+    onLiveChannel?: (event: { direction: number }) => void;
     onSpeed?: (event: { speed: number }) => void;
     onError?: (event: { message?: string }) => void;
     onMinimized?: (event: NativePlayerProgressEvent) => void;
     onRestored?: (event: { state?: string }) => void;
     onSubtitleSearch?: (event: { ratingKey?: string }) => void;
+    onSubtitleDownload?: (event: { ratingKey?: string; id?: string; key?: string }) => void;
+    /** In-player Settings cog changed a persisted preference. */
+    onSettings?: (patch: Record<string, unknown>) => void;
+    /** Native asked JS to compute voice-activity subtitle auto-sync offset. */
+    onSubtitleAutoSync?: (event: { ratingKey?: string; subtitleStreamId?: string; sidecarUrl?: string }) => void;
 };
 
+export type NativePlayerCastMember = { id: string; name: string; role?: string; thumb?: string };
+
 export type NativePlayerCloseResult = {
+    /** OK on a cast card: leave the player for that person's page. */
+    openPerson?: NativePlayerCastMember;
     ended: boolean;
     positionMs: number;
     error?: boolean;
     playNext?: boolean;
     nextRatingKey?: string;
+    playPrevious?: boolean;
+    previousRatingKey?: string;
+    /** The native player marked it watched (or PMS already had): do not scrobble again. */
+    watchedHandled?: boolean;
+};
+
+const parseOpenPerson = (raw: unknown): NativePlayerCastMember | undefined => {
+    if (!raw) return undefined;
+    try {
+        const row = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        const name = String(row?.name || '').trim();
+        if (!name) return undefined;
+        return { id: String(row?.id || name), name, thumb: row?.thumb ? String(row.thumb) : undefined };
+    } catch {
+        return undefined;
+    }
 };
 
 export type NativePlayerProgressEvent = {
@@ -194,6 +272,7 @@ export const installNativeMediaPlayerBridge = () => {
                 }
             },
             open: async (opts) => {
+                const playerPrefs = readPlayerSettings();
                 const result = await CapNativeMediaPlayer.open({
                     url: opts.url,
                     title: opts.title,
@@ -204,6 +283,11 @@ export const installNativeMediaPlayerBridge = () => {
                     autoplayNext: opts.autoplayNext !== false,
                     autoSkipIntro: opts.autoSkipIntro === true,
                     autoSkipCredits: opts.autoSkipCredits === true,
+                    // Settings → Accent colour; the player picks its theme overlay from it.
+                    seekBackSec: playerPrefs.seekBackSec,
+                    seekForwardSec: playerPrefs.seekForwardSec,
+                    controlsTimeoutSec: playerPrefs.controlsTimeoutSec,
+                    showClock: playerPrefs.showClock,
                     sessionJson: opts.session ? JSON.stringify(opts.session) : '',
                 });
                 return {
@@ -212,6 +296,10 @@ export const installNativeMediaPlayerBridge = () => {
                     error: !!result?.error,
                     playNext: !!result?.playNext,
                     nextRatingKey: result?.nextRatingKey ? String(result.nextRatingKey) : undefined,
+                    playPrevious: !!result?.playPrevious,
+                    previousRatingKey: result?.previousRatingKey ? String(result.previousRatingKey) : undefined,
+                    watchedHandled: !!result?.watchedHandled,
+                    openPerson: parseOpenPerson(result?.openPerson),
                 };
             },
             updateSrc: async (opts) => {
@@ -348,6 +436,18 @@ const attachTransientListeners = async (opts: NativePlayerOpenOptions) => {
             if (key) opts.onPlayNext?.({ ratingKey: key });
         });
     }
+    if (opts.onPlayRelated) {
+        await add('playRelated', (data) => {
+            const key = data.ratingKey ? String(data.ratingKey) : '';
+            if (key) opts.onPlayRelated?.({ ratingKey: key });
+        });
+    }
+    if (opts.onLiveChannel) {
+        await add('liveChannel', (data) => {
+            const direction = Number(data.direction) < 0 ? -1 : 1;
+            opts.onLiveChannel?.({ direction });
+        });
+    }
     if (opts.onSpeed) {
         await add('speed', (data) => {
             opts.onSpeed?.({ speed: Number(data.speed) || 1 });
@@ -378,6 +478,29 @@ const attachTransientListeners = async (opts: NativePlayerOpenOptions) => {
             opts.onSubtitleSearch?.({ ratingKey: data.ratingKey ? String(data.ratingKey) : undefined });
         });
     }
+    if (opts.onSubtitleDownload) {
+        await add('subtitleDownload', (data) => {
+            opts.onSubtitleDownload?.({
+                ratingKey: data.ratingKey ? String(data.ratingKey) : undefined,
+                id: data.id ? String(data.id) : undefined,
+                key: data.key ? String(data.key) : undefined,
+            });
+        });
+    }
+    if (opts.onSettings) {
+        await add('settings', (data) => {
+            opts.onSettings?.(data || {});
+        });
+    }
+    if (opts.onSubtitleAutoSync) {
+        await add('subtitleAutoSync', (data) => {
+            opts.onSubtitleAutoSync?.({
+                ratingKey: data.ratingKey ? String(data.ratingKey) : undefined,
+                subtitleStreamId: data.subtitleStreamId != null ? String(data.subtitleStreamId) : undefined,
+                sidecarUrl: data.sidecarUrl != null ? String(data.sidecarUrl) : undefined,
+            });
+        });
+    }
     if (opts.onClose) {
         await add('closed', (data) => {
             opts.onClose?.({
@@ -386,6 +509,10 @@ const attachTransientListeners = async (opts: NativePlayerOpenOptions) => {
                 error: !!data.error,
                 playNext: !!data.playNext,
                 nextRatingKey: data.nextRatingKey ? String(data.nextRatingKey) : undefined,
+                playPrevious: !!data.playPrevious,
+                previousRatingKey: data.previousRatingKey ? String(data.previousRatingKey) : undefined,
+                watchedHandled: !!data.watchedHandled,
+                openPerson: parseOpenPerson(data.openPerson),
             });
         });
     }
@@ -422,7 +549,13 @@ export const updateNativePlayerSession = async (session: NativePlayerSessionPayl
     if (!(await isNativePlayerAvailable())) return false;
     const bridge = window.NativeMediaPlayer;
     if (!bridge?.updateSession) return false;
-    return bridge.updateSession(session);
+    // Neighbors often return before PlayerActivity exists. A dropped update
+    // leaves previous/next hidden for the whole play.
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+        if (await bridge.updateSession(session)) return true;
+        await new Promise((resolve) => window.setTimeout(resolve, 250));
+    }
+    return false;
 };
 
 export const setNativePlayerPaused = async (paused: boolean): Promise<boolean> => {
@@ -430,6 +563,16 @@ export const setNativePlayerPaused = async (paused: boolean): Promise<boolean> =
     if (!bridge?.setPaused) return false;
     try {
         return !!(await bridge.setPaused(paused));
+    } catch {
+        return false;
+    }
+};
+
+export const seekNativePlayer = async (positionMs: number): Promise<boolean> => {
+    const bridge = window.NativeMediaPlayer;
+    if (!bridge?.seek) return false;
+    try {
+        return !!(await bridge.seek(Math.max(0, Math.floor(positionMs))));
     } catch {
         return false;
     }

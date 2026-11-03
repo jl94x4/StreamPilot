@@ -1,4 +1,29 @@
+import { homeLibraryPicksEqual, normalizeHomeLibraryPicks, type HomeLibraryPicks } from './homeLibraries';
+
 export type PlayerSubtitleMode = 'off' | 'forced' | 'always';
+
+/** Skip intro/credits marker behavior (Plex-style). */
+export type PlayerSkipMarkerMode = 'off' | 'manual' | 'auto';
+
+export const PLAYER_SKIP_MARKER_MODES: PlayerSkipMarkerMode[] = ['off', 'manual', 'auto'];
+
+export const isPlayerSkipMarkerMode = (value: unknown): value is PlayerSkipMarkerMode => (
+    PLAYER_SKIP_MARKER_MODES.includes(String(value || '') as PlayerSkipMarkerMode)
+);
+
+/** Burn-in policy when a subtitle track is selected. */
+export type PlayerBurnSubtitlesMode = 'auto' | 'always' | 'image';
+
+export const PLAYER_BURN_SUBTITLES_MODES: PlayerBurnSubtitlesMode[] = ['auto', 'always', 'image'];
+
+export const isPlayerBurnSubtitlesMode = (value: unknown): value is PlayerBurnSubtitlesMode => (
+    PLAYER_BURN_SUBTITLES_MODES.includes(String(value || '') as PlayerBurnSubtitlesMode)
+);
+
+const migrateSkipMode = (modeRaw: unknown, legacyBool: unknown): PlayerSkipMarkerMode => {
+    if (isPlayerSkipMarkerMode(modeRaw)) return modeRaw;
+    return legacyBool === true ? 'auto' : 'manual';
+};
 
 export type PlayerWatchedTickPosition = 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left';
 
@@ -21,18 +46,266 @@ export const isPlayerContinueWatchingLayout = (value: unknown): value is PlayerC
     PLAYER_CONTINUE_WATCHING_LAYOUTS.includes(String(value || '') as PlayerContinueWatchingLayout)
 );
 
-export type PlayerContinueWatchingSort = 'releaseDate' | 'plex' | 'recentlyWatched' | 'title';
+export type PlayerContinueWatchingSort =
+    | 'releaseDate'
+    | 'plex'
+    | 'recentlyWatched'
+    | 'title'
+    | 'titleDesc'
+    | 'oldestReleased'
+    | 'oldestWatched'
+    | 'recentlyAdded'
+    | 'mostProgress'
+    | 'leastProgress'
+    | 'timeLeft'
+    | 'moviesFirst'
+    | 'showsFirst';
 
 export const PLAYER_CONTINUE_WATCHING_SORTS: PlayerContinueWatchingSort[] = [
     'releaseDate',
     'plex',
     'recentlyWatched',
     'title',
+    'titleDesc',
+    'oldestReleased',
+    'oldestWatched',
+    'recentlyAdded',
+    'mostProgress',
+    'leastProgress',
+    'timeLeft',
+    'moviesFirst',
+    'showsFirst',
 ];
 
 export const isPlayerContinueWatchingSort = (value: unknown): value is PlayerContinueWatchingSort => (
     PLAYER_CONTINUE_WATCHING_SORTS.includes(String(value || '') as PlayerContinueWatchingSort)
 );
+
+/** Accent shape before row titles ("▶ Continue Watching"). 'bar' is the original look. */
+export type PlayerRowMarker =
+    | 'play'
+    | 'bar'
+    | 'dot'
+    | 'ring'
+    | 'diamond'
+    | 'square'
+    | 'star'
+    | 'chevron'
+    | 'bolt'
+    | 'none';
+
+export const PLAYER_ROW_MARKERS: PlayerRowMarker[] = [
+    'play', 'bar', 'dot', 'ring', 'diamond', 'square', 'star', 'chevron', 'bolt', 'none',
+];
+
+export const isPlayerRowMarker = (value: unknown): value is PlayerRowMarker => (
+    PLAYER_ROW_MARKERS.includes(String(value || '') as PlayerRowMarker)
+);
+
+/** Highlight colour for focus, buttons and progress bars (app and native player). */
+export type PlayerAccentColor = 'gold' | 'orange' | 'red' | 'pink' | 'purple' | 'blue' | 'teal' | 'green' | 'white';
+
+export const PLAYER_ACCENT_COLORS: PlayerAccentColor[] = [
+    'gold', 'orange', 'red', 'pink', 'purple', 'blue', 'teal', 'green', 'white',
+];
+
+export const isPlayerAccentColor = (value: unknown): value is PlayerAccentColor => (
+    PLAYER_ACCENT_COLORS.includes(String(value || '') as PlayerAccentColor)
+);
+
+/** Sounds when moving around with the remote. Off by default. */
+export type PlayerNavigationSound = 'off' | 'soft' | 'click' | 'pop' | 'chime' | 'retro';
+
+export const PLAYER_NAVIGATION_SOUNDS: PlayerNavigationSound[] = ['off', 'soft', 'click', 'pop', 'chime', 'retro'];
+
+export const isPlayerNavigationSound = (value: unknown): value is PlayerNavigationSound => (
+    PLAYER_NAVIGATION_SOUNDS.includes(String(value || '') as PlayerNavigationSound)
+);
+
+/** Poster and episode card corners. 'rounded' is the original look. */
+export type PlayerPosterCorners = 'square' | 'slight' | 'rounded';
+export const PLAYER_POSTER_CORNERS: PlayerPosterCorners[] = ['square', 'slight', 'rounded'];
+export const isPlayerPosterCorners = (value: unknown): value is PlayerPosterCorners => (
+    PLAYER_POSTER_CORNERS.includes(String(value || '') as PlayerPosterCorners)
+);
+
+/** TV focus ring thickness. 'normal' is the original ring. */
+export type PlayerFocusRingWidth = 'thin' | 'normal' | 'thick';
+export const PLAYER_FOCUS_RING_WIDTHS: PlayerFocusRingWidth[] = ['thin', 'normal', 'thick'];
+export const isPlayerFocusRingWidth = (value: unknown): value is PlayerFocusRingWidth => (
+    PLAYER_FOCUS_RING_WIDTHS.includes(String(value || '') as PlayerFocusRingWidth)
+);
+
+/** Which rating badges title pages show. All on is the original look. */
+export type PlayerRatingSources = {
+    imdb: boolean;
+    rtCritics: boolean;
+    rtAudience: boolean;
+    tmdb: boolean;
+    tvdb: boolean;
+};
+export const PLAYER_RATING_SOURCE_KEYS: Array<keyof PlayerRatingSources> = ['imdb', 'rtCritics', 'rtAudience', 'tmdb', 'tvdb'];
+const normalizeRatingSources = (raw: unknown): PlayerRatingSources => {
+    const row = (raw && typeof raw === 'object' ? raw : {}) as Partial<Record<keyof PlayerRatingSources, unknown>>;
+    return {
+        imdb: row.imdb !== false,
+        rtCritics: row.rtCritics !== false,
+        rtAudience: row.rtAudience !== false,
+        tmdb: row.tmdb !== false,
+        tvdb: row.tvdb !== false,
+    };
+};
+
+/** App text size on TV. 'medium' is the original size. */
+export type PlayerTextSize = 'small' | 'medium' | 'large';
+export const PLAYER_TEXT_SIZES: PlayerTextSize[] = ['small', 'medium', 'large'];
+export const isPlayerTextSize = (value: unknown): value is PlayerTextSize => (
+    PLAYER_TEXT_SIZES.includes(String(value || '') as PlayerTextSize)
+);
+
+/** TV side menu when opened: icons with labels (original) or icons only. */
+export type PlayerNavStyle = 'labels' | 'icons';
+export const isPlayerNavStyle = (value: unknown): value is PlayerNavStyle => value === 'labels' || value === 'icons';
+
+/** TV side menu while closed: icons on the page ('blend', default) or on the dark panel. */
+/** App-wide typeface. 'default' keeps the built-in Switzer / Satoshi pair. */
+export type PlayerAppFont = 'default' | 'inter' | 'roboto' | 'nunito' | 'montserrat' | 'lexend' | 'lora'
+    | 'playfair' | 'slab' | 'mono' | 'oswald' | 'comfortaa' | 'orbitron' | 'caveat'
+    | 'cinzel' | 'merriweather' | 'script' | 'fredoka' | 'typewriter' | 'marker' | 'comic';
+export const PLAYER_APP_FONTS: PlayerAppFont[] = [
+    'default', 'inter', 'roboto', 'nunito', 'montserrat', 'lexend', 'lora',
+    'playfair', 'slab', 'mono', 'oswald', 'comfortaa', 'orbitron', 'caveat',
+    'cinzel', 'merriweather', 'script', 'fredoka', 'typewriter', 'marker', 'comic',
+];
+export const isPlayerAppFont = (value: unknown): value is PlayerAppFont =>
+    PLAYER_APP_FONTS.includes(value as PlayerAppFont);
+/** CSS family for each font (the bundled faces are named "SMP …" so Tailwind's Inter stack is untouched). */
+export const PLAYER_APP_FONT_FAMILY: Record<PlayerAppFont, string> = {
+    default: '"Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif',
+    inter: '"SMP Inter", "Switzer", sans-serif',
+    roboto: '"SMP Roboto", "Switzer", sans-serif',
+    nunito: '"SMP Nunito", "Switzer", sans-serif',
+    montserrat: '"SMP Montserrat", "Switzer", sans-serif',
+    lexend: '"SMP Lexend", "Switzer", sans-serif',
+    lora: '"SMP Lora", Georgia, serif',
+    playfair: '"SMP Playfair Display", Georgia, serif',
+    slab: '"SMP Roboto Slab", Georgia, serif',
+    mono: '"SMP JetBrains Mono", monospace',
+    oswald: '"SMP Oswald", "Switzer", sans-serif',
+    comfortaa: '"SMP Comfortaa", "Switzer", sans-serif',
+    orbitron: '"SMP Orbitron", "Switzer", sans-serif',
+    caveat: '"SMP Caveat", cursive',
+    cinzel: '"SMP Cinzel", Georgia, serif',
+    merriweather: '"SMP Merriweather", Georgia, serif',
+    script: '"SMP Dancing Script", cursive',
+    fredoka: '"SMP Fredoka", "Switzer", sans-serif',
+    typewriter: '"SMP Special Elite", "Courier New", monospace',
+    marker: '"SMP Permanent Marker", cursive',
+    comic: '"SMP Bangers", "Switzer", sans-serif',
+};
+
+export type PlayerViewMoreStyle = 'backdrop' | 'mosaic' | 'deck' | 'minimal';
+export const PLAYER_VIEW_MORE_STYLES: PlayerViewMoreStyle[] = ['backdrop', 'mosaic', 'deck', 'minimal'];
+export const isPlayerViewMoreStyle = (value: unknown): value is PlayerViewMoreStyle =>
+    PLAYER_VIEW_MORE_STYLES.includes(value as PlayerViewMoreStyle);
+export type PlayerNavClosedStyle = 'blend' | 'panel';
+export const isPlayerNavClosedStyle = (value: unknown): value is PlayerNavClosedStyle => value === 'blend' || value === 'panel';
+
+/** Player skip (seconds) for Left / Right. */
+export const PLAYER_SEEK_STEPS = [5, 10, 15, 30, 60] as const;
+/** Seconds the player controls stay up before fading. */
+export const PLAYER_CONTROLS_TIMEOUTS = [3, 5, 10, 15] as const;
+/** Minutes of no remote use before the TV screensaver starts. */
+export const PLAYER_SCREENSAVER_DELAYS = [1, 2, 5, 10, 15, 30] as const;
+/** Seconds each screensaver picture stays up. */
+export const PLAYER_SCREENSAVER_SLIDE_SECONDS = [8, 14, 30, 60] as const;
+
+/** Screensaver look: crossfading art (original), slow pan and zoom, or a clock on black. */
+export type PlayerScreensaverStyle = 'slideshow' | 'panZoom' | 'clock';
+export const PLAYER_SCREENSAVER_STYLES: PlayerScreensaverStyle[] = ['slideshow', 'panZoom', 'clock'];
+export const isPlayerScreensaverStyle = (value: unknown): value is PlayerScreensaverStyle => (
+    PLAYER_SCREENSAVER_STYLES.includes(String(value || '') as PlayerScreensaverStyle)
+);
+
+const pickNumber = (value: unknown, allowed: readonly number[], fallback: number) => {
+    const n = Number(value);
+    return allowed.includes(n) ? n : fallback;
+};
+
+/** Subtitle size choices (%), shared by Settings and the native in-player menu. */
+export const PLAYER_SUBTITLE_SIZES = [50, 60, 75, 100, 125, 150, 200];
+
+/** How airdates and other dates are written across the app. */
+export type PlayerDateFormat =
+    | 'long'
+    | 'longDayFirst'
+    | 'ordinal'
+    | 'weekday'
+    | 'short'
+    | 'shortDayFirst'
+    | 'numericDMY'
+    | 'numericMDY'
+    | 'iso';
+
+export const PLAYER_DATE_FORMATS: PlayerDateFormat[] = [
+    'long',
+    'longDayFirst',
+    'ordinal',
+    'weekday',
+    'short',
+    'shortDayFirst',
+    'numericDMY',
+    'numericMDY',
+    'iso',
+];
+
+export const isPlayerDateFormat = (value: unknown): value is PlayerDateFormat => (
+    PLAYER_DATE_FORMATS.includes(String(value || '') as PlayerDateFormat)
+);
+
+/** TV idle screensaver art pool. */
+export type PlayerScreensaverSource =
+    | 'continue_watching'
+    | 'watchlist'
+    | 'recommended'
+    | 'trending'
+    | 'popular'
+    | 'new_releases'
+    | 'recently_added'
+    | 'most_watched'
+    | 'unwatched'
+    | 'random';
+
+export const PLAYER_SCREENSAVER_SOURCES: PlayerScreensaverSource[] = [
+    'continue_watching',
+    'watchlist',
+    'recommended',
+    'trending',
+    'popular',
+    'new_releases',
+    'recently_added',
+    'most_watched',
+    'unwatched',
+    'random',
+];
+
+export const isPlayerScreensaverSource = (value: unknown): value is PlayerScreensaverSource => (
+    PLAYER_SCREENSAVER_SOURCES.includes(String(value || '') as PlayerScreensaverSource)
+);
+
+/** i18n keys under mediaPlayerPage for screensaver source labels (watermark + settings). */
+export const PLAYER_SCREENSAVER_SOURCE_LABEL_KEYS: Record<PlayerScreensaverSource, string> = {
+    continue_watching: 'mediaPlayerPage.screensaverSourceContinueWatching',
+    watchlist: 'mediaPlayerPage.screensaverSourceWatchlist',
+    recommended: 'mediaPlayerPage.screensaverSourceRecommended',
+    trending: 'mediaPlayerPage.screensaverSourceTrending',
+    popular: 'mediaPlayerPage.screensaverSourcePopular',
+    new_releases: 'mediaPlayerPage.screensaverSourceNewReleases',
+    recently_added: 'mediaPlayerPage.screensaverSourceRecentlyAdded',
+    most_watched: 'mediaPlayerPage.screensaverSourceMostWatched',
+    unwatched: 'mediaPlayerPage.screensaverSourceUnwatched',
+    random: 'mediaPlayerPage.screensaverSourceRandom',
+};
 
 const continueWatchingUnixMs = (value: unknown): number => {
     const n = Number(value) || 0;
@@ -41,6 +314,19 @@ const continueWatchingUnixMs = (value: unknown): number => {
 };
 
 const continueWatchingReleaseMs = (item: {
+    originallyAvailableAt?: string | number | null;
+    year?: number | string | null;
+    addedAt?: number | null;
+    type?: string | null;
+    showLatestAiredAt?: number | null;
+} | null | undefined): number => {
+    // A show ranks by its newest episode, not the older one its card may be on.
+    const own = continueWatchingOwnReleaseMs(item);
+    const show = Number(item?.showLatestAiredAt) || 0;
+    return show > own ? show : own;
+};
+
+const continueWatchingOwnReleaseMs = (item: {
     originallyAvailableAt?: string | number | null;
     year?: number | string | null;
     addedAt?: number | null;
@@ -60,13 +346,83 @@ const continueWatchingReleaseMs = (item: {
     return continueWatchingUnixMs(item?.addedAt);
 };
 
-const continueWatchingViewedMs = (item: { lastViewedAt?: number | null } | null | undefined): number => (
-    continueWatchingUnixMs(item?.lastViewedAt)
+/** Last watched; Next Up episodes (never played) use the time their place in Plex's list implies. */
+const continueWatchingViewedMs = (
+    item: { lastViewedAt?: number | null; continueWatchingViewedAt?: number | null } | null | undefined,
+): number => (
+    continueWatchingUnixMs(item?.lastViewedAt) || continueWatchingUnixMs(item?.continueWatchingViewedAt)
 );
 
 const continueWatchingTitleKey = (item: { showTitle?: string | null; title?: string | null } | null | undefined): string => (
     String(item?.showTitle || item?.title || '').trim()
 );
+
+type ContinueWatchingSortable = {
+    originallyAvailableAt?: string | number | null;
+    showLatestAiredAt?: number | null;
+    year?: number | string | null;
+    addedAt?: number | null;
+    lastViewedAt?: number | null;
+    continueWatchingViewedAt?: number | null;
+    showTitle?: string | null;
+    title?: string | null;
+    type?: string | null;
+    viewOffsetMs?: number | null;
+    durationMs?: number | null;
+};
+
+/** Share watched, 0..1 (0 when the length is unknown). */
+const continueWatchingProgress = (item: ContinueWatchingSortable): number => {
+    const duration = Number(item?.durationMs || 0);
+    const offset = Number(item?.viewOffsetMs || 0);
+    return duration > 0 ? Math.max(0, Math.min(1, offset / duration)) : 0;
+};
+
+/** Time still to watch in ms; unknown lengths sort last. */
+const continueWatchingRemainingMs = (item: ContinueWatchingSortable): number => {
+    const duration = Number(item?.durationMs || 0);
+    if (duration <= 0) return Number.MAX_SAFE_INTEGER;
+    return Math.max(0, duration - Number(item?.viewOffsetMs || 0));
+};
+
+const continueWatchingIsMovie = (item: ContinueWatchingSortable) => String(item?.type || '') === 'movie';
+
+/** Negative when `a` comes first. 0 for `plex` (server order) and ties. */
+const compareContinueWatching = (a: ContinueWatchingSortable, b: ContinueWatchingSortable, mode: PlayerContinueWatchingSort): number => {
+    switch (mode) {
+        case 'plex':
+            return 0;
+        case 'title':
+        case 'titleDesc': {
+            const order = continueWatchingTitleKey(a).localeCompare(continueWatchingTitleKey(b), undefined, { sensitivity: 'base' });
+            return mode === 'title' ? order : -order;
+        }
+        case 'recentlyWatched':
+            return continueWatchingViewedMs(b) - continueWatchingViewedMs(a);
+        case 'oldestWatched':
+            return continueWatchingViewedMs(a) - continueWatchingViewedMs(b);
+        case 'oldestReleased':
+            return continueWatchingReleaseMs(a) - continueWatchingReleaseMs(b);
+        case 'recentlyAdded':
+            return continueWatchingUnixMs(b?.addedAt) - continueWatchingUnixMs(a?.addedAt);
+        case 'mostProgress':
+            return continueWatchingProgress(b) - continueWatchingProgress(a);
+        case 'leastProgress':
+            return continueWatchingProgress(a) - continueWatchingProgress(b);
+        case 'timeLeft':
+            return continueWatchingRemainingMs(a) - continueWatchingRemainingMs(b);
+        case 'moviesFirst':
+        case 'showsFirst': {
+            // Grouped, then most recently watched within each group.
+            const am = continueWatchingIsMovie(a);
+            const bm = continueWatchingIsMovie(b);
+            if (am !== bm) return (am ? -1 : 1) * (mode === 'moviesFirst' ? 1 : -1);
+            return continueWatchingViewedMs(b) - continueWatchingViewedMs(a);
+        }
+        default:
+            return continueWatchingReleaseMs(b) - continueWatchingReleaseMs(a);
+    }
+};
 
 /** Reorder Continue Watching. `plex` keeps the server/On Deck order. */
 export const sortContinueWatchingItems = <T extends {
@@ -77,28 +433,14 @@ export const sortContinueWatchingItems = <T extends {
     showTitle?: string | null;
     title?: string | null;
     type?: string | null;
+    viewOffsetMs?: number | null;
+    durationMs?: number | null;
 }>(items: T[] | null | undefined, sort: unknown): T[] => {
     const list = Array.isArray(items) ? items : [];
-    const mode = isPlayerContinueWatchingSort(sort) ? sort : 'releaseDate';
+    const mode = isPlayerContinueWatchingSort(sort) ? sort : 'plex';
     if (mode === 'plex' || list.length < 2) return list.slice();
     const ranked = list.map((item, index) => ({ item, index }));
-    ranked.sort((a, b) => {
-        if (mode === 'title') {
-            const cmp = continueWatchingTitleKey(a.item).localeCompare(
-                continueWatchingTitleKey(b.item),
-                undefined,
-                { sensitivity: 'base' },
-            );
-            return cmp || a.index - b.index;
-        }
-        const av = mode === 'recentlyWatched'
-            ? continueWatchingViewedMs(a.item)
-            : continueWatchingReleaseMs(a.item);
-        const bv = mode === 'recentlyWatched'
-            ? continueWatchingViewedMs(b.item)
-            : continueWatchingReleaseMs(b.item);
-        return (bv - av) || a.index - b.index;
-    });
+    ranked.sort((a, b) => compareContinueWatching(a.item, b.item, mode) || a.index - b.index);
     return ranked.map((row) => row.item);
 };
 
@@ -116,12 +458,17 @@ export const stabilizeContinueWatchingOrder = <T extends {
     showTitle?: string | null;
     title?: string | null;
     type?: string | null;
+    viewOffsetMs?: number | null;
+    durationMs?: number | null;
 }>(items: T[] | null | undefined, sort: unknown, previousKeys?: string[] | null): { items: T[]; keys: string[] } => {
     const sorted = sortContinueWatchingItems(items, sort);
+    const mode = isPlayerContinueWatchingSort(sort) ? sort : 'plex';
     const prior = Array.isArray(previousKeys)
         ? previousKeys.map((key) => String(key || '').trim()).filter(Boolean)
         : [];
-    if (!prior.length) {
+    // Recently watched must follow last view time. Freezing the first key list
+    // appends the next episode (a new rating key) at the end of the row.
+    if (!prior.length || mode === 'recentlyWatched') {
         return { items: sorted, keys: sorted.map(continueWatchingItemKey).filter(Boolean) };
     }
     const byKey = new Map<string, T>();
@@ -141,7 +488,24 @@ export const stabilizeContinueWatchingOrder = <T extends {
         const key = continueWatchingItemKey(item);
         return !!key && !seen.has(key);
     });
-    const next = kept.concat(extras);
+    // Cards already on screen keep their places. A title that just arrived (a new show,
+    // or the next / newly aired episode under a new key) goes where the sort puts it —
+    // appending it left a release from yesterday at the back of "Latest release".
+    const next = kept.slice();
+    // Match Plex: a new title goes in front of the first card Plex lists after it.
+    const plexRank = new Map(sorted.map((item, index) => [continueWatchingItemKey(item), index]));
+    for (const item of extras) {
+        if (mode === 'plex') {
+            const rank = plexRank.get(continueWatchingItemKey(item)) ?? Number.MAX_SAFE_INTEGER;
+            const at = next.findIndex((row) => (plexRank.get(continueWatchingItemKey(row)) ?? -1) > rank);
+            if (at < 0) next.push(item);
+            else next.splice(at, 0, item);
+            continue;
+        }
+        const at = next.findIndex((row) => compareContinueWatching(item, row, mode) < 0);
+        if (at < 0) next.push(item);
+        else next.splice(at, 0, item);
+    }
     return { items: next, keys: next.map(continueWatchingItemKey).filter(Boolean) };
 };
 
@@ -181,16 +545,67 @@ export type PlayerSettings = {
     continueWatchingLayout: PlayerContinueWatchingLayout;
     /** How Continue Watching cards are ordered. */
     continueWatchingSort: PlayerContinueWatchingSort;
+    /** 2: moved to Match Plex once (1.0.582); after that the stored choice is kept. */
+    continueWatchingSortVersion: number;
+    /** Airdate / date style, e.g. "October 21, 2026" or "21st October 2026". */
+    dateFormat: PlayerDateFormat;
+    /** Shape before row titles; 'none' lets the title start where the mark was. */
+    rowMarker: PlayerRowMarker;
+    /** Highlight colour across the app and the player. */
+    accentColor: PlayerAccentColor;
+    /** Remote navigation sounds; 'off' by default. */
+    navigationSound: PlayerNavigationSound;
+    posterCorners: PlayerPosterCorners;
+    focusRingWidth: PlayerFocusRingWidth;
+    ratingSources: PlayerRatingSources;
+    textSize: PlayerTextSize;
+    navStyle: PlayerNavStyle;
+    navClosedStyle: PlayerNavClosedStyle;
+    /** The card at the end of a row that opens the full list. */
+    viewMoreStyle: PlayerViewMoreStyle;
+    /** Typeface for the whole app. */
+    appFont: PlayerAppFont;
+    /** Clock in the corner of the app (and in the player with its controls). */
+    showClock: boolean;
+    /** TV corner clock sits on a dark pill. Off shows just the time (with a soft shadow). */
+    clockBackground: boolean;
+    seekBackSec: number;
+    seekForwardSec: number;
+    controlsTimeoutSec: number;
+    screensaverDelayMin: number;
+    screensaverStyle: PlayerScreensaverStyle;
+    screensaverSlideSec: number;
     showPlaylists: boolean;
+    /** History page in the side menu. */
+    showHistory: boolean;
     showBecauseYouWatched: boolean;
     /** Watchlist hub on Home, under Continue Watching. */
     showWatchlist: boolean;
+    /** Home rail of what's on Live TV right now. Off until a DVR exists and the user turns it on. */
+    showOnNowHome: boolean;
     defaultQualityId: string;
+    /** Quality away from home / on mobile data. '' = same as home. Direct app only. */
+    remoteQualityId: string;
     audioLanguage: string;
     subtitleMode: PlayerSubtitleMode;
+    /** @deprecated Prefer skipIntroMode; kept for older saves / server payloads. */
     autoSkipIntro: boolean;
+    /** @deprecated Prefer skipCreditsMode. */
     autoSkipCredits: boolean;
+    skipIntroMode: PlayerSkipMarkerMode;
+    skipCreditsMode: PlayerSkipMarkerMode;
+    /** Seconds to rewind when unpausing (0 = off). */
+    rewindOnResumeSec: number;
+    /** Plex-style audioBoost percent for transcodes (100 / 200 / 300). */
+    audioBoost: number;
+    burnSubtitles: PlayerBurnSubtitlesMode;
+    /** External/text subtitle timing offset in ms (−5000…5000). */
+    subtitleDelayMs: number;
+    /** Prefer server voice-activity auto-sync when available. */
+    subtitleAutoSync: boolean;
     playThemeTunes: boolean;
+    /** Billboard + overview studio / network / streaming logos (on by default). */
+    showServiceBrandLogos: boolean;
     /** Grey plate behind studio / network / streaming logos on overview. */
     serviceLogoPlates: boolean;
     /** Resolution / codec pills on season episode cards. */
@@ -199,17 +614,49 @@ export type PlayerSettings = {
     watchedTickPosition: PlayerWatchedTickPosition;
     /** Phone overview: poster on the still instead of the clear logo. */
     phoneOverviewPoster: boolean;
+    /**
+     * Shows with only one season open the episode list directly
+     * instead of the seasons overview. Off by default.
+     */
+    skipSingleSeason: boolean;
     homeRowOrder: string[];
     libraryNavOrder: string[];
+    /** Sidebar items turned off in Settings (Home and Settings always show). */
+    hiddenNavItems: PlayerNavItem[];
     /** Hide watched movies/shows from Recently Added rows. */
     hideWatchedFromRecents: boolean;
+    /** Recently Added TV: use season posters instead of the series poster. */
+    recentlyAddedSeasonPoster: boolean;
+    /** TV screensaver: which library pool to cycle as ambient art. */
+    screensaverSource: PlayerScreensaverSource;
+    /** TV screensaver: nudge the clock each slide so it does not burn into OLED panels. */
+    screensaverShiftClock: boolean;
     /** TV: skip focus zoom and screen-enter motion. */
     reduceMotion: boolean;
+    /** TV Home billboard: instant art swap, fixed fade colour, 720p art. For slower TV sticks. */
+    liteBillboard: boolean;
+    /** TV details pages (movie, show, season, episode): fade into the backdrop's bottom-edge colour. Off = black. */
+    detailsArtworkTint: boolean;
+    /** TV corner clock. On uses 15:36. Off uses 3:36 PM. */
+    clock24Hour: boolean;
     nightMode: boolean;
+    /** Test: on pause, name the faces in the frame from the title's cast (TV player). */
+    whoIsOnScreen: boolean;
     matchFrameRate: boolean;
     /** HDMI bitstream of DD/DTS/TrueHD when the sink supports it. */
     audioPassthrough: boolean;
+    /** Native player steps quality down by itself when it keeps buffering (off = ask once). */
+    autoQuality: boolean;
+    /** Movie / show pages quietly play the trailer behind the artwork after a few seconds. */
+    trailerPreview: boolean;
+    /** Show rating keys with spoiler hiding on: unwatched episodes get blurred stills, no summary. */
+    spoilerShows: string[];
+    /** Home libraries (hearts), `serverId::sectionId` → shown. Empty: not set up yet. */
+    homeLibraries: HomeLibraryPicks;
+    /** @deprecated Prefer cinemaTrailerCount. */
     cinemaTrailers: boolean;
+    /** How many trailers to play before a movie (0–5). */
+    cinemaTrailerCount: number;
     subtitleSize: number;
     subtitleColor: string;
     subtitleBackground: string;
@@ -249,18 +696,21 @@ export const PLAYER_AUDIO_LANGUAGES = [
     { id: 'tr', label: 'Turkish' },
 ];
 
-export const PLAYER_HOME_ROW_IDS = ['continueWatching', 'recents'] as const;
+export const PLAYER_HOME_ROW_IDS = ['continueWatching', 'onNow', 'recents'] as const;
 export const MIXED_RECENT_HOME_ROW_IDS = ['recent:movie', 'recent:show', 'recent:artist'] as const;
 
 export const isPlayerHomeRowId = (value: unknown): value is string => {
     const id = String(value || '').trim();
-    if (id === 'continueWatching' || id === 'recents' || id === 'playlists' || id === 'libraries') return true;
+    if (id === 'continueWatching' || id === 'onNow' || id === 'recents' || id === 'playlists' || id === 'libraries') return true;
     return /^recent:[A-Za-z0-9._-]{1,64}$/.test(id);
 };
 
-export const isPlayerLibraryKey = (value: unknown): value is string => (
-    /^[A-Za-z0-9._-]{1,64}$/.test(String(value || '').trim())
-);
+export const isPlayerLibraryKey = (value: unknown): value is string => {
+    const id = String(value || '').trim();
+    // Bare section keys, or multi-server `serverId::sectionId`.
+    if (/^[A-Za-z0-9._-]{1,64}$/.test(id)) return true;
+    return /^[A-Za-z0-9._-]{1,64}::\d{1,16}$/.test(id);
+};
 
 export const normalizeLibraryNavOrder = (raw: unknown): string[] => {
     if (!Array.isArray(raw)) return [];
@@ -303,12 +753,20 @@ export const applyLibraryNavOrder = <T extends { key?: string | null }>(
 ): T[] => {
     const list = Array.isArray(libraries) ? libraries.filter((row) => row && String(row.key || '').trim()) : [];
     const byKey = new Map(list.map((row) => [String(row.key), row]));
+    const byBare = new Map<string, T>();
+    list.forEach((row) => {
+        const bare = (String(row.key || '').split('::').pop() || '').replace(/\D/g, '');
+        if (bare && !byBare.has(bare)) byBare.set(bare, row);
+    });
     const seen = new Set<string>();
     const out: T[] = [];
     for (const key of normalizeLibraryNavOrder(order)) {
-        const row = byKey.get(key);
-        if (!row || seen.has(key)) continue;
-        seen.add(key);
+        const bare = (key.split('::').pop() || '').replace(/\D/g, '');
+        const row = byKey.get(key) || (bare ? byBare.get(bare) : undefined);
+        if (!row) continue;
+        const rowKey = String(row.key);
+        if (seen.has(rowKey)) continue;
+        seen.add(rowKey);
         out.push(row);
     }
     for (const row of list) {
@@ -330,6 +788,16 @@ const normalizeLibraryMediaType = (value: unknown): 'movie' | 'show' | 'artist' 
     return null;
 };
 
+/** Strip multi-server `{serverId}:` so movie./show./artist. hub ids still classify. */
+const homeHubIdentifierCore = (identifier: string) => {
+    const idLower = String(identifier || '').trim().toLowerCase();
+    if (!idLower.includes(':')) return idLower;
+    if (/:(?:movie|film|tv|show|artist|music|album)\./.test(idLower)) {
+        return idLower.replace(/^[^:]+:/, '');
+    }
+    return idLower;
+};
+
 /** Classify a home hub so library nav order can regroup movie / TV / music rows. */
 export const classifyPlayerHomeHub = (hub: {
     identifier?: string | null;
@@ -338,10 +806,12 @@ export const classifyPlayerHomeHub = (hub: {
     items?: Array<{ type?: string | null; librarySectionID?: string | null }> | null;
 } = {}): PlayerHomeHubMediaKind => {
     const identifier = String(hub.identifier || '');
-    const idLower = identifier.toLowerCase();
+    const idLower = homeHubIdentifierCore(identifier);
     const blob = `${identifier} ${hub.title || ''}`.toLowerCase();
     if (/continue\s*watch|ondeck|on[.\s_-]?deck|in[.\s_-]?progress/.test(blob)) return 'continueWatching';
-    if (/because\s+you\s+watched/.test(blob) || /^because:/.test(identifier)) return 'becauseYouWatched';
+    if (/because\s+you\s+watched/.test(blob) || /^because:/.test(identifier) || /^[^:]+:because:/.test(identifier)) {
+        return 'becauseYouWatched';
+    }
     if (hub.playlistRatingKey || /playlist/.test(blob)) return 'playlist';
     // Prefer hubIdentifier structure over title words — "Music Movies" collections
     // are movie.collection.* hubs, not albums.
@@ -367,24 +837,44 @@ export const classifyPlayerHomeHub = (hub: {
     return 'other';
 };
 
-const dominantLibrarySectionId = (
-    items: Array<{ librarySectionID?: string | null }> = [],
-): string | null => {
+const sectionIdFromHomeHubPath = (text: string) => (
+    text.match(/\/library\/sections\/(\d+)\//i)?.[1]
+    || text.match(/\/hubs\/sections\/(\d+)/i)?.[1]
+    || text.match(/[?&](?:sectionID|sectionId)=(\d+)/i)?.[1]
+    || text.match(/recentlyadded\.(\d+)/i)?.[1]
+    || ''
+);
+
+const bareLibrarySectionId = (value: unknown) => (
+    (String(value ?? '').split('::').pop() || '').replace(/\D/g, '')
+);
+
+/** Library section for nav ranking: stamped hub section, path, else clear item majority. */
+const hubSectionForNavOrder = (hub: {
+    hubKey?: string | null;
+    identifier?: string | null;
+    librarySectionID?: string | null;
+    items?: Array<{ librarySectionID?: string | null }> | null;
+} = {}): string => {
+    const stamped = bareLibrarySectionId(hub.librarySectionID);
+    if (stamped) return stamped;
+    const fromPath = sectionIdFromHomeHubPath(`${hub.hubKey || ''} ${hub.identifier || ''}`);
+    if (fromPath) return fromPath;
     const counts = new Map<string, number>();
-    for (const item of items) {
-        const id = String(item?.librarySectionID || '').trim();
-        if (!id) continue;
-        counts.set(id, (counts.get(id) || 0) + 1);
+    for (const item of hub.items || []) {
+        const id = bareLibrarySectionId(item?.librarySectionID);
+        if (id) counts.set(id, (counts.get(id) || 0) + 1);
     }
-    let best: string | null = null;
-    let bestCount = 0;
+    let best = '';
+    let most = 0;
     for (const [id, count] of counts) {
-        if (count > bestCount) {
+        if (count > most) {
             best = id;
-            bestCount = count;
+            most = count;
         }
     }
-    return best;
+    const total = (hub.items || []).length;
+    return best && most * 2 > total ? best : '';
 };
 
 /**
@@ -394,6 +884,8 @@ const dominantLibrarySectionId = (
 export const applyLibraryNavOrderToHubs = <T extends {
     identifier?: string | null;
     title?: string | null;
+    hubKey?: string | null;
+    librarySectionID?: string | null;
     playlistRatingKey?: string | null;
     items?: Array<{ type?: string | null; librarySectionID?: string | null }> | null;
 }>(
@@ -410,7 +902,9 @@ export const applyLibraryNavOrderToHubs = <T extends {
     const typeRank = new Map<'movie' | 'show' | 'artist', number>();
     orderedLibraries.forEach((library, index) => {
         const key = String(library.key || '').trim();
+        const bare = bareLibrarySectionId(key);
         if (key) libraryRank.set(key, index);
+        if (bare) libraryRank.set(bare, index);
         const kind = normalizeLibraryMediaType(library.type);
         if (kind && !typeRank.has(kind)) typeRank.set(kind, index);
     });
@@ -418,18 +912,17 @@ export const applyLibraryNavOrderToHubs = <T extends {
     const rankFor = (hub: T, index: number): [number, number, number] => {
         const kind = classifyPlayerHomeHub(hub);
         if (kind === 'continueWatching') return [-2, 0, index];
-        if (kind === 'playlist') return [1, 0, index];
         if (kind === 'becauseYouWatched') return [2, 0, index];
-        if (kind === 'other') return [1, 1, index];
+        if (kind === 'playlist') return [1, 0, index];
 
-        const sectionId = dominantLibrarySectionId(hub.items || []);
+        const sectionId = hubSectionForNavOrder(hub);
         if (sectionId && libraryRank.has(sectionId)) {
             return [0, libraryRank.get(sectionId) as number, index];
         }
-        if (typeRank.has(kind)) {
+        if (kind !== 'other' && typeRank.has(kind)) {
             return [0, typeRank.get(kind) as number, index];
         }
-        return [1, 2, index];
+        return [1, 1, index];
     };
 
     return list
@@ -494,6 +987,7 @@ const QUALITY_IDS = new Set(['auto', ...PLAYER_QUALITY_CHOICES.map((row) => row.
 const SUBTITLE_MODES = new Set<PlayerSubtitleMode>(['off', 'forced', 'always']);
 
 export const PLAYER_SETTINGS_KEY = 'portal-media-player-settings';
+const CONTINUE_WATCHING_SORT_VERSION = 2;
 export const PLAYER_SETTINGS_EVENT = 'portal-media-player-settings';
 /** Live draft preview (e.g. library nav order) before Save. */
 export const PLAYER_SETTINGS_DRAFT_EVENT = 'portal-media-player-settings-draft';
@@ -509,28 +1003,74 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
     stillWatchingAfter: 3,
     showContinueWatching: true,
     continueWatchingLayout: 'poster',
-    continueWatchingSort: 'releaseDate',
+    continueWatchingSort: 'plex',
+    continueWatchingSortVersion: CONTINUE_WATCHING_SORT_VERSION,
+    dateFormat: 'long',
+    rowMarker: 'play',
+    accentColor: 'gold',
+    navigationSound: 'off',
+    posterCorners: 'rounded',
+    focusRingWidth: 'normal',
+    ratingSources: { imdb: true, rtCritics: true, rtAudience: true, tmdb: true, tvdb: true },
+    textSize: 'medium',
+    navStyle: 'labels',
+    navClosedStyle: 'blend',
+    viewMoreStyle: 'backdrop',
+    appFont: 'default',
+    showClock: true,
+    clockBackground: true,
+    seekBackSec: 10,
+    seekForwardSec: 10,
+    controlsTimeoutSec: 5,
+    screensaverDelayMin: 2,
+    screensaverStyle: 'slideshow',
+    screensaverSlideSec: 14,
     showPlaylists: true,
+    showHistory: true,
     showBecauseYouWatched: true,
     showWatchlist: true,
+    showOnNowHome: false,
     defaultQualityId: 'auto',
+    remoteQualityId: '',
     audioLanguage: '',
     subtitleMode: 'forced',
     autoSkipIntro: false,
     autoSkipCredits: false,
+    skipIntroMode: 'manual',
+    skipCreditsMode: 'manual',
+    rewindOnResumeSec: 0,
+    audioBoost: 100,
+    burnSubtitles: 'auto',
+    subtitleDelayMs: 0,
+    subtitleAutoSync: false,
     playThemeTunes: true,
+    showServiceBrandLogos: true,
     serviceLogoPlates: true,
     showEpisodeFilePills: true,
-    watchedTickPosition: 'top-right',
+    watchedTickPosition: 'bottom-left',
     phoneOverviewPoster: false,
+    skipSingleSeason: false,
     homeRowOrder: [],
     libraryNavOrder: [],
+    hiddenNavItems: [],
     hideWatchedFromRecents: false,
+    recentlyAddedSeasonPoster: false,
+    screensaverSource: 'continue_watching',
+    screensaverShiftClock: false,
     reduceMotion: false,
+    liteBillboard: false,
+    detailsArtworkTint: true,
+    clock24Hour: true,
     nightMode: false,
+    whoIsOnScreen: false,
     matchFrameRate: true,
     audioPassthrough: false,
+    autoQuality: false,
+    trailerPreview: false,
+    spoilerShows: [],
+    homeLibraries: {},
     cinemaTrailers: false,
+    cinemaTrailerCount: 0,
     subtitleSize: 100,
     subtitleColor: '#ffffff',
     subtitleBackground: 'none',
@@ -538,6 +1078,16 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
 };
 
 const normalizeLang = (value: unknown) => String(value || '').trim().toLowerCase().replace(/_/g, '-');
+
+/** Sidebar items that can be turned off. Home and Settings can't (there'd be no way back). */
+export const PLAYER_NAV_ITEMS = ['watchlist', 'history', 'livetv', 'downloads', 'search'] as const;
+export type PlayerNavItem = typeof PLAYER_NAV_ITEMS[number];
+
+const normalizeHiddenNavItems = (raw: unknown): PlayerNavItem[] => {
+    if (!Array.isArray(raw)) return [];
+    const picked = new Set(raw.map((value) => String(value)));
+    return PLAYER_NAV_ITEMS.filter((item) => picked.has(item));
+};
 
 export const normalizePlayerSettings = (raw: Partial<PlayerSettings> | Record<string, unknown> | null | undefined): PlayerSettings => {
     const quality = String(raw?.defaultQualityId || 'auto');
@@ -555,36 +1105,109 @@ export const normalizePlayerSettings = (raw: Partial<PlayerSettings> | Record<st
         continueWatchingLayout: isPlayerContinueWatchingLayout(raw?.continueWatchingLayout)
             ? raw.continueWatchingLayout
             : 'poster',
-        continueWatchingSort: isPlayerContinueWatchingSort(raw?.continueWatchingSort)
+        // Older devices defaulted to Latest released, which hid Plex's own order: switch once.
+        continueWatchingSort: raw?.continueWatchingSortVersion === CONTINUE_WATCHING_SORT_VERSION
+            && isPlayerContinueWatchingSort(raw?.continueWatchingSort)
             ? raw.continueWatchingSort
-            : 'releaseDate',
+            : 'plex',
+        continueWatchingSortVersion: CONTINUE_WATCHING_SORT_VERSION,
+        dateFormat: isPlayerDateFormat(raw?.dateFormat) ? raw.dateFormat : 'long',
+        rowMarker: isPlayerRowMarker(raw?.rowMarker) ? raw.rowMarker : 'play',
+        accentColor: isPlayerAccentColor(raw?.accentColor) ? raw.accentColor : 'gold',
+        navigationSound: isPlayerNavigationSound(raw?.navigationSound) ? raw.navigationSound : 'off',
+        posterCorners: isPlayerPosterCorners(raw?.posterCorners) ? raw.posterCorners : 'rounded',
+        focusRingWidth: isPlayerFocusRingWidth(raw?.focusRingWidth) ? raw.focusRingWidth : 'normal',
+        ratingSources: normalizeRatingSources(raw?.ratingSources),
+        textSize: isPlayerTextSize(raw?.textSize) ? raw.textSize : 'medium',
+        navStyle: isPlayerNavStyle(raw?.navStyle) ? raw.navStyle : 'labels',
+        navClosedStyle: isPlayerNavClosedStyle(raw?.navClosedStyle) ? raw.navClosedStyle : 'blend',
+        viewMoreStyle: isPlayerViewMoreStyle(raw?.viewMoreStyle) ? raw.viewMoreStyle : 'backdrop',
+        appFont: isPlayerAppFont(raw?.appFont) ? raw.appFont : 'default',
+        showClock: raw?.showClock !== false,
+        clockBackground: raw?.clockBackground !== false,
+        seekBackSec: pickNumber(raw?.seekBackSec, PLAYER_SEEK_STEPS, 10),
+        seekForwardSec: pickNumber(raw?.seekForwardSec, PLAYER_SEEK_STEPS, 10),
+        controlsTimeoutSec: pickNumber(raw?.controlsTimeoutSec, PLAYER_CONTROLS_TIMEOUTS, 5),
+        screensaverDelayMin: pickNumber(raw?.screensaverDelayMin, PLAYER_SCREENSAVER_DELAYS, 2),
+        screensaverStyle: isPlayerScreensaverStyle(raw?.screensaverStyle) ? raw.screensaverStyle : 'slideshow',
+        screensaverSlideSec: pickNumber(raw?.screensaverSlideSec, PLAYER_SCREENSAVER_SLIDE_SECONDS, 14),
         showPlaylists: raw?.showPlaylists !== false,
+        showHistory: raw?.showHistory !== false,
         showBecauseYouWatched: raw?.showBecauseYouWatched !== false,
         showWatchlist: raw?.showWatchlist !== false,
+        showOnNowHome: raw?.showOnNowHome === true,
         defaultQualityId: QUALITY_IDS.has(quality) ? quality : 'auto',
+        remoteQualityId: QUALITY_IDS.has(String(raw?.remoteQualityId || '')) ? String(raw?.remoteQualityId) : '',
         audioLanguage: /^[a-z]{2}(?:-[a-z]{2})?$/.test(audioLanguage) ? audioLanguage : '',
         subtitleMode: SUBTITLE_MODES.has(subtitleMode) ? subtitleMode : 'forced',
-        autoSkipIntro: raw?.autoSkipIntro === true,
-        autoSkipCredits: raw?.autoSkipCredits === true,
+        autoSkipIntro: raw?.autoSkipIntro === true || String(raw?.skipIntroMode || '') === 'auto',
+        autoSkipCredits: raw?.autoSkipCredits === true || String(raw?.skipCreditsMode || '') === 'auto',
+        skipIntroMode: migrateSkipMode(raw?.skipIntroMode, raw?.autoSkipIntro),
+        skipCreditsMode: migrateSkipMode(raw?.skipCreditsMode, raw?.autoSkipCredits),
+        rewindOnResumeSec: (() => {
+            const n = Number(raw?.rewindOnResumeSec);
+            if (![0, 5, 10, 15, 20, 30].includes(n)) return 0;
+            return n;
+        })(),
+        audioBoost: (() => {
+            const n = Number(raw?.audioBoost);
+            if (n === 200 || n === 300) return n;
+            return 100;
+        })(),
+        burnSubtitles: isPlayerBurnSubtitlesMode(raw?.burnSubtitles) ? raw.burnSubtitles : 'auto',
+        subtitleDelayMs: (() => {
+            const n = Math.round(Number(raw?.subtitleDelayMs) || 0);
+            if (!Number.isFinite(n)) return 0;
+            const stepped = Math.round(n / 500) * 500;
+            return Math.min(5000, Math.max(-5000, stepped));
+        })(),
+        subtitleAutoSync: raw?.subtitleAutoSync === true,
         playThemeTunes: raw?.playThemeTunes !== false,
+        showServiceBrandLogos: raw?.showServiceBrandLogos !== false,
         serviceLogoPlates: raw?.serviceLogoPlates !== false,
         showEpisodeFilePills: raw?.showEpisodeFilePills !== false,
         watchedTickPosition: isPlayerWatchedTickPosition(raw?.watchedTickPosition)
             ? raw!.watchedTickPosition as PlayerWatchedTickPosition
-            : 'top-right',
+            : 'bottom-left',
         phoneOverviewPoster: raw?.phoneOverviewPoster === true,
+        skipSingleSeason: raw?.skipSingleSeason === true,
         homeRowOrder: collapseHomeRowOrder(raw?.homeRowOrder),
         libraryNavOrder: normalizeLibraryNavOrder(
             Array.isArray(raw?.libraryNavOrder) && raw.libraryNavOrder.length
                 ? raw.libraryNavOrder
                 : libraryNavOrderFromHomeRows(raw?.homeRowOrder),
         ),
+        hiddenNavItems: normalizeHiddenNavItems(raw?.hiddenNavItems),
         hideWatchedFromRecents: raw?.hideWatchedFromRecents === true,
+        recentlyAddedSeasonPoster: raw?.recentlyAddedSeasonPoster === true,
+        screensaverSource: isPlayerScreensaverSource(raw?.screensaverSource)
+            ? raw.screensaverSource
+            : 'continue_watching',
+        screensaverShiftClock: raw?.screensaverShiftClock === true,
         reduceMotion: raw?.reduceMotion === true,
+        liteBillboard: raw?.liteBillboard === true,
+        detailsArtworkTint: raw?.detailsArtworkTint !== false,
+        clock24Hour: raw?.clock24Hour !== false,
         nightMode: raw?.nightMode === true,
+        whoIsOnScreen: raw?.whoIsOnScreen === true,
         matchFrameRate: raw?.matchFrameRate !== false,
         audioPassthrough: raw?.audioPassthrough === true,
-        cinemaTrailers: raw?.cinemaTrailers === true,
+        autoQuality: raw?.autoQuality === true,
+        trailerPreview: raw?.trailerPreview === true,
+        spoilerShows: Array.isArray(raw?.spoilerShows)
+            ? Array.from(new Set((raw.spoilerShows as unknown[]).map((key) => String(key || '').trim()).filter(Boolean))).slice(0, 500)
+            : [],
+        homeLibraries: normalizeHomeLibraryPicks(raw?.homeLibraries),
+        cinemaTrailers: (() => {
+            const count = Number(raw?.cinemaTrailerCount);
+            if (Number.isFinite(count)) return count > 0;
+            return raw?.cinemaTrailers === true;
+        })(),
+        cinemaTrailerCount: (() => {
+            const count = Number(raw?.cinemaTrailerCount);
+            if (Number.isFinite(count)) return Math.min(5, Math.max(0, Math.floor(count)));
+            return raw?.cinemaTrailers === true ? 2 : 0;
+        })(),
         subtitleSize: Math.min(200, Math.max(50, Number(raw?.subtitleSize) || 100)),
         subtitleColor: /^#[0-9a-f]{6}$/i.test(String(raw?.subtitleColor || ''))
             ? String(raw?.subtitleColor)
@@ -605,27 +1228,72 @@ export const playerSettingsEqual = (a: PlayerSettings, b: PlayerSettings) => (
     && a.showContinueWatching === b.showContinueWatching
     && a.continueWatchingLayout === b.continueWatchingLayout
     && a.continueWatchingSort === b.continueWatchingSort
+    && a.dateFormat === b.dateFormat
+    && a.rowMarker === b.rowMarker
+    && a.accentColor === b.accentColor
+    && a.navigationSound === b.navigationSound
+    && a.posterCorners === b.posterCorners
+    && a.focusRingWidth === b.focusRingWidth
+    && PLAYER_RATING_SOURCE_KEYS.every((key) => a.ratingSources[key] === b.ratingSources[key])
+    && a.textSize === b.textSize
+    && a.navStyle === b.navStyle
+    && a.navClosedStyle === b.navClosedStyle
+    && a.viewMoreStyle === b.viewMoreStyle
+    && a.appFont === b.appFont
+    && a.showClock === b.showClock
+    && a.clockBackground === b.clockBackground
+    && a.seekBackSec === b.seekBackSec
+    && a.seekForwardSec === b.seekForwardSec
+    && a.controlsTimeoutSec === b.controlsTimeoutSec
+    && a.screensaverDelayMin === b.screensaverDelayMin
+    && a.screensaverStyle === b.screensaverStyle
+    && a.screensaverSlideSec === b.screensaverSlideSec
     && a.showPlaylists === b.showPlaylists
+    && a.showHistory === b.showHistory
     && a.showBecauseYouWatched === b.showBecauseYouWatched
     && a.showWatchlist === b.showWatchlist
+    && a.showOnNowHome === b.showOnNowHome
     && a.defaultQualityId === b.defaultQualityId
+    && a.remoteQualityId === b.remoteQualityId
     && a.audioLanguage === b.audioLanguage
     && a.subtitleMode === b.subtitleMode
     && a.autoSkipIntro === b.autoSkipIntro
     && a.autoSkipCredits === b.autoSkipCredits
+    && a.skipIntroMode === b.skipIntroMode
+    && a.skipCreditsMode === b.skipCreditsMode
+    && a.rewindOnResumeSec === b.rewindOnResumeSec
+    && a.audioBoost === b.audioBoost
+    && a.burnSubtitles === b.burnSubtitles
+    && a.subtitleDelayMs === b.subtitleDelayMs
+    && a.subtitleAutoSync === b.subtitleAutoSync
     && a.playThemeTunes === b.playThemeTunes
+    && a.showServiceBrandLogos === b.showServiceBrandLogos
     && a.serviceLogoPlates === b.serviceLogoPlates
     && a.showEpisodeFilePills === b.showEpisodeFilePills
     && a.watchedTickPosition === b.watchedTickPosition
     && a.phoneOverviewPoster === b.phoneOverviewPoster
+    && a.skipSingleSeason === b.skipSingleSeason
     && a.homeRowOrder.join('\0') === b.homeRowOrder.join('\0')
     && a.libraryNavOrder.join('\0') === b.libraryNavOrder.join('\0')
+    && a.hiddenNavItems.join('\0') === b.hiddenNavItems.join('\0')
     && a.hideWatchedFromRecents === b.hideWatchedFromRecents
+    && a.recentlyAddedSeasonPoster === b.recentlyAddedSeasonPoster
+    && a.screensaverSource === b.screensaverSource
+    && a.screensaverShiftClock === b.screensaverShiftClock
     && a.reduceMotion === b.reduceMotion
+    && a.liteBillboard === b.liteBillboard
+    && a.detailsArtworkTint === b.detailsArtworkTint
+    && a.clock24Hour === b.clock24Hour
     && a.nightMode === b.nightMode
+    && a.whoIsOnScreen === b.whoIsOnScreen
     && a.matchFrameRate === b.matchFrameRate
     && a.audioPassthrough === b.audioPassthrough
+    && a.autoQuality === b.autoQuality
+    && a.trailerPreview === b.trailerPreview
+    && a.spoilerShows.join('|') === b.spoilerShows.join('|')
+    && homeLibraryPicksEqual(a.homeLibraries, b.homeLibraries)
     && a.cinemaTrailers === b.cinemaTrailers
+    && a.cinemaTrailerCount === b.cinemaTrailerCount
     && a.subtitleSize === b.subtitleSize
     && a.subtitleColor === b.subtitleColor
     && a.subtitleBackground === b.subtitleBackground
@@ -637,7 +1305,13 @@ export const readPlayerSettings = (): PlayerSettings => {
     try {
         const raw = window.localStorage.getItem(PLAYER_SETTINGS_KEY);
         if (!raw) return { ...DEFAULT_PLAYER_SETTINGS };
-        return normalizePlayerSettings(JSON.parse(raw) || {});
+        const parsed = JSON.parse(raw) || {};
+        const settings = normalizePlayerSettings(parsed);
+        // Save the one-time Continue Watching switch, so the Plex data layer reads it too.
+        if (parsed.continueWatchingSortVersion !== CONTINUE_WATCHING_SORT_VERSION) {
+            window.localStorage.setItem(PLAYER_SETTINGS_KEY, JSON.stringify(settings));
+        }
+        return settings;
     } catch {
         return { ...DEFAULT_PLAYER_SETTINGS };
     }

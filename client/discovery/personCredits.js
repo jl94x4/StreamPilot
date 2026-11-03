@@ -76,20 +76,20 @@ const isPersonSearchResult = (row) => {
     return type === 'person' || (!type && !!(row?.profilePath || row?.profile_path));
 };
 
-/** Prefer an exact name match, then overlap with titles already on the server. */
+/** Exact name only. Never fall back to a more popular person with a different name. */
 export const pickTmdbPersonMatch = (results = [], { name = '', knownTitles = [] } = {}) => {
     const want = foldPersonName(name);
+    if (!want) return null;
     const titles = new Set((Array.isArray(knownTitles) ? knownTitles : [])
         .map((row) => foldPersonName(row))
         .filter(Boolean));
-    const people = (Array.isArray(results) ? results : []).filter(isPersonSearchResult);
-    const named = want
-        ? people.filter((row) => foldPersonName(row?.name) === want)
-        : people;
-    const pool = named.length ? named : people;
+    const people = (Array.isArray(results) ? results : [])
+        .filter(isPersonSearchResult)
+        .filter((row) => foldPersonName(row?.name) === want);
+    if (!people.length) return null;
     let best = null;
     let bestScore = -1;
-    for (const row of pool) {
+    for (const row of people) {
         const known = [].concat(row?.knownFor || row?.known_for || []);
         const overlap = known.filter((item) => titles.has(foldPersonName(item?.title || item?.name))).length;
         const popularity = Number(row?.popularity) || 0;

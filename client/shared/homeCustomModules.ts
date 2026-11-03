@@ -54,10 +54,10 @@ export const createDefaultHomeCustomModule = (): HomeCustomModule => ({
     css: '',
 });
 
-export const insertHomeModuleSection = (sections: string[], moduleId: string, anchor = 'recentlyAdded') => {
-    const sectionId = homeCustomModuleSectionId(moduleId);
+export const insertHomeModuleSection = <T extends string>(sections: T[], moduleId: string, anchor = 'recentlyAdded'): T[] => {
+    const sectionId = homeCustomModuleSectionId(moduleId) as T;
     if (sections.includes(sectionId)) return sections;
-    const anchorIndex = sections.indexOf(anchor);
+    const anchorIndex = sections.indexOf(anchor as T);
     if (anchorIndex >= 0) {
         const next = [...sections];
         next.splice(anchorIndex, 0, sectionId);
@@ -66,7 +66,7 @@ export const insertHomeModuleSection = (sections: string[], moduleId: string, an
     return [...sections, sectionId];
 };
 
-export const removeHomeModuleSection = (sections: string[], moduleId: string) => (
+export const removeHomeModuleSection = <T extends string>(sections: T[], moduleId: string): T[] => (
     sections.filter((id) => id !== homeCustomModuleSectionId(moduleId))
 );
 

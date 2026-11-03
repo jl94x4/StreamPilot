@@ -61,8 +61,9 @@ export const WatchSyncPage: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [toasts, setToasts] = useState<ToastMessage[]>([]);
-    const toast = useCallback((message: string, type: ToastMessage['type'] = 'info') => {
-        pushToast(setToasts, message, type);
+    const toast = useCallback((message: string, type: ToastMessage['type'] | 'info' = 'info') => {
+        // Toasts only come in green (success) and red (error): info reads as success.
+        setToasts((prev) => pushToast(prev, message, type === 'error' ? 'error' : 'success'));
     }, []);
 
     const refreshStatus = useCallback(async () => {

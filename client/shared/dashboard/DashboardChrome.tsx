@@ -190,7 +190,7 @@ export const DashboardPanel: React.FC<{
     subtitle?: string;
     badge?: React.ReactNode;
     controls?: React.ReactNode;
-    children: React.ReactNode;
+    children?: React.ReactNode;
     className?: string;
     /** When true, title row toggles body visibility. */
     collapsible?: boolean;

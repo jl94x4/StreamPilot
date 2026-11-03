@@ -1,15 +1,6 @@
 import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
 import { apiFetch } from '../../shared/api';
 import { en } from './en';
-import { fr } from './fr';
-import { de } from './de';
-import { es } from './es';
-import { ptBR } from './pt-BR';
-import { it } from './it';
-import { ja } from './ja';
-import { pl } from './pl';
-import { nl } from './nl';
-import { ru } from './ru';
 import {
     detectDiscoverBrowserLocale,
     isDiscoverLocale,
@@ -21,7 +12,45 @@ import {
     type DiscoverTranslateVars,
 } from './types';
 
-const catalogs: Record<DiscoverLocale, unknown> = { en, fr, de, es, 'pt-BR': ptBR, it, ja, pl, nl, ru };
+/**
+ * English is built in (it is the fallback for every key). The others are about 1.2MB
+ * together, so each loads on demand as its own chunk; until it arrives, English shows.
+ */
+const catalogs: Partial<Record<DiscoverLocale, unknown>> = { en };
+
+const catalogLoaders: Record<Exclude<DiscoverLocale, 'en'>, () => Promise<unknown>> = {
+    fr: () => import('./fr').then((m) => m.fr),
+    de: () => import('./de').then((m) => m.de),
+    es: () => import('./es').then((m) => m.es),
+    'pt-BR': () => import('./pt-BR').then((m) => m.ptBR),
+    it: () => import('./it').then((m) => m.it),
+    ja: () => import('./ja').then((m) => m.ja),
+    pl: () => import('./pl').then((m) => m.pl),
+    nl: () => import('./nl').then((m) => m.nl),
+    ru: () => import('./ru').then((m) => m.ru),
+};
+
+const catalogLoads = new Map<DiscoverLocale, Promise<void>>();
+
+export const discoverCatalogReady = (locale: DiscoverLocale) => catalogs[locale] != null;
+
+export const loadDiscoverCatalog = (locale: DiscoverLocale): Promise<void> => {
+    if (discoverCatalogReady(locale)) return Promise.resolve();
+    const pending = catalogLoads.get(locale);
+    if (pending) return pending;
+    const loader = catalogLoaders[locale as Exclude<DiscoverLocale, 'en'>];
+    if (!loader) return Promise.resolve();
+    const load = loader()
+        .then((catalog) => { catalogs[locale] = catalog; })
+        .catch(() => { catalogLoads.delete(locale); });
+    catalogLoads.set(locale, load);
+    return load;
+};
+
+// Start the saved language straight away, so it is usually in before the first screen.
+try {
+    void loadDiscoverCatalog(readStoredDiscoverUiLocale() || detectDiscoverBrowserLocale());
+} catch { /* storage unavailable: English until a locale is chosen */ }
 
 const getPath = (obj: unknown, path: string): unknown => {
     let current: unknown = obj;
@@ -212,7 +241,18 @@ export const DiscoverI18nProvider: React.FC<{
         setDiscoverUiLocale(locale);
     }, [locale]);
 
-    const t = useMemo(() => createDiscoverTranslate(locale), [locale]);
+    // Bumped when the chosen language's catalog arrives, so `t` re-renders in it.
+    const [catalogVersion, setCatalogVersion] = useState(0);
+    React.useEffect(() => {
+        if (discoverCatalogReady(locale)) return undefined;
+        let cancelled = false;
+        void loadDiscoverCatalog(locale).then(() => {
+            if (!cancelled && discoverCatalogReady(locale)) setCatalogVersion((v) => v + 1);
+        });
+        return () => { cancelled = true; };
+    }, [locale]);
+
+    const t =useMemo(() => createDiscoverTranslate(locale), [locale, catalogVersion]);
 
     const value = useMemo(() => ({ locale, setLocale, t }), [locale, setLocale, t]);
 

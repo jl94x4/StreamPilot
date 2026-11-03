@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState, useRef } from 'react';
+import { appAlert, askConfirm } from '../../shared/confirm';
 import { api } from '../api';
 import { usePoll } from '../../shared/usePoll';
 import { Card } from '../components/ui/Card';
@@ -95,8 +96,8 @@ const LogsPage: React.FC = () => {
                         Auto-scroll: {autoScroll ? 'ON' : 'OFF'}
                     </button>
                     <button onClick={async () => {
-                        if (confirm("Clear log file? This cannot be undone.")) {
-                            try { await api.clearLogs(); fetchLogs(); } catch (e) { alert("Failed to clear"); }
+                        if (await askConfirm('The Collexions log file will be emptied.', { title: 'Clear the log file?', confirmLabel: 'Clear', danger: true })) {
+                            try { await api.clearLogs(); fetchLogs(); } catch (e) { void appAlert('Could not clear the log file.', { title: 'Clear failed' }); }
                         }
                     }} className="bg-red-500/10 hover:bg-red-500/20 text-red-500 px-3 py-2 rounded-lg text-sm transition-colors border border-red-500/30" title="Clear Logs">
                         <Ban className="w-4 h-4" />

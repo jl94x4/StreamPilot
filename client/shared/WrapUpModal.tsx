@@ -411,12 +411,12 @@ export const WrapUpModal: React.FC<{
                     : (Array.isArray(analytics.topLibraries) ? analytics.topLibraries : []);
                 const maxLibPlays = libs[0]?.plays || 1;
                 return (
-                    <div className="flex flex-col items-center justify-center text-center p-6 max-h-[80vh] overflow-hidden flex-1">
+                    <div className="flex flex-col items-center text-center p-6 pb-8">
                         <Layers className="w-16 h-16 text-plex mb-4 drop-shadow-lg shrink-0" />
                         <h2 className="text-3xl font-black text-white mb-2 line-clamp-1 shrink-0">{analytics.favoriteLibrary || libs[0]?.title || 'None'}</h2>
                         <p className="text-muted mb-6 uppercase tracking-widest text-xs font-bold shrink-0">Library Breakdown</p>
 
-                        <div className="w-full flex flex-col gap-3 overflow-y-auto pr-2 pb-2 custom-scrollbar">
+                        <div className="w-full flex flex-col gap-3 pr-2">
                             {libs.length === 0 ? (
                                 <p className="text-sm text-muted">No library metadata on these plays yet.</p>
                             ) : libs.map((lib: any, i: number) => {
@@ -698,10 +698,10 @@ export const WrapUpModal: React.FC<{
     };
 
     return ReactDOM.createPortal(
-        <div className="fixed inset-0 z-[340] flex items-end sm:items-center justify-center p-0 sm:p-4">
+        <div className="fixed inset-0 z-[340] flex items-center justify-center p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
             <div className="absolute inset-0 bg-black/80 backdrop-blur-sm transition-opacity" onClick={onClose} />
             <div
-                className="relative bg-gradient-to-b from-card to-background border border-border/80 shadow-[0_0_50px_rgba(0,0,0,0.5)] rounded-t-2xl sm:rounded-2xl w-full max-w-lg max-h-[min(92dvh,calc(100dvh-4.5rem))] sm:max-h-[85vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200"
+                className="relative bg-gradient-to-b from-card to-background border border-border/80 shadow-[0_0_50px_rgba(0,0,0,0.5)] rounded-2xl w-full max-w-lg max-h-[min(88dvh,calc(100dvh-2rem))] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200"
                 onClick={(e) => e.stopPropagation()}
             >
                 <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-plex/0 via-plex to-plex/0 opacity-50 z-10 pointer-events-none"></div>

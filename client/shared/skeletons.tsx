@@ -1,11 +1,42 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
     discoverPosterGridClass,
+    estimatePortalContentWidth,
     type PosterGridValue,
     upgraderPosterGridClass,
     upgraderPosterGridStyle,
 } from './portalLayout';
 import { useSkeletonLayoutCounts } from './useSkeletonLayoutCounts';
+import { RowHeaderMark } from './RowHeaderMark';
+
+/** TV home stage rail must spill past the right edge after CSS zoom + 20px root font. */
+const tvHomeStageSkeletonCardCount = () => {
+    if (typeof window === 'undefined') return 18;
+    const zoomRaw = parseFloat(String(
+        getComputedStyle(document.documentElement).getPropertyValue('--tv-zoom') || '1',
+    ));
+    const zoom = Number.isFinite(zoomRaw) && zoomRaw > 0 ? zoomRaw : 1;
+    const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 20;
+    const vw = window.innerWidth || document.documentElement.clientWidth || 960;
+    // Leanback lays out near 1920 design px even when innerWidth is ~960.
+    const designWidth = Math.max(
+        estimatePortalContentWidth(),
+        vw / Math.max(0.45, zoom),
+        1920,
+    );
+    const pad = (6.75 + 1.25) * rem;
+    const available = Math.max(640, designWidth - pad);
+    const landscape = 21 * rem;
+    const portrait = 9.5 * rem;
+    const gap = rem;
+    let width = landscape;
+    let count = 1;
+    while (width < available + portrait * 3 && count < 48) {
+        width += gap + portrait;
+        count += 1;
+    }
+    return count;
+};
 
 const pulse = 'skeleton-base';
 
@@ -40,12 +71,15 @@ export const PosterGridSkeleton: React.FC<{
     rows?: number;
     className?: string;
     style?: React.CSSProperties;
+    /** 'home' adds a year line under the title, like TV library posters. */
+    variant?: 'discover' | 'home';
 }> = ({
     count,
     aspect = '2/3',
     rows = 2,
     className,
     style,
+    variant = 'discover',
 }) => {
     const { grid: defaultCount } = useSkeletonLayoutCounts({ gridRows: rows });
     const itemCount = count ?? defaultCount;
@@ -53,7 +87,7 @@ export const PosterGridSkeleton: React.FC<{
     return (
         <div className={className || discoverPosterGridClass} style={style} aria-hidden="true">
             {Array.from({ length: itemCount }, (_, i) => (
-                <PosterCardSkeleton key={i} aspect={aspect} variant="discover" />
+                <PosterCardSkeleton key={i} aspect={aspect} variant={variant} />
             ))}
         </div>
     );
@@ -66,10 +100,11 @@ export const PosterRowSkeleton: React.FC<{ count?: number; aspect?: '2/3' | 'squ
 }) => {
     const { carousel: defaultCount } = useSkeletonLayoutCounts();
     const tv = typeof document !== 'undefined' && document.documentElement.dataset.tv === '1';
-    const itemCount = Math.max(count ?? defaultCount, tv ? 12 : 4);
+    // TV zoom + 20px root needs more placeholders than the phone carousel estimate.
+    const itemCount = Math.max(count ?? defaultCount, tv ? tvHomeStageSkeletonCardCount() : 4);
 
     return (
-        <div className="flex w-full gap-4 overflow-hidden py-2" aria-hidden="true">
+        <div className="flex w-full flex-nowrap gap-4 overflow-hidden py-2" aria-hidden="true">
             {Array.from({ length: itemCount }, (_, i) => (
                 <PosterCardSkeleton
                     key={i}
@@ -102,25 +137,30 @@ export const PlayerHomeHeroSkeleton: React.FC = () => (
     </div>
 );
 
-export const PlayerHomeRowSkeleton: React.FC<{ count?: number }> = ({ count = 6 }) => (
-    <div className="flex min-w-0 max-w-full flex-col gap-2" aria-hidden="true">
-        <div className="player-row-header flex min-w-0 items-center gap-3">
-            <span className="player-row-header-mark shrink-0" aria-hidden />
-            <SkeletonBlock className="h-[1.05rem] w-36 max-w-[55%] rounded" />
+export const PlayerHomeRowSkeleton: React.FC<{ count?: number }> = ({ count }) => {
+    const phone = typeof document !== 'undefined' && document.documentElement.dataset.phone === '1';
+    // Enough cards to spill past the right edge (real rails always overflow).
+    const itemCount = count ?? (phone ? 10 : 8);
+    return (
+        <div className="flex min-w-0 max-w-full flex-col gap-2" aria-hidden="true">
+            <div className="player-row-header flex min-w-0 items-center gap-3">
+                <RowHeaderMark />
+                <SkeletonBlock className="h-[1.05rem] w-36 max-w-[55%] rounded" />
+            </div>
+            <div className="flex w-full gap-3 overflow-hidden py-1 sm:gap-4 sm:py-2">
+                {Array.from({ length: itemCount }, (_, i) => (
+                    <div
+                        key={i}
+                        className="player-home-skel-card flex w-[min(36vw,9rem)] shrink-0 flex-col gap-2 sm:w-[10.625rem]"
+                    >
+                        <SkeletonBlock className="aspect-[2/3] w-full rounded-xl border border-white/5" />
+                        <SkeletonBlock className="h-3 w-3/4 rounded" />
+                    </div>
+                ))}
+            </div>
         </div>
-        <div className="flex w-full gap-4 overflow-hidden py-2">
-            {Array.from({ length: count }, (_, i) => (
-                <div
-                    key={i}
-                    className="player-home-skel-card flex w-[min(40vw,10rem)] shrink-0 flex-col gap-2 md:w-[10.625rem]"
-                >
-                    <SkeletonBlock className="aspect-[2/3] w-full rounded-xl border border-white/5" />
-                    <SkeletonBlock className="h-3 w-3/4 rounded" />
-                </div>
-            ))}
-        </div>
-    </div>
-);
+    );
+};
 
 export const PlayerHomeSkeleton: React.FC = () => (
     <div className="tv-poster-rows flex w-full flex-col gap-6 pb-8" aria-busy="true" aria-label="Loading home">
@@ -140,60 +180,86 @@ export const PlayerHomeSkeleton: React.FC = () => (
     </div>
 );
 
-/** TV home stage — focus still + spot copy + active rail + next-row peek (matches loaded Home). */
-export const PlayerTvHomeStageSkeleton: React.FC = () => (
-    <div
-        className="tv-poster-rows player-home-page player-home-stage player-tv-home-skel"
-        aria-busy="true"
-        aria-label="Loading home"
-        data-tv-hub-loading="1"
-    >
-        <div className="player-home-focus-still player-tv-home-skel-still" aria-hidden>
-            <div className="skeleton-base absolute inset-0 rounded-none" />
-        </div>
-        <div className="player-home-spot-stage" aria-hidden>
-            <div className="player-home-spot">
-                <SkeletonBlock className="player-tv-home-skel-logo h-[4.5rem] w-[min(42vw,18rem)] rounded-md" />
-                <SkeletonBlock className="mt-3 h-4 w-[min(36vw,14rem)] max-w-full rounded" />
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <SkeletonBlock className="h-3.5 w-16 rounded" />
-                    <SkeletonBlock className="h-3.5 w-20 rounded" />
-                    <SkeletonBlock className="h-3.5 w-14 rounded" />
-                </div>
-                <SkeletonBlock className="mt-4 h-3.5 w-[min(52vw,28rem)] max-w-full rounded" />
-                <SkeletonBlock className="mt-2 h-3.5 w-[min(44vw,22rem)] max-w-full rounded" />
-                <SkeletonBlock className="mt-2 h-3 w-[min(30vw,14rem)] max-w-full rounded" />
+/**
+ * TV home stage — focus still + spot copy + active rail + next-row peek (matches loaded Home).
+ * Library Recommended passes its header and drops the wide first card (its rails are all posters).
+ */
+export const PlayerTvHomeStageSkeleton: React.FC<{ header?: React.ReactNode; heroCard?: boolean }> = ({
+    header,
+    heroCard = true,
+}) => {
+    const [cardCount, setCardCount] = useState(() => tvHomeStageSkeletonCardCount());
+
+    useEffect(() => {
+        const update = () => setCardCount(tvHomeStageSkeletonCardCount());
+        update();
+        window.addEventListener('resize', update);
+        return () => window.removeEventListener('resize', update);
+    }, []);
+
+    return (
+        <div
+            className="tv-poster-rows player-home-page player-home-stage player-tv-home-skel"
+            aria-busy="true"
+            aria-label="Loading home"
+            data-tv-hub-loading="1"
+            data-tv-library={header ? '1' : undefined}
+        >
+            {header}
+            <div className="player-home-focus-still player-tv-home-skel-still" aria-hidden>
+                <div className="skeleton-base absolute inset-0 rounded-none" />
             </div>
-        </div>
-        <div className="player-home-stage-rail" aria-hidden>
-            <div className="flex flex-col gap-1 px-5">
-                <div className="player-row-header flex min-w-0 items-center gap-3">
-                    <span className="player-row-header-mark shrink-0" />
-                    <SkeletonBlock className="h-6 w-52 max-w-[55%] rounded" />
+            <div className="player-home-spot-stage" aria-hidden>
+                <div className="player-home-spot">
+                    <SkeletonBlock className="player-tv-home-skel-logo h-[4.5rem] w-[min(42vw,18rem)] rounded-md" />
+                    <SkeletonBlock className="mt-3 h-4 w-[min(36vw,14rem)] max-w-full rounded" />
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <SkeletonBlock className="h-3.5 w-16 rounded" />
+                        <SkeletonBlock className="h-3.5 w-20 rounded" />
+                        <SkeletonBlock className="h-3.5 w-14 rounded" />
+                    </div>
+                    <SkeletonBlock className="mt-4 h-3.5 w-[min(52vw,28rem)] max-w-full rounded" />
+                    <SkeletonBlock className="mt-2 h-3.5 w-[min(44vw,22rem)] max-w-full rounded" />
+                    <SkeletonBlock className="mt-2 h-3 w-[min(30vw,14rem)] max-w-full rounded" />
                 </div>
-                <div className="flex w-full gap-4 overflow-hidden py-2">
-                    {Array.from({ length: 7 }, (_, i) => (
-                        <SkeletonBlock
-                            key={i}
-                            className={`shrink-0 rounded-xl border border-white/5 ${
-                                i === 0
-                                    ? 'aspect-video w-[min(28vw,21rem)]'
-                                    : 'aspect-[2/3] w-[min(14vw,9.5rem)]'
-                            }`}
-                            style={{ animationDelay: `${i * 90}ms` }}
-                        />
-                    ))}
-                </div>
-                <div className="player-home-next-row mt-1">
-                    <div className="player-row-header flex min-w-0 items-center gap-3 opacity-70">
-                        <span className="player-row-header-mark shrink-0" />
-                        <SkeletonBlock className="h-5 w-40 max-w-[45%] rounded" />
+            </div>
+            <div className="player-home-stage-rail" aria-hidden>
+                <div className="flex min-w-0 w-full max-w-none flex-col gap-1">
+                    <div className="player-row-header flex min-w-0 items-center gap-3 px-5">
+                        <RowHeaderMark />
+                        <SkeletonBlock className="h-6 w-52 max-w-[55%] rounded" />
+                    </div>
+                    {/* Inline widths + dynamic count so CSS zoom / 20px root still spill past the right edge. */}
+                    <div className="player-tv-home-skel-rail-track flex w-full flex-nowrap gap-4 overflow-hidden py-2 pl-5 pr-0">
+                        {Array.from({ length: cardCount + (heroCard ? 0 : 1) }, (_, i) => {
+                            const hero = heroCard && i === 0;
+                            return (
+                                <SkeletonBlock
+                                    key={i}
+                                    className={`player-tv-home-skel-card shrink-0 rounded-xl border border-white/5 ${
+                                        hero ? 'player-tv-home-skel-card--hero' : 'player-tv-home-skel-card--poster'
+                                    }`}
+                                    style={{
+                                        animationDelay: `${Math.min(i, 10) * 70}ms`,
+                                        width: hero ? '21rem' : '9.5rem',
+                                        aspectRatio: hero ? '16 / 9' : '2 / 3',
+                                        flex: '0 0 auto',
+                                    }}
+                                />
+                            );
+                        })}
+                    </div>
+                    <div className="player-home-next-row mt-1 px-5">
+                        <div className="player-row-header flex min-w-0 items-center gap-3 opacity-70">
+                            <RowHeaderMark />
+                            <SkeletonBlock className="h-5 w-40 max-w-[45%] rounded" />
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
-    </div>
-);
+    );
+};
 
 export const DiscoverHomeRowSkeleton: React.FC<{
     showViewAll?: boolean;
@@ -440,6 +506,170 @@ export const TrendingSectionsSkeleton: React.FC<{ count?: number; sections?: num
             <div key={i} className="flex flex-col" aria-hidden="true">
                 <SkeletonBlock className="h-4 w-56 mb-6 rounded" />
                 <PosterGridSkeleton count={count} rows={rows} />
+            </div>
+        ))}
+    </div>
+);
+
+const SKELETON_LINE_WIDTHS = [85, 60, 72, 45, 90, 55, 68, 40];
+
+/** Chat thread: avatar, name + time, one or two lines of message. */
+export const ChatMessagesSkeleton: React.FC<{ count?: number }> = ({ count = 6 }) => (
+    <div className="space-y-4" aria-hidden="true">
+        {Array.from({ length: count }, (_, i) => (
+            <div key={i} className="flex gap-3">
+                <SkeletonBlock className="h-8 w-8 shrink-0 rounded-full" />
+                <div className="min-w-0 flex-1 space-y-2 pt-0.5">
+                    <div className="flex items-center gap-2">
+                        <SkeletonBlock className="h-3 w-24" />
+                        <SkeletonBlock className="h-2.5 w-14" />
+                    </div>
+                    <SkeletonBlock className="h-3" style={{ width: `${SKELETON_LINE_WIDTHS[i % SKELETON_LINE_WIDTHS.length]}%` }} />
+                    {i % 3 === 0 ? <SkeletonBlock className="h-3 w-2/5" /> : null}
+                </div>
+            </div>
+        ))}
+    </div>
+);
+
+/** Chat page frame: channel list beside the thread and composer (matches ChatRoom's layout). */
+export const ChatPageSkeleton: React.FC = () => (
+    <div className="flex min-h-[60vh] flex-1 flex-col overflow-hidden rounded-2xl border border-white/10 bg-black/20 md:min-h-[80vh] lg:min-h-[calc(100dvh-13rem)] lg:flex-row" aria-hidden="true">
+        <aside className="flex w-full shrink-0 flex-col gap-2 border-b border-white/10 p-4 lg:w-64 lg:border-b-0 lg:border-r">
+            <SkeletonBlock className="mb-2 h-3 w-20" />
+            {Array.from({ length: 5 }, (_, i) => (
+                <SkeletonBlock key={i} className="h-8 w-full rounded-lg" />
+            ))}
+        </aside>
+        <div className="flex min-h-0 flex-1 flex-col">
+            <div className="border-b border-white/10 px-4 py-3">
+                <SkeletonBlock className="h-4 w-32" />
+            </div>
+            <div className="flex-1 px-4 py-4">
+                <ChatMessagesSkeleton />
+            </div>
+            <div className="border-t border-white/10 p-3 md:p-4">
+                <SkeletonBlock className="h-11 w-full rounded-xl" />
+            </div>
+        </div>
+    </div>
+);
+
+/** Support inbox list rows: avatar, subject + status pill, meta lines. */
+export const SupportTicketListSkeleton: React.FC<{ count?: number }> = ({ count = 6 }) => (
+    <div className="space-y-1.5" aria-hidden="true">
+        {Array.from({ length: count }, (_, i) => (
+            <div key={i} className="flex items-start gap-3 rounded-xl px-3 py-3">
+                <SkeletonBlock className="h-9 w-9 shrink-0 rounded-full" />
+                <div className="min-w-0 flex-1 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                        <SkeletonBlock className="h-3.5" style={{ width: `${SKELETON_LINE_WIDTHS[(i + 2) % SKELETON_LINE_WIDTHS.length]}%` }} />
+                        <SkeletonBlock className="h-4 w-14 shrink-0 rounded-full" />
+                    </div>
+                    <SkeletonBlock className="h-2.5 w-1/2" />
+                    <SkeletonBlock className="h-2.5 w-3/4" />
+                </div>
+            </div>
+        ))}
+    </div>
+);
+
+/** Badge cards: icon + name + two description lines (Achievements grids). */
+export const BadgeGridSkeleton: React.FC<{ count?: number }> = ({ count = 6 }) => (
+    <>
+        {Array.from({ length: count }, (_, i) => (
+            <div key={i} className="rounded-xl border border-white/10 p-3" aria-hidden="true">
+                <div className="flex items-start gap-2.5">
+                    <SkeletonBlock className="h-7 w-7 shrink-0 rounded-lg" />
+                    <div className="min-w-0 flex-1 space-y-2">
+                        <SkeletonBlock className="h-3.5 w-2/3" />
+                        <SkeletonBlock className="h-2.5 w-full" />
+                        <SkeletonBlock className="h-2.5 w-3/5" />
+                    </div>
+                </div>
+            </div>
+        ))}
+    </>
+);
+
+/** Leaderboard rows: rank, avatar, name, XP. */
+export const LeaderboardRowsSkeleton: React.FC<{ count?: number }> = ({ count = 5 }) => (
+    <div className="space-y-2" aria-hidden="true">
+        {Array.from({ length: count }, (_, i) => (
+            <div key={i} className="flex items-center gap-3 rounded-xl border border-white/5 px-3 py-2.5">
+                <SkeletonBlock className="h-4 w-6" />
+                <SkeletonBlock className="h-8 w-8 shrink-0 rounded-full" />
+                <SkeletonBlock className="h-3.5 flex-1" style={{ maxWidth: `${SKELETON_LINE_WIDTHS[i % SKELETON_LINE_WIDTHS.length] / 2}%` }} />
+                <SkeletonBlock className="ml-auto h-3.5 w-16" />
+            </div>
+        ))}
+    </div>
+);
+
+/** Achievements page: title + actions, level card, badge grid. */
+export const AchievementsPageSkeleton: React.FC = () => (
+    <div className="w-full space-y-6 pb-8" aria-hidden="true">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div className="space-y-2">
+                <SkeletonBlock className="h-2.5 w-24" />
+                <SkeletonBlock className="h-8 w-56" />
+                <SkeletonBlock className="h-3.5 w-64 max-w-full" />
+            </div>
+            <div className="flex flex-wrap gap-2">
+                <SkeletonBlock className="h-10 w-28 rounded-xl" />
+                <SkeletonBlock className="h-10 w-24 rounded-xl" />
+                <SkeletonBlock className="h-10 w-32 rounded-xl" />
+            </div>
+        </div>
+        <div className="glass-card space-y-3 p-5">
+            <div className="flex items-center justify-between gap-3">
+                <div className="space-y-2">
+                    <SkeletonBlock className="h-3 w-20" />
+                    <SkeletonBlock className="h-7 w-36" />
+                </div>
+                <SkeletonBlock className="h-10 w-10 rounded-full" />
+            </div>
+            <SkeletonBlock className="h-2.5 w-full rounded-full" />
+            <SkeletonBlock className="h-2.5 w-40" />
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <BadgeGridSkeleton count={6} />
+        </div>
+    </div>
+);
+
+/** Profile header: avatar, eyebrow, name, subtitle, chips and XP bar. */
+export const ProfileHeaderSkeleton: React.FC = () => (
+    <div className="flex items-start gap-4" aria-hidden="true">
+        <SkeletonBlock className="h-24 w-24 shrink-0 rounded-full sm:h-28 sm:w-28" />
+        <div className="min-w-0 flex-1 space-y-2.5 pt-1">
+            <SkeletonBlock className="h-2.5 w-24" />
+            <SkeletonBlock className="h-8 w-56 max-w-full" />
+            <SkeletonBlock className="h-3.5 w-72 max-w-full" />
+            <div className="flex flex-wrap gap-2 pt-1">
+                <SkeletonBlock className="h-6 w-16 rounded-lg" />
+                <SkeletonBlock className="h-6 w-20 rounded-lg" />
+                <SkeletonBlock className="h-6 w-14 rounded-lg" />
+            </div>
+            <SkeletonBlock className="mt-2 h-2 w-full max-w-md rounded-full" />
+        </div>
+    </div>
+);
+
+/** Profile body below the header: two panels of stat tiles. */
+export const ProfileBodySkeleton: React.FC = () => (
+    <div className="space-y-4" aria-hidden="true">
+        {[0, 1].map((panel) => (
+            <div key={panel} className="rounded-2xl border border-white/10 bg-[rgb(var(--color-card))] p-5">
+                <SkeletonBlock className="mb-4 h-4 w-40" />
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    {Array.from({ length: 4 }, (_, i) => (
+                        <div key={i} className="space-y-2 rounded-xl border border-white/5 p-3">
+                            <SkeletonBlock className="h-2.5 w-16" />
+                            <SkeletonBlock className="h-6 w-12" />
+                        </div>
+                    ))}
+                </div>
             </div>
         ))}
     </div>

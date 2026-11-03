@@ -16,6 +16,26 @@ const isMdbListUrl = (value: string): boolean => {
     }
 };
 
+const isJustWatchUrl = (value: string): boolean => {
+    const raw = String(value || '').trim();
+    try {
+        const host = new URL(raw.includes('://') ? raw : `https://${raw}`).hostname.toLowerCase();
+        return host === 'justwatch.com' || host.endsWith('.justwatch.com');
+    } catch {
+        return false;
+    }
+};
+
+const isLetterboxdUrl = (value: string): boolean => {
+    const raw = String(value || '').trim();
+    try {
+        const host = new URL(raw.includes('://') ? raw : `https://${raw}`).hostname.toLowerCase();
+        return host === 'letterboxd.com' || host.endsWith('.letterboxd.com');
+    } catch {
+        return false;
+    }
+};
+
 const Creator: React.FC = () => {
     const [activeSubTab, setActiveSubTab] = useState<'trending' | 'discover' | 'search' | 'import' | 'manual'>('trending');
     const [config, setConfig] = useState<AppConfig | null>(null);
@@ -179,9 +199,20 @@ const Creator: React.FC = () => {
             let items = [];
             let sourceType = '';
 
+            let listName = '';
             if (isMdbListUrl(importUrl)) {
                 items = await api.getMdbList(importUrl);
                 sourceType = 'mdblist';
+            } else if (isJustWatchUrl(importUrl)) {
+                const payload = await api.getJustWatchList(importUrl);
+                items = payload.items;
+                listName = payload.name || '';
+                sourceType = 'justwatch';
+            } else if (isLetterboxdUrl(importUrl)) {
+                const payload = await api.getLetterboxdList(importUrl);
+                items = payload.items;
+                listName = payload.name || '';
+                sourceType = 'letterboxd';
             } else {
                 items = await api.getTraktList(importUrl);
                 sourceType = 'trakt';
@@ -191,17 +222,17 @@ const Creator: React.FC = () => {
 
             // Extract a reasonable title from the URL
             const urlParts = importUrl.split('/').filter(Boolean);
-            let slug = '';
+            let slug = listName;
 
-            if (sourceType === 'mdblist') {
+            if (!slug && sourceType === 'mdblist') {
                 // e.g. https://mdblist.com/lists/mojoard_pk/vintage-british-tv/
                 const listIndex = urlParts.indexOf('lists');
                 if (listIndex !== -1 && urlParts.length > listIndex + 2) {
                     slug = urlParts[listIndex + 2].replace(/-/g, ' ');
                 }
-            } else {
+            } else if (!slug) {
                 // e.g. https://trakt.tv/users/mojoard_pk/lists/vintage-british-tv
-                slug = urlParts[urlParts.length - 1].replace(/-/g, ' ');
+                slug = urlParts[urlParts.length - 1].replace(/-/g, ' ').replace(/\?.*$/, '');
             }
 
             if (slug && !collectionTitle) {
@@ -297,9 +328,15 @@ const Creator: React.FC = () => {
         setCreating(true);
         try {
             const isDiscover = activeSubTab === 'discover';
-            const isMdbList = isMdbListUrl(importUrl);
-            const sourceType = activeSubTab === 'import' ? (isMdbList ? 'mdblist' : 'trakt_list') :
-                (isDiscover ? 'tmdb_discover' : 'trakt_trending_movie');
+            const sourceType = activeSubTab === 'import'
+                ? (isMdbListUrl(importUrl)
+                    ? 'mdblist'
+                    : isJustWatchUrl(importUrl)
+                        ? 'justwatch_list'
+                        : isLetterboxdUrl(importUrl)
+                            ? 'letterboxd_list'
+                            : 'trakt_list')
+                : (isDiscover ? 'tmdb_discover' : 'trakt_trending_movie');
             const sourceId = activeSubTab === 'import' ? importUrl :
                 (isDiscover ? JSON.stringify({
                     type: discoverType,
@@ -872,11 +909,11 @@ const Creator: React.FC = () => {
 
                 {activeSubTab === 'import' && (
                     <div className="space-y-6 animate-in slide-in-from-bottom-2 duration-300">
-                        <Card title="Import from Trakt.tv or MDBList.com">
+                        <Card title="Import from Trakt, MDBList, JustWatch, or Letterboxd">
                             <div className="flex gap-2">
                                 <div className="relative flex-1">
                                     <ExternalLink className="absolute left-3 top-2.5 w-4 h-4 text-slate-500" />
-                                    <input className="w-full bg-slate-950/50 border border-slate-700/60 rounded-lg pl-10 pr-4 py-2 text-sm text-white focus:outline-none focus:border-plex-orange/50" placeholder="Trakt or MDBList URL..." value={importUrl} onChange={(e) => setImportUrl(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleListImport()} />
+                                    <input className="w-full bg-slate-950/50 border border-slate-700/60 rounded-lg pl-10 pr-4 py-2 text-sm text-white focus:outline-none focus:border-plex-orange/50" placeholder="Trakt, MDBList, JustWatch, or Letterboxd list URL…" value={importUrl} onChange={(e) => setImportUrl(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleListImport()} />
                                 </div>
                                 <button onClick={handleListImport} disabled={importing || !importUrl} className="bg-plex-orange hover:bg-orange-600 text-white px-6 py-2 rounded-lg font-bold disabled:opacity-50">Fetch</button>
                             </div>

@@ -1,13 +1,16 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, Loader2 } from 'lucide-react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Check } from 'lucide-react';
 import { fetchMediaPlayerItem, prefetchMediaPlayerItem } from './api';
-import { pinTvRailItemToSlot, visibleHomeStage } from '../plex-client/useTvRemote';
-import { homeRailPosterDensity } from './host';
+import { peekRememberedTvFocusKey, pinTvRailItemToSlot, visibleHomeStage } from '../plex-client/useTvRemote';
+import { homeRailPosterDensity, PlayerTvHomeStageSkeleton } from './host';
+import { CommonSenseMediaIcon } from './CommonSenseMediaIcon';
 import { PlayerClearLogo } from './PlayerClearLogo';
-import { PlayerRail } from './PlayerRail';
+import { PlayerServiceBrandMark } from './PlayerServiceBrandMark';
+import { PlayerTvRowStack } from './PlayerRail';
 import type { ViewMoreShelfSource } from './PlayerViewMoreCard';
 import { readPlayerItemCache } from './playerMemory';
-import { formatPlayerDate, formatPlayerDuration, plexBackdropPreviewUrl, plexLogoUrl } from './playerUtils';
+import { itemHasBillboardBrandMeta } from './studioLogo.js';
+import { formatPlayerDate, formatPlayerDuration, isFuturePlayerDate, isPlayerBackdropReady, pickRicherSummary, pinTvNeighborBackdrops, playerItemBackdropUrl, plexLogoUrl, prefetchHomeRowPosters, primeNearbyTvBillboard, warmPlayerBackdrop } from './playerUtils';
 import { PlayerTvStatusPanel } from './PlayerTvStatusPanel';
 import type { PlayerItem, PlayerPlayOptions } from './types';
 
@@ -51,6 +54,11 @@ type Props = {
     playlistsEnabled?: boolean;
 };
 
+/** tvSpotExtra key: rating keys are only unique per Plex server. */
+const spotExtraKey = (serverId: string | null | undefined, ratingKey: string) => (
+    serverId ? `${serverId}|${ratingKey}` : ratingKey
+);
+
 const posterButtonFromTarget = (target: EventTarget | null) => {
     const el = target as HTMLElement | null;
     return (el?.closest?.('[data-tv-poster-btn="1"]') as HTMLElement | null) || null;
@@ -69,6 +77,11 @@ const itemKeyFromFocusTarget = (target: EventTarget | null) => {
     return key;
 };
 
+/** Focus moves closer together than this count as holding the button. */
+const STAGE_HOLD_MS = 240;
+/** Moving to another row: the billboard waits for the row's slide-in (see TV Home). */
+const STAGE_ROW_CHANGE_MS = 230;
+
 export const PlayerTvFocusStill: React.FC<{
     enabled: boolean;
     seed?: string;
@@ -84,8 +97,7 @@ export const PlayerTvFocusStill: React.FC<{
     const show = useCallback((next: string) => {
         if (!next || next === currentRef.current || next === pendingRef.current) return;
         pendingRef.current = next;
-        const img = new Image();
-        img.onload = () => {
+        const commit = () => {
             if (pendingRef.current !== next) return;
             if (frontOnRef.current) {
                 setBack(next);
@@ -98,7 +110,48 @@ export const PlayerTvFocusStill: React.FC<{
             }
             currentRef.current = next;
         };
+        if (isPlayerBackdropReady(next)) {
+            commit();
+            return;
+        }
+        const img = new Image();
         img.src = next;
+        // decode() finishes off the main thread, so the swap frame does not decode a full image.
+        if (typeof img.decode === 'function') img.decode().then(commit, commit);
+        else img.onload = commit;
+    }, []);
+
+    const showTimerRef = useRef(0);
+    const keyTimerRef = useRef(0);
+    const primeTimerRef = useRef(0);
+    const lastMoveRef = useRef(0);
+    const lastRowRef = useRef('');
+    const showSoon = useCallback((next: string, delay = 70) => {
+        window.clearTimeout(showTimerRef.current);
+        if (!next) return;
+        showTimerRef.current = window.setTimeout(() => show(next), delay);
+    }, [show]);
+    const keySoon = useCallback((key: string, delay = 90) => {
+        window.clearTimeout(keyTimerRef.current);
+        if (!key) return;
+        keyTimerRef.current = window.setTimeout(() => onFocusKey?.(key), delay);
+    }, [onFocusKey]);
+    /** Same pacing as TV Home: wait while the remote repeats, and for a row's slide-in. */
+    const settleDelay = (target: EventTarget | null) => {
+        const now = performance.now();
+        const holding = now - lastMoveRef.current < STAGE_HOLD_MS;
+        lastMoveRef.current = now;
+        const row = (target as HTMLElement | null)?.closest?.('[data-tv-row-id]')?.getAttribute('data-tv-row-id') || '';
+        const rowChanged = Boolean(row && lastRowRef.current && row !== lastRowRef.current);
+        if (row) lastRowRef.current = row;
+        if (holding) return STAGE_HOLD_MS;
+        return rowChanged ? STAGE_ROW_CHANGE_MS : 0;
+    };
+
+    useEffect(() => () => {
+        window.clearTimeout(showTimerRef.current);
+        window.clearTimeout(keyTimerRef.current);
+        window.clearTimeout(primeTimerRef.current);
     }, []);
 
     useEffect(() => {
@@ -108,19 +161,30 @@ export const PlayerTvFocusStill: React.FC<{
     useEffect(() => {
         if (!enabled) return undefined;
         const onFocus = (event: FocusEvent) => {
-            const next = backdropFromFocusTarget(event.target);
-            if (next) show(next);
-            const key = itemKeyFromFocusTarget(event.target);
-            if (key) onFocusKey?.(key);
+            const target = event.target;
+            const delay = settleDelay(target);
+            // Neighbour backdrops / metadata only once the remote settles, not on every press.
+            window.clearTimeout(primeTimerRef.current);
+            primeTimerRef.current = window.setTimeout(
+                () => primeNearbyTvBillboard(target),
+                Math.max(delay, 120),
+            );
+            const next = backdropFromFocusTarget(target);
+            if (next) {
+                if (!delay && isPlayerBackdropReady(next)) show(next);
+                else showSoon(next, delay || 70);
+            }
+            const key = itemKeyFromFocusTarget(target);
+            if (key) keySoon(key, delay || 90);
         };
         document.addEventListener('focusin', onFocus, true);
         const focused = document.activeElement;
         const fromFocus = backdropFromFocusTarget(focused);
         if (fromFocus) show(fromFocus);
         const fromKey = itemKeyFromFocusTarget(focused);
-        if (fromKey) onFocusKey?.(fromKey);
+        if (fromKey) keySoon(fromKey);
         return () => document.removeEventListener('focusin', onFocus, true);
-    }, [enabled, onFocusKey, show]);
+    }, [enabled, keySoon, onFocusKey, show, showSoon]);
 
     if (!enabled) return null;
     const visible = frontOn ? front : back;
@@ -160,15 +224,32 @@ export const PlayerTvSpot: React.FC<{ item: PlayerItem | null }> = ({ item }) =>
     const season = Number(item.parentIndex);
     const episode = Number(item.index);
     const epCode = item.type === 'episode' && season > 0 && episode > 0 ? `S${season} E${episode}` : '';
+    const episodeTitle = item.type === 'episode'
+        ? String(
+            item.episodeTitle
+            || (item.showTitle && item.title && item.title !== item.showTitle ? item.title : '')
+            || '',
+        ).trim()
+        : '';
+    const epLine = [epCode, episodeTitle].filter(Boolean).join(' · ');
     const date = formatPlayerDate(item.originallyAvailableAt);
+    const dateIsFuture = isFuturePlayerDate(item.originallyAvailableAt);
     const duration = formatPlayerDuration(item.durationMs);
     const rating = String(item.contentRating || '').trim();
     const year = item.type === 'episode' ? '' : (item.year ? String(item.year) : '');
-    const meta = [epCode, date || year, duration, rating].filter(Boolean);
+    // Each its own part, so every one gets a separator (S17 E4 · Title · Date · 48m · TV-14).
+    const meta = [epCode, episodeTitle, date || year, duration, rating].filter(Boolean);
+    const csm = item.commonSenseMedia;
+    const csmLabel = String(csm?.ageLabel || '').trim();
+    const csmTitle = csm?.oneLiner
+        || (csmLabel
+            ? `Common Sense Media${csm?.stars != null ? ` · ${csm.stars}/5` : ''}`
+            : '');
     const cast = (item.cast || []).slice(0, 4).map((row) => row.name).filter(Boolean).join(', ');
     return (
         <div className="player-home-spot-stage" aria-live="polite">
             <div className="player-home-spot">
+                <PlayerServiceBrandMark item={item} className="player-home-spot-service-logo" />
                 {showLogo ? (
                     <>
                         <PlayerClearLogo
@@ -176,6 +257,7 @@ export const PlayerTvSpot: React.FC<{ item: PlayerItem | null }> = ({ item }) =>
                             alt={title}
                             className="player-home-spot-logo"
                             trimTop={false}
+                            growSmall
                             onError={() => setLogoFailed(true)}
                         />
                         <h2 className="sr-only">{title}</h2>
@@ -183,8 +265,8 @@ export const PlayerTvSpot: React.FC<{ item: PlayerItem | null }> = ({ item }) =>
                 ) : (
                     <h2 className="player-home-spot-title">{title}</h2>
                 )}
-                {tagline ? <p className="player-home-spot-tagline">{tagline}</p> : null}
-                {item.watched || meta.length ? (
+                {!epLine && tagline ? <p className="player-home-spot-tagline">{tagline}</p> : null}
+                {item.watched || meta.length || csmLabel ? (
                     <p className="player-home-spot-meta">
                         {item.watched ? (
                             <span className="player-home-spot-watched">
@@ -192,9 +274,29 @@ export const PlayerTvSpot: React.FC<{ item: PlayerItem | null }> = ({ item }) =>
                                 Watched
                             </span>
                         ) : null}
-                        {meta.map((part) => (
-                            <span key={part}>{part}</span>
+                        {meta.map((part, index) => (
+                            <React.Fragment key={`${index}:${part}`}>
+                                {(index > 0 || item.watched) ? <span className="player-home-spot-meta-sep" aria-hidden="true">·</span> : null}
+                                <span
+                                className={part === episodeTitle
+                                    ? 'player-home-spot-meta-title'
+                                    : (dateIsFuture && part === date ? 'text-plex' : undefined)}
+                            >
+                                {part}
+                            </span>
+                            </React.Fragment>
                         ))}
+                        {csmLabel ? (
+                            <>
+                                {(item.watched || meta.length) ? (
+                                    <span className="player-home-spot-meta-sep" aria-hidden="true">·</span>
+                                ) : null}
+                                <span className="player-home-spot-csm" title={csmTitle || undefined}>
+                                    <CommonSenseMediaIcon />
+                                    <span>{csmLabel}</span>
+                                </span>
+                            </>
+                        ) : null}
                     </p>
                 ) : null}
                 {summary ? <p className="player-home-spot-summary">{summary}</p> : null}
@@ -239,31 +341,106 @@ export const PlayerTvHubStage: React.FC<Props> = ({
 
     const tvRowSafeIndex = Math.min(tvRowIndex, Math.max(0, rows.length - 1));
     const tvActiveRow = rows[tvRowSafeIndex] || null;
-    const tvNextRow = rows[tvRowSafeIndex + 1] || null;
-    const tvSpotItem = useMemo(() => {
+    const tvSpotMerged = useMemo(() => {
         if (!tvActiveRow) return null;
         const key = tvFocusKey || tvActiveRow.items[0]?.ratingKey || '';
         const base = tvActiveRow.items.find((row) => row.ratingKey === key) || tvActiveRow.items[0] || null;
-        const extra = key ? tvSpotExtra[key] : null;
+        // Rating keys repeat across servers: the fetched details are kept per server.
+        const extra = key && base ? tvSpotExtra[spotExtraKey(base.serverId, key)] : (key ? tvSpotExtra[key] : null);
         if (!base) return extra || null;
         if (!extra) return base;
+        const episodeBase = base.type === 'episode' || extra.type === 'episode';
         return {
             ...base,
             ...extra,
-            thumb: base.thumb,
-            art: extra.art || base.art,
+            thumb: base.thumb || extra.thumb,
+            art: base.art || extra.art,
             logo: extra.logo || base.logo,
+            type: episodeBase ? 'episode' : (extra.type || base.type),
             title: base.title,
-            showTitle: base.showTitle || extra.showTitle,
+            showTitle: base.showTitle || extra.showTitle || (episodeBase ? extra.showTitle : null),
+            episodeTitle: base.episodeTitle
+                || extra.episodeTitle
+                || (episodeBase && extra.title && extra.title !== (base.showTitle || base.title) ? extra.title : null),
+            parentIndex: base.parentIndex ?? extra.parentIndex,
+            index: base.index ?? extra.index,
+            summary: pickRicherSummary(base.summary, extra.summary),
+            commonSenseMedia: extra.commonSenseMedia || base.commonSenseMedia,
+            ratingKey: base.ratingKey,
+            parentRatingKey: base.parentRatingKey || extra.parentRatingKey,
+            grandparentRatingKey: base.grandparentRatingKey || extra.grandparentRatingKey,
         };
     }, [tvActiveRow, tvFocusKey, tvSpotExtra]);
 
+    // Several new episodes arrive as one season card with no synopsis: borrow the show's overview.
+    const tvSpotShowKey = tvSpotMerged && (
+        !String(tvSpotMerged.summary || '').trim() || !tvSpotMerged.commonSenseMedia?.ageLabel
+    )
+        ? String((tvSpotMerged.type === 'season' || tvSpotMerged.type === 'episode'
+            ? (tvSpotMerged.type === 'season' ? tvSpotMerged.parentRatingKey : tvSpotMerged.grandparentRatingKey)
+            : '') || '')
+        : '';
+    const tvSpotShowMeta = tvSpotShowKey
+        ? tvSpotExtra[spotExtraKey(tvSpotMerged?.serverId, tvSpotShowKey)]
+        : null;
+    const tvSpotShowSummary = String(tvSpotShowMeta?.summary || '').trim();
+    const tvSpotShowCsm = tvSpotShowMeta?.commonSenseMedia;
+    const tvSpotItem = useMemo(() => {
+        if (!tvSpotMerged) return null;
+        const next = { ...tvSpotMerged };
+        if (!String(next.summary || '').trim() && tvSpotShowSummary) next.summary = tvSpotShowSummary;
+        if (!next.commonSenseMedia?.ageLabel && tvSpotShowCsm?.ageLabel) next.commonSenseMedia = tvSpotShowCsm;
+        return next;
+    }, [tvSpotMerged, tvSpotShowSummary, tvSpotShowCsm]);
+
+    useEffect(() => {
+        if (!active || !tvSpotShowKey) return undefined;
+        const serverId = tvSpotMerged?.serverId || null;
+        const extraKey = spotExtraKey(serverId, tvSpotShowKey);
+        if (tvSpotExtra[extraKey]) return undefined;
+        const cached = readPlayerItemCache(tvSpotShowKey, serverId);
+        if (cached?.item) {
+            setTvSpotExtra((prev) => (prev[extraKey] ? prev : { ...prev, [extraKey]: cached.item }));
+            return undefined;
+        }
+        // Give the card's own details a moment first; only fetch the show if it still has no synopsis.
+        let cancelled = false;
+        const timer = window.setTimeout(() => {
+            void fetchMediaPlayerItem(tvSpotShowKey, { core: true, serverId })
+                .then((page) => {
+                    if (!cancelled && page?.item) setTvSpotExtra((prev) => ({ ...prev, [extraKey]: page.item }));
+                })
+                .catch(() => undefined);
+        }, 400);
+        return () => {
+            cancelled = true;
+            window.clearTimeout(timer);
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [active, tvSpotShowKey, tvSpotMerged?.serverId]);
+
     const focusStillSeed = useMemo(() => {
         const first = rows[0]?.items?.[0];
-        return plexBackdropPreviewUrl(first?.art || first?.thumb) || '';
+        return playerItemBackdropUrl(first) || '';
     }, [rows]);
-    const stageStillSeed = plexBackdropPreviewUrl(tvSpotItem?.art || tvSpotItem?.thumb || '')
-        || focusStillSeed;
+    const stageStillSeed = playerItemBackdropUrl(tvSpotItem) || focusStillSeed;
+
+    useEffect(() => {
+        if (!active) return;
+        const prev = rows[tvRowSafeIndex - 1];
+        const next = rows[tvRowSafeIndex + 1];
+        const neighbors = [
+            playerItemBackdropUrl(next?.items?.[0]),
+            playerItemBackdropUrl(next?.items?.[1]),
+            playerItemBackdropUrl(prev?.items?.[0]),
+            playerItemBackdropUrl(prev?.items?.[1]),
+        ];
+        pinTvNeighborBackdrops(neighbors);
+        if (stageStillSeed) warmPlayerBackdrop(stageStillSeed, true);
+        const nextFirst = playerItemBackdropUrl(next?.items?.[0]);
+        if (nextFirst) warmPlayerBackdrop(nextFirst, true);
+        if (rows.length) prefetchHomeRowPosters(rows, tvRowSafeIndex);
+    }, [active, rows, stageStillSeed, tvActiveRow?.id, tvRowSafeIndex]);
 
     const menuProps = useMemo(() => ({
         onPlayNext,
@@ -297,18 +474,6 @@ export const PlayerTvHubStage: React.FC<Props> = ({
     useEffect(() => {
         if (!active) return undefined;
         const stageRoot = () => stageRef.current || visibleHomeStage();
-        const parkStageFocus = () => {
-            // Posters unmount on row swap; without a park target the WebView jumps
-            // focus to the library tabs and the orange ring vanishes for a beat.
-            const stage = stageRoot();
-            if (!stage) return;
-            if (!stage.hasAttribute('tabindex')) stage.tabIndex = -1;
-            try {
-                stage.focus({ preventScroll: true });
-            } catch {
-                stage.focus();
-            }
-        };
         const onRow = (event: Event) => {
             const dir = (event as CustomEvent<{ dir?: 'up' | 'down' }>).detail?.dir;
             const list = tvRowsRef.current;
@@ -338,7 +503,6 @@ export const PlayerTvHubStage: React.FC<Props> = ({
             const prev = list[current];
             if (prev && tvFocusKey) tvRowFocusRef.current[prev.id] = tvFocusKey;
             if (next !== current) {
-                parkStageFocus();
                 setTvRowIndex(next);
             }
         };
@@ -347,9 +511,18 @@ export const PlayerTvHubStage: React.FC<Props> = ({
     }, [active, tvFocusKey]);
 
     useEffect(() => {
+        if (!active || !tvActiveRow?.id || !tvFocusKey) return;
+        tvRowFocusRef.current[tvActiveRow.id] = tvFocusKey;
+    }, [active, tvActiveRow?.id, tvFocusKey]);
+
+    useLayoutEffect(() => {
         if (!active || !tvActiveRow) return undefined;
         const rowId = tvActiveRow.id;
-        const saved = tvRowFocusRef.current[rowId];
+        const rowHas = (key: string) => Boolean(key) && tvActiveRow.items.some((item) => String(item.ratingKey || '') === key);
+        const remembered = peekRememberedTvFocusKey();
+        const saved = (rowHas(remembered) ? remembered : '')
+            || (rowHas(tvRowFocusRef.current[rowId] || '') ? tvRowFocusRef.current[rowId] : '')
+            || (rowHas(tvFocusKey) ? tvFocusKey : '');
         let cancelled = false;
         const focusSaved = () => {
             if (cancelled) return true;
@@ -357,10 +530,12 @@ export const PlayerTvHubStage: React.FC<Props> = ({
             if (!stage || stage.closest('[hidden]')) return false;
             const root = stage.querySelector<HTMLElement>('.player-home-stage-rail');
             if (!root) return false;
+            const posters = Array.from(root.querySelectorAll<HTMLElement>('[data-tv-poster-btn="1"]'))
+                .filter((el) => !el.closest('[inert]'));
             const match = saved
-                ? root.querySelector<HTMLElement>(`[data-tv-poster-btn="1"][data-tv-key="${CSS.escape(saved)}"]`)
+                ? posters.find((el) => el.getAttribute('data-tv-key') === saved) || null
                 : null;
-            const btn = match || root.querySelector<HTMLElement>('[data-tv-poster-btn="1"]');
+            const btn = match || posters[0];
             if (!btn || btn.closest('.player-library-stage-chrome')) return false;
             try {
                 btn.focus({ preventScroll: true });
@@ -369,7 +544,9 @@ export const PlayerTvHubStage: React.FC<Props> = ({
             }
             pinTvRailItemToSlot(btn);
             const activeEl = document.activeElement as HTMLElement | null;
-            return Boolean(activeEl && (activeEl === btn || btn.contains(activeEl)));
+            const focused = Boolean(activeEl && (activeEl === btn || btn.contains(activeEl)));
+            if (focused && saved && saved !== tvFocusKey) setTvFocusKey(saved);
+            return focused;
         };
         let attempts = 0;
         const tick = () => {
@@ -377,6 +554,9 @@ export const PlayerTvHubStage: React.FC<Props> = ({
             if (cancelled || attempts++ >= 24) return;
             window.setTimeout(tick, 16);
         };
+        if (focusSaved()) {
+            return () => { cancelled = true; };
+        }
         const timer = window.setTimeout(tick, 0);
         window.requestAnimationFrame(tick);
         return () => {
@@ -388,42 +568,32 @@ export const PlayerTvHubStage: React.FC<Props> = ({
     useEffect(() => {
         const key = String(tvSpotItem?.ratingKey || '');
         if (!active || !key) return undefined;
-        const cached = readPlayerItemCache(key);
+        const serverId = tvSpotItem?.serverId || null;
+        const extraKey = spotExtraKey(serverId, key);
+        const cached = readPlayerItemCache(key, serverId);
         if (cached?.item) {
-            setTvSpotExtra((prev) => (prev[key] ? prev : { ...prev, [key]: cached.item }));
-            if (cached.item.logo) return undefined;
+            setTvSpotExtra((prev) => (prev[extraKey] ? prev : { ...prev, [extraKey]: cached.item }));
+            if (cached.item.logo && itemHasBillboardBrandMeta(cached.item) && cached.item.summary) return undefined;
         }
-        prefetchMediaPlayerItem(key);
         let cancelled = false;
-        void fetchMediaPlayerItem(key, { core: true, serverId: tvSpotItem?.serverId || null })
-            .then((page) => {
-                if (cancelled || !page?.item) return;
-                setTvSpotExtra((prev) => ({ ...prev, [key]: page.item }));
-            })
-            .catch(() => undefined);
-        return () => { cancelled = true; };
+        const timer = window.setTimeout(() => {
+            if (cancelled) return;
+            prefetchMediaPlayerItem(key, serverId);
+            void fetchMediaPlayerItem(key, { core: true, serverId })
+                .then((page) => {
+                    if (cancelled || !page?.item) return;
+                    setTvSpotExtra((prev) => ({ ...prev, [extraKey]: page.item }));
+                })
+                .catch(() => undefined);
+        }, 0);
+        return () => {
+            cancelled = true;
+            window.clearTimeout(timer);
+        };
     }, [active, tvSpotItem?.ratingKey, tvSpotItem?.serverId]);
 
     if (loading && !rows.length) {
-        return (
-            <div
-                ref={stageRef}
-                className="tv-poster-rows player-home-page player-home-stage"
-                data-tv-library="1"
-                aria-busy="true"
-                aria-label={ariaLabel || 'Loading'}
-            >
-                {header}
-                <div className="player-home-focus-still" aria-hidden />
-                <div
-                    className="player-home-stage-rail flex min-h-[40vh] flex-col items-center justify-center gap-3"
-                    data-tv-hub-loading="1"
-                >
-                    <Loader2 className="h-10 w-10 animate-spin text-white/70" aria-hidden />
-                    <p className="text-sm font-semibold text-white/55">Loading…</p>
-                </div>
-            </div>
-        );
+        return <PlayerTvHomeStageSkeleton header={header} heroCard={false} />;
     }
 
     if (!loading && !rows.length && emptyTitle) {
@@ -452,38 +622,26 @@ export const PlayerTvHubStage: React.FC<Props> = ({
                 seed={stageStillSeed}
                 onFocusKey={setTvFocusKey}
             />
-            <PlayerTvSpot item={tvSpotItem} />
-            {tvActiveRow ? (
-                <div className="player-home-stage-rail">
-                    <PlayerRail
-                        key={tvActiveRow.id}
-                        title={tvActiveRow.title}
-                        rowId={`hub:${tvActiveRow.id}`}
-                        restoreFocusKey={tvRowFocusRef.current[tvActiveRow.id]}
-                        items={tvActiveRow.items}
+            <div className="player-home-stage-copy">
+                <PlayerTvSpot item={tvSpotItem} />
+                {tvActiveRow ? (
+                    <PlayerTvRowStack
+                        rows={rows.map((row) => ({
+                            ...row,
+                            onViewAll: allowViewAll ? row.onViewAll : undefined,
+                            viewAllLabel: allowViewAll && row.onViewAll ? 'View More' : undefined,
+                            viewMoreShelf: allowViewAll ? row.viewMoreShelf : null,
+                        }))}
+                        activeIndex={tvRowSafeIndex}
                         density={density}
-                        staggerIndex={0}
+                        restoreFocusById={tvRowFocusRef.current}
                         onOpenItem={onOpenItem}
                         onPlay={onPlay}
                         onToggleWatched={onToggleWatched}
-                        showProgress={tvActiveRow.showProgress}
-                        showRemoveFromContinueWatching={tvActiveRow.showRemoveFromContinueWatching}
-                        aspect={tvActiveRow.aspect}
-                        onViewAll={allowViewAll ? tvActiveRow.onViewAll : undefined}
-                        viewAllLabel={allowViewAll && tvActiveRow.onViewAll ? 'View More' : undefined}
-                        viewMoreShelf={allowViewAll ? tvActiveRow.viewMoreShelf : null}
                         {...menuProps}
                     />
-                    {tvNextRow ? (
-                        <div className="player-home-next-row" aria-hidden="true">
-                            <div className="player-row-header">
-                                <span className="player-row-header-mark" />
-                                <p className="player-row-header-title truncate">{tvNextRow.title}</p>
-                            </div>
-                        </div>
-                    ) : null}
-                </div>
-            ) : null}
+                ) : null}
+            </div>
         </div>
     );
 };

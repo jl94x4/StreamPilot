@@ -301,6 +301,30 @@ class ApiService {
     return this.get(`/mdblist/list?url=${encodeURIComponent(url)}`);
   }
 
+  async getJustWatchList(url: string): Promise<{ name?: string; items: any[] }> {
+    const data = await this.get(`/justwatch/list?url=${encodeURIComponent(url)}`);
+    if (Array.isArray(data)) return { items: data };
+    if (data && Array.isArray((data as any).items)) {
+      return {
+        name: String((data as any).name || '').trim() || undefined,
+        items: (data as any).items,
+      };
+    }
+    throw new Error((data as any)?.error || 'JustWatch list response was invalid.');
+  }
+
+  async getLetterboxdList(url: string): Promise<{ name?: string; items: any[] }> {
+    const data = await this.get(`/letterboxd/list?url=${encodeURIComponent(url)}`);
+    if (Array.isArray(data)) return { items: data };
+    if (data && Array.isArray((data as any).items)) {
+      return {
+        name: String((data as any).name || '').trim() || undefined,
+        items: (data as any).items,
+      };
+    }
+    throw new Error((data as any)?.error || 'Letterboxd list response was invalid.');
+  }
+
   async pinCollection(title: string, library: string): Promise<void> {
     await this.post('/collections/pin', { title, library });
   }

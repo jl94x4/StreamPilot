@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import { PLAYER_SCROLL_ID } from './paths';
+import { pushRecentSearch } from './recentSearch.js';
 import type { PlayerHome, PlayerItem, PlayerItemPage, PlayerSection } from './types';
+
+export { pushRecentSearch };
 
 export const PLAYER_SEARCH_INPUT_ID = 'media-player-search';
 export const PLAYER_FOCUS_SEARCH_KEY = 'portal-media-player-focus-search';
@@ -8,6 +11,8 @@ export const PLAYER_HOME_SCROLL_KEY = 'portal-media-player-home-scroll';
 export const PLAYER_LIBRARY_SCROLL_KEY = 'portal-media-player-library-scroll';
 export const PLAYER_LAST_LIBRARY_PATH_KEY = 'portal-media-player-last-library-path';
 export const PLAYER_VOICE_RESULT_EVENT = 'smp-player-voice-result';
+export const PLAYER_SEARCH_CLEAR_EVENT = 'smp-player-search-clear';
+export const PLAYER_RECENT_SEARCHES_KEY = 'portal-media-player-recent-searches-v1';
 export const PLAYER_LOCAL_PLAYBACK_KEY = 'portal-media-player-local-playback';
 export const PLAYER_LIBRARY_STATE_KEY = 'portal-media-player-library-state-v2';
 export const PLAYER_MINI_WIDTH_KEY = 'portal-media-player-mini-width';
@@ -93,6 +98,50 @@ const writeJson = (storage: Storage, key: string, value: unknown) => {
     }
 };
 
+export const readRecentSearches = (): string[] => {
+    const raw = readJson(PLAYER_RECENT_SEARCHES_KEY);
+    return pushRecentSearch(Array.isArray(raw) ? raw as string[] : [], '');
+};
+
+export const rememberRecentSearch = (query: string): string[] => {
+    const next = pushRecentSearch(readRecentSearches(), query);
+    if (typeof window !== 'undefined') writeJson(window.localStorage, PLAYER_RECENT_SEARCHES_KEY, next);
+    return next;
+};
+
+export const clearRecentSearches = (): string[] => {
+    if (typeof window !== 'undefined') {
+        writeJson(window.localStorage, PLAYER_RECENT_SEARCHES_KEY, []);
+        writeJson(window.localStorage, PLAYER_SEARCH_OPENED_KEY, []);
+    }
+    return [];
+};
+
+/** Titles opened from search results, newest first: the search screen's "Opened from search" row. */
+export const PLAYER_SEARCH_OPENED_KEY = 'portal-media-player-search-opened-v1';
+const SEARCH_OPENED_LIMIT = 12;
+
+export const readSearchOpened = (): PlayerItem[] => {
+    const raw = readJson(PLAYER_SEARCH_OPENED_KEY);
+    return Array.isArray(raw)
+        ? (raw as PlayerItem[]).filter((row) => row && typeof row === 'object' && row.ratingKey)
+        : [];
+};
+
+export const rememberSearchOpened = (item: PlayerItem): PlayerItem[] => {
+    if (!item?.ratingKey || item.type === 'person') return readSearchOpened();
+    // Shallow primitives only (title, art, ids): enough for a poster, small in storage.
+    const slim: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(item)) {
+        if (value == null || ['string', 'number', 'boolean'].includes(typeof value)) slim[key] = value;
+    }
+    const same = (row: PlayerItem) => String(row.ratingKey) === String(item.ratingKey)
+        && String(row.serverId || '') === String(item.serverId || '');
+    const next = [slim as PlayerItem, ...readSearchOpened().filter((row) => !same(row))].slice(0, SEARCH_OPENED_LIMIT);
+    if (typeof window !== 'undefined') writeJson(window.localStorage, PLAYER_SEARCH_OPENED_KEY, next);
+    return next;
+};
+
 export const readLocalPlaybackPrefs = (): LocalPlaybackPrefs => {
     const raw = readJson(PLAYER_LOCAL_PLAYBACK_KEY) as Partial<LocalPlaybackPrefs> | null;
     const volume = Number(raw?.volume);
@@ -110,6 +159,8 @@ export type PlayerAvChoice = {
     /** Preferred language tag/name — rematched across episodes of the same show. */
     audioLanguage?: string;
     subtitleLanguage?: string;
+    /** Per-show A/V lip-sync delay (ms) remembered across episodes. */
+    audioDelayMs?: number;
 };
 
 type AvLangTrack = {
@@ -172,11 +223,13 @@ export const readAvChoice = (showKey?: string | null, ratingKey?: string | null)
     const all = readJson(PLAYER_AV_CHOICES_KEY) as Record<string, PlayerAvChoice> | null;
     const row = all?.[key];
     if (!row || typeof row !== 'object') return null;
+    const delay = Number(row.audioDelayMs);
     return {
         audioStreamId: String(row.audioStreamId || ''),
         subtitleStreamId: String(row.subtitleStreamId || ''),
         audioLanguage: String(row.audioLanguage || ''),
         subtitleLanguage: String(row.subtitleLanguage || ''),
+        audioDelayMs: Number.isFinite(delay) ? Math.max(0, Math.min(1000, Math.round(delay))) : undefined,
     };
 };
 
@@ -218,13 +271,33 @@ export const writeAvChoice = (
     const key = avChoiceKey(showKey, ratingKey);
     if (!key || typeof window === 'undefined') return;
     const all = (readJson(PLAYER_AV_CHOICES_KEY) as Record<string, PlayerAvChoice> | null) || {};
+    const delay = Number(choice.audioDelayMs);
     all[key] = {
         audioStreamId: String(choice.audioStreamId || ''),
         subtitleStreamId: String(choice.subtitleStreamId || ''),
         audioLanguage: String(choice.audioLanguage || ''),
         subtitleLanguage: String(choice.subtitleLanguage || ''),
+        ...(Number.isFinite(delay)
+            ? { audioDelayMs: Math.max(0, Math.min(1000, Math.round(delay))) }
+            : {}),
     };
     writeJson(window.localStorage, PLAYER_AV_CHOICES_KEY, all);
+};
+
+/** Persist A/V delay for a show without clobbering saved stream choices. */
+export const writeAvDelayChoice = (
+    showKey: string | null | undefined,
+    ratingKey: string | null | undefined,
+    audioDelayMs: number,
+) => {
+    const existing = readAvChoice(showKey, ratingKey) || {
+        audioStreamId: '',
+        subtitleStreamId: '',
+    };
+    writeAvChoice(showKey, ratingKey, {
+        ...existing,
+        audioDelayMs: Math.max(0, Math.min(1000, Math.round(Number(audioDelayMs) || 0))),
+    });
 };
 
 /** Persist stream IDs plus language tags so the next episode can rematch. */
@@ -541,6 +614,35 @@ export const consumePlayerSearchFocus = () => {
     }
 };
 
+const PLAYER_SEARCH_QUERY_KEY = 'portal-media-player-search-query';
+
+/**
+ * Run a search from outside the page (Assistant "search for X", system search).
+ * Home may not be mounted yet, so the query waits in sessionStorage too.
+ */
+export const requestPlayerSearchQuery = (query: string) => {
+    if (typeof window === 'undefined') return;
+    const text = String(query || '').trim();
+    if (!text) return;
+    try {
+        window.sessionStorage.setItem(PLAYER_SEARCH_QUERY_KEY, text);
+    } catch {
+        /* ignore */
+    }
+    window.dispatchEvent(new CustomEvent(PLAYER_VOICE_RESULT_EVENT, { detail: text }));
+};
+
+export const consumePlayerSearchQuery = () => {
+    if (typeof window === 'undefined') return '';
+    try {
+        const text = window.sessionStorage.getItem(PLAYER_SEARCH_QUERY_KEY) || '';
+        if (text) window.sessionStorage.removeItem(PLAYER_SEARCH_QUERY_KEY);
+        return text;
+    } catch {
+        return '';
+    }
+};
+
 export const focusPlayerSearchInput = () => {
     const input = document.getElementById(PLAYER_SEARCH_INPUT_ID) as HTMLInputElement | null;
     if (!input) return false;
@@ -557,7 +659,10 @@ export const focusPlayerSearchInput = () => {
     return true;
 };
 
-/** Clear home search and return to rails (e.g. sidebar Home while a query is active). */
+/**
+ * Clear home search and jump back to the top of Home (Continue Watching).
+ * Fired from sidebar Home, Back-to-home, and similar “return home” actions.
+ */
 export const PLAYER_HOME_RESET_EVENT = 'portal-media-player-home-reset';
 
 export const requestPlayerHomeReset = () => {
@@ -567,7 +672,7 @@ export const requestPlayerHomeReset = () => {
 
 const PLAYER_HOME_CACHE_TTL_MS = 90_000;
 /** Still paint from disk after a cold TV launch — refresh in background. */
-const PLAYER_HOME_CACHE_MAX_AGE_MS = 30 * 60_000;
+const PLAYER_HOME_CACHE_MAX_AGE_MS = 24 * 60 * 60_000;
 const PLAYER_HOME_CACHE_KEY = 'portal-media-player-home-cache-v10';
 let playerHomeCache: { at: number; data: PlayerHome } | null = null;
 
@@ -651,6 +756,11 @@ const isBecauseHomeHub = (hub: { identifier?: string; title?: string }) => (
     || /because you watched/i.test(String(hub.title || ''))
 );
 
+/** Per-library Recently Added invented when the pin list failed. Not a Plex pin. */
+const isSyntheticRecentHomeHub = (hub: { identifier?: string }) => (
+    /^recentlyadded\./i.test(String(hub.identifier || ''))
+);
+
 const isContinueHomeHub = (hub: { identifier?: string; title?: string }) => (
     /continue\s*watch|ondeck|on[.\s_-]?deck|in[.\s_-]?progress/i.test(`${hub.identifier || ''} ${hub.title || ''}`)
 );
@@ -672,18 +782,31 @@ export const playerHomeHasContentHubs = (data: PlayerHome | null | undefined) =>
 
 /** Continue Watching-only (or partial) home still needs the full=1 hub pass. */
 export const playerHomeNeedsFull = (data: PlayerHome | null | undefined) => (
-    !data || !!data.partial || !playerHomeHasContentHubs(data)
+    !data
+    || !!data.partial
+    || !playerHomeHasContentHubs(data)
+    // Because rows are only filled on full=1 — keep asking until that pass lands.
+    || data.becauseAttached !== true
+    // A Heros row painted from cache still has the backdrop until coverArt is attached.
+    || (data.hubs || []).some((hub) => (
+        hub.heroRow && (hub.items || []).some((item) => !String(item.heroArt || '').trim())
+    ))
 );
 
+/**
+ * Continue Watching from a newer answer, in the order already on screen. The newer list
+ * decides what is in it: keeping shown-only cards brought back titles Plex had dropped
+ * (finished) with whatever progress they had when that older list was fetched.
+ */
 const mergePlayerItemsPreserveOrder = <T extends { ratingKey?: string | number | null }>(
     shown: T[] | null | undefined,
     incoming: T[] | null | undefined,
 ): T[] => {
     const shownItems = Array.isArray(shown) ? shown : [];
     const incomingItems = Array.isArray(incoming) ? incoming : [];
-    if (!shownItems.length) return incomingItems.slice();
+    if (!shownItems.length || !incomingItems.length) return incomingItems.length ? incomingItems.slice() : shownItems.slice();
     const byKey = new Map<string, T>();
-    for (const item of incomingItems.concat(shownItems)) {
+    for (const item of incomingItems) {
         const key = String(item?.ratingKey || '').trim();
         if (key && !byKey.has(key)) byKey.set(key, item);
     }
@@ -691,11 +814,9 @@ const mergePlayerItemsPreserveOrder = <T extends { ratingKey?: string | number |
     const items: T[] = [];
     for (const item of shownItems) {
         const key = String(item?.ratingKey || '').trim();
-        const next = (key && byKey.get(key)) || item;
-        if (key) {
-            if (seen.has(key)) continue;
-            seen.add(key);
-        }
+        const next = key ? byKey.get(key) : undefined;
+        if (!next || seen.has(key)) continue;
+        seen.add(key);
         items.push(next);
     }
     for (const item of incomingItems) {
@@ -711,6 +832,9 @@ const mergePlayerItemsPreserveOrder = <T extends { ratingKey?: string | number |
 export const mergePlayerHomePayloads = (full: PlayerHome, partial: PlayerHome): PlayerHome => {
     const byKey = new Map<string, NonNullable<PlayerHome['hubs']>[number]>();
     const order: string[] = [];
+    const hubHasSection = (hub: NonNullable<PlayerHome['hubs']>[number]) => (
+        Boolean(String(hub.librarySectionID || '').replace(/\D/g, ''))
+    );
     const add = (hub: NonNullable<PlayerHome['hubs']>[number], replaceIfRicher: boolean) => {
         const key = homeHubKey(hub);
         if (!key) return;
@@ -722,14 +846,30 @@ export const mergePlayerHomePayloads = (full: PlayerHome, partial: PlayerHome): 
         }
         const prevN = prev.items?.length || 0;
         const nextN = hub.items?.length || 0;
-        if (replaceIfRicher ? nextN >= prevN : nextN > prevN) byKey.set(key, hub);
+        if (replaceIfRicher ? nextN >= prevN : nextN > prevN) {
+            byKey.set(key, hub);
+            return;
+        }
+        // Same richness: prefer the hub that already knows its library (Library order).
+        if (nextN === prevN && hubHasSection(hub) && !hubHasSection(prev)) {
+            byKey.set(key, hub);
+        }
     };
-    const fullCore = (full.hubs || []).filter((hub) => !isBecauseHomeHub(hub));
-    const partialCore = (partial.hubs || []).filter((hub) => !isBecauseHomeHub(hub));
+    const countable = (hubs: NonNullable<PlayerHome['hubs']>) => (
+        hubs.filter((hub) => !isBecauseHomeHub(hub) && !isSyntheticRecentHomeHub(hub))
+    );
+    const fullCore = countable(full.hubs || []);
+    const partialCore = countable(partial.hubs || []);
+    const hasRealPins = fullCore.concat(partialCore).some((hub) => (
+        !!hub.items?.length && !isContinueHomeHub(hub) && !isPlaylistHomeHub(hub)
+    ));
+    const keepHub = (hub: NonNullable<PlayerHome['hubs']>[number]) => (
+        !hasRealPins || !isSyntheticRecentHomeHub(hub)
+    );
     const primary = partialCore.length > fullCore.length ? partial : full;
     const extra = primary === full ? partial : full;
-    (primary.hubs || []).forEach((hub) => add(hub, primary === full));
-    (extra.hubs || []).forEach((hub) => add(hub, extra === full));
+    (primary.hubs || []).filter(keepHub).forEach((hub) => add(hub, primary === full));
+    (extra.hubs || []).filter(keepHub).forEach((hub) => add(hub, extra === full));
     (full.hubs || []).filter(isBecauseHomeHub).forEach((hub) => add(hub, true));
     const hubs = order.map((key) => byKey.get(key)!);
     const shownCw = (partial.hubs || []).find((hub) => isContinueHomeHub(hub));
@@ -748,7 +888,175 @@ export const mergePlayerHomePayloads = (full: PlayerHome, partial: PlayerHome): 
         continueWatching: mergePlayerItemsPreserveOrder(partial.continueWatching, full.continueWatching),
         hubs,
         partial: false,
+        becauseAttached: full.becauseAttached === true || partial.becauseAttached === true,
     };
+};
+
+const homeContinueItems = (data: PlayerHome | null | undefined): PlayerItem[] => {
+    if (!data) return [];
+    const fromHub = (data.hubs || []).find((hub) => isContinueHomeHub(hub))?.items;
+    if (fromHub?.length) return fromHub;
+    return Array.isArray(data.continueWatching) ? data.continueWatching : [];
+};
+
+/**
+ * Soft home responses often paint Recently Added while On Deck timed out.
+ * Keep the last good Continue Watching (and missing content hubs) from cache
+ * so TV Home does not drop CW or flash a false "saved library" banner.
+ */
+const PLAYER_FINISHED_KEY = 'portal-media-player-finished';
+const FINISHED_KEEP_MS = 24 * 60 * 60 * 1000;
+let finishedPlayback: Map<string, number> | null = null;
+
+const finishedMap = () => {
+    if (finishedPlayback) return finishedPlayback;
+    finishedPlayback = new Map();
+    try {
+        const raw = window.localStorage.getItem(PLAYER_FINISHED_KEY);
+        const parsed = raw ? JSON.parse(raw) : null;
+        const now = Date.now();
+        if (parsed && typeof parsed === 'object') {
+            for (const [key, at] of Object.entries(parsed)) {
+                if (typeof at === 'number' && now - at < FINISHED_KEEP_MS) finishedPlayback.set(key, at);
+            }
+        }
+    } catch { /* storage unavailable */ }
+    return finishedPlayback;
+};
+
+/**
+ * A title was just watched to the end (or marked watched). A Home answer fetched
+ * before that — during playback, or the saved copy — must not bring it back.
+ */
+export const noteFinishedPlayback = (ratingKey?: string | null, serverId?: string | null) => {
+    const key = itemCacheKey(String(ratingKey || ''), serverId);
+    if (!key || typeof window === 'undefined') return;
+    const map = finishedMap();
+    map.set(key, Date.now());
+    const now = Date.now();
+    for (const [k, at] of map) if (now - at >= FINISHED_KEEP_MS) map.delete(k);
+    try {
+        window.localStorage.setItem(PLAYER_FINISHED_KEY, JSON.stringify(Object.fromEntries(map)));
+    } catch { /* storage unavailable */ }
+};
+
+/** Started again after it was finished (Plex saw it later), or never finished: keep it. */
+const continueCardIsCurrent = (row: PlayerItem) => {
+    const map = finishedMap();
+    const key = String(row?.ratingKey || '');
+    // Server-scoped when playback knew the server; bare when only the key was known.
+    const at = map.get(itemCacheKey(key, row?.serverId)) || map.get(key);
+    if (!at) return true;
+    const viewed = Number(row?.lastViewedAt) || 0;
+    const viewedMs = viewed > 1e12 ? viewed : viewed * 1000;
+    return viewedMs > at + 60_000;
+};
+
+/** Continue Watching cards minus titles just finished or removed (library pages use it too). */
+export const keepCurrentContinueItems = <T extends PlayerItem>(list: T[] | null | undefined): T[] => (
+    typeof window === 'undefined' || !finishedMap().size ? (list || []) : (list || []).filter(continueCardIsCurrent)
+);
+
+const withoutFinishedContinue = (data: PlayerHome | null): PlayerHome | null => {
+    if (!data || typeof window === 'undefined' || !finishedMap().size) return data;
+    const keep = (list: PlayerItem[] | null | undefined) => (list || []).filter(continueCardIsCurrent);
+    return {
+        ...data,
+        continueWatching: keep(data.continueWatching),
+        hubs: (data.hubs || []).map((hub) => (isContinueHomeHub(hub) ? { ...hub, items: keep(hub.items) } : hub)),
+    };
+};
+
+/** Live Continue Watching wins over any row the cache merges carried in. */
+const withLiveContinue = (next: PlayerHome, live: PlayerHome): PlayerHome => {
+    const liveCwHub = (live.hubs || []).find((hub) => isContinueHomeHub(hub));
+    const liveCw = homeContinueItems(live);
+    if (!liveCw.length) return next;
+    return {
+        ...next,
+        continueWatching: Array.isArray(live.continueWatching) && live.continueWatching.length
+            ? live.continueWatching
+            : liveCw,
+        hubs: (next.hubs || []).map((hub) => (
+            isContinueHomeHub(hub) ? { ...hub, items: liveCwHub?.items?.length ? liveCwHub.items : liveCw } : hub
+        )),
+    };
+};
+
+export const coalescePlayerHomeWithCache = (
+    live: PlayerHome | null | undefined,
+    cached: PlayerHome | null | undefined,
+): PlayerHome | null => {
+    const next = coalescePlayerHomeRows(live, cached);
+    if (next && live && next !== live && playerHomeHasRows(live)) {
+        return withoutFinishedContinue(withLiveContinue(next, live));
+    }
+    return withoutFinishedContinue(next);
+};
+
+const coalescePlayerHomeRows = (
+    live: PlayerHome | null | undefined,
+    cached: PlayerHome | null | undefined,
+): PlayerHome | null => {
+    if (!playerHomeHasRows(live)) {
+        return playerHomeHasRows(cached) ? cached! : (live || cached || null);
+    }
+    if (!playerHomeHasRows(cached)) return live!;
+
+    let next: PlayerHome = live!;
+    const liveCw = homeContinueItems(live);
+    const cachedCw = homeContinueItems(cached);
+    if (!liveCw.length && cachedCw.length) {
+        const hubsWithoutCw = (live!.hubs || []).filter((hub) => !isContinueHomeHub(hub));
+        const cachedCwHub = (cached!.hubs || []).find((hub) => isContinueHomeHub(hub));
+        next = {
+            ...live!,
+            continueWatching: (cached!.continueWatching || []).length
+                ? cached!.continueWatching
+                : cachedCw,
+            hubs: [
+                cachedCwHub || {
+                    title: 'Continue Watching',
+                    identifier: 'home.continueWatching',
+                    items: cachedCw,
+                    hubKey: '/library/onDeck',
+                },
+                ...hubsWithoutCw,
+            ],
+        };
+    }
+    if (!playerHomeHasContentHubs(next) && playerHomeHasContentHubs(cached)) {
+        next = { ...mergePlayerHomePayloads(cached!, next), partial: true };
+    }
+    const hasRealPinHubs = (data: PlayerHome | null | undefined) => (
+        (data?.hubs || []).some((hub) => (
+            !!hub.items?.length
+            && !isContinueHomeHub(hub)
+            && !isBecauseHomeHub(hub)
+            && !isPlaylistHomeHub(hub)
+            && !isSyntheticRecentHomeHub(hub)
+        ))
+    );
+    // A Recently Added fallback must not replace the last home that had real pins.
+    if (!hasRealPinHubs(next) && hasRealPinHubs(cached)) {
+        next = { ...mergePlayerHomePayloads(cached!, next), partial: next.partial !== false };
+    }
+    // Soft/partial responses omit Because rows — keep the last attached ones.
+    const liveBecause = (next.hubs || []).filter(isBecauseHomeHub);
+    const cachedBecause = (cached!.hubs || []).filter(isBecauseHomeHub);
+    if (!liveBecause.length && cachedBecause.length) {
+        next = {
+            ...next,
+            hubs: [
+                ...(next.hubs || []).filter((hub) => !isBecauseHomeHub(hub)),
+                ...cachedBecause,
+            ],
+            becauseAttached: next.becauseAttached === true || cached!.becauseAttached === true,
+        };
+    } else if (cached!.becauseAttached === true && next.becauseAttached !== true) {
+        next = { ...next, becauseAttached: true };
+    }
+    return next;
 };
 
 export const readPlayerHomeCache = (): PlayerHome | null => {
@@ -772,24 +1080,37 @@ export const writePlayerHomeCache = (data: PlayerHome) => {
         if (!playerHomeCache && stored) playerHomeCache = stored;
         return;
     }
-    playerHomeCache = { at: Date.now(), data };
+    const coalesced = storedFresh
+        ? coalescePlayerHomeWithCache(data, stored?.data) || data
+        : data;
+    playerHomeCache = { at: Date.now(), data: coalesced };
     writePersistedHomeCache(playerHomeCache);
-    if (Array.isArray(data?.libraries) && data.libraries.length) {
-        writePlayerLibrariesCache(data.libraries);
+    if (Array.isArray(coalesced?.libraries) && coalesced.libraries.length) {
+        writePlayerLibrariesCache(coalesced.libraries);
     }
 };
 
-/** Browser online flag for stale-cache / offline UI. */
+/**
+ * Browser online flag for offline UI.
+ * Android TV WebViews often report navigator.onLine=false even on a healthy LAN —
+ * start optimistic and only flip offline after an explicit offline event (or stay
+ * online until a real API failure marks home stale).
+ */
 export const usePlayerNetworkStatus = () => {
-    const [online, setOnline] = useState(() => (
-        typeof navigator === 'undefined' ? true : navigator.onLine
-    ));
+    const [online, setOnline] = useState(true);
     useEffect(() => {
         if (typeof window === 'undefined') return undefined;
         const on = () => setOnline(true);
-        const off = () => setOnline(false);
+        const off = () => {
+            // Capacitor / Android TV: ignore flaky offline if the page is still loading
+            // assets over the network — only trust offline after we were online.
+            setOnline(false);
+        };
         window.addEventListener('online', on);
         window.addEventListener('offline', off);
+        // If the browser already thinks we are online, keep that; never seed from a
+        // false-negative offline boot state.
+        if (navigator.onLine) setOnline(true);
         return () => {
             window.removeEventListener('online', on);
             window.removeEventListener('offline', off);
@@ -800,18 +1121,36 @@ export const usePlayerNetworkStatus = () => {
 
 const PLAYER_LIBRARIES_CACHE_KEY = 'portal-media-player-libraries-cache';
 const PLAYER_LIBRARIES_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+/** Fired whenever the libraries cache gets a non-empty write (home or /libraries). */
+export const PLAYER_LIBRARIES_EVENT = 'portal-media-player-libraries';
 let playerLibrariesCache: { at: number; data: PlayerSection[] } | null = null;
+
+const libraryTitleFallback = (type: string) => {
+    const kind = String(type || '').toLowerCase();
+    if (kind === 'show') return 'TV Shows';
+    if (kind === 'artist') return 'Music';
+    if (kind === 'photo') return 'Photos';
+    return 'Movies';
+};
 
 const sanitizeLibraries = (rows: unknown): PlayerSection[] => (
     (Array.isArray(rows) ? rows : [])
         .filter((row): row is PlayerSection => Boolean(row && String((row as PlayerSection).key || '').trim()))
-        .map((row) => ({
-            key: String(row.key),
-            title: String(row.title || ''),
-            type: String(row.type || ''),
-            agent: row.agent,
-            thumb: row.thumb,
-        }))
+        .map((row) => {
+            const type = String(row.type || '');
+            const title = String(row.title || '').trim() || libraryTitleFallback(type);
+            const serverId = String((row as PlayerSection).serverId || '').trim();
+            const serverName = String((row as PlayerSection).serverName || '').trim();
+            return {
+                key: String(row.key),
+                title,
+                type,
+                agent: row.agent,
+                thumb: row.thumb,
+                ...(serverId ? { serverId } : {}),
+                ...(serverName ? { serverName } : {}),
+            };
+        })
 );
 
 export const readPlayerLibrariesCache = (): PlayerSection[] => {
@@ -844,6 +1183,11 @@ export const writePlayerLibrariesCache = (libraries: PlayerSection[]) => {
     const raw = JSON.stringify(playerLibrariesCache);
     try { window.localStorage.setItem(PLAYER_LIBRARIES_CACHE_KEY, raw); } catch { /* ignore */ }
     try { window.sessionStorage.setItem(PLAYER_LIBRARIES_CACHE_KEY, raw); } catch { /* ignore */ }
+    try {
+        window.dispatchEvent(new Event(PLAYER_LIBRARIES_EVENT));
+    } catch {
+        /* ignore */
+    }
 };
 
 export const isPlayerHomeCacheFresh = (maxAgeMs = PLAYER_HOME_CACHE_TTL_MS) => (
@@ -874,26 +1218,69 @@ export const takePlayerItemSeed = (ratingKey: string): PlayerItem | null => {
     return itemNavSeeds.get(key) || null;
 };
 
-export const readPlayerItemCache = (ratingKey: string): PlayerItemPage | null => {
-    const key = String(ratingKey || '');
-    if (!key) return null;
+/**
+ * Rating keys are only unique per Plex server: with several servers the same number is a
+ * different title on each. Pages are kept per server (`server|ratingKey`) plus a bare-key
+ * alias for callers that do not know the server; a read that names its server never takes
+ * another server's page (that showed someone else's show behind a Continue Watching poster).
+ */
+const itemCacheKey = (ratingKey: string, serverId?: string | null) => {
+    const key = String(ratingKey || '').trim();
+    const server = String(serverId || '').trim();
+    return server ? `${server}|${key}` : key;
+};
+
+const freshItemCacheRow = (key: string) => {
     const row = playerItemCache.get(key);
     if (!row) return null;
     if (Date.now() - row.at > PLAYER_ITEM_CACHE_TTL_MS) {
         playerItemCache.delete(key);
         return null;
     }
-    return row.data;
+    return row;
 };
 
-export const writePlayerItemCache = (ratingKey: string, data: PlayerItemPage) => {
-    const key = String(ratingKey || '');
-    if (!key || !data?.item) return;
-    playerItemCache.set(key, { at: Date.now(), data });
-    if (playerItemCache.size <= 48) return;
-    const oldest = playerItemCache.keys().next().value;
-    if (oldest && oldest !== key) playerItemCache.delete(oldest);
+export const readPlayerItemCache = (ratingKey: string, serverId?: string | null): PlayerItemPage | null => {
+    const key = String(ratingKey || '').trim();
+    if (!key) return null;
+    const server = String(serverId || '').trim();
+    if (server) {
+        const own = freshItemCacheRow(itemCacheKey(key, server));
+        if (own) return own.data;
+        const alias = freshItemCacheRow(key);
+        const aliasServer = String(alias?.data?.item?.serverId || '').trim();
+        return alias && (!aliasServer || aliasServer === server) ? alias.data : null;
+    }
+    return freshItemCacheRow(key)?.data || null;
 };
+
+export const writePlayerItemCache = (ratingKey: string, data: PlayerItemPage, serverId?: string | null) => {
+    const key = String(ratingKey || '').trim();
+    if (!key || !data?.item) return;
+    const server = String(serverId || data.item.serverId || '').trim();
+    const at = Date.now();
+    playerItemCache.set(key, { at, data });
+    if (server) playerItemCache.set(itemCacheKey(key, server), { at, data });
+    while (playerItemCache.size > 96) {
+        const oldest = playerItemCache.keys().next().value;
+        if (!oldest || oldest === key) break;
+        playerItemCache.delete(oldest);
+    }
+};
+
+export const clearPlayerItemCache = (ratingKey?: string) => {
+    const key = String(ratingKey || '').trim();
+    if (!key) {
+        playerItemCache.clear();
+        return;
+    }
+    for (const cacheKey of [...playerItemCache.keys()]) {
+        if (cacheKey === key || cacheKey.endsWith(`|${key}`)) playerItemCache.delete(cacheKey);
+    }
+};
+
+/** Fired after Plex metadata refresh is detected (new thumb/title/etc). */
+export const PLAYER_METADATA_REFRESHED_EVENT = 'smp-player-metadata-refreshed';
 
 /** Paint a just-stopped offset onto the open title and any season list that contains it. */
 export const notePlayerItemProgress = (ratingKey: string, viewOffsetMs: number, durationMs = 0, watched?: boolean) => {

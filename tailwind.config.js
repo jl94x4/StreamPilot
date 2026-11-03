@@ -12,6 +12,8 @@ module.exports = {
         card: 'rgb(var(--color-card) / <alpha-value>)',
         border: 'rgb(var(--color-border) / <alpha-value>)',
         plex: 'rgb(var(--color-plex) / <alpha-value>)',       // Orange accent
+        // Progress bars: fixed orange, never follows the accent colour.
+        progress: 'rgb(var(--color-progress) / <alpha-value>)',
         'plex-hover': 'rgb(var(--color-plex-hover) / <alpha-value>)',
         text: 'rgb(var(--color-text) / <alpha-value>)',
         muted: 'rgb(var(--color-muted) / <alpha-value>)',

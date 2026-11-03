@@ -148,7 +148,8 @@ export const upgraderPosterGridStyle = (size: PosterGridValue): CSSProperties =>
     const rem = posterGridScaleRem(size);
     const gap = rem < 6.25 ? 0.375 : rem < 8.25 ? 0.5 : rem < 11.5 ? 0.625 : 0.75;
     return {
-        gridTemplateColumns: `repeat(auto-fill, minmax(${rem}rem, 1fr))`,
+        // TV text size scales rem; divide it back out so posters keep their size.
+        gridTemplateColumns: `repeat(auto-fill, minmax(calc(${rem}rem / var(--tv-text-scale, 1)), 1fr))`,
         gap: `${gap}rem`,
     };
 };
@@ -158,13 +159,14 @@ export const upgraderLandscapeGridStyle = (size: PosterGridValue): CSSProperties
     const rem = posterGridScaleRem(size) * 1.85;
     const gap = rem < 11.5 ? 0.5 : 0.75;
     return {
-        gridTemplateColumns: `repeat(auto-fill, minmax(${rem}rem, 1fr))`,
+        // TV text size scales rem; divide it back out so posters keep their size.
+        gridTemplateColumns: `repeat(auto-fill, minmax(calc(${rem}rem / var(--tv-text-scale, 1)), 1fr))`,
         gap: `${gap}rem`,
     };
 };
 
 export const posterGridCardWidthStyle = (size: PosterGridValue): CSSProperties => ({
-    width: `${posterGridScaleRem(size)}rem`,
+    width: `calc(${posterGridScaleRem(size)}rem / var(--tv-text-scale, 1))`,
 });
 
 export const posterGridImageSize = (size: PosterGridValue) => {

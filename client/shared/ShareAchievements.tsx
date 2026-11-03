@@ -1,8 +1,10 @@
 import React, { useCallback, useRef, useState } from 'react';
 import { X, Copy, Download, Share2 } from 'lucide-react';
-import html2canvas from 'html2canvas';
 import { getPublicOrigin } from './basePath';
 import { tAchievements, useAchievementsI18n } from '../achievements/i18n';
+
+// html2canvas (~200KB) loads only when an image is exported.
+const loadHtml2canvas = () => import('html2canvas').then((mod) => mod.default);
 
 const EXPORT_WIDTH_PX = 1080;
 
@@ -68,6 +70,7 @@ export const ShareAchievementsModal: React.FC<Props> = ({
             if (document.fonts?.ready) await document.fonts.ready;
             await waitForExportImages(node);
             await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            const html2canvas = await loadHtml2canvas();
             const canvas = await html2canvas(node, {
                 useCORS: true,
                 allowTaint: true,

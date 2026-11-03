@@ -38,7 +38,7 @@ import {
 import { apiFetch, PORTAL_CSRF_HEADER, PORTAL_CSRF_VALUE } from '../shared/api';
 import { portalUrl, resolvePortalAssetUrl } from '../shared/basePath';
 import { safeHttpUrl, safeImageSrc } from '../shared/safeUrl';
-import { appConfirm } from '../shared/confirm';
+import { appConfirm, askText } from '../shared/confirm';
 import { usePoll } from '../shared/usePoll';
 import { CustomSelect, SettingsSwitch, SettingsToggleRow } from '../shared/ui';
 import { StickySaveBar } from '../shared/StickySaveBar';
@@ -89,6 +89,8 @@ import {
 } from '../media-automation/types';
 import { useDiscoverI18n } from '../discovery/i18n';
 import { BetaBadge, PosterSetsBetaBanner } from '../shared/BetaBadge';
+import { PlexShareDefaultsSection } from './PlexSharePermissions';
+import { HelpPageEditor } from '../help/HelpPage';
 
 const SETTINGS_TAB_BETA_NOTICE: Record<string, string> = {
     'poster-sets': 'posterSetsPage.betaNotice',
@@ -858,7 +860,7 @@ export const SettingsDashboard: React.FC = () => {
     const [tmdbApiKey, setTmdbApiKey] = useState('');
     const [brandingTheme, setBrandingTheme] = useState('plex');
     const [sidebarIdentityPosition, setSidebarIdentityPosition] = useState<'top' | 'bottom'>('bottom');
-    const [pwaIconSource, setPwaIconSource] = useState<'server' | 'application'>('server');
+    const [pwaIconSource, setPwaIconSource] = useState<'server' | 'application'>('application');
     const [referralEnabled, setReferralEnabled] = useState(false);
     const [referralTrialDays, setReferralTrialDays] = useState(3);
     const [referralRewardDays, setReferralRewardDays] = useState(7);
@@ -1060,8 +1062,8 @@ export const SettingsDashboard: React.FC = () => {
         setAuditFilterTo(preset.to || '');
     }, [auditFilterPresets]);
 
-    const saveAuditFilterPreset = useCallback(() => {
-        const name = window.prompt(t('settings.logs.filters.savePresetPrompt'))?.trim();
+    const saveAuditFilterPreset = useCallback(async () => {
+        const name = (await askText(t('settings.logs.filters.savePresetPrompt')))?.trim();
         if (!name) {
             if (name === '') addToast(t('settings.logs.filters.presetNameRequired'), 'error');
             return;
@@ -2765,7 +2767,6 @@ export const SettingsDashboard: React.FC = () => {
                                                 setCollexionsEnabled(false);
                                                 setCollexionsAutostart(false);
                                                 setSpotifyToPlexEnabled(false);
-                                                if (activeTab === 'collexions' || activeTab === 'spotify-sync' || activeTab === 'metadata-fill') setActiveTab('plex');
                                             }
                                         }}
                                         options={[
@@ -2910,6 +2911,12 @@ export const SettingsDashboard: React.FC = () => {
                                     </>
                                 )}
                                 </div>
+
+                                {mediaServerType === 'plex' ? (
+                                    <section className="mb-6 mt-2 rounded-xl border border-border/70 p-4">
+                                        <PlexShareDefaultsSection />
+                                    </section>
+                                ) : null}
 
                                 <section id={getSettingsSectionElementId('home-hero')} className="mb-6 mt-2 scroll-mt-24 rounded-xl border border-border/70 p-4">
                                     <div className="flex flex-col lg:flex-row lg:items-start gap-4">
@@ -4392,6 +4399,7 @@ export const SettingsDashboard: React.FC = () => {
                             </div>
                         </div>
                     )}
+                    {activeTab === 'contact' && <HelpPageEditor addToast={addToast} />}
 
                     {activeTab === 'branding' && (
                         <div className="mb-8 animate-fade-in">
@@ -4602,7 +4610,7 @@ export const SettingsDashboard: React.FC = () => {
 
                                                 <div>
                                                     <SettingFieldLabel
-                                                        hint={<SettingHint>Controls the installed app icon, browser tab favicon, Android notification status-bar silhouette, and newsletter header. Server logo uses your Plex/Jellyfin branding or uploaded custom logo. Android can only show a monochrome outline of that logo in the status bar; the expanded notification still uses the full-color icon.</SettingHint>}
+                                                        hint={<SettingHint>Controls the installed home-screen icon, browser tab favicon, Android notification silhouette, and newsletter header. Application logo = stacked StreamPilot mark. Server logo = your uploaded Favicon/Logo when set, otherwise the Plex account avatar or Jellyfin branding icon. Save settings after changing this, then remove the old home-screen icon and Add to Home Screen again so the device picks up the new bitmap.</SettingHint>}
                                                     >
                                                         PWA Home Screen Icon
                                                     </SettingFieldLabel>
@@ -4610,8 +4618,8 @@ export const SettingsDashboard: React.FC = () => {
                                                         value={pwaIconSource}
                                                         onChange={(value) => setPwaIconSource(value === 'application' ? 'application' : 'server')}
                                                         options={[
-                                                            { label: 'Server logo (favicon)', value: 'server' },
-                                                            { label: 'Application logo', value: 'application' },
+                                                            { label: 'Application logo (StreamPilot stacked)', value: 'application' },
+                                                            { label: 'Server logo (upload / Plex / Jellyfin)', value: 'server' },
                                                         ]}
                                                     />
                                                 </div>
@@ -5465,10 +5473,10 @@ export const SettingsDashboard: React.FC = () => {
                                             try {
                                                 const data = await apiFetch('/api/spotify-to-plex/apply-portal-defaults', { method: 'POST' });
                                                 setSpotifyPortalImportMessage(data?.message || 'Portal defaults applied to the spotify-to-plex container.');
-                                                pushToast(data?.message || 'Applied portal defaults', 'success');
+                                                addToast(data?.message || 'Applied portal defaults', 'success');
                                             } catch (e: any) {
                                                 setSpotifyPortalImportMessage(e?.message || 'Import failed');
-                                                pushToast(e?.message || 'Import failed', 'error');
+                                                addToast(e?.message || 'Import failed', 'error');
                                             } finally {
                                                 setSpotifyPortalImporting(false);
                                             }
@@ -5487,9 +5495,9 @@ export const SettingsDashboard: React.FC = () => {
                                                     method: 'POST',
                                                     body: JSON.stringify({ type: 'all' }),
                                                 });
-                                                pushToast(data?.message || 'Sync started', 'success');
+                                                addToast(data?.message || 'Sync started', 'success');
                                             } catch (e: any) {
-                                                pushToast(e?.message || 'Sync failed', 'error');
+                                                addToast(e?.message || 'Sync failed', 'error');
                                             } finally {
                                                 setSpotifySyncStarting(false);
                                             }

@@ -507,6 +507,9 @@ export const overlaysApi = {
         generatedAt?: string | null;
         presetId?: string | null;
         showRatingKey?: string | null;
+        /** Where each sample came from (a real title, or a placeholder when none fit). */
+        showSource?: string | null;
+        episodeSource?: string | null;
     }>,
     sampleGenerate: (opts?: { showRatingKey?: string; episodeRatingKey?: string }) => (
         apiFetch(`${ROOT}/sample`, json(opts || {})) as Promise<{

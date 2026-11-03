@@ -3,6 +3,7 @@ import { ArrowLeft, Cake, Calendar, ChevronDown, Clapperboard, Film, MapPin, Spa
 import {
     DiscoverGridSizeSelect,
     discoveryTheme,
+    PlayerHomeRowSkeleton,
     PosterGridSkeleton,
     upgraderPosterGridClass,
     upgraderPosterGridStyle,
@@ -12,7 +13,6 @@ import {
 import { fetchPlayerPersonBundle, setMediaPlayerWatched } from './api';
 import { writePlayerScrollTop } from './playerMemory';
 import {
-    plexBackdropPreviewUrl,
     plexBackdropUrl,
     plexImageUrl,
     playerCardImageUrl,
@@ -21,6 +21,7 @@ import {
 import { PlayerBackdropImage } from './PlayerBackdropImage';
 import { PlayerPosterCard } from './PlayerPosterCard';
 import { PlayerRail } from './PlayerRail';
+import { PlayerTvStatusPanel } from './PlayerTvStatusPanel';
 import { formatPersonDate, personAgeYears, splitBiography } from '../discovery/personCredits';
 import { safeImageSrc } from '../shared/safeUrl';
 import type { PlayerItem, PlayerPersonCreditRow, PlayerPersonProfile, PlayerPlayOptions } from './types';
@@ -84,6 +85,7 @@ export const MediaPlayerPerson: React.FC<Props> = ({ actorId, name, thumb, onBac
     const [filmography, setFilmography] = useState<PlayerPersonCreditRow[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [attempt, setAttempt] = useState(0);
     const [bioExpanded, setBioExpanded] = useState(false);
     const [backdropFailed, setBackdropFailed] = useState(false);
     const bioBodyRef = useRef<HTMLParagraphElement | null>(null);
@@ -154,7 +156,7 @@ export const MediaPlayerPerson: React.FC<Props> = ({ actorId, name, thumb, onBac
                 if (!cancelled) setLoading(false);
             });
         return () => { cancelled = true; };
-    }, [actorId, name, t, thumb]);
+    }, [actorId, name, t, thumb, attempt]);
 
     useEffect(() => {
         prefetchPlayerImages(items.slice(0, 12).map((item) => playerCardImageUrl(item.thumb)), 12);
@@ -196,7 +198,6 @@ export const MediaPlayerPerson: React.FC<Props> = ({ actorId, name, thumb, onBac
         return null;
     }, [items]);
     const backdropUrl = plexBackdropUrl(artSource);
-    const backdropPreviewUrl = plexBackdropPreviewUrl(artSource);
 
     const filmographyRows = useMemo<PlayerPersonCreditRow[]>(() => (
         filmography.length
@@ -263,7 +264,7 @@ export const MediaPlayerPerson: React.FC<Props> = ({ actorId, name, thumb, onBac
 
     const decades = useMemo(() => {
         const groups = new Map<string, PlayerPersonCreditRow[]>();
-        filmographyRows.slice(0, 120).forEach((row) => {
+        filmographyRows.forEach((row) => {
             const y = yearOf(row.year);
             const key = y ? `${Math.floor(y / 10) * 10}` : '—';
             groups.set(key, [...(groups.get(key) || []), row]);
@@ -322,7 +323,6 @@ export const MediaPlayerPerson: React.FC<Props> = ({ actorId, name, thumb, onBac
                     <PlayerBackdropImage
                         key={backdropUrl}
                         src={backdropUrl}
-                        previewSrc={isTvShell ? backdropPreviewUrl : undefined}
                         className="player-person-ambient-img h-full w-full object-cover"
                         fetchPriority="low"
                         onError={() => setBackdropFailed(true)}
@@ -352,7 +352,7 @@ export const MediaPlayerPerson: React.FC<Props> = ({ actorId, name, thumb, onBac
                         <div className="player-person-portrait overflow-hidden rounded-full bg-white/5">
                             {photoUrl ? (
                                 <img src={photoUrl} alt={title} className="h-full w-full object-cover" />
-                            ) : loading && !isTvShell ? (
+                            ) : loading ? (
                                 <div className="h-full w-full animate-pulse bg-white/10" />
                             ) : (
                                 <div className="flex h-full w-full items-center justify-center text-sm font-bold text-white/35">
@@ -367,7 +367,7 @@ export const MediaPlayerPerson: React.FC<Props> = ({ actorId, name, thumb, onBac
                             </span>
                         ) : null}
                     </div>
-                    {loading && !title && !isTvShell ? (
+                    {loading && !title ? (
                         <div className="player-person-name-under mt-5 h-10 w-40 animate-pulse rounded-lg bg-white/10" aria-hidden />
                     ) : (
                         <h1 className="player-person-name player-person-name-under mt-5 text-center font-black tracking-tight text-white">
@@ -468,10 +468,14 @@ export const MediaPlayerPerson: React.FC<Props> = ({ actorId, name, thumb, onBac
             {/* On this server */}
             <section className="player-person-server relative z-10 flex w-full flex-col gap-4">
                 {isTvShell ? (
-                    loading ? null : error ? (
-                        <div className={discoveryTheme.emptyState}>
-                            <p className={discoveryTheme.emptyTitle}>{error}</p>
-                        </div>
+                    loading ? (
+                        <PlayerHomeRowSkeleton />
+                    ) : error ? (
+                        <PlayerTvStatusPanel
+                            title={error}
+                            onRetry={() => setAttempt((n) => n + 1)}
+                            onBack={onBack}
+                        />
                     ) : items.length ? (
                         <PlayerRail
                             title={t('mediaPlayerPage.onThisServer')}
@@ -566,12 +570,27 @@ export const MediaPlayerPerson: React.FC<Props> = ({ actorId, name, thumb, onBac
                                     </span>
                                     <span className="player-person-decade-rule mt-2 w-full" />
                                 </div>
-                                <div className="player-person-credit-grid grid w-full grid-cols-1 gap-2 xl:grid-cols-2">
+                                <div
+                                    className="player-person-credit-grid grid w-full grid-cols-1 gap-2 xl:grid-cols-2"
+                                    data-tv-person-credits="1"
+                                >
                                     {rows.map((row, index) => {
                                         const interactive = Boolean(row.ratingKey);
                                         const typeLabel = row.mediaType === 'tv' ? t('person.showType') : t('person.movieType');
-                                        const body = (
-                                            <>
+                                        const rowClass = `player-person-credit-row flex w-full items-center gap-3 rounded-xl text-left outline-none ${
+                                            row.onServer ? 'is-on-server' : 'is-static'
+                                        }`;
+                                        return (
+                                            <button
+                                                key={`${row.id}-${index}`}
+                                                type="button"
+                                                onClick={() => { if (interactive) openCredit(row); }}
+                                                data-tv-item="1"
+                                                data-tv-action={interactive ? '1' : undefined}
+                                                data-tv-key={`credit:${row.id}`}
+                                                className={rowClass}
+                                                aria-disabled={!interactive}
+                                            >
                                                 <span className="player-person-credit-year shrink-0 font-bold tabular-nums text-plex">
                                                     {yearOf(row.year) ?? '—'}
                                                 </span>
@@ -589,27 +608,7 @@ export const MediaPlayerPerson: React.FC<Props> = ({ actorId, name, thumb, onBac
                                                         {t('person.onServerBadge')}
                                                     </span>
                                                 ) : null}
-                                            </>
-                                        );
-                                        const rowClass = `player-person-credit-row flex w-full items-center gap-3 rounded-xl text-left outline-none ${
-                                            row.onServer ? 'is-on-server' : ''
-                                        }`;
-                                        return interactive ? (
-                                            <button
-                                                key={`${row.id}-${index}`}
-                                                type="button"
-                                                onClick={() => openCredit(row)}
-                                                data-tv-item="1"
-                                                data-tv-action="1"
-                                                data-tv-key={`credit:${row.id}`}
-                                                className={rowClass}
-                                            >
-                                                {body}
                                             </button>
-                                        ) : (
-                                            <div key={`${row.id}-${index}`} className={`${rowClass} is-static`}>
-                                                {body}
-                                            </div>
                                         );
                                     })}
                                 </div>

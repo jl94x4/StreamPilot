@@ -9,7 +9,7 @@ import { buildExportableConfig, parseCollexionsConfigText } from '../configImpor
 import { conflictsForTab, findConfigConflicts } from '../configConflicts';
 import { partitionValidationIssues, validateConfigLocal, type ConfigValidationIssue } from '../configValidate';
 import { diffAppConfig, revertConfigField } from '../configDiff';
-import { appConfirm } from '../../shared/confirm';
+import { appAlert, appConfirm, askConfirm } from '../../shared/confirm';
 import {
     displayToMmDd,
     mmDdToDisplay,
@@ -20,6 +20,7 @@ import {
 
 const ConfigPage: React.FC = () => {
     const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG);
+    const [newLibraryName, setNewLibraryName] = useState('');
     const [originalConfig, setOriginalConfig] = useState<AppConfig | null>(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -214,7 +215,7 @@ const ConfigPage: React.FC = () => {
             setSaveStatus('success'); // Show success after restart
             setTimeout(() => setSaveStatus('idle'), 5000);
         } catch (e) {
-            alert("Failed to restart service automatically. Please use the Dashboard.");
+            void appAlert('Failed to restart the service automatically. Please use the Dashboard.', { title: 'Restart failed' });
         }
         setRestarting(false);
     };
@@ -727,8 +728,30 @@ const ConfigPage: React.FC = () => {
                 )}
 
                 {activeTab === 'libraries' && (
-                    <Card title="Managed Libraries" actions={<button onClick={() => handleAddLibrary(setConfig)} className="text-plex hover:text-plex text-sm font-bold flex items-center gap-1 transition-colors"><Plus className="w-4 h-4" /> Add Lib</button>}>
+                    <Card title="Managed Libraries">
                         <div className="space-y-4">
+                            <form
+                                className="flex flex-col sm:flex-row gap-2"
+                                onSubmit={(event) => {
+                                    event.preventDefault();
+                                    if (handleAddLibrary(newLibraryName, setConfig)) setNewLibraryName('');
+                                }}
+                            >
+                                <input
+                                    value={newLibraryName}
+                                    onChange={(event) => setNewLibraryName(event.target.value)}
+                                    placeholder="Library name (exact match from Plex)"
+                                    aria-label="Library name (exact match from Plex)"
+                                    className="flex-1 min-w-0 appearance-none rounded-lg border border-border bg-background px-3 py-2 text-[16px] leading-5 text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex"
+                                />
+                                <button
+                                    type="submit"
+                                    disabled={!newLibraryName.trim()}
+                                    className="inline-flex items-center justify-center gap-1 rounded-lg bg-plex px-4 py-2 text-sm font-bold text-background hover:bg-plex-hover disabled:opacity-50"
+                                >
+                                    <Plus className="w-4 h-4" /> Add Lib
+                                </button>
+                            </form>
                             {libraries.length === 0 && <p className="text-muted italic text-center py-4">No libraries added yet.</p>}
                             {libraries.map(lib => (
                                 <div key={lib} className="flex flex-col sm:flex-row sm:items-center justify-between bg-background/30 border border-border p-4 rounded-xl hover:border-border transition-colors gap-3">
@@ -874,8 +897,8 @@ const ConfigPage: React.FC = () => {
 // --- SUB-EDITORS ---
 
 // Library List Editor
-const handleAddLibrary = (setConfig: React.Dispatch<React.SetStateAction<AppConfig>>) => {
-    const name = prompt("Enter Library Name (exact match from Plex):");
+const handleAddLibrary = (rawName: string, setConfig: React.Dispatch<React.SetStateAction<AppConfig>>) => {
+    const name = rawName.trim();
     if (name) {
         setConfig(prev => {
             const currentLibs = prev.library_names || [];
@@ -886,11 +909,13 @@ const handleAddLibrary = (setConfig: React.Dispatch<React.SetStateAction<AppConf
                 number_of_collections_to_pin: { ...(prev.number_of_collections_to_pin || {}), [name]: 0 }
             };
         });
+        return true;
     }
+    return false;
 };
 
-const handleRemoveLibrary = (name: string, setConfig: React.Dispatch<React.SetStateAction<AppConfig>>) => {
-    if (confirm(`Remove library "${name}"?`)) {
+const handleRemoveLibrary = async (name: string, setConfig: React.Dispatch<React.SetStateAction<AppConfig>>) => {
+    if (await askConfirm(`Remove library "${name}" from Collexions?`, { title: 'Remove library', confirmLabel: 'Remove' })) {
         setConfig(prev => {
             const newLibs = (prev.library_names || []).filter(l => l !== name);
             const newPins = { ...(prev.number_of_collections_to_pin || {}) };

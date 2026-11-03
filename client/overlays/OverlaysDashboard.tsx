@@ -297,7 +297,7 @@ export const OverlaysDashboard: React.FC = () => {
     const [sampleShowKey, setSampleShowKey] = useState('');
     const [sampleQuery, setSampleQuery] = useState('');
     const [sampleCandidates, setSampleCandidates] = useState<Array<{ ratingKey: string; title: string }>>([]);
-    const [gallery, setGallery] = useState<Array<{ name: string; kind: string; url: string; mtime: number }>>([]);
+    const [gallery, setGallery] = useState<Array<{ name: string; kind: string; url: string; mtime: number; rel?: string }>>([]);
     const [galleryBust, setGalleryBust] = useState(0);
     const [galleryLoading, setGalleryLoading] = useState(false);
     const [collapsedBinges, setCollapsedBinges] = useState<Record<string, boolean>>({});
@@ -1702,12 +1702,12 @@ export const OverlaysDashboard: React.FC = () => {
     }, []);
 
     useEffect(() => {
-        if (tab !== 'gallery') return;
+        if (tab !== 'look') return;
         void loadGallery().catch(() => setGallery([]));
     }, [tab, loadGallery]);
 
     useEffect(() => {
-        if (tab !== 'advanced') return;
+        if (tab !== 'home') return;
         const q = sampleQuery.trim();
         const timer = window.setTimeout(() => {
             void overlaysApi.sampleCandidates(q).then((res) => {
@@ -1721,7 +1721,7 @@ export const OverlaysDashboard: React.FC = () => {
     }, [tab, sampleQuery]);
 
     useEffect(() => {
-        if (tab !== 'advanced' && tab !== 'placement') return;
+        if (tab !== 'home' && tab !== 'look') return;
         if (sampleLoadedRef.current) return;
         sampleLoadedRef.current = true;
         let cancelled = false;
@@ -1755,7 +1755,7 @@ export const OverlaysDashboard: React.FC = () => {
     }, [tab]);
 
     useEffect(() => {
-        if (tab !== 'placement') return;
+        if (tab !== 'look') return;
         let cancelled = false;
         void (async () => {
             try {

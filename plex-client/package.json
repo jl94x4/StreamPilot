@@ -15,5 +15,8 @@
   },
   "devDependencies": {
     "@capacitor/cli": "^6.2.0"
+  },
+  "overrides": {
+    "tar": "7.5.22"
   }
 }

@@ -11,9 +11,9 @@
             <corners android:radius="12dp" />
             <gradient
                 android:angle="90"
-                android:centerColor="#2AF59E0B"
-                android:endColor="#40F59E0B"
-                android:startColor="#18F59E0B"
+                android:centerColor="?attr/playerAccentA2A"
+                android:endColor="?attr/playerAccentA40"
+                android:startColor="?attr/playerAccentA18"
                 android:type="linear" />
         </shape>
     </item>
@@ -37,7 +37,7 @@
             <solid android:color="@android:color/transparent" />
             <stroke
                 android:width="1dp"
-                android:color="#88F59E0B" />
+                android:color="?attr/playerAccentA88" />
         </shape>
     </item>
 </layer-list>

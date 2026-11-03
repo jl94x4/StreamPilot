@@ -1,42 +1,353 @@
 import { directPlexTranscodeUrl, portalUrl, resolvePortalAssetUrl } from '../shared/basePath';
-import { notePlayerItemProgress } from './playerMemory';
+import { isDirectImageSrc } from './lanImage';
+import {
+    clearWarmPosterUrls,
+    forgetWarmPosterUrl,
+    isPosterUrlWarm,
+    warmPosterUrl,
+} from '../shared/posterWarmCache';
+import { noteFinishedPlayback, notePlayerItemProgress } from './playerMemory';
 import { PLAYER_API_ROOT, PLAYER_IMAGE_PATH } from './paths';
-import { sortContinueWatchingItems, type PlayerContinueWatchingLayout, type PlayerContinueWatchingSort } from './playerSettings';
+import { PLAYER_SETTINGS_EVENT, readPlayerSettings, sortContinueWatchingItems, type PlayerContinueWatchingLayout, type PlayerContinueWatchingSort, type PlayerDateFormat } from './playerSettings';
 import type { PlayerItem } from './types';
 
 /** Shared rail size so home, library, and season grids hit the same cached JPEG. */
 export const PLAYER_POSTER_WIDTH = 300;
 export const PLAYER_POSTER_HEIGHT = 450;
-export const PLAYER_POSTER_QUALITY = 60;
+export const PLAYER_POSTER_QUALITY = 90;
 
-const prefetchedPlayerImages = new Set<string>();
-const PREFETCHED_IMAGE_CAP = 500;
-
-const rememberPrefetchedImage = (url: string) => {
-    if (prefetchedPlayerImages.has(url)) return false;
-    if (prefetchedPlayerImages.size >= PREFETCHED_IMAGE_CAP) {
-        const first = prefetchedPlayerImages.values().next().value;
-        if (first) prefetchedPlayerImages.delete(first);
-    }
-    prefetchedPlayerImages.add(url);
-    return true;
-};
+export const warmPlayerPoster = warmPosterUrl;
+export const isPlayerPosterWarm = isPosterUrlWarm;
+export const forgetPlayerPoster = forgetWarmPosterUrl;
 
 export const clearPrefetchedPlayerImages = () => {
-    prefetchedPlayerImages.clear();
+    clearWarmPosterUrls();
 };
 
 export const prefetchPlayerImages = (urls: Array<string | null | undefined>, limit = 12) => {
     if (typeof window === 'undefined') return;
     let started = 0;
     for (const url of urls) {
-        if (!url || !rememberPrefetchedImage(url)) continue;
-        const img = new Image();
-        img.decoding = 'async';
-        img.src = url;
+        const key = String(url || '').trim();
+        if (!key) continue;
+        if (isPosterUrlWarm(key)) {
+            warmPosterUrl(key);
+            continue;
+        }
+        warmPosterUrl(key, started < 16);
         started += 1;
         if (started >= limit) return;
     }
+};
+
+export const playerRailPosterUrl = (
+    item: { thumb?: string | null; type?: string | null; cardAspect?: string | null } | null | undefined,
+    aspect?: '2/3' | 'square' | '16/9',
+) => {
+    if (!item) return '';
+    const cardAspect = resolvePlayerCardAspect(item as PlayerItem, aspect);
+    const raw = playerCardImageUrl(item.thumb, cardAspect);
+    if (cardAspect === 'square') return resizePlexArtUrl(raw, 300, 300, PLAYER_POSTER_QUALITY) || '';
+    if (cardAspect === '16/9') return resizePlexArtUrl(raw, 426, 240, PLAYER_POSTER_QUALITY) || '';
+    return resizePlexArtUrl(raw, 300, 450, PLAYER_POSTER_QUALITY) || raw || '';
+};
+
+/**
+ * Warm the posters near the row on screen: current, next two, previous. Queuing every
+ * row's posters (hundreds) at once tied up the server's few connections, so the Home
+ * hub fills and the rows you were looking at loaded last. Rows further away warm as you
+ * reach them (this runs on every row change).
+ */
+/** Per-row poster warm: about one screen of cards, not a 50-title hub. */
+const TV_HOME_POSTER_PER_ROW = 10;
+
+export const prefetchHomeRowPosters = (
+    rows: Array<{ items?: Array<PlayerItem | null | undefined> | null; aspect?: '2/3' | 'square' | '16/9' }>,
+    startIndex = 0,
+) => {
+    if (typeof window === 'undefined' || !rows?.length) return;
+    const urls: string[] = [];
+    const pushRow = (row?: { items?: Array<PlayerItem | null | undefined> | null; aspect?: '2/3' | 'square' | '16/9' }) => {
+        for (const item of (row?.items || []).slice(0, TV_HOME_POSTER_PER_ROW)) {
+            const url = playerRailPosterUrl(item, row?.aspect);
+            if (url) urls.push(url);
+        }
+    };
+    const start = Math.max(0, Math.min(startIndex, rows.length - 1));
+    pushRow(rows[start]);
+    pushRow(rows[start + 1]);
+    pushRow(rows[start + 2]);
+    if (start > 0) pushRow(rows[start - 1]);
+    prefetchPlayerImages(urls, urls.length);
+};
+
+const readyBackdrops = new Map<string, HTMLImageElement>();
+const backdropWait: string[] = [];
+const backdropInflight = new Set<string>();
+/** Finished full-quality downloads. Far posters stay listed so a focus move does not fetch them again. */
+const backdropLoaded = new Set<string>();
+/** Full-quality URLs for the row on screen, focused poster first. */
+let backdropRow: string[] = [];
+let backdropEpoch = 0;
+let backdropBusy = 0;
+const BACKDROP_SLOTS = 2;
+const BACKDROP_HOLD = 8;
+const BACKDROP_QUEUE_CAP = 24;
+let warmingPaused = false;
+let warmingPauseDepth = 0;
+/** First cards of the previous/next Home row — keep these decoded across a row change. */
+const backdropPinned = new Set<string>();
+
+const uniqueBackdropUrls = (urls: string[]) => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const raw of urls) {
+        const key = String(raw || '').trim();
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        out.push(key);
+        if (out.length >= BACKDROP_QUEUE_CAP) break;
+    }
+    return out;
+};
+
+const rotateBackdropRow = (urls: string[], focusIndex: number) => {
+    const start = Math.max(0, Math.min(focusIndex, Math.max(0, urls.length - 1)));
+    return uniqueBackdropUrls(urls.slice(start).concat(urls.slice(0, start)));
+};
+
+const shouldHoldBackdrop = (key: string) => {
+    if (backdropPinned.has(key)) return true;
+    if (!backdropRow.length) return true;
+    const pos = backdropRow.indexOf(key);
+    return pos >= 0 && pos < BACKDROP_HOLD;
+};
+
+const trimReadyBackdrops = () => {
+    while (readyBackdrops.size > BACKDROP_HOLD) {
+        let victim = '';
+        let rank = -1;
+        for (const readyKey of readyBackdrops.keys()) {
+            if (backdropPinned.has(readyKey)) continue;
+            const pos = backdropRow.indexOf(readyKey);
+            const score = pos < 0 ? -1 : pos;
+            if (!victim || score > rank) {
+                rank = score;
+                victim = readyKey;
+            }
+        }
+        if (!victim) break;
+        readyBackdrops.delete(victim);
+    }
+};
+
+const rememberBackdrop = (key: string, img: HTMLImageElement) => {
+    if (!key || !img.complete || img.naturalWidth <= 0) return;
+    if (!shouldHoldBackdrop(key)) return;
+    readyBackdrops.delete(key);
+    readyBackdrops.set(key, img);
+    trimReadyBackdrops();
+};
+
+const startBackdrop = (key: string) => {
+    if (!key || readyBackdrops.has(key) || backdropInflight.has(key)) return;
+    const epoch = backdropEpoch;
+    backdropBusy += 1;
+    backdropInflight.add(key);
+    const img = new Image();
+    img.decoding = 'async';
+    const finish = () => {
+        backdropInflight.delete(key);
+        backdropBusy = Math.max(0, backdropBusy - 1);
+        pumpBackdrops();
+    };
+    img.onload = () => {
+        if (epoch === backdropEpoch || backdropRow.includes(key)) {
+            backdropLoaded.add(key);
+            rememberBackdrop(key, img);
+        }
+        finish();
+    };
+    img.onerror = finish;
+    img.src = key;
+};
+
+const rebuildBackdropWait = () => {
+    backdropWait.length = 0;
+    backdropRow.forEach((url, pos) => {
+        if (readyBackdrops.has(url) || backdropInflight.has(url)) return;
+        if (backdropLoaded.has(url) && pos >= BACKDROP_HOLD) return;
+        backdropWait.push(url);
+    });
+};
+
+const pumpBackdrops = () => {
+    if (warmingPaused) return;
+    while (backdropBusy < BACKDROP_SLOTS && backdropWait.length) {
+        const key = backdropWait.shift();
+        if (!key || readyBackdrops.has(key) || backdropInflight.has(key)) continue;
+        startBackdrop(key);
+    }
+};
+
+/** Stop row warming so a show page or playback can use the network. */
+export const pausePlayerWarming = () => {
+    warmingPauseDepth += 1;
+    warmingPaused = true;
+    backdropWait.length = 0;
+};
+
+export const resumePlayerWarming = () => {
+    warmingPauseDepth = Math.max(0, warmingPauseDepth - 1);
+    if (warmingPauseDepth > 0) return;
+    warmingPaused = false;
+    pumpBackdrops();
+};
+
+/** Decode a full backdrop ahead of focus so the billboard can swap without waiting on Plex. */
+export const warmPlayerBackdrop = (url?: string | null, priority = false) => {
+    const key = String(url || '').trim();
+    if (!key || typeof window === 'undefined') return;
+    if (warmingPaused && !priority) return;
+    if (readyBackdrops.has(key)) {
+        const img = readyBackdrops.get(key);
+        if (img) {
+            readyBackdrops.delete(key);
+            readyBackdrops.set(key, img);
+        }
+        return;
+    }
+    if (backdropInflight.has(key)) return;
+    if (priority) {
+        startBackdrop(key);
+        return;
+    }
+    if (backdropRow.includes(key)) return;
+    const existing = backdropWait.indexOf(key);
+    if (existing >= 0) backdropWait.splice(existing, 1);
+    backdropWait.push(key);
+    while (backdropWait.length > BACKDROP_QUEUE_CAP) backdropWait.pop();
+    pumpBackdrops();
+};
+
+/**
+ * Walk every backdrop on the current TV row, focused poster first, a few at a
+ * time. The next row replaces this queue.
+ */
+export const beginTvRowBackdropPreload = (urls: string[], focusIndex = 0) => {
+    const epoch = ++backdropEpoch;
+    const ordered = rotateBackdropRow(urls, focusIndex);
+    backdropRow = ordered;
+    rebuildBackdropWait();
+    pumpBackdrops();
+    return () => {
+        if (backdropEpoch !== epoch) return;
+        // The next row replaces this queue. Do not drop decoded art here —
+        // changing rows would otherwise refetch the billboard from scratch.
+    };
+};
+
+/** Pull the focused poster to the front of the current row without dropping the rest. */
+export const prioritizeTvRowBackdrop = (url?: string | null) => {
+    const key = String(url || '').trim();
+    if (!key || typeof window === 'undefined') return;
+    if (!backdropRow.length) {
+        warmPlayerBackdrop(key, true);
+        return;
+    }
+    const index = backdropRow.indexOf(key);
+    if (index > 0) {
+        backdropRow = backdropRow.slice(index).concat(backdropRow.slice(0, index));
+    } else if (index < 0) {
+        backdropRow = uniqueBackdropUrls([key, ...backdropRow]);
+    }
+    rebuildBackdropWait();
+    trimReadyBackdrops();
+    if (warmingPaused) {
+        warmPlayerBackdrop(key, true);
+        return;
+    }
+    pumpBackdrops();
+};
+
+export const pinTvNeighborBackdrops = (urls: Array<string | null | undefined>) => {
+    backdropPinned.clear();
+    uniqueBackdropUrls(urls.map((url) => String(url || '').trim()).filter(Boolean)).slice(0, 6)
+        .forEach((url) => backdropPinned.add(url));
+};
+
+export const playerItemBackdropUrl = (
+    item?: {
+        type?: string | null;
+        backdropArt?: string | null;
+        art?: string | null;
+        thumb?: string | null;
+    } | null,
+) => {
+    // Live On Now cards are portrait posters. Never stretch them as the billboard —
+    // only real show/movie art (from the guide or a library match) belongs there.
+    if (item?.type === 'liveAiring') {
+        return plexBackdropUrl(item?.backdropArt || item?.art);
+    }
+    return plexBackdropUrl(item?.backdropArt || item?.art || item?.thumb);
+};
+
+/**
+ * TV Home → title page handoff: the exact billboard art URL (and the page colour sampled
+ * from it) Home showed per title. Home and title pages build their art URLs differently,
+ * so without this the title page fetched and decoded the same picture again.
+ */
+const billboardHandoff = new Map<string, { url: string; surface: string | null }>();
+const BILLBOARD_HANDOFF_MAX = 300;
+
+const billboardKey = (key?: string | null, serverId?: string | null) => {
+    const id = String(key || '').trim();
+    const server = String(serverId || '').trim();
+    return id && server ? `${server}|${id}` : id;
+};
+
+export const rememberBillboardBackdrop = (
+    key?: string | null,
+    url?: string | null,
+    surface?: string | null,
+    serverId?: string | null,
+) => {
+    const id = billboardKey(key, serverId);
+    const src = String(url || '').trim();
+    if (!id || !src) return;
+    const prev = billboardHandoff.get(id);
+    billboardHandoff.delete(id);
+    billboardHandoff.set(id, {
+        url: src,
+        surface: surface !== undefined ? surface : (prev && prev.url === src ? prev.surface : null),
+    });
+    if (billboardHandoff.size > BILLBOARD_HANDOFF_MAX) {
+        const oldest = billboardHandoff.keys().next().value;
+        if (oldest !== undefined) billboardHandoff.delete(oldest);
+    }
+};
+
+/** Rating keys repeat across Plex servers: with a server, only that server's art counts. */
+export const billboardBackdropFor = (key?: string | null, serverId?: string | null) => (
+    billboardHandoff.get(billboardKey(key, serverId)) || null
+);
+
+export const isPlayerBackdropReady = (url?: string | null) => {
+    const key = String(url || '').trim();
+    if (!key) return false;
+    const held = readyBackdrops.get(key);
+    if (held?.complete && held.naturalWidth > 0) return true;
+    // Already decoded this session — browser cache serves the swap without a DOM scan.
+    return backdropLoaded.has(key);
+};
+
+/** Keep the focused poster at the front of the row that is already preloading. */
+export const primeNearbyTvBillboard = (target: EventTarget | null) => {
+    const el = target as HTMLElement | null;
+    const btn = el?.closest?.('[data-tv-poster-btn="1"]') as HTMLElement | null;
+    if (!btn) return;
+    const art = btn.closest('[data-tv-backdrop]')?.getAttribute('data-tv-backdrop') || '';
+    if (art) prioritizeTvRowBackdrop(art);
 };
 
 const MUSIC_ITEM_TYPES = new Set(['artist', 'album', 'track', 'audio', 'music']);
@@ -70,14 +381,22 @@ export const resolvePlayerCardAspect = (
     return '2/3';
 };
 
-/** Rewrite a Plex photo transcode so album art is not pre-cropped to 2:3. */
-export const resizePlexArtUrl = (url: string | null | undefined, width: number, height: number) => {
+/** Rewrite a Plex photo transcode size (and optional quality) without changing the path. */
+export const resizePlexArtUrl = (
+    url: string | null | undefined,
+    width: number,
+    height: number,
+    quality?: number,
+) => {
     const value = String(url || '').trim();
     if (!value || !/\/photo\/:\/transcode|\/api\/plex\/image/i.test(value)) return value;
     try {
         const parsed = new URL(value, 'https://plex.local');
         parsed.searchParams.set('width', String(width));
         parsed.searchParams.set('height', String(height));
+        if (quality != null && Number.isFinite(quality)) {
+            parsed.searchParams.set('quality', String(Math.max(1, Math.min(100, Math.round(quality)))));
+        }
         if (/^https?:/i.test(value)) return parsed.toString();
         return `${parsed.pathname}?${parsed.searchParams.toString()}`;
     } catch {
@@ -87,6 +406,8 @@ export const resizePlexArtUrl = (url: string | null | undefined, width: number, 
 
 export const plexImageUrl = (path?: string | null, width = PLAYER_POSTER_WIDTH, height = PLAYER_POSTER_HEIGHT, opts?: { fit?: 'contain' | 'cover'; quality?: number }) => {
     if (!path) return '';
+    // Already-loaded artwork (Live TV LAN images as blob URLs): nothing to resize.
+    if (isDirectImageSrc(path) && /^(blob|data):/i.test(path)) return path;
     if (path.startsWith('http://') || path.startsWith('https://') || path.startsWith('/api/')) {
         return resolvePortalAssetUrl(path);
     }
@@ -96,7 +417,7 @@ export const plexImageUrl = (path?: string | null, width = PLAYER_POSTER_WIDTH, 
         height: String(height),
     });
     if (opts?.fit === 'contain') params.set('fit', 'contain');
-    if (opts?.quality) params.set('quality', String(opts.quality));
+    params.set('quality', String(opts?.quality ?? PLAYER_POSTER_QUALITY));
     return portalUrl(`${PLAYER_IMAGE_PATH}?${params.toString()}`);
 };
 
@@ -109,16 +430,30 @@ export const playerCardImageUrl = (thumb?: string | null, aspect: '2/3' | 'squar
 
 export const plexLogoUrl = (path?: string | null) => plexImageUrl(path, 640, 240, { fit: 'contain', quality: 70 });
 
+/** Prefer the fullest synopsis (Plex agents often truncate mid-sentence). */
+export const pickRicherSummary = (...parts: Array<string | null | undefined>) => {
+    const cleaned = parts
+        .map((part) => String(part || '').replace(/\s+/g, ' ').trim())
+        .filter(Boolean);
+    if (!cleaned.length) return '';
+    return cleaned.reduce((best, next) => {
+        if (next.length >= best.length + 12) return next;
+        if (best.length >= next.length + 12) return best;
+        const bestEnds = /[.!?…]"?'?$/.test(best);
+        const nextEnds = /[.!?…]"?'?$/.test(next);
+        if (nextEnds && !bestEnds) return next;
+        if (bestEnds && !nextEnds) return best;
+        return next.length > best.length ? next : best;
+    });
+};
+
 /**
- * Full hero art. TV stays at 1920×1080 (layout width) but JPEG quality is maxed.
- * Desktop may request 4K when the source has it.
+ * Full hero art. 1920×1080 at quality 90 — sharp on TV without 4K transcodes
+ * that stall logos, episodes, and Plex itself.
  */
-export const PLAYER_BACKDROP_WIDTH = 3840;
-export const PLAYER_BACKDROP_HEIGHT = 2160;
-export const PLAYER_BACKDROP_QUALITY = 100;
-export const PLAYER_BACKDROP_PREVIEW_WIDTH = 640;
-export const PLAYER_BACKDROP_PREVIEW_HEIGHT = 360;
-export const PLAYER_BACKDROP_PREVIEW_QUALITY = 40;
+export const PLAYER_BACKDROP_WIDTH = 1920;
+export const PLAYER_BACKDROP_HEIGHT = 1080;
+export const PLAYER_BACKDROP_QUALITY = 90;
 
 const tmdbBackdropSize = (url: string, size: 'w300' | 'w1280' | 'w1920' | 'original') => (
     url.replace(/\/\/image\.tmdb\.org\/t\/p\/(?:original|w\d+)/, `//image.tmdb.org/t/p/${size}`)
@@ -141,40 +476,46 @@ const withPlexImageSize = (url: string, width: number, height: number, quality: 
     return portalUrl(`${base}?${params.toString()}`);
 };
 
-const isTvShellDocument = () => (
-    typeof document !== 'undefined'
-    && (
-        document.documentElement?.dataset?.tv === '1'
-        || (typeof window !== 'undefined' && window.__PLEX_CLIENT__?.isTv === true)
-    )
-);
-
-export const plexBackdropUrl = (path?: string | null) => {
-    if (!path) return '';
-    const tv = isTvShellDocument();
-    // TV WebView: stay at 1080p canvas (matches layout) but never soft-compress.
-    const width = tv ? 1920 : PLAYER_BACKDROP_WIDTH;
-    const height = tv ? 1080 : PLAYER_BACKDROP_HEIGHT;
-    const quality = PLAYER_BACKDROP_QUALITY;
+const backdropRequestUrl = (path: string, width: number, height: number, quality: number) => {
+    if (/^(blob|data):/i.test(path)) return path;
+    if (/\/photo\/:\/transcode|\/api\/plex\/image/i.test(path)) {
+        return resizePlexArtUrl(path, width, height, quality);
+    }
     if (path.startsWith('http://') || path.startsWith('https://') || path.startsWith('/api/')) {
         return withPlexImageSize(path, width, height, quality);
     }
     return plexImageUrl(path, width, height, { quality });
 };
 
-export const plexBackdropPreviewUrl = (path?: string | null) => {
-    if (!path) return '';
-    if (path.startsWith('http://') || path.startsWith('https://') || path.startsWith('/api/')) {
-        return withPlexImageSize(
-            path,
-            PLAYER_BACKDROP_PREVIEW_WIDTH,
-            PLAYER_BACKDROP_PREVIEW_HEIGHT,
-            PLAYER_BACKDROP_PREVIEW_QUALITY,
-        );
+const phoneShellActive = () => {
+    try {
+        return document.documentElement?.dataset?.phone === '1';
+    } catch {
+        return false;
     }
-    return plexImageUrl(path, PLAYER_BACKDROP_PREVIEW_WIDTH, PLAYER_BACKDROP_PREVIEW_HEIGHT, {
-        quality: PLAYER_BACKDROP_PREVIEW_QUALITY,
-    });
+};
+
+/** TV Settings → Lighter billboard: 720p art decodes and uploads to the GPU in a quarter of the time. */
+const liteBillboardActive = () => {
+    try {
+        return document.documentElement?.dataset?.liteBillboard === '1';
+    } catch {
+        return false;
+    }
+};
+
+export const plexBackdropUrl = (path?: string | null) => {
+    if (!path) return '';
+    // A 1080p q90 transcode per hero slide took ages over mobile data; 720p is still sharp on a phone.
+    if (phoneShellActive()) return backdropRequestUrl(path, 1280, 720, 80);
+    if (liteBillboardActive()) return backdropRequestUrl(path, 1280, 720, 75);
+    return backdropRequestUrl(path, PLAYER_BACKDROP_WIDTH, PLAYER_BACKDROP_HEIGHT, PLAYER_BACKDROP_QUALITY);
+};
+
+/** Idle fullscreen art. One image at a time, so ask for the 4K source even on TV. */
+export const plexScreensaverBackdropUrl = (path?: string | null) => {
+    if (!path) return '';
+    return backdropRequestUrl(path, PLAYER_BACKDROP_WIDTH, PLAYER_BACKDROP_HEIGHT, PLAYER_BACKDROP_QUALITY);
 };
 
 export const plexThemeUrl = (ratingKey?: string | null) => {
@@ -338,6 +679,13 @@ export const titleCaseProfile = (value?: string | null) => {
     return raw.replace(/\b\w/g, (char) => char.toUpperCase());
 };
 
+export type PlayerHdrBadge = 'DV' | 'DV HDR10' | 'HDR10+' | 'HDR10' | 'HLG' | 'HDR';
+
+export {
+    detectPlayerHdrLabel,
+    playerHdrBadgeTitle,
+} from './hdrBadge.js';
+
 export const formatMediaVideoLine = (video?: {
     width?: number | null;
     height?: number | null;
@@ -401,6 +749,64 @@ export const formatPlayerDuration = (ms?: number | null) => {
     const hours = Math.floor(totalMin / 60);
     const minutes = totalMin % 60;
     return minutes ? `${hours}h ${minutes}m` : `${hours}h`;
+};
+
+/** Plex-style spoken runtime for native player meta, e.g. "1 hour 59 minutes". */
+export const formatPlayerDurationLong = (ms?: number | null) => {
+    const totalMin = Math.round(Number(ms || 0) / 60000);
+    if (!Number.isFinite(totalMin) || totalMin <= 0) return '';
+    if (totalMin < 60) return totalMin === 1 ? '1 minute' : `${totalMin} minutes`;
+    const hours = Math.floor(totalMin / 60);
+    const minutes = totalMin % 60;
+    const hourPart = hours === 1 ? '1 hour' : `${hours} hours`;
+    if (!minutes) return hourPart;
+    const minPart = minutes === 1 ? '1 minute' : `${minutes} minutes`;
+    return `${hourPart} ${minPart}`;
+};
+
+/** Native player top meta line: "S1 · E8 · Episode name · 26 minutes". */
+export const formatNativePlayerMeta = (item?: PlayerItem | null) => {
+    if (!item) return '';
+    if (item.type === 'liveAiring') {
+        const title = String(item.liveChannelTitle || item.title || '').trim();
+        const number = String(item.liveChannelNumber || '').trim();
+        const channel = number && title && !title.startsWith(number) ? `${number} ${title}` : (title || number);
+        const from = Number(item.liveStartsAt || 0);
+        const to = Number(item.liveEndsAt || 0);
+        const clock = (unix: number) => {
+            const date = new Date(unix * 1000);
+            return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+        };
+        const when = from && to ? `${clock(from)} – ${clock(to)}` : '';
+        return [channel, item.episodeTitle && item.episodeTitle !== item.title ? item.episodeTitle : '', when]
+            .filter(Boolean)
+            .join(' · ');
+    }
+    const parts: string[] = [];
+    const ep = formatEpisodeCode(item);
+    if (ep) parts.push(ep);
+    const show = String(item.showTitle || '').trim();
+    if (item.type === 'episode') {
+        const episodeName = String(
+            item.episodeTitle
+            || (item.title && item.title !== show ? item.title : '')
+            || '',
+        ).trim();
+        if (episodeName && episodeName.toLowerCase() !== show.toLowerCase()) parts.push(episodeName);
+    } else {
+        const label = String(item.showTitle || item.seasonTitle || item.title || '').trim();
+        if (label) parts.push(label);
+    }
+    const runtime = formatPlayerDurationLong(item.durationMs);
+    if (runtime) parts.push(runtime);
+    // Episodes show the airdate (as Details does), movies the year — on their own line
+    // (player_meta allows up to three, so a long title line can wrap).
+    const when = item.type === 'episode'
+        ? formatPlayerDate(item.originallyAvailableAt)
+        : (item.type === 'movie' ? String(item.year || '').trim() : '');
+    const line = parts.join(' · ');
+    if (!when) return line;
+    return line ? `${line}\n${when}` : when;
 };
 
 /** Continue Watching overlay — “42 min left”. */
@@ -481,6 +887,58 @@ type SavedPlaybackProgress = {
 
 const savedPlaybackProgress = new Map<string, SavedPlaybackProgress>();
 const PLAYBACK_PROGRESS_TTL_MS = 3 * 60_000;
+/** Show/season just played, so the next On Deck episode still sorts as recently watched. */
+const familyLastViewedAt = new Map<string, { at: number; unix: number }>();
+
+const familyKeysOf = (item?: {
+    grandparentRatingKey?: string | null;
+    parentRatingKey?: string | null;
+    ratingKey?: string | null;
+} | null) => [item?.grandparentRatingKey, item?.parentRatingKey, item?.ratingKey]
+    .map((key) => String(key || '').trim())
+    .filter(Boolean);
+
+export const noteFamilyLastViewed = (
+    item?: {
+        grandparentRatingKey?: string | null;
+        parentRatingKey?: string | null;
+        ratingKey?: string | null;
+    } | null,
+    atMs = Date.now(),
+) => {
+    const unix = Math.floor(atMs / 1000);
+    if (unix <= 0) return;
+    for (const key of familyKeysOf(item)) {
+        familyLastViewedAt.set(key, { at: atMs, unix });
+    }
+};
+
+/** The next episode often has no view time of its own. Keep the show's. */
+/**
+ * The remote is in a Continue Watching row. Its order holds still only then, so cards never
+ * jump under the cursor; anywhere else the row follows Plex as soon as new data lands.
+ */
+export const continueWatchingRowFocused = () => {
+    if (typeof document === 'undefined') return false;
+    const row = (document.activeElement as HTMLElement | null)
+        ?.closest?.('[data-tv-row-id]')
+        ?.getAttribute('data-tv-row-id') || '';
+    return /continue/i.test(row);
+};
+
+export const stampFamilyLastViewed = <T extends PlayerItem>(item: T): T => {
+    let best = 0;
+    for (const key of familyKeysOf(item)) {
+        const row = familyLastViewedAt.get(key);
+        if (!row || Date.now() - row.at > PLAYBACK_PROGRESS_TTL_MS) continue;
+        if (row.unix > best) best = row.unix;
+    }
+    if (!best) return item;
+    const current = Number(item.lastViewedAt) || 0;
+    const currentSec = current > 1e12 ? Math.floor(current / 1000) : current;
+    if (currentSec >= best) return item;
+    return { ...item, lastViewedAt: best };
+};
 
 /** Keep the exit position so posters can show Resume before Plex sends the list back. */
 export const rememberPlaybackProgress = (
@@ -508,6 +966,9 @@ export const rememberPlaybackProgress = (
         item: item ? { ...item, viewOffsetMs: finished ? 0 : offset, durationMs: duration || item.durationMs, watched: finished ? true : item.watched } : undefined,
     };
     savedPlaybackProgress.set(ratingKey, saved);
+    if (finished) noteFinishedPlayback(ratingKey, item?.serverId);
+    noteFamilyLastViewed(item);
+    if (next) noteFamilyLastViewed(next);
     notePlayerItemProgress(ratingKey, saved.viewOffsetMs, saved.durationMs, saved.watched);
     window.dispatchEvent(new CustomEvent(PLAYER_PROGRESS_EVENT, {
         detail: finished
@@ -543,7 +1004,10 @@ export const noteItemWatched = (
         watched,
     };
     savedPlaybackProgress.set(key, saved);
+    if (watched) noteFinishedPlayback(key);
     clearedWatchParents.set(key, { watched, at: saved.at });
+    if (continueWith) noteFamilyLastViewed(continueWith, saved.at);
+    if (restoreContinue) noteFamilyLastViewed(restoreContinue, saved.at);
     notePlayerItemProgress(key, 0, 0, watched);
     window.dispatchEvent(new CustomEvent(PLAYER_PROGRESS_EVENT, {
         detail: {
@@ -556,6 +1020,28 @@ export const noteItemWatched = (
     }));
 };
 
+/**
+ * Progress replaces the Continue Watching card with the playback item, whose
+ * thumb is the series poster. Keep the season poster already on the rail.
+ */
+export const keepContinueWatchingPoster = (next: PlayerItem, current?: PlayerItem | null): PlayerItem => {
+    if (!current || current.cardAspect === '16/9') return next;
+    const preferSeason = !!(current.preferSeasonPoster || next.preferSeasonPoster);
+    const sameSeason = !!current.parentRatingKey
+        && String(current.parentRatingKey) === String(next.parentRatingKey || '');
+    return {
+        ...next,
+        preferSeasonPoster: preferSeason || undefined,
+        cardAspect: current.cardAspect || next.cardAspect || '2/3',
+        thumb: preferSeason && sameSeason ? (current.thumb || next.thumb) : next.thumb,
+        thumbUpdatedAt: preferSeason
+            ? (sameSeason ? (current.thumbUpdatedAt ?? null) : null)
+            : (current.thumbUpdatedAt ?? next.thumbUpdatedAt ?? null),
+        episodeThumb: next.episodeThumb || current.episodeThumb,
+        episodeTitle: next.episodeTitle || current.episodeTitle,
+    };
+};
+
 /** Swap a marked title for the next On Deck item in the same Continue Watching slot. */
 export const replaceFamilyContinueSlot = (list: PlayerItem[], ratingKey: string, nextItem?: PlayerItem | null) => {
     const key = String(ratingKey || '');
@@ -566,12 +1052,13 @@ export const replaceFamilyContinueSlot = (list: PlayerItem[], ratingKey: string,
         return without;
     }
     const current = index >= 0 ? list[index] : null;
-    const card: PlayerItem = {
+    const card = keepContinueWatchingPoster({
         ...nextItem,
-        preferSeasonPoster: nextItem.preferSeasonPoster ?? current?.preferSeasonPoster,
         viewOffsetMs: Number(nextItem.viewOffsetMs || 0),
         watched: false,
-    };
+        lastViewedAt: Math.floor(Date.now() / 1000),
+    }, current);
+    noteFamilyLastViewed(card);
     if (index < 0) return [card, ...without].slice(0, 20);
     const copy = without.slice();
     copy.splice(Math.min(index, copy.length), 0, card);
@@ -634,21 +1121,74 @@ export const formatEpisodeCode = (item?: PlayerItem | null) => {
     return `S${season} · E${episode}`;
 };
 
-export const formatPlayerDate = (value?: string | number | null, locale = 'en') => {
-    if (value == null || value === '') return '';
+let cachedDateFormat: PlayerDateFormat | null = null;
+if (typeof window !== 'undefined') {
+    window.addEventListener(PLAYER_SETTINGS_EVENT, () => { cachedDateFormat = null; });
+    window.addEventListener('storage', () => { cachedDateFormat = null; });
+}
+
+const activeDateFormat = (): PlayerDateFormat => {
+    if (!cachedDateFormat) cachedDateFormat = readPlayerSettings().dateFormat;
+    return cachedDateFormat;
+};
+
+const ordinalDay = (day: number) => {
+    const tens = day % 100;
+    if (tens >= 11 && tens <= 13) return `${day}th`;
+    return `${day}${({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[day % 10] || 'th'}`;
+};
+
+const parsePlayerDate = (value: string | number) => {
     const raw = String(value);
-    let date: Date;
     if (typeof value === 'number' || /^\d+$/.test(raw)) {
         const stamp = Number(value);
-        date = new Date(stamp * (stamp > 1e12 ? 1 : 1000));
-    } else if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-        const [year, month, day] = raw.split('-').map(Number);
-        date = new Date(year, month - 1, day);
-    } else {
-        date = new Date(raw);
+        return new Date(stamp * (stamp > 1e12 ? 1 : 1000));
     }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+        const [year, month, day] = raw.split('-').map(Number);
+        return new Date(year, month - 1, day);
+    }
+    return new Date(raw);
+};
+
+/** True when the date falls after today (an episode that hasn't aired yet). */
+export const isFuturePlayerDate = (value?: string | number | null) => {
+    if (value == null || value === '') return false;
+    const date = parsePlayerDate(value);
+    if (Number.isNaN(date.getTime())) return false;
+    const endOfToday = new Date();
+    endOfToday.setHours(23, 59, 59, 999);
+    return date.getTime() > endOfToday.getTime();
+};
+
+/** Dates in the user's Settings → Titles → Date format (full month by default). */
+export const formatPlayerDate = (
+    value?: string | number | null,
+    locale = 'en',
+    format: PlayerDateFormat = activeDateFormat(),
+) => {
+    if (value == null || value === '') return '';
+    const date = parsePlayerDate(value);
     if (Number.isNaN(date.getTime())) return '';
-    return date.toLocaleDateString(locale || 'en', { day: 'numeric', month: 'short', year: 'numeric' });
+    const lang = locale || 'en';
+    const day = date.getDate();
+    const year = date.getFullYear();
+    const month = (style: 'long' | 'short') => date.toLocaleDateString(lang, { month: style });
+    const pad = (n: number) => String(n).padStart(2, '0');
+    switch (format) {
+        case 'longDayFirst': return `${day} ${month('long')} ${year}`;
+        // Ordinal suffixes are English; other languages get the plain day-first form.
+        case 'ordinal': return /^en\b/i.test(lang)
+            ? `${ordinalDay(day)} ${month('long')} ${year}`
+            : `${day} ${month('long')} ${year}`;
+        case 'weekday': return date.toLocaleDateString(lang, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+        case 'short': return date.toLocaleDateString(lang, { day: 'numeric', month: 'short', year: 'numeric' });
+        case 'shortDayFirst': return `${day} ${month('short')} ${year}`;
+        case 'numericDMY': return `${pad(day)}/${pad(date.getMonth() + 1)}/${year}`;
+        case 'numericMDY': return `${pad(date.getMonth() + 1)}/${pad(day)}/${year}`;
+        case 'iso': return `${year}-${pad(date.getMonth() + 1)}-${pad(day)}`;
+        default: return date.toLocaleDateString(lang, { day: 'numeric', month: 'long', year: 'numeric' });
+    }
 };
 
 /** Prefer the higher watched count when the show record is 0 but seasons or episodes already know. */
@@ -678,17 +1218,158 @@ export const unwatchedCount = (item?: PlayerItem | null) => {
 
 export const PLAYBACK_SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
+/**
+ * Prefer Plex thumb paths that already include a `/thumb/<stamp>` cache buster.
+ * Bare `/library/metadata/{id}/thumb` URLs keep serving stale art after poster changes.
+ */
+export const libraryThumbPathFrom = (value?: string | null) => {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    if (raw.startsWith('/library/') || raw.startsWith('/hubs/')) {
+        return raw.split('#')[0].split('?')[0];
+    }
+    try {
+        const parsed = new URL(raw);
+        const inner = String(parsed.searchParams.get('url') || '').trim();
+        if (inner.startsWith('/library/') || inner.startsWith('/hubs/')) {
+            return inner.split('#')[0].split('?')[0];
+        }
+        if (parsed.pathname.includes('/library/metadata/')) {
+            return `${parsed.pathname}`.split('#')[0];
+        }
+    } catch {
+        /* ignore */
+    }
+    return '';
+};
+
+export const stampedMetadataThumb = (
+    ratingKey?: string | null,
+    existingPath?: string | null,
+    updatedAt?: string | number | null,
+) => {
+    const key = String(ratingKey || '').replace(/\D/g, '');
+    const existing = libraryThumbPathFrom(existingPath);
+    const stamp = String(updatedAt ?? '').replace(/\D/g, '');
+    // Prefer an explicit updatedAt stamp (fresh show metadata). Stamped paths from
+    // episode/hub rows are immutable and keep serving pre-swap poster art forever.
+    if (key && stamp) return `/library/metadata/${key}/thumb/${stamp}`;
+    if (key && existing.includes(`/library/metadata/${key}/thumb`)) {
+        // Keep only if already stamped for this key; else use unstamped current.
+        if (/\/thumb\/\d+/.test(existing)) return existing;
+        return `/library/metadata/${key}/thumb`;
+    }
+    if (key) return `/library/metadata/${key}/thumb`;
+    return existing;
+};
+
 /** Recently Added must use the show poster, never the episode title card. */
 export const withShowPoster = (item: PlayerItem): PlayerItem => {
     if (item.type !== 'episode' && item.type !== 'season') return item;
     const showKey = String(
         (item.type === 'season' ? item.parentRatingKey : item.grandparentRatingKey) || '',
     ).replace(/\D/g, '');
-    if (!showKey) return { ...item, cardAspect: item.cardAspect || '2/3' };
+    const seasonKey = String(item.parentRatingKey || '').replace(/\D/g, '');
+    if (!showKey && !seasonKey) return { ...item, cardAspect: item.cardAspect || '2/3' };
+
+    const preferSeason = !!item.preferSeasonPoster && !!seasonKey;
+    const targetKey = preferSeason ? seasonKey : showKey;
+    const thumbUpdatedAt = (item as { thumbUpdatedAt?: number | string | null }).thumbUpdatedAt;
+    // Rebuild show/season path (stamped when we have updatedAt). Always resolve to an
+    // absolute PMS/portal image URL — bare /library/... paths blank out on TV when the
+    // /api/plex/image rewrite misses.
+    const stamped = stampedMetadataThumb(targetKey, null, preferSeason ? null : thumbUpdatedAt)
+        || (targetKey ? `/library/metadata/${targetKey}/thumb` : '');
+    const absolute = stamped
+        ? (
+            plexImageUrl(stamped, PLAYER_POSTER_WIDTH, PLAYER_POSTER_HEIGHT, { quality: PLAYER_POSTER_QUALITY })
+            || stamped
+        )
+        : '';
     return {
         ...item,
-        thumb: `/library/metadata/${showKey}/thumb`,
+        thumb: absolute || item.thumb,
         cardAspect: '2/3',
+    };
+};
+
+/**
+ * URLs needed when opening a Continue Watching episode (show poster on the rail,
+ * episode still, and details backdrop). Warming these on Home makes OK feel instant.
+ */
+export const continueWatchingImageUrls = (item: PlayerItem): string[] => {
+    const urls: string[] = [];
+    const push = (url?: string | null) => {
+        const key = String(url || '').trim();
+        if (key && !urls.includes(key)) urls.push(key);
+    };
+    const showPoster = withShowPoster(item).thumb;
+    push(playerCardImageUrl(showPoster, '2/3'));
+    if (showPoster && !/^https?:\/\//i.test(showPoster)) {
+        push(plexImageUrl(showPoster, PLAYER_POSTER_WIDTH, PLAYER_POSTER_HEIGHT, { quality: PLAYER_POSTER_QUALITY }));
+    }
+    const episodeStill = String(item.episodeThumb || (item.type === 'episode' ? item.thumb : '') || '').trim();
+    if (episodeStill) {
+        push(playerCardImageUrl(episodeStill, '16/9'));
+        push(resizePlexArtUrl(episodeStill, 426, 240, PLAYER_POSTER_QUALITY));
+        push(plexImageUrl(episodeStill, 426, 240, { quality: PLAYER_POSTER_QUALITY }));
+    }
+    const art = item.art || item.thumb || episodeStill;
+    push(plexBackdropUrl(art));
+    return urls;
+};
+
+/** Prefetch CW show posters + episode stills/backdrops ahead of opening details. */
+export const prefetchContinueWatchingImages = (
+    items: Array<PlayerItem | null | undefined>,
+    limitItems = 24,
+) => {
+    if (typeof window === 'undefined' || !items?.length) return;
+    const urls = items
+        .filter((item): item is PlayerItem => !!item?.ratingKey)
+        .slice(0, limitItems)
+        .flatMap((item) => continueWatchingImageUrls(item));
+    prefetchPlayerImages(urls, Math.max(urls.length, 1));
+};
+
+/**
+ * Plex-style Recently Added: show poster + show title, keep episode key / SxxExx /
+ * episode synopsis so home focus + click open that episode.
+ * Optional `preferSeasonPoster` (settings) uses the season poster instead.
+ */
+export const asRecentlyAddedPlayerItem = (
+    item: PlayerItem,
+    opts?: { preferSeasonPoster?: boolean },
+): PlayerItem => {
+    const preferSeason = opts?.preferSeasonPoster === true || !!item.preferSeasonPoster;
+    if (item.type !== 'episode' && item.type !== 'season') {
+        return withShowPoster(preferSeason ? { ...item, preferSeasonPoster: true } : item);
+    }
+    const showName = String(
+        item.type === 'season'
+            ? (item.showTitle || item.seasonTitle || item.title)
+            : (item.showTitle || item.title)
+        || '',
+    ).trim();
+    const episodeTitle = item.type === 'episode'
+        ? String(
+            item.episodeTitle
+            || (item.showTitle && item.title && item.title !== item.showTitle ? item.title : '')
+            || '',
+        ).trim()
+        : '';
+    const painted = withShowPoster({
+        ...item,
+        preferSeasonPoster: preferSeason || undefined,
+    });
+    return {
+        ...painted,
+        preferSeasonPoster: preferSeason || undefined,
+        episodeTitle: episodeTitle || item.episodeTitle || null,
+        title: showName || item.title,
+        showTitle: showName || item.showTitle || null,
+        // One card per episode. A show key here collapsed a 278-episode add into one poster.
+        dedupeKey: item.ratingKey || null,
     };
 };
 
@@ -705,8 +1386,10 @@ export const applyContinueWatchingLayout = (
         return { ...item, cardAspect: '16/9' };
     }
     const ratingKey = String(item.ratingKey || '').replace(/\D/g, '');
-    const episodeThumb = item.episodeThumb
-        || (ratingKey ? `/library/metadata/${ratingKey}/thumb` : item.thumb);
+    const episodeThumb = stampedMetadataThumb(
+        ratingKey,
+        item.episodeThumb || item.thumb,
+    ) || item.episodeThumb || item.thumb;
     const episodeTitle = String(item.episodeTitle || item.title || '').trim() || item.title;
     return {
         ...item,
@@ -750,6 +1433,34 @@ export const sliceQueueToNextUnwatched = (items: PlayerItem[] | null | undefined
     return rows.slice(idx);
 };
 
+/**
+ * Keep the focused “from here” leaf, then skip already-watched titles after it
+ * (in-progress still included). Used by Play unwatched from here.
+ */
+export const sliceQueueUnwatchedFromHere = (items: PlayerItem[] | null | undefined): PlayerItem[] => {
+    const rows = Array.isArray(items) ? items : [];
+    if (rows.length <= 1) return rows;
+    const [first, ...rest] = rows;
+    return [first, ...rest.filter((row) => shouldOfferResume(row) || !isPlayerItemWatched(row))];
+};
+
+/** Unwatched + in-progress leaves only (for Shuffle unwatched). */
+export const filterQueueUnwatched = (items: PlayerItem[] | null | undefined): PlayerItem[] => (
+    (Array.isArray(items) ? items : []).filter((row) => shouldOfferResume(row) || !isPlayerItemWatched(row))
+);
+
+/** Fisher–Yates copy — used by Shuffle unwatched after filtering watched leaves. */
+export const shufflePlayerItems = <T,>(items: T[] | null | undefined): T[] => {
+    const rows = Array.isArray(items) ? items.slice() : [];
+    for (let i = rows.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(Math.random() * (i + 1));
+        const tmp = rows[i];
+        rows[i] = rows[j];
+        rows[j] = tmp;
+    }
+    return rows;
+};
+
 /** Drop fully watched titles from Recently Added rows. */
 export const hideWatchedPlayerItems = (items: PlayerItem[] | null | undefined): PlayerItem[] => (
     (Array.isArray(items) ? items : []).filter((row) => !isPlayerItemWatched(row))
@@ -781,11 +1492,16 @@ export const heroCardImageUrl = (source?: string | null) => {
     return directPlexTranscodeUrl(value, 1920, 1080, -1, { upscale: false }) || value;
 };
 
-/** Rail-sized coverArt — same art type as Replex, not a 1920 still on every card. */
+/** Rail-sized coverArt. A published Plex hero file is already the 16:9 poster — do not transcode it into a backdrop. */
+/**
+ * 16:9 hero card art. Plex coverArt is a provider original (often 4K) on plex.tv's image
+ * hosts: loaded raw it was slow, skipped the on-device image cache (PMS transcodes only)
+ * and looked jagged shrunk onto a card. Let the Plex server size it like every poster.
+ */
 export const heroRailCardImageUrl = (source?: string | null) => {
     const value = String(source || '').trim();
     if (!value) return '';
-    return directPlexTranscodeUrl(value, 854, 480, 72, { upscale: false }) || value;
+    return directPlexTranscodeUrl(value, 960, 540, 85, { upscale: false }) || value;
 };
 
 export const heroRowCardItem = (item: PlayerItem): PlayerItem => ({
@@ -795,33 +1511,62 @@ export const heroRowCardItem = (item: PlayerItem): PlayerItem => ({
 });
 
 export const toPosterCardItem = (item: PlayerItem) => {
-    const leafThumb = item.ratingKey ? `/library/metadata/${item.ratingKey}/thumb` : '';
+    const ratingKey = String(item.ratingKey || '').replace(/\D/g, '');
+    // Live airing keys are not PMS library metadata. Using them as /library/metadata/…/thumb
+    // 404s and Home shows POSTER NOT FOUND over the real Tunarr http:// artwork.
+    const leafThumb = item.type === 'liveAiring' ? '' : (ratingKey ? `/library/metadata/${ratingKey}/thumb` : '');
     const showKey = String(
         (item.type === 'season' ? item.parentRatingKey : item.grandparentRatingKey) || '',
     ).replace(/\D/g, '');
-    const showThumb = showKey ? `/library/metadata/${showKey}/thumb` : '';
     const seasonKey = item.type === 'episode'
         ? String(item.parentRatingKey || '').replace(/\D/g, '')
         : '';
+    const thumbUpdatedAt = (item as { thumbUpdatedAt?: number | string | null }).thumbUpdatedAt;
+    const showThumb = showKey
+        ? (stampedMetadataThumb(showKey, null, item.preferSeasonPoster ? null : thumbUpdatedAt) || `/library/metadata/${showKey}/thumb`)
+        : '';
+    // Do not stamp the season poster with the episode or show updatedAt. That
+    // path 404s and the card falls back to the series poster.
     const seasonThumb = item.preferSeasonPoster && seasonKey
-        ? `/library/metadata/${seasonKey}/thumb`
+        ? (stampedMetadataThumb(seasonKey, item.thumb, null) || `/library/metadata/${seasonKey}/thumb`)
         : '';
     const posterThumb = seasonThumb || showThumb;
     const preferShowPoster = (item.type === 'episode' || item.type === 'season')
         && item.cardAspect !== '16/9'
         && (item.cardAspect === '2/3' || !item.cardAspect)
         && !!posterThumb;
-    const thumb = (preferShowPoster ? posterThumb : '') || item.thumb || leafThumb || undefined;
-    const remoteThumb = /^https?:\/\//i.test(String(thumb || ''));
+    // HEAD order: keep a working absolute item.thumb — never strip it via libraryThumbPathFrom.
+    let thumb = (preferShowPoster ? posterThumb : '') || item.thumb || leafThumb || undefined;
+    // Landscape episode cards size the still themselves. A portrait transcode here
+    // crops the frame before the 16:9 card ever sees it.
+    const keepEpisodeStill = item.cardAspect === '16/9'
+        && item.type === 'episode'
+        && String(thumb || '').startsWith('/library/');
+    if (
+        thumb
+        && !keepEpisodeStill
+        && !isDirectImageSrc(thumb)
+        && !String(thumb).startsWith('/api/')
+    ) {
+        thumb = plexImageUrl(
+            thumb,
+            PLAYER_POSTER_WIDTH,
+            PLAYER_POSTER_HEIGHT,
+            { quality: PLAYER_POSTER_QUALITY },
+        ) || thumb;
+    }
+    const remoteThumb = isDirectImageSrc(thumb)
+        || String(thumb || '').startsWith('/api/');
     // Episode stills are title cards. Never use them as a poster fallback.
-    const movieLeafFallback = item.type !== 'episode' && item.type !== 'season'
+    const movieLeafFallback = item.type !== 'episode' && item.type !== 'season' && item.type !== 'liveAiring'
         && leafThumb
         && (remoteThumb || (thumb && thumb !== leafThumb));
     const heroOriginal = item.heroCard ? String(item.heroArt || '').trim() : '';
     const posterFallbackUrl = heroOriginal && heroOriginal !== thumb
         ? heroOriginal
         : movieLeafFallback
-            ? `/api/plex/image?path=${encodeURIComponent(leafThumb)}&width=${PLAYER_POSTER_WIDTH}&height=${PLAYER_POSTER_HEIGHT}&quality=${PLAYER_POSTER_QUALITY}`
+            ? plexImageUrl(leafThumb, PLAYER_POSTER_WIDTH, PLAYER_POSTER_HEIGHT, { quality: PLAYER_POSTER_QUALITY })
+                || `/api/plex/image?path=${encodeURIComponent(leafThumb)}&width=${PLAYER_POSTER_WIDTH}&height=${PLAYER_POSTER_HEIGHT}&quality=${PLAYER_POSTER_QUALITY}`
             : undefined;
     return {
         title: item.title,
@@ -947,11 +1692,31 @@ export const resolveStartPlaybackQualityId = (
     return def;
 };
 
-const IMAGE_SUBTITLE_CODEC = /^(pgs|vobsub|dvd|dvdsub|image|bluray|dvbsub|xsub)$/i;
+const IMAGE_SUBTITLE_CODEC = /^(pgs|hdmv|hdmv_pgs_subtitle|vobsub|dvd|dvdsub|dvd_subtitle|image|bluray|dvbsub|dvb_subtitle|xsub)$/i;
+/** Picture subtitles ExoPlayer draws itself from the file (PGS, VobSub, DVB), like Plex's apps. */
+const EXO_DRAWN_IMAGE_SUBTITLE = /^(pgs|hdmv|hdmv_pgs_subtitle|vobsub|dvd|dvdsub|dvd_subtitle|bluray|dvbsub|dvb_subtitle)$/i;
+export type SubtitleBurnMode = 'auto' | 'always' | 'image';
 
-export const subtitleCodecNeedsBurn = (codec?: string | null) => (
-    IMAGE_SUBTITLE_CODEC.test(String(codec || '').trim())
-);
+export const isImageSubtitleCodec = (codec?: string | null) => IMAGE_SUBTITLE_CODEC.test(String(codec || '').trim());
+
+/**
+ * Whether a subtitle must be burned into the picture (a video transcode). Every caller is
+ * the native player: ExoPlayer draws text (SRT, ASS/SSA) and, in the file, PGS / VobSub /
+ * DVB, so "auto" Direct Plays those. "image" burns every picture format (for TVs that draw
+ * them badly), "always" burns everything. A picture sub that is a sidecar file, or one on a
+ * stream that is transcoded anyway, is still burned: callers check that.
+ */
+export const subtitleCodecNeedsBurn = (
+    codec?: string | null,
+    mode: SubtitleBurnMode | string | null | undefined = 'auto',
+) => {
+    const policy = String(mode || 'auto').toLowerCase();
+    const raw = String(codec || '').trim();
+    if (!raw) return false;
+    if (policy === 'always') return true;
+    if (policy === 'image') return IMAGE_SUBTITLE_CODEC.test(raw);
+    return IMAGE_SUBTITLE_CODEC.test(raw) && !EXO_DRAWN_IMAGE_SUBTITLE.test(raw);
+};
 
 export const nativeDirectPlayEligible = (input: {
     canDirectPlay?: boolean;
@@ -970,8 +1735,17 @@ export const nativeDirectPlayEligible = (input: {
     const sub = String(opts?.subtitleStreamId ?? input.subtitleStreamId ?? '').replace(/\D/g, '');
     if (sub) {
         const track = (input.subtitles || []).find((row) => String(row.id || '') === sub);
-        // Image subs still need burn-in. Text / unknown ride with Direct Play.
-        if (track && subtitleCodecNeedsBurn(track.codec)) return false;
+        // Only formats Exo cannot draw (xsub, or burn policy) force a transcode.
+        if (track) {
+            let burnMode: SubtitleBurnMode = 'auto';
+            try {
+                const raw = window.localStorage?.getItem('portal-media-player-settings');
+                const parsed = raw ? JSON.parse(raw) : null;
+                const mode = String(parsed?.burnSubtitles || 'auto').toLowerCase();
+                if (mode === 'always' || mode === 'image') burnMode = mode;
+            } catch { /* default auto */ }
+            if (subtitleCodecNeedsBurn(track.codec, burnMode)) return false;
+        }
     }
     if (input.playbackMode === 'directPlay') return true;
     const quality = nativeSafeQualityId(opts?.qualityId ?? input.qualityId);
@@ -1039,6 +1813,9 @@ export const buildNativePlaybackSrc = (
         if (transcode && eligible && qualityId === 'original') {
             return '';
         }
+        const subId = String(subtitleStreamId || '').replace(/\D/g, '');
+        const subCodec = (session.subtitles || []).find((row) => String(row.id || '') === subId)?.codec;
+        const burnImage = transcode && !!subId && isImageSubtitleCodec(subCodec);
         return withPlayerStreamQuery(src, {
             session: sessionId,
             'X-Plex-Session-Identifier': sessionId,
@@ -1047,7 +1824,13 @@ export const buildNativePlaybackSrc = (
                 : undefined,
             mediaIndex: mediaIndex > 0 ? mediaIndex : undefined,
             audioStreamID: String(audioStreamId || '').replace(/\D/g, '') || undefined,
-            subtitleStreamID: String(subtitleStreamId || '').replace(/\D/g, '') || undefined,
+            subtitleStreamID: subId || undefined,
+            ...(burnImage ? {
+                subtitles: 'burn',
+                advancedSubtitles: 'burn',
+                subtitleSize: '100',
+                directStream: '0',
+            } : {}),
         });
     }
 

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Check, Film, Music, Search, Tv } from 'lucide-react';
 import {
     DiscoverGridSizeSelect,
@@ -14,12 +14,21 @@ import {
     upgraderPosterGridClass,
     upgraderPosterGridStyle,
 } from './host';
-import { fetchMediaPlayerHome, fetchMediaPlayerHomeFull, fetchMediaPlayerHomeHero, fetchMediaPlayerHomeHeroRefresh, fetchMediaPlayerItem, fetchMediaPlayerWatchlist, prefetchMediaPlayerItem, searchMediaPlayer, setMediaPlayerWatched } from './api';
-import { isPlexDirectMode } from '../plex-client/config';
-import { pinTvRailItemToSlot, visibleHomeStage } from '../plex-client/useTvRemote';
+import { resolveLanImages } from './lanImage';
+import { beginHomeRowPriority, endHomeRowPriority, fetchLiveTvOnNow, fetchMediaPlayerHome, fetchMediaPlayerHomeFull, fetchMediaPlayerHomeHero, fetchMediaPlayerHomeHeroRefresh, fetchMediaPlayerItem, fetchMediaPlayerLibrary, fetchMediaPlayerWatchlist, prefetchMediaPlayerItem, recordPopularSearch, searchMediaPlayer, setMediaPlayerWatched } from './api';
+import { isPhoneUi, isPlexDirectMode } from '../plex-client/config';
+import { PlayerPullToRefresh } from './PlayerPullToRefresh';
+import {
+    forgetHomePosterFocus,
+    peekRememberedTvFocusKey,
+    pinTvRailItemToSlot,
+    rememberTvFocusKey,
+    visibleHomeStage,
+} from '../plex-client/useTvRemote';
+import { PLAYER_APP_BASE, PLAYER_HOME_LIVE_EVENT, PLAYER_SCROLL_ID, PLAYER_TV_HOME_READY_EVENT } from './paths';
 import { MediaPlayerHomeHero, type HomeHeroSlide } from './MediaPlayerHomeHero';
 import { PlayerPosterCard } from './PlayerPosterCard';
-import { PlayerRail } from './PlayerRail';
+import { PlayerRail, PlayerTvRowStack } from './PlayerRail';
 import { viewMoreShelfFromHub, type ViewMoreShelfSource } from './PlayerViewMoreCard';
 import {
     applyHomeRowOrder,
@@ -27,19 +36,29 @@ import {
     applyLibraryNavOrderToHubs,
     classifyPlayerHomeHub,
     continueWatchingRailAspect,
+    PLAYER_SCREENSAVER_SOURCE_LABEL_KEYS,
     PLAYER_SETTINGS_DRAFT_EVENT,
     PLAYER_SETTINGS_EVENT,
     stabilizeContinueWatchingOrder,
 } from './playerSettings';
 import {
     consumePlayerSearchFocus,
+    consumePlayerSearchQuery,
     isHeroSlidesCacheFresh,
     isPlayerHomeCacheFresh,
     mergePlayerHomePayloads,
     PLAYER_HOME_RESET_EVENT,
+    PLAYER_SEARCH_CLEAR_EVENT,
     PLAYER_SEARCH_INPUT_ID,
+    PLAYER_METADATA_REFRESHED_EVENT,
     PLAYER_SEARCH_OPEN_EVENT,
     PLAYER_VOICE_RESULT_EVENT,
+    readRecentSearches,
+    rememberRecentSearch,
+    clearRecentSearches,
+    readSearchOpened,
+    rememberSearchOpened,
+    coalescePlayerHomeWithCache,
     playerHomeHasContentHubs,
     playerHomeHasRows,
     playerHomeNeedsFull,
@@ -47,15 +66,24 @@ import {
     readLongPressHintSeen,
     readPlayerHomeCache,
     readPlayerItemCache,
+    readPlayerLibrariesCache,
     usePlayerNetworkStatus,
     writeHeroSlidesCache,
     writeLongPressHintSeen,
     writePlayerHomeCache,
 } from './playerMemory';
 import { PlayerTvStatusPanel } from './PlayerTvStatusPanel';
+import { CommonSenseMediaIcon } from './CommonSenseMediaIcon';
 import { PlayerClearLogo } from './PlayerClearLogo';
-import { applyRememberedProgress, formatPlayerDate, formatPlayerDuration, heroRowCardItem, hideWatchedPlayerItems, isMusicPlayerItem, mapContinueWatchingItemsForLayout, plexBackdropPreviewUrl, plexLogoUrl, PLAYER_PROGRESS_EVENT, replaceFamilyContinueSlot, restoreContinueSlot, watchTargetTouches, withShowPoster } from './playerUtils';
+import { PlayerServiceBrandMark } from './PlayerServiceBrandMark';
+import { PlayerTvScreensaver } from './PlayerTvScreensaver';
+import { PlayerTvSearch, PlayerTvSearchHistory, PlayerTvSearchNotice, TV_SEARCH_FIRST_KEY } from './PlayerTvSearch';
+import { itemHasBillboardBrandMeta } from './studioLogo.js';
+import { applyRememberedProgress, asRecentlyAddedPlayerItem, rememberBillboardBackdrop, formatPlayerDate, formatPlayerDuration, isFuturePlayerDate, heroRowCardItem, hideWatchedPlayerItems, isMusicPlayerItem, isPlayerBackdropReady, keepContinueWatchingPoster, mapContinueWatchingItemsForLayout, pickRicherSummary, pinTvNeighborBackdrops, playerItemBackdropUrl, plexBackdropUrl, plexLogoUrl, PLAYER_PROGRESS_EVENT, prefetchContinueWatchingImages, prefetchHomeRowPosters, primeNearbyTvBillboard, replaceFamilyContinueSlot, restoreContinueSlot, shufflePlayerItems, continueWatchingRowFocused, stampFamilyLastViewed, warmPlayerBackdrop, watchTargetTouches, withShowPoster } from './playerUtils';
 import { usePlayerSettings } from './usePlayerSettings';
+import { peekSurfaceColor, sampleBackdropSurfaceColor } from '../shared/imageFocalPoint';
+import { TV_FLOOR_RGB, tvTintSurfaceRgb } from './tvSurface';
+import { homeHubHiddenByPicks } from './homeLibraries';
 import type { PlayerHome, PlayerItem, PlayerLibraryHub, PlayerPlayOptions, PlayerSection } from './types';
 
 type Props = {
@@ -65,11 +93,17 @@ type Props = {
     onOpenLibrary?: (section: PlayerSection) => void;
     onOpenHub?: (hub: PlayerLibraryHub) => void;
     onOpenWatchlist?: () => void;
+    onOpenLiveTv?: () => void;
     onPlayNext?: (item: PlayerItem) => void;
     onToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
     isAdmin?: boolean;
     playlistsEnabled?: boolean;
 };
+
+/** tvSpotExtra key: rating keys are only unique per Plex server. */
+const spotExtraKey = (serverId: string | null | undefined, ratingKey: string) => (
+    serverId ? `${serverId}|${ratingKey}` : ratingKey
+);
 
 const libraryChipIcon = (type: string) => {
     if (type === 'show') return Tv;
@@ -90,7 +124,50 @@ const isBecauseYouWatchedHub = (hub: PlayerLibraryHub) => (
     || /because\s+you\s+watched/i.test(`${hub.identifier || ''} ${hub.title || ''}`)
 );
 
+/**
+ * Random-order rows (Plex hubs sorted randomly) arrive freshly shuffled on every Home refresh:
+ * live updates, the full pass after the fast one, retries. Showing each one made posters jump
+ * around while you looked. Keep each row's order and only reshuffle when Home is opened again
+ * or pulled to refresh; titles that join later go on the end.
+ */
+const randomRowOrders = new Map<string, string[]>();
+let reshuffleRandomRows = true;
+
+const allowRandomRowReshuffle = () => {
+    reshuffleRandomRows = true;
+};
+
+const randomRowItemKey = (item: PlayerItem) => String(item?.ratingKey || item?.title || '');
+
+const stableRandomRows = (next: PlayerHome | null): PlayerHome | null => {
+    if (!next?.hubs?.length) return next;
+    const reshuffle = reshuffleRandomRows;
+    let touched = false;
+    const hubs = next.hubs.map((hub) => {
+        if (!hub.randomOrder || !hub.items?.length) return hub;
+        const id = String(hub.identifier || hub.title || '').trim().toLowerCase();
+        const kept = randomRowOrders.get(id);
+        let items = hub.items;
+        if (reshuffle || !kept) {
+            items = shufflePlayerItems(items);
+        } else {
+            const rank = new Map(kept.map((key, index) => [key, index]));
+            items = items
+                .map((item, index) => ({ item, index, at: rank.get(randomRowItemKey(item)) }))
+                .sort((a, b) => (a.at ?? kept.length + a.index) - (b.at ?? kept.length + b.index))
+                .map((row) => row.item);
+        }
+        randomRowOrders.set(id, items.map(randomRowItemKey));
+        touched = true;
+        return { ...hub, items };
+    });
+    if (touched) reshuffleRandomRows = false;
+    return touched ? { ...next, hubs } : next;
+};
+
 const TV_HOME_ROW_EVENT = 'smp-tv-home-row';
+/** Fastest row change while Up/Down is held (~6–7 rows a second). */
+const TV_ROW_REPEAT_MS = 150;
 
 type TvHomeRow = {
     id: string;
@@ -121,6 +198,26 @@ const itemKeyFromFocusTarget = (target: EventTarget | null) => {
     return key;
 };
 
+/** Paint the billboard fade colour straight onto the still, so a colour change never re-renders Home. */
+const paintHomeSurface = (rgb: string) => {
+    const still = document.querySelector<HTMLElement>('.player-home-stage .player-home-focus-still');
+    if (!still) return;
+    const [r, g, b] = rgb.split(/\s+/);
+    still.style.setProperty('--tv-home-r', r);
+    still.style.setProperty('--tv-home-g', g);
+    still.style.setProperty('--tv-home-b', b);
+};
+
+/** Focus moves closer together than this count as holding the button. */
+const BILLBOARD_HOLD_MS = 240;
+/**
+ * Moving to another row: the billboard (backdrop cross-fade, fade colour, title) waits for the
+ * row's slide-in to finish, so the TV's GPU is not doing every full-screen change at once.
+ */
+const BILLBOARD_ROW_CHANGE_MS = 230;
+/** Settle time before sampling a new backdrop's colour: past remote repeat, short enough to keep up. */
+const BILLBOARD_TINT_SAMPLE_MS = 120;
+
 const HomeFocusStill: React.FC<{
     enabled: boolean;
     seed?: string;
@@ -136,8 +233,7 @@ const HomeFocusStill: React.FC<{
     const show = useCallback((next: string) => {
         if (!next || next === currentRef.current || next === pendingRef.current) return;
         pendingRef.current = next;
-        const img = new Image();
-        img.onload = () => {
+        const commit = () => {
             if (pendingRef.current !== next) return;
             if (frontOnRef.current) {
                 setBack(next);
@@ -150,7 +246,53 @@ const HomeFocusStill: React.FC<{
             }
             currentRef.current = next;
         };
+        if (isPlayerBackdropReady(next)) {
+            commit();
+            return;
+        }
+        const img = new Image();
         img.src = next;
+        // decode() finishes off the main thread, so the swap frame does not decode a full image.
+        if (typeof img.decode === 'function') img.decode().then(commit, commit);
+        else img.onload = commit;
+    }, []);
+
+    const showTimerRef = useRef(0);
+    const keyTimerRef = useRef(0);
+    const primeTimerRef = useRef(0);
+    const lastMoveRef = useRef(0);
+    /**
+     * Plex-style: a single press updates the billboard at once; while the remote repeats
+     * (moves closer than BILLBOARD_HOLD_MS) it waits until you stop, so holding a button
+     * never queues up artwork swaps, re-renders and fetches behind the focus ring.
+     */
+    const lastRowRef = useRef('');
+    const settleDelay = (target?: EventTarget | null) => {
+        const now = performance.now();
+        const holding = now - lastMoveRef.current < BILLBOARD_HOLD_MS;
+        lastMoveRef.current = now;
+        const row = (target as HTMLElement | null)?.closest?.('[data-tv-row-id]')?.getAttribute('data-tv-row-id') || '';
+        const rowChanged = Boolean(row && lastRowRef.current && row !== lastRowRef.current);
+        if (row) lastRowRef.current = row;
+        if (holding) return BILLBOARD_HOLD_MS;
+        return rowChanged ? BILLBOARD_ROW_CHANGE_MS : 0;
+    };
+    const showSoon = useCallback((next: string, delay: number) => {
+        window.clearTimeout(showTimerRef.current);
+        if (!next) return;
+        showTimerRef.current = window.setTimeout(() => show(next), delay);
+    }, [show]);
+    const keySoon = useCallback((key: string, delay: number) => {
+        window.clearTimeout(keyTimerRef.current);
+        if (!key) return;
+        // The focus ring always moves immediately; only the billboard waits.
+        keyTimerRef.current = window.setTimeout(() => onFocusKey?.(key), delay);
+    }, [onFocusKey]);
+
+    useEffect(() => () => {
+        window.clearTimeout(showTimerRef.current);
+        window.clearTimeout(keyTimerRef.current);
+        window.clearTimeout(primeTimerRef.current);
     }, []);
 
     useEffect(() => {
@@ -160,19 +302,30 @@ const HomeFocusStill: React.FC<{
     useEffect(() => {
         if (!enabled) return undefined;
         const onFocus = (event: FocusEvent) => {
-            const next = backdropFromFocusTarget(event.target);
-            if (next) show(next);
-            const key = itemKeyFromFocusTarget(event.target);
-            if (key) onFocusKey?.(key);
+            const target = event.target;
+            const delay = settleDelay(target);
+            // Neighbour prefetch fetches and decodes: also only once you settle.
+            window.clearTimeout(primeTimerRef.current);
+            primeTimerRef.current = window.setTimeout(
+                () => primeNearbyTvBillboard(target),
+                delay,
+            );
+            const next = backdropFromFocusTarget(target);
+            if (next) {
+                if (!delay && isPlayerBackdropReady(next)) show(next);
+                else showSoon(next, delay || 70);
+            }
+            const key = itemKeyFromFocusTarget(target);
+            if (key) keySoon(key, delay);
         };
         document.addEventListener('focusin', onFocus, true);
         const focused = document.activeElement;
         const fromFocus = backdropFromFocusTarget(focused);
         if (fromFocus) show(fromFocus);
         const fromKey = itemKeyFromFocusTarget(focused);
-        if (fromKey) onFocusKey?.(fromKey);
+        if (fromKey) keySoon(fromKey, 0);
         return () => document.removeEventListener('focusin', onFocus, true);
-    }, [enabled, onFocusKey, show]);
+    }, [enabled, keySoon, onFocusKey, show, showSoon]);
 
     if (!enabled) return null;
     const visible = frontOn ? front : back;
@@ -211,14 +364,31 @@ const HomeSpotBody: React.FC<{ item: PlayerItem }> = ({ item }) => {
     const season = Number(item.parentIndex);
     const episode = Number(item.index);
     const epCode = item.type === 'episode' && season > 0 && episode > 0 ? `S${season} E${episode}` : '';
+    const episodeTitle = item.type === 'episode'
+        ? String(
+            item.episodeTitle
+            || (item.showTitle && item.title && item.title !== item.showTitle ? item.title : '')
+            || '',
+        ).trim()
+        : '';
+    const epLine = [epCode, episodeTitle].filter(Boolean).join(' · ');
     const date = formatPlayerDate(item.originallyAvailableAt);
+    const dateIsFuture = isFuturePlayerDate(item.originallyAvailableAt);
     const duration = formatPlayerDuration(item.durationMs);
     const rating = String(item.contentRating || '').trim();
     const year = item.type === 'episode' ? '' : (item.year ? String(item.year) : '');
-    const meta = [epCode, date || year, duration, rating].filter(Boolean);
+    // Each its own part, so every one gets a separator (S17 E4 · Title · Date · 48m · TV-14).
+    const meta = [epCode, episodeTitle, date || year, duration, rating].filter(Boolean);
+    const csm = item.commonSenseMedia;
+    const csmLabel = String(csm?.ageLabel || '').trim();
+    const csmTitle = csm?.oneLiner
+        || (csmLabel
+            ? `Common Sense Media${csm?.stars != null ? ` · ${csm.stars}/5` : ''}`
+            : '');
     const cast = (item.cast || []).slice(0, 4).map((row) => row.name).filter(Boolean).join(', ');
     return (
         <>
+            <PlayerServiceBrandMark item={item} className="player-home-spot-service-logo" />
             {showLogo ? (
                 <>
                     <PlayerClearLogo
@@ -226,6 +396,7 @@ const HomeSpotBody: React.FC<{ item: PlayerItem }> = ({ item }) => {
                         alt={title}
                         className="player-home-spot-logo"
                         trimTop={false}
+                        growSmall
                         onError={() => setLogoFailed(true)}
                     />
                     <h2 className="sr-only">{title}</h2>
@@ -233,8 +404,9 @@ const HomeSpotBody: React.FC<{ item: PlayerItem }> = ({ item }) => {
             ) : (
                 <h2 className="player-home-spot-title">{title}</h2>
             )}
-            {tagline ? <p className="player-home-spot-tagline">{tagline}</p> : null}
-            {item.watched || meta.length ? (
+            {/* Episode title lives in meta (SxxExx · Title); keep show tagline only when no episode line. */}
+            {!epLine && tagline ? <p className="player-home-spot-tagline">{tagline}</p> : null}
+            {item.watched || meta.length || csmLabel ? (
                 <p className="player-home-spot-meta">
                     {item.watched ? (
                         <span className="player-home-spot-watched">
@@ -242,13 +414,249 @@ const HomeSpotBody: React.FC<{ item: PlayerItem }> = ({ item }) => {
                             Watched
                         </span>
                     ) : null}
-                    {meta.map((part) => (
-                        <span key={part}>{part}</span>
+                    {meta.map((part, index) => (
+                        <React.Fragment key={`${index}:${part}`}>
+                            {(index > 0 || item.watched) ? <span className="player-home-spot-meta-sep" aria-hidden="true">·</span> : null}
+                            <span
+                            className={part === episodeTitle
+                                ? 'player-home-spot-meta-title'
+                                : (dateIsFuture && part === date ? 'text-plex' : undefined)}
+                        >
+                            {part}
+                        </span>
+                        </React.Fragment>
                     ))}
+                    {csmLabel ? (
+                        <>
+                            {(item.watched || meta.length) ? (
+                                <span className="player-home-spot-meta-sep" aria-hidden="true">·</span>
+                            ) : null}
+                            <span className="player-home-spot-csm" title={csmTitle || undefined}>
+                                <CommonSenseMediaIcon />
+                                <span>{csmLabel}</span>
+                            </span>
+                        </>
+                    ) : null}
                 </p>
             ) : null}
             {summary ? <p className="player-home-spot-summary">{summary}</p> : null}
             {cast ? <p className="player-home-spot-cast">{cast}</p> : null}
+        </>
+    );
+};
+
+type TvHomeBillboardRow = {
+    id: string;
+    items: PlayerItem[];
+};
+
+/**
+ * Owns Left/Right focus for the billboard copy and tint. Keeping that state here
+ * means a poster move does not re-render the Home row stack.
+ */
+const TvHomeBillboard: React.FC<{
+    enabled: boolean;
+    active: boolean;
+    row: TvHomeBillboardRow | null;
+    rowDir?: 'up' | 'down' | null;
+    restoreKey?: string;
+    detailsArtworkTint: boolean;
+    liteBillboard: boolean;
+    onFocusKey: (key: string) => void;
+    /** Poster stack stays under the copy column; still sits beside it. */
+    stack?: React.ReactNode;
+}> = ({
+    enabled,
+    active,
+    row,
+    rowDir = null,
+    restoreKey = '',
+    detailsArtworkTint,
+    liteBillboard,
+    onFocusKey,
+    stack = null,
+}) => {
+    const [focusKey, setFocusKey] = useState('');
+    const [spotExtra, setSpotExtra] = useState<Record<string, PlayerItem>>({});
+    const rowId = row?.id || '';
+
+    useEffect(() => {
+        if (!row) {
+            setFocusKey('');
+            return;
+        }
+        const preferred = String(restoreKey || '').trim();
+        const match = preferred && row.items.some((item) => String(item.ratingKey || '') === preferred)
+            ? preferred
+            : String(row.items[0]?.ratingKey || '').trim();
+        setFocusKey(match);
+    }, [rowId]); // eslint-disable-line react-hooks/exhaustive-deps -- only reset when the Home row changes
+
+    const noteFocusKey = useCallback((key: string) => {
+        const next = String(key || '').trim();
+        if (!next) return;
+        setFocusKey((prev) => (prev === next ? prev : next));
+        onFocusKey(next);
+    }, [onFocusKey]);
+
+    const spotMerged = useMemo(() => {
+        if (!row) return null;
+        const key = focusKey || row.items[0]?.ratingKey || '';
+        const base = row.items.find((item) => item.ratingKey === key) || row.items[0] || null;
+        const extra = key && base ? spotExtra[spotExtraKey(base.serverId, key)] : (key ? spotExtra[key] : null);
+        if (!base) return extra || null;
+        if (!extra) return base;
+        const episodeBase = base.type === 'episode' || extra.type === 'episode';
+        return {
+            ...base,
+            ...extra,
+            thumb: base.thumb || extra.thumb,
+            art: base.art || extra.art,
+            logo: extra.logo || base.logo,
+            type: episodeBase ? 'episode' : (extra.type || base.type),
+            title: base.title,
+            showTitle: base.showTitle || extra.showTitle || (episodeBase ? extra.showTitle : null),
+            episodeTitle: base.episodeTitle
+                || extra.episodeTitle
+                || (episodeBase && extra.title && extra.title !== (base.showTitle || base.title) ? extra.title : null),
+            parentIndex: base.parentIndex ?? extra.parentIndex,
+            index: base.index ?? extra.index,
+            summary: pickRicherSummary(base.summary, extra.summary),
+            commonSenseMedia: extra.commonSenseMedia || base.commonSenseMedia,
+            ratingKey: base.ratingKey,
+            parentRatingKey: base.parentRatingKey || extra.parentRatingKey,
+            grandparentRatingKey: base.grandparentRatingKey || extra.grandparentRatingKey,
+        };
+    }, [focusKey, row, spotExtra]);
+
+    // Season/episode cards may lack a synopsis or CSM age — borrow those from the show.
+    const spotShowKey = spotMerged && (
+        !String(spotMerged.summary || '').trim() || !spotMerged.commonSenseMedia?.ageLabel
+    )
+        ? String((spotMerged.type === 'season' || spotMerged.type === 'episode'
+            ? (spotMerged.type === 'season' ? spotMerged.parentRatingKey : spotMerged.grandparentRatingKey)
+            : '') || '')
+        : '';
+    const spotShowMeta = spotShowKey
+        ? spotExtra[spotExtraKey(spotMerged?.serverId, spotShowKey)]
+        : null;
+    const spotShowSummary = String(spotShowMeta?.summary || '').trim();
+    const spotShowCsm = spotShowMeta?.commonSenseMedia;
+    const spotItem = useMemo(() => {
+        if (!spotMerged) return null;
+        const next = { ...spotMerged };
+        if (!String(next.summary || '').trim() && spotShowSummary) next.summary = spotShowSummary;
+        if (!next.commonSenseMedia?.ageLabel && spotShowCsm?.ageLabel) next.commonSenseMedia = spotShowCsm;
+        return next;
+    }, [spotMerged, spotShowSummary, spotShowCsm]);
+
+    useEffect(() => {
+        if (!enabled || !spotShowKey) return undefined;
+        const serverId = spotMerged?.serverId || null;
+        const extraKey = spotExtraKey(serverId, spotShowKey);
+        if (spotExtra[extraKey]) return undefined;
+        const cached = readPlayerItemCache(spotShowKey, serverId);
+        if (cached?.item) {
+            setSpotExtra((prev) => (prev[extraKey] ? prev : { ...prev, [extraKey]: cached.item }));
+            return undefined;
+        }
+        // Give the card's own details a moment first; only fetch the show if it still has no synopsis.
+        let cancelled = false;
+        const timer = window.setTimeout(() => {
+            void fetchMediaPlayerItem(spotShowKey, { core: true, serverId })
+                .then((page) => {
+                    if (!cancelled && page?.item) setSpotExtra((prev) => ({ ...prev, [extraKey]: page.item }));
+                })
+                .catch(() => undefined);
+        }, 400);
+        return () => {
+            cancelled = true;
+            window.clearTimeout(timer);
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [enabled, spotShowKey, spotMerged?.serverId]);
+
+    const stillSeed = playerItemBackdropUrl(spotItem) || '';
+    const spotKey = spotItem?.ratingKey ? String(spotItem.ratingKey) : '';
+    const spotServer = spotItem?.serverId || null;
+
+    useEffect(() => {
+        if (!enabled || !active || !spotKey || !stillSeed) return undefined;
+        if (!detailsArtworkTint) {
+            rememberBillboardBackdrop(spotKey, stillSeed, null, spotServer);
+            paintHomeSurface(TV_FLOOR_RGB);
+            return undefined;
+        }
+        if (liteBillboard) {
+            rememberBillboardBackdrop(spotKey, stillSeed, undefined, spotServer);
+            paintHomeSurface(TV_FLOOR_RGB);
+            return undefined;
+        }
+        const known = peekSurfaceColor(stillSeed);
+        if (known) {
+            rememberBillboardBackdrop(spotKey, stillSeed, known, spotServer);
+            paintHomeSurface(tvTintSurfaceRgb(known));
+            return undefined;
+        }
+        rememberBillboardBackdrop(spotKey, stillSeed, undefined, spotServer);
+        let cancelled = false;
+        const timer = window.setTimeout(() => {
+            const still = document.querySelector<HTMLElement>('.player-home-stage .player-home-focus-still');
+            const frame = still && still.clientWidth > 2 && still.clientHeight > 2
+                ? { width: still.clientWidth, height: still.clientHeight, position: '82% 8%' }
+                : undefined;
+            void sampleBackdropSurfaceColor(stillSeed, frame).then((rgb) => {
+                if (cancelled) return;
+                rememberBillboardBackdrop(spotKey, stillSeed, rgb || null, spotServer);
+                paintHomeSurface(rgb ? tvTintSurfaceRgb(rgb) : TV_FLOOR_RGB);
+            });
+        }, BILLBOARD_TINT_SAMPLE_MS);
+        return () => {
+            cancelled = true;
+            window.clearTimeout(timer);
+        };
+    }, [active, detailsArtworkTint, enabled, liteBillboard, spotKey, spotServer, stillSeed]);
+
+    useEffect(() => {
+        const key = String(spotItem?.ratingKey || '');
+        if (!enabled || !key) return undefined;
+        if (spotItem?.type === 'liveAiring' || spotItem?.liveChannelId) return undefined;
+        const serverId = spotItem?.serverId || null;
+        const extraKey = spotExtraKey(serverId, key);
+        const cached = readPlayerItemCache(key, serverId);
+        if (cached?.item) {
+            setSpotExtra((prev) => (prev[extraKey] ? prev : { ...prev, [extraKey]: cached.item }));
+            if (cached.item.logo && itemHasBillboardBrandMeta(cached.item) && cached.item.summary) return undefined;
+        }
+        let cancelled = false;
+        const timer = window.setTimeout(() => {
+            if (cancelled) return;
+            prefetchMediaPlayerItem(key, serverId);
+            void fetchMediaPlayerItem(key, { core: true, serverId })
+                .then((page) => {
+                    if (cancelled || !page?.item) return;
+                    setSpotExtra((prev) => ({ ...prev, [extraKey]: page.item }));
+                })
+                .catch(() => undefined);
+        }, 0);
+        return () => {
+            cancelled = true;
+            window.clearTimeout(timer);
+        };
+    }, [enabled, spotItem?.ratingKey, spotItem?.serverId, spotItem?.type, spotItem?.liveChannelId]);
+
+    if (!enabled) return null;
+    return (
+        <>
+            <HomeFocusStill
+                enabled={enabled && active}
+                seed={stillSeed || ''}
+                onFocusKey={noteFocusKey}
+            />
+            <div className="player-home-stage-copy">
+                <HomeSpot item={spotItem} rowId={rowId} rowDir={rowDir} />
+                {stack}
+            </div>
         </>
     );
 };
@@ -316,11 +724,11 @@ const HomeSpot: React.FC<{
         timersRef.current.out = window.setTimeout(() => {
             if (animGenRef.current !== gen) return;
             setOutgoing(null);
-        }, 430);
+        }, 220);
         timersRef.current.enter = window.setTimeout(() => {
             if (animGenRef.current !== gen) return;
             setEntering(false);
-        }, 500);
+        }, 300);
         return undefined;
     }, [rowId]);
 
@@ -378,6 +786,36 @@ const dedupeItems = (list: PlayerItem[]) => {
     }).slice(0, 24);
 };
 
+const recentShowIdentity = (item: PlayerItem) => {
+    const raw = item.type === 'episode'
+        ? item.grandparentRatingKey
+        : item.type === 'season'
+            ? item.parentRatingKey
+            : item.type === 'show'
+                ? item.ratingKey
+                : '';
+    const id = String(raw || '').replace(/\D/g, '');
+    if (id) return `id:${id}`;
+    const title = String(item.showTitle || item.title || '').trim().toLowerCase();
+    return title ? `title:${title}` : '';
+};
+
+/** A bulk episode add collapses to one card and used to be the whole row. */
+const mergeThinRecentShows = (items: PlayerItem[], extra?: PlayerItem[]) => {
+    if (!extra?.length || items.length >= 8) return items;
+    const seen = new Set(items.map(recentShowIdentity).filter(Boolean));
+    const out = items.slice();
+    for (const show of extra) {
+        if (out.length >= 24) break;
+        if (show.type !== 'show') continue;
+        const identity = recentShowIdentity(show);
+        if (!identity || seen.has(identity)) continue;
+        seen.add(identity);
+        out.push(show);
+    }
+    return out;
+};
+
 export const MediaPlayerHome = React.memo(function MediaPlayerHome({
     active = true,
     onOpenItem,
@@ -385,6 +823,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
     onOpenLibrary,
     onOpenHub,
     onOpenWatchlist,
+    onOpenLiveTv,
     onPlayNext,
     onToast,
     isAdmin = false,
@@ -411,13 +850,14 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             || cached.continueWatching.length > 0
             || (cached.recentByLibrary || []).some((row) => row.items?.length)
         );
-        return hasRows ? cached : null;
+        // A fresh Home (first open or remounted on the way back) shuffles once.
+        allowRandomRowReshuffle();
+        return hasRows ? stableRandomRows(cached) : null;
     });
     const [heroSlides, setHeroSlides] = useState<HomeHeroSlide[]>(() => readHeroSlidesCache() || []);
     const [heroPending, setHeroPending] = useState(() => !isHeroSlidesCacheFresh());
     const [heroEffectiveMode, setHeroEffectiveMode] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const [homeStale, setHomeStale] = useState(false);
     const [loading, setLoading] = useState(() => {
         const cached = readPlayerHomeCache();
         const hasRows = !!cached && (
@@ -428,36 +868,64 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         return !hasRows;
     });
     const [watchlistItems, setWatchlistItems] = useState<PlayerItem[]>([]);
+    const [onNowItems, setOnNowItems] = useState<PlayerItem[]>([]);
+    const [recentFillBySection, setRecentFillBySection] = useState<Record<string, PlayerItem[]>>({});
+    const recentFillLoadedRef = useRef(new Set<string>());
     const networkOnline = usePlayerNetworkStatus();
     const [query, setQuery] = useState('');
+    const [recentSearches, setRecentSearches] = useState<string[]>(() => readRecentSearches());
+    const [searchOpened, setSearchOpened] = useState<PlayerItem[]>(() => readSearchOpened());
+    /** Set when a past search is picked on TV: focus follows into its results once they land. */
+    const focusSearchResultsRef = useRef(false);
     const [results, setResults] = useState<PlayerItem[]>([]);
     const [searching, setSearching] = useState(false);
     const [searchActive, setSearchActive] = useState(false);
-    /** TV: focus can land on search without IME; Select/Enter arms editing and opens the keyboard. */
-    const [searchArmed, setSearchArmed] = useState(false);
     const searchRef = useRef<HTMLInputElement>(null);
     const isTvShell = typeof document !== 'undefined' && (
         document.documentElement?.dataset?.tv === '1'
         || window.__PLEX_CLIENT__?.isTv === true
     );
-    const searchReadOnly = isTvShell && !searchArmed;
+    // Phone Home is poster rows only (Plex mobile style): no hero, so it is never fetched.
+    const phoneHome = !isTvShell && isPhoneUi();
+    // TV Home is a stacked row that always uses onOpenItem. On Now cards must tune,
+    // not open details (there is no library page for a live airing).
+    const openItemOrTune = useCallback((item: PlayerItem) => {
+        if (item.type === 'liveAiring' || item.liveChannelId) {
+            onPlay(item, { skipResume: true });
+            return;
+        }
+        onOpenItem(item);
+    }, [onOpenItem, onPlay]);
 
     useEffect(() => {
-        const openSearch = (arm = false) => {
+        const openSearch = () => {
             setSearchActive(true);
-            if (arm && isTvShell) setSearchArmed(true);
             window.setTimeout(() => {
+                if (isTvShell) {
+                    const key = document.querySelector<HTMLElement>(`[data-tv-search-key="${TV_SEARCH_FIRST_KEY}"]`);
+                    key?.focus();
+                    return;
+                }
                 searchRef.current?.focus({ preventScroll: false });
-                if (!isTvShell) searchRef.current?.select();
-            }, 0);
+                searchRef.current?.select();
+            }, 40);
         };
-        const onOpen = () => openSearch(isTvShell);
+        const onOpen = () => openSearch();
         const onVoice = (event: Event) => {
             const query = String((event as CustomEvent<string>).detail || '').trim();
-            openSearch(true);
+            // Handled live. Drop the copy kept for a Home that was not mounted yet.
+            consumePlayerSearchQuery();
+            openSearch();
             if (query) setQuery(query);
         };
-        if (consumePlayerSearchFocus()) openSearch(isTvShell);
+        const pendingQuery = consumePlayerSearchQuery();
+        if (pendingQuery) {
+            consumePlayerSearchFocus();
+            openSearch();
+            setQuery(pendingQuery);
+        } else if (consumePlayerSearchFocus()) {
+            openSearch();
+        }
         window.addEventListener(PLAYER_SEARCH_OPEN_EVENT, onOpen);
         window.addEventListener(PLAYER_VOICE_RESULT_EVENT, onVoice);
         return () => {
@@ -465,27 +933,6 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             window.removeEventListener(PLAYER_VOICE_RESULT_EVENT, onVoice);
         };
     }, [isTvShell]);
-
-    useEffect(() => {
-        if (!searchArmed || !isTvShell) return;
-        const input = searchRef.current;
-        if (!input) return;
-        input.focus();
-        input.select();
-    }, [searchArmed, isTvShell]);
-
-    useEffect(() => {
-        const clearSearch = () => {
-            setQuery('');
-            setResults([]);
-            setSearching(false);
-            setSearchArmed(false);
-            setSearchActive(false);
-            searchRef.current?.blur();
-        };
-        window.addEventListener(PLAYER_HOME_RESET_EVENT, clearSearch);
-        return () => window.removeEventListener(PLAYER_HOME_RESET_EVENT, clearSearch);
-    }, []);
 
     useEffect(() => {
         const onDraft = (event: Event) => {
@@ -505,79 +952,274 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         setDraftLibraryOrder(null);
     }, [settings.libraryNavOrder]);
 
-    const refreshHome = useCallback((opts?: { force?: boolean }) => {
+    const homeRefreshGen = useRef(0);
+    // Read by delayed full-pass retries: never hit the server once Home is left (playback).
+    const homeActiveRef = useRef(active);
+    homeActiveRef.current = active;
+    const refreshHome = useCallback((opts?: { force?: boolean; quietRetry?: boolean; fullOnly?: boolean }) => {
+        const gen = ++homeRefreshGen.current;
+        const current = () => gen === homeRefreshGen.current;
         const cachedHome = readPlayerHomeCache();
         const cachedHasRows = playerHomeHasRows(cachedHome);
         const cachedNeedsFull = playerHomeNeedsFull(cachedHome);
-        if (!cachedHasRows) setLoading(true);
-        else {
-            setHome(cachedHome);
+        const skipPartial = !opts?.force && cachedHasRows && !!cachedHome && isPlayerHomeCacheFresh();
+        if (skipPartial && !cachedNeedsFull) {
+            if (current()) {
+                setHome(stableRandomRows(cachedHome));
+                setLoading(false);
+            }
+            return Promise.resolve();
+        }
+        beginHomeRowPriority();
+        if (!cachedHasRows) {
+            if (current()) setLoading(true);
+        } else if (current()) {
+            setHome(stableRandomRows(cachedHome));
             setLoading(false);
         }
-        const applyFull = (full: PlayerHome, base: PlayerHome | null) => {
-            const merged = playerHomeHasRows(full)
-                ? mergePlayerHomePayloads(full, base || full)
-                : { ...(base || full), partial: true };
+        const hubIdentity = (hub: { identifier?: string; title?: string }) => (
+            String(hub.identifier || hub.title || '').trim().toLowerCase()
+        );
+        const applyFull = (full: PlayerHome, base: PlayerHome | null, live?: PlayerHome | null) => {
+            if (!current()) return;
+            const livePins = (full.hubs || []).some((hub) => (
+                !!hub.items?.length
+                && !isContinueWatchingHub(hub)
+                && !isBecauseYouWatchedHub(hub)
+                && !/^recentlyadded\./i.test(String(hub.identifier || ''))
+            ));
+            // The full pass drops pins whose fill timed out. Rows this session's fast pass
+            // just got from Plex are still pinned, so keep them rather than blank them.
+            const fullKeys = new Set((full.hubs || []).map(hubIdentity));
+            const keptLive = livePins && live
+                ? (live.hubs || []).filter((hub) => (
+                    !!hub.items?.length && !isContinueWatchingHub(hub) && !fullKeys.has(hubIdentity(hub))
+                ))
+                : [];
+            // A successful pin list replaces what was on screen, including rows
+            // Collexions has since removed. Merge only when this pass found no pins.
+            const mergedRaw = livePins
+                ? (keptLive.length ? { ...full, hubs: [...(full.hubs || []), ...keptLive] } : full)
+                : (playerHomeHasRows(full)
+                    ? mergePlayerHomePayloads(full, base || full)
+                    : { ...(base || full), partial: true });
+            const merged = coalescePlayerHomeWithCache(mergedRaw, readPlayerHomeCache()) || mergedRaw;
             if (!playerHomeHasContentHubs(full) && !playerHomeHasContentHubs(merged)) {
                 merged.partial = true;
             }
             if (playerHomeHasRows(merged)) writePlayerHomeCache(merged);
-            setHome(merged);
-            setHomeStale(false);
+            setHome(stableRandomRows(merged));
         };
-        const followFull = (base: PlayerHome | null) => (
-            fetchMediaPlayerHomeFull()
-                .then((full) => applyFull(full, base))
-                .catch(() => undefined)
-        );
-        const skipPartial = !opts?.force && cachedHasRows && !!cachedHome && isPlayerHomeCacheFresh();
-        if (skipPartial && !cachedNeedsFull) {
-            setLoading(false);
-            return Promise.resolve();
-        }
-        if (skipPartial && cachedNeedsFull) {
-            setLoading(false);
-            return followFull(cachedHome);
-        }
-        return fetchMediaPlayerHome()
-            .then((data) => {
-                const cached = readPlayerHomeCache();
-                let next = playerHomeHasRows(data) || !playerHomeHasRows(cached) ? data : cached;
-                if (
-                    data?.partial
-                    && cached
-                    && playerHomeHasContentHubs(cached)
-                    && !playerHomeHasContentHubs(data)
-                ) {
-                    next = { ...mergePlayerHomePayloads(cached, data), partial: true };
+        const followFull = (base: PlayerHome | null, live?: PlayerHome | null, attempt = 0): Promise<void> => {
+            // Phone links drop the full pass often enough that one try left rows missing
+            // until the app restarted. Retry a couple of times while it lacks pinned rows.
+            // TV retries too, but spaced well apart: a full pass fans out to every pin,
+            // and back-to-back passes can stall a busy server into a restart.
+            const retry = () => {
+                if (attempt >= 2 || !current()) return undefined;
+                if (isTvShell) {
+                    // Detached, so the first pass ends (and background loads resume) now;
+                    // the retry takes row priority only while it runs.
+                    window.setTimeout(() => {
+                        if (!current() || !homeActiveRef.current) return;
+                        beginHomeRowPriority();
+                        void followFull(base, live, attempt + 1).finally(endHomeRowPriority);
+                    }, attempt ? 30000 : 10000);
+                    return undefined;
                 }
-                if (next && playerHomeHasRows(next)) writePlayerHomeCache(next);
-                setHome(next);
+                return new Promise<void>((resolve) => { window.setTimeout(resolve, attempt ? 8000 : 3000); })
+                    .then(() => (current() && homeActiveRef.current ? followFull(base, live, attempt + 1) : undefined));
+            };
+            return fetchMediaPlayerHomeFull()
+                .then((full) => {
+                    applyFull(full, base, live);
+                    // partial: a server answered without its pinned rows. With several servers the
+                    // others' rows made it look complete, so yours stayed missing until a relaunch.
+                    return playerHomeHasContentHubs(full) && !full?.partial ? undefined : retry();
+                })
+                .catch(() => retry());
+        };
+        if (opts?.fullOnly && cachedHasRows) {
+            // Live update over rows already on screen: go straight to the full pass. The fast
+            // pass can briefly drop pins that need a fill, which made rows blink out and back.
+            return fetchMediaPlayerHomeFull()
+                .then((full) => applyFull(full, cachedHome, cachedHome))
+                .catch(() => undefined)
+                .finally(() => {
+                    if (current()) setLoading(false);
+                    endHomeRowPriority();
+                });
+        }
+        if (isTvShell || (skipPartial && cachedNeedsFull)) {
+            // Paint includeMeta pins as soon as they arrive. The full pass still
+            // fills empty shells and replaces the list — it must not be the first
+            // paint, or opening the app waits on every hub refill.
+            setLoading(!cachedHasRows);
+            const paintFast = (data: PlayerHome | null) => {
+                // The fast Home answer often has one mixed Recently Added row and
+                // drops pins that still need a fill. Keep the last real Home on screen.
+                if (isTvShell && cachedHasRows && cachedHome && playerHomeHasContentHubs(cachedHome)) {
+                    return cachedHome;
+                }
+                if (!current() || !data || !playerHomeHasRows(data)) return data;
+                const cached = readPlayerHomeCache();
+                const next = coalescePlayerHomeWithCache(data, cached) || data;
+                if (playerHomeHasRows(next)) writePlayerHomeCache(next);
+                setHome(stableRandomRows(next));
                 setError(null);
-                setHomeStale(!playerHomeHasRows(data) && playerHomeHasRows(next));
+                setLoading(false);
+                return next;
+            };
+            return fetchMediaPlayerHome({ fresh: !!opts?.force })
+                .then((data) => paintFast(data) || data)
+                .catch(() => cachedHasRows ? cachedHome : null)
+                .then((base) => followFull(base || (cachedHasRows ? cachedHome : null)))
+                .catch((err) => {
+                    if (!current() || cachedHasRows) return;
+                    setError(String(err?.message || t('mediaPlayerPage.loadError')));
+                })
+                .finally(() => {
+                    if (current()) setLoading(false);
+                    endHomeRowPriority();
+                });
+        }
+        return fetchMediaPlayerHome({ fresh: !!opts?.force })
+            .then((data) => {
+                if (!current()) return undefined;
+                const cached = readPlayerHomeCache();
+                const next = coalescePlayerHomeWithCache(data, cached) || data;
+                if (next && playerHomeHasRows(next)) writePlayerHomeCache(next);
+                setHome(stableRandomRows(next));
+                setError(null);
                 setLoading(false);
                 if (!playerHomeNeedsFull(next) && !data?.partial) return undefined;
-                return followFull(next);
+                return followFull(next, data);
             })
             .catch((err) => {
-                if (readPlayerHomeCache()) {
-                    setHomeStale(true);
+                if (!current()) return;
+                const cached = readPlayerHomeCache();
+                if (playerHomeHasRows(cached)) {
+                    // Keep showing the last good Home. Never flash "saved library" for a
+                    // transient PMS blip — Android TV hits this constantly while LAN is fine.
+                    setHome(stableRandomRows(cached));
+                    if (!opts?.quietRetry) {
+                        window.setTimeout(() => {
+                            void refreshHome({ quietRetry: true });
+                        }, 2000);
+                    }
                 } else {
                     setError(String(err?.message || t('mediaPlayerPage.loadError')));
                 }
             })
             .finally(() => {
-                setLoading(false);
+                if (current()) setLoading(false);
+                endHomeRowPriority();
             });
-    }, [t]);
+    }, [isTvShell, t]);
+
+    const pullToRefresh = useCallback(() => {
+        allowRandomRowReshuffle();
+        if (phoneHome) return refreshHome({ force: true });
+        const hero = fetchMediaPlayerHomeHeroRefresh()
+            .then((data) => {
+                if (data?.effectiveMode) setHeroEffectiveMode(String(data.effectiveMode));
+                const items = Array.isArray(data?.items) ? data.items.filter((row) => row?.ratingKey && row?.title) : [];
+                if (!items.length) return;
+                writeHeroSlidesCache(items);
+                setHeroSlides(items);
+            })
+            .catch(() => undefined);
+        return Promise.all([refreshHome({ force: true }), hero]);
+    }, [phoneHome, refreshHome]);
+
+    // Live Home: Plex pushed an add / delete / stopped-playback change. Refetch the rows
+    // in place (cards keep their keys, so focus stays put and new items slide in).
+    useEffect(() => {
+        if (!active) return undefined;
+        const onLive = () => { void refreshHome({ force: true, quietRetry: true, fullOnly: true }); };
+        window.addEventListener(PLAYER_HOME_LIVE_EVENT, onLive);
+        return () => window.removeEventListener(PLAYER_HOME_LIVE_EVENT, onLive);
+    }, [active, refreshHome]);
+
+    // Coming back online (or a flaky Android offline→online flip) should refetch quietly.
+    useEffect(() => {
+        if (!active || !isTvShell || networkOnline) return undefined;
+        const onOnline = () => {
+            void refreshHome({ force: true });
+        };
+        window.addEventListener('online', onOnline);
+        return () => window.removeEventListener('online', onOnline);
+    }, [active, isTvShell, networkOnline, refreshHome]);
+
+    useEffect(() => {
+        if (!active) return undefined;
+        const onMetadataRefreshed = (event: Event) => {
+            const detail = (event as CustomEvent<{ ratingKey?: string; item?: PlayerItem }>).detail;
+            const key = String(detail?.ratingKey || '').trim();
+            const next = detail?.item;
+            if (!key || !next) {
+                void refreshHome({ force: true });
+                return;
+            }
+            const touches = (row: PlayerItem) => (
+                String(row.ratingKey || '') === key
+                || String(row.grandparentRatingKey || '') === key
+                || String(row.parentRatingKey || '') === key
+            );
+            const mergeRow = (row: PlayerItem): PlayerItem => {
+                if (!touches(row)) return row;
+                // Keep CW episode identity; swap poster/art/logo from refreshed metadata.
+                if (row.type === 'episode' && next.type !== 'episode') {
+                    return {
+                        ...row,
+                        thumb: next.thumb || row.thumb,
+                        art: next.art || row.art,
+                        logo: next.logo || row.logo,
+                        showTitle: next.title || row.showTitle,
+                    };
+                }
+                return { ...row, ...next, ratingKey: row.ratingKey, type: row.type };
+            };
+            setHome((prev) => {
+                if (!prev) return prev;
+                const hubs = (prev.hubs || []).map((hub) => ({
+                    ...hub,
+                    items: (hub.items || []).map(mergeRow),
+                }));
+                const patched = {
+                    ...prev,
+                    continueWatching: (prev.continueWatching || []).map(mergeRow),
+                    hubs,
+                    recentByLibrary: (prev.recentByLibrary || []).map((rail) => ({
+                        ...rail,
+                        items: (rail.items || []).map(mergeRow),
+                    })),
+                };
+                writePlayerHomeCache(patched);
+                return patched;
+            });
+            setWatchlistItems((prev) => prev.map(mergeRow));
+            // Soft full reload so any other rows pick up new stamps from Plex.
+            void refreshHome({ force: true });
+        };
+        window.addEventListener(PLAYER_METADATA_REFRESHED_EVENT, onMetadataRefreshed);
+        return () => window.removeEventListener(PLAYER_METADATA_REFRESHED_EVENT, onMetadataRefreshed);
+    }, [active, refreshHome]);
+
+    // Coming back to Home (not the first mount) gets the random rows a fresh shuffle.
+    const wasActiveRef = useRef(active);
+    useEffect(() => {
+        if (active && !wasActiveRef.current) allowRandomRowReshuffle();
+        wasActiveRef.current = active;
+    }, [active]);
 
     useEffect(() => {
         if (!active) return undefined;
         let cancelled = false;
-        void refreshHome().then(() => {
+        void refreshHome({ force: true }).then(() => {
             if (cancelled) return;
         });
-        if (isTvShell) {
+        if (isTvShell || phoneHome) {
             setHeroSlides([]);
             setHeroPending(false);
             return () => { cancelled = true; };
@@ -660,9 +1302,46 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         };
     }, [query]);
 
+    useEffect(() => {
+        const trimmed = query.trim();
+        if (trimmed.length < 2 || searching || !results.length) return undefined;
+        const timer = window.setTimeout(() => {
+            setRecentSearches(rememberRecentSearch(trimmed));
+            void recordPopularSearch(trimmed).catch(() => {});
+        }, 900);
+        return () => window.clearTimeout(timer);
+    }, [query, results, searching]);
+
+    useEffect(() => {
+        if (!focusSearchResultsRef.current || searching || query.trim().length < 2) return undefined;
+        focusSearchResultsRef.current = false;
+        const timer = window.setTimeout(() => {
+            const first = document.querySelector<HTMLElement>('[data-tv-search-results="1"] [data-tv-item="1"]')
+                || document.querySelector<HTMLElement>(`[data-tv-search-key="${TV_SEARCH_FIRST_KEY}"]`);
+            first?.focus();
+        }, 60);
+        return () => window.clearTimeout(timer);
+    }, [query, results, searching]);
+
+    useEffect(() => {
+        const onClear = () => setQuery('');
+        window.addEventListener(PLAYER_SEARCH_CLEAR_EVENT, onClear);
+        return () => window.removeEventListener(PLAYER_SEARCH_CLEAR_EVENT, onClear);
+    }, []);
+
     const orderedLibraries = useMemo(
-        () => applyLibraryNavOrder(home?.libraries || [], libraryNavOrder),
+        () => applyLibraryNavOrder(
+            (home?.libraries?.length ? home.libraries : readPlayerLibrariesCache()) || [],
+            libraryNavOrder,
+        ),
         [home?.libraries, libraryNavOrder],
+    );
+
+    const mapRecentItem = useCallback(
+        (item: PlayerItem) => asRecentlyAddedPlayerItem(item, {
+            preferSeasonPoster: settings.recentlyAddedSeasonPoster,
+        }),
+        [settings.recentlyAddedSeasonPoster],
     );
 
     const recentRails = useMemo(() => {
@@ -676,7 +1355,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                     title: t('mediaPlayerPage.recentlyAddedIn', { name: library.title }),
                     items: (settings.hideWatchedFromRecents
                         ? hideWatchedPlayerItems(row?.items)
-                        : (row?.items || [])).map(withShowPoster),
+                        : (row?.items || [])).map(mapRecentItem),
                     hubKey: `/library/sections/${library.key}/recentlyAdded`,
                     identifier: 'recentlyAdded',
                 };
@@ -714,28 +1393,58 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 title: titles[type],
                 items: (settings.hideWatchedFromRecents
                     ? hideWatchedPlayerItems(dedupeItems(buckets[type]))
-                    : dedupeItems(buckets[type])).map(withShowPoster),
+                    : dedupeItems(buckets[type])).map(mapRecentItem),
                 // Hub page pages recentlyAdded for months of titles (home rail stays short).
                 hubKey: library ? `/library/sections/${library.key}/recentlyAdded` : undefined,
                 identifier: 'recentlyAdded',
             };
         }).filter((row) => row.items.length);
-    }, [home, orderedLibraries, settings.hideWatchedFromRecents, settings.mixLibraries, t]);
+    }, [home, mapRecentItem, orderedLibraries, settings.hideWatchedFromRecents, settings.mixLibraries, t]);
 
     const hideContinueWatchingRail = !isTvShell && heroEffectiveMode === 'continue_watching';
     const showContinueWatchingRail = settings.showContinueWatching && !hideContinueWatchingRail;
     const showWatchlistRail = settings.showWatchlist;
-    const continueWatchingLayout = isTvShell ? 'title' : settings.continueWatchingLayout;
+    // TV used to force "title" (episode stills). That ignored show/season poster
+    // updates in Plex and looked wrong next to Plex's own Continue Watching.
+    const continueWatchingLayout = settings.continueWatchingLayout;
     const continueWatchingAspect = continueWatchingRailAspect(continueWatchingLayout);
+    // Warm CW show posters + episode stills/backdrops so opening an item does not wait on art.
+    useEffect(() => {
+        if (!active || !home || !showContinueWatchingRail) return undefined;
+        const cwHub = (home.hubs || []).find(isContinueWatchingHub);
+        const items = (cwHub?.items?.length ? cwHub.items : home.continueWatching) || [];
+        if (!items.length) return undefined;
+        const timer = window.setTimeout(() => prefetchContinueWatchingImages(items, 24), 0);
+        return () => window.clearTimeout(timer);
+    }, [active, home, showContinueWatchingRail]);
     const cwOrderKeysRef = useRef<string[]>([]);
     const cwOrderSortRef = useRef(settings.continueWatchingSort);
+    const cwShowAiredRef = useRef('');
+    // The order holds still while Home is on screen; coming back to Home re-sorts it, so
+    // what was just watched (and Plex's new order) shows up.
+    const cwWasActiveRef = useRef(active);
+    if (active && !cwWasActiveRef.current) cwOrderKeysRef.current = [];
+    cwWasActiveRef.current = active;
     const freezeContinueWatching = useCallback((items: PlayerItem[]) => {
+        // Watching on TV opens the native player, so Home never counts as left: without this
+        // the order stayed frozen until a setting change.
+        if (!continueWatchingRowFocused()) cwOrderKeysRef.current = [];
         if (cwOrderSortRef.current !== settings.continueWatchingSort) {
             cwOrderKeysRef.current = [];
             cwOrderSortRef.current = settings.continueWatchingSort;
         }
+        // Each show's newest-episode date lands with the full Home pass, after the first
+        // paint froze the order. Re-rank once when those dates arrive or change.
+        const aired = items
+            .map((row) => (row.showLatestAiredAt ? `${row.ratingKey}:${row.showLatestAiredAt}` : ''))
+            .filter(Boolean)
+            .join(',');
+        if (aired && aired !== cwShowAiredRef.current) {
+            cwShowAiredRef.current = aired;
+            cwOrderKeysRef.current = [];
+        }
         const next = stabilizeContinueWatchingOrder(
-            items,
+            items.map(stampFamilyLastViewed),
             settings.continueWatchingSort,
             cwOrderKeysRef.current,
         );
@@ -755,19 +1464,23 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         const directHome = isPlexDirectMode();
         const filtered = (home?.hubs || []).filter((hub) => {
             if (!hub.items?.length) return false;
-            if (isPlaylistHub(hub)) return false;
+            // Home libraries (hearts): a library switched off loses its rows at once, even
+            // ones the saved Home still holds.
+            if (homeHubHiddenByPicks(hub, settings.homeLibraries)) return false;
+            // TV Home shows every pinned row, including playlist pins.
             if (directHome) return true;
+            if (isPlaylistHub(hub)) return false;
             if (!showContinueWatchingRail && isContinueWatchingHub(hub)) return false;
             if (!settings.showBecauseYouWatched && isBecauseYouWatchedHub(hub)) return false;
             return true;
         }).map((hub) => (
             /recent/i.test(`${hub.identifier || ''} ${hub.title || ''}`)
-                ? { ...hub, items: hub.items.map(withShowPoster) }
+                ? { ...hub, items: hub.items.map(mapRecentItem) }
                 : hub
         ));
-        if (directHome) return filtered;
+        // Always regroup by Library order (incl. plex-direct / TV). Pins stay; only stack order changes.
         return applyLibraryNavOrderToHubs(filtered, orderedLibraries, libraryNavOrder);
-    }, [home, libraryNavOrder, orderedLibraries, showContinueWatchingRail, settings.showBecauseYouWatched]);
+    }, [home, libraryNavOrder, mapRecentItem, orderedLibraries, showContinueWatchingRail, settings.showBecauseYouWatched, settings.homeLibraries]);
 
     useEffect(() => {
         if (!active || !showWatchlistRail) {
@@ -786,15 +1499,112 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         return () => { cancelled = true; };
     }, [active, showWatchlistRail]);
 
+    useEffect(() => {
+        if (!active || !settings.showOnNowHome) {
+            setOnNowItems([]);
+            return undefined;
+        }
+        let cancelled = false;
+        fetchLiveTvOnNow()
+            // Tunarr artwork is http:// on the LAN, which the https page can't show directly.
+            .then((data) => resolveLanImages(Array.isArray(data?.items) ? data.items : []))
+            .then((items) => {
+                if (cancelled) return;
+                setOnNowItems(items);
+            })
+            .catch(() => {
+                if (!cancelled) setOnNowItems([]);
+            });
+        return () => { cancelled = true; };
+    }, [active, settings.showOnNowHome]);
+
+    const thinRecentShowKeys = useMemo(() => {
+        if (!isTvShell || settings.mixLibraries || !home) return [] as Array<{ sectionId: string; libraryKey: string }>;
+        const showLibrary = (library?: { type?: string; title?: string }) => {
+            const type = String(library?.type || '').toLowerCase();
+            if (type === 'show' || type === 'tv') return true;
+            return /\btv\b|show/i.test(String(library?.title || ''));
+        };
+        const libraryForBare = (sectionId: string) => orderedLibraries.find((library) => {
+            const bare = String(library.key || '').split('::').pop();
+            return bare === sectionId || String(library.key) === sectionId;
+        });
+        const out: Array<{ sectionId: string; libraryKey: string }> = [];
+        const seen = new Set<string>();
+        const add = (sectionId: string, count: number) => {
+            if (!sectionId || count >= 8 || seen.has(sectionId)) return;
+            const library = libraryForBare(sectionId);
+            if (!library || !showLibrary(library)) return;
+            seen.add(sectionId);
+            out.push({ sectionId, libraryKey: String(library.key) });
+        };
+        for (const hub of plexHubs) {
+            if (!isRecentHub(hub)) continue;
+            const groups = new Map<string, number>();
+            let grouped = true;
+            for (const item of hub.items || []) {
+                const id = String(item.librarySectionID || '').trim();
+                if (!id) {
+                    grouped = false;
+                    break;
+                }
+                groups.set(id, (groups.get(id) || 0) + 1);
+            }
+            if (grouped && groups.size) {
+                for (const [id, count] of groups) add(id, count);
+                continue;
+            }
+            const name = String(hub.title || '').match(/recently added\s*(?:in|·)\s+(.+)/i)?.[1]?.trim().toLowerCase();
+            if (!name || (hub.items?.length || 0) >= 8) continue;
+            const library = orderedLibraries.find((row) => row.title.trim().toLowerCase() === name);
+            if (!library || !showLibrary(library)) continue;
+            add(String(library.key || '').split('::').pop() || '', hub.items?.length || 0);
+        }
+        return out;
+    }, [home, isTvShell, orderedLibraries, plexHubs, settings.mixLibraries]);
+
+    useEffect(() => {
+        if (!active || !thinRecentShowKeys.length) return undefined;
+        const pending = thinRecentShowKeys.filter((row) => !recentFillLoadedRef.current.has(row.sectionId));
+        if (!pending.length) return undefined;
+        pending.forEach((row) => recentFillLoadedRef.current.add(row.sectionId));
+        let cancelled = false;
+        void Promise.all(pending.map(async (row) => {
+            const load = (sort: string) => fetchMediaPlayerLibrary(row.libraryKey, 0, 40, { sort }).catch(() => null);
+            const page = (await load('updatedAt:desc')) || (await load('addedAt:desc'));
+            const items = Array.isArray(page?.items) ? page.items : [];
+            if (!items.length) recentFillLoadedRef.current.delete(row.sectionId);
+            return { sectionId: row.sectionId, items };
+        })).then((rows) => {
+            if (cancelled) {
+                rows.forEach((row) => recentFillLoadedRef.current.delete(row.sectionId));
+                return;
+            }
+            setRecentFillBySection((prev) => {
+                const next = { ...prev };
+                let changed = false;
+                for (const row of rows) {
+                    if (!row.items.length || next[row.sectionId]?.length) continue;
+                    next[row.sectionId] = row.items;
+                    changed = true;
+                }
+                return changed ? next : prev;
+            });
+        });
+        return () => { cancelled = true; };
+    }, [active, thinRecentShowKeys]);
+
     const tvHomeRows = useMemo((): TvHomeRow[] => {
         if (!isTvShell || !home) return [];
-        const rows: TvHomeRow[] = [];
+        const continueRows: TvHomeRow[] = [];
+        const onNowRows: TvHomeRow[] = [];
+        const recentRows: TvHomeRow[] = [];
         const cwHub = plexHubs.find(isContinueWatchingHub);
         const cwItems = freezeContinueWatching(
             (cwHub?.items?.length ? cwHub.items : home.continueWatching) || [],
         );
         if (showContinueWatchingRail && cwItems.length) {
-            rows.push({
+            continueRows.push({
                 id: cwHub?.identifier || 'home.continueWatching',
                 title: cwHub?.title || t('mediaPlayerPage.continueWatching'),
                 items: cwItems.map(withShowPoster),
@@ -816,7 +1626,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             });
         }
         if (showWatchlistRail && watchlistItems.length) {
-            rows.push({
+            continueRows.push({
                 id: 'home.watchlist',
                 title: t('mediaPlayerPage.navWatchlist'),
                 items: watchlistItems,
@@ -825,19 +1635,100 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 viewMoreShelf: { watchlist: true },
             });
         }
+        if (settings.showOnNowHome && onNowItems.length) {
+            onNowRows.push({
+                id: 'home.onnow',
+                title: t('mediaPlayerPage.liveTvOnNow'),
+                items: onNowItems,
+                // Live airings only have posters.
+                aspect: '2/3',
+                onViewAll: onOpenLiveTv,
+            });
+        }
         const becauseHubs = plexHubs.filter(isBecauseYouWatchedHub);
         const others = plexHubs.filter((hub) => !isContinueWatchingHub(hub) && !isBecauseYouWatchedHub(hub));
+        const libraryForSection = (sectionId: string) => orderedLibraries.find((library) => {
+            const bare = String(library.key || '').split('::').pop();
+            return bare === sectionId || String(library.key) === sectionId;
+        });
         for (const hub of others) {
             const hero = Boolean(hub.heroRow);
-            rows.push({
+            const recentItems = isRecentHub(hub) && !settings.mixLibraries
+                ? hub.items
+                : null;
+            const recentGroups = new Map<string, PlayerItem[]>();
+            if (recentItems) {
+                for (const item of recentItems) {
+                    const sectionId = String(item.librarySectionID || '').trim();
+                    if (!sectionId) {
+                        recentGroups.clear();
+                        break;
+                    }
+                    const list = recentGroups.get(sectionId) || [];
+                    list.push(item);
+                    recentGroups.set(sectionId, list);
+                }
+            }
+            if (recentGroups.size > 1) {
+                const order = orderedLibraries
+                    .map((library) => String(library.key || '').split('::').pop() || '')
+                    .filter((id) => recentGroups.has(id));
+                for (const sectionId of recentGroups.keys()) {
+                    if (!order.includes(sectionId)) order.push(sectionId);
+                }
+                for (const sectionId of order) {
+                    const library = libraryForSection(sectionId);
+                    const base = settings.hideWatchedFromRecents
+                        ? hideWatchedPlayerItems(recentGroups.get(sectionId) || [])
+                        : (recentGroups.get(sectionId) || []);
+                    const extra = settings.hideWatchedFromRecents
+                        ? hideWatchedPlayerItems(recentFillBySection[sectionId])
+                        : recentFillBySection[sectionId];
+                    const items = mergeThinRecentShows(base, extra).map(mapRecentItem);
+                    if (!items.length) continue;
+                    const title = library
+                        ? t('mediaPlayerPage.recentlyAddedIn', { name: library.title })
+                        : hub.title;
+                    recentRows.push({
+                        id: `recent:${sectionId}`,
+                        title,
+                        items,
+                        aspect: library?.type === 'artist' ? 'square' : '2/3',
+                        onViewAll: library && onOpenHub ? () => onOpenHub({
+                            title,
+                            identifier: 'recentlyAdded',
+                            items,
+                            hubKey: `/library/sections/${library.key}/recentlyAdded`,
+                        }) : undefined,
+                        viewMoreShelf: library
+                            ? { path: `/library/sections/${library.key}/recentlyAdded`, identifier: 'recentlyAdded' }
+                            : viewMoreShelfFromHub(hub),
+                    });
+                }
+                continue;
+            }
+            const recentSectionId = recentGroups.size === 1
+                ? ([...recentGroups.keys()][0] || '')
+                : '';
+            const titledLibrary = !recentSectionId && isRecentHub(hub)
+                ? orderedLibraries.find((row) => row.title.trim().toLowerCase() === String(hub.title || '').match(/recently added\s*(?:in|·)\s+(.+)/i)?.[1]?.trim().toLowerCase())
+                : undefined;
+            const fillSectionId = recentSectionId || (titledLibrary ? (String(titledLibrary.key || '').split('::').pop() || '') : '');
+            const recentBase = isRecentHub(hub)
+                ? (settings.hideWatchedFromRecents ? hideWatchedPlayerItems(hub.items) : hub.items)
+                : hub.items;
+            const recentExtra = fillSectionId
+                ? (settings.hideWatchedFromRecents
+                    ? hideWatchedPlayerItems(recentFillBySection[fillSectionId])
+                    : recentFillBySection[fillSectionId])
+                : undefined;
+            recentRows.push({
                 id: hub.identifier || `hub:${hub.title}`,
                 title: hub.title,
                 items: hero
                     ? hub.items.map(heroRowCardItem)
                     : (isRecentHub(hub)
-                        ? (settings.hideWatchedFromRecents
-                            ? hideWatchedPlayerItems(hub.items)
-                            : hub.items).map(withShowPoster)
+                        ? mergeThinRecentShows(recentBase, recentExtra).map(mapRecentItem)
                         : hub.items),
                 aspect: hero
                     ? '16/9'
@@ -852,7 +1743,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         }
         if (!others.some(isRecentHub)) {
             for (const row of recentRails) {
-                rows.push({
+                recentRows.push({
                     id: row.id,
                     title: row.title,
                     items: row.items,
@@ -873,7 +1764,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         }
         if (settings.showBecauseYouWatched) {
             for (const hub of becauseHubs) {
-                rows.push({
+                recentRows.push({
                     id: hub.identifier || `hub:${hub.title}`,
                     title: hub.title,
                     items: hub.items,
@@ -885,29 +1776,63 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 });
             }
         }
-        return rows.filter((row) => row.items.length);
+        // Plex's combined Recently Added row is split per library above ("Recently Added in
+        // Movies", "… in Movies - Misc"), and the same libraries' own pinned Recently Added
+        // rows carry those titles too. Keep the first row per title so neither shows twice.
+        const seenRecentTitles = new Set<string>();
+        const uniqueRecentRows = recentRows.filter((row) => {
+            if (!/recent/i.test(`${row.id} ${row.title}`)) return true;
+            const title = row.title.trim().toLowerCase();
+            if (seenRecentTitles.has(title)) return false;
+            seenRecentTitles.add(title);
+            return true;
+        });
+        // Splitting Plex's combined Recently Added row lands every library's row in one spot.
+        // Re-rank the finished list so each library's rows sit where Library order puts them
+        // (same ranking the pinned rows already get; rows are not fetched any differently).
+        const rankedRecentRows = applyLibraryNavOrderToHubs(
+            uniqueRecentRows.map((row) => ({
+                row,
+                identifier: row.id,
+                title: row.title,
+                hubKey: row.viewMoreShelf?.path || null,
+                items: row.items,
+            })),
+            orderedLibraries,
+            libraryNavOrder,
+        ).map((entry) => entry.row);
+        const buckets: Record<string, TvHomeRow[]> = {
+            continueWatching: continueRows,
+            onNow: onNowRows,
+            recents: rankedRecentRows,
+        };
+        return applyHomeRowOrder(['continueWatching', 'onNow', 'recents'], settings.homeRowOrder)
+            .flatMap((id) => buckets[id] || [])
+            .filter((row) => row.items.length);
     }, [
         home,
         isTvShell,
         onOpenHub,
         onOpenWatchlist,
+        onOpenLiveTv,
         freezeContinueWatching,
+        mapRecentItem,
+        orderedLibraries,
         plexHubs,
         recentRails,
+        settings.mixLibraries,
+        recentFillBySection,
         settings.hideWatchedFromRecents,
         settings.showBecauseYouWatched,
         showContinueWatchingRail,
         showWatchlistRail,
         t,
         watchlistItems,
+        onNowItems,
+        settings.showOnNowHome,
+        settings.homeRowOrder,
+        libraryNavOrder,
     ]);
-
-    const tvFocusStillSeed = useMemo(() => {
-        if (!isTvShell || !home) return '';
-        const first = tvHomeRows[0]?.items?.[0]
-            || home.recentByLibrary?.[0]?.items?.[0];
-        return plexBackdropPreviewUrl(first?.art || first?.thumb) || '';
-    }, [home, isTvShell, tvHomeRows]);
 
     const searchGroups = useMemo(() => {
         const people: PlayerItem[] = [];
@@ -922,10 +1847,27 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             else if (row.type === 'episode') episodes.push(row);
             else more.push(row);
         }
+        episodes.sort((a, b) => {
+            const showA = String(a.showTitle || '').toLowerCase();
+            const showB = String(b.showTitle || '').toLowerCase();
+            if (showA !== showB) return showA < showB ? -1 : 1;
+            const seasonA = Number(a.parentIndex);
+            const seasonB = Number(b.parentIndex);
+            const seasonRank = (value: number) => (Number.isFinite(value) && value > 0 ? value : 9999);
+            if (seasonRank(seasonA) !== seasonRank(seasonB)) return seasonRank(seasonA) - seasonRank(seasonB);
+            const episodeA = Number(a.index);
+            const episodeB = Number(b.index);
+            const episodeRank = (value: number) => (Number.isFinite(value) && value > 0 ? value : 9999);
+            if (episodeRank(episodeA) !== episodeRank(episodeB)) return episodeRank(episodeA) - episodeRank(episodeB);
+            const titleA = String(a.episodeTitle || a.title || '').toLowerCase();
+            const titleB = String(b.episodeTitle || b.title || '').toLowerCase();
+            if (titleA !== titleB) return titleA < titleB ? -1 : 1;
+            return 0;
+        });
         return [
-            { id: 'person', title: t('mediaPlayerPage.searchPeople'), items: people, aspect: '2/3' as const },
             { id: 'show', title: t('mediaPlayerPage.searchShows'), items: shows, aspect: '2/3' as const },
             { id: 'movie', title: t('mediaPlayerPage.searchMovies'), items: movies, aspect: '2/3' as const },
+            { id: 'person', title: t('mediaPlayerPage.searchPeople'), items: people, aspect: '2/3' as const },
             { id: 'episode', title: t('mediaPlayerPage.searchEpisodes'), items: episodes, aspect: '16/9' as const },
             { id: 'more', title: t('mediaPlayerPage.searchMore'), items: more, aspect: '2/3' as const },
         ].filter((group) => group.items.length);
@@ -941,36 +1883,124 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
 
     const [tvRowIndex, setTvRowIndex] = useState(0);
     const [tvRowDir, setTvRowDir] = useState<'up' | 'down' | null>(null);
-    const [tvFocusKey, setTvFocusKey] = useState('');
-    const [tvSpotExtra, setTvSpotExtra] = useState<Record<string, PlayerItem>>({});
+    /** Focus key lives in a ref so Left/Right does not re-render the row stack. */
+    const tvFocusKeyRef = useRef('');
     const tvRowIndexRef = useRef(0);
     const tvRowsRef = useRef(tvHomeRows);
     const tvRowFocusRef = useRef<Record<string, string>>({});
+    /** Sidebar Home starts on the first poster. Back from a title keeps the open card. */
+    const landOnFirstRef = useRef(true);
     tvRowIndexRef.current = tvRowIndex;
     tvRowsRef.current = tvHomeRows;
+    const noteTvFocusKey = useCallback((key: string) => {
+        const next = String(key || '').trim();
+        if (!next) return;
+        tvFocusKeyRef.current = next;
+        if (landOnFirstRef.current) return;
+        const row = tvRowsRef.current[tvRowIndexRef.current];
+        if (row?.id) tvRowFocusRef.current[row.id] = next;
+    }, []);
+
+    const clearHomeRowHighlights = () => {
+        const ids = tvRowsRef.current.map((row) => row.id);
+        tvRowFocusRef.current = {};
+        forgetHomePosterFocus(ids);
+        landOnFirstRef.current = true;
+    };
+
+    useEffect(() => {
+        const onHomeReset = () => {
+            setQuery('');
+            setResults([]);
+            setSearching(false);
+            setSearchActive(false);
+            searchRef.current?.blur();
+            // Sidebar Home (or Back-to-home) while already on Home → first poster of the first row.
+            clearHomeRowHighlights();
+            landOnFirstRef.current = false;
+            setTvRowDir(null);
+            setTvRowIndex(0);
+            tvFocusKeyRef.current = '';
+            const firstRow = tvRowsRef.current[0];
+            const firstKey = String(firstRow?.items?.[0]?.ratingKey || '').trim();
+            if (firstRow?.id && firstKey) {
+                tvFocusKeyRef.current = firstKey;
+                tvRowFocusRef.current[firstRow.id] = firstKey;
+                rememberTvFocusKey(firstKey, PLAYER_APP_BASE);
+            }
+            const scroller = document.getElementById(PLAYER_SCROLL_ID);
+            if (scroller) {
+                try {
+                    scroller.scrollTo({ top: 0, behavior: 'auto' });
+                } catch {
+                    scroller.scrollTop = 0;
+                }
+            }
+            let attempts = 0;
+            const focusTop = () => {
+                const stage = visibleHomeStage();
+                const rail = stage?.querySelector<HTMLElement>('.player-home-stage-rail');
+                const match = firstKey && rail
+                    ? rail.querySelector<HTMLElement>(`[data-tv-poster-btn="1"][data-tv-key="${CSS.escape(firstKey)}"]`)
+                    : null;
+                const btn = match || rail?.querySelector<HTMLElement>('[data-tv-poster-btn="1"]');
+                if (btn) {
+                    try {
+                        btn.focus({ preventScroll: true });
+                    } catch {
+                        btn.focus();
+                    }
+                    pinTvRailItemToSlot(btn);
+                    return;
+                }
+                if (attempts++ < 24) window.setTimeout(focusTop, 16);
+            };
+            window.requestAnimationFrame(focusTop);
+            window.setTimeout(focusTop, 40);
+        };
+        window.addEventListener(PLAYER_HOME_RESET_EVENT, onHomeReset);
+        return () => window.removeEventListener(PLAYER_HOME_RESET_EVENT, onHomeReset);
+    }, []);
+
     const tvStage = isTvShell && !searchActive;
+    // Stable rows for the memoised stack: Left/Right billboard focus stays in TvHomeBillboard,
+    // so this array must not be rebuilt on every poster move.
+    const tvStackRows = useMemo(() => tvHomeRows.map((row) => ({
+        ...row,
+        viewAllLabel: row.onViewAll ? t('common.viewMore') : undefined,
+    })), [tvHomeRows, t]);
     const tvRowSafeIndex = Math.min(tvRowIndex, Math.max(0, tvHomeRows.length - 1));
     const tvActiveRow = tvHomeRows[tvRowSafeIndex] || null;
-    const tvNextRow = tvHomeRows[tvRowSafeIndex + 1] || null;
-    const tvSpotItem = useMemo(() => {
-        if (!tvActiveRow) return null;
-        const key = tvFocusKey || tvActiveRow.items[0]?.ratingKey || '';
-        const base = tvActiveRow.items.find((row) => row.ratingKey === key) || tvActiveRow.items[0] || null;
-        const extra = key ? tvSpotExtra[key] : null;
-        if (!base) return extra || null;
-        if (!extra) return base;
-        return {
-            ...base,
-            ...extra,
-            thumb: base.thumb,
-            art: extra.art || base.art,
-            logo: extra.logo || base.logo,
-            title: base.title,
-            showTitle: base.showTitle || extra.showTitle,
-        };
-    }, [tvActiveRow, tvFocusKey, tvSpotExtra]);
-    const tvStageStillSeed = plexBackdropPreviewUrl(tvSpotItem?.art || tvSpotItem?.thumb || '')
-        || tvFocusStillSeed;
+    useEffect(() => {
+        if (!tvStage || !active) return undefined;
+        // Neighbour backdrops and poster warming decode big images. Wait until the row
+        // change has settled so it isn't competing with them on a slow TV stick.
+        // Do not depend on the focused title: Left/Right must not re-queue whole-row warms.
+        const timer = window.setTimeout(() => {
+            const prev = tvHomeRows[tvRowSafeIndex - 1];
+            const next = tvHomeRows[tvRowSafeIndex + 1];
+            const neighbors = [
+                playerItemBackdropUrl(next?.items?.[0]),
+                playerItemBackdropUrl(next?.items?.[1]),
+                playerItemBackdropUrl(prev?.items?.[0]),
+                playerItemBackdropUrl(prev?.items?.[1]),
+            ];
+            pinTvNeighborBackdrops(neighbors);
+            const nextFirst = playerItemBackdropUrl(next?.items?.[0]);
+            if (nextFirst) warmPlayerBackdrop(nextFirst, true);
+            if (tvHomeRows.length) prefetchHomeRowPosters(tvHomeRows, tvRowSafeIndex);
+        }, 450);
+        return () => window.clearTimeout(timer);
+    }, [active, tvRowSafeIndex, tvActiveRow?.id, tvStage, tvHomeRows]);
+
+    // Rows are on screen: let the remote land the focus ring on the first card if nothing
+    // has it yet. Next frame, so the cards exist when it looks for them.
+    const tvHasRows = tvHomeRows.length > 0;
+    useEffect(() => {
+        if (!tvStage || !active || !tvHasRows) return undefined;
+        const raf = window.requestAnimationFrame(() => window.dispatchEvent(new Event(PLAYER_TV_HOME_READY_EVENT)));
+        return () => window.cancelAnimationFrame(raf);
+    }, [active, tvHasRows, tvStage]);
 
     useEffect(() => {
         if (tvRowIndex >= tvHomeRows.length && tvHomeRows.length) setTvRowIndex(0);
@@ -979,52 +2009,48 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
     useEffect(() => {
         // Keep-alive Home must not steal Library Recommended row events.
         if (!tvStage || !active) return undefined;
-        const parkStageFocus = () => {
-            const stage = visibleHomeStage();
-            if (!stage) return;
-            if (!stage.hasAttribute('tabindex')) stage.tabIndex = -1;
-            try {
-                stage.focus({ preventScroll: true });
-            } catch {
-                stage.focus();
-            }
-        };
+        let lastRowMoveAt = 0;
         const onRow = (event: Event) => {
             const dir = (event as CustomEvent<{ dir?: 'up' | 'down' }>).detail?.dir;
             const rows = tvRowsRef.current;
             if (!rows.length || (dir !== 'down' && dir !== 'up')) return;
+            // Holding Up/Down: a steady pace (like Plex) instead of queuing every key repeat
+            // behind re-renders. Extra repeats inside the window are simply dropped.
+            const now = performance.now();
+            if (now - lastRowMoveAt < TV_ROW_REPEAT_MS) return;
+            lastRowMoveAt = now;
             const current = tvRowIndexRef.current;
             const next = dir === 'down'
                 ? Math.min(rows.length - 1, current + 1)
                 : Math.max(0, current - 1);
             const prev = rows[current];
-            if (prev && tvFocusKey) tvRowFocusRef.current[prev.id] = tvFocusKey;
+            const focusKey = tvFocusKeyRef.current;
+            if (prev && focusKey && !landOnFirstRef.current) {
+                tvRowFocusRef.current[prev.id] = focusKey;
+            }
+            landOnFirstRef.current = false;
             if (next !== current) {
-                parkStageFocus();
                 setTvRowDir(dir);
                 setTvRowIndex(next);
             }
         };
         window.addEventListener(TV_HOME_ROW_EVENT, onRow);
         return () => window.removeEventListener(TV_HOME_ROW_EVENT, onRow);
-    }, [active, tvFocusKey, tvStage]);
+    }, [active, tvStage]);
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         if (!tvStage || !active || !tvActiveRow) return undefined;
         const rowId = tvActiveRow.id;
-        const saved = tvRowFocusRef.current[rowId];
+        const landOnFirst = landOnFirstRef.current;
+        if (landOnFirst && tvRowIndexRef.current !== 0) return undefined;
+        const rowHas = (key: string) => Boolean(key) && tvActiveRow.items.some((item) => String(item.ratingKey || '') === key);
+        const remembered = landOnFirst ? '' : peekRememberedTvFocusKey();
+        const saved = (rowHas(remembered) ? remembered : '')
+            || (rowHas(tvRowFocusRef.current[rowId] || '') ? tvRowFocusRef.current[rowId] : '')
+            || (rowHas(tvFocusKeyRef.current) ? tvFocusKeyRef.current : '');
         let cancelled = false;
-        const focusSaved = () => {
-            if (cancelled) return true;
-            const stage = visibleHomeStage();
-            if (!stage) return false;
-            const root = stage.querySelector<HTMLElement>('.player-home-stage-rail');
-            if (!root) return false;
-            const match = saved
-                ? root.querySelector<HTMLElement>(`[data-tv-poster-btn="1"][data-tv-key="${CSS.escape(saved)}"]`)
-                : null;
-            const btn = match || root.querySelector<HTMLElement>('[data-tv-poster-btn="1"]');
-            if (!btn) return false;
+        let attempts = 0;
+        const focusEl = (btn: HTMLElement) => {
             try {
                 btn.focus({ preventScroll: true });
             } catch {
@@ -1034,44 +2060,71 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             const activeEl = document.activeElement as HTMLElement | null;
             return Boolean(activeEl && (activeEl === btn || btn.contains(activeEl)));
         };
-        let attempts = 0;
+        const focusSaved = () => {
+            if (cancelled) return true;
+            const stage = visibleHomeStage();
+            if (!stage) return false;
+            const root = stage.querySelector<HTMLElement>('.player-home-stage-rail');
+            if (!root) return false;
+            const posters = Array.from(root.querySelectorAll<HTMLElement>('[data-tv-poster-btn="1"]'))
+                .filter((el) => !el.closest('[inert]'));
+            if (!posters.length) return false;
+            const rowMatch = saved
+                ? posters.find((el) => el.getAttribute('data-tv-key') === saved) || null
+                : null;
+            const btn = rowMatch || posters[0];
+            const focused = focusEl(btn);
+            if (focused && landOnFirst) {
+                const key = String(btn.getAttribute('data-tv-key') || '').trim();
+                landOnFirstRef.current = false;
+                if (key) {
+                    noteTvFocusKey(key);
+                    rememberTvFocusKey(key, PLAYER_APP_BASE);
+                }
+            } else if (focused && saved) {
+                noteTvFocusKey(saved);
+            }
+            return focused;
+        };
         const tick = () => {
             if (focusSaved()) return;
-            if (cancelled || attempts++ >= 24) return;
+            if (cancelled || attempts++ >= 48) return;
             window.setTimeout(tick, 16);
         };
+        // Position the poster before Chromium paints the rail at scrollLeft=0.
+        if (focusSaved()) {
+            return () => { cancelled = true; };
+        }
         const timer = window.setTimeout(tick, 0);
         window.requestAnimationFrame(tick);
         return () => {
             cancelled = true;
             window.clearTimeout(timer);
         };
-    }, [active, tvActiveRow?.id, tvStage]);
+    }, [active, noteTvFocusKey, tvActiveRow?.id, tvStage]);
 
+    // After a stop / mark, re-read Home from Plex once PMS has taken it in, so Continue
+    // Watching shows the server's answer, not only the local patch below.
+    const progressRefreshRef = useRef<{ refresh: typeof refreshHome; active: boolean }>({ refresh: refreshHome, active });
+    progressRefreshRef.current = { refresh: refreshHome, active };
     useEffect(() => {
-        const key = String(tvSpotItem?.ratingKey || '');
-        if (!tvStage || !key) return undefined;
-        const cached = readPlayerItemCache(key);
-        if (cached?.item) {
-            setTvSpotExtra((prev) => (prev[key] ? prev : { ...prev, [key]: cached.item }));
-            if (cached.item.logo) return undefined;
-        }
-        prefetchMediaPlayerItem(key);
-        let cancelled = false;
-        void fetchMediaPlayerItem(key, { core: true, serverId: tvSpotItem?.serverId || null })
-            .then((page) => {
-                if (cancelled || !page?.item) return;
-                setTvSpotExtra((prev) => ({ ...prev, [key]: page.item }));
-            })
-            .catch(() => undefined);
-        return () => { cancelled = true; };
-    }, [tvSpotItem?.ratingKey, tvSpotItem?.serverId, tvStage]);
-
-    useEffect(() => {
+        // Plex (small servers especially) can still be applying the stop / scrobble when the
+        // first refetch lands, which repainted the old Continue Watching. Check again later.
+        const REFRESH_AFTER_MS = [2500, 10_000, 25_000];
+        let refreshTimers: number[] = [];
+        const clearRefreshTimers = () => {
+            refreshTimers.forEach((id) => window.clearTimeout(id));
+            refreshTimers = [];
+        };
         const onProgress = (event: Event) => {
             const detail = (event as CustomEvent<{ ratingKey?: string; item?: PlayerItem; dropContinue?: boolean; watched?: boolean; continueWith?: PlayerItem | null; advanceContinue?: boolean; restoreContinue?: PlayerItem | null }>).detail;
             const key = String(detail?.ratingKey || '');
             if (!key) return;
+            clearRefreshTimers();
+            refreshTimers = REFRESH_AFTER_MS.map((delay) => window.setTimeout(() => {
+                const { refresh, active: homeActive } = progressRefreshRef.current;
+                if (homeActive) void refresh({ force: true, quietRetry: true });
+            }, delay));
             const drop = detail?.dropContinue === true;
             const advance = detail?.advanceContinue === true;
             const restore = detail?.watched === false ? (detail.restoreContinue || null) : null;
@@ -1096,12 +2149,18 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                     let nextList = withoutContinue(list);
                     if (!drop && seed && Number(seed.viewOffsetMs || 0) > 0 && !seed.watched) {
                         const familyKey = String(seed.grandparentRatingKey || seed.parentRatingKey || seed.ratingKey);
+                        const previous = list.find((row) => (
+                            watchTargetTouches(row, key)
+                            || watchTargetTouches(row, familyKey)
+                            || String(row.ratingKey) === String(seed.ratingKey)
+                        ));
+                        const card = keepContinueWatchingPoster(seed, previous);
                         const without = nextList.filter((row) => (
                             !watchTargetTouches(row, key)
                             && !watchTargetTouches(row, familyKey)
                             && String(row.ratingKey) !== String(seed.ratingKey)
                         ));
-                        nextList = [seed, ...without].slice(0, 20);
+                        nextList = [card, ...without].slice(0, 20);
                     }
                     return nextList;
                 };
@@ -1121,7 +2180,10 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             });
         };
         window.addEventListener(PLAYER_PROGRESS_EVENT, onProgress);
-        return () => window.removeEventListener(PLAYER_PROGRESS_EVENT, onProgress);
+        return () => {
+            clearRefreshTimers();
+            window.removeEventListener(PLAYER_PROGRESS_EVENT, onProgress);
+        };
     }, []);
 
     const patchWatched = useCallback((ratingKey: string, watched: boolean) => {
@@ -1146,13 +2208,16 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         setHome((prev) => {
             if (!prev) return prev;
             const filterItems = (list: PlayerItem[]) => list.filter((row) => row.ratingKey !== key);
-            return {
+            const next = {
                 ...prev,
                 continueWatching: filterItems(prev.continueWatching),
                 hubs: (prev.hubs || []).map((hub) => (
                     isContinueWatchingHub(hub) ? { ...hub, items: filterItems(hub.items) } : hub
                 )),
             };
+            // Home paints from this saved copy first: without it the card came straight back.
+            if (playerHomeHasRows(next)) writePlayerHomeCache(next);
+            return next;
         });
     }, []);
 
@@ -1262,6 +2327,23 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 />
             ) : null
         );
+        const onNowRail = (staggerIndex: number) => (
+            settings.showOnNowHome && onNowItems.length ? (
+                <PlayerRail
+                    key="home.onnow"
+                    title={t('mediaPlayerPage.liveTvOnNow')}
+                    rowId="home:onnow"
+                    items={onNowItems}
+                    density={homePosterDensity}
+                    staggerIndex={staggerIndex}
+                    onOpenItem={openItemOrTune}
+                    onPlay={onPlay}
+                    aspect="2/3"
+                    onViewAll={onOpenLiveTv}
+                    viewAllLabel={onOpenLiveTv ? t('common.viewAll') : undefined}
+                />
+            ) : null
+        );
         const recentRail = (row: { id: string; title: string; items: PlayerItem[]; hubKey?: string; identifier?: string }, staggerIndex: number) => (
             <PlayerRail
                 key={row.id}
@@ -1285,13 +2367,20 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             />
         );
 
+        const orderedHomeBuckets = (buckets: Record<string, React.ReactNode[]>) => (
+            applyHomeRowOrder(['continueWatching', 'onNow', 'recents'], settings.homeRowOrder)
+                .flatMap((id) => buckets[id] || [])
+        );
+
         if (isTvShell) {
-            const nodes: React.ReactNode[] = [];
+            const continueNodes: React.ReactNode[] = [];
+            const onNowNodes: React.ReactNode[] = [];
+            const recentNodes: React.ReactNode[] = [];
             let stagger = 0;
             const cwHub = plexHubs.find(isContinueWatchingHub);
             const cwItems = (cwHub?.items?.length ? cwHub.items : home.continueWatching) || [];
             if (showContinueWatchingRail && cwItems.length) {
-                nodes.push(hubRail(cwHub || {
+                continueNodes.push(hubRail(cwHub || {
                     title: t('mediaPlayerPage.continueWatching'),
                     identifier: 'home.continueWatching',
                     items: cwItems,
@@ -1301,54 +2390,76 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             }
             const watchlistNode = watchlistRail(stagger);
             if (watchlistNode) {
-                nodes.push(watchlistNode);
+                continueNodes.push(watchlistNode);
+                stagger += 1;
+            }
+            const onNowNode = onNowRail(stagger);
+            if (onNowNode) {
+                onNowNodes.push(onNowNode);
                 stagger += 1;
             }
             const becauseHubs = plexHubs.filter(isBecauseYouWatchedHub);
             const others = plexHubs.filter((hub) => !isContinueWatchingHub(hub) && !isBecauseYouWatchedHub(hub));
             for (const hub of others) {
-                nodes.push(hubRail(hub, stagger));
+                recentNodes.push(hubRail(hub, stagger));
                 stagger += 1;
             }
             if (!others.some(isRecentHub)) {
                 for (const row of recentRails) {
-                    nodes.push(recentRail(row, stagger));
+                    recentNodes.push(recentRail(row, stagger));
                     stagger += 1;
                 }
             }
             if (settings.showBecauseYouWatched) {
                 for (const hub of becauseHubs) {
-                    nodes.push(hubRail(hub, stagger));
+                    recentNodes.push(hubRail(hub, stagger));
                     stagger += 1;
                 }
             }
-            return nodes;
+            return orderedHomeBuckets({
+                continueWatching: continueNodes,
+                onNow: onNowNodes,
+                recents: recentNodes,
+            });
         }
 
         if (hasPlexContentHubs) {
             const becauseHubs = plexHubs.filter(isBecauseYouWatchedHub);
             const rest = plexHubs.filter((hub) => !isBecauseYouWatchedHub(hub));
             const hubs = [...rest, ...(settings.showBecauseYouWatched ? becauseHubs : [])];
-            const nodes: React.ReactNode[] = [];
+            const continueNodes: React.ReactNode[] = [];
+            const onNowNodes: React.ReactNode[] = [];
+            const recentNodes: React.ReactNode[] = [];
             let insertedWatchlist = false;
             hubs.forEach((hub, hubIndex) => {
-                nodes.push(hubRail(hub, hubIndex));
-                if (!insertedWatchlist && isContinueWatchingHub(hub)) {
+                if (isContinueWatchingHub(hub)) {
+                    continueNodes.push(hubRail(hub, hubIndex));
                     const watchlistNode = watchlistRail(hubIndex + 0.5);
-                    if (watchlistNode) nodes.push(watchlistNode);
+                    if (watchlistNode) continueNodes.push(watchlistNode);
                     insertedWatchlist = true;
+                } else {
+                    recentNodes.push(hubRail(hub, hubIndex));
                 }
             });
             if (!insertedWatchlist) {
                 const watchlistNode = watchlistRail(0);
-                if (watchlistNode) nodes.unshift(watchlistNode);
+                if (watchlistNode) continueNodes.unshift(watchlistNode);
             }
-            return nodes;
+            const onNowNode = onNowRail(0.6);
+            if (onNowNode) onNowNodes.push(onNowNode);
+            return orderedHomeBuckets({
+                continueWatching: continueNodes,
+                onNow: onNowNodes,
+                recents: recentNodes,
+            });
         }
         return applyHomeRowOrder(
-            ['continueWatching', 'recents'],
+            ['continueWatching', 'onNow', 'recents'],
             settings.homeRowOrder,
         ).map((id, rowIndex) => {
+            if (id === 'onNow') {
+                return <React.Fragment key="onNow">{onNowRail(rowIndex)}</React.Fragment>;
+            }
             if (id === 'continueWatching') {
                 return (
                     <React.Fragment key="continueWatching">
@@ -1416,7 +2527,10 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         layoutContinueWatching,
         onOpenHub,
         onOpenItem,
+        openItemOrTune,
         onOpenWatchlist,
+        onOpenLiveTv,
+        onNowItems,
         onPlay,
         plexHubs,
         railMenuProps,
@@ -1430,6 +2544,8 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         t,
         toggleWatched,
         watchlistItems,
+        onNowItems,
+        settings.showOnNowHome,
     ]);
 
     const waitingForFullHome = Boolean(home?.partial) && !error && !hasRails;
@@ -1457,24 +2573,156 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         );
     }
 
+    // Opening a result keeps the search (even before the idle timer) and the title it found.
+    const openFromSearch = (item: PlayerItem) => {
+        const trimmed = query.trim();
+        if (trimmed.length >= 2) setRecentSearches(rememberRecentSearch(trimmed));
+        setSearchOpened(rememberSearchOpened(item));
+        onOpenItem(item);
+    };
+
+    const searchResultsNode = query.trim().length >= 2 ? (
+        <div
+            className="flex flex-col gap-6"
+            data-tv-search-results={isTvShell ? '1' : undefined}
+        >
+            {searching && !results.length ? (
+                <DiscoverSectionHeader title={t('common.searching')} />
+            ) : null}
+            {isTvShell ? searchGroups.map((group) => (
+                group.id === 'episode' ? (
+                    <section
+                        key={group.id}
+                        data-tv-row="1"
+                        data-tv-row-id={`search:${group.id}`}
+                        className="flex min-w-0 max-w-full flex-col gap-2"
+                    >
+                        <DiscoverSectionHeader title={group.title} />
+                        <div
+                            data-tv-poster-grid="1"
+                            className={`${upgraderPosterGridClass(homePosterDensity)} px-3`}
+                            style={{
+                                ...upgraderLandscapeGridStyle(homePosterDensity),
+                                columnGap: '1.5rem',
+                                rowGap: '2.25rem',
+                            }}
+                        >
+                            {group.items.map((item) => (
+                                <PlayerPosterCard
+                                    key={item.ratingKey}
+                                    item={item}
+                                    aspect={group.aspect}
+                                    onOpenItem={openFromSearch}
+                                    onPlay={onPlay}
+                                    onToggleWatched={toggleWatched}
+                                    onPlayNext={onPlayNext}
+                                    onWatchedChange={(row, watched) => patchWatched(row.ratingKey, watched)}
+                                    onRemovedFromContinueWatching={removeFromContinueWatching}
+                                    onDeleted={removeItemEverywhere}
+                                    onToast={onToast}
+                                    isAdmin={isAdmin}
+                                    playlistsEnabled={playlistsEnabled}
+                                />
+                            ))}
+                        </div>
+                    </section>
+                ) : (
+                    <PlayerRail
+                        key={group.id}
+                        title={group.title}
+                        rowId={`search:${group.id}`}
+                        items={group.items}
+                        density={homePosterDensity}
+                        aspect={group.aspect}
+                        onOpenItem={openFromSearch}
+                        onPlay={onPlay}
+                        onToggleWatched={toggleWatched}
+                        onPlayNext={onPlayNext}
+                        onWatchedChange={(row, watched) => patchWatched(row.ratingKey, watched)}
+                        onRemovedFromContinueWatching={removeFromContinueWatching}
+                        onDeleted={removeItemEverywhere}
+                        onToast={onToast}
+                        isAdmin={isAdmin}
+                        playlistsEnabled={playlistsEnabled}
+                    />
+                )
+            )) : searchGroups.map((group) => (
+                <section
+                    key={group.id}
+                    className="flex flex-col gap-3"
+                >
+                    <DiscoverSectionHeader title={group.title} />
+                    <div
+                        className={upgraderPosterGridClass(gridSize)}
+                        style={group.aspect === '16/9' ? upgraderLandscapeGridStyle(gridSize) : upgraderPosterGridStyle(gridSize)}
+                    >
+                        {group.items.map((item) => (
+                            <PlayerPosterCard
+                                key={item.ratingKey}
+                                item={item}
+                                aspect={group.aspect}
+                                onOpenItem={openFromSearch}
+                                onPlay={onPlay}
+                                onToggleWatched={toggleWatched}
+                                onPlayNext={onPlayNext}
+                                onWatchedChange={(row, watched) => patchWatched(row.ratingKey, watched)}
+                                onRemovedFromContinueWatching={removeFromContinueWatching}
+                                onDeleted={removeItemEverywhere}
+                                onToast={onToast}
+                                isAdmin={isAdmin}
+                                playlistsEnabled={playlistsEnabled}
+                            />
+                        ))}
+                    </div>
+                </section>
+            ))}
+            {!searching && !results.length ? (
+                isTvShell ? <PlayerTvSearchNotice query={query} kind="none" /> : (
+                    <div className={discoveryTheme.emptyState}>
+                        <p className={discoveryTheme.emptyTitle}>{t('mediaPlayerPage.emptySearch')}</p>
+                    </div>
+                )
+            ) : null}
+        </div>
+    ) : null;
+
     return (
-        <div className={tvStage
+        <div className={isTvShell
             ? 'tv-poster-rows player-home-page player-home-stage'
-            : `tv-poster-rows player-home-page flex flex-col pb-8 ${isTvShell ? 'player-home-rows' : 'gap-6'}`
+            : 'tv-poster-rows player-home-page flex flex-col gap-6 pb-8'
         }>
-            <HomeFocusStill
-                enabled={tvStage && active}
-                seed={tvStage ? tvStageStillSeed : ''}
-                onFocusKey={tvStage ? setTvFocusKey : undefined}
+            <PlayerPullToRefresh
+                enabled={!isTvShell && active && !searchActive && isPhoneUi()}
+                onRefresh={pullToRefresh}
             />
-            {tvStage ? (
-                <HomeSpot
-                    item={tvSpotItem}
-                    rowId={tvActiveRow?.id || ''}
+            {tvStage && !searchActive ? (
+                <TvHomeBillboard
+                    enabled={tvStage && !searchActive}
+                    active={active}
+                    row={tvActiveRow}
                     rowDir={tvRowDir}
+                    restoreKey={
+                        (tvActiveRow && (tvRowFocusRef.current[tvActiveRow.id] || tvFocusKeyRef.current)) || ''
+                    }
+                    detailsArtworkTint={settings.detailsArtworkTint}
+                    liteBillboard={settings.liteBillboard}
+                    onFocusKey={noteTvFocusKey}
+                    stack={home && tvActiveRow ? (
+                        <PlayerTvRowStack
+                            rows={tvStackRows}
+                            activeIndex={tvRowSafeIndex}
+                            rowDir={tvRowDir}
+                            density={homePosterDensity}
+                            restoreFocusById={tvRowFocusRef.current}
+                            onOpenItem={openItemOrTune}
+                            onPlay={onPlay}
+                            onToggleWatched={toggleWatched}
+                            {...railMenuProps}
+                        />
+                    ) : null}
                 />
             ) : null}
-            {!isTvShell && !searchActive && heroSlides.length ? (
+            {!isTvShell && !phoneHome && !searchActive && heroSlides.length ? (
                 <MediaPlayerHomeHero
                     items={heroSlides}
                     effectiveMode={heroEffectiveMode}
@@ -1482,7 +2730,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                     onOpenItem={onOpenItem}
                     onPlay={onPlay}
                 />
-            ) : !isTvShell && !searchActive && heroPending ? (
+            ) : !isTvShell && !phoneHome && !searchActive && heroPending ? (
                 <PlayerHomeHeroSkeleton />
             ) : null}
             <h1 className="sr-only">{t('mediaPlayerPage.navHome')}</h1>
@@ -1520,61 +2768,39 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 </section>
             ) : null}
 
-            {searchActive ? (
-            <div className="relative" data-tv-rail={isTvShell ? '1' : undefined}>
-                <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-                <input
-                    id={PLAYER_SEARCH_INPUT_ID}
-                    ref={searchRef}
-                    value={query}
-                    readOnly={searchReadOnly}
-                    inputMode={searchReadOnly ? 'none' : 'search'}
-                    enterKeyHint="search"
-                    data-tv-item={isTvShell ? '1' : undefined}
-                    aria-label={t('mediaPlayerPage.searchPlaceholder')}
-                    onChange={(event) => setQuery(event.target.value)}
-                    onBlur={() => {
-                        if (isTvShell) setSearchArmed(false);
-                    }}
-                    onKeyDown={(event) => {
-                        if (!isTvShell) return;
-                        if (searchArmed) return;
-                        if (event.key !== 'Enter' && event.key !== ' ') return;
-                        event.preventDefault();
-                        event.stopPropagation();
-                        setSearchArmed(true);
-                    }}
-                    onClick={() => {
-                        // Touch / mouse: open IME. TV D-pad focus alone must not.
-                        if (isTvShell && !searchArmed) setSearchArmed(true);
-                    }}
-                    placeholder={t('mediaPlayerPage.searchPlaceholder')}
-                    className={discoveryTheme.searchInput}
-                />
-            </div>
-            ) : null}
-
-            {query.trim().length >= 2 ? (
-                <div className="flex flex-col gap-6">
-                    {searching && !results.length ? (
-                        <DiscoverSectionHeader title={t('common.searching')} />
-                    ) : null}
-                    {searchGroups.map((group) => (
-                        <section key={group.id} className="flex flex-col gap-3">
-                            <DiscoverSectionHeader title={group.title} />
-                            <div
-                                data-tv-browse-grid={isTvShell ? '1' : undefined}
-                                data-tv-rail={isTvShell ? '1' : undefined}
-                                className={upgraderPosterGridClass(gridSize)}
-                                style={group.aspect === '16/9' ? upgraderLandscapeGridStyle(gridSize) : upgraderPosterGridStyle(gridSize)}
-                            >
-                                {group.items.map((item, index) => (
-                                    <PlayerPosterCard
-                                        key={item.ratingKey}
-                                        item={item}
-                                        browseIndex={isTvShell ? index : undefined}
-                                        aspect={group.aspect}
-                                        onOpenItem={onOpenItem}
+            {isTvShell && searchActive ? (
+                <div data-tv-search="1">
+                    <PlayerTvSearch
+                        query={query}
+                        onChange={setQuery}
+                    />
+                    <div data-tv-search-body="1" className="player-tv-search-body">
+                        {query.trim().length >= 2 ? searchResultsNode : query.trim() ? (
+                            <PlayerTvSearchNotice query={query} kind="short" />
+                        ) : (
+                            <PlayerTvSearchHistory
+                                recent={recentSearches}
+                                onPick={(value) => {
+                                    // Run it again; focus follows into the results when they land.
+                                    focusSearchResultsRef.current = true;
+                                    setSearching(true);
+                                    setQuery(value);
+                                }}
+                                onClear={() => {
+                                    setRecentSearches(clearRecentSearches());
+                                    setSearchOpened([]);
+                                    window.setTimeout(() => {
+                                        document.querySelector<HTMLElement>(`[data-tv-search-key="${TV_SEARCH_FIRST_KEY}"]`)?.focus();
+                                    }, 40);
+                                }}
+                                openedRow={searchOpened.length ? (
+                                    <PlayerRail
+                                        title={t('mediaPlayerPage.searchOpenedFrom')}
+                                        rowId="search:opened"
+                                        items={searchOpened}
+                                        density={homePosterDensity}
+                                        aspect="2/3"
+                                        onOpenItem={openFromSearch}
                                         onPlay={onPlay}
                                         onToggleWatched={toggleWatched}
                                         onPlayNext={onPlayNext}
@@ -1585,17 +2811,29 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                                         isAdmin={isAdmin}
                                         playlistsEnabled={playlistsEnabled}
                                     />
-                                ))}
-                            </div>
-                        </section>
-                    ))}
-                    {!searching && !results.length ? (
-                        <div className={discoveryTheme.emptyState}>
-                            <p className={discoveryTheme.emptyTitle}>{t('mediaPlayerPage.emptySearch')}</p>
-                        </div>
-                    ) : null}
+                                ) : null}
+                            />
+                        )}
+                    </div>
                 </div>
+            ) : searchActive ? (
+            <div className="relative">
+                <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+                <input
+                    id={PLAYER_SEARCH_INPUT_ID}
+                    ref={searchRef}
+                    value={query}
+                    inputMode="search"
+                    enterKeyHint="search"
+                    aria-label={t('mediaPlayerPage.searchPlaceholder')}
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder={t('mediaPlayerPage.searchPlaceholder')}
+                    className={discoveryTheme.searchInput}
+                />
+            </div>
             ) : null}
+
+            {isTvShell && searchActive ? null : searchResultsNode}
 
             {!isTvShell && error ? (
                 <div className={discoveryTheme.emptyState}>
@@ -1603,28 +2841,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 </div>
             ) : null}
 
-            {isTvShell && (homeStale || !networkOnline) && home && !query.trim() ? (
-                <div
-                    data-tv-row={tvStage ? undefined : '1'}
-                    className={tvStage
-                        ? 'player-home-stage-banner rounded-xl border border-amber-400/20 bg-amber-500/10 px-4 py-3'
-                        : 'flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-400/20 bg-amber-500/10 px-4 py-3'}
-                    aria-live="polite"
-                >
-                    <p className="text-sm text-amber-100/90">{t('mediaPlayerPage.showingSavedHome')}</p>
-                    <button
-                        type="button"
-                        data-tv-item={tvStage ? undefined : '1'}
-                        data-tv-action={tvStage ? undefined : '1'}
-                        onClick={() => void refreshHome({ force: true })}
-                        className="mt-2 shrink-0 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-bold text-white outline-none ring-plex/40 focus-visible:ring-2"
-                    >
-                        {t('common.retry')}
-                    </button>
-                </div>
-            ) : null}
-
-            {!query.trim() && home && tvStage && longPressHint ? (
+            {!searchActive && !query.trim() && home && tvStage && longPressHint ? (
                 <div
                     className="player-home-stage-banner mb-2 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.06] px-4 py-3"
                     aria-live="polite"
@@ -1645,43 +2862,13 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 </div>
             ) : null}
 
-            {!query.trim() && home && tvStage && tvActiveRow ? (
-                <div className="player-home-stage-rail">
-                    <PlayerRail
-                        key={tvActiveRow.id}
-                        title={tvActiveRow.title}
-                        rowId={`hub:${tvActiveRow.id}`}
-                        restoreFocusKey={tvRowFocusRef.current[tvActiveRow.id]}
-                        items={tvActiveRow.items}
-                        density={homePosterDensity}
-                        staggerIndex={0}
-                        onOpenItem={onOpenItem}
-                        onPlay={onPlay}
-                        onToggleWatched={toggleWatched}
-                        showProgress={tvActiveRow.showProgress}
-                        showRemoveFromContinueWatching={tvActiveRow.showRemoveFromContinueWatching}
-                        aspect={tvActiveRow.aspect}
-                        onViewAll={tvActiveRow.onViewAll}
-                        viewAllLabel={tvActiveRow.onViewAll ? t('common.viewMore') : undefined}
-                        viewMoreShelf={tvActiveRow.viewMoreShelf}
-                        {...railMenuProps}
-                    />
-                    {tvNextRow ? (
-                        <div className="player-home-next-row" aria-hidden="true">
-                            <div className="player-row-header">
-                                <span className="player-row-header-mark" />
-                                <p className="player-row-header-title truncate">{tvNextRow.title}</p>
-                            </div>
-                        </div>
-                    ) : null}
-                </div>
-            ) : !query.trim() && home && !tvStage ? (
-                <div className="player-home-rows flex min-w-0 flex-col gap-6">
+            {!searchActive && !query.trim() && home && !tvStage ? (
+                <div className="player-home-rows flex min-w-0 flex-col gap-6 max-md:gap-3">
                     {homeSections}
                 </div>
             ) : null}
 
-            {!query.trim() && !error && !hasRails && !home?.partial ? (
+            {!searchActive && !query.trim() && !error && !hasRails && !home?.partial ? (
                 isTvShell ? (
                     <PlayerTvStatusPanel
                         title={t('mediaPlayerPage.emptyHome')}
@@ -1692,6 +2879,28 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                         <p className={discoveryTheme.emptyTitle}>{t('mediaPlayerPage.emptyHome')}</p>
                     </div>
                 )
+            ) : null}
+
+            {isTvShell && home ? (
+                <PlayerTvScreensaver
+                    enabled={Boolean(active && !query.trim())}
+                    continueWatchingItems={
+                        tvHomeRows.find((row) => /continue|ondeck/i.test(row.id))?.items
+                        || home.continueWatching
+                        || []
+                    }
+                    recommendedItems={
+                        plexHubs
+                            .filter(isBecauseYouWatchedHub)
+                            .flatMap((hub) => hub.items || [])
+                    }
+                    source={settings.screensaverSource}
+                    sourceLabel={t(PLAYER_SCREENSAVER_SOURCE_LABEL_KEYS[settings.screensaverSource])}
+                    shiftClock={settings.screensaverShiftClock}
+                    delayMs={settings.screensaverDelayMin * 60_000}
+                    slideMs={settings.screensaverSlideSec * 1000}
+                    look={settings.screensaverStyle}
+                />
             ) : null}
         </div>
     );

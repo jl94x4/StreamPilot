@@ -8,6 +8,7 @@ import { ChatEmojiPicker } from './ChatEmojiPicker';
 import { insertAtCursor } from './insertAtCursor';
 import { useVisualViewportInset } from './useVisualViewportInset';
 import { apiFetch } from '../shared/api';
+import { ChatMessagesSkeleton, ChatPageSkeleton } from '../shared/skeletons';
 import { portalUrl } from '../shared/basePath';
 import { DashboardHero, DashboardPageShell } from '../shared/dashboard/DashboardChrome';
 import { formatDateTime } from '../shared/format';
@@ -173,8 +174,9 @@ export const ChatRoom: React.FC<Props> = ({ sessionInfo, onCountsChange, initial
         goToProfile(undefined, userId);
     }, []);
 
-    const toast = useCallback((message: string, type: ToastMessage['type'] = 'info') => {
-        pushToast(setToasts, message, type);
+    const toast = useCallback((message: string, type: ToastMessage['type'] | 'info' = 'info') => {
+        // Toasts only come in green (success) and red (error): info reads as success.
+        setToasts((prev) => pushToast(prev, message, type === 'error' ? 'error' : 'success'));
     }, []);
 
     const openConfirm = useCallback((opts: ConfirmDialogState & { onConfirm: () => void | Promise<void> }) => {
@@ -548,11 +550,17 @@ export const ChatRoom: React.FC<Props> = ({ sessionInfo, onCountsChange, initial
 
     if (loading) {
         return (
-            <DashboardPageShell>
-                <div className="flex min-h-[50vh] items-center justify-center text-muted">
-                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                    Loading chat…
+            <DashboardPageShell className="gap-3">
+                <div className="hidden md:block">
+                    <DashboardHero
+                        eyebrow="Community"
+                        title="Live chat"
+                        description="Talk with everyone on this server in real time. Admins can create text channels for different topics."
+                        icon={<MessageSquare className="h-3.5 w-3.5" />}
+                    />
                 </div>
+                <span className="sr-only" role="status">Loading chat…</span>
+                <ChatPageSkeleton />
             </DashboardPageShell>
         );
     }
@@ -691,10 +699,10 @@ export const ChatRoom: React.FC<Props> = ({ sessionInfo, onCountsChange, initial
                                 onScroll={updateStickToBottom}
                             >
                                 {messagesLoading && !messages.length ? (
-                                    <div className="flex items-center justify-center py-10 text-muted">
-                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                        Loading messages…
-                                    </div>
+                                    <>
+                                        <span className="sr-only" role="status">Loading messages…</span>
+                                        <ChatMessagesSkeleton />
+                                    </>
                                 ) : null}
                                 {messages.map((message) => {
                                     const mine = String(message.user.id) === currentUserId;

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
 import ReactDOM from 'react-dom';
-import { Home, Film, Activity, Sparkles, LogOut, Settings, FileText, BarChart3, Users, PlaySquare, TrendingUp, X, Star, Layers, HardDrive, Calendar, Tv, Clock, DownloadCloud, MonitorSmartphone, Copy, ChevronUp, ChevronDown, List, Palette, Music, Play, Pause, Upload, Shield, CheckCircle, AlertCircle, RefreshCw, ChevronLeft, ChevronRight, Trophy, PlayCircle, Coffee, Compass, PieChart, Clapperboard, AlertTriangle, Check, Cpu, Monitor, LineChart as LucideLineChart, Share2, Search, BookOpen, Loader2, Eye, EyeOff, ClipboardList, ArrowUpCircle, MoreHorizontal, ExternalLink, Info, GitFork, MapPin, Radar, Image as ImageIcon, SlidersHorizontal, LifeBuoy, MessageSquare, User, Mail, AppWindow, Wand2 } from 'lucide-react';
+import { Home, Film, Activity, Sparkles, LogOut, Settings, FileText, BarChart3, Users, PlaySquare, TrendingUp, X, Star, Layers, HardDrive, Calendar, Tv, Clock, DownloadCloud, MonitorSmartphone, Copy, ChevronUp, ChevronDown, List, Palette, Music, Play, Pause, Upload, Shield, CheckCircle, AlertCircle, RefreshCw, ChevronLeft, ChevronRight, Trophy, PlayCircle, Coffee, Compass, PieChart, Clapperboard, AlertTriangle, Check, Cpu, Monitor, LineChart as LucideLineChart, Share2, Search, BookOpen, Loader2, Eye, EyeOff, ClipboardList, ArrowUpCircle, MoreHorizontal, ExternalLink, Info, GitFork, MapPin, Radar, Image as ImageIcon, SlidersHorizontal, LifeBuoy, MessageSquare, User as UserIcon, Mail, AppWindow, Wand2 } from 'lucide-react';
 import { ResponsiveContainer, LineChart, Line, BarChart, Bar, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, PieChart as RechartsPieChart, Pie, Cell } from 'recharts';
 
 import { TitleAnalyticsPage } from './dashboard/TitleAnalyticsPage';
@@ -11,8 +11,10 @@ import {
     writeDashboardSearchQuery,
 } from './dashboard/dashboardTitlePath';
 import { EmailSelectedUsersModal } from './settings/EmailSelectedUsersModal';
+import { PlexUserPermissions } from './settings/PlexSharePermissions';
+import { ExtensionRequestsAdmin } from './extension/ExtensionRequestsAdmin';
 import { LibraryMaintenancePanel } from './maintenance/LibraryMaintenancePanel';
-import { appConfirm, askConfirm } from './shared/confirm';
+import { appAlert, appConfirm, askConfirm } from './shared/confirm';
 import { apiFetch, apiFetchShared } from './shared/api';
 import { InAppNotificationsBell } from './shared/InAppNotificationsBell';
 import { IN_APP_NOTIFICATIONS_CHANGED_EVENT } from './shared/inAppNotificationsRefresh';
@@ -64,6 +66,13 @@ import { applyAppletPaletteOrder, getAppletPaletteAccountKey, readAppletPaletteO
 import { buildArrPortalEmbedHref } from '../lib/arr-portal-embed.js';
 import type { CustomNavTab } from './shared/types';
 import { isFirefoxMobileClient, useFirefoxMobileNavShell } from './shared/useFirefoxMobileNavShell';
+import {
+    clearDeferredInstallPrompt,
+    subscribeInstallPrompt,
+    wasInstallPromptSeenThisSession,
+    type BeforeInstallPromptEvent,
+} from './shared/pwaInstallPrompt';
+import { isIosDevice } from './shared/webPushSubscribe';
 import { ProfileBadgeRack, AchievementsHomeWidget } from './achievements/AchievementsDashboard';
 import { AchievementsAnalyticsLeaderboard } from './achievements/AchievementsAnalyticsLeaderboard';
 import { goToProfile } from './profile/helpers';
@@ -262,11 +271,7 @@ declare global {
     }
 }
 
-type BeforeInstallPromptEvent = Event & {
-    prompt: () => Promise<void>;
-    userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
-};
-
+const HOME_SCREEN_FALLBACK_REV = 'hs13-ios-centered';
 
 export const updateFavicon = (thumbUrl: string | null | undefined) => {
     let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
@@ -283,12 +288,34 @@ export const updateFavicon = (thumbUrl: string | null | undefined) => {
         appleLink.setAttribute('sizes', '180x180');
         document.head.appendChild(appleLink);
     }
-    // Prefer static PNG (never rate-limited JSON). Well-known /apple-touch-icon.png
-    // is also served as a real file for Safari's automatic A2HS probe.
-    const version = encodeURIComponent(String(thumbUrl || 'default').slice(-64));
-    const href = portalUrl(`/static/apple-touch-icon.png?v=${version}&hs=8`);
-    link.href = href;
-    appleLink.href = href;
+    // Prefer the server-stamped apple-touch path (rev + cache key in the filename).
+    // Never add a ?query — iOS 26+ "Open as Web App" rendered a letter glyph for every
+    // query-string icon URL. Always keep a same-origin relative URL — absolute
+    // publicDomain hosts the phone cannot reach also fall back to a letter.
+    void thumbUrl;
+    const sameOriginPath = (raw: string, fallback: string) => {
+        try {
+            if (/^https?:\/\//i.test(raw) && typeof window !== 'undefined') {
+                const parsed = new URL(raw, window.location.origin);
+                if (parsed.origin === window.location.origin) return `${parsed.pathname}${parsed.search}`;
+                return fallback;
+            }
+        } catch {
+            return fallback;
+        }
+        return raw || fallback;
+    };
+    const appleFallback = portalUrl(`/static/apple-touch-${HOME_SCREEN_FALLBACK_REV}.png`);
+    const faviconFallback = portalUrl('/static/favicon-180.png');
+    const appleRaw = typeof window !== 'undefined'
+        ? String((window as any).__APPLE_TOUCH_ICON_HREF__ || '').trim()
+        : '';
+    const faviconRaw = typeof window !== 'undefined'
+        ? String((window as any).__FAVICON_HREF__ || '').trim()
+        : '';
+    appleLink.href = sameOriginPath(appleRaw, appleFallback);
+    appleLink.setAttribute('sizes', '512x512');
+    link.href = sameOriginPath(faviconRaw, faviconFallback);
 };
 
 // --- Components ---
@@ -476,7 +503,7 @@ const UserCard: React.FC<{
                         onClick={onViewProfile}
                         title={t('usersAdmin.actions.viewProfile')}
                     >
-                        <User className="w-3.5 h-3.5" />
+                        <UserIcon className="w-3.5 h-3.5" />
                         {t('usersAdmin.actions.viewProfile')}
                     </button>
                 )}
@@ -847,6 +874,12 @@ const UserModal: React.FC<{ isOpen: boolean; onClose: () => void; onSave: (user:
                         </div>
                     )}
                 </div>
+
+                {user?.id ? (
+                    <div className="mt-2 pt-4 border-t border-border">
+                        <PlexUserPermissions userId={user.id} />
+                    </div>
+                ) : null}
 
                 <div className="mt-2 pt-4 border-t border-border">
                     <h3 className="text-lg font-bold text-text mb-1">{t('navigation.requests')}</h3>
@@ -4317,7 +4350,7 @@ export const AnalyticsDashboard: React.FC<{ isAdmin: boolean, sessionInfo: any, 
         let cancelled = false;
         let attempts = 0;
         const maxAttempts = 24;
-        let timer: ReturnType<typeof window.setTimeout> | undefined;
+        let timer: number | undefined;
         const poll = () => {
             if (cancelled || attempts >= maxAttempts) return;
             attempts += 1;
@@ -6166,6 +6199,7 @@ export const AdminDashboard: React.FC<{ onLogout: () => void, onViewUserPortal: 
             />
 
             <main>
+                {isConfigured && <ExtensionRequestsAdmin addToast={addToast} onChanged={fetchUsers} />}
                 {isConfigured && (
                     <section className="mb-6">
                         <div className={`${statsCollapsed ? '' : 'mb-3'} flex items-center justify-between gap-3`}>
@@ -7217,7 +7251,7 @@ export { WrapUpModal } from './shared/WrapUpModal';
 
 
 export const DiscoverPosterCard: React.FC<{
-    item: { title: string; thumb?: string; thumbUrl?: string; posterFallbackUrl?: string; plexUrl: string; tags?: string[]; year?: number | string; parentTitle?: string; ratingKey?: string };
+    item: { title: string; thumb?: string; thumbUrl?: string; posterFallbackUrl?: string; plexUrl: string; tags?: string[]; year?: number | string; parentTitle?: string; ratingKey?: string; mediaType?: string; type?: string };
     aspect?: '2/3' | 'square' | '16/9';
     overlay?: React.ReactNode;
     variant?: 'discover' | 'home';
@@ -7258,7 +7292,10 @@ export const DiscoverPosterCard: React.FC<{
         : 'player-poster-frame relative rounded-[12px] overflow-hidden border border-border group-hover:border-plex transition-colors bg-card'}${frameClassName ? ` ${frameClassName}` : ''}`;
 
     const remoteThumb = typeof item.thumb === 'string' && /^https?:\/\//i.test(item.thumb);
-    const primaryPosterSrc = item.thumbUrl
+    const readyThumb = String(item.thumbUrl || item.thumb || '');
+    const primaryPosterSrc = /^(blob|data):/i.test(readyThumb)
+        ? readyThumb
+        : item.thumbUrl
         ? resolvePortalAssetUrl(item.thumbUrl)
         : remoteThumb
             ? resolvePortalAssetUrl(item.thumb)
@@ -7657,9 +7694,11 @@ const PortalWidgetEditorModal: React.FC<{
             onChange(normalizeLayout({ ...layout, sections: moveDashboardItemTo(layout.sections, source.index, targetIndex) }));
             return;
         }
-        const items = list === 'main' ? layout.mainGridOrder : layout.recentlyAddedOrder;
-        const next = moveDashboardItemTo(items, source.index, targetIndex);
-        onChange(normalizeLayout(list === 'main' ? { ...layout, mainGridOrder: next } : { ...layout, recentlyAddedOrder: next }));
+        if (list === 'main') {
+            onChange(normalizeLayout({ ...layout, mainGridOrder: moveDashboardItemTo(layout.mainGridOrder, source.index, targetIndex) }));
+            return;
+        }
+        onChange(normalizeLayout({ ...layout, recentlyAddedOrder: moveDashboardItemTo(layout.recentlyAddedOrder, source.index, targetIndex) }));
     };
 
     const selectOrMove = (list: 'sections' | 'main' | 'recent', index: number) => {
@@ -9902,13 +9941,13 @@ const StreamDetailsModal: React.FC<{ session: any, onClose: () => void, isAdmin?
                 body: JSON.stringify({ sessionId: session.sessionId, reason: killReason })
             });
             if (res.error) {
-                alert(res.error);
+                void appAlert(String(res.error), { title: 'Could not stop the stream' });
             } else {
                 onClose();
                 if (onKilled) onKilled();
             }
         } catch (e: any) {
-            alert('Failed to kill stream');
+            void appAlert('The server did not respond. Try again in a moment.', { title: 'Could not stop the stream' });
         } finally {
             setIsKilling(false);
         }
@@ -12255,7 +12294,7 @@ export const MaintenanceDashboard: React.FC = () => {
 interface NavigationProps {
     currentRoute: string;
     onNavigate: (
-        route: 'admin' | 'user' | 'status' | 'dashboard' | 'settings' | 'logs' | 'analytics' | 'downloads' | 'mediastack' | 'maintenance' | 'upgrader' | 'collexions' | 'spotify-sync' | 'scanner' | 'media-automation' | 'poster-sets' | 'overlays' | 'editions' | 'watch-sync' | 'requests' | 'discovery' | 'about' | 'achievements' | 'support' | 'chat' | 'preferences' | 'profile' | 'external',
+        route: 'admin' | 'user' | 'status' | 'dashboard' | 'settings' | 'logs' | 'analytics' | 'downloads' | 'mediastack' | 'maintenance' | 'upgrader' | 'collexions' | 'spotify-sync' | 'scanner' | 'media-automation' | 'poster-sets' | 'overlays' | 'editions' | 'watch-sync' | 'requests' | 'discovery' | 'about' | 'achievements' | 'support' | 'chat' | 'preferences' | 'help' | 'profile' | 'external',
         options?: { hash?: string; reviewId?: number; path?: string },
     ) => void;
     onLogout: () => void;
@@ -12437,11 +12476,10 @@ export const Navigation: React.FC<NavigationProps> = ({ currentRoute, onNavigate
         && /Android/i.test(navigator.userAgent)
         && /Chrome|CriOS|EdgA|SamsungBrowser/i.test(navigator.userAgent)
         && !/Firefox/i.test(navigator.userAgent);
-    const isIosSafari = typeof navigator !== 'undefined'
-        && /iPhone|iPad|iPod/i.test(navigator.userAgent)
-        && /WebKit/i.test(navigator.userAgent)
-        && !/CriOS|FxiOS|EdgiOS|OPiOS|Chrome|Android/i.test(navigator.userAgent);
-    const showInstallNudge = !isInstalledApp && !installBannerDismissed && (!!installPrompt || isIosSafari || isFirefoxMobile);
+    // iOS never fires beforeinstallprompt — Share → Add to Home Screen only.
+    // Include iPadOS desktop UA + Chrome/Firefox on iOS (same WebKit A2HS path).
+    const isIosInstallClient = isIosDevice();
+    const showInstallNudge = !isInstalledApp && !installBannerDismissed && (!!installPrompt || isIosInstallClient || isFirefoxMobile);
     const [installDiag, setInstallDiag] = useState<string[] | null>(null);
 
     const dismissInstallBanner = useCallback(() => {
@@ -12480,12 +12518,12 @@ export const Navigation: React.FC<NavigationProps> = ({ currentRoute, onNavigate
     }, [profileOpen, navFeatures?.achievements]);
 
     useEffect(() => {
-        const handleBeforeInstallPrompt = (event: Event) => {
-            event.preventDefault();
-            setInstallPrompt(event as BeforeInstallPromptEvent);
-        };
+        const unsubscribe = subscribeInstallPrompt((event) => {
+            setInstallPrompt(event);
+        });
         const handleInstalled = () => {
             setIsInstalledApp(true);
+            clearDeferredInstallPrompt();
             setInstallPrompt(null);
             setInstallHelpOpen(false);
             dismissInstallBanner();
@@ -12499,12 +12537,11 @@ export const Navigation: React.FC<NavigationProps> = ({ currentRoute, onNavigate
             if (installed) dismissInstallBanner();
         };
         syncInstalledState();
-        window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
         window.addEventListener('appinstalled', handleInstalled);
         const standaloneMq = window.matchMedia?.('(display-mode: standalone)');
         standaloneMq?.addEventListener?.('change', syncInstalledState);
         return () => {
-            window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+            unsubscribe();
             window.removeEventListener('appinstalled', handleInstalled);
             standaloneMq?.removeEventListener?.('change', syncInstalledState);
         };
@@ -12532,10 +12569,25 @@ export const Navigation: React.FC<NavigationProps> = ({ currentRoute, onNavigate
                             notes.push('No service worker registered yet — Chrome Android needs one for Install (not just Create shortcut). Reload once over HTTPS and try again.');
                         } else if (!navigator.serviceWorker.controller) {
                             notes.push('Service worker is registered but not controlling this page yet — reload once, then retry Install.');
+                        } else {
+                            const active = regs[0]?.active;
+                            if (active?.scriptURL) {
+                                notes.push(`Service worker: ${active.scriptURL} (scope ${regs[0]?.scope || '?'})`);
+                            }
                         }
                     } catch {
                         // ignore SW probe failures
                     }
+                }
+                try {
+                    const related = typeof (navigator as any).getInstalledRelatedApps === 'function'
+                        ? await (navigator as any).getInstalledRelatedApps()
+                        : null;
+                    if (Array.isArray(related) && related.length) {
+                        notes.push('Chrome reports a related app may already be installed — remove the home-screen icon / WebAPK, then clear site data if Install stays missing.');
+                    }
+                } catch {
+                    // ignore related-apps probe
                 }
                 const manifestLink = document.querySelector('link[rel="manifest"]') as HTMLLinkElement | null;
                 const manifestHref = manifestLink?.href || portalUrl('/manifest.webmanifest');
@@ -12564,11 +12616,16 @@ export const Navigation: React.FC<NavigationProps> = ({ currentRoute, onNavigate
                             notes.push(`Icon could not be fetched (${icon.sizes || '?'}).`);
                         }
                     }
-                    if (!notes.length) {
+                    const blockingNotes = notes.filter((n) => !n.startsWith('Service worker:'));
+                    if (!blockingNotes.length) {
                         if (isAndroidChrome && !installPrompt) {
-                            notes.push('Chrome has not marked this visit installable yet. Stay on the portal over HTTPS for ~30 seconds, tap once, reload, then try again. Or use More → Install App after Chrome fires the install prompt.');
+                            if (wasInstallPromptSeenThisSession()) {
+                                notes.push('Chrome offered Install earlier this visit, but the prompt was used or dismissed. Stay on the page, tap once, hard-reload, then try again — or use Chrome ⋮ → Install app.');
+                            } else {
+                                notes.push('Chrome has not marked this visit installable yet. Stay on the portal over HTTPS for ~30 seconds, tap once, then hard-reload (so the service worker updates). Or use Chrome’s menu ⋮ → Install app / Install page. If you only see Create shortcut, clear site data for this site and try again.');
+                            }
                         }
-                        notes.push('Manifest and icons look OK. Chrome Android: use the in-app Install button (top bar / More menu), or browser menu ⋮ → Install app. Firefox: menu ⋮ → Install. If you only see Create shortcut / Add to Home screen, open the portal over HTTPS, reload once, and clear site data if it still will not Install.');
+                        notes.push('Manifest and icons look OK. Chrome Android: in-app Install (top bar / More), or browser ⋮ → Install app. Firefox: ⋮ → Install.');
                     }
                 }
             } catch {
@@ -12586,21 +12643,22 @@ export const Navigation: React.FC<NavigationProps> = ({ currentRoute, onNavigate
         }
         // Firefox / iOS / most non-Chromium browsers never fire beforeinstallprompt —
         // always show manual install steps instead of appearing to do nothing.
-        if (!installPrompt || isFirefoxMobile || isIosSafari) {
+        if (!installPrompt || isFirefoxMobile || isIosInstallClient) {
             setInstallHelpOpen(true);
             return;
         }
         const promptEvent = installPrompt;
-        setInstallPrompt(null);
         dismissInstallBanner();
         try {
             await promptEvent.prompt();
             const choice = await promptEvent.userChoice;
+            // Event is spent after prompt() — clear only after choice settles.
+            clearDeferredInstallPrompt();
+            setInstallPrompt(null);
             if (choice.outcome === 'accepted') {
                 setIsInstalledApp(true);
                 addInstallToast(t('pwa.install.successBody', { server: serverName }), 'success');
             } else {
-                // User dismissed the browser prompt — keep banner quiet for this device.
                 dismissInstallBanner();
             }
         } catch {
@@ -12669,6 +12727,7 @@ export const Navigation: React.FC<NavigationProps> = ({ currentRoute, onNavigate
         'achievements': { label: t('navigation.achievements'), icon: Trophy, route: 'achievements', adminOnly: false },
         'chat': { label: t('navigation.chat'), icon: MessageSquare, route: 'chat', adminOnly: false },
         'support': { label: t('navigation.support'), icon: LifeBuoy, route: 'support', adminOnly: false },
+        'help': { label: t('navigation.help'), icon: BookOpen, route: 'help', adminOnly: false },
         'downloads': { label: t('navigation.downloads'), icon: DownloadCloud, route: 'downloads', adminOnly: false },
         'mediastack': { label: t('navigation.calendar'), icon: Calendar, route: 'mediastack', adminOnly: false },
         'maintenance': { label: t('navigation.cleaner'), icon: Shield, route: 'maintenance', adminOnly: true },
@@ -12687,7 +12746,7 @@ export const Navigation: React.FC<NavigationProps> = ({ currentRoute, onNavigate
         // Admin-only until member Plex identity is always resolved (owner-token fallback polluted CW).
         'media-player': { label: t('navigation.mediaPlayer'), icon: PlayCircle, route: 'media-player', adminOnly: true, beta: true },
         'about': { label: t('navigation.about'), icon: Info, route: 'about', adminOnly: false },
-        'profile': { label: t('navigation.profile'), icon: User, route: 'profile', adminOnly: false },
+        'profile': { label: t('navigation.profile'), icon: UserIcon, route: 'profile', adminOnly: false },
         'preferences': { label: t('navigation.preferences'), icon: SlidersHorizontal, route: 'preferences', adminOnly: false },
         'settings': { label: t('navigation.settings'), icon: Settings, route: 'settings', adminOnly: true },
         'logout': { label: t('navigation.logout'), icon: LogOut, route: '', adminOnly: false, onClick: onLogout },
@@ -13592,7 +13651,7 @@ export const Navigation: React.FC<NavigationProps> = ({ currentRoute, onNavigate
                             </button>
                         </div>
                         <p className="text-sm text-muted leading-relaxed">
-                            {isIosSafari
+                            {isIosInstallClient
                                 ? t('pwa.install.helpIos')
                                 : isFirefoxMobile
                                     ? t('pwa.install.helpFirefox')
@@ -13610,11 +13669,13 @@ export const Navigation: React.FC<NavigationProps> = ({ currentRoute, onNavigate
                         {!installDiag && installHelpOpen && (
                             <p className="mt-4 text-xs text-muted">{t('pwa.install.checking')}</p>
                         )}
-                        {isFirefoxMobile && (
+                        {(isFirefoxMobile || isAndroidChrome) && (
                             <button
                                 type="button"
                                 onClick={async () => {
                                     clearInstallBannerDismiss();
+                                    clearDeferredInstallPrompt();
+                                    setInstallPrompt(null);
                                     try {
                                         if ('serviceWorker' in navigator) {
                                             const regs = await navigator.serviceWorker.getRegistrations();

@@ -124,19 +124,19 @@ export const RECENT_CATEGORY_ORDER: Array<{ id: RecentSetCategory; title: string
 
 /** Split search/browse results so title-card packs use landscape rows.
  *  Mixed MediUX sets (posters + episode cards) appear in both Posters and Title cards. */
-export const partitionSetsByCategory = (
-    sets: Array<{
-        title?: string | null;
-        setKind?: string | null;
-        thumbUrl?: string | null;
-        posterThumbUrl?: string | null;
-        landscapeThumbUrl?: string | null;
-    }>,
+export const partitionSetsByCategory = <T extends {
+    title?: string | null;
+    setKind?: string | null;
+    thumbUrl?: string | null;
+    posterThumbUrl?: string | null;
+    landscapeThumbUrl?: string | null;
+}>(
+    sets: T[],
     options?: { mediaType?: string | null },
 ) => {
-    const titleCards: typeof sets = [];
-    const backgrounds: typeof sets = [];
-    const posters: typeof sets = [];
+    const titleCards: T[] = [];
+    const backgrounds: T[] = [];
+    const posters: T[] = [];
     for (const set of sets) {
         if (isBackgroundSet(set)) {
             backgrounds.push(set);

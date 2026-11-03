@@ -13,6 +13,7 @@ import {
     MEDIA_STATUS,
     REQUEST_STATUS,
     resolveInProgressDisplay,
+    airedSeasonsMissingFromSonarr,
     sonarrCaughtUpWithAiredEpisodes,
     sonarrHasOnDiskFiles,
     sonarrMainSeasonsFullyOnDisk,
@@ -207,7 +208,7 @@ export const resolveMediaAvailabilityState = (item: any): MediaAvailabilityState
                 .filter((s) => isMainSeasonNumber(s.seasonNumber))
                 .every((s) => s.statusLabel === 'Available' || isSeasonUpToDateLabel(s.statusLabel)));
 
-        if (libraryBadgeAllowed && (caughtUp || sonarr?.showComplete)) {
+        if (libraryBadgeAllowed && (caughtUp || (sonarr?.showComplete && !airedSeasonsMissingFromSonarr(item)))) {
             const showUpToDate = returning && hasAnyEpisodeAired(item) && !ended;
             return {
                 ...base,

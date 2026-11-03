@@ -1,6 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Transport buttons: solid white when focused (icon turns dark), like the app's focused pills,
+     so the selection is obvious over any picture. Nothing behind them otherwise. -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@drawable/player_glass_oval_focus" android:state_focused="true" />
-    <item android:drawable="@drawable/player_glass_oval_pressed" android:state_pressed="true" />
-    <item android:drawable="@drawable/player_glass_oval" />
+    <item android:state_focused="true">
+        <shape android:shape="oval">
+            <solid android:color="#FFFFFFFF" />
+        </shape>
+    </item>
+    <item android:state_pressed="true">
+        <shape android:shape="oval">
+            <solid android:color="#E6FFFFFF" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="oval">
+            <solid android:color="@android:color/transparent" />
+        </shape>
+    </item>
 </selector>

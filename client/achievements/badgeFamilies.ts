@@ -118,7 +118,7 @@ export const groupBadgesIntoFamilies = (badges: BadgeLike[] = []): BadgeFamily[]
     });
 };
 
-export const badgeBarPercent = (badge?: BadgeLike | null) => {
+export const badgeBarPercent = (badge?: Partial<BadgeLike> | null) => {
     if (!badge) return 0;
     if (badge.earned) return 100;
     const threshold = Number(badge.threshold) || 0;

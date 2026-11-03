@@ -150,6 +150,37 @@ const isMdbListUrl = (value: string): boolean => {
     }
 };
 
+/** True when the URL's host is justwatch.com (or a subdomain). */
+const isJustWatchUrl = (value: string): boolean => {
+    const raw = String(value || '').trim();
+    try {
+        const host = new URL(raw.includes('://') ? raw : `https://${raw}`).hostname.toLowerCase();
+        return host === 'justwatch.com' || host.endsWith('.justwatch.com');
+    } catch {
+        return false;
+    }
+};
+
+/** True when the URL's host is letterboxd.com (or a subdomain). */
+const isLetterboxdUrl = (value: string): boolean => {
+    const raw = String(value || '').trim();
+    try {
+        const host = new URL(raw.includes('://') ? raw : `https://${raw}`).hostname.toLowerCase();
+        return host === 'letterboxd.com' || host.endsWith('.letterboxd.com');
+    } catch {
+        return false;
+    }
+};
+
+const importSourceTypeForUrl = (
+    url: string,
+): 'mdblist' | 'justwatch_list' | 'letterboxd_list' | 'trakt_list' => {
+    if (isMdbListUrl(url)) return 'mdblist';
+    if (isJustWatchUrl(url)) return 'justwatch_list';
+    if (isLetterboxdUrl(url)) return 'letterboxd_list';
+    return 'trakt_list';
+};
+
 const normalizeMediaKind = (value?: string | null): MediaKind | null => {
     const v = String(value || '').trim().toLowerCase();
     if (v === 'movie' || v === 'movies' || v === 'film' || v === 'films') return 'movie';
@@ -282,9 +313,7 @@ const Creator: React.FC = () => {
         const names = managedLibraryNames;
         if (!names.length) return '';
         const expected = mediaFromItems(items)
-            || mediaFromSourceType(
-                isMdbListUrl(sourceUrl) ? 'mdblist' : 'trakt_list',
-            );
+            || mediaFromSourceType(importSourceTypeForUrl(sourceUrl));
         if (expected) {
             const match = plexLibraries.find(
                 (l) => names.includes(l.name) && normalizeMediaKind(l.type) === expected,
@@ -722,8 +751,17 @@ const Creator: React.FC = () => {
 
     const loadImportedList = async (url: string, preferredTitle?: string) => {
         let items: any[] = [];
+        let listTitle = preferredTitle || '';
         if (isMdbListUrl(url)) {
             items = await api.getMdbList(url);
+        } else if (isJustWatchUrl(url)) {
+            const payload = await api.getJustWatchList(url);
+            items = payload.items;
+            if (!listTitle && payload.name) listTitle = payload.name;
+        } else if (isLetterboxdUrl(url)) {
+            const payload = await api.getLetterboxdList(url);
+            items = payload.items;
+            if (!listTitle && payload.name) listTitle = payload.name;
         } else {
             items = await api.getTraktList(url);
         }
@@ -732,7 +770,7 @@ const Creator: React.FC = () => {
         }
         setImportedItems(items);
         setImportUrl(url);
-        const derivedTitle = preferredTitle || titleFromImportUrl(url);
+        const derivedTitle = listTitle || titleFromImportUrl(url);
         if (derivedTitle) setCollectionTitle(derivedTitle);
         const suggestedLibrary = suggestTargetLibrary(items, url);
         if (suggestedLibrary) {
@@ -970,8 +1008,7 @@ const Creator: React.FC = () => {
     const handleCreateFromExternal = async () => {
         if (!targetLibrary || !collectionTitle) return;
         const isDiscover = activeSubTab === 'discover';
-        const isMdbList = isMdbListUrl(importUrl);
-        const sourceType = activeSubTab === 'import' ? (isMdbList ? 'mdblist' : 'trakt_list') :
+        const sourceType = activeSubTab === 'import' ? importSourceTypeForUrl(importUrl) :
             (isDiscover ? 'tmdb_discover' : 'trakt_trending_movie');
         const itemsToUse = isDiscover ? discoverResults : importedItems;
         const expectedMedia = isDiscover
@@ -1970,14 +2007,22 @@ const Creator: React.FC = () => {
                             </div>
                         </Card>
 
-                        <Card title="Or paste a Trakt / MDBList URL">
+                        <Card title="Or paste a Trakt / MDBList / JustWatch / Letterboxd URL">
                             <div className="flex gap-2">
                                 <div className="relative flex-1">
                                     <ExternalLink className="absolute left-3 top-2.5 w-4 h-4 text-muted" />
-                                    <input className="appearance-none text-[16px] leading-5 w-full bg-background/60 border border-border rounded-lg pl-10 pr-4 py-2 text-[16px] text-text focus:outline-none focus:border-plex/50" placeholder="Trakt or MDBList URL..." value={importUrl} onChange={(e) => setImportUrl(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleListImport()} />
+                                    <input className="appearance-none text-[16px] leading-5 w-full bg-background/60 border border-border rounded-lg pl-10 pr-4 py-2 text-[16px] text-text focus:outline-none focus:border-plex/50" placeholder="Trakt, MDBList, JustWatch, or Letterboxd list URL…" value={importUrl} onChange={(e) => setImportUrl(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleListImport()} />
                                 </div>
                                 <button onClick={handleListImport} disabled={importing || !importUrl} className="bg-plex hover:bg-plex-hover text-text px-6 py-2 rounded-lg font-bold disabled:opacity-50">Fetch</button>
                             </div>
+                            <p className="mt-2 text-xs text-muted">
+                                JustWatch: open a list from{' '}
+                                <span className="text-text/80">justwatch.com/…/lists/public-lists</span>
+                                {' '}with <span className="font-mono text-text/80">list_id=</span>.
+                                {' '}Letterboxd: paste a list like{' '}
+                                <span className="font-mono text-text/80">letterboxd.com/user/list/slug/</span>
+                                {' '}(TMDB key recommended for large lists).
+                            </p>
                         </Card>
                         {importedItems.length > 0 && (
                             <>

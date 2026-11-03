@@ -4,8 +4,10 @@ import { DiscoverPosterCard, useDiscoverI18n } from './host';
 import { prefetchMediaPlayerItem } from './api';
 import { PlayerItemMenu, type PlayerItemMenuHandle } from './PlayerItemMenu';
 import { watchedTickPositionClass } from './playerSettings';
-import { applyRememberedProgress, formatEpisodeCode, formatRemainingWatchTime, heroRailCardImageUrl, heroRowSubtitle, PLAYER_PROGRESS_EVENT, plexBackdropPreviewUrl, PLAYER_POSTER_QUALITY, prefetchPlayerImages, progressPercent, remainingWatchMs, resizePlexArtUrl, resolvePlayerCardAspect, toPosterCardItem } from './playerUtils';
+import { applyRememberedProgress, formatEpisodeCode, formatRemainingWatchTime, heroRailCardImageUrl, heroRowSubtitle, PLAYER_PROGRESS_EVENT, playerItemBackdropUrl, plexBackdropUrl, PLAYER_POSTER_QUALITY, prefetchPlayerImages, progressPercent, remainingWatchMs, resizePlexArtUrl, resolvePlayerCardAspect, toPosterCardItem } from './playerUtils';
 import { usePlayerSettings } from './usePlayerSettings';
+import { hideEpisodeSpoilers } from './spoilers';
+import { isLanHttpImage, loadLanImage } from './lanImage';
 import type { PlayerItem, PlayerPlayOptions } from './types';
 
 type Props = {
@@ -33,6 +35,29 @@ type Props = {
 
 const LONG_PRESS_MS = 700;
 const LONG_PRESS_MOVE_PX = 12;
+
+/** Phone caption, as Plex mobile writes it: [name, "S1 • E1" | "rating • resolution" | year]. */
+const phoneCaptionLines = (item: PlayerItem): [string, string] => {
+    if (item.type === 'episode') {
+        const show = String(item.showTitle || '').trim();
+        const season = Number(item.parentIndex);
+        const episode = Number(item.index);
+        const code = episode > 0 ? (season > 0 ? `S${season} • E${episode}` : `E${episode}`) : '';
+        return [show || item.title, code || (show ? String(item.episodeTitle || '') : '')];
+    }
+    if (item.type === 'movie') {
+        const resolution = String(item.versions?.[0]?.resolution || '').toUpperCase();
+        const meta = [item.contentRating, resolution].filter(Boolean).join(' • ');
+        return [item.title, meta || (item.year ? String(item.year) : '')];
+    }
+    return [item.title, item.year ? String(item.year) : ''];
+};
+
+/**
+ * TV poster grids (Browse, View more…) get walked through fast. Only prefetch the title page once
+ * focus rests here, not for every poster the D-pad passes over.
+ */
+const TV_GRID_PREFETCH_REST_MS = 320;
 
 export const PlayerPosterCard = memo(function PlayerPosterCard({
     item,
@@ -68,6 +93,18 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
         || window.__PLEX_CLIENT__?.isTv === true
     );
     const [liveOffset, setLiveOffset] = useState<number | null>(null);
+    const [lanThumb, setLanThumb] = useState<string | null>(null);
+    useEffect(() => {
+        const raw = String(item.thumb || '').trim();
+        if (!isLanHttpImage(raw)) {
+            setLanThumb(null);
+            return undefined;
+        }
+        let live = true;
+        loadLanImage(raw).then((url) => { if (live) setLanThumb(url); }, () => { if (live) setLanThumb(null); });
+        return () => { live = false; };
+    }, [item.thumb]);
+    const posterItem = lanThumb ? { ...item, thumb: lanThumb } : item;
     useEffect(() => {
         setLiveOffset(null);
         const onProgress = (event: Event) => {
@@ -94,12 +131,32 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
     const resolvedAspect = resolvePlayerCardAspect(item, aspect);
     const artWidth = resolvedAspect === '16/9' ? 426 : 300;
     const artHeight = resolvedAspect === 'square' ? 300 : resolvedAspect === '16/9' ? 240 : 450;
-    const cardSource = item.heroCard ? (item.heroArt || item.art || item.thumb) : item.thumb;
+    const landscapeEpisode = item.type === 'episode' && resolvedAspect === '16/9';
+    const episodeKey = landscapeEpisode ? String(item.ratingKey || '').replace(/\D/g, '') : '';
+    const rawThumb = String(item.episodeThumb || posterItem.thumb || '').trim();
+    const thumbOwner = rawThumb.match(/\/library\/metadata\/(\d+)\//)?.[1] || '';
+    const episodeStill = episodeKey
+        ? ((thumbOwner === episodeKey || (/^https?:\/\//i.test(rawThumb) && !/\/library\/metadata\//.test(rawThumb)))
+            ? rawThumb
+            : `/library/metadata/${episodeKey}/thumb`)
+        : '';
+    const cardSource = item.heroCard
+        ? (item.heroArt || item.art || posterItem.thumb)
+        : (episodeStill || posterItem.thumb);
     const sizedItem = cardSource
-        ? { ...item, thumb: item.heroCard ? heroRailCardImageUrl(cardSource) : resizePlexArtUrl(cardSource, artWidth, artHeight) }
-        : item;
+        ? {
+            ...posterItem,
+            cardAspect: landscapeEpisode ? '16/9' as const : item.cardAspect,
+            thumb: item.heroCard
+                ? heroRailCardImageUrl(cardSource)
+                : (landscapeEpisode && String(episodeStill).startsWith('/library/')
+                    ? episodeStill
+                    : resizePlexArtUrl(cardSource, artWidth, artHeight, PLAYER_POSTER_QUALITY)),
+        }
+        : posterItem;
     const heroLine = item.heroCard ? heroRowSubtitle(item) : '';
     const episodeCode = formatEpisodeCode(item);
+    const phoneLines = phoneUi && !item.heroCard ? phoneCaptionLines(item) : null;
     // Nested menu/play/watched controls inside the poster <button> break Android TV spatial nav.
     const menuAllowed = showMenu && item.type !== 'collection' && item.type !== 'artist' && item.type !== 'album' && item.type !== 'playlist' && item.type !== 'person';
     const menuEnabled = !isTvShell && menuAllowed;
@@ -110,6 +167,28 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
         : settings.watchedTickPosition;
     const tickPosClass = watchedTickPositionClass(tickCorner, { aboveProgress: progress > 0 || showProgress });
     const tickClass = `${tickPosClass} player-watched-tick z-30 flex h-6 w-6 items-center justify-center rounded-full bg-plex text-zinc-950 shadow-md`;
+    // TV / phone: the long-press menu is created on first open, not with every card. A row
+    // change mounts a whole row of cards, and a closed menu per card was a large part of it.
+    const hiddenMenu = tvMenu || (phoneUi && menuEnabled);
+    const [menuMounted, setMenuMounted] = useState(false);
+    const pendingMenuOpenRef = useRef<{ x?: number; y?: number } | null>(null);
+    const openItemMenu = (x?: number, y?: number) => {
+        const menu = menuRef.current;
+        if (menu) {
+            if (tvMenu) (menu.openAt as (cx?: number, cy?: number) => void)();
+            else (menu.openAt as (cx?: number, cy?: number) => void)(x, y);
+            return;
+        }
+        pendingMenuOpenRef.current = { x, y };
+        setMenuMounted(true);
+    };
+    useEffect(() => {
+        const pending = pendingMenuOpenRef.current;
+        if (!menuMounted || !pending || !menuRef.current) return;
+        pendingMenuOpenRef.current = null;
+        if (tvMenu) (menuRef.current.openAt as (cx?: number, cy?: number) => void)();
+        else (menuRef.current.openAt as (cx?: number, cy?: number) => void)(pending.x, pending.y);
+    }, [menuMounted, tvMenu]);
     const markWatchedClass = `pointer-events-auto ${tickPosClass} player-watched-tick flex h-6 w-6 items-center justify-center rounded-full bg-black/70 text-white hover:bg-black`;
 
     const clearLongPress = () => {
@@ -134,7 +213,7 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
             detail.handled = true;
             // Remote long-press can still synthesize a click on release — block open.
             suppressClickRef.current = true;
-            menuRef.current?.openAt();
+            openItemMenu();
             window.setTimeout(() => {
                 suppressClickRef.current = false;
             }, 600);
@@ -144,16 +223,18 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
     }, [item.ratingKey, tvMenu]);
 
     const canLongPressMenu = menuEnabled || tvMenu;
-    const schedulePrefetch = () => {
+    const schedulePrefetch = (event?: React.SyntheticEvent<HTMLElement>) => {
         if (!item?.ratingKey || item.type === 'collection' || item.type === 'playlist') return;
         if (prefetchTimerRef.current) window.clearTimeout(prefetchTimerRef.current);
         const key = item.ratingKey;
-        const art = item.art;
-        const delay = isTvShell ? 1000 : 450;
+        const serverId = item.serverId || null;
+        const art = (item as { backdropArt?: string | null }).backdropArt || item.art;
+        const inTvGrid = isTvShell && Boolean(event?.currentTarget?.closest?.('[data-tv-poster-grid="1"]'));
+        const delay = isTvShell ? (inTvGrid ? TV_GRID_PREFETCH_REST_MS : 0) : 450;
         prefetchTimerRef.current = window.setTimeout(() => {
             prefetchTimerRef.current = null;
-            prefetchMediaPlayerItem(key);
-            if (art) prefetchPlayerImages([plexBackdropPreviewUrl(art)], 1);
+            prefetchMediaPlayerItem(key, serverId);
+            if (art && !isTvShell) prefetchPlayerImages([plexBackdropUrl(art)], 1);
         }, delay);
     };
     const cancelPrefetch = () => {
@@ -166,8 +247,7 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
     const openMenuAt = (clientX?: number, clientY?: number) => {
         if (!canLongPressMenu) return;
         suppressClickRef.current = true;
-        if (tvMenu) menuRef.current?.openAt();
-        else menuRef.current?.openAt(clientX, clientY);
+        openItemMenu(clientX, clientY);
         window.setTimeout(() => {
             suppressClickRef.current = false;
         }, 500);
@@ -177,8 +257,11 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
         <div
             ref={rootRef}
             data-browse-index={browseIndex}
-            data-tv-backdrop={isTvShell ? (plexBackdropPreviewUrl(item.art || item.thumb) || undefined) : undefined}
-            className="player-poster-hold relative touch-manipulation select-none [-webkit-touch-callout:none] [-webkit-user-select:none] [user-select:none]"
+            data-tv-backdrop={isTvShell ? (playerItemBackdropUrl(item) || undefined) : undefined}
+            className={`player-poster-hold relative touch-manipulation select-none [-webkit-touch-callout:none] [-webkit-user-select:none] [user-select:none]${
+                // Only an episode's own still can spoil; posters and hero art never blur.
+                landscapeEpisode && !item.heroCard && hideEpisodeSpoilers(settings, item) ? ' player-spoiler-blur' : ''
+            }`}
             onFocusCapture={schedulePrefetch}
             onBlurCapture={cancelPrefetch}
             onPointerEnter={schedulePrefetch}
@@ -246,7 +329,7 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
                 item={toPosterCardItem(sizedItem)}
                 aspect={resolvedAspect}
                 posterWidth={item.heroCard ? 854 : (resolvedAspect === '16/9' ? 426 : 300)}
-                posterQuality={item.heroCard ? 72 : PLAYER_POSTER_QUALITY}
+                posterQuality={PLAYER_POSTER_QUALITY}
                 loading={loadingProp || (imagePriority ? 'eager' : 'lazy')}
                 fetchPriority={imagePriority ? 'high' : 'low'}
                 posterHeight={item.heroCard ? 480 : (resolvedAspect === '16/9' ? 360 : undefined)}
@@ -263,23 +346,52 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
                             </div>
                         ) : null}
                     </div>
-                ) : item.type === 'episode' ? (
-                    <div className="player-poster-caption px-1 text-left">
-                        <div className={`${isTvShell ? 'text-base font-semibold' : 'text-xs font-medium'} line-clamp-2 leading-snug text-text`}>
-                            {item.showTitle && item.showTitle !== item.title ? item.showTitle : item.title}
-                        </div>
-                        {item.showTitle && item.showTitle !== item.title ? (
-                            <div className={`${isTvShell ? 'text-sm' : 'text-[11px]'} mt-0.5 truncate text-muted`}>
-                                {item.title}
-                            </div>
-                        ) : null}
-                        {episodeCode ? (
-                            <div className={`${isTvShell ? 'text-sm' : 'text-[11px]'} mt-0.5 truncate text-muted/80`}>
-                                {episodeCode}
-                            </div>
+                ) : phoneLines ? (
+                    // Plex mobile: show or movie name, then "S1 • E1" or "gb/PG • 1080P".
+                    <div className="player-poster-caption player-poster-caption--phone px-0.5 text-left">
+                        <div className="truncate text-[0.9rem] font-medium leading-tight text-text">{phoneLines[0]}</div>
+                        {phoneLines[1] ? (
+                            <div className="mt-0.5 truncate text-[0.8rem] leading-tight text-muted">{phoneLines[1]}</div>
                         ) : null}
                     </div>
-                ) : undefined}
+                ) : (
+                    <div className="player-poster-caption px-1 text-left">
+                        {item.type === 'episode' ? (() => {
+                            const epName = String(
+                                item.episodeTitle
+                                || (item.showTitle && item.title && item.title !== item.showTitle ? item.title : '')
+                                || '',
+                            ).trim();
+                            const heading = [episodeCode, epName].filter(Boolean).join(' · ');
+                            const showName = String(item.showTitle || '').trim();
+                            const primary = heading || showName || item.title;
+                            const secondary = heading && showName && showName !== epName ? showName : '';
+                            return (
+                                <>
+                                    <div className={`${isTvShell ? 'text-base font-semibold' : 'text-xs font-medium'} line-clamp-2 leading-snug text-text`}>
+                                        {primary}
+                                    </div>
+                                    {secondary ? (
+                                        <div className={`${isTvShell ? 'text-sm' : 'text-[11px]'} mt-0.5 truncate text-muted`}>
+                                            {secondary}
+                                        </div>
+                                    ) : null}
+                                </>
+                            );
+                        })() : (
+                            <>
+                                <div className={`${isTvShell ? 'text-base font-semibold' : 'text-xs font-medium'} line-clamp-2 leading-snug text-text`}>
+                                    {item.title}
+                                </div>
+                                {item.year ? (
+                                    <div className={`${isTvShell ? 'text-sm' : 'text-[11px]'} mt-0.5 truncate text-muted`}>
+                                        {item.year}
+                                    </div>
+                                ) : null}
+                            </>
+                        )}
+                    </div>
+                )}
                 showQualityBadges={false}
                 posterOnlyLink={isTvShell}
                 onPosterClick={() => {
@@ -300,7 +412,7 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
                                             </span>
                                         </div>
                                     ) : null}
-                                    <div className="h-full bg-plex" style={{ width: `${progress}%` }} />
+                                    <div className="h-full bg-progress" style={{ width: `${progress}%` }} />
                                 </div>
                             ) : null
                         ) : null}
@@ -377,7 +489,7 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
                     </>
                 )}
             />
-            {tvMenu || (phoneUi && menuEnabled) ? (
+            {hiddenMenu && menuMounted ? (
                 <PlayerItemMenu
                     ref={menuRef}
                     hideTrigger

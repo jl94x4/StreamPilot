@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react';
 const SettingsDashboard = lazy(() => import('./settings/SettingsDashboard').then(m => ({ default: m.SettingsDashboard })));
-import { bindAppConfirm, bindAskConfirm, bindAppAlert, type AskConfirmOptions } from './shared/confirm';
+import { bindAppConfirm, bindAskConfirm, bindAppAlert, bindAskText, type AskConfirmOptions, type AskTextOptions } from './shared/confirm';
 import { apiFetch } from './shared/api';
 import { getPublicOrigin, portalUrl, resolvePortalAssetUrl, stripBasePath } from './shared/basePath';
 import { isStandalonePwa, syncExistingWebPushSubscription } from './shared/webPushSubscribe';
-import { ConfirmModal } from './shared/ui';
+// Side-effect: capture beforeinstallprompt before Navigation mounts (post-login).
+import './shared/pwaInstallPrompt';
+import { ConfirmModal, TextPromptModal } from './shared/ui';
 import { Loader } from './shared/toast';
 import { AppAmbientBackground } from './shared/theme';
 import { WhatsNewModal } from './shared/WhatsNewModal';
@@ -46,6 +48,7 @@ const SupportInbox = lazy(() => import('./support/SupportInbox').then(m => ({ de
 const ChatRoom = lazy(() => import('./chat/ChatRoom').then(m => ({ default: m.ChatRoom })));
 const OpenAppletsHost = lazy(() => import('./custom/CustomExternalTabPage').then(m => ({ default: m.OpenAppletsHost })));
 const PreferencesPage = lazy(() => import('./preferences/PreferencesPage').then(m => ({ default: m.PreferencesPage })));
+const HelpPage = lazy(() => import('./help/HelpPage').then(m => ({ default: m.HelpPage })));
 const ProfilePage = lazy(() => import('./profile/ProfilePage').then(m => ({ default: m.ProfilePage })));
 const DiscoveryDashboard = lazy(() => import('./discovery/DiscoveryDashboard').then(m => ({ default: m.DiscoveryDashboard })));
 const MediaPlayerDashboard = lazy(() => import('./media-player').then(m => ({ default: m.MediaPlayerDashboard })));
@@ -81,6 +84,7 @@ const getOpenAppletsAccountKey = (info: any) => (
 );
 
 export const MainApp: React.FC = () => {
+    const [textPrompt, setTextPrompt] = useState<{ message: string; options: AskTextOptions; resolve: (value: string | null) => void } | null>(null);
     const [confirmState, setConfirmState] = useState<{
         isOpen: boolean;
         message: string;
@@ -139,6 +143,10 @@ export const MainApp: React.FC = () => {
             );
         }));
 
+        bindAskText((message, options = {}) => new Promise<string | null>((resolve) => {
+            setTextPrompt({ message, options, resolve });
+        }));
+
         bindAppAlert((message, options = {}) => new Promise<void>((resolve) => {
             openConfirm(
                 message,
@@ -164,7 +172,7 @@ export const MainApp: React.FC = () => {
         closeConfirm();
     };
 
-    const [currentRoute, setCurrentRoute] = useState<'login' | 'admin' | 'user' | 'users' | 'status' | 'dashboard' | 'settings' | 'logs' | 'analytics' | 'achievements' | 'support' | 'chat' | 'downloads' | 'mediastack' | 'maintenance' | 'upgrader' | 'collexions' | 'spotify-sync' | 'metadata-fill' | 'scanner' | 'media-automation' | 'poster-sets' | 'overlays' | 'editions' | 'watch-sync' | 'requests' | 'discovery' | 'media-player' | 'about' | 'preferences' | 'profile' | 'invite' | 'onboarding' | 'external' | 'loading'>('loading');
+    const [currentRoute, setCurrentRoute] = useState<'login' | 'admin' | 'user' | 'users' | 'status' | 'dashboard' | 'settings' | 'logs' | 'analytics' | 'achievements' | 'support' | 'chat' | 'downloads' | 'mediastack' | 'maintenance' | 'upgrader' | 'collexions' | 'spotify-sync' | 'metadata-fill' | 'scanner' | 'media-automation' | 'poster-sets' | 'overlays' | 'editions' | 'watch-sync' | 'requests' | 'discovery' | 'media-player' | 'about' | 'preferences' | 'help' | 'profile' | 'invite' | 'onboarding' | 'external' | 'loading'>('loading');
     const [profilePath, setProfilePath] = useState(() => (
         typeof window !== 'undefined' ? stripBasePath(window.location.pathname) : '/profile'
     ));
@@ -193,9 +201,13 @@ export const MainApp: React.FC = () => {
             setPublicConfig(data);
             setPublicConfigWarning(null);
 
-            if (data.customFaviconUrl || data.customLogoUrl) {
-                updateFavicon(data.customFaviconUrl || data.customLogoUrl);
+            if (data.appleTouchIconHref) {
+                (window as any).__APPLE_TOUCH_ICON_HREF__ = data.appleTouchIconHref;
             }
+            if (data.homeScreenIconRev) {
+                (window as any).__HOME_SCREEN_ICON_REV__ = data.homeScreenIconRev;
+            }
+            updateFavicon(data.appleTouchIconHref || data.customFaviconUrl || data.customLogoUrl || 'application');
         } catch (e) {
             console.error('[portal] Failed to load public config:', e);
             setPublicConfigWarning('Portal branding settings could not be loaded. Defaults are being used.');
@@ -371,7 +383,7 @@ export const MainApp: React.FC = () => {
         setShowWhatsNew(false);
     }, [publicConfig?.appVersion]);
 
-    const setRoute = useCallback((route: 'login' | 'admin' | 'user' | 'users' | 'status' | 'dashboard' | 'settings' | 'logs' | 'analytics' | 'achievements' | 'support' | 'chat' | 'downloads' | 'mediastack' | 'maintenance' | 'upgrader' | 'collexions' | 'spotify-sync' | 'metadata-fill' | 'scanner' | 'media-automation' | 'poster-sets' | 'overlays' | 'editions' | 'watch-sync' | 'requests' | 'discovery' | 'media-player' | 'about' | 'preferences' | 'profile' | 'invite' | 'onboarding' | 'external' | 'loading', options?: { hash?: string; reviewId?: number; path?: string }) => {
+    const setRoute = useCallback((route: 'login' | 'admin' | 'user' | 'users' | 'status' | 'dashboard' | 'settings' | 'logs' | 'analytics' | 'achievements' | 'support' | 'chat' | 'downloads' | 'mediastack' | 'maintenance' | 'upgrader' | 'collexions' | 'spotify-sync' | 'metadata-fill' | 'scanner' | 'media-automation' | 'poster-sets' | 'overlays' | 'editions' | 'watch-sync' | 'requests' | 'discovery' | 'media-player' | 'about' | 'preferences' | 'help' | 'profile' | 'invite' | 'onboarding' | 'external' | 'loading', options?: { hash?: string; reviewId?: number; path?: string }) => {
         const session = sessionInfoRef.current;
         if (session?.needsOnboarding && !session?.session?.isAdmin && route !== 'login' && route !== 'loading' && route !== 'invite' && route !== 'onboarding') {
             route = 'onboarding';
@@ -447,6 +459,7 @@ export const MainApp: React.FC = () => {
             }
             if (route === 'about') path = '/about';
             if (route === 'preferences') path = '/preferences';
+            if (route === 'help') path = '/help';
             if (route === 'profile') {
                 const custom = String(options?.path || '').trim();
                 path = custom.startsWith('/profile') ? custom : '/profile';
@@ -668,6 +681,11 @@ export const MainApp: React.FC = () => {
             else if (path.startsWith('/about')) bounceExpiredHome();
             else if (path.startsWith('/preferences') && allowExpiredPath('preferences')) setCurrentRoute('preferences');
             else if (path.startsWith('/preferences')) bounceExpiredHome();
+            else if (path.startsWith('/help') && data.navFeatures?.help && allowExpiredPath('help')) setCurrentRoute('help');
+            else if (path.startsWith('/help')) {
+                window.history.replaceState({}, '', portalUrl('/portal'));
+                setCurrentRoute('user');
+            }
             else if (path.startsWith('/profile') && allowExpiredPath('profile')) {
                 setCurrentRoute('profile');
                 setProfilePath(stripBasePath(window.location.pathname));
@@ -1123,6 +1141,13 @@ export const MainApp: React.FC = () => {
                 </Suspense>
             );
         }
+        if (currentRoute === 'help') {
+            return (
+                <Suspense fallback={<Loader isLoading={true} isCinematic={!!publicConfig?.useCinematicLoading} />}>
+                    <HelpPage />
+                </Suspense>
+            );
+        }
         if (currentRoute === 'profile') {
             return (
                 <Suspense fallback={<Loader isLoading={true} isCinematic={!!publicConfig?.useCinematicLoading} />}>
@@ -1158,6 +1183,23 @@ export const MainApp: React.FC = () => {
         >
         <div className={`relative flex w-full min-h-screen md:h-dvh md:overflow-hidden ${isMediaPlayerView ? 'h-dvh overflow-hidden' : ''}`}>
             <AppAmbientBackground backgroundImageUrl={publicConfig?.backgroundImageUrl} />
+            <TextPromptModal
+                isOpen={!!textPrompt}
+                message={textPrompt?.message || ''}
+                title={textPrompt?.options.title}
+                placeholder={textPrompt?.options.placeholder}
+                defaultValue={textPrompt?.options.defaultValue}
+                confirmLabel={textPrompt?.options.confirmLabel}
+                cancelLabel={textPrompt?.options.cancelLabel}
+                onSubmit={(value) => {
+                    textPrompt?.resolve(value);
+                    setTextPrompt(null);
+                }}
+                onCancel={() => {
+                    textPrompt?.resolve(null);
+                    setTextPrompt(null);
+                }}
+            />
             <ConfirmModal
                 isOpen={confirmState.isOpen}
                 message={confirmState.message}

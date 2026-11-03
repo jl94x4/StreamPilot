@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="2dp"
+    android:background="@drawable/player_context_row"
+    android:duplicateParentState="false"
+    android:focusable="true"
+    android:focusableInTouchMode="true"
+    android:gravity="center_vertical"
+    android:minHeight="@dimen/player_menu_row_min_height"
+    android:orientation="horizontal"
+    android:paddingStart="14dp"
+    android:paddingTop="4dp"
+    android:paddingEnd="14dp"
+    android:paddingBottom="4dp">
+
+    <TextView
+        android:id="@+id/player_menu_row_label"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:duplicateParentState="true"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:textColor="@color/player_context_row_text"
+        android:textSize="@dimen/player_menu_row_text_size"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/player_menu_row_value"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="12dp"
+        android:duplicateParentState="true"
+        android:ellipsize="end"
+        android:gravity="end"
+        android:maxWidth="140dp"
+        android:maxLines="1"
+        android:textColor="@color/player_context_row_value"
+        android:textSize="12sp" />
+</LinearLayout>
