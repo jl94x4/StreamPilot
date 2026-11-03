@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react';
 const SettingsDashboard = lazy(() => import('./settings/SettingsDashboard').then(m => ({ default: m.SettingsDashboard })));
-import { bindAppConfirm, bindAskConfirm, bindAppAlert, type AskConfirmOptions } from './shared/confirm';
+import { bindAppConfirm, bindAskConfirm, bindAppAlert, bindAskText, type AskConfirmOptions, type AskTextOptions } from './shared/confirm';
 import { apiFetch } from './shared/api';
 import { getPublicOrigin, portalUrl, resolvePortalAssetUrl, stripBasePath } from './shared/basePath';
 import { isStandalonePwa, syncExistingWebPushSubscription } from './shared/webPushSubscribe';
 // Side-effect: capture beforeinstallprompt before Navigation mounts (post-login).
 import './shared/pwaInstallPrompt';
-import { ConfirmModal } from './shared/ui';
+import { ConfirmModal, TextPromptModal } from './shared/ui';
 import { Loader } from './shared/toast';
 import { AppAmbientBackground } from './shared/theme';
 import { WhatsNewModal } from './shared/WhatsNewModal';
@@ -84,6 +84,7 @@ const getOpenAppletsAccountKey = (info: any) => (
 );
 
 export const MainApp: React.FC = () => {
+    const [textPrompt, setTextPrompt] = useState<{ message: string; options: AskTextOptions; resolve: (value: string | null) => void } | null>(null);
     const [confirmState, setConfirmState] = useState<{
         isOpen: boolean;
         message: string;
@@ -140,6 +141,10 @@ export const MainApp: React.FC = () => {
                 () => resolve(false),
                 options,
             );
+        }));
+
+        bindAskText((message, options = {}) => new Promise<string | null>((resolve) => {
+            setTextPrompt({ message, options, resolve });
         }));
 
         bindAppAlert((message, options = {}) => new Promise<void>((resolve) => {
@@ -1178,6 +1183,23 @@ export const MainApp: React.FC = () => {
         >
         <div className={`relative flex w-full min-h-screen md:h-dvh md:overflow-hidden ${isMediaPlayerView ? 'h-dvh overflow-hidden' : ''}`}>
             <AppAmbientBackground backgroundImageUrl={publicConfig?.backgroundImageUrl} />
+            <TextPromptModal
+                isOpen={!!textPrompt}
+                message={textPrompt?.message || ''}
+                title={textPrompt?.options.title}
+                placeholder={textPrompt?.options.placeholder}
+                defaultValue={textPrompt?.options.defaultValue}
+                confirmLabel={textPrompt?.options.confirmLabel}
+                cancelLabel={textPrompt?.options.cancelLabel}
+                onSubmit={(value) => {
+                    textPrompt?.resolve(value);
+                    setTextPrompt(null);
+                }}
+                onCancel={() => {
+                    textPrompt?.resolve(null);
+                    setTextPrompt(null);
+                }}
+            />
             <ConfirmModal
                 isOpen={confirmState.isOpen}
                 message={confirmState.message}

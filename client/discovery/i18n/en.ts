@@ -1326,6 +1326,8 @@ export const en = {
         showLibraryQueue: 'Show library queue',
         yourRequests: 'Your Requests',
         noRequestsTitle: 'No requests yet',
+        loadFailedTitle: 'Couldn’t load Discover right now',
+        loadFailedBody: 'The server didn’t answer in time. Try again in a moment.',
         noRequestsBody: 'Find something good and send it to the queue.',
         browseMovies: 'Browse movies',
         watchlistEmptyTitle: 'Watchlist is empty',

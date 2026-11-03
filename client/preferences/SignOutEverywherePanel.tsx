@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { askConfirm } from '../shared/confirm';
 import { LogOut } from 'lucide-react';
 import { apiFetch } from '../shared/api';
 import { portalUrl } from '../shared/basePath';
@@ -11,7 +12,7 @@ export const SignOutEverywherePanel: React.FC<{ onError: (message: string) => vo
     const [busy, setBusy] = useState(false);
 
     const signOut = async () => {
-        if (!window.confirm(t('preferencesPage.signOutEverywhereConfirm'))) return;
+        if (!(await askConfirm(t('preferencesPage.signOutEverywhereConfirm'), { title: t('preferencesPage.signOutEverywhere'), confirmLabel: t('preferencesPage.signOutEverywhere') }))) return;
         setBusy(true);
         try {
             await apiFetch('/api/auth/logout-all', { method: 'POST' });

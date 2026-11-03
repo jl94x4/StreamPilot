@@ -38,7 +38,7 @@ import {
 import { apiFetch, PORTAL_CSRF_HEADER, PORTAL_CSRF_VALUE } from '../shared/api';
 import { portalUrl, resolvePortalAssetUrl } from '../shared/basePath';
 import { safeHttpUrl, safeImageSrc } from '../shared/safeUrl';
-import { appConfirm } from '../shared/confirm';
+import { appConfirm, askText } from '../shared/confirm';
 import { usePoll } from '../shared/usePoll';
 import { CustomSelect, SettingsSwitch, SettingsToggleRow } from '../shared/ui';
 import { StickySaveBar } from '../shared/StickySaveBar';
@@ -1062,8 +1062,8 @@ export const SettingsDashboard: React.FC = () => {
         setAuditFilterTo(preset.to || '');
     }, [auditFilterPresets]);
 
-    const saveAuditFilterPreset = useCallback(() => {
-        const name = window.prompt(t('settings.logs.filters.savePresetPrompt'))?.trim();
+    const saveAuditFilterPreset = useCallback(async () => {
+        const name = (await askText(t('settings.logs.filters.savePresetPrompt')))?.trim();
         if (!name) {
             if (name === '') addToast(t('settings.logs.filters.presetNameRequired'), 'error');
             return;

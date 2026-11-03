@@ -347,6 +347,68 @@ export const SettingsToggleRow: React.FC<{
     </div>
 );
 
+/** Styled text prompt, the input counterpart of ConfirmModal (backs askText). */
+export const TextPromptModal: React.FC<{
+    isOpen: boolean;
+    message: string;
+    title?: string;
+    placeholder?: string;
+    defaultValue?: string;
+    confirmLabel?: string;
+    cancelLabel?: string;
+    onSubmit: (value: string) => void;
+    onCancel: () => void;
+}> = ({ isOpen, message, title, placeholder, defaultValue = '', confirmLabel = 'OK', cancelLabel = 'Cancel', onSubmit, onCancel }) => {
+    const [value, setValue] = useState(defaultValue);
+    const inputRef = useRef<HTMLInputElement>(null);
+    useEffect(() => {
+        if (!isOpen) return;
+        setValue(defaultValue);
+        window.setTimeout(() => inputRef.current?.focus(), 0);
+    }, [isOpen, defaultValue]);
+    if (!isOpen || typeof document === 'undefined') return null;
+    return ReactDOM.createPortal(
+        <div
+            className="pointer-events-auto fixed inset-0 z-[100000] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm animate-fade-in"
+            role="presentation"
+            onMouseDown={(event) => event.stopPropagation()}
+        >
+            <form
+                className="glass-card overflow-hidden min-w-0 animate-slide-up max-w-md w-full p-6 pointer-events-auto"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="portal-prompt-title"
+                onMouseDown={(event) => event.stopPropagation()}
+                onSubmit={(event) => {
+                    event.preventDefault();
+                    onSubmit(value);
+                }}
+            >
+                <h3 id="portal-prompt-title" className="text-xl font-black mb-2 tracking-tight text-text break-words [overflow-wrap:anywhere]">
+                    {title || message}
+                </h3>
+                {title ? <p className="text-muted mb-4 text-sm leading-relaxed whitespace-pre-line break-words">{message}</p> : null}
+                <input
+                    ref={inputRef}
+                    value={value}
+                    onChange={(event) => setValue(event.target.value)}
+                    onKeyDown={(event) => { if (event.key === 'Escape') onCancel(); }}
+                    placeholder={placeholder}
+                    aria-label={title || message}
+                    className="mb-6 mt-2 w-full appearance-none rounded-lg border border-border bg-background px-3 py-2.5 text-[16px] leading-5 text-text outline-none focus:border-plex focus:ring-1 focus:ring-plex"
+                />
+                <div className="flex gap-3 justify-end">
+                    <button type="button" className="btn-secondary px-4 py-2.5 text-sm" onClick={onCancel}>{cancelLabel}</button>
+                    <button type="submit" className="inline-flex items-center justify-center rounded-xl bg-plex px-4 py-2.5 text-sm font-bold text-background hover:bg-plex-hover">
+                        {confirmLabel}
+                    </button>
+                </div>
+            </form>
+        </div>,
+        document.body,
+    );
+};
+
 export const ConfirmModal: React.FC<{
     isOpen: boolean;
     message: string;

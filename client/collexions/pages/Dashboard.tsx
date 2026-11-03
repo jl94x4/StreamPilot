@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { appAlert, askConfirm } from '../../shared/confirm';
 import { usePoll } from '../../shared/usePoll';
 import {
     DashboardPanel,
@@ -420,26 +421,26 @@ const Dashboard: React.FC = () => {
 
     const handleStartService = async () => {
         if (loading) return;
-        if (isLoopActive) return alert("Service is already active.");
+        if (isLoopActive) return void appAlert('The service is already running.', { title: 'Already running' });
         setLoading(true);
         try {
             await api.runNow();
             await Promise.all([fetchStatusOnly(), fetchHealth()]);
         } catch (error: any) {
-            alert(error?.message || "Failed to start.");
+            void appAlert(error?.message || 'Failed to start the service.', { title: 'Start failed' });
         }
         setLoading(false);
     };
 
     const handleStopService = async () => {
         if (loading) return;
-        if (!confirm("Stop the Automation Service?")) return;
+        if (!(await askConfirm('Collections stop rotating until you start it again.', { title: 'Stop the automation service?', confirmLabel: 'Stop' }))) return;
         setLoading(true);
         try {
             await api.stopScript();
             await fetchStatusOnly();
         } catch (error: any) {
-            alert(error?.message || "Failed to stop.");
+            void appAlert(error?.message || 'Failed to stop the service.', { title: 'Stop failed' });
         }
         setLoading(false);
     };

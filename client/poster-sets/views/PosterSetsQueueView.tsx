@@ -360,7 +360,7 @@ export const PosterSetsQueueView: React.FC = () => {
                                 onClick={async () => {
                                     const waiting = Number(queueStats.queued || 0);
                                     if (!waiting) return;
-                                    if (!window.confirm(`Cancel all ${waiting} waiting queue item${waiting === 1 ? '' : 's'}? Running jobs stay active.`)) return;
+                                    if (!(await askConfirm(`Running jobs stay active.`, { title: `Cancel ${waiting} waiting item${waiting === 1 ? '' : 's'}?`, confirmLabel: 'Cancel them', cancelLabel: 'Keep' }))) return;
                                     setBusy('queue');
                                     try {
                                         const response = await posterSetsApi.clearQueuedJobs();
@@ -487,7 +487,7 @@ export const PosterSetsQueueView: React.FC = () => {
                                                         disabled={busy !== null}
                                                         onClick={async (event) => {
                                                             event.stopPropagation();
-                                                            if (!window.confirm('Stop this running apply? You can Retry it afterward.')) return;
+                                                            if (!(await askConfirm('You can retry it afterwards.', { title: 'Stop this running apply?', confirmLabel: 'Stop' }))) return;
                                                             setBusy('queue');
                                                             try {
                                                                 await posterSetsApi.stopQueueJob(job.id);

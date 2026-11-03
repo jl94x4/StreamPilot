@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
+import { askConfirm } from '../../shared/confirm';
 import { api } from '../api';
 import { usePoll } from '../../shared/usePoll';
 import { PinEvent } from '../types';
@@ -169,7 +170,7 @@ const StatsPage: React.FC = () => {
   }
 
   const handleClearStats = async () => {
-    if (confirm("DANGER: This will wipe all statistical history from the SERVER. Continue?")) {
+    if (await askConfirm('This wipes all Collexions statistics history from the server.', { title: 'Wipe statistics?', confirmLabel: 'Wipe', danger: true })) {
       setLoading(true);
       await api.saveHistory([]);
       setEvents([]);

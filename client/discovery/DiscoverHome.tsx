@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { ChevronDown, ChevronUp, ClipboardList, Film, Music, Sparkles } from 'lucide-react';
+import { ChevronDown, ChevronUp, ClipboardList, Film, Music, RefreshCw, Sparkles } from 'lucide-react';
 import { apiFetch } from '../shared/api';
 import { DiscoverPosterCard } from '../screens';
 import { Carousel } from './Carousel';
@@ -248,6 +248,8 @@ export const DiscoverHome: React.FC<{
         TV_GENRES.map((g) => ({ id: g.id, name: g.name, image: buildGenreSliderImage(g.id) }))
     ));
     const [loading, setLoading] = useState(true);
+    // Every main rail came back empty: the request app or its data source is down (or timed out).
+    const [mainRowsFailed, setMainRowsFailed] = useState(false);
     const loadGenRef = useRef(0);
     const hasPaintedRef = useRef(false);
     const [enterAnim, setEnterAnim] = useState(true);
@@ -336,6 +338,8 @@ export const DiscoverHome: React.FC<{
 
             if (gen !== loadGenRef.current) return;
 
+            setMainRowsFailed([trendingRes, popularMovies, upcomingMovies, popularSeries, upcomingSeries]
+                .every((items) => !Array.isArray(items) || items.length === 0));
             setExtraRows({});
             setRows((prev) => ({
                 ...prev,
@@ -560,7 +564,10 @@ export const DiscoverHome: React.FC<{
             })();
         } catch (e) {
             console.error(e);
-            if (gen === loadGenRef.current) setLoading(false);
+            if (gen === loadGenRef.current) {
+                setMainRowsFailed(true);
+                setLoading(false);
+            }
         } finally {
             window.clearTimeout(paintTimer);
             if (gen === loadGenRef.current) setLoading(false);
@@ -591,6 +598,21 @@ export const DiscoverHome: React.FC<{
 
     return (
         <div className={`discover-layout-container flex flex-col gap-6 w-full max-w-full min-w-0 pb-8${enterAnim ? ' discover-content-enter' : ''}`}>
+            {mainRowsFailed ? (
+                <div role="alert">
+                    <EmptyRail
+                        title={t('home.loadFailedTitle')}
+                        body={t('home.loadFailedBody')}
+                        actionLabel={t('common.retry')}
+                        onAction={() => {
+                            setMainRowsFailed(false);
+                            hasPaintedRef.current = false;
+                            void loadData();
+                        }}
+                        icon={<RefreshCw className="w-5 h-5" />}
+                    />
+                </div>
+            ) : null}
             <section className={discoveryTheme.personalPanel}>
                 <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">

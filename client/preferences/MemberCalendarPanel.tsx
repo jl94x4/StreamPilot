@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { askConfirm } from '../shared/confirm';
 import { CalendarPlus, Copy, RefreshCw } from 'lucide-react';
 import { apiFetch } from '../shared/api';
 import { DashboardPanel } from '../shared/dashboard/DashboardChrome';
@@ -32,7 +33,7 @@ export const MemberCalendarPanel: React.FC<{ onToast: (message: string, type?: '
     };
 
     const reset = async () => {
-        if (!window.confirm(t('memberCalendar.resetConfirm'))) return;
+        if (!(await askConfirm(t('memberCalendar.resetConfirm'), { title: t('memberCalendar.reset'), confirmLabel: t('memberCalendar.reset') }))) return;
         setBusy(true);
         try {
             const data: any = await apiFetch('/api/me/calendar/reset', { method: 'POST' });

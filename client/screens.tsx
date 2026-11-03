@@ -14,7 +14,7 @@ import { EmailSelectedUsersModal } from './settings/EmailSelectedUsersModal';
 import { PlexUserPermissions } from './settings/PlexSharePermissions';
 import { ExtensionRequestsAdmin } from './extension/ExtensionRequestsAdmin';
 import { LibraryMaintenancePanel } from './maintenance/LibraryMaintenancePanel';
-import { appConfirm, askConfirm } from './shared/confirm';
+import { appAlert, appConfirm, askConfirm } from './shared/confirm';
 import { apiFetch, apiFetchShared } from './shared/api';
 import { InAppNotificationsBell } from './shared/InAppNotificationsBell';
 import { IN_APP_NOTIFICATIONS_CHANGED_EVENT } from './shared/inAppNotificationsRefresh';
@@ -9941,13 +9941,13 @@ const StreamDetailsModal: React.FC<{ session: any, onClose: () => void, isAdmin?
                 body: JSON.stringify({ sessionId: session.sessionId, reason: killReason })
             });
             if (res.error) {
-                alert(res.error);
+                void appAlert(String(res.error), { title: 'Could not stop the stream' });
             } else {
                 onClose();
                 if (onKilled) onKilled();
             }
         } catch (e: any) {
-            alert('Failed to kill stream');
+            void appAlert('The server did not respond. Try again in a moment.', { title: 'Could not stop the stream' });
         } finally {
             setIsKilling(false);
         }

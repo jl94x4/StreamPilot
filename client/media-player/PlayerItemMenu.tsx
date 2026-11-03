@@ -1,4 +1,5 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
+import { askConfirm } from '../shared/confirm';
 import { createPortal } from 'react-dom';
 import {
     Bookmark,
@@ -1185,9 +1186,9 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                         data-tv-item="1"
                         data-tv-menu-item="1"
                         className={`${itemClass} text-red-300 hover:bg-red-500/15`}
-                        onClick={() => {
+                        onClick={async () => {
                             close();
-                            const ok = window.confirm(t('mediaPlayerPage.deleteConfirm', { title: item.title }));
+                            const ok = await askConfirm(t('mediaPlayerPage.deleteConfirm', { title: item.title }), { danger: true, confirmLabel: t('common.delete') });
                             if (!ok) return;
                             void deleteMediaPlayerItem(item.ratingKey).then(() => {
                                 onDeleted?.(item);
