@@ -24,6 +24,11 @@ const RULE_FIELDS = [
     { value: 'user', type: 'text' as const },
     { value: 'playerProduct', type: 'text' as const },
     { value: 'playerTitle', type: 'text' as const },
+    // Read across all of a user's streams (worked out on the server each check).
+    { value: 'userStreamCount', type: 'number' as const },
+    { value: 'userLocationCount', type: 'number' as const },
+    { value: 'pausedMinutes', type: 'number' as const },
+    { value: 'hourOfDay', type: 'number' as const },
 ];
 const KR_OP_TEXT = [{ value: 'equals' }, { value: 'not_equals' }, { value: 'contains' }, { value: 'not_contains' }];
 const KR_OP_NUMBER = [{ value: 'equals' }, { value: 'not_equals' }, { value: 'greater_than' }, { value: 'less_than' }];
@@ -42,6 +47,10 @@ const KR_FIELD_LABEL_KEYS: Record<string, string> = {
     user: 'settings.streamKillRules.fields.user',
     playerProduct: 'settings.streamKillRules.fields.playerProduct',
     playerTitle: 'settings.streamKillRules.fields.playerTitle',
+    userStreamCount: 'settings.streamKillRules.fields.userStreamCount',
+    userLocationCount: 'settings.streamKillRules.fields.userLocationCount',
+    pausedMinutes: 'settings.streamKillRules.fields.pausedMinutes',
+    hourOfDay: 'settings.streamKillRules.fields.hourOfDay',
 };
 const KR_OPERATOR_LABEL_KEYS: Record<string, string> = {
     equals: 'settings.streamKillRules.operators.equals',

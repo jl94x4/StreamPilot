@@ -119,6 +119,14 @@ import {
     resolveWatchTogetherHostStream,
 } from './lib/watch-together/index.js';
 import { startOverlaysScheduler, startOverlaysBundleScheduler, runOverlaysScheduledJob } from './lib/overlays/scheduler.js';
+import { decidePlexHeavyJob } from './lib/plexHeavyJobGate.js';
+import {
+    annotateKillRuleSessions,
+    recountAfterStopped,
+    sessionMatchesCondition,
+    VALID_KILL_RULE_FIELDS,
+    VALID_KILL_RULE_OPERATORS,
+} from './lib/killRules.js';
 import { registerAchievementsRoutes } from './lib/achievements/http.js';
 import { registerProfileRoutes } from './lib/profile/http.js';
 import { registerSupportTicketRoutes } from './lib/support-tickets/http.js';
@@ -24420,6 +24428,12 @@ const pruneHealthRecord = (record, now) => {
     }
 };
 
+/** Heavy scheduled jobs wait while the status page's Plex monitor says Plex is down or just back. */
+const plexHeavyJobGate = async () => decidePlexHeavyJob({
+    services: statusConfig?.services || [],
+    healthData,
+});
+
 async function runMonitorCycle() {
     if (!statusConfig.services || statusConfig.services.length === 0) return;
 
@@ -33937,38 +33951,8 @@ function normalizeRuleResolution(rawResolution, isTranscoding, transcodeResoluti
     return normalizeBucket(rawResolution);
 }
 
-function sessionMatchesCondition(session, condition) {
-    const { field, operator, value } = condition;
-    let sessionVal;
-
-    switch (field) {
-        case 'isTranscoding': sessionVal = session.isTranscoding ? 'true' : 'false'; break;
-        case 'videoResolution': sessionVal = (session.resolution || '').toString().toLowerCase(); break;
-        case 'user': sessionVal = (session.user || '').toLowerCase(); break;
-        case 'bandwidth': sessionVal = Math.round((session.bandwidth || 0) / 1000); break; // in Mbps
-        case 'playerProduct': sessionVal = (session.playerProduct || '').toLowerCase(); break;
-        case 'state': sessionVal = (session.state || '').toLowerCase(); break;
-        case 'mediaType': sessionVal = (session.type || '').toLowerCase(); break;
-        case 'sessionLocation': sessionVal = (session.sessionLocation || '').toLowerCase(); break;
-        case 'playerTitle': sessionVal = (session.playerTitle || '').toLowerCase(); break;
-        case 'videoCodec': sessionVal = (session.videoCodec || '').toLowerCase(); break;
-        case 'audioCodec': sessionVal = (session.audioCodec || '').toLowerCase(); break;
-        case 'transcodeVideoDecision': sessionVal = (session.transcodeVideoDecision || '').toLowerCase(); break;
-        default: return false;
-    }
-
-    const compareVal = field === 'bandwidth' ? parseFloat(value) : (value || '').toString().toLowerCase();
-
-    switch (operator) {
-        case 'equals': return String(sessionVal) === String(compareVal);
-        case 'not_equals': return String(sessionVal) !== String(compareVal);
-        case 'contains': return String(sessionVal).includes(String(compareVal));
-        case 'not_contains': return !String(sessionVal).includes(String(compareVal));
-        case 'greater_than': return parseFloat(sessionVal) > parseFloat(compareVal);
-        case 'less_than': return parseFloat(sessionVal) < parseFloat(compareVal);
-        default: return false;
-    }
-}
+/** sessionId → when it was first seen paused, for the "paused for" condition. */
+const killRulePausedSince = new Map();
 
 async function evaluateKillRules(config, uri, sessions) {
     if (!sessions || sessions.length === 0) return;
@@ -33976,7 +33960,10 @@ async function evaluateKillRules(config, uri, sessions) {
     const enabledRules = rules.filter(r => r.enabled !== false);
     if (enabledRules.length === 0) return;
 
-    for (const session of sessions) {
+    const annotated = annotateKillRuleSessions(sessions, { pausedSince: killRulePausedSince });
+    const stopped = new Set();
+    for (const session of annotated) {
+        if (stopped.has(session.sessionId)) continue;
         for (const rule of enabledRules) {
             const { conditions, conditionLogic = 'AND', killMessage, name } = rule;
             if (!conditions || conditions.length === 0) continue;
@@ -33997,6 +33984,9 @@ async function evaluateKillRules(config, uri, sessions) {
                     if (killRes.ok || killRes.status === 204) {
                         log(`[KillRules] Terminated session for "${session.user || 'Unknown'}" via rule "${name || 'Unnamed'}". Reason: ${msg}`);
                         await appendAuditLog('stream_killed_by_rule', null, null, { user: session.user, rule: name, reason: msg });
+                        // A stream limit stops only what is over it: recount this user's others.
+                        stopped.add(session.sessionId);
+                        recountAfterStopped(annotated, stopped);
                     }
                 } catch (e) {
                     log(`[KillRules] Error terminating session: ${e.message}`);
@@ -34007,9 +33997,7 @@ async function evaluateKillRules(config, uri, sessions) {
     }
 }
 
-// --- Security: Schema validation for kill rules ---
-const VALID_KILL_RULE_FIELDS    = new Set(['isTranscoding', 'videoResolution', 'user', 'bandwidth', 'playerProduct', 'state', 'mediaType', 'sessionLocation', 'playerTitle', 'videoCodec', 'audioCodec', 'transcodeVideoDecision']);
-const VALID_KILL_RULE_OPERATORS = new Set(['equals', 'not_equals', 'contains', 'not_contains', 'greater_than', 'less_than']);
+// --- Security: Schema validation for kill rules (fields and operators: lib/killRules.js) ---
 
 const validateKillRulesSchema = (rules) => {
     if (!Array.isArray(rules)) throw new Error('Rules must be an array');
@@ -34080,6 +34068,9 @@ async function monitorConcurrentSessions() {
                     return {
                         sessionId: session.id || m.sessionKey,
                         user: m.User ? m.User.title : 'Unknown',
+                        userId: m.User ? String(m.User.id || '') : '',
+                        // Remote streams are told apart by public address (stream rules: places).
+                        address: player.remotePublicAddress || player.address || '',
                         isTranscoding: isTranscode,
                         sourceResolution: sourceResolution ? String(sourceResolution).toLowerCase() : null,
                         resolution: normalizeRuleResolution(sourceResolution, isTranscode, transcodeResolutionRaw),
@@ -34445,6 +34436,8 @@ const httpServer = app.listen(PORT, BIND_HOST, async () => {
             await sendGotifyAlert(config, title || 'Poster Sets watcher', message || '');
         });
         startPosterSetsWatcher({
+            plexReady: plexHeavyJobGate,
+            log,
             resolveFirstPassDelayMs: async () => {
                 const stored = await getJob(JOB_IDS.posterSetsWatcher);
                 const intervalMs = stored.intervalMs || 6 * 60 * 60 * 1000;
@@ -34475,6 +34468,7 @@ const httpServer = app.listen(PORT, BIND_HOST, async () => {
             },
             markTaskStart,
             markTaskEnd,
+            plexReady: plexHeavyJobGate,
         };
         startOverlaysScheduler({
             ...overlaysSchedDeps,
@@ -34500,6 +34494,7 @@ const httpServer = app.listen(PORT, BIND_HOST, async () => {
             markTaskEnd,
             systemJob: systemJobs.editionsProcess,
             log,
+            plexReady: plexHeavyJobGate,
         });
         log('[editions] Full-run scheduler started');
     } catch (error) {
@@ -34513,6 +34508,7 @@ const httpServer = app.listen(PORT, BIND_HOST, async () => {
             markTaskEnd,
             systemJob: systemJobs.watchSync,
             log,
+            plexReady: plexHeavyJobGate,
         });
         log('[watch-sync] Scheduler started');
         startLiveWatch({
