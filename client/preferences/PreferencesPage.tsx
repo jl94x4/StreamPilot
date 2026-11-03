@@ -9,6 +9,7 @@ import { useDiscoverI18n } from '../discovery/i18n';
 import { DiscoverLocaleSelect } from '../discovery/i18n/DiscoverLocaleSelect';
 import { StickySaveBar } from '../shared/StickySaveBar';
 import { MemberCalendarPanel } from './MemberCalendarPanel';
+import { SignOutEverywherePanel } from './SignOutEverywherePanel';
 
 type Props = {
     sessionInfo: any;
@@ -418,6 +419,8 @@ export const PreferencesPage: React.FC<Props> = ({ sessionInfo, refreshSession, 
                             disabled={busy}
                         />
                     </DashboardPanel>
+
+                    <SignOutEverywherePanel onError={(message) => setToasts((prev) => pushToast(prev, message, 'error'))} />
 
                     <DashboardPanel title={t('preferencesPage.privacyTitle')} subtitle={t('preferencesPage.privacySubtitle')}>
                         <div className="flex flex-col gap-5">

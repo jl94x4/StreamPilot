@@ -67,7 +67,7 @@
       "@types/react": "$@types/react"
     },
     "body-parser": "1.20.9",
-    "qs": "6.16.0",
+    "qs": "6.16.2",
     "vite": "6.4.4",
     "proxy-addr": "2.0.8",
     "source-map-js": "1.2.2",

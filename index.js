@@ -120,6 +120,7 @@ import {
 } from './lib/watch-together/index.js';
 import { startOverlaysScheduler, startOverlaysBundleScheduler, runOverlaysScheduledJob } from './lib/overlays/scheduler.js';
 import { decidePlexHeavyJob } from './lib/plexHeavyJobGate.js';
+import { createSessionRevocationStore } from './lib/sessionRevocation.js';
 import { buildMemberCalendarEvents, renderIcs } from './lib/memberCalendar.js';
 import {
     normalizeSharePermissions,
@@ -786,6 +787,19 @@ if (!JWT_SECRET || JWT_SECRET.length < 32) {
     process.exit(1);
 }
 
+// Logout, "sign out everywhere" and deleted users revoke tokens before their 7 days are up.
+const sessionRevocations = createSessionRevocationStore({
+    filePath: path.join(CONFIG_DIR, 'session-revocations.json'),
+    log: (message) => console.error(message),
+});
+
+/** jwt.verify plus revocation. Throws like jwt.verify when the token must not be accepted. */
+const verifySessionToken = (token) => {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    if (sessionRevocations.isRevoked(token, decoded)) throw new Error('Session revoked');
+    return decoded;
+};
+
 let CLIENT_ID = process.env.CLIENT_ID || 'plex-expiry-manager-client-id'; // Now dynamically generated if missing
 
 const portalFrameSrcDirective = (hostname = '') => {
@@ -962,7 +976,12 @@ const hasValidSetupToken = (req) => {
 // Use the raw TCP peer address for setup authorization. req.ip honors the
 // client-supplied X-Forwarded-For header (trust proxy is enabled), which an
 // attacker could spoof to impersonate localhost during the unconfigured window.
-const canRunInitialSetup = (req) => hasValidSetupToken(req) || isLoopbackAddress(getSocketPeerIp(req));
+// A reverse proxy on the same machine makes every visitor look like localhost, so a request
+// that carries proxy headers never counts as local (use SETUP_TOKEN behind a proxy).
+const PROXY_HEADER_NAMES = ['x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto', 'x-real-ip', 'forwarded', 'cf-connecting-ip', 'true-client-ip'];
+const arrivedThroughProxy = (req) => PROXY_HEADER_NAMES.some((name) => req.headers?.[name] !== undefined);
+const canRunInitialSetup = (req) => hasValidSetupToken(req)
+    || (isLoopbackAddress(getSocketPeerIp(req)) && !arrivedThroughProxy(req));
 
 const normalizeHostnameForIpCheck = (hostname = '') => {
     let host = String(hostname || '').trim().toLowerCase();
@@ -3416,7 +3435,7 @@ const requireAuth = (req, res, next) => {
     const token = readSessionToken(req);
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
     try {
-        req.user = jwt.verify(token, JWT_SECRET);
+        req.user = verifySessionToken(token);
         next();
     } catch (e) {
         return res.status(401).json({ error: 'Invalid session' });
@@ -3463,7 +3482,7 @@ const requireAdmin = async (req, res, next) => {
     const token = readSessionToken(req);
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
     try {
-        req.user = jwt.verify(token, JWT_SECRET);
+        req.user = verifySessionToken(token);
     } catch (e) {
         return res.status(401).json({ error: 'Invalid session' });
     }
@@ -5337,7 +5356,7 @@ app.get('/api/auth/session', publicReadRateLimit, async (req, res) => {
     const token = readSessionToken(req);
     if (!token) return res.json({ authenticated: false });
     try {
-        const user = jwt.verify(token, JWT_SECRET);
+        const user = verifySessionToken(token);
         const config = await loadFile(CONFIG_PATH, {});
         const isAdmin = await resolveCurrentAdmin(user, config);
         return res.json({
@@ -5654,8 +5673,18 @@ app.post('/api/setup/plex/callback', setupRateLimit, authRateLimit, async (req, 
 });
 
 app.post('/api/auth/logout', requireAuth, (req, res) => {
+    sessionRevocations.revokeToken(readSessionToken(req), req.user);
     clearSessionCookie(req, res);
     res.json({ message: 'Logged out' });
+});
+
+/** Sign out on every device: browsers, the TV app and installed apps all need to log in again. */
+app.post('/api/auth/logout-all', requireAuth, async (req, res) => {
+    const actor = getSessionActor(req.user);
+    sessionRevocations.revokeAccount(actor);
+    await appendAuditLog('sessions_revoked', actor, actor, { reason: 'sign_out_everywhere' });
+    clearSessionCookie(req, res);
+    res.json({ message: 'Signed out everywhere' });
 });
 
 app.post('/api/users/preferences', requireAuth, requireMember, async (req, res) => {
@@ -7274,7 +7303,7 @@ app.post('/api/config', setupRateLimit, async (req, res) => {
             return res.status(403).json({ error: 'Forbidden: App is already configured. Please log in as admin to modify settings.' });
         }
         try {
-            const decoded = jwt.verify(sessionToken, JWT_SECRET);
+            const decoded = verifySessionToken(sessionToken);
             const isAdmin = await resolveCurrentAdmin(decoded, existingConfig);
             if (!isAdmin) {
                 return res.status(403).json({ error: 'Forbidden: Admins only.' });
@@ -8689,7 +8718,7 @@ const assertIntegrationTestAccess = async (req, res) => {
             return false;
         }
         try {
-            const decoded = jwt.verify(sessionToken, JWT_SECRET);
+            const decoded = verifySessionToken(sessionToken);
             const isAdmin = await resolveCurrentAdmin(decoded, stored);
             if (!isAdmin) {
                 res.status(403).json({ error: 'Forbidden: admins only.' });
@@ -9630,6 +9659,51 @@ const scheduleWarmDashboardCovers = (config, lists, source) => {
     });
 };
 
+// The poster proxy fetches with the owner token, so it sees every library. Members whose Plex
+// share is limited to some libraries only get artwork from those. Members shared everything
+// (most) skip the check entirely; lookups are cached so posters never wait on plex.tv twice.
+const PLEX_MEMBER_IMAGE_PATH = /^\/(?:library\/(?:metadata|collections|sections)\/\d+\/|playlists\/\d+\/|:\/resources\/)/;
+const MEMBER_LIBRARY_ACCESS_TTL_MS = 10 * 60 * 1000;
+const memberLibraryAccessCache = new Map();
+
+/** Library keys this member's Plex share covers; null = every library (or unknown: plex.tv down). */
+const getMemberAllowedLibraryKeys = (user, config) => {
+    const key = String(user?.id || user?.plexId || '');
+    const entry = memberLibraryAccessCache.get(key);
+    if (entry && Date.now() < entry.until) return entry.promise;
+    const promise = getPlexShareLibraryIds(user, config)
+        .then((ids) => (ids == null ? null : new Set(ids.map(String))))
+        .catch(() => {
+            memberLibraryAccessCache.set(key, { until: Date.now() + 60_000, promise: Promise.resolve(null) });
+            return null;
+        });
+    memberLibraryAccessCache.set(key, { until: Date.now() + MEMBER_LIBRARY_ACCESS_TTL_MS, promise });
+    return promise;
+};
+
+/** Library key an artwork path belongs to; null = not library content; undefined = unknown. */
+const plexImagePathLibraryKey = async (config, thumbPath) => {
+    const section = thumbPath.match(/^\/library\/sections\/(\d+)\//);
+    if (section) return section[1];
+    const item = thumbPath.match(/^\/library\/(?:metadata|collections)\/(\d+)\//);
+    if (!item) return null;
+    const uri = await getPlexConnectionUri(config);
+    if (!uri) return undefined;
+    const meta = await fetchPlexMetadataByPath(uri, config, `/library/metadata/${item[1]}`);
+    const id = meta?.librarySectionID ?? meta?.librarySectionId;
+    return id != null ? String(id) : undefined;
+};
+
+const memberMayViewPlexImage = async (req, config, thumbPath) => {
+    if (req.user?.isAdmin) return true;
+    if (!PLEX_MEMBER_IMAGE_PATH.test(thumbPath)) return false;
+    const allowed = await getMemberAllowedLibraryKeys(req.localUser || req.user, config);
+    if (!allowed) return true;
+    const libraryKey = await plexImagePathLibraryKey(config, thumbPath);
+    if (libraryKey === null) return true;
+    return !!libraryKey && allowed.has(libraryKey);
+};
+
 app.get('/api/plex/image', requireAuth, requireMember, async (req, res) => {
     const { path: thumbPath, width, height } = req.query;
     if (!thumbPath) return res.status(400).send('path required');
@@ -9647,6 +9721,7 @@ app.get('/api/plex/image', requireAuth, requireMember, async (req, res) => {
     };
     try {
         const config = await loadFile(CONFIG_PATH, {});
+        if (!(await memberMayViewPlexImage(req, config, String(thumbPath)))) return failImage(404);
         const transcodeWidth = Math.min(Math.max(parseInt(width, 10) || PLEX_POSTER_WIDTH, 16), PLEX_IMAGE_MAX_WIDTH);
         const transcodeHeight = Math.min(Math.max(parseInt(height, 10) || PLEX_POSTER_HEIGHT, 16), PLEX_IMAGE_MAX_HEIGHT);
         const fitContain = String(req.query.fit || '').toLowerCase() === 'contain';
@@ -10712,7 +10787,7 @@ app.post('/api/plex/servers', setupRateLimit, async (req, res) => {
             }
             let decoded;
             try {
-                decoded = jwt.verify(sessionToken, JWT_SECRET);
+                decoded = verifySessionToken(sessionToken);
             } catch (e) {
                 return res.status(403).json({ error: 'Forbidden: Invalid admin session.' });
             }
@@ -16730,6 +16805,7 @@ app.delete('/api/users/:id', requireAdmin, async (req, res) => {
 
     await rememberDeletedUser(user, req.user);
     await saveFile(USERS_PATH, users.filter(u => u.id !== id));
+    sessionRevocations.revokeAccount(user);
     await appendAuditLog('user_deleted_blocked', req.user, user, { plexAccessRevoked: !!(config && config.serverIdentifier && config.plexToken) });
     res.status(204).send();
 });
@@ -17608,7 +17684,7 @@ app.get('/api/status', publicReadRateLimit, async (req, res) => {
     const token = req.cookies?.session;
     if (token) {
         try {
-            sessionUser = jwt.verify(token, JWT_SECRET);
+            sessionUser = verifySessionToken(token);
             const isRealAdmin = await resolveCurrentAdmin(getSessionActor(sessionUser), config);
             // Impersonation must see the member/public view — not the full admin service list.
             viewerIsAdmin = effectiveViewerIsAdmin(sessionUser, isRealAdmin);
@@ -34882,6 +34958,7 @@ const httpServer = app.listen(PORT, BIND_HOST, async () => {
 
 attachWatchTogether(httpServer, {
     jwtSecret: JWT_SECRET,
+    isSessionRevoked: (token, decoded) => sessionRevocations.isRevoked(token, decoded),
     basePath: BASE_PATH,
     log,
 });
