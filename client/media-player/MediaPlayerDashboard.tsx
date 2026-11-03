@@ -167,7 +167,7 @@ const readPlayerView = (): PlayerView => {
         .filter(Boolean);
     const params = new URLSearchParams(href.search || '');
     if (parts[1] === 'library' && parts[2]) {
-        // With more than one server the key is , which arrives as %3A%3A.
+        // With more than one server the key is serverId::section, which arrives as %3A%3A.
         // Undecoded it matched no server and asked your own for a library that doesn't exist.
         const sectionKey = decodePathPart(parts[2]);
         if (parts[3] === 'collection' && parts[4]) {

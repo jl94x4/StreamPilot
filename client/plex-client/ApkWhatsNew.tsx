@@ -138,6 +138,14 @@ const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
             ],
         },
     ],
+    '1.0.602': [
+        {
+            title: 'More than one server',
+            items: [
+                'Opening a library from a saved or restored address works with more than one server (the library ID wasn\'t decoded, so it showed as empty)',
+            ],
+        },
+    ],
     '1.0.601': [
         {
             title: 'More than one server',
