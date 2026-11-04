@@ -354,6 +354,7 @@ import {
 } from './lib/plex/homeUsers.js';
 import { resolvePlexSharedServerMemberToken } from './lib/plex/sharedServers.js';
 import { preferPmsMemberToken } from './lib/plex/memberMediaToken.js';
+import { plexSessionSubtitle } from './lib/plex/sessionSubtitle.js';
 
 const resolveAppVersion = () => {
     const pkgVersion = resolvePackageVersion();
@@ -18368,6 +18369,7 @@ app.get('/api/plex/dashboard', requireAuth, requireMember, async (req, res) => {
                     sessionLocation: session.location || 'Unknown',
                     state: player.state || 'playing',
                     isTranscoding: !!isTranscoding,
+                    subtitle: plexSessionSubtitle(m),
                     videoCodec: m.Media && m.Media[0] ? m.Media[0].videoCodec : null,
                     audioCodec: m.Media && m.Media[0] ? m.Media[0].audioCodec : null,
                     audioChannels: m.Media && m.Media[0] ? m.Media[0].audioChannels : null,

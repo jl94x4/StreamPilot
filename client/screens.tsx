@@ -10869,9 +10869,20 @@ export const LibraryDashboard: React.FC<{ onBack: () => void, isAdmin?: boolean,
                                                         ) : null}
                                                         <div className="grid grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-2 text-[10px] md:text-xs border-b border-white/5 pb-0.5">
                                                             <span className="text-muted uppercase tracking-wider font-bold">Stream</span>
-                                                            <span className={`font-bold text-right ${session.isTranscoding ? 'text-status-expiring' : 'text-status-active'}`}>
-                                                                {session.isTranscoding ? 'Transcode' : 'Direct Play'}
-                                                            </span>
+                                                            {/* Subtitles ride on the Stream line as a small tag, so the card keeps its height. */}
+                                                            <div className="flex items-center justify-end gap-1.5 min-w-0">
+                                                                {session.subtitle ? (
+                                                                    <span
+                                                                        className={`shrink-0 inline-flex items-center gap-0.5 text-[9px] font-bold px-1 py-px rounded uppercase tracking-wide border leading-none ${session.subtitle.burn ? 'bg-status-expiring/15 text-status-expiring border-status-expiring/30' : 'bg-white/10 text-white/85 border-white/15'}`}
+                                                                        title={`Subtitles: ${session.subtitle.label}${session.subtitle.forced ? ' (forced)' : ''}${session.subtitle.burn ? ' · burned in by the server' : ''}`}
+                                                                    >
+                                                                        CC{session.subtitle.code ? ` ${session.subtitle.code}` : ''}{session.subtitle.burn ? ' · Burn' : ''}
+                                                                    </span>
+                                                                ) : null}
+                                                                <span className={`font-bold text-right truncate ${session.isTranscoding ? 'text-status-expiring' : 'text-status-active'}`}>
+                                                                    {session.isTranscoding ? 'Transcode' : 'Direct Play'}
+                                                                </span>
+                                                            </div>
                                                         </div>
                                                         <div className="grid grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-2 text-[10px] md:text-xs border-b border-white/5 pb-0.5">
                                                             <span className="text-muted uppercase tracking-wider font-bold">State</span>
