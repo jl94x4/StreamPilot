@@ -379,6 +379,77 @@ export type PlayerTvStackRow = {
     viewMoreShelf?: ViewMoreShelfSource | null;
 };
 
+/** Row slide on a TV Home row change (Plex-style): one ease, transform + opacity only. */
+const TV_ROW_SLIDE_MS = 240;
+const TV_ROW_SLIDE_EASE = 'cubic-bezier(0.25, 0.8, 0.3, 1)';
+
+const tvRowSlideOff = () => {
+    try {
+        const root = document.documentElement;
+        return root.dataset.reduceMotion === '1'
+            || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+    } catch {
+        return false;
+    }
+};
+
+/** Top of each on-screen row (active + peek), read before React swaps their classes. */
+const snapshotTvRowTops = (stage: HTMLElement) => {
+    const tops = new Map<string, number>();
+    stage.querySelectorAll<HTMLElement>('.player-home-row-active, .player-home-next-row').forEach((el) => {
+        const id = el.dataset.tvStackId;
+        if (id) tops.set(id, el.getBoundingClientRect().top);
+    });
+    return tops;
+};
+
+/**
+ * FLIP: every row that was or is on screen starts where it was and glides to its new
+ * place. A row coming on screen enters from one step below (Down) or above (Up); the
+ * row leaving slides one step on and fades. Rapid presses cancel and restart from where
+ * each row is drawn, so nothing queues up.
+ */
+const slideTvRows = (stage: HTMLElement, before: Map<string, number>, dir: 'up' | 'down') => {
+    const rows = Array.from(stage.querySelectorAll<HTMLElement>('[data-tv-stack-id]'));
+    rows.forEach((el) => el.getAnimations?.().forEach((a) => a.cancel()));
+    if (tvRowSlideOff() || typeof stage.animate !== 'function') return;
+    const active = stage.querySelector<HTMLElement>('.player-home-row-active');
+    if (!active) return;
+    const activeBox = active.getBoundingClientRect();
+    // getBoundingClientRect is in zoomed px; transforms are in the element's own px.
+    const scale = activeBox.height > 0 ? active.offsetHeight / activeBox.height : 1;
+    const activeFrom = before.get(active.dataset.tvStackId || '');
+    // One step = how far the rows travel: the old peek row to the active slot.
+    const step = activeFrom != null && Math.abs(activeFrom - activeBox.top) > 8
+        ? Math.abs(activeFrom - activeBox.top)
+        : Math.max(120, activeBox.height);
+    const sign = dir === 'down' ? 1 : -1;
+    const opts: KeyframeAnimationOptions = { duration: TV_ROW_SLIDE_MS, easing: TV_ROW_SLIDE_EASE };
+    rows.forEach((el) => {
+        const id = el.dataset.tvStackId || '';
+        const shown = el.classList.contains('player-home-row-active') || el.classList.contains('player-home-next-row');
+        const was = before.get(id);
+        if (!shown && was == null) return;
+        const now = el.getBoundingClientRect().top;
+        if (shown) {
+            const from = was ?? now + sign * step;
+            const dy = (from - now) * scale;
+            if (Math.abs(dy) < 1) return;
+            el.animate([
+                { transform: `translate3d(0, ${dy}px, 0)`, opacity: was == null ? 0 : 1 },
+                { transform: 'translate3d(0, 0, 0)', opacity: 1 },
+            ], opts);
+            return;
+        }
+        // Leaving: keep moving the same way, fading out over the details.
+        const startDy = ((was as number) - now) * scale;
+        el.animate([
+            { transform: `translate3d(0, ${startDy}px, 0)`, opacity: 1 },
+            { transform: `translate3d(0, ${startDy - sign * step * scale}px, 0)`, opacity: 0 },
+        ], opts);
+    });
+};
+
 /** Keep the previous, current, and next Home rows mounted so posters stay decoded. */
 /** Memoised: Home re-renders on every focus move; the stack only needs to on a row change. */
 export const PlayerTvRowStack = memo(function PlayerTvRowStack({
@@ -418,19 +489,34 @@ export const PlayerTvRowStack = memo(function PlayerTvRowStack({
     }, [activeIndex]);
     const lo = Math.min(warm.lo, activeIndex - 1);
     const hi = Math.max(warm.hi, activeIndex + 1);
+    const stageRef = useRef<HTMLDivElement>(null);
+    const shownIndexRef = useRef(activeIndex);
+    const beforeTopsRef = useRef<Map<string, number> | null>(null);
+    // Read where the rows are drawn while the DOM still shows the old row (render runs
+    // before commit); the layout effect then slides them from there.
+    if (shownIndexRef.current !== activeIndex && stageRef.current && !beforeTopsRef.current) {
+        beforeTopsRef.current = snapshotTvRowTops(stageRef.current);
+    }
+    useLayoutEffect(() => {
+        const prev = shownIndexRef.current;
+        shownIndexRef.current = activeIndex;
+        const before = beforeTopsRef.current;
+        beforeTopsRef.current = null;
+        if (prev === activeIndex || !before || !stageRef.current) return;
+        slideTvRows(stageRef.current, before, rowDir || (activeIndex > prev ? 'down' : 'up'));
+    }, [activeIndex, rowDir]);
     return (
-        <div className="player-home-stage-rail">
+        <div className="player-home-stage-rail" ref={stageRef}>
             {rows.map((row, index) => {
                 if (index < lo || index > hi) return null;
                 const active = index === activeIndex;
                 const peek = index === activeIndex + 1;
-                // The row you move to slides in from the side you came from.
-                const enter = active && rowDir ? ` player-home-row-enter-${rowDir}` : '';
                 return (
                     <div
                         key={row.id}
                         data-tv-stack-index={index}
-                        className={peek ? 'player-home-next-row' : (active ? `player-home-row-active${enter}` : 'player-home-row-park')}
+                        data-tv-stack-id={row.id}
+                        className={peek ? 'player-home-next-row' : (active ? 'player-home-row-active' : 'player-home-row-park')}
                         inert={!active ? true : undefined}
                         aria-hidden={!active}
                     >
