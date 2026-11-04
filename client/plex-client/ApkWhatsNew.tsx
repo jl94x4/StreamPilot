@@ -73,6 +73,32 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.611': [
+        {
+            title: 'Watch progress',
+            items: [
+                'Finished episodes and films now stay watched in Plex, instead of coming back as part-watched',
+                'Stopping part-way saves your spot properly, so Resume and Continue Watching pick up where you left off',
+                'Continue Watching moves on to the next episode after you finish one, matching Plex',
+            ],
+        },
+    ],
+    '1.0.610': [
+        {
+            title: 'Google Play',
+            items: [
+                'StreamPilot is on Google Play for Android TV, Google TV and Shield',
+            ],
+        },
+    ],
+    '1.0.609': [
+        {
+            title: 'Housekeeping',
+            items: [
+                'Behind-the-scenes preparation for the Google Play release',
+            ],
+        },
+    ],
     '1.0.608': [
         {
             title: 'Housekeeping',
