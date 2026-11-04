@@ -1,6 +1,6 @@
 {
   "name": "server-manager-portal",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "A web application to automatically manage Plex user access based on expiry dates.",
   "main": "index.js",
   "type": "module",
