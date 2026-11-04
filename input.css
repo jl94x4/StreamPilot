@@ -4785,6 +4785,9 @@ html[data-tv="1"] .player-home-row-active {
 html[data-tv="1"] .player-home-next-row {
   z-index: 1;
 }
+/* Parked rows keep a GPU layer too: the row you leave slides off from its parked spot, and
+   dropping its layer meant re-rastering a whole row of posters on every press (100-200ms
+   stalls when pressing quickly). */
 html[data-tv="1"] .player-home-row-park {
   position: absolute;
   left: 0;
@@ -4793,23 +4796,7 @@ html[data-tv="1"] .player-home-row-park {
   opacity: 0;
   pointer-events: none;
   z-index: 0;
-}
-/* TV Home row change: the row you move to slides in from the side you came from, and
-   the peek row below just appears. One animated layer per press: the outgoing-row move and
-   the peek fade-in doubled the GPU work of every row change on TV sticks. */
-html[data-tv="1"] .player-home-row-enter-down {
-  animation: player-home-row-in-down 0.18s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-html[data-tv="1"] .player-home-row-enter-up {
-  animation: player-home-row-in-up 0.18s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-@keyframes player-home-row-in-down {
-  from { opacity: 0.35; transform: translate3d(0, 2.25rem, 0); }
-  to { opacity: 1; transform: none; }
-}
-@keyframes player-home-row-in-up {
-  from { opacity: 0.35; transform: translate3d(0, -2.25rem, 0); }
-  to { opacity: 1; transform: none; }
+  will-change: transform, opacity;
 }
 html[data-reduce-motion="1"] .player-home-row-enter-down,
 html[data-reduce-motion="1"] .player-home-row-enter-up,
