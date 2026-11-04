@@ -15,9 +15,9 @@ android {
         applicationId "com.streampilot.mediaplayer"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 618
+        versionCode 619
         // Settings shows this versionName. `npm run build:apk` auto-bumps both.
-        versionName "1.0.618"
+        versionName "1.0.619"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             // TVs and phones are ARM. x86 is kept for the Android TV emulator: without it the whole

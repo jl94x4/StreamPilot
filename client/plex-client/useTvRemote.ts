@@ -860,7 +860,9 @@ const focusItem = (el: HTMLElement, block: ScrollLogicalPosition = 'nearest', di
     if (dir === 'up' || dir === 'down') {
         const row = focusedRow(el);
         if (!details && isPlayerHomePath() && row) {
-            scrollHomeRowWithPeek(row, dir);
+            // Stage Home slides its own row column (PlayerTvRowStack); scrolling here would
+            // shove the clipped stage boxes under it.
+            if (!el.closest('.player-home-stage')) scrollHomeRowWithPeek(row, dir);
             pinTvRailItemToSlot(el);
             return;
         }
