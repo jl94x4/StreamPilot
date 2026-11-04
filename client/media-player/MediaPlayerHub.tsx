@@ -141,7 +141,7 @@ export const MediaPlayerHub: React.FC<Props> = ({
     }
 
     return (
-        <div className="flex flex-col gap-5 pb-8">
+        <div className="flex flex-col gap-5 pb-8" data-tv-grid-top={tvShell ? '1' : undefined}>
             <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
                     {!tvShell ? (
