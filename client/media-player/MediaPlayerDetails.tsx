@@ -69,6 +69,7 @@ import {
     titleCaseProfile,
     withWatchedProgress,
 } from './playerUtils';
+import { isLanHttpImage, loadLanImage } from './lanImage';
 import { focusSeasonEpisodeWhenReady, hasRememberedTvFocus, pinTvDetailsTop, revealTvEpisodeCard } from '../plex-client/useTvRemote';
 import { readDocumentZoom } from '../shared/ui';
 import { PLAYER_SCROLL_ID } from './paths';
@@ -348,10 +349,27 @@ const FadeImg: React.FC<React.ImgHTMLAttributes<HTMLImageElement>> = ({ classNam
 
 const CastAvatar: React.FC<{ name: string; thumb?: string | null }> = ({ name, thumb }) => {
     const [failed, setFailed] = useState(false);
+    const [lanSrc, setLanSrc] = useState<string | null>(null);
     useEffect(() => {
         setFailed(false);
+        setLanSrc(null);
     }, [thumb]);
-    const src = thumb && !failed ? plexImageUrl(thumb, 240, 240, { quality: 60 }) : '';
+    const resolved = thumb && !failed ? plexImageUrl(thumb, 240, 240, { quality: 60 }) : '';
+    useEffect(() => {
+        const raw = String(resolved || '').trim();
+        if (!isLanHttpImage(raw)) {
+            setLanSrc(null);
+            return undefined;
+        }
+        let live = true;
+        loadLanImage(raw).then((url) => {
+            if (live) setLanSrc(url);
+        }, () => {
+            if (live) setLanSrc(null);
+        });
+        return () => { live = false; };
+    }, [resolved]);
+    const src = lanSrc || resolved;
     return (
         <div
             data-tv-cast-avatar="1"

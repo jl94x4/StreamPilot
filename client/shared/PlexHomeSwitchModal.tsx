@@ -19,33 +19,45 @@ const isSameProfile = (user: PlexHomeProfile, targetId?: string | null) => {
     return [user.id, user.uuid].some((value) => String(value || '').trim() === want);
 };
 
+const plexTvAvatarFallback = (user: PlexHomeProfile) => {
+    const uuid = String(user.uuid || '').trim();
+    const id = String(user.id || '').trim();
+    if (uuid) return `https://plex.tv/users/${encodeURIComponent(uuid)}/avatar?s=150`;
+    if (id) return `https://plex.tv/users/${encodeURIComponent(id)}/avatar?s=150`;
+    return '';
+};
+
 const ProfileAvatar: React.FC<{
     user: PlexHomeProfile;
     current?: boolean;
     compact?: boolean;
 }> = ({ user, current = false, compact = false }) => {
-    const [thumbFailed, setThumbFailed] = useState(false);
+    const [srcIndex, setSrcIndex] = useState(0);
     const sizeClass = compact
         ? 'h-11 w-11 sm:h-16 sm:w-16'
         : 'h-12 w-12 sm:h-24 sm:w-24';
     const ringClass = current
         ? 'border-plex shadow-[0_0_0_3px_rgba(229,160,13,0.2)] sm:shadow-[0_0_0_4px_rgba(229,160,13,0.2)]'
         : 'border-white/15 group-hover:border-plex/70';
-    const showThumb = !!user.thumb && !thumbFailed;
+    const primary = String(user.thumb || '').trim();
+    const fallback = plexTvAvatarFallback(user);
+    const candidates = [primary, fallback].filter(Boolean).filter((url, index, list) => list.indexOf(url) === index);
+    const src = candidates[srcIndex] || '';
+    const showThumb = !!src;
 
     useEffect(() => {
-        setThumbFailed(false);
-    }, [user.thumb]);
+        setSrcIndex(0);
+    }, [user.thumb, user.uuid, user.id]);
 
     return (
         <span className="relative">
             {showThumb ? (
                 <img
-                    src={user.thumb || ''}
+                    src={src}
                     alt=""
                     referrerPolicy="no-referrer"
                     className={`${sizeClass} rounded-full object-cover border-2 transition ${ringClass}`}
-                    onError={() => setThumbFailed(true)}
+                    onError={() => setSrcIndex((index) => index + 1)}
                 />
             ) : (
                 <span className={`flex ${sizeClass} items-center justify-center rounded-full border-2 bg-black/40 text-muted ${ringClass}`}>

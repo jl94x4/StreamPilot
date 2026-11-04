@@ -787,6 +787,34 @@ const stampedArtPath = (
     return existing || `/library/metadata/${key}/art`;
 };
 
+/**
+ * Cast/crew photos: keep library paths relative (so display can rewrite onto the
+ * real PMS host) and allow public plex.tv CDN thumbs. Absolute PMS URLs like
+ * http://127.0.0.1:32400/library/.../thumb must not be returned as-is — on TV
+ * that host is the device itself and every headshot 404s.
+ */
+const personThumb = (raw: unknown) => {
+    const value = String(raw || '').trim();
+    if (!value) return null;
+    const library = libraryImagePath(value);
+    if (library) return library;
+    if (!/^https:\/\//i.test(value)) return null;
+    try {
+        const url = new URL(value);
+        const host = url.hostname.toLowerCase();
+        const allowed = host === 'metadata-static.plex.tv'
+            || host === 'images.plex.tv'
+            || host === 'provider-static.plex.tv'
+            || host.endsWith('.plex.tv');
+        if (!allowed) return null;
+        url.searchParams.delete('X-Plex-Token');
+        url.hash = '';
+        return url.toString();
+    } catch {
+        return null;
+    }
+};
+
 const imageUrl = (
     path: string | null | undefined,
     width: number,
@@ -794,9 +822,14 @@ const imageUrl = (
     options?: { crop?: boolean; quality?: number },
 ) => {
     const server = mapServer || readServer();
-    const value = String(path || '').trim();
+    let value = String(path || '').trim();
     if (!value || !server) return null;
-    if (/^https?:\/\//i.test(value)) return value;
+    if (/^https?:\/\//i.test(value)) {
+        // Rewrite absolute PMS library URLs onto this server; keep remote CDN as-is.
+        const library = libraryImagePath(value);
+        if (!library) return value;
+        value = library;
+    }
     const url = new URL('/photo/:/transcode', server.uri.endsWith('/') ? server.uri : `${server.uri}/`);
     url.searchParams.set('width', String(width));
     url.searchParams.set('height', String(height));
@@ -1249,19 +1282,19 @@ const mapItem = (meta: PlexMeta) => {
             id: String(row.id || row.tag || ''),
             name: String(row.tag || ''),
             role: '',
-            thumb: imageUrl(row.thumb, 300, 450),
+            thumb: personThumb(row.thumb),
         })),
         writerPeople: asList<PlexMeta>(meta.Writer).map((row) => ({
             id: String(row.id || row.tag || ''),
             name: String(row.tag || ''),
             role: '',
-            thumb: imageUrl(row.thumb, 300, 450),
+            thumb: personThumb(row.thumb),
         })),
         cast: asList<PlexMeta>(meta.Role).slice(0, 24).map((row) => ({
             id: String(row.id || row.tag || ''),
             name: String(row.tag || ''),
             role: String(row.role || ''),
-            thumb: imageUrl(row.thumb, 300, 450),
+            thumb: personThumb(row.thumb),
         })),
         mediaInfo: medias.map((media, index) => {
             const part = asList<PlexMeta>(media.Part)[0] || {};
@@ -2701,10 +2734,17 @@ const writeHomeUserId = (id: string) => writeStoredValue(STORAGE_PLEX_HOME_USER,
 const truthy = (value: unknown) => value === true || value === 1 || /^(1|true|yes)$/i.test(String(value || '').trim());
 
 const homeUserThumb = (raw: PlexMeta) => {
-    const value = String(raw.thumb || raw.avatar || '').trim();
-    if (!value) return null;
-    if (value.startsWith('//')) return `https:${value}`;
-    return value;
+    let value = String(raw.thumb || raw.avatar || '').trim();
+    if (value.startsWith('//')) value = `https:${value}`;
+    // Relative plex.tv avatar paths must be absolute on Capacitor (origin is localhost).
+    if (value.startsWith('/users/')) value = `https://plex.tv${value}`;
+    if (/^https?:\/\//i.test(value)) return value;
+    const uuid = String(raw.uuid || '').trim();
+    const id = String(raw.id || raw.userID || raw.userId || '').trim();
+    // Official Plex synthesizes a default avatar from uuid/id when thumb is empty.
+    if (uuid) return `https://plex.tv/users/${encodeURIComponent(uuid)}/avatar?s=150`;
+    if (id) return `https://plex.tv/users/${encodeURIComponent(id)}/avatar?s=150`;
+    return value || null;
 };
 
 const normalizeHomeUser = (raw: PlexMeta | null | undefined): HomeUser | null => {
@@ -7025,7 +7065,7 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                 id: String(row.id || row.tag || ''),
                 name: String(row.tag || ''),
                 role: String(row.role || ''),
-                thumb: imageUrl(row.thumb, 300, 450),
+                thumb: personThumb(row.thumb),
             })),
         };
     }
