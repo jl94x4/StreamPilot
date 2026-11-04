@@ -382,6 +382,8 @@ export type PlayerTvStackRow = {
 /** Row slide on a TV Home row change (Plex-style): one ease, transform + opacity only. */
 const TV_ROW_SLIDE_MS = 240;
 const TV_ROW_SLIDE_EASE = 'cubic-bezier(0.25, 0.8, 0.3, 1)';
+/** The row you leave is fully faded by this point of the slide (~70ms). */
+const TV_ROW_LEAVE_FADE = 0.3;
 
 const tvRowSlideOff = () => {
     try {
@@ -435,18 +437,23 @@ const slideTvRows = (stage: HTMLElement, before: Map<string, number>, dir: 'up' 
             const from = was ?? now + sign * step;
             const dy = (from - now) * scale;
             if (Math.abs(dy) < 1) return;
+            // Transform only: rows coming on screen are fully drawn from the first frame
+            // (fading them in read as lag).
             el.animate([
-                { transform: `translate3d(0, ${dy}px, 0)`, opacity: was == null ? 0 : 1 },
-                { transform: 'translate3d(0, 0, 0)', opacity: 1 },
+                { transform: `translate3d(0, ${dy}px, 0)` },
+                { transform: 'translate3d(0, 0, 0)' },
             ], opts);
             return;
         }
-        // Leaving: keep moving the same way, fading out over the details.
+        // Leaving: keep moving the same way, but gone within the first third so it never
+        // sits half-faded over the title and description.
         const startDy = ((was as number) - now) * scale;
+        const endDy = startDy - sign * step * scale;
         el.animate([
-            { transform: `translate3d(0, ${startDy}px, 0)`, opacity: 1 },
-            { transform: `translate3d(0, ${startDy - sign * step * scale}px, 0)`, opacity: 0 },
-        ], opts);
+            { transform: `translate3d(0, ${startDy}px, 0)`, opacity: 1, easing: 'linear' },
+            { transform: `translate3d(0, ${startDy + (endDy - startDy) * 0.35}px, 0)`, opacity: 0, offset: TV_ROW_LEAVE_FADE },
+            { transform: `translate3d(0, ${endDy}px, 0)`, opacity: 0 },
+        ], { duration: TV_ROW_SLIDE_MS, easing: 'linear' });
     });
 };
 
