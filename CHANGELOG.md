@@ -2,6 +2,35 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.1.0](https://github.com/jl94x4/StreamPilot/compare/1.0.611...v2.1.0) (2026-11-04)
+
+
+### merge
+
+* bring nightly onto main for the 2.1.0 release ([5b04a72](https://github.com/jl94x4/StreamPilot/commit/5b04a7256f70465e55e58479950c4c95fc8fedbd))
+
+
+### Features
+
+* **player:** Plex-style row slide on TV Home (1.0.616) ([2a733b9](https://github.com/jl94x4/StreamPilot/commit/2a733b9db0a87197a1f4bdcebaffd78515a0b21c))
+* **player:** TV Home rows glide as one column like Plex (1.0.619) ([49d0df6](https://github.com/jl94x4/StreamPilot/commit/49d0df692a7ef7616e97816850de1e19ec60bd4d))
+
+
+### Bug Fixes
+
+* **auth:** stop random portal logouts ([980dc8b](https://github.com/jl94x4/StreamPilot/commit/980dc8b1ac04ef6f49fde4693389dd6120e821ea))
+* **player:** Home rows slide in without fading (1.0.618) ([2139113](https://github.com/jl94x4/StreamPilot/commit/2139113576d4a45d4fb7d08115f6c103c046cddd))
+* **player:** native player is the only one reporting progress to Plex ([77a4922](https://github.com/jl94x4/StreamPilot/commit/77a4922afd9f1417de6ef4a294079e087849b20c))
+* **player:** Skip intro stays up for the whole intro (1.0.615) ([ab71711](https://github.com/jl94x4/StreamPilot/commit/ab717119caca0bda05395e1b380b75c68aac782c))
+* **player:** View more shows Home-size posters (1.0.613) ([fa3c74a](https://github.com/jl94x4/StreamPilot/commit/fa3c74a4d301dcefac433d3aaa7063fd2d813d26))
+* **player:** View more top row brings the title back (1.0.614) ([a9f1bbf](https://github.com/jl94x4/StreamPilot/commit/a9f1bbf9690cb61585fd562564a0f9f4cc86829c))
+* **plex-client:** profile and cast photos load again (1.0.611) ([061571a](https://github.com/jl94x4/StreamPilot/commit/061571a847c6637e0c6894787517fae4c2aef61d))
+
+
+### Performance Improvements
+
+* **player:** keep parked Home rows on GPU layers so the slide doesn't stall (1.0.617) ([061c8fa](https://github.com/jl94x4/StreamPilot/commit/061c8facb5454e87d3348a7737877dc34423c47c))
+
 ## [2.1.0](https://github.com/jl94x4/StreamPilot/compare/v2.0.0...v2.1.0) (2026-10-23)
 
 
