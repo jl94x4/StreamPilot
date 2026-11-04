@@ -4742,8 +4742,8 @@ public class PlayerActivity extends AppCompatActivity {
         if (skipIntroPromptOffered) return;
         skipIntroPromptOffered = true;
         skipIntroChipActive = true;
+        // Stays up for the whole intro (like Plex); maybeAutoSkip hides it when the intro ends.
         mainHandler.removeCallbacks(hideSkipIntroChipRunnable);
-        mainHandler.postDelayed(hideSkipIntroChipRunnable, SKIP_CHIP_VISIBLE_MS);
         applySkipChipVisibility(true, skipCreditsChipActive);
         if (skipIntroBtn != null && !isOptionDialogShowing()) {
             skipIntroBtn.requestFocus();
@@ -4801,7 +4801,7 @@ public class PlayerActivity extends AppCompatActivity {
         }
         boolean inIntro = !introOff && inIntroRange();
         boolean inCredits = !creditsOff && inCreditsRange();
-        // Show for 10s from first entry, or until the skip window ends — whichever is sooner.
+        // Skip intro shows for the whole intro; Skip credits for 10s or until the window ends.
         // Chips live outside chrome so they remain visible with OSD hidden.
         if (inIntro) {
             armSkipIntroChip();

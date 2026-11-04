@@ -379,6 +379,27 @@ export type PlayerTvStackRow = {
     viewMoreShelf?: ViewMoreShelfSource | null;
 };
 
+/**
+ * TV Home rows glide like Plex: every row is full size in one column, and the whole
+ * column slides as a single layer so the focused row lands in the same slot each time.
+ * Rows above the focused one fade away over the details; the next row peeks in below.
+ */
+const TV_ROW_SLIDE_MS = 260;
+const TV_ROW_SLIDE_EASE = 'cubic-bezier(0.25, 0.8, 0.3, 1)';
+/** Room under the focused row for the next row to show (it runs on off the screen). */
+const TV_STACK_PEEK = '7.05rem';
+
+const tvRowSlideOff = () => {
+    try {
+        return document.documentElement.dataset.reduceMotion === '1'
+            || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+    } catch {
+        return false;
+    }
+};
+
+type TvRowTop = { id: string; top: number };
+
 /** Keep the previous, current, and next Home rows mounted so posters stay decoded. */
 /** Memoised: Home re-renders on every focus move; the stack only needs to on a row change. */
 export const PlayerTvRowStack = memo(function PlayerTvRowStack({
@@ -418,25 +439,82 @@ export const PlayerTvRowStack = memo(function PlayerTvRowStack({
     }, [activeIndex]);
     const lo = Math.min(warm.lo, activeIndex - 1);
     const hi = Math.max(warm.hi, activeIndex + 1);
+    const railRef = useRef<HTMLDivElement>(null);
+    const trackRef = useRef<HTMLDivElement>(null);
+    const slotHeightRef = useRef(0);
+    const shownIndexRef = useRef<number | null>(null);
+    const beforeRef = useRef<TvRowTop[] | null>(null);
+    // Read where the rows are drawn while the DOM still shows the old row (render runs
+    // before commit), so the slide starts exactly there, even mid-way through the last one.
+    if (shownIndexRef.current !== null && shownIndexRef.current !== activeIndex
+        && trackRef.current && !beforeRef.current) {
+        beforeRef.current = Array.from(trackRef.current.children as HTMLCollectionOf<HTMLElement>)
+            .map((el) => ({ id: el.dataset.tvStackId || '', top: el.getBoundingClientRect().top }));
+    }
+    // Every commit: rows may have been built or dropped above the focused one, so the
+    // column offset is re-read; it only animates on a row change.
+    useLayoutEffect(() => {
+        const rail = railRef.current;
+        const track = trackRef.current;
+        if (!rail || !track) return;
+        const rowEls = Array.from(track.children as HTMLCollectionOf<HTMLElement>);
+        const active = rowEls.find((el) => el.dataset.tvStackIndex === String(activeIndex));
+        if (!active) return;
+        // The slot is the tallest row built so far and only grows, so the details above
+        // never hop when a shorter (landscape) row takes the slot.
+        const tallest = Math.max(slotHeightRef.current, ...rowEls.map((el) => el.offsetHeight));
+        if (tallest !== slotHeightRef.current) {
+            slotHeightRef.current = tallest;
+            rail.style.height = `calc(${tallest}px + ${TV_STACK_PEEK})`;
+        }
+        const prev = shownIndexRef.current;
+        shownIndexRef.current = activeIndex;
+        const before = beforeRef.current;
+        beforeRef.current = null;
+        if (before) track.getAnimations?.().forEach((anim) => anim.cancel());
+        const target = -active.offsetTop;
+        track.style.transform = `translate3d(0, ${target}px, 0)`;
+        // Focus moves can scroll these clipped boxes; the column offset does the moving.
+        for (let el: HTMLElement | null = rail; el && !el.classList.contains('player-home-stage'); el = el.parentElement) {
+            if (el.scrollTop) el.scrollTop = 0;
+        }
+        if (!before || prev === null || prev === activeIndex) return;
+        if (tvRowSlideOff() || typeof track.animate !== 'function') return;
+        const ref = before.find((row) => row.id === active.dataset.tvStackId)
+            || before.find((row) => rowEls.some((el) => el.dataset.tvStackId === row.id));
+        const refEl = ref ? rowEls.find((el) => el.dataset.tvStackId === ref.id) : null;
+        if (!ref || !refEl) return;
+        const box = refEl.getBoundingClientRect();
+        // getBoundingClientRect is in zoomed px; the transform is in the column's own px.
+        const scale = box.height > 0 ? refEl.offsetHeight / box.height : 1;
+        const from = target + (ref.top - box.top) * scale;
+        if (Math.abs(from - target) < 1) return;
+        track.animate([
+            { transform: `translate3d(0, ${from}px, 0)` },
+            { transform: `translate3d(0, ${target}px, 0)` },
+        ], { duration: TV_ROW_SLIDE_MS, easing: TV_ROW_SLIDE_EASE });
+    });
     return (
-        <div className="player-home-stage-rail">
-            {rows.map((row, index) => {
-                if (index < lo || index > hi) return null;
-                const active = index === activeIndex;
-                const peek = index === activeIndex + 1;
-                // The row you move to slides in from the side you came from.
-                const enter = active && rowDir ? ` player-home-row-enter-${rowDir}` : '';
-                return (
-                    <div
-                        key={row.id}
-                        data-tv-stack-index={index}
-                        className={peek ? 'player-home-next-row' : (active ? `player-home-row-active${enter}` : 'player-home-row-park')}
-                        inert={!active ? true : undefined}
-                        aria-hidden={!active}
-                    >
-                        <PlayerRail
-                            tvActive={active}
-                            title={row.title}
+        <div className="player-home-stage-rail" ref={railRef}>
+            <div className="player-home-track" ref={trackRef}>
+                {rows.map((row, index) => {
+                    if (index < lo || index > hi) return null;
+                    const active = index === activeIndex;
+                    const place = active
+                        ? 'player-home-row-active'
+                        : (index < activeIndex ? 'player-home-row-above' : 'player-home-row-below');
+                    return (
+                        <div
+                            key={row.id}
+                            data-tv-stack-index={index}
+                            data-tv-stack-id={row.id}
+                            className={`player-home-track-row ${place}`}
+                            inert={!active ? true : undefined}
+                            aria-hidden={!active}
+                        >
+                            <PlayerRail
+                                tvActive={active}
+                                title={row.title}
                                 rowId={`hub:${row.id}`}
                                 restoreFocusKey={restoreFocusById[row.id]}
                                 items={row.items}
@@ -448,11 +526,12 @@ export const PlayerTvRowStack = memo(function PlayerTvRowStack({
                                 onViewAll={row.onViewAll}
                                 viewAllLabel={row.viewAllLabel}
                                 viewMoreShelf={row.viewMoreShelf}
-                            {...railProps}
-                        />
-                    </div>
-                );
-            })}
+                                {...railProps}
+                            />
+                        </div>
+                    );
+                })}
+            </div>
         </div>
     );
 });

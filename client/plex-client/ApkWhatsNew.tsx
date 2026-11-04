@@ -73,6 +73,98 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.619': [
+        {
+            title: 'Home',
+            items: [
+                'Rows now move like the official Plex app: the whole list glides up or down together, the row you leave fades away over the details, and the next row stays full size peeking in at the bottom',
+            ],
+        },
+    ],
+    '1.0.618': [
+        {
+            title: 'Home',
+            items: [
+                'Rows slide in fully drawn instead of fading in, and the row you leave clears straight away',
+            ],
+        },
+    ],
+    '1.0.617': [
+        {
+            title: 'Home',
+            items: [
+                'The row slide stays smooth when you press up or down quickly',
+            ],
+        },
+    ],
+    '1.0.616': [
+        {
+            title: 'Home',
+            items: [
+                'Moving up and down Home now glides: the next row slides smoothly into place while the one you left slides away and fades',
+            ],
+        },
+    ],
+    '1.0.615': [
+        {
+            title: 'Player',
+            items: [
+                'Skip intro stays on screen for the whole intro instead of disappearing after 10 seconds',
+            ],
+        },
+    ],
+    '1.0.614': [
+        {
+            title: 'View more',
+            items: [
+                'Moving back up to the top row brings the page title fully back into view',
+            ],
+        },
+    ],
+    '1.0.613': [
+        {
+            title: 'View more',
+            items: [
+                'View more pages (like Continue Watching) show full-size posters, the same size as on Home',
+                'Episodes show their show’s poster there instead of a small still',
+            ],
+        },
+    ],
+    '1.0.612': [
+        {
+            title: 'Watch progress',
+            items: [
+                'Finished episodes and films now stay watched in Plex, instead of coming back as part-watched',
+                'Stopping part-way saves your spot properly, so Resume and Continue Watching pick up where you left off',
+                'Continue Watching moves on to the next episode after you finish one, matching Plex',
+            ],
+        },
+    ],
+    '1.0.611': [
+        {
+            title: 'Photos',
+            items: [
+                'Profile pictures show on Who’s watching again, with Plex’s default avatar when someone has no photo',
+                'Cast photos load on title pages again',
+            ],
+        },
+    ],
+    '1.0.610': [
+        {
+            title: 'Google Play',
+            items: [
+                'StreamPilot is on Google Play for Android TV, Google TV and Shield',
+            ],
+        },
+    ],
+    '1.0.609': [
+        {
+            title: 'Housekeeping',
+            items: [
+                'Behind-the-scenes preparation for the Google Play release',
+            ],
+        },
+    ],
     '1.0.608': [
         {
             title: 'Housekeeping',

@@ -841,6 +841,14 @@ const focusItem = (el: HTMLElement, block: ScrollLogicalPosition = 'nearest', di
     // Wrapping poster grids (actor, library, hub): keep the whole card — art + title —
     // in the safe area. Centering the last row otherwise clips it on the bezel.
     if (posterGrid && posterCard) {
+        // Top row of a page-level grid (View more): bring the page title back with it.
+        const gridTop = posterGrid.closest<HTMLElement>('[data-tv-grid-top="1"]');
+        const firstCard = posterGrid.firstElementChild as HTMLElement | null;
+        if (gridTop && firstCard
+            && Math.abs(posterCard.getBoundingClientRect().top - firstCard.getBoundingClientRect().top) < 4) {
+            scrollEl(gridTop, 'start', 'css');
+            return;
+        }
         const cardBox = posterCard.getBoundingClientRect();
         const port = document.getElementById(PLAYER_SCROLL_ID)?.getBoundingClientRect();
         const clippedBottom = Boolean(port && cardBox.bottom > port.bottom - 12);
@@ -852,7 +860,9 @@ const focusItem = (el: HTMLElement, block: ScrollLogicalPosition = 'nearest', di
     if (dir === 'up' || dir === 'down') {
         const row = focusedRow(el);
         if (!details && isPlayerHomePath() && row) {
-            scrollHomeRowWithPeek(row, dir);
+            // Stage Home slides its own row column (PlayerTvRowStack); scrolling here would
+            // shove the clipped stage boxes under it.
+            if (!el.closest('.player-home-stage')) scrollHomeRowWithPeek(row, dir);
             pinTvRailItemToSlot(el);
             return;
         }

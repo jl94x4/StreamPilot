@@ -69,6 +69,22 @@ export const apiErrorMessage = (status: number, text = '') => {
     return `Request failed with status ${status}`;
 };
 
+/** An API error that keeps the HTTP status, so callers can tell "signed out" from "server busy". */
+export class ApiError extends Error {
+    status: number;
+    constructor(message: string, status: number) {
+        super(message);
+        this.name = 'ApiError';
+        this.status = status;
+    }
+}
+
+/** True only when the server answered that this browser is not signed in (or not allowed). */
+export const isSignedOutError = (error: unknown) => {
+    const status = (error as { status?: unknown } | null)?.status;
+    return status === 401 || status === 403;
+};
+
 export const apiFetch = async (url: string, options: RequestInit = {}) => {
     const directApp = typeof window !== 'undefined' && (
         !!window.__PLEX_CLIENT__ || document.documentElement?.dataset?.plexClient === '1'
@@ -95,7 +111,7 @@ export const apiFetch = async (url: string, options: RequestInit = {}) => {
     });
     if (!response.ok) {
         const text = await response.text().catch(() => '');
-        throw new Error(apiErrorMessage(response.status, text));
+        throw new ApiError(apiErrorMessage(response.status, text), response.status);
     }
     if (response.status === 204) return;
     return response.json();

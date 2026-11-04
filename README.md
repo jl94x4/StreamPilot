@@ -2,8 +2,6 @@
 
 <img src="static/logo.png" alt="StreamPilot Logo" width="420" />
 
-# StreamPilot
-
 **A premium, fully-automated management and analytics portal for Plex, Jellyfin, and Emby media servers.**
 
 Built with Node.js · Express · React · Tailwind CSS

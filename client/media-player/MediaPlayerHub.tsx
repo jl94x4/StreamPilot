@@ -3,7 +3,9 @@ import { ArrowLeft } from 'lucide-react';
 import {
     DiscoverGridSizeSelect,
     discoveryTheme,
+    homeRailPosterDensity,
     PosterGridSkeleton,
+    posterGridScaleRem,
     upgraderPosterGridClass,
     upgraderPosterGridStyle,
     useDiscoverGridSize,
@@ -13,7 +15,7 @@ import { fetchMediaPlayerHub, setMediaPlayerWatched } from './api';
 import { PlayerPosterCard } from './PlayerPosterCard';
 import { PlayerTvStatusPanel } from './PlayerTvStatusPanel';
 import { classifyPlayerHomeHub, stabilizeContinueWatchingOrder } from './playerSettings';
-import { hideWatchedPlayerItems } from './playerUtils';
+import { hideWatchedPlayerItems, withShowPoster } from './playerUtils';
 import { usePlayerSettings } from './usePlayerSettings';
 import type { PlayerItem, PlayerPlayOptions } from './types';
 
@@ -89,9 +91,19 @@ export const MediaPlayerHub: React.FC<Props> = ({
     }) === 'continueWatching'
         || /on[.\s_-]?deck/i.test(String(path || ''));
     const recentHub = /recently\s*added|recentlyadded/i.test(`${identifier} ${titleHint} ${title} ${path}`);
-    const shownItems = continueWatchingHub
+    // Posters, like the Home rows: an episode shows its show's poster, not a small still.
+    const shownItems = (continueWatchingHub
         ? stabilizeContinueWatchingOrder(items, settings.continueWatchingSort).items
-        : (recentHub && settings.hideWatchedFromRecents ? hideWatchedPlayerItems(items) : items);
+        : (recentHub && settings.hideWatchedFromRecents ? hideWatchedPlayerItems(items) : items)
+    ).map(withShowPoster);
+    // TV: every card the width of a Home row poster, whatever the grid-size setting says.
+    const tvCardRem = posterGridScaleRem(homeRailPosterDensity(gridSize));
+    const gridStyle = tvShell
+        ? {
+            gridTemplateColumns: `repeat(auto-fill, calc(${tvCardRem}rem / var(--tv-text-scale, 1)))`,
+            gap: '1rem',
+        }
+        : upgraderPosterGridStyle(gridSize);
 
     const toggleWatched = async (item: PlayerItem) => {
         const next = !item.watched;
@@ -129,7 +141,7 @@ export const MediaPlayerHub: React.FC<Props> = ({
     }
 
     return (
-        <div className="flex flex-col gap-5 pb-8">
+        <div className="flex flex-col gap-5 pb-8" data-tv-grid-top={tvShell ? '1' : undefined}>
             <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
                     {!tvShell ? (
@@ -152,7 +164,7 @@ export const MediaPlayerHub: React.FC<Props> = ({
             {loading && !shownItems.length ? (
                 <PosterGridSkeleton
                     className={upgraderPosterGridClass(gridSize)}
-                    style={upgraderPosterGridStyle(gridSize)}
+                    style={gridStyle}
                     {...(tvShell ? { count: 24, variant: 'home' as const } : {})}
                 />
             ) : error && !shownItems.length ? (
@@ -166,7 +178,7 @@ export const MediaPlayerHub: React.FC<Props> = ({
             ) : (
                 <div
                     className={upgraderPosterGridClass(gridSize)}
-                    style={upgraderPosterGridStyle(gridSize)}
+                    style={gridStyle}
                     data-tv-rail={tvShell ? '1' : undefined}
                     data-tv-poster-rail={tvShell ? '1' : undefined}
                 >
@@ -174,6 +186,7 @@ export const MediaPlayerHub: React.FC<Props> = ({
                         <PlayerPosterCard
                             key={item.ratingKey}
                             item={item}
+                            aspect="2/3"
                             imagePriority={index < 12}
                             onOpenItem={onOpenItem}
                             onPlay={onPlay}

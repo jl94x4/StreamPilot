@@ -103,7 +103,7 @@ import {
     pickMediaPlayerSocialImagePath,
     socialPreviewFromPlexMetadata,
 } from './lib/media-player/socialMeta.js';
-import { isBearerOnlyRequest, readSessionToken } from './lib/session-token.js';
+import { isBearerOnlyRequest, readSessionToken, refreshableSessionClaims, sessionNeedsRefresh } from './lib/session-token.js';
 import { listTpdbCachedCoverageKeys } from './lib/poster-sets/tpdbCache.js';
 import { applyTpdbCacheBrowse } from './lib/poster-sets/tpdbCacheBrowse.js';
 import { createOverlaysRouter } from './lib/overlays/index.js';
@@ -806,6 +806,24 @@ const verifySessionToken = (token) => {
     const decoded = jwt.verify(token, JWT_SECRET);
     if (sessionRevocations.isRevoked(token, decoded)) throw new Error('Session revoked');
     return decoded;
+};
+
+/**
+ * Sliding sessions: a cookie session in use for over a day is renewed for another 7 days,
+ * so people are not signed out mid-use a week after signing in. Only the cookie is renewed
+ * (bearer tokens belong to apps that manage their own). Logout / sign out everywhere still
+ * end it: revoked tokens never reach here, and the renewal keeps the same account claims.
+ */
+const refreshSessionCookieIfStale = (req, res, token, decoded) => {
+    try {
+        if (!token || token !== String(req?.cookies?.session || '').trim()) return;
+        if (res.headersSent || !sessionNeedsRefresh(decoded)) return;
+        const claims = refreshableSessionClaims(decoded);
+        if (!claims) return;
+        setSessionCookie(req, res, jwt.sign(claims, JWT_SECRET, { expiresIn: '7d' }));
+    } catch (e) {
+        log('Session renewal skipped: ' + e.message);
+    }
 };
 
 let CLIENT_ID = process.env.CLIENT_ID || 'plex-expiry-manager-client-id'; // Now dynamically generated if missing
@@ -3046,17 +3064,33 @@ const syncAdminPlexIdFromConfigToken = async (config, { persist = false } = {}) 
     return config;
 };
 
+/**
+ * The server owner's Plex id. Saved in config once known; until then the last answer from
+ * plex.tv is kept, so a plex.tv blip can never demote the admin (which made requireMember
+ * clear the admin's session cookie — a "random" logout).
+ */
 const getAdminId = async (config) => {
-    if (config?.adminPlexId) return String(config.adminPlexId);
-    if (!config || !config.plexToken || config.plexToken === SECRET_MASK) return null;
+    if (config?.adminPlexId) {
+        cachedAdminId = String(config.adminPlexId);
+        return cachedAdminId;
+    }
+    if (!config || !config.plexToken || config.plexToken === SECRET_MASK) return cachedAdminId || null;
     try {
         const res = await apiFetch('https://plex.tv/api/v2/user', config.plexToken);
-        if (!res.ok) return null;
+        if (!res.ok) return cachedAdminId || null;
         const data = await res.json();
-        return data?.id ? String(data.id) : null;
+        const id = data?.id ? String(data.id) : '';
+        if (!id) return cachedAdminId || null;
+        cachedAdminId = id;
+        // Save it so later checks never need plex.tv.
+        void updateFile(CONFIG_PATH, {}, (current) => {
+            if (!current || typeof current !== 'object' || current.adminPlexId) return { data: current, result: null };
+            return { ...current, adminPlexId: id };
+        }).catch((e) => log('Could not save adminPlexId: ' + e.message));
+        return id;
     } catch (e) {
         log('Failed to fetch admin info: ' + e.message);
-        return null;
+        return cachedAdminId || null;
     }
 };
 
@@ -3445,6 +3479,7 @@ const requireAuth = (req, res, next) => {
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
     try {
         req.user = verifySessionToken(token);
+        refreshSessionCookieIfStale(req, res, token, req.user);
         next();
     } catch (e) {
         return res.status(401).json({ error: 'Invalid session' });
@@ -3492,6 +3527,7 @@ const requireAdmin = async (req, res, next) => {
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
     try {
         req.user = verifySessionToken(token);
+        refreshSessionCookieIfStale(req, res, token, req.user);
     } catch (e) {
         return res.status(401).json({ error: 'Invalid session' });
     }

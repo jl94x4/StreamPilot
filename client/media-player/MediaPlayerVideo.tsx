@@ -313,8 +313,10 @@ const stopPlaybackSession = (
     const id = String(sessionId || '').trim();
     if (!id) return Promise.resolve();
     const key = String(ratingKey || '').trim();
+    // Only report a stop when the caller knows where playback is. "Stopped at 0" from a
+    // stream swap or a native close overwrote the real resume point on the server.
     const stopWork = Promise.all([
-        key && !opts?.live
+        key && !opts?.live && opts?.timeMs != null
             ? reportMediaPlayerTimeline({
                 ratingKey: key,
                 sessionId: id,
@@ -1104,20 +1106,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
             currentMsRef.current = session.offsetMs || 0;
             durationMsRef.current = session.item.durationMs || durationMsRef.current || 0;
             nativeTimelineStateRef.current = 'playing';
-            if (!offlineLocal) {
-                void reportMediaPlayerTimeline({
-                    ratingKey: session.item.ratingKey,
-                    sessionId: playSessionIdFromSrc(nativeSrc) || session.sessionId,
-                    state: 'playing',
-                    timeMs: Math.max(0, Math.floor(session.offsetMs || 0)),
-                    durationMs: Math.max(0, Math.floor(session.item.durationMs || 0)),
-                    audioStreamId: nativeAudioId || audioStreamIdFromSrc(nativeSrc) || null,
-                    subtitleStreamId: isFilePlaybackSrc(nativeSrc)
-                        ? ''
-                        : (subtitleStreamIdFromSrc(nativeSrc) || subtitleStreamIdRef.current || ''),
-                    serverId: session.item.serverId,
-                });
-            }
+            // No "playing" report from here: the native player sends its own as it starts.
             const auth = absoluteWithAuth(nativeSrc);
             const gen = ++nativeOpenGen;
             nativeOpenGenRef.current = gen;
@@ -2114,6 +2103,13 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                 });
                 return;
             }
+            // The native player reports its own session to Plex (direct to PMS, or the portal),
+            // with the real position, the final stop and the watched mark. Reporting it from here
+            // as well raced it: these pings come from a position copy that lags while the WebView
+            // sits behind the player, and one landing after the native stop rolled the resume
+            // point back (finished episodes showed part-watched). Here we only keep local state.
+            const nativeReports = nativeExclusive;
+            if (nativeReports && state !== 'stopped') return;
             const video = nativeExclusive ? null : videoRef.current;
             const timeMs = timeOverride != null
                 ? Math.max(0, Math.floor(timeOverride))
@@ -2143,7 +2139,15 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                 if (finished && !extra?.watchedHandled) {
                     void setMediaPlayerWatched(ratingKey, true, session.item, { skipNote: true });
                 }
-                void stopPlaybackSession(sessionId, session.item.serverId, ratingKey);
+                // Ends the transcode. The web player's stop carries its position; the native
+                // player already sent its own.
+                void stopPlaybackSession(
+                    sessionId,
+                    session.item.serverId,
+                    ratingKey,
+                    nativeReports ? undefined : { timeMs: finished ? 0 : timeMs, durationMs: nextDuration },
+                );
+                return;
             }
             void reportMediaPlayerTimeline({
                 ratingKey,
@@ -2157,6 +2161,10 @@ export const MediaPlayerVideo: React.FC<Props> = ({
             });
         };
         sendTimelineRef.current = send;
+        // Live TV keeps its own reporting here; the native player owns everything else.
+        if (nativeExclusive && !session.live) {
+            return () => { sendTimelineRef.current = () => {}; };
+        }
         const seedState = nativeExclusive ? nativeTimelineStateRef.current : 'playing';
         send(seedState, nativeExclusive ? (currentMsRef.current || session.offsetMs || 0) : undefined);
         const timer = window.setInterval(() => {
