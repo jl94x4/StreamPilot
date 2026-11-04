@@ -30,7 +30,7 @@
     "@capacitor/cli": "^6.2.2",
     "@capacitor/core": "^6.2.2",
     "@capacitor/preferences": "^6.0.4",
-    "chokidar": "^4.0.3",
+    "chokidar": "^6.0.0",
     "compression": "^1.8.2",
     "cookie-parser": "^1.4.7",
     "esbuild": "^0.28.2",
