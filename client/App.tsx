@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react';
 const SettingsDashboard = lazy(() => import('./settings/SettingsDashboard').then(m => ({ default: m.SettingsDashboard })));
 import { bindAppConfirm, bindAskConfirm, bindAppAlert, bindAskText, type AskConfirmOptions, type AskTextOptions } from './shared/confirm';
-import { apiFetch } from './shared/api';
+import { apiFetch, isSignedOutError } from './shared/api';
 import { getPublicOrigin, portalUrl, resolvePortalAssetUrl, stripBasePath } from './shared/basePath';
 import { isStandalonePwa, syncExistingWebPushSubscription } from './shared/webPushSubscribe';
 // Side-effect: capture beforeinstallprompt before Navigation mounts (post-login).
@@ -82,6 +82,9 @@ import {
 const getOpenAppletsAccountKey = (info: any) => (
     String(info?.account?.id ?? info?.session?.id ?? info?.session?.username ?? '')
 );
+
+/** Back-off for session checks that fail for any reason other than "signed out" (~1 min in all). */
+const SESSION_CHECK_RETRY_MS = [1500, 3000, 6000, 12000, 20000, 20000];
 
 export const MainApp: React.FC = () => {
     const [textPrompt, setTextPrompt] = useState<{ message: string; options: AskTextOptions; resolve: (value: string | null) => void } | null>(null);
@@ -546,7 +549,14 @@ export const MainApp: React.FC = () => {
         }
     }, [currentRoute, sessionInfo, setRoute]);
 
+    // A failed session check that is not "signed out" (server busy or restarting, network
+    // blip, timeout) retries quietly instead of dropping you on the login screen.
+    const sessionRetryRef = useRef<{ timer: number; attempts: number }>({ timer: 0, attempts: 0 });
+    const checkSessionRef = useRef<() => Promise<void>>(async () => undefined);
+    useEffect(() => () => window.clearTimeout(sessionRetryRef.current.timer), []);
+
     const checkSession = useCallback(async () => {
+        window.clearTimeout(sessionRetryRef.current.timer);
         let path = stripBasePath(window.location.pathname).toLowerCase();
         if (path.endsWith('/') && path.length > 1) path = path.slice(0, -1);
         if (path.startsWith('/invite/')) {
@@ -567,6 +577,7 @@ export const MainApp: React.FC = () => {
 
         try {
             const data = await apiFetch('/api/users/me');
+            sessionRetryRef.current.attempts = 0;
             setSessionInfo(data);
             try { sessionStorage.removeItem('smp.referral.ref'); } catch { /* ignore */ }
             if (data.serverName) document.title = `${data.serverName} Portal`;
@@ -736,12 +747,21 @@ export const MainApp: React.FC = () => {
                 window.history.replaceState({}, '', portalUrl('/portal'));
                 setCurrentRoute('user');
             }
-        } catch {
+        } catch (error) {
+            const retry = sessionRetryRef.current;
+            if (!isSignedOutError(error) && retry.attempts < SESSION_CHECK_RETRY_MS.length) {
+                const delay = SESSION_CHECK_RETRY_MS[retry.attempts];
+                retry.attempts += 1;
+                retry.timer = window.setTimeout(() => { void checkSessionRef.current(); }, delay);
+                return;
+            }
+            retry.attempts = 0;
             if (path === '/status' && publicConfig?.showPublicStatusMonitor !== false) setCurrentRoute('status');
             else if (path === '/dashboard') setCurrentRoute('dashboard');
             else setCurrentRoute('login');
         }
     }, [publicConfig?.showPublicStatusMonitor]);
+    checkSessionRef.current = checkSession;
 
     useEffect(() => {
         // Initial session check
