@@ -73,6 +73,18 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.622': [
+        {
+            title: 'Home',
+            items: [
+                'Fire TV sticks and low-memory TVs now move between Home rows instantly, with no slide or fades, so the rows can no longer jump or stutter there. Other TVs keep the full Plex-style glide',
+                'Fixed Home going down a row: the row you left no longer jumps to the top of the screen while it fades, it slides up smoothly with the rest',
+                'Fixed the rows jumping up and down (and the row below popping in) as you move left and right between titles: the details above the rows no longer change where the rows sit',
+                'On Fire TV sticks the Home background, details and colour now change together instead of one after another',
+                'Fire TV sticks load a lighter background image, which stops backdrops drawing in torn or blocky strips when the stick runs short of graphics memory',
+            ],
+        },
+    ],
     '1.0.621': [
         {
             title: 'Home',

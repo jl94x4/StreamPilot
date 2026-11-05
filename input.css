@@ -3811,6 +3811,42 @@ html[data-tv="1"] .player-home-spot-stage {
   overflow: hidden;
   isolation: isolate;
 }
+/* Fixed Home layout: the rows are pinned to the bottom of the copy column and the details block
+   to a fixed slot just above them, so neither can depend on how many lines a title's synopsis
+   has. (The details used to size to their content: on some WebViews that dragged the whole rows
+   column up and down with every title, and the row below popped in and out.)
+   --tv-rail-h is the rows slot height, written by PlayerTvRowStack. */
+html[data-tv="1"] .player-home-stage-copy > .player-home-stage-rail {
+  position: absolute !important;
+  left: 6.75rem !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: auto !important;
+  margin: 0 !important;
+}
+html[data-tv="1"][data-tv-nav-open="1"]:not([data-tv-nav-icons="1"]) .player-home-stage-copy > .player-home-stage-rail {
+  left: 18.5rem !important;
+}
+html[data-tv="1"] .player-home-stage-copy > .player-home-spot-stage {
+  position: absolute !important;
+  left: 6.75rem !important;
+  top: auto !important;
+  bottom: calc(var(--tv-rail-h, 17rem) + 3rem) !important;
+  width: min(42rem, 90%);
+  height: 16.75rem !important;
+  max-height: none !important;
+  margin: 0 !important;
+}
+html[data-tv="1"][data-tv-nav-open="1"]:not([data-tv-nav-icons="1"]) .player-home-stage-copy > .player-home-spot-stage {
+  left: 18.5rem !important;
+}
+html[data-tv="1"] .player-home-stage-copy > .player-home-spot-stage > .player-home-spot {
+  position: absolute !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  top: auto !important;
+}
 html[data-tv="1"] .player-home-active-row-name {
   position: relative;
   z-index: 4;
@@ -5904,6 +5940,32 @@ input[type="search"]::-webkit-search-decoration {
   color: #c7d2fe;
   background: rgba(79, 70, 229, 0.24);
   border-color: rgba(129, 140, 248, 0.5);
+}
+
+/* Fire TV sticks / low-memory TVs (data-simple-motion, set in MediaPlayerDashboard): Home
+   changes row and title instantly. No column slide (PlayerRail), row fades, billboard
+   cross-fade, colour steps or detail fades, and no extra GPU layers to hold. */
+html[data-simple-motion="1"] .player-home-track-row,
+html[data-simple-motion="1"] .player-home-stage .player-home-focus-still,
+html[data-simple-motion="1"] .player-home-stage .player-home-focus-still img {
+  transition: none !important;
+}
+html[data-simple-motion="1"] .player-home-spot,
+html[data-simple-motion="1"] .player-home-spot.is-exit-up,
+html[data-simple-motion="1"] .player-home-spot.is-exit-down,
+html[data-simple-motion="1"] .player-home-spot.is-enter-up,
+html[data-simple-motion="1"] .player-home-spot.is-enter-down {
+  animation: none !important;
+  will-change: auto;
+}
+html[data-simple-motion="1"] .player-home-spot.is-exit {
+  display: none !important;
+}
+html[data-simple-motion="1"] .player-home-track,
+html[data-simple-motion="1"] .player-home-track-row,
+html[data-simple-motion="1"] .player-home-stage .player-home-focus-still::after,
+html[data-simple-motion="1"] .player-home-stage .player-home-focus-still img {
+  will-change: auto !important;
 }
 
 /* Settings → Lighter billboard: art swaps without a cross-fade (no two full-screen layers

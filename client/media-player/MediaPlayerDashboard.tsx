@@ -41,6 +41,7 @@ import {
     resolveStartPlaybackQualityId,
     shouldOfferResume,
     filterQueueUnwatched,
+    isWeakTvDevice,
     shufflePlayerItems,
     sliceQueueToNextUnwatched,
     sliceQueueUnwatchedFromHere,
@@ -403,12 +404,24 @@ export const MediaPlayerDashboard: React.FC = () => {
 
     useEffect(() => {
         try {
-            if (tvShell && settings.liteBillboard) document.documentElement.dataset.liteBillboard = '1';
+            if (tvShell && (settings.liteBillboard || isWeakTvDevice())) document.documentElement.dataset.liteBillboard = '1';
             else delete document.documentElement.dataset.liteBillboard;
         } catch {
             /* ignore */
         }
     }, [settings.liteBillboard, tvShell]);
+
+    // Fire TV sticks and low-memory TVs cannot hold the row slide / fades at a steady frame
+    // rate (the rows jumped and stuttered): there Home changes row instantly instead.
+    useEffect(() => {
+        try {
+            const weak = tvShell && isWeakTvDevice();
+            if (weak) document.documentElement.dataset.simpleMotion = '1';
+            else delete document.documentElement.dataset.simpleMotion;
+        } catch {
+            /* ignore */
+        }
+    }, [tvShell]);
 
     const syncFromLocation = useCallback(() => {
         setView(readPlayerView());

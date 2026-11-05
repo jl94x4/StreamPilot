@@ -392,6 +392,7 @@ const TV_STACK_PEEK = '7.05rem';
 const tvRowSlideOff = () => {
     try {
         return document.documentElement.dataset.reduceMotion === '1'
+            || document.documentElement.dataset.simpleMotion === '1'
             || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
     } catch {
         return false;
@@ -480,6 +481,8 @@ export const PlayerTvRowStack = memo(function PlayerTvRowStack({
     /** Each built row's offset in the column at the last commit, and the offset applied then. */
     const offsetsRef = useRef<Map<string, number>>(new Map());
     const slideRef = useRef<TvSlide | null>(null);
+    /** Column offset applied by the previous commit. */
+    const lastTargetRef = useRef<number | null>(null);
     useEffect(() => () => {
         slideRef.current?.anim.cancel();
         slideRef.current = null;
@@ -499,6 +502,8 @@ export const PlayerTvRowStack = memo(function PlayerTvRowStack({
         if (tallest !== slotHeightRef.current) {
             slotHeightRef.current = tallest;
             rail.style.height = `calc(${tallest}px + ${TV_STACK_PEEK})`;
+            // The details block above is positioned from this (see .player-home-stage-copy).
+            rail.parentElement?.style.setProperty('--tv-rail-h', `calc(${tallest}px + ${TV_STACK_PEEK})`);
         }
         const prevIndex = shownIndexRef.current;
         shownIndexRef.current = activeIndex;
@@ -514,7 +519,9 @@ export const PlayerTvRowStack = memo(function PlayerTvRowStack({
         const now = performance.now();
         const slide = slideRef.current;
         // Where the column is on screen this instant, from the slide's own timing.
-        let drawn = target;
+        // With no slide running the column sits where the last commit put it (not at the new target).
+        let drawn = lastTargetRef.current ?? target;
+        lastTargetRef.current = target;
         let running = false;
         if (slide) {
             const startedAt = typeof slide.anim.startTime === 'number' ? Number(slide.anim.startTime) : slide.created;

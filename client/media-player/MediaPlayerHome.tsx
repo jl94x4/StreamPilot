@@ -79,7 +79,7 @@ import { PlayerServiceBrandMark } from './PlayerServiceBrandMark';
 import { PlayerTvScreensaver } from './PlayerTvScreensaver';
 import { PlayerTvSearch, PlayerTvSearchHistory, PlayerTvSearchNotice, TV_SEARCH_FIRST_KEY } from './PlayerTvSearch';
 import { itemHasBillboardBrandMeta } from './studioLogo.js';
-import { applyRememberedProgress, asRecentlyAddedPlayerItem, rememberBillboardBackdrop, formatPlayerDate, formatPlayerDuration, isFuturePlayerDate, heroRowCardItem, hideWatchedPlayerItems, isMusicPlayerItem, isPlayerBackdropReady, keepContinueWatchingPoster, mapContinueWatchingItemsForLayout, pickRicherSummary, pinTvNeighborBackdrops, playerItemBackdropUrl, plexBackdropUrl, plexLogoUrl, PLAYER_PROGRESS_EVENT, prefetchContinueWatchingImages, prefetchHomeRowPosters, primeNearbyTvBillboard, replaceFamilyContinueSlot, restoreContinueSlot, shufflePlayerItems, continueWatchingRowFocused, stampFamilyLastViewed, warmPlayerBackdrop, watchTargetTouches, withShowPoster } from './playerUtils';
+import { applyRememberedProgress, asRecentlyAddedPlayerItem, rememberBillboardBackdrop, formatPlayerDate, formatPlayerDuration, isFuturePlayerDate, heroRowCardItem, hideWatchedPlayerItems, isMusicPlayerItem, isPlayerBackdropReady, isWeakTvDevice, keepContinueWatchingPoster, mapContinueWatchingItemsForLayout, pickRicherSummary, pinTvNeighborBackdrops, playerItemBackdropUrl, plexBackdropUrl, plexLogoUrl, PLAYER_PROGRESS_EVENT, prefetchContinueWatchingImages, prefetchHomeRowPosters, primeNearbyTvBillboard, replaceFamilyContinueSlot, restoreContinueSlot, shufflePlayerItems, continueWatchingRowFocused, stampFamilyLastViewed, warmPlayerBackdrop, watchTargetTouches, withShowPoster } from './playerUtils';
 import { usePlayerSettings } from './usePlayerSettings';
 import { peekSurfaceColor, sampleBackdropSurfaceColor } from '../shared/imageFocalPoint';
 import { TV_FLOOR_RGB, tvTintSurfaceRgb } from './tvSurface';
@@ -703,7 +703,8 @@ const HomeSpot: React.FC<{
         const dir = rowDirRef.current === 'up' || rowDirRef.current === 'down'
             ? rowDirRef.current
             : 'down';
-        if (!prev || !next) {
+        // Fire TV sticks / low-memory TVs: no fade, the new details just replace the old.
+        if (!prev || !next || document.documentElement.dataset.simpleMotion === '1') {
             clearAnimTimers();
             animGenRef.current += 1;
             setOutgoing(null);
@@ -2705,7 +2706,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                         (tvActiveRow && (tvRowFocusRef.current[tvActiveRow.id] || tvFocusKeyRef.current)) || ''
                     }
                     detailsArtworkTint={settings.detailsArtworkTint}
-                    liteBillboard={settings.liteBillboard}
+                    liteBillboard={settings.liteBillboard || isWeakTvDevice()}
                     onFocusKey={noteTvFocusKey}
                     stack={home && tvActiveRow ? (
                         <PlayerTvRowStack

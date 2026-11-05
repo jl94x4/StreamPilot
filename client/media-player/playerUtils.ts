@@ -510,6 +510,25 @@ const liteBillboardActive = () => {
  * the screen can show, on every title change. 720p looks the same there and costs far less.
  * Read once: the screen does not change while the app runs.
  */
+/**
+ * Fire TV sticks and 1 GB TVs: the Home slide, fades, colour tint and 1080p art all stutter there
+ * (rows jumped, backdrop / details / tint changed at different moments). Home runs its plain,
+ * instant path on them. Read once: it does not change while the app runs.
+ */
+let weakTvCache: boolean | null = null;
+export const isWeakTvDevice = () => {
+    if (weakTvCache != null) return weakTvCache;
+    try {
+        if (typeof navigator === 'undefined') return false;
+        const memory = Number((navigator as Navigator & { deviceMemory?: number }).deviceMemory || 0);
+        weakTvCache = /; AFT[A-Z0-9]+[ ;)]|Fire ?TV|AmazonWebAppPlatform/.test(navigator.userAgent || '')
+            || (memory > 0 && memory <= 1);
+    } catch {
+        return false;
+    }
+    return weakTvCache;
+};
+
 let tvLowBackdropCache: boolean | null = null;
 const tvLowBackdrop = () => {
     if (tvLowBackdropCache != null) return tvLowBackdropCache;
@@ -519,7 +538,8 @@ const tvLowBackdrop = () => {
             const dpr = window.devicePixelRatio || 1;
             const drawnWidth = Math.max(window.screen?.width || 0, window.innerWidth || 0) * dpr;
             const memory = Number((navigator as Navigator & { deviceMemory?: number }).deviceMemory || 0);
-            low = (drawnWidth > 0 && drawnWidth < 1600) || (memory > 0 && memory <= 2);
+            const fireTv = isWeakTvDevice();
+            low = fireTv || (drawnWidth > 0 && drawnWidth < 1600) || (memory > 0 && memory <= 2);
             tvLowBackdropCache = low;
         }
     } catch {
