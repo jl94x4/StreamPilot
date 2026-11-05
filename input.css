@@ -3780,7 +3780,10 @@ html[data-tv="1"] .player-home-stage-copy {
   position: absolute;
   left: 0;
   right: 0;
-  top: 4.25rem;
+  /* Full height: the details sit on the bottom and grow upward. A show with a brand mark, a logo, an
+     episode line, a 3-line synopsis and a cast line is taller than the details slot, and a column
+     that started 4.25rem down sliced the top off its brand mark. Nothing else is placed from the top. */
+  top: 0;
   /* Down to the screen edge, so the peek row is not cut short of it. */
   bottom: 0;
   z-index: 2;
@@ -3847,6 +3850,8 @@ html[data-tv="1"] .player-home-stage-copy > .player-home-spot-stage {
   height: 16.75rem !important;
   max-height: none !important;
   margin: 0 !important;
+  /* Taller details grow above the slot instead of being cut at its top. */
+  overflow: visible !important;
 }
 html[data-tv="1"][data-tv-nav-open="1"]:not([data-tv-nav-icons="1"]) .player-home-stage-copy > .player-home-spot-stage {
   left: 18.5rem !important;
