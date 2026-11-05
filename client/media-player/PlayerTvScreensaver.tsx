@@ -40,11 +40,14 @@ const slidesFromItems = (items: PlayerItem[]): Slide[] => {
     const seen = new Set<string>();
     const out: Slide[] = [];
     for (const item of items) {
+        // The real background first. heroArt is the designed 16:9 card (title and logo baked in, often a
+        // dark or mostly empty picture): Continue Watching movies carry it, and starting on it gave
+        // black screensaver slides. It is only used when there is no background at all.
         const art = String(
             (item as { backdropArt?: string | null }).backdropArt
-            || item.heroArt
             || (item as { backdropUrl?: string }).backdropUrl
             || item.art
+            || item.heroArt
             || item.thumb
             || '',
         ).trim();
@@ -181,10 +184,13 @@ export const PlayerTvScreensaver: React.FC<Props> = ({
     const poolItemsRef = useRef(poolItems);
     poolItemsRef.current = poolItems;
 
+    // Slides whose picture failed to load are left out for the rest of the session: a broken one
+    // showed as a black screen. The "pool changed" effect below then moves on to another slide.
+    const [brokenKeys, setBrokenKeys] = useState<string[]>([]);
     // Pool contents only. Play order is a fresh shuffle each time the screensaver starts.
     const slides = useMemo(
-        () => slidesFromItems(poolItemsRef.current),
-        [poolKey],
+        () => slidesFromItems(poolItemsRef.current).filter((slide) => !brokenKeys.includes(slide.key)),
+        [poolKey, brokenKeys],
     );
     const slidesRef = useRef(slides);
     slidesRef.current = slides;
@@ -444,6 +450,7 @@ export const PlayerTvScreensaver: React.FC<Props> = ({
                 }`}
                 src={current.artUrl}
                 draggable={false}
+                onError={() => setBrokenKeys((prev) => (prev.includes(current.key) ? prev : [...prev, current.key]))}
             />
             <div className="player-tv-screensaver-scrim" />
             <div className="player-tv-screensaver-footer">
