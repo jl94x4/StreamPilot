@@ -208,7 +208,9 @@ export const PlexClientFirstRunSetup: React.FC<{ onDone: () => void }> = ({ onDo
                             ) : null}
                             <p className="smp-setup-label">{t('mediaPlayerPage.homeLibraries')}</p>
                             {choices.length ? (
-                                <div className="smp-setup-grid" data-tv-rail="1">
+                                // Not data-tv-rail: that makes the remote treat the grid as one horizontal strip, so Left
+                                // only stepped back through the cards and never reached Continue. A plain grid uses spatial moves.
+                                <div className="smp-setup-grid">
                                     {choices.map((library) => {
                                         const shown = homeLibraryShown(picks, library.serverId, library.key);
                                         const type = String(library.type || '');

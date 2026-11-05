@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.627': [
+        {
+            title: 'Setup',
+            items: [
+                'First-time setup: pressing Left from the library list now moves to Continue to Home, so the setup can be finished with the remote',
+            ],
+        },
+    ],
     '1.0.626': [
         {
             title: 'Smoother Home',
