@@ -460,6 +460,15 @@ export const PlayerTvHubStage: React.FC<Props> = ({
         playlistsEnabled,
     ]);
 
+    // Stable between renders: a new array on every focus move defeated the stack's memo, so
+    // every built row of posters re-rendered mid-slide (a slow TV stick stalled right there).
+    const stackRows = useMemo(() => rows.map((row) => ({
+        ...row,
+        onViewAll: allowViewAll ? row.onViewAll : undefined,
+        viewAllLabel: allowViewAll && row.onViewAll ? 'View More' : undefined,
+        viewMoreShelf: allowViewAll ? row.viewMoreShelf : null,
+    })), [rows, allowViewAll]);
+
     useEffect(() => {
         setTvRowIndex(0);
         setTvFocusKey('');
@@ -626,12 +635,7 @@ export const PlayerTvHubStage: React.FC<Props> = ({
                 <PlayerTvSpot item={tvSpotItem} />
                 {tvActiveRow ? (
                     <PlayerTvRowStack
-                        rows={rows.map((row) => ({
-                            ...row,
-                            onViewAll: allowViewAll ? row.onViewAll : undefined,
-                            viewAllLabel: allowViewAll && row.onViewAll ? 'View More' : undefined,
-                            viewMoreShelf: allowViewAll ? row.viewMoreShelf : null,
-                        }))}
+                        rows={stackRows}
                         activeIndex={tvRowSafeIndex}
                         density={density}
                         restoreFocusById={tvRowFocusRef.current}

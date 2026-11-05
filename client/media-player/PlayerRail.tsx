@@ -398,7 +398,41 @@ const tvRowSlideOff = () => {
     }
 };
 
-type TvRowTop = { id: string; top: number };
+/**
+ * Where the sliding column is drawn right now, worked out from the clock and the slide's own
+ * timing curve. Reading it back from the page (getBoundingClientRect) returns where the
+ * last frame the page managed to draw had it: on a slow TV stick that is several frames
+ * behind what is on screen, so the next press restarted the slide from there and the rows
+ * jumped backwards ("bouncing").
+ */
+const slideBezier = (() => {
+    const [x1, y1, x2, y2] = [0.25, 0.8, 0.3, 1];
+    const cx = 3 * x1;
+    const bx = 3 * (x2 - x1) - cx;
+    const ax = 1 - cx - bx;
+    const cy = 3 * y1;
+    const by = 3 * (y2 - y1) - cy;
+    const ay = 1 - cy - by;
+    const x = (t: number) => ((ax * t + bx) * t + cx) * t;
+    const y = (t: number) => ((ay * t + by) * t + cy) * t;
+    return (progress: number) => {
+        if (progress <= 0) return 0;
+        if (progress >= 1) return 1;
+        let lo = 0;
+        let hi = 1;
+        let t = progress;
+        for (let i = 0; i < 16; i += 1) {
+            const dx = x(t) - progress;
+            if (Math.abs(dx) < 1e-4) break;
+            if (dx < 0) lo = t;
+            else hi = t;
+            t = (lo + hi) / 2;
+        }
+        return y(t);
+    };
+})();
+
+type TvSlide = { anim: Animation; created: number; from: number; to: number; duration: number };
 
 /** Keep the previous, current, and next Home rows mounted so posters stay decoded. */
 /** Memoised: Home re-renders on every focus move; the stack only needs to on a row change. */
@@ -443,14 +477,13 @@ export const PlayerTvRowStack = memo(function PlayerTvRowStack({
     const trackRef = useRef<HTMLDivElement>(null);
     const slotHeightRef = useRef(0);
     const shownIndexRef = useRef<number | null>(null);
-    const beforeRef = useRef<TvRowTop[] | null>(null);
-    // Read where the rows are drawn while the DOM still shows the old row (render runs
-    // before commit), so the slide starts exactly there, even mid-way through the last one.
-    if (shownIndexRef.current !== null && shownIndexRef.current !== activeIndex
-        && trackRef.current && !beforeRef.current) {
-        beforeRef.current = Array.from(trackRef.current.children as HTMLCollectionOf<HTMLElement>)
-            .map((el) => ({ id: el.dataset.tvStackId || '', top: el.getBoundingClientRect().top }));
-    }
+    /** Each built row's offset in the column at the last commit, and the offset applied then. */
+    const offsetsRef = useRef<Map<string, number>>(new Map());
+    const slideRef = useRef<TvSlide | null>(null);
+    useEffect(() => () => {
+        slideRef.current?.anim.cancel();
+        slideRef.current = null;
+    }, []);
     // Every commit: rows may have been built or dropped above the focused one, so the
     // column offset is re-read; it only animates on a row change.
     useLayoutEffect(() => {
@@ -467,32 +500,66 @@ export const PlayerTvRowStack = memo(function PlayerTvRowStack({
             slotHeightRef.current = tallest;
             rail.style.height = `calc(${tallest}px + ${TV_STACK_PEEK})`;
         }
-        const prev = shownIndexRef.current;
+        const prevIndex = shownIndexRef.current;
         shownIndexRef.current = activeIndex;
-        const before = beforeRef.current;
-        beforeRef.current = null;
-        if (before) track.getAnimations?.().forEach((anim) => anim.cancel());
+        const prevOffsets = offsetsRef.current;
+        const offsets = new Map<string, number>();
+        rowEls.forEach((el) => offsets.set(el.dataset.tvStackId || '', el.offsetTop));
+        offsetsRef.current = offsets;
         const target = -active.offsetTop;
-        track.style.transform = `translate3d(0, ${target}px, 0)`;
         // Focus moves can scroll these clipped boxes; the column offset does the moving.
         for (let el: HTMLElement | null = rail; el && !el.classList.contains('player-home-stage'); el = el.parentElement) {
             if (el.scrollTop) el.scrollTop = 0;
         }
-        if (!before || prev === null || prev === activeIndex) return;
-        if (tvRowSlideOff() || typeof track.animate !== 'function') return;
-        const ref = before.find((row) => row.id === active.dataset.tvStackId)
-            || before.find((row) => rowEls.some((el) => el.dataset.tvStackId === row.id));
-        const refEl = ref ? rowEls.find((el) => el.dataset.tvStackId === ref.id) : null;
-        if (!ref || !refEl) return;
-        const box = refEl.getBoundingClientRect();
-        // getBoundingClientRect is in zoomed px; the transform is in the column's own px.
-        const scale = box.height > 0 ? refEl.offsetHeight / box.height : 1;
-        const from = target + (ref.top - box.top) * scale;
-        if (Math.abs(from - target) < 1) return;
-        track.animate([
+        const now = performance.now();
+        const slide = slideRef.current;
+        // Where the column is on screen this instant, from the slide's own timing.
+        let drawn = target;
+        let running = false;
+        if (slide) {
+            const startedAt = typeof slide.anim.startTime === 'number' ? Number(slide.anim.startTime) : slide.created;
+            const progress = (now - startedAt) / slide.duration;
+            if (progress < 1) {
+                running = true;
+                drawn = slide.from + (slide.to - slide.from) * slideBezier(progress);
+            } else {
+                drawn = slide.to;
+            }
+        }
+        const rowChanged = prevIndex !== null && prevIndex !== activeIndex;
+        const stopSlide = () => {
+            if (slideRef.current) slideRef.current.anim.cancel();
+            slideRef.current = null;
+            track.getAnimations?.().forEach((anim) => anim.cancel());
+        };
+        track.style.transform = `translate3d(0, ${target}px, 0)`;
+        if (prevIndex === null || tvRowSlideOff() || typeof track.animate !== 'function') {
+            stopSlide();
+            return;
+        }
+        // Layout moved under a slide that is still running (rows built above): carry on from
+        // where the row it was showing is now, over the time that is left.
+        if (!rowChanged && !(running && slide && Math.abs(slide.to - target) >= 1)) return;
+        // A row that was in the column before is the anchor: its place on screen then is its
+        // old offset plus where the column was drawn.
+        const anchorId = [active.dataset.tvStackId || '', ...Array.from(offsets.keys())]
+            .find((id) => prevOffsets.has(id) && offsets.has(id));
+        if (!anchorId) {
+            stopSlide();
+            return;
+        }
+        const from = (prevOffsets.get(anchorId) as number) + drawn - (offsets.get(anchorId) as number);
+        if (Math.abs(from - target) < 1) {
+            stopSlide();
+            return;
+        }
+        const duration = rowChanged ? TV_ROW_SLIDE_MS : Math.max(90, slide ? slide.duration - (now - slide.created) : TV_ROW_SLIDE_MS);
+        stopSlide();
+        const anim = track.animate([
             { transform: `translate3d(0, ${from}px, 0)` },
             { transform: `translate3d(0, ${target}px, 0)` },
-        ], { duration: TV_ROW_SLIDE_MS, easing: TV_ROW_SLIDE_EASE });
+        ], { duration, easing: TV_ROW_SLIDE_EASE });
+        slideRef.current = { anim, created: now, from, to: target, duration };
     });
     return (
         <div className="player-home-stage-rail" ref={railRef}>

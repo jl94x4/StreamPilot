@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.621': [
+        {
+            title: 'Home',
+            items: [
+                'Fixed Home rows bouncing back and forth on Fire TV sticks and other slower TVs when moving up and down: the slide now carries on from exactly where it is, even when several presses arrive quickly',
+                'Moving between titles no longer redraws every row of posters, which stalled the slide on slower sticks',
+            ],
+        },
+    ],
     '1.0.620': [
         {
             title: 'Smoother on slower TVs',
