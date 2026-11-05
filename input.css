@@ -4853,8 +4853,9 @@ html[data-tv="1"] .player-home-track-row.player-home-row-above {
      details (posters flying to the top). Going up, rows still fade in over 0.2s. */
   transition-duration: 0s;
 }
-html[data-reduce-motion="1"] .player-home-track-row {
-  transition: none;
+html[data-reduce-motion="1"] .player-home-track-row,
+html[data-tv="1"] .player-home-track[data-jump="1"] .player-home-track-row {
+  transition: none !important;
 }
 html[data-tv="1"] .player-home-row-active,
 html[data-tv="1"] .player-home-next-row {

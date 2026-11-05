@@ -493,6 +493,14 @@ export const PlayerTvRowStack = memo(function PlayerTvRowStack({
         const rail = railRef.current;
         const track = trackRef.current;
         if (!rail || !track) return;
+        // Several rows at once (the nav bar's Home button from deep in the list): no slide through
+        // every row in between and no fades, just land on the row. Set before anything reads layout,
+        // so the class changes of this commit start no transitions.
+        const jumped = shownIndexRef.current !== null && Math.abs(activeIndex - shownIndexRef.current) > 1;
+        if (jumped) {
+            track.dataset.jump = '1';
+            window.requestAnimationFrame(() => window.requestAnimationFrame(() => { delete track.dataset.jump; }));
+        }
         const rowEls = Array.from(track.children as HTMLCollectionOf<HTMLElement>);
         const active = rowEls.find((el) => el.dataset.tvStackIndex === String(activeIndex));
         if (!active) return;
@@ -540,7 +548,7 @@ export const PlayerTvRowStack = memo(function PlayerTvRowStack({
             track.getAnimations?.().forEach((anim) => anim.cancel());
         };
         track.style.transform = `translate3d(0, ${target}px, 0)`;
-        if (prevIndex === null || tvRowSlideOff() || typeof track.animate !== 'function') {
+        if (prevIndex === null || jumped || tvRowSlideOff() || typeof track.animate !== 'function') {
             stopSlide();
             return;
         }
