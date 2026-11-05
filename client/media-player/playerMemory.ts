@@ -983,6 +983,19 @@ const withLiveContinue = (next: PlayerHome, live: PlayerHome): PlayerHome => {
     };
 };
 
+/**
+ * The saved Home with Continue Watching taken from a fresh answer, and nothing else changed.
+ * TV keeps the saved rows on screen (the quick answer drops pinned rows), but Continue Watching
+ * must always be the server's current list. Returns null when the fresh answer has none.
+ */
+export const withFreshContinueWatching = (
+    saved: PlayerHome | null | undefined,
+    fresh: PlayerHome | null | undefined,
+): PlayerHome | null => {
+    if (!saved || !fresh || !homeContinueItems(fresh).length) return null;
+    return withoutFinishedContinue(withLiveContinue(saved, fresh));
+};
+
 export const coalescePlayerHomeWithCache = (
     live: PlayerHome | null | undefined,
     cached: PlayerHome | null | undefined,

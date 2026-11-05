@@ -59,6 +59,7 @@ import {
     readSearchOpened,
     rememberSearchOpened,
     coalescePlayerHomeWithCache,
+    withFreshContinueWatching,
     playerHomeHasContentHubs,
     playerHomeHasRows,
     playerHomeNeedsFull,
@@ -1060,6 +1061,14 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 // The fast Home answer often has one mixed Recently Added row and
                 // drops pins that still need a fill. Keep the last real Home on screen.
                 if (isTvShell && cachedHasRows && cachedHome && playerHomeHasContentHubs(cachedHome)) {
+                    // ...but Continue Watching always comes from this fresh answer. On a slow stick
+                    // the full pass can fail every time, which left the saved list on screen for good.
+                    const patched = current() ? withFreshContinueWatching(cachedHome, data) : null;
+                    if (patched) {
+                        writePlayerHomeCache(patched);
+                        setHome(stableRandomRows(patched));
+                        return patched;
+                    }
                     return cachedHome;
                 }
                 if (!current() || !data || !playerHomeHasRows(data)) return data;
