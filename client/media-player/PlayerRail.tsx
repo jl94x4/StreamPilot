@@ -538,7 +538,10 @@ export const PlayerTvRowStack = memo(function PlayerTvRowStack({
                 running = true;
                 drawn = slide.from + (slide.to - slide.from) * slideBezier(progress);
             } else {
-                drawn = slide.to;
+                // Finished: forget it. Its end offset goes stale the moment rows above are built or
+                // dropped, and a later press started from that stale spot (the new row began about
+                // half a row above its slot, then snapped).
+                slideRef.current = null;
             }
         }
         const rowChanged = prevIndex !== null && prevIndex !== activeIndex;
