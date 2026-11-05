@@ -13,9 +13,72 @@ const BLACK = 18;
 const MAX_LEFT = 0.42;
 const MAX_TOP = 0.28;
 const SAMPLE_WIDTH = 320;
-const cache = new Map<string, LogoInsets>();
 const inflight = new Map<string, Promise<LogoInsets>>();
 const NONE: LogoInsets = { left: 0, top: 0 };
+
+/**
+ * Measured insets are kept across launches. A logo stays hidden until it is measured, so
+ * with an in-memory cache only, every logo popped in late after each app start (a fetch
+ * plus a canvas scan per title on a slow TV). Keys drop sign-in tokens: portal ones renew.
+ */
+const STORE_KEY = 'smp-logo-insets-v1';
+const STORE_MAX = 600;
+const cacheKey = (url: string) => {
+    const value = String(url || '');
+    if (!/[?&](access_token|X-Plex-Token)=/i.test(value)) return value;
+    try {
+        const parsed = new URL(value, 'https://local.invalid');
+        parsed.searchParams.delete('access_token');
+        parsed.searchParams.delete('X-Plex-Token');
+        return parsed.toString();
+    } catch {
+        return value;
+    }
+};
+const round = (n?: number) => (typeof n === 'number' && Number.isFinite(n) ? Math.round(n * 1000) / 1000 : undefined);
+const store = (() => {
+    const map = new Map<string, LogoInsets>();
+    try {
+        const raw = JSON.parse(localStorage.getItem(STORE_KEY) || '[]') as Array<[string, number, number, number?, number?]>;
+        if (Array.isArray(raw)) {
+            for (const row of raw) {
+                if (!Array.isArray(row) || typeof row[0] !== 'string') continue;
+                map.set(row[0], { left: Number(row[1]) || 0, top: Number(row[2]) || 0, right: row[3], bottom: row[4] });
+            }
+        }
+    } catch {
+        /* storage unavailable or corrupt: start empty */
+    }
+    return map;
+})();
+let saveTimer = 0;
+const saveSoon = () => {
+    if (saveTimer || typeof window === 'undefined') return;
+    saveTimer = window.setTimeout(() => {
+        saveTimer = 0;
+        try {
+            const rows = Array.from(store.entries()).slice(-STORE_MAX)
+                .map(([key, v]) => [key, round(v.left), round(v.top), round(v.right), round(v.bottom)]);
+            localStorage.setItem(STORE_KEY, JSON.stringify(rows));
+        } catch {
+            /* quota or storage unavailable */
+        }
+    }, 4000);
+};
+const cache = {
+    get: (url: string) => store.get(cacheKey(url)),
+    set: (url: string, insets: LogoInsets) => {
+        const key = cacheKey(url);
+        store.delete(key);
+        store.set(key, insets);
+        while (store.size > STORE_MAX) {
+            const oldest = store.keys().next().value;
+            if (oldest === undefined) break;
+            store.delete(oldest);
+        }
+        saveSoon();
+    },
+};
 
 const clamp = (value: number, max: number) => {
     if (!Number.isFinite(value) || value <= 0.012) return 0;

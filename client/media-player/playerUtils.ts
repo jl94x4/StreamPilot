@@ -504,11 +504,36 @@ const liteBillboardActive = () => {
     }
 };
 
+/**
+ * TVs that draw the app below 1080p (many budget sets render at 720p and scale up) or have
+ * 2 GB of RAM or less: a 1080p backdrop is decoded and uploaded at 2.25x the pixels
+ * the screen can show, on every title change. 720p looks the same there and costs far less.
+ * Read once: the screen does not change while the app runs.
+ */
+let tvLowBackdropCache: boolean | null = null;
+const tvLowBackdrop = () => {
+    if (tvLowBackdropCache != null) return tvLowBackdropCache;
+    let low = false;
+    try {
+        if (document.documentElement?.dataset?.tv === '1') {
+            const dpr = window.devicePixelRatio || 1;
+            const drawnWidth = Math.max(window.screen?.width || 0, window.innerWidth || 0) * dpr;
+            const memory = Number((navigator as Navigator & { deviceMemory?: number }).deviceMemory || 0);
+            low = (drawnWidth > 0 && drawnWidth < 1600) || (memory > 0 && memory <= 2);
+            tvLowBackdropCache = low;
+        }
+    } catch {
+        low = false;
+    }
+    return low;
+};
+
 export const plexBackdropUrl = (path?: string | null) => {
     if (!path) return '';
     // A 1080p q90 transcode per hero slide took ages over mobile data; 720p is still sharp on a phone.
     if (phoneShellActive()) return backdropRequestUrl(path, 1280, 720, 80);
     if (liteBillboardActive()) return backdropRequestUrl(path, 1280, 720, 75);
+    if (tvLowBackdrop()) return backdropRequestUrl(path, 1280, 720, 85);
     return backdropRequestUrl(path, PLAYER_BACKDROP_WIDTH, PLAYER_BACKDROP_HEIGHT, PLAYER_BACKDROP_QUALITY);
 };
 

@@ -73,6 +73,17 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.620': [
+        {
+            title: 'Smoother on slower TVs',
+            items: [
+                'The Home background art cross-fades on the graphics chip instead of redrawing the whole screen on every frame, so moving between titles judders far less',
+                'Posters and backgrounds are kept on the TV when you sign in through your portal too, so titles you have seen show instantly, even after a restart',
+                'TVs that draw the app below 1080p, or have 2 GB of memory or less, load a lighter background image that looks the same on their screen',
+                'Title logos remember their sizing between launches, so they appear straight away instead of popping in',
+            ],
+        },
+    ],
     '1.0.619': [
         {
             title: 'Home',

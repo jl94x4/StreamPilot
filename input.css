@@ -3696,14 +3696,8 @@ html[data-reduce-motion="1"] .player-home-stage .player-home-focus-still {
 /* The art is lifted 10% (translateY above), so it stops at 90% of the screen. This fixed
    fade into the page colour hides that edge under the billboard fade, so no hard line
    shows under the first row. */
-html[data-tv="1"] .player-home-stage .player-home-focus-still::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  pointer-events: none;
-  background: linear-gradient(180deg, transparent 0%, transparent 74%, rgb(var(--tv-home-surface) / 0.55) 81%, rgb(var(--tv-home-surface) / 0.9) 86%, rgb(var(--tv-home-surface)) 89.5%, rgb(var(--tv-home-surface)) 100%);
-}
+/* (That fade is the last layer of the ::after scrim below: one full-screen gradient layer
+   instead of two to paint and composite.) */
 html[data-tv="1"] .player-home-stage .player-home-focus-still {
   position: absolute;
   inset: 0;
@@ -3759,7 +3753,19 @@ html[data-tv="1"] .player-home-stage .player-home-focus-still::after {
   background:
     linear-gradient(90deg, rgb(var(--tv-home-surface) / 0.98) 0%, rgb(var(--tv-home-surface) / 0.95) 18%, rgb(var(--tv-home-surface) / 0.9) 30%, rgb(var(--tv-home-surface) / 0.76) 42%, rgb(var(--tv-home-surface) / 0.5) 52%, rgb(var(--tv-home-surface) / 0.24) 62%, rgb(var(--tv-home-surface) / 0.08) 72%, transparent 84%),
     linear-gradient(180deg, rgb(var(--tv-home-surface) / 0.14) 0%, transparent 12%, transparent 34%, rgb(var(--tv-home-surface) / 0.38) 50%, rgb(var(--tv-home-surface) / 0.72) 64%, rgb(var(--tv-home-surface) / 0.92) 78%, rgb(var(--tv-home-surface)) 100%),
-    linear-gradient(180deg, rgb(var(--tv-home-surface) / 0) 0%, rgb(var(--tv-home-surface) / 0) 40%, rgb(var(--tv-home-surface) / 0.3) 56%, rgb(var(--tv-home-surface) / 0.72) 70%, rgb(var(--tv-home-surface) / 0.94) 82%, rgb(var(--tv-home-surface)) 100%);
+    linear-gradient(180deg, rgb(var(--tv-home-surface) / 0) 0%, rgb(var(--tv-home-surface) / 0) 40%, rgb(var(--tv-home-surface) / 0.3) 56%, rgb(var(--tv-home-surface) / 0.72) 70%, rgb(var(--tv-home-surface) / 0.94) 82%, rgb(var(--tv-home-surface)) 100%),
+    linear-gradient(180deg, transparent 0%, transparent 74%, rgb(var(--tv-home-surface) / 0.55) 81%, rgb(var(--tv-home-surface) / 0.9) 86%, rgb(var(--tv-home-surface)) 89.5%, rgb(var(--tv-home-surface)) 100%);
+  /* Its own GPU layer: the art cross-fading underneath no longer repaints these
+     full-screen gradients every frame (it did, ~13 times a title change). */
+  will-change: transform;
+  transform: translateZ(0);
+}
+/* Each billboard image keeps a GPU layer, so the cross-fade only blends two textures. Without
+   one, the fade promoted the image when it started (a full re-raster: the hitch on a title
+   change) and repainted the art plus the scrim on every frame. */
+html[data-tv="1"] .player-home-stage .player-home-focus-still img {
+  will-change: opacity;
+  backface-visibility: hidden;
 }
 html[data-tv="1"] .player-home-stage .player-home-focus-still img.is-front {
   opacity: 1;

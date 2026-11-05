@@ -48,7 +48,11 @@ final class PlexImageCache {
         dir.mkdirs();
     }
 
-    /** Only PMS photo transcodes: everything else (API, playback, app assets) is untouched. */
+    /**
+     * Only artwork: PMS photo transcodes, and the portal's Plex image proxy (signed in through
+     * the portal every poster and backdrop goes through it, and the WebView's small HTTP cache
+     * kept almost none). Everything else (API, playback, app assets) is untouched.
+     */
     boolean handles(@Nullable WebResourceRequest request) {
         if (request == null || !"GET".equalsIgnoreCase(request.getMethod())) return false;
         Uri uri = request.getUrl();
@@ -56,7 +60,8 @@ final class PlexImageCache {
         String scheme = uri.getScheme();
         if (!"https".equals(scheme) && !"http".equals(scheme)) return false;
         String path = uri.getPath();
-        return path != null && path.equals("/photo/:/transcode");
+        if (path == null) return false;
+        return path.equals("/photo/:/transcode") || path.endsWith("/api/plex/image");
     }
 
     /** Cached file, or download-then-cache. Null lets the WebView load it normally. */
@@ -87,7 +92,9 @@ final class PlexImageCache {
 
     /**
      * Same image fetched over LAN or remote addresses shares one entry: the plex.direct
-     * hash names the server, and the token is not part of what the image is.
+     * hash names the server, and the token is not part of what the image is. Portal URLs
+     * carry the session token as access_token, which renews daily: it is left out too, so
+     * a renewed sign-in does not throw the whole cache away.
      */
     private static String cacheKey(Uri uri) throws Exception {
         String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.US);
@@ -102,7 +109,8 @@ final class PlexImageCache {
         Collections.sort(names);
         StringBuilder raw = new StringBuilder(server).append('|').append(uri.getPath());
         for (String name : names) {
-            if (name.toLowerCase(Locale.US).startsWith("x-plex-")) continue;
+            String lower = name.toLowerCase(Locale.US);
+            if (lower.startsWith("x-plex-") || lower.equals("access_token")) continue;
             raw.append('&').append(name).append('=').append(uri.getQueryParameter(name));
         }
         MessageDigest digest = MessageDigest.getInstance("SHA-1");
