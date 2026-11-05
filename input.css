@@ -3816,6 +3816,14 @@ html[data-tv="1"] .player-home-spot-stage {
    has. (The details used to size to their content: on some WebViews that dragged the whole rows
    column up and down with every title, and the row below popped in and out.)
    --tv-rail-h is the rows slot height, written by PlayerTvRowStack. */
+/* Clip, not hidden: an overflow:hidden box can still be scrolled by the browser when a card in a
+   row that is slid out of view gets focus, and that dragged the rows and the details up together
+   (the row below "popped up" far too much). overflow:clip cannot be scrolled at all. */
+html[data-tv="1"] .player-home-stage-copy,
+html[data-tv="1"] .player-home-page.player-home-stage {
+  overflow: hidden;
+  overflow: clip !important;
+}
 html[data-tv="1"] .player-home-stage-copy > .player-home-stage-rail {
   position: absolute !important;
   left: 6.75rem !important;
