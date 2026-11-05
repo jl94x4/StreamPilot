@@ -3823,6 +3823,9 @@ html[data-tv="1"] .player-home-stage-copy > .player-home-stage-rail {
   bottom: 0 !important;
   width: auto !important;
   margin: 0 !important;
+  /* The column already has the left inset (left: above). An old inline rule in index.html adds
+     6.75rem of padding here too, which pushed the rows a whole inset to the right of the details. */
+  padding-left: 0 !important;
 }
 html[data-tv="1"][data-tv-nav-open="1"]:not([data-tv-nav-icons="1"]) .player-home-stage-copy > .player-home-stage-rail {
   left: 18.5rem !important;
@@ -4838,7 +4841,9 @@ html[data-tv="1"] .player-home-track-row.player-home-row-active {
 html[data-tv="1"] .player-home-track-row.player-home-row-above {
   opacity: 0;
   pointer-events: none;
-  transition-duration: 0.14s;
+  /* Gone at once: going down, the row you leave used to fade while it travelled up through the
+     details (posters flying to the top). Going up, rows still fade in over 0.2s. */
+  transition-duration: 0s;
 }
 html[data-reduce-motion="1"] .player-home-track-row {
   transition: none;

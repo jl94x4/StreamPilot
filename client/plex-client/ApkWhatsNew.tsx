@@ -78,6 +78,8 @@ const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
             title: 'Home',
             items: [
                 'Fire TV sticks and low-memory TVs now move between Home rows instantly, with no slide or fades, so the rows can no longer jump or stutter there. Other TVs keep the full Plex-style glide',
+                'Home rows line up with the title and details again instead of sitting a long way to the right',
+                'Going down a row now matches going up: the row you leave disappears at once instead of flying up the screen',
                 'Fixed Home going down a row: the row you left no longer jumps to the top of the screen while it fades, it slides up smoothly with the rest',
                 'Fixed the rows jumping up and down (and the row below popping in) as you move left and right between titles: the details above the rows no longer change where the rows sit',
                 'On Fire TV sticks the Home background, details and colour now change together instead of one after another',
