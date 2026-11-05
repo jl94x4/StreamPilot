@@ -382,6 +382,8 @@ export const resolvePlayerCardAspect = (
 };
 
 /** Rewrite a Plex photo transcode size (and optional quality) without changing the path. */
+const resizeArtMemo = new Map<string, string>();
+
 export const resizePlexArtUrl = (
     url: string | null | undefined,
     width: number,
@@ -390,6 +392,21 @@ export const resizePlexArtUrl = (
 ) => {
     const value = String(url || '').trim();
     if (!value || !/\/photo\/:\/transcode|\/api\/plex\/image/i.test(value)) return value;
+    const memoKey = `${width}x${height}q${quality ?? ''}|${value}`;
+    const hit = resizeArtMemo.get(memoKey);
+    if (hit !== undefined) return hit;
+    const out = resizePlexArtUrlUncached(value, width, height, quality);
+    if (resizeArtMemo.size >= 1500) resizeArtMemo.clear();
+    resizeArtMemo.set(memoKey, out);
+    return out;
+};
+
+const resizePlexArtUrlUncached = (
+    value: string,
+    width: number,
+    height: number,
+    quality?: number,
+) => {
     try {
         const parsed = new URL(value, 'https://plex.local');
         parsed.searchParams.set('width', String(width));

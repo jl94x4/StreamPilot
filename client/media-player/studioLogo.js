@@ -207,23 +207,41 @@ const STUDIO_ALIASES = {
     'skydance': 'paramount',
 };
 
-const normalizeCompanyName = (value = '') => String(value || '')
+/**
+ * String-in, string-out helpers below run over the whole studio / network catalogue on every
+ * focus move on TV (regex per row, plus sorts that normalise inside the comparator). The inputs
+ * repeat constantly, so each is remembered.
+ */
+const memoString = (fn, max = 1500) => {
+    const cache = new Map();
+    return (value = '') => {
+        const key = typeof value === 'string' ? value : String(value ?? '');
+        const hit = cache.get(key);
+        if (hit !== undefined) return hit;
+        const next = fn(key);
+        if (cache.size >= max) cache.clear();
+        cache.set(key, next);
+        return next;
+    };
+};
+
+const normalizeCompanyName = memoString((value) => String(value || '')
     .trim()
     .toLowerCase()
     .replace(/&/g, ' and ')
     .replace(/[.+_\-–—]/g, ' ')
     .replace(/\s+/g, ' ')
-    .trim();
+    .trim());
 
 /** Drop legal/brand suffixes so "Universal Pictures" ≈ "Universal". */
-const coreCompanyName = (value = '') => normalizeCompanyName(value)
+const coreCompanyName = memoString((value) => normalizeCompanyName(value)
     .replace(STUDIO_SUFFIX_RE, ' ')
     .replace(/\s+/g, ' ')
-    .trim();
+    .trim());
 
-const compactCompanyName = (value = '') => normalizeCompanyName(value).replace(/\s+/g, '');
+const compactCompanyName = memoString((value) => normalizeCompanyName(value).replace(/\s+/g, ''));
 
-const aliasKey = (value = '') => {
+const aliasKey = memoString((value) => {
     const normalized = normalizeCompanyName(value);
     const compact = compactCompanyName(value);
     const core = coreCompanyName(value);
@@ -234,7 +252,7 @@ const aliasKey = (value = '') => {
         || STUDIO_ALIASES[compact]
         || STUDIO_ALIASES[core]
         || normalized;
-};
+});
 
 /** Public alias id for studio/network plate colors and browse dedupe. */
 export const companyAliasKey = (value = '') => aliasKey(value);
@@ -283,7 +301,7 @@ export const isStreamingBrandLabel = (name = '') => {
     return true;
 };
 
-const catalogAliasKey = (name = '') => {
+const catalogAliasKey = memoString((name) => {
     const normalized = normalizeCompanyName(name);
     const compact = compactCompanyName(name);
     const core = coreCompanyName(name);
@@ -296,10 +314,27 @@ const catalogAliasKey = (name = '') => {
         || STUDIO_ALIASES[compact]
         || STUDIO_ALIASES[core]
         || normalized;
-};
+});
 
+const matchMemo = new WeakMap();
 /** Match a Plex studio/network label to a Discover company logo entry. */
 export const matchDiscoverCompanyByName = (name, list = []) => {
+    // Same label against the same (constant) catalogue list: remembered per list.
+    if (!list || typeof list !== 'object') return matchDiscoverCompanyByNameUncached(name, list);
+    let byName = matchMemo.get(list);
+    if (!byName) {
+        byName = new Map();
+        matchMemo.set(list, byName);
+    }
+    const key = String(name ?? '');
+    if (byName.has(key)) return byName.get(key);
+    const hit = matchDiscoverCompanyByNameUncached(name, list);
+    if (byName.size >= 1000) byName.clear();
+    byName.set(key, hit);
+    return hit;
+};
+
+const matchDiscoverCompanyByNameUncached = (name, list = []) => {
     const want = normalizeCompanyName(name);
     if (!want) return null;
     const wantAlias = aliasKey(name);

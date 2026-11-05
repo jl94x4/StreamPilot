@@ -483,6 +483,17 @@ export const PlayerTvRowStack = memo(function PlayerTvRowStack({
     const slideRef = useRef<TvSlide | null>(null);
     /** Column offset applied by the previous commit. */
     const lastTargetRef = useRef<number | null>(null);
+    /**
+     * Row heights and the row gap, measured once. Reading offsetHeight / offsetTop on every commit
+     * forced a full layout in the middle of the press (about 50 ms on a TV stick); the offsets are
+     * now worked out from these, and the DOM is only read when a row appears for the first time.
+     */
+    const heightsRef = useRef<Map<string, number>>(new Map());
+    const heightsForRef = useRef<{ rows: PlayerTvStackRow[]; density: number } | null>(null);
+    const gapRef = useRef<number | null>(null);
+    const clipSupportedRef = useRef<boolean>((() => {
+        try { return window.CSS?.supports?.('overflow', 'clip') === true; } catch { return false; }
+    })());
     useEffect(() => () => {
         slideRef.current?.anim.cancel();
         slideRef.current = null;
@@ -504,9 +515,23 @@ export const PlayerTvRowStack = memo(function PlayerTvRowStack({
         const rowEls = Array.from(track.children as HTMLCollectionOf<HTMLElement>);
         const active = rowEls.find((el) => el.dataset.tvStackIndex === String(activeIndex));
         if (!active) return;
+        const heights = heightsRef.current;
+        const measuredFor = heightsForRef.current;
+        if (!measuredFor || measuredFor.rows !== rows || measuredFor.density !== density) {
+            // New data or poster size: heights may differ, measure again.
+            heights.clear();
+            gapRef.current = null;
+            heightsForRef.current = { rows, density };
+        }
+        const idOf = (el: HTMLElement) => el.dataset.tvStackId || '';
+        for (const el of rowEls) {
+            if (!heights.has(idOf(el))) heights.set(idOf(el), el.offsetHeight);
+        }
+        if (gapRef.current === null) gapRef.current = Number.parseFloat(getComputedStyle(track).rowGap) || 0;
+        const gap = gapRef.current;
         // The slot is the tallest row built so far and only grows, so the details above
         // never hop when a shorter (landscape) row takes the slot.
-        const tallest = Math.max(slotHeightRef.current, ...rowEls.map((el) => el.offsetHeight));
+        const tallest = Math.max(slotHeightRef.current, ...rowEls.map((el) => heights.get(idOf(el)) || 0));
         if (tallest !== slotHeightRef.current) {
             slotHeightRef.current = tallest;
             rail.style.height = `calc(${tallest}px + ${TV_STACK_PEEK})`;
@@ -517,12 +542,19 @@ export const PlayerTvRowStack = memo(function PlayerTvRowStack({
         shownIndexRef.current = activeIndex;
         const prevOffsets = offsetsRef.current;
         const offsets = new Map<string, number>();
-        rowEls.forEach((el) => offsets.set(el.dataset.tvStackId || '', el.offsetTop));
+        let top = 0;
+        for (const el of rowEls) {
+            offsets.set(idOf(el), top);
+            top += (heights.get(idOf(el)) || 0) + gap;
+        }
         offsetsRef.current = offsets;
-        const target = -active.offsetTop;
-        // Focus moves can scroll these clipped boxes; the column offset does the moving.
-        for (let el: HTMLElement | null = rail; el && !el.classList.contains('player-home-stage'); el = el.parentElement) {
-            if (el.scrollTop) el.scrollTop = 0;
+        const target = -(offsets.get(idOf(active)) || 0);
+        // Focus moves can scroll these boxes on engines without overflow:clip (the CSS makes them
+        // unscrollable otherwise); the column offset does the moving. Reading scrollTop forces a layout.
+        if (!clipSupportedRef.current) {
+            for (let el: HTMLElement | null = rail; el && !el.classList.contains('player-home-stage'); el = el.parentElement) {
+                if (el.scrollTop) el.scrollTop = 0;
+            }
         }
         const now = performance.now();
         const slide = slideRef.current;
@@ -548,7 +580,6 @@ export const PlayerTvRowStack = memo(function PlayerTvRowStack({
         const stopSlide = () => {
             if (slideRef.current) slideRef.current.anim.cancel();
             slideRef.current = null;
-            track.getAnimations?.().forEach((anim) => anim.cancel());
         };
         track.style.transform = `translate3d(0, ${target}px, 0)`;
         if (prevIndex === null || jumped || tvRowSlideOff() || typeof track.animate !== 'function') {

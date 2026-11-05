@@ -52,9 +52,12 @@ export const Carousel: React.FC<CarouselProps> = ({ children, posterRow = false,
         setTvShell(isTvShell());
     }, []);
 
+    // TV Home rails hide the arrows (CSS), so their scroll / resize / mutation tracking was pure cost:
+    // three state updates per scroll event on every mounted row.
+    const trackingOffRef = useRef(false);
     const handleScroll = useCallback(() => {
         const node = scrollContainerRef.current;
-        if (!node) return;
+        if (!node || trackingOffRef.current) return;
         const { scrollLeft, scrollWidth, clientWidth } = node;
         const overflow = scrollWidth > clientWidth + SCROLL_EDGE_PX;
         setCanScroll(overflow);
@@ -69,9 +72,11 @@ export const Carousel: React.FC<CarouselProps> = ({ children, posterRow = false,
     }, []);
 
     useEffect(() => {
-        handleScroll();
         const node = scrollContainerRef.current;
         if (!node) return undefined;
+        trackingOffRef.current = isTvShell() && !!node.closest('.player-home-stage');
+        if (trackingOffRef.current) return undefined;
+        handleScroll();
 
         const resizeObserver = typeof ResizeObserver !== 'undefined'
             ? new ResizeObserver(() => handleScroll())

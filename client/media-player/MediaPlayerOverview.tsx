@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, ExternalLink, Play } from 'lucide-react';
 import { DiscoveryLogo, useDiscoverI18n } from './host';
 import { DiscoveryFactWidget } from '../discovery/DiscoveryFactWidget';
@@ -328,7 +328,9 @@ export const useOverviewServiceLogos = (item: PlayerItem, region: string) => {
         watchRegion,
     ]);
 
-    return splitOverviewServiceLogos({
+    // Rebuilt only when its inputs change: it matches every label against the whole catalogue,
+    // and this hook re-renders on each TMDB answer as well as each focus move.
+    return useMemo(() => splitOverviewServiceLogos({
         plexName,
         plexNames,
         // Treat episodes/seasons as TV so Plex network labels land in Network, not Studio.
@@ -338,7 +340,8 @@ export const useOverviewServiceLogos = (item: PlayerItem, region: string) => {
         tmdbNetworks,
         tmdbCompanies,
         streamingProviders,
-    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }), [plexName, plexKey, isMovie, tmdbNetworks, tmdbCompanies, streamingProviders]);
 };
 
 export const OverviewSummary: React.FC<{ text: string }> = ({ text }) => {

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { DISCOVER_NETWORKS, DISCOVER_STUDIOS } from '../discovery/discoverConstants';
 import { DiscoveryLogo } from './host';
 import { shouldPreserveColorLogo } from '../discovery/discoveryLogoUtils';
@@ -40,7 +40,8 @@ export const PlayerServiceBrandMark: React.FC<Props> = ({ item, className = '' }
     const mediaType = resolved?.type === 'movie' ? 'movie' : 'show';
     const skip = new Set(failedKeys);
 
-    const preferred = (() => {
+    // Only re-resolved when what it reads changes (the catalogue match is not free on a TV stick).
+    const preferred = useMemo(() => {
         if (!enabled || !resolved) return null;
         const usable = (row: { key?: string; logoPath?: string; name?: string } | null | undefined) => {
             if (!row) return null;
@@ -56,7 +57,8 @@ export const PlayerServiceBrandMark: React.FC<Props> = ({ item, className = '' }
         // Ordered tiers (network, then studio, then streaming) win once they exist.
         // Sync covers the same Plex tags before the TMDB request returns.
         return fromTmdb || sync;
-    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [enabled, resolved, logos, mediaType, failedKeys]);
 
     // Hub rows often omit Guids — enrich so TMDB studio/network/streaming can load.
     useEffect(() => {

@@ -1,5 +1,6 @@
 import { apiErrorMessage, apiFetch, PORTAL_CSRF_HEADER, PORTAL_CSRF_VALUE } from '../shared/api';
 import { portalUrl } from '../shared/basePath';
+import { msSinceRemoteInput, whenRemoteQuiet } from '../shared/remoteActivity';
 import { DISCOVER_NETWORKS, DISCOVER_NETWORKS_EXTRA, DISCOVER_STUDIOS, DISCOVER_STUDIOS_EXTRA } from '../discovery/discoverConstants';
 import { pickTmdbPersonMatch, personCreditYear, splitPersonCredits } from '../discovery/personCredits';
 import { preferStudioBrowseLogos } from '../../lib/media-player/studioBrowse.js';
@@ -737,7 +738,10 @@ export const fetchMediaPlayerItem = (ratingKey: string, opts: { core?: boolean; 
                 onDeck: data.onDeck !== undefined ? data.onDeck : (prev?.onDeck ?? null),
             }, opts.serverId || item?.serverId);
             prefetchItemBackdrop(item);
-            prefetchItemPageImages(item, children);
+            // Home's lightweight (core) fetches run for every nearby card as the remote moves; warming
+            // each one's season stills and cast photos was 70+ image requests per row change. Those
+            // are warmed for the card the remote rests on (prefetchMediaPlayerItem) or on a full fetch.
+            if (!opts.core) prefetchItemPageImages(item, children);
             return page;
         })
         .finally(() => {
@@ -816,8 +820,18 @@ const rebuildPrefetchQueue = () => {
     }
 };
 
+const isTvRemoteBusy = () => msSinceRemoteInput() < 350;
+let prefetchWaiting = false;
 const runPrefetchQueue = () => {
     if (prefetchPaused) return;
+    // Mapping a Plex item answer is real work on a TV stick: do it between presses, not during one.
+    if (isTvRemoteBusy() && prefetchQueue.length) {
+        if (!prefetchWaiting) {
+            prefetchWaiting = true;
+            whenRemoteQuiet(() => { prefetchWaiting = false; runPrefetchQueue(); }, 450, 5000);
+        }
+        return;
+    }
     while (prefetchRunning < PREFETCH_CONCURRENCY && prefetchQueue.length) {
         const key = prefetchQueue.shift();
         if (!key) break;
@@ -898,6 +912,8 @@ export const endHomeRowPriority = () => {
     window.dispatchEvent(new Event(PLAYER_HOME_ROWS_IDLE_EVENT));
 };
 
+let cancelPageImageWarm: (() => void) | null = null;
+
 export const prefetchMediaPlayerItem = (ratingKey: string, serverId?: string | null) => {
     if (prefetchPaused) return;
     const key = playerItemRef({ ratingKey, serverId });
@@ -909,7 +925,12 @@ export const prefetchMediaPlayerItem = (ratingKey: string, serverId?: string | n
     const cached = cachedForRef(key);
     if (cached?.item) {
         prefetchItemBackdrop(cached.item);
-        prefetchItemPageImages(cached.item, cached.children || []);
+        // Only the card the remote settles on: its title page is the one likely to open next.
+        cancelPageImageWarm?.();
+        cancelPageImageWarm = whenRemoteQuiet(() => {
+            cancelPageImageWarm = null;
+            prefetchItemPageImages(cached.item, cached.children || []);
+        }, 700, 4000);
         return;
     }
     if (itemRequestInflight(key)) return;

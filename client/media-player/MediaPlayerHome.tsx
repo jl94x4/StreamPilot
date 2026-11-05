@@ -16,6 +16,7 @@ import {
 } from './host';
 import { resolveLanImages } from './lanImage';
 import { beginHomeRowPriority, endHomeRowPriority, fetchLiveTvOnNow, fetchMediaPlayerHome, fetchMediaPlayerHomeFull, fetchMediaPlayerHomeHero, fetchMediaPlayerHomeHeroRefresh, fetchMediaPlayerItem, fetchMediaPlayerLibrary, fetchMediaPlayerWatchlist, prefetchMediaPlayerItem, recordPopularSearch, searchMediaPlayer, setMediaPlayerWatched } from './api';
+import { whenRemoteQuiet } from '../shared/remoteActivity';
 import { isPhoneUi, isPlexDirectMode } from '../plex-client/config';
 import { PlayerPullToRefresh } from './PlayerPullToRefresh';
 import {
@@ -1024,8 +1025,13 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                     // the retry takes row priority only while it runs.
                     window.setTimeout(() => {
                         if (!current() || !homeActiveRef.current) return;
-                        beginHomeRowPriority();
-                        void followFull(base, live, attempt + 1).finally(endHomeRowPriority);
+                        // A full pass maps every hub: wait until the remote has been still, so it
+                        // does not land in the middle of a row change.
+                        whenRemoteQuiet(() => {
+                            if (!current() || !homeActiveRef.current) return;
+                            beginHomeRowPriority();
+                            void followFull(base, live, attempt + 1).finally(endHomeRowPriority);
+                        }, 1200, 15000);
                     }, attempt ? 30000 : 10000);
                     return undefined;
                 }

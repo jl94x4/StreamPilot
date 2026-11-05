@@ -1300,18 +1300,24 @@ export const playerSettingsEqual = (a: PlayerSettings, b: PlayerSettings) => (
     && a.subtitlePosition === b.subtitlePosition
 );
 
+/** Settings are read all over (every poster card, every billboard change): parse each stored value once. */
+let settingsReadCache: { raw: string; value: PlayerSettings } | null = null;
+
 export const readPlayerSettings = (): PlayerSettings => {
     if (typeof window === 'undefined') return { ...DEFAULT_PLAYER_SETTINGS };
     try {
         const raw = window.localStorage.getItem(PLAYER_SETTINGS_KEY);
         if (!raw) return { ...DEFAULT_PLAYER_SETTINGS };
+        if (settingsReadCache && settingsReadCache.raw === raw) return { ...settingsReadCache.value };
         const parsed = JSON.parse(raw) || {};
         const settings = normalizePlayerSettings(parsed);
         // Save the one-time Continue Watching switch, so the Plex data layer reads it too.
         if (parsed.continueWatchingSortVersion !== CONTINUE_WATCHING_SORT_VERSION) {
             window.localStorage.setItem(PLAYER_SETTINGS_KEY, JSON.stringify(settings));
+        } else {
+            settingsReadCache = { raw, value: settings };
         }
-        return settings;
+        return { ...settings };
     } catch {
         return { ...DEFAULT_PLAYER_SETTINGS };
     }

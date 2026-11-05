@@ -73,6 +73,16 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.626': [
+        {
+            title: 'Smoother Home',
+            items: [
+                'Moving between titles and rows does much less work: studio and network logos are matched once instead of on every move, row positions are no longer measured on every press, and Home pages no longer re-render for nothing',
+                'Title-page photos (cast and season pictures) are only loaded for the title you stop on, instead of for every nearby title, which cut about 70 image requests on every row change',
+                'Background loading (title details, Home refreshes) now waits until the remote has been still for a moment, so it no longer lands in the middle of a row change',
+            ],
+        },
+    ],
     '1.0.625': [
         {
             title: 'Home',
