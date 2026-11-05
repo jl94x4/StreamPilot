@@ -57,7 +57,7 @@ import {
     watchTargetTouches,
     withShowPoster,
 } from './playerUtils';
-import type { PlayerItem, PlayerLibraryHub, PlayerPlayOptions } from './types';
+import type { PlayerItem, PlayerLibraryHome, PlayerLibraryHub, PlayerPlayOptions } from './types';
 
 type LibraryTab = 'home' | 'browse' | 'collections' | 'studios';
 
@@ -432,9 +432,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                 return false;
             }
         };
-        try {
-            const data = await fetchMediaPlayerLibraryHome(sectionKey);
-            if (!alive()) return;
+        const applyHome = (data: PlayerLibraryHome) => {
             setTitle(data.title || t('mediaPlayerPage.libraries'));
             if (data.type) setLibraryType(data.type);
             const incoming = data.hubs || [];
@@ -454,7 +452,20 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                 return next.length ? next : prev;
             });
             setError(null);
+            return hasContentHub;
+        };
+        try {
+            // First open (nothing saved): a quick answer paints the rows, then the full one fills in
+            // cover art, brand logos and labels. With a saved copy it is already on screen.
+            const data = await fetchMediaPlayerLibraryHome(sectionKey, { fast: !cached?.hubs?.length });
+            if (!alive()) return;
+            const hasContentHub = applyHome(data);
+            if (hasContentHub && data.fast) setLoading(false);
             if (!hasContentHub) await paintLists();
+            if (data.fast && alive()) {
+                const full = await fetchMediaPlayerLibraryHome(sectionKey).catch(() => null);
+                if (full && alive()) applyHome(full);
+            }
         } catch (err: any) {
             const painted = await paintLists();
             if (!alive()) return;

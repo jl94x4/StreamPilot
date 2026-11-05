@@ -326,6 +326,8 @@ export type PlayerLibraryHome = {
     title: string;
     type: string;
     hubs: PlayerLibraryHub[];
+    /** Quick first answer (direct mode): rows without the slower enrichment; the full answer follows. */
+    fast?: boolean;
 };
 
 export type PlayerLibraryFilterOption = { key: string; title: string };

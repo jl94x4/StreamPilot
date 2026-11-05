@@ -316,8 +316,10 @@ export const fetchMediaPlayerLibrary = (
     return apiFetch(`${PLAYER_API_ROOT}/libraries/${encodeURIComponent(sectionKey)}?${qs}`) as Promise<PlayerLibraryPage>;
 };
 
-export const fetchMediaPlayerLibraryHome = (sectionKey: string) => (
-    apiFetch(`${PLAYER_API_ROOT}/libraries/${encodeURIComponent(sectionKey)}/home`) as Promise<PlayerLibraryHome>
+export const fetchMediaPlayerLibraryHome = (sectionKey: string, opts: { fast?: boolean } = {}) => (
+    apiFetch(
+        `${PLAYER_API_ROOT}/libraries/${encodeURIComponent(sectionKey)}/home${opts.fast ? '?fast=1' : ''}`,
+    ) as Promise<PlayerLibraryHome>
 );
 
 export const fetchMediaPlayerLibraryFilters = (sectionKey: string) => (

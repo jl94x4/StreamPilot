@@ -6540,8 +6540,9 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
     const libraryHome = path.match(/^\/api\/media-player\/libraries\/([^/]+)\/home$/);
     if (libraryHome) {
         const { server, section } = splitLibraryKey(libraryHome[1]);
-        const sections = mapSections(await pms('/library/sections', server));
-        const sectionRow = sections.find((row) => row.key === section);
+        // Started with the hub requests below, not before them: it used to be a round trip of its own.
+        const sectionsP = pms('/library/sections', server);
+        sectionsP.catch(() => undefined);
         const many = enabledServers().length > 1;
         const active = server || readServer()!;
         const emptyHubs = [] as Array<{ title: string; identifier: string; items: ReturnType<typeof mapItem>[] }>;
@@ -6570,6 +6571,8 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
         ).catch(() => null);
         // Same merged Continue Watching as Home, narrowed to this library below.
         const plexContinueP = pms(PLEX_CONTINUE_WATCHING_PATH, active, 8000).catch(() => null);
+        const sections = mapSections(await sectionsP);
+        const sectionRow = sections.find((row) => row.key === section);
         // Paint from includeMeta when it lands quickly. Don't sit behind the shell
         // request, and don't wait out a slow includeMeta before filling shells.
         const earlyMeta = await Promise.race([
@@ -6653,6 +6656,18 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                 },
                 ...hubs,
             ];
+        }
+        // Quick pass (first open of a library, nothing saved yet): the rows as they are, with only
+        // what is already remembered applied. The cover-art, brand-logo, collection-label and
+        // episode-still lookups below are several more rounds of requests to the server, one after
+        // another; the app asks for the full answer right after and swaps it in.
+        if (hubs.length && query.get('fast') === '1') {
+            return {
+                title: sectionRow?.title || 'Library',
+                type: sectionRow?.type || 'movie',
+                fast: true,
+                hubs: mergeSameTitleHubs(mergeSameLabelHubs(applyHeroRowFlags(hubs, active))),
+            };
         }
         if (hubs.length) {
             const stamped = await withMapServer(active, async () => {
