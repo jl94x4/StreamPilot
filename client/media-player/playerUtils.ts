@@ -515,7 +515,7 @@ const phoneShellActive = () => {
 /** TV Settings → Lighter billboard: 720p art decodes and uploads to the GPU in a quarter of the time. */
 const liteBillboardActive = () => {
     try {
-        return document.documentElement?.dataset?.liteBillboard === '1';
+        return document.documentElement?.dataset?.liteBillboardArt === '1';
     } catch {
         return false;
     }
@@ -546,21 +546,27 @@ export const isWeakTvDevice = () => {
     return weakTvCache;
 };
 
-let tvLowBackdropCache: boolean | null = null;
+let tvLowBackdropCache: { width: number; height: number } | null | undefined;
 const tvLowBackdrop = () => {
-    if (tvLowBackdropCache != null) return tvLowBackdropCache;
-    let low = false;
+    if (tvLowBackdropCache !== undefined) return tvLowBackdropCache;
+    let low: { width: number; height: number } | null = null;
     try {
         if (document.documentElement?.dataset?.tv === '1') {
             const dpr = window.devicePixelRatio || 1;
             const drawnWidth = Math.max(window.screen?.width || 0, window.innerWidth || 0) * dpr;
             const memory = Number((navigator as Navigator & { deviceMemory?: number }).deviceMemory || 0);
             const fireTv = isWeakTvDevice();
-            low = fireTv || (drawnWidth > 0 && drawnWidth < 1600) || (memory > 0 && memory <= 2);
+            const smallScreen = drawnWidth > 0 && drawnWidth < 1600;
+            if (fireTv || smallScreen || (memory > 0 && memory <= 2)) {
+                // A 720p picture stretched over a 1080p screen looks soft, so a device that really
+                // draws 1080p gets 1600x900 (about 40% of the memory of full 1080p) unless it only has 1 GB.
+                const tight = smallScreen || (memory > 0 && memory <= 1);
+                low = tight ? { width: 1280, height: 720 } : { width: 1600, height: 900 };
+            }
             tvLowBackdropCache = low;
         }
     } catch {
-        low = false;
+        low = null;
     }
     return low;
 };
@@ -570,7 +576,8 @@ export const plexBackdropUrl = (path?: string | null) => {
     // A 1080p q90 transcode per hero slide took ages over mobile data; 720p is still sharp on a phone.
     if (phoneShellActive()) return backdropRequestUrl(path, 1280, 720, 80);
     if (liteBillboardActive()) return backdropRequestUrl(path, 1280, 720, 75);
-    if (tvLowBackdrop()) return backdropRequestUrl(path, 1280, 720, 85);
+    const low = tvLowBackdrop();
+    if (low) return backdropRequestUrl(path, low.width, low.height, 88);
     return backdropRequestUrl(path, PLAYER_BACKDROP_WIDTH, PLAYER_BACKDROP_HEIGHT, PLAYER_BACKDROP_QUALITY);
 };
 

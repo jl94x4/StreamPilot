@@ -406,6 +406,10 @@ export const MediaPlayerDashboard: React.FC = () => {
         try {
             if (tvShell && (settings.liteBillboard || isWeakTvDevice())) document.documentElement.dataset.liteBillboard = '1';
             else delete document.documentElement.dataset.liteBillboard;
+            // Only the person's own choice shrinks the art to 720p / q75. Fire TVs get the
+            // instant, fade-free Home but keep a sharper backdrop.
+            if (tvShell && settings.liteBillboard) document.documentElement.dataset.liteBillboardArt = '1';
+            else delete document.documentElement.dataset.liteBillboardArt;
         } catch {
             /* ignore */
         }
