@@ -174,6 +174,13 @@ public class NativeMediaPlayerPlugin extends Plugin {
             call.resolve(ret);
             return;
         }
+        // A late update built for the previous episode must not overwrite this one's title / key.
+        if (activity.isStaleSessionUpdate(sessionJson)) {
+            JSObject stale = new JSObject();
+            stale.put("ok", false);
+            call.resolve(stale);
+            return;
+        }
         activity.runOnUiThread(() -> activity.applySessionJson(sessionJson));
         JSObject ret = new JSObject();
         ret.put("ok", true);

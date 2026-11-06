@@ -1534,6 +1534,11 @@ public class PlayerActivity extends AppCompatActivity {
                         && nextRatingKey != null && !nextRatingKey.isEmpty()) {
                         if (musicMode) requestPlayNextWithoutFinish();
                         else finishForPlayNext();
+                    } else if (autoplayNext && !musicMode && !liveStream) {
+                        // The next episode was not known here (its update arrived late or failed). The app
+                        // may know it from its own queue / neighbour lookup: say "play next" and let it
+                        // decide; with nothing to play it simply closes as before.
+                        finishWithResult(true, true);
                     } else {
                         finishWithResult(true, false);
                     }
@@ -1673,6 +1678,25 @@ public class PlayerActivity extends AppCompatActivity {
                 }, 5000);
             }
         });
+    }
+
+    /**
+     * A JS update built for another title than the one playing: a late reply from the previous
+     * episode's session (subtitle search, auto-sync...) reaching the next episode's player. Applied,
+     * it put the old title and info on screen and made this player report progress and "stopped"
+     * for the old episode. Music and Live TV swap items in place on purpose, so they are exempt.
+     */
+    boolean isStaleSessionUpdate(@Nullable String sessionJson) {
+        if (sessionJson == null || sessionJson.trim().isEmpty() || musicMode || liveStream) return false;
+        if (ratingKey == null || ratingKey.isEmpty()) return false;
+        try {
+            JSONObject probe = new JSONObject(sessionJson);
+            if (probe.optBoolean("music", false) || probe.optBoolean("live", false)) return false;
+            String incoming = probe.optString("ratingKey", "");
+            return !incoming.isEmpty() && !incoming.equals(ratingKey);
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     void applySessionJson(@Nullable String sessionJson) {
@@ -4894,6 +4918,15 @@ public class PlayerActivity extends AppCompatActivity {
                 upNextPlayBtn.setOnClickListener(v -> finishForPlayNext());
             }
         }
+        // Safety net for autoplay: the player normally reports "ended" and advances, but a stream that
+        // stalls in its last moments (a Plex transcode whose playlist is not closed yet, a file a touch
+        // longer than its metadata) never does, and the Up Next card just sat there until Play now was
+        // pressed. At the very end, advance anyway. finishForPlayNext ignores a second call.
+        if (showNext && autoplayNext && !userPaused && !musicMode && !liveStream
+            && duration > 0 && pos >= duration - 1_200) {
+            finishForPlayNext();
+            return;
+        }
         if (wasHidden) {
             // Keep the card usable: hide OSD so D-pad does not open chrome, and focus Play now.
             setChromeVisible(false);
@@ -6006,6 +6039,7 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void finishForPlayNext() {
+        if (finishing) return;
         if (nextRatingKey == null || nextRatingKey.isEmpty()) return;
         if (shouldStopForSleepEpisodes()) {
             clearSleepPrefs();

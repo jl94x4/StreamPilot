@@ -1253,6 +1253,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                             });
                             writePlayerSettings(next);
                             void saveMediaPlayerSettings(next).catch(() => undefined);
+                            if (cancelled || gen !== nativeOpenGenRef.current) return;
                             await updateNativePlayerSession({
                                 ...buildNativeSession(nextItemRef.current || upNextItem),
                                 subtitleAutoSync: true,
@@ -1598,9 +1599,13 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                             language: playerSettings.audioLanguage || 'en',
                             serverId: session.item.serverId,
                         }).then(async (data) => {
+                            // The episode may have changed while this was loading: a stale full session
+                            // would put the old title and info on the next episode.
+                            if (cancelled || gen !== nativeOpenGenRef.current) return;
                             sidecarSubs.splice(0, sidecarSubs.length, ...(data.items || []));
                             await updateNativePlayerSession(buildNativeSession(nextItemRef.current || upNextItem));
                         }).catch(() => {
+                            if (cancelled || gen !== nativeOpenGenRef.current) return;
                             sidecarSubs.splice(0, sidecarSubs.length);
                             void updateNativePlayerSession(buildNativeSession(nextItemRef.current || upNextItem));
                         });

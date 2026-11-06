@@ -73,6 +73,16 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.631': [
+        {
+            title: 'Playback',
+            items: [
+                'Autoplay now moves on to the next episode at the end even when the player does not report the end of the stream (the Up Next card used to sit there until you pressed Play now)',
+                'Fixed the top-left info sometimes showing the previous episode after the next one starts: a late update for the old episode can no longer overwrite the new one',
+                'That same stale update could also report progress against the old episode, leaving it looking half watched until you refreshed the page',
+            ],
+        },
+    ],
     '1.0.630': [
         {
             title: 'Screensaver',
