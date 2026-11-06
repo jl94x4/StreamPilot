@@ -5054,8 +5054,11 @@ html[data-tv="1"] .player-tv-home-who-profile {
   display: flex;
   flex-direction: column;
   align-items: center;
-  width: 9.5rem;
-  padding: 0.6rem 0.4rem 0.4rem;
+  /* Wide enough for a long username; short ones keep a roomy tile. */
+  width: auto;
+  min-width: 11rem;
+  max-width: 17rem;
+  padding: 0.8rem 0.8rem 0.6rem;
   border: 0;
   border-radius: 1.4rem;
   background: transparent;
@@ -5082,10 +5085,12 @@ html[data-tv="1"] .player-tv-home-who-avatar > span > span:last-child:not(:first
 html[data-tv="1"] .player-tv-home-who-name {
   margin-top: 0.85rem;
   max-width: 100%;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  font-size: 1.15rem;
+  text-align: center;
+  /* Show the whole name; only a very long one wraps to a second line. */
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
+  font-size: 1.25rem;
   font-weight: 700;
   color: rgba(255, 255, 255, 0.72);
   transition: color 0.18s ease;
