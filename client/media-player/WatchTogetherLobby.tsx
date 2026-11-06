@@ -32,6 +32,27 @@ const withDeadline = <T,>(promise: Promise<T>, ms: number): Promise<T> => (
 
 const STAGE_ORDER: HostStage[] = ['starting', 'router', 'room'];
 
+/** Profile picture, or the first letter when there is none or it does not load. */
+const RosterAvatar: React.FC<{ name: string; thumb?: string | null }> = ({ name, thumb }) => {
+    const [failed, setFailed] = useState(false);
+    const url = /^https?:\/\//i.test(String(thumb || '')) ? String(thumb) : '';
+    useEffect(() => setFailed(false), [url]);
+    return (
+        <span className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-plex/20 text-sm font-bold text-plex">
+            {url && !failed ? (
+                <img
+                    src={url}
+                    alt=""
+                    className="h-full w-full object-cover"
+                    decoding="async"
+                    referrerPolicy="no-referrer"
+                    onError={() => setFailed(true)}
+                />
+            ) : (name || '?').slice(0, 1).toUpperCase()}
+        </span>
+    );
+};
+
 type Props = {
     mode: Mode;
     /** Create flow — title to host. */
@@ -356,9 +377,7 @@ export const WatchTogetherLobby: React.FC<Props> = ({
                                     key={row.clientId}
                                     className="flex items-center gap-3 rounded-xl border border-white/10 bg-black/30 px-3 py-2.5"
                                 >
-                                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-plex/20 text-sm font-bold text-plex">
-                                        {(row.displayName || '?').slice(0, 1).toUpperCase()}
-                                    </span>
+                                    <RosterAvatar name={row.displayName} thumb={row.thumb} />
                                     <span className="min-w-0 flex-1 truncate text-sm font-semibold text-white">
                                         {row.displayName}
                                         {row.userId === room.hostUserId ? (

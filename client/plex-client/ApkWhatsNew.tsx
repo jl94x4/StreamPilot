@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.644': [
+        {
+            title: 'Watch Together',
+            items: [
+                'People in a Watch Together room now show their profile picture instead of just a letter',
+            ],
+        },
+    ],
     '1.0.643': [
         {
             title: 'Watch Together',
