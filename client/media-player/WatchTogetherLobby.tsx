@@ -2,11 +2,14 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Copy, Loader2, Users } from 'lucide-react';
 import { useDiscoverI18n } from './host';
 import { isAndroidTvUi } from '../plex-client/config';
+import { isHostInAppSupported, type HostInfo } from '../plex-client/watchTogetherHost';
 import {
     collectWatchTogetherGuids,
     discardWatchTogetherClient,
     fetchWatchTogetherRoomSummary,
     getWatchTogetherClient,
+    hasWatchTogetherRelay,
+    resolveWatchTogetherIdentity,
     type WtRoomState,
 } from './watchTogetherClient';
 import type { PlayerItem } from './types';
@@ -39,6 +42,8 @@ export const WatchTogetherLobby: React.FC<Props> = ({
     const [joinCode, setJoinCode] = useState(String(inviteCodeProp || '').toUpperCase());
     const [room, setRoom] = useState<WtRoomState | null>(null);
     const [previewTitle, setPreviewTitle] = useState('');
+    /** Set when the room is hosted on this device: how far its invite reaches. */
+    const [hostInfo, setHostInfo] = useState<HostInfo | null>(null);
     const startedRef = useRef(false);
     const inputRef = useRef<HTMLInputElement>(null);
 
@@ -52,18 +57,40 @@ export const WatchTogetherLobby: React.FC<Props> = ({
         let cancelled = false;
         setBusy(true);
         setError('');
-        void getWatchTogetherClient()
-            .create({
-                ratingKey: item.ratingKey,
-                serverId: String(item.serverId || ''),
-                title: item.title || 'Watch Together',
-                type: item.type || 'movie',
-                thumb: item.thumb || null,
-                positionMs: Number(item.viewOffsetMs) || 0,
-                guids: collectWatchTogetherGuids(item),
-                tmdbId: item.externalIds?.tmdb || item.tmdbId || null,
-                year: item.year != null ? Number(item.year) : null,
-            })
+        const opts = {
+            ratingKey: item.ratingKey,
+            serverId: String(item.serverId || ''),
+            title: item.title || 'Watch Together',
+            type: item.type || 'movie',
+            thumb: item.thumb || null,
+            positionMs: Number(item.viewOffsetMs) || 0,
+            guids: collectWatchTogetherGuids(item),
+            tmdbId: item.externalIds?.tmdb || item.tmdbId || null,
+            year: item.year != null ? Number(item.year) : null,
+        };
+        // Host on this device first (no relay needed). When friends outside the network cannot reach
+        // this device but a relay is set up, use the relay so everyone can join.
+        const create = async (): Promise<WtRoomState> => {
+            const relay = hasWatchTogetherRelay();
+            if (isHostInAppSupported()) {
+                try {
+                    const identity = await resolveWatchTogetherIdentity();
+                    const hosted = await getWatchTogetherClient().createHosted(opts, identity);
+                    if (hosted.info.publicReachable || !relay) {
+                        if (!cancelled) setHostInfo(hosted.info);
+                        return hosted.state;
+                    }
+                } catch (error) {
+                    if (!relay) throw error;
+                }
+                // Start over on the relay with a clean client (this also stops the local server).
+                discardWatchTogetherClient();
+            }
+            const client = getWatchTogetherClient();
+            client.useRelay();
+            return client.create(opts);
+        };
+        void create()
             .then((state) => {
                 if (!cancelled) setRoom(state);
             })
@@ -87,7 +114,7 @@ export const WatchTogetherLobby: React.FC<Props> = ({
             if (cancelled) return;
             if (summary?.title) setPreviewTitle(summary.title);
             try {
-                const state = await getWatchTogetherClient().join(code);
+                const state = await getWatchTogetherClient().joinInvite(code, await resolveWatchTogetherIdentity());
                 if (!cancelled) setRoom(state);
             } catch (err: any) {
                 if (!cancelled) setError(String(err?.message || t('mediaPlayerPage.watchTogetherError')));
@@ -110,7 +137,8 @@ export const WatchTogetherLobby: React.FC<Props> = ({
     }, [tvShell, room?.inviteCode, busy]);
 
     const title = room?.title || item?.title || previewTitle || t('mediaPlayerPage.watchTogether');
-    const code = room?.inviteCode || '';
+    // Hosted-room invites are long (they carry the host's address); relay codes are six letters.
+    const code = room?.shareCode || room?.inviteCode || '';
     const roster = room?.participants || [];
 
     const copyCode = async () => {
@@ -133,7 +161,7 @@ export const WatchTogetherLobby: React.FC<Props> = ({
         setBusy(true);
         setError('');
         try {
-            const state = await getWatchTogetherClient().join(next);
+            const state = await getWatchTogetherClient().joinInvite(next, await resolveWatchTogetherIdentity());
             setRoom(state);
         } catch (err: any) {
             setError(String(err?.message || t('mediaPlayerPage.watchTogetherError')));
@@ -201,14 +229,14 @@ export const WatchTogetherLobby: React.FC<Props> = ({
                         <input
                             ref={inputRef}
                             value={joinCode}
-                            onChange={(e) => setJoinCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8))}
+                            onChange={(e) => setJoinCode(e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 44))}
                             data-tv-item="1"
                             data-tv-key="wt-code"
-                            className="mt-2 w-full rounded-xl border border-white/15 bg-black/40 px-4 py-3 font-mono text-2xl tracking-[0.35em] text-white outline-none focus:border-plex/70"
+                            className={`mt-2 w-full rounded-xl border border-white/15 bg-black/40 px-4 py-3 font-mono text-white outline-none focus:border-plex/70 ${joinCode.length > 8 ? 'text-lg tracking-[0.12em]' : 'text-2xl tracking-[0.35em]'}`}
                             placeholder="ABC123"
                             autoComplete="off"
                             spellCheck={false}
-                            maxLength={8}
+                            maxLength={44}
                         />
                     </label>
                     <button
@@ -232,7 +260,7 @@ export const WatchTogetherLobby: React.FC<Props> = ({
                             {t('mediaPlayerPage.watchTogetherInviteCode')}
                         </p>
                         <div className="mt-3 flex flex-wrap items-center gap-3">
-                            <span className="font-mono text-3xl font-black tracking-[0.35em] text-white">
+                            <span className={`break-all font-mono font-black text-white ${code.length > 8 ? 'text-xl tracking-[0.12em]' : 'text-3xl tracking-[0.35em]'}`}>
                                 {code}
                             </span>
                             <button
@@ -247,6 +275,13 @@ export const WatchTogetherLobby: React.FC<Props> = ({
                                 {t('mediaPlayerPage.watchTogetherCopyCode')}
                             </button>
                         </div>
+                        {hostInfo ? (
+                            <p className={`mt-3 text-sm ${hostInfo.publicReachable ? 'text-emerald-300' : 'text-amber-300'}`}>
+                                {hostInfo.publicReachable
+                                    ? 'Hosted on this device. Friends can join from anywhere with this code. Keep the app open while you watch.'
+                                    : `Hosted on this device. Friends on your network can join with this code. ${hostInfo.reason} To invite people elsewhere, set up a relay in Settings → Connection or turn on UPnP on your router.`}
+                            </p>
+                        ) : null}
                     </div>
 
                     <div>

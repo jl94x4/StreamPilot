@@ -10,6 +10,22 @@ import {
     readStoredPortalBaseUrl,
     readStoredWtRelayUrl,
 } from '../plex-client/config';
+import {
+    getInAppHost,
+    isHostInAppSupported,
+    startInAppHost,
+    stopInAppHost,
+    type HostIdentity,
+    type HostInfo,
+} from '../plex-client/watchTogetherHost';
+import { fetchMediaPlayerMe } from './api';
+import {
+    DIRECT_ROOM_CODE_LENGTH,
+    decodeDirectInvite,
+    encodeDirectInvite,
+    looksLikeDirectInvite,
+    type DirectInvite,
+} from './watchTogetherInvite';
 import type { PlayerItem } from './types';
 
 export type WtParticipant = {
@@ -42,6 +58,8 @@ export type WtRoomState = {
     corrective?: boolean;
     clientId?: string;
     userId?: string;
+    /** Rooms hosted on a device: the long invite (addresses + room code) to hand to friends. */
+    shareCode?: string;
 };
 
 /** Guids / external ids for cross-library match when creating a room. */
@@ -97,7 +115,46 @@ export const getWatchTogetherRelayBaseUrl = (): string => {
 export const isWatchTogetherAvailable = (): boolean => {
     if (typeof window === 'undefined') return false;
     if (!isPlexClientApp()) return true;
-    return !!getWatchTogetherRelayBaseUrl();
+    // A relay, or this device can host the room itself.
+    return !!getWatchTogetherRelayBaseUrl() || isHostInAppSupported();
+};
+
+/** A relay is configured (a portal or a dedicated relay URL). */
+export const hasWatchTogetherRelay = (): boolean => !!getWatchTogetherRelayBaseUrl();
+
+/** Who to show as in a hosted room: the signed-in person's own name (no Plex login is sent to a friend's device). */
+export const resolveWatchTogetherIdentity = async (): Promise<HostIdentity> => {
+    try {
+        const me = await fetchMediaPlayerMe();
+        const name = String(me?.username || '').trim() || 'Guest';
+        return { name, id: name, thumb: /^https?:\/\//i.test(String(me?.thumb || '')) ? me.thumb : null };
+    } catch {
+        return { name: 'Guest', id: 'guest', thumb: null };
+    }
+};
+
+type Transport =
+    | { kind: 'relay' }
+    | { kind: 'direct'; urls: string[]; identity: HostIdentity; hostKey?: string };
+
+const directUrl = (base: string, identity: HostIdentity, auth: { code?: string; hostKey?: string }) => {
+    const url = new URL(base);
+    if (auth.hostKey) url.searchParams.set('k', auth.hostKey);
+    if (auth.code) url.searchParams.set('c', auth.code);
+    url.searchParams.set('n', identity.name || 'Guest');
+    url.searchParams.set('u', identity.id || identity.name || 'guest');
+    if (identity.thumb) url.searchParams.set('t', identity.thumb);
+    return url.toString();
+};
+
+/** The places to try, nearest first: the host's address on the local network, then on the internet. */
+export const directInviteUrls = (invite: DirectInvite, identity: HostIdentity): string[] => {
+    const urls: string[] = [];
+    if (invite.lan) urls.push(directUrl(`ws://${invite.lan}:${invite.port}/wt`, identity, { code: invite.code }));
+    if (invite.publicIp) {
+        urls.push(directUrl(`ws://${invite.publicIp}:${invite.publicPort ?? invite.port}/wt`, identity, { code: invite.code }));
+    }
+    return urls;
 };
 
 const buildWsUrl = (token: string): string => {
@@ -123,6 +180,14 @@ export class WatchTogetherClient {
     private errorListeners = new Set<WtErrorListener>();
     private pendingCreate: Record<string, unknown> | null = null;
     private pendingJoinCode: string | null = null;
+    private transport: Transport = { kind: 'relay' };
+    private shareCode = '';
+    private hostedHere = false;
+
+    /** True when the room is hosted on this device (no relay involved). */
+    get isHostedHere(): boolean {
+        return this.hostedHere;
+    }
 
     get state(): WtRoomState | null {
         return this.room;
@@ -159,6 +224,24 @@ export class WatchTogetherClient {
         if (this.socket && (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) {
             return;
         }
+        this.intentionalClose = false;
+        if (this.transport.kind === 'direct') {
+            // Each address in turn (the local network first, then the internet); a short wait on each.
+            let lastError: Error | null = null;
+            for (const url of this.transport.urls) {
+                try {
+                    await this.openSocket(url, 3500);
+                    return;
+                } catch (error) {
+                    lastError = error as Error;
+                }
+            }
+            throw new Error(
+                this.hostedHere
+                    ? 'Could not start the room on this device.'
+                    : 'Could not reach the host. Check the code, and that they are still in the room.',
+            );
+        }
         const token = getSessionToken();
         if (!token && isPlexClientApp()) {
             throw new Error('Sign in required for Watch Together.');
@@ -166,16 +249,28 @@ export class WatchTogetherClient {
         if (isPlexClientApp() && !getWatchTogetherRelayBaseUrl()) {
             throw new Error('Watch Together needs a relay URL in Settings → Connection.');
         }
-        this.intentionalClose = false;
-        await new Promise<void>((resolve, reject) => {
+        await this.openSocket(buildWsUrl(token), 0);
+    }
+
+    private openSocket(url: string, timeoutMs: number): Promise<void> {
+        return new Promise<void>((resolve, reject) => {
             let settled = false;
-            const ws = new WebSocket(buildWsUrl(token));
+            const ws = new WebSocket(url);
             this.socket = ws;
+            let timer = 0;
             const fail = (err: Error) => {
                 if (settled) return;
                 settled = true;
+                window.clearTimeout(timer);
                 reject(err);
             };
+            if (timeoutMs > 0) {
+                timer = window.setTimeout(() => {
+                    fail(new Error('Watch Together connection timed out.'));
+                    try { ws.close(); } catch { /* ignore */ }
+                    if (this.socket === ws) this.socket = null;
+                }, timeoutMs);
+            }
             ws.onopen = () => {
                 /* wait for wt_hello */
             };
@@ -188,6 +283,7 @@ export class WatchTogetherClient {
                 }
                 if (message?.type === 'wt_hello' && !settled) {
                     settled = true;
+                    window.clearTimeout(timer);
                     this.clientId = String(message.clientId || '');
                     this.userId = String(message.userId || '');
                     resolve();
@@ -206,7 +302,7 @@ export class WatchTogetherClient {
             };
             ws.onerror = () => fail(new Error('Watch Together connection failed.'));
             ws.onclose = () => {
-                this.socket = null;
+                if (this.socket === ws) this.socket = null;
                 if (!settled) fail(new Error('Watch Together connection closed.'));
                 else if (!this.intentionalClose) this.scheduleReconnect();
             };
@@ -238,6 +334,7 @@ export class WatchTogetherClient {
         if (type === 'wt_created' || type === 'wt_state') {
             this.room = {
                 ...message,
+                shareCode: this.shareCode || undefined,
                 participants: Array.isArray(message.participants) ? message.participants : (this.room?.participants || []),
             };
             this.emitState();
@@ -295,6 +392,7 @@ export class WatchTogetherClient {
         guids?: string[];
         tmdbId?: number | null;
         year?: number | null;
+        codeLength?: number;
     }): Promise<WtRoomState> {
         await this.connect();
         return new Promise((resolve, reject) => {
@@ -321,6 +419,7 @@ export class WatchTogetherClient {
                 guids: Array.isArray(opts.guids) ? opts.guids : [],
                 tmdbId: opts.tmdbId != null ? opts.tmdbId : null,
                 year: opts.year != null ? opts.year : null,
+                codeLength: opts.codeLength,
             });
             window.setTimeout(() => {
                 off();
@@ -328,6 +427,69 @@ export class WatchTogetherClient {
                 reject(new Error('Create room timed out.'));
             }, 12000);
         });
+    }
+
+    /** Use the relay (portal or relay URL) for the next room. */
+    useRelay() {
+        this.transport = { kind: 'relay' };
+        this.hostedHere = false;
+        this.shareCode = '';
+    }
+
+    /**
+     * Host the room on this device: start the room server, connect to it, create the room, and
+     * build the invite code friends type. Resolves with how far the invite reaches.
+     */
+    async createHosted(opts: Parameters<WatchTogetherClient['create']>[0], identity: HostIdentity): Promise<{
+        state: WtRoomState;
+        info: HostInfo;
+    }> {
+        const info = await startInAppHost();
+        this.transport = { kind: 'direct', urls: [info.loopbackUrl], identity, hostKey: info.hostKey };
+        // The host's own connection carries the key instead of a room code.
+        this.transport.urls = [directUrl(info.loopbackUrl, identity, { hostKey: info.hostKey })];
+        this.hostedHere = true;
+        this.shareCode = '';
+        try {
+            const state = await this.create({ ...opts, codeLength: DIRECT_ROOM_CODE_LENGTH });
+            const share = encodeDirectInvite({
+                code: state.inviteCode,
+                port: info.port,
+                lan: info.lan || undefined,
+                publicIp: info.publicIp || undefined,
+                publicPort: info.publicPort || undefined,
+            });
+            if (!share) throw new Error('This device is not on a network friends can join.');
+            this.shareCode = share;
+            this.room = { ...(this.room || state), shareCode: share };
+            this.emitState();
+            return { state: this.room, info };
+        } catch (error) {
+            await this.hostedTeardown();
+            throw error;
+        }
+    }
+
+    private async hostedTeardown() {
+        if (!this.hostedHere) return;
+        this.hostedHere = false;
+        this.shareCode = '';
+        this.transport = { kind: 'relay' };
+        await stopInAppHost();
+    }
+
+    /** Join from whatever was typed: a hosted-room invite (long) or a relay code (short). */
+    async joinInvite(text: string, identity: HostIdentity): Promise<WtRoomState> {
+        if (looksLikeDirectInvite(text)) {
+            const invite = decodeDirectInvite(text);
+            if (!invite) throw new Error('That code does not look right. Check it and try again.');
+            this.transport = { kind: 'direct', urls: directInviteUrls(invite, identity), identity };
+            this.hostedHere = false;
+            this.shareCode = '';
+            return this.join(invite.code);
+        }
+        this.useRelay();
+        return this.join(text);
     }
 
     async join(inviteCode: string): Promise<WtRoomState> {
@@ -390,6 +552,8 @@ export class WatchTogetherClient {
         this.socket = null;
         this.pendingCreate = null;
         this.pendingJoinCode = null;
+        void this.hostedTeardown();
+        this.transport = { kind: 'relay' };
     }
 }
 
@@ -418,6 +582,8 @@ export const fetchWatchTogetherRoomSummary = async (code: string): Promise<{
     year?: number | null;
     participantCount: number;
 } | null> => {
+    // A hosted-room invite has no relay to look it up in; the room details arrive on joining.
+    if (looksLikeDirectInvite(code)) return null;
     const base = getWatchTogetherRelayBaseUrl();
     const pathBase = getBasePath();
     const path = `${pathBase}/api/watch-together/room/${encodeURIComponent(String(code || '').trim())}`;

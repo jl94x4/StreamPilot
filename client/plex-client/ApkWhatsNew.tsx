@@ -73,6 +73,16 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.632': [
+        {
+            title: 'Watch Together',
+            items: [
+                'Watch Together no longer needs a relay: your device can host the room itself. Start a watch party and share the invite code; friends type it in and connect straight to you',
+                'The app opens a port on your router by itself (UPnP) so friends outside your home can join. If your router does not allow that, friends on your Wi-Fi can still join, and the app tells you plainly how far the invite reaches',
+                'If you have a relay set up and your device cannot be reached from outside, the relay is used instead so everyone can still join',
+            ],
+        },
+    ],
     '1.0.631': [
         {
             title: 'Playback',

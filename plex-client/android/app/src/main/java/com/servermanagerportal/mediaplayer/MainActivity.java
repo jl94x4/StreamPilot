@@ -51,6 +51,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(NativeMediaPlayerPlugin.class);
         registerPlugin(MediaDownloadsPlugin.class);
         registerPlugin(DeviceUiPlugin.class);
+        registerPlugin(WatchTogetherHostPlugin.class);
         super.onCreate(savedInstanceState);
         installImageCache();
         applyWebViewDisplayFixes();
