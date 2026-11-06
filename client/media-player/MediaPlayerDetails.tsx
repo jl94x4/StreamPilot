@@ -1638,9 +1638,11 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             data-tv-key={`trailer-label:${item.ratingKey}`}
             onClick={openTrailer}
             disabled={playing || playbackActive}
+            title={t('mediaPlayerPage.trailer')}
+            aria-label={t('mediaPlayerPage.trailer')}
             className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-white/25 bg-white/10 px-4 text-sm font-bold text-white transition-colors hover:bg-white/16 disabled:opacity-50"
         >
-            {t('mediaPlayerPage.trailer')}
+            <Film className="h-5 w-5" />
         </button>
     ) : null;
     const shuffleChip = canShuffle && item ? (
@@ -2175,10 +2177,12 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             data-tv-key={`start-over:${item.ratingKey}`}
             onClick={onStartFromBeginning}
             disabled={playing || playbackActive}
+            title={t('mediaPlayerPage.startFromBeginning')}
+            aria-label={t('mediaPlayerPage.startFromBeginning')}
             className={startOverButtonClass}
         >
-            <RotateCcw className="h-4 w-4" />
-            {t('mediaPlayerPage.startFromBeginning')}
+            <RotateCcw className={isTvShell ? 'h-5 w-5' : 'h-4 w-4'} />
+            {isTvShell ? null : t('mediaPlayerPage.startFromBeginning')}
         </button>
     ) : null;
     // The button says how much is left ("Resume • 23m left"), on phones, desktop and TV. On TV the
@@ -3028,6 +3032,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                                     data-tv-item="1"
                                                     data-tv-action="1"
                                                     data-tv-play="1"
+                                                    data-tv-resume={resumeFraction > 0 ? "1" : undefined}
                                                     data-tv-key={`play:${item.ratingKey}`}
                                                     onClick={onPlayPress}
                                                     disabled={playing || playbackActive}
@@ -3259,6 +3264,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                             data-tv-item="1"
                                             data-tv-action="1"
                                             data-tv-play="1"
+                                            data-tv-resume={resumeFraction > 0 ? "1" : undefined}
                                             data-tv-key={`play:${item.ratingKey}`}
                                             onClick={onPlayPress}
                                             disabled={playing || playbackActive}

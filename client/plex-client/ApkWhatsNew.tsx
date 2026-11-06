@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.640': [
+        {
+            title: 'Details pages',
+            items: [
+                'Cleaner action row: Start from beginning and Trailer are now round icon buttons, and the Resume button is wider with slightly smaller text so "Resume • 33m left" stays on one line',
+            ],
+        },
+    ],
     '1.0.639': [
         {
             title: 'Fire TV',

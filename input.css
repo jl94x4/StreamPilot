@@ -3014,6 +3014,7 @@ html[data-tv="1"] .media-details-page [data-tv-play="1"] {
   padding-left: 1.15rem;
   padding-right: 1.15rem;
   font-size: 1.05rem;
+  white-space: nowrap;
   border-radius: 999px !important;
   background: rgb(var(--color-plex)) !important;
   color: #111111 !important;
@@ -3021,6 +3022,13 @@ html[data-tv="1"] .media-details-page [data-tv-play="1"] {
   box-shadow: none !important;
   filter: none !important;
   outline: none !important;
+}
+/* "Resume • 1h 39m left": wider, slightly smaller text, always on one line. */
+html[data-tv="1"] .media-details-page [data-tv-play="1"][data-tv-resume="1"] {
+  min-width: 14rem;
+  padding-left: 1.6rem;
+  padding-right: 1.6rem;
+  font-size: 0.95rem;
 }
 html[data-tv="1"] .media-details-page [data-tv-play="1"]:focus,
 html[data-tv="1"] .media-details-page [data-tv-play="1"]:focus-visible {
@@ -3034,11 +3042,13 @@ html[data-tv="1"] .media-details-page [data-tv-play="1"]:focus-visible {
 }
 html[data-tv="1"] .media-details-page [data-tv-trailer="1"],
 html[data-tv="1"] .media-details-page [data-tv-start-over="1"] {
+  /* Icon-only round buttons, same size as the other action chips. */
+  width: 3.15rem !important;
   height: 3.15rem !important;
   min-height: 3.15rem !important;
-  min-width: 8.75rem;
-  padding-left: 1.15rem;
-  padding-right: 1.15rem;
+  min-width: 3.15rem !important;
+  max-width: 3.15rem !important;
+  padding: 0 !important;
   font-size: 1.05rem;
   border-radius: 999px !important;
 }
