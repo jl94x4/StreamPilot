@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.642': [
+        {
+            title: 'Setup',
+            items: [
+                'First-run setup now keeps your choices: servers and libraries you switch off no longer come back on Home',
+                'A server that connects slowly can no longer re-enable itself after you turned it off during setup',
+            ],
+        },
+    ],
     '1.0.641': [
         {
             title: 'Screensaver',

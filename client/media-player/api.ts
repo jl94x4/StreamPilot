@@ -22,6 +22,7 @@ import {
     writePlayerLibrariesCache,
     playerHomeHasRows,
     playerHomeNeedsFull,
+    PLAYER_SERVERS_EVENT,
 } from './playerMemory';
 import { applyRememberedProgress, browserPlaybackCaps, forgetPlayerPoster, noteItemWatched, pausePlayerWarming, plexBackdropUrl, plexImageUrl, plexLogoUrl, PLAYER_POSTER_QUALITY, prefetchPlayerImages, resumePlayerWarming, warmPlayerBackdrop, warmPlayerPoster, withWatchedProgress } from './playerUtils';
 import { matchDiscoverCompanyByName } from './studioLogo.js';
@@ -106,6 +107,20 @@ export const fetchMediaPlayerMe = () => {
 let homeInflight: Promise<PlayerHome> | null = null;
 let homeInflightAt = 0;
 let homeFullInflight: Promise<PlayerHome> | null = null;
+/**
+ * Bumped when the chosen servers change. A Home load that started before (the sign-in warm-up
+ * runs while first-run setup is still open) answers with every server and every library; it must
+ * not be joined by later calls or written to the Home cache after the choice was made.
+ */
+let homeGeneration = 0;
+export const discardPendingHomeLoads = () => {
+    homeGeneration += 1;
+    homeInflight = null;
+    homeFullInflight = null;
+};
+if (typeof window !== 'undefined') {
+    window.addEventListener(PLAYER_SERVERS_EVENT, discardPendingHomeLoads);
+}
 
 /**
  * fresh: do not join a request that started a while ago. One begun during playback
@@ -115,9 +130,10 @@ let homeFullInflight: Promise<PlayerHome> | null = null;
 export const fetchMediaPlayerHome = (opts: { fresh?: boolean } = {}) => {
     if (homeInflight && !(opts.fresh && Date.now() - homeInflightAt > 1500)) return homeInflight;
     homeInflightAt = Date.now();
+    const generation = homeGeneration;
     const request = (apiFetch(`${PLAYER_API_ROOT}/home`) as Promise<PlayerHome>)
         .then((data) => {
-            if (!data?.partial) writePlayerHomeCache(data);
+            if (!data?.partial && generation === homeGeneration) writePlayerHomeCache(data);
             return data;
         })
         .finally(() => {
@@ -130,11 +146,12 @@ export const fetchMediaPlayerHome = (opts: { fresh?: boolean } = {}) => {
 /** Second pass for direct mode: Plex hubs, after the fast rows are already on screen. */
 export const fetchMediaPlayerHomeFull = () => {
     if (homeFullInflight) return homeFullInflight;
-    homeFullInflight = (apiFetch(`${PLAYER_API_ROOT}/home?full=1`) as Promise<PlayerHome>)
+    const request = (apiFetch(`${PLAYER_API_ROOT}/home?full=1`) as Promise<PlayerHome>)
         .finally(() => {
-            homeFullInflight = null;
+            if (homeFullInflight === request) homeFullInflight = null;
         });
-    return homeFullInflight;
+    homeFullInflight = request;
+    return request;
 };
 
 /** Kick off nav + home during auth/boot so the first paint rarely waits on cold fetches. */
@@ -142,14 +159,15 @@ export const prefetchMediaPlayerHome = () => {
     void fetchMediaPlayerLibraries().catch(() => undefined);
     void fetchMediaPlayerMe().catch(() => undefined);
     // Always warm/refresh Home in the background; UI paints from cache when present.
+    const generation = homeGeneration;
     void fetchMediaPlayerHome()
         .then((data) => {
-            if (data && playerHomeHasRows(data)) writePlayerHomeCache(data);
+            if (generation === homeGeneration && data && playerHomeHasRows(data)) writePlayerHomeCache(data);
         })
         .catch(() => undefined);
     void fetchMediaPlayerHomeFull()
         .then((full) => {
-            if (full && playerHomeHasRows(full)) writePlayerHomeCache(full);
+            if (generation === homeGeneration && full && playerHomeHasRows(full)) writePlayerHomeCache(full);
         })
         .catch(() => undefined);
     const tvBoot = typeof document !== 'undefined' && (

@@ -2072,7 +2072,17 @@ const discoverServers = async (token: string) => {
             if (gen !== discoveryGen) return;
             const late = reachable();
             if (late.length <= found.length) return;
-            const enabled = previous.enabledIds.filter((id) => late.some((server) => server.id === id));
+            // Read the choice as it is now, not as it was when discovery began: the person may have
+            // unticked servers on the setup screen while this one was still connecting. A server
+            // they never saw joins as enabled; one they unticked stays off.
+            const current = readServerList();
+            const seen = new Set(current.servers.map((server) => server.id));
+            const enabled = current.enabledIds.length
+                ? [
+                    ...current.enabledIds.filter((id) => late.some((server) => server.id === id)),
+                    ...late.filter((server) => !seen.has(server.id)).map((server) => server.id),
+                ]
+                : [];
             writeServerList(late, enabled);
             notifyPlayerServersChanged();
         });

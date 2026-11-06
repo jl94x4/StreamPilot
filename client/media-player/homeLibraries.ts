@@ -36,6 +36,8 @@ type HubLike = {
     title?: string | null;
     hubKey?: string | null;
     serverId?: string | null;
+    /** Stamped on mapped hubs; the most reliable owner of a row. */
+    librarySectionID?: string | number | null;
     items?: Array<{ librarySectionID?: string | number | null; serverId?: string | null }> | null;
 };
 
@@ -49,6 +51,8 @@ const sectionFromPath = (text: string) => (
 
 /** The library a Home row belongs to: its list path, else most of its items. '' when mixed/unknown. */
 export const hubLibrarySection = (hub: HubLike): string => {
+    const stamped = String(hub.librarySectionID ?? '').split('::').pop()?.replace(/\D/g, '') || '';
+    if (stamped) return stamped;
     const fromPath = sectionFromPath(`${hub.hubKey || ''} ${hub.identifier || ''}`);
     if (fromPath) return fromPath;
     const counts = new Map<string, number>();

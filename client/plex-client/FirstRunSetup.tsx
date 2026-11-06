@@ -113,6 +113,9 @@ export const PlexClientFirstRunSetup: React.FC<{ onDone: () => void }> = ({ onDo
             if (complete[key] === undefined) complete[key] = true;
         }
         writePlayerSettings({ ...readPlayerSettings(), homeLibraries: complete });
+        // The Home that loaded while this screen was open knew nothing of these choices: drop it
+        // (and anything still loading) so Home is built from the servers and libraries picked here.
+        notifyPlayerServersChanged();
         markFirstRunSetup(false);
         onDone();
     };
