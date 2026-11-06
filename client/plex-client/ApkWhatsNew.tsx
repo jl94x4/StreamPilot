@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.646': [
+        {
+            title: 'Phone',
+            items: [
+                'The Home loading screen on phones now matches the real Home: no big banner, small library chips, a wide Continue Watching row and three-across poster rows',
+                'Settings → Titles on phones now has Poster corners, Text size and App font, which were only on TV',
+            ],
+        },
+    ],
     '1.0.645': [
         {
             title: 'Watch Together',

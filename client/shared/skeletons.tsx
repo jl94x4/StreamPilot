@@ -8,6 +8,7 @@ import {
 } from './portalLayout';
 import { useSkeletonLayoutCounts } from './useSkeletonLayoutCounts';
 import { RowHeaderMark } from './RowHeaderMark';
+import { continueWatchingRailAspect, readPlayerSettings } from '../media-player/playerSettings';
 
 /** TV home stage rail must spill past the right edge after CSS zoom + 20px root font. */
 const tvHomeStageSkeletonCardCount = () => {
@@ -162,7 +163,62 @@ export const PlayerHomeRowSkeleton: React.FC<{ count?: number }> = ({ count }) =
     );
 };
 
-export const PlayerHomeSkeleton: React.FC = () => (
+/**
+ * One phone Home row: small bold title, then cards that run to the screen edge. Sizes come from the
+ * same phone rules the loaded rows use (3 posters across with the next peeking; Continue Watching
+ * cards wider), so nothing jumps when the real Home replaces this.
+ */
+const PlayerPhoneRowSkeleton: React.FC<{ landscape?: boolean }> = ({ landscape = false }) => (
+    <div className="flex min-w-0 max-w-full flex-col gap-[0.6rem]" aria-hidden="true">
+        <div className="flex items-center gap-2">
+            <SkeletonBlock className="h-[0.8rem] w-28 max-w-[55%] rounded" />
+        </div>
+        <div className="-mr-4 flex gap-[0.55rem] overflow-hidden py-[0.1rem]">
+            {Array.from({ length: landscape ? 4 : 6 }, (_, i) => (
+                <div
+                    key={i}
+                    className={`flex shrink-0 flex-col gap-[0.35rem] ${landscape ? 'w-[min(56vw,14rem)]' : 'w-[min(29vw,10rem)]'}`}
+                >
+                    <SkeletonBlock className={`${landscape ? 'aspect-video' : 'aspect-[2/3]'} w-full rounded-xl border border-white/5`} />
+                    <SkeletonBlock className="h-3 w-3/4 rounded" />
+                    <SkeletonBlock className="h-2.5 w-1/2 rounded" />
+                </div>
+            ))}
+        </div>
+    </div>
+);
+
+/** Phone Home has no big banner: library chips, then rows. Mirrors the loaded page. */
+const PlayerPhoneHomeSkeleton: React.FC = () => {
+    const settings = readPlayerSettings();
+    const continueRow = settings.showContinueWatching !== false;
+    const continueLandscape = continueWatchingRailAspect(settings.continueWatchingLayout) === '16/9';
+    return (
+        <div className="tv-poster-rows player-home-page flex flex-col pb-8" aria-busy="true" aria-label="Loading home">
+            <section className="flex flex-col gap-2" aria-hidden="true">
+                <SkeletonBlock className="h-2.5 w-24 rounded" />
+                <div className="flex gap-[0.4rem] overflow-hidden pb-1">
+                    {Array.from({ length: 5 }, (_, i) => (
+                        <SkeletonBlock key={i} className="h-[1.75rem] w-[5.5rem] shrink-0 rounded-full" />
+                    ))}
+                </div>
+            </section>
+            <div className="player-home-rows flex flex-col">
+                {continueRow ? <PlayerPhoneRowSkeleton landscape={continueLandscape} /> : null}
+                <PlayerPhoneRowSkeleton />
+                <PlayerPhoneRowSkeleton />
+                <PlayerPhoneRowSkeleton />
+            </div>
+        </div>
+    );
+};
+
+export const PlayerHomeSkeleton: React.FC = () => {
+    const phone = typeof document !== 'undefined' && document.documentElement.dataset.phone === '1';
+    return phone ? <PlayerPhoneHomeSkeleton /> : <PlayerWebHomeSkeleton />;
+};
+
+const PlayerWebHomeSkeleton: React.FC = () => (
     <div className="tv-poster-rows flex w-full flex-col gap-6 pb-8" aria-busy="true" aria-label="Loading home">
         <PlayerHomeHeroSkeleton />
         <div className="flex flex-col gap-2" aria-hidden="true">
