@@ -1334,12 +1334,15 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                     {mode === 'main' ? (
                         <>
                             {sheetLogoUrl && !sheetLogoFailed ? (
-                                <div className="player-context-logo mb-4 flex w-full shrink-0 items-center justify-center px-1 pt-1">
+                                <div className="player-context-logo mb-5 flex w-full shrink-0 items-center justify-center px-1 pt-1">
+                                    {/* A set height (not just a ceiling) so small logos are not left at their tiny
+                                        natural size; tall / padded marks are grown a little (growSmall). */}
                                     <PlayerClearLogo
                                         src={sheetLogoUrl}
                                         alt={item.title || t('mediaPlayerPage.unknownTitle')}
                                         center
-                                        className="mx-auto max-h-9 w-auto max-w-[78%] object-contain object-center drop-shadow-[0_6px_18px_rgba(0,0,0,0.45)]"
+                                        growSmall
+                                        className="mx-auto h-[min(6.5rem,calc(3.75rem*var(--logo-scale,1)))] w-auto max-w-[90%] object-contain object-center drop-shadow-[0_6px_18px_rgba(0,0,0,0.45)]"
                                         onError={() => setSheetLogoFailed(true)}
                                     />
                                 </div>
