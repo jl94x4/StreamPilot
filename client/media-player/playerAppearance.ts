@@ -50,19 +50,31 @@ export const applyFocusRingWidth = (width: PlayerFocusRingWidth) => {
  * tabs, badges, progress bars and the player keep the app's own gold.
  */
 export const applyPlayerAccent = (accent: PlayerAccentColor) => {
-    if (typeof document === 'undefined' || accent === appliedAccent) return;
-    appliedAccent = accent;
-    const entry = PLAYER_ACCENT_PALETTE[accent] || PLAYER_ACCENT_PALETTE.gold;
+    if (typeof document === 'undefined') return;
     const root = document.documentElement;
+    const phone = root.dataset.phone === '1' && root.dataset.tv !== '1';
+    const key = `${accent}:${phone ? 'phone' : 'other'}`;
+    if (key === appliedAccent) return;
+    appliedAccent = key;
+    const entry = PLAYER_ACCENT_PALETTE[accent] || PLAYER_ACCENT_PALETTE.gold;
     root.style.setProperty('--tv-focus-accent', (entry.tv || entry.rgb).join(' '));
     root.style.setProperty('--tv-focus-accent-soft', (entry.tvSoft || entry.hover).join(' '));
     root.dataset.accent = accent;
+    // Phone has no focus rings: its tabs, switches and highlights use the app colour itself.
+    if (phone) {
+        root.style.setProperty('--color-plex', entry.rgb.join(' '));
+        root.style.setProperty('--color-plex-hover', entry.hover.join(' '));
+    }
 };
 
 const POSTER_RADIUS: Record<PlayerPosterCorners, string> = { square: '0px', slight: '3px', rounded: '6px' };
+/** The phone's posters were always 12px; "Rounded" keeps that, the others step down from it. */
+const PHONE_POSTER_RADIUS: Record<PlayerPosterCorners, string> = { square: '0px', slight: '5px', rounded: '12px' };
 const TEXT_SCALE: Record<PlayerTextSize, number> = { small: 0.9, medium: 1, large: 1.15 };
 /** index.html sets the TV root to this before any script; text size scales from it. */
 const TV_ROOT_FONT_PX = 20;
+/** The phone root is the browser default. */
+const PHONE_ROOT_FONT_PX = 16;
 
 let appliedLook = '';
 
@@ -73,14 +85,18 @@ let appliedLook = '';
  */
 export const applyPlayerLook = (corners: PlayerPosterCorners, textSize: PlayerTextSize) => {
     if (typeof document === 'undefined') return;
-    const key = `${corners}:${textSize}`;
+    const root = document.documentElement;
+    const phone = root.dataset.phone === '1' && root.dataset.tv !== '1';
+    const key = `${corners}:${textSize}:${phone ? 'phone' : 'other'}`;
     if (key === appliedLook) return;
     appliedLook = key;
-    const root = document.documentElement;
     const scale = TEXT_SCALE[textSize] || 1;
     root.style.setProperty('--tv-poster-radius', POSTER_RADIUS[corners] || '6px');
+    root.style.setProperty('--phone-poster-radius', PHONE_POSTER_RADIUS[corners] || '12px');
     root.style.setProperty('--tv-text-scale', String(scale));
     if (root.dataset.tv === '1') root.style.fontSize = `${TV_ROOT_FONT_PX * scale}px`;
+    // Phone: text size scales the whole page (everything is in rem), like the TV does.
+    else if (phone) root.style.fontSize = scale === 1 ? '' : `${PHONE_ROOT_FONT_PX * scale}px`;
 };
 
 const applyAll = (settings: Pick<PlayerSettings, 'accentColor' | 'focusRingWidth' | 'posterCorners' | 'textSize'>) => {
@@ -97,6 +113,9 @@ export const installPlayerAppearance = () => {
     if (typeof window === 'undefined') return;
     const sync = () => applyAll(readPlayerSettings());
     sync();
+    // The phone is marked a moment after boot: apply again once it is, so the saved look shows.
+    window.addEventListener('DOMContentLoaded', sync);
+    window.setTimeout(sync, 800);
     window.addEventListener(PLAYER_SETTINGS_EVENT, sync);
     window.addEventListener('storage', sync);
     window.addEventListener(PLAYER_SETTINGS_DRAFT_EVENT, (event) => {

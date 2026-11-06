@@ -2181,8 +2181,8 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             aria-label={t('mediaPlayerPage.startFromBeginning')}
             className={startOverButtonClass}
         >
-            <RotateCcw className={isTvShell ? 'h-5 w-5' : 'h-4 w-4'} />
-            {isTvShell ? null : t('mediaPlayerPage.startFromBeginning')}
+            <RotateCcw className={isTvShell || phoneUi ? 'h-5 w-5' : 'h-4 w-4'} />
+            {isTvShell || phoneUi ? null : t('mediaPlayerPage.startFromBeginning')}
         </button>
     ) : null;
     // The button says how much is left ("Resume • 23m left"), on phones, desktop and TV. On TV the
@@ -3042,10 +3042,11 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                                     {actionPlayLabel}
                                                 </button>
                                             ) : null}
-                                            {startOverButton}
+                                            {!phoneUi ? startOverButton : null}
                                             {tvTrailerButton}
                                             {playNextButton}
                                             <div className="media-details-action-chips">
+                                                {phoneUi ? startOverButton : null}
                                             {shuffleChip}
                                             {!isTvShell && trailer ? (
                                                 <button
@@ -3274,10 +3275,11 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                             {actionPlayLabel}
                                         </button>
                                     ) : null}
-                                    {startOverButton}
+                                    {!phoneUi ? startOverButton : null}
                                     {tvTrailerButton}
                                     {playNextButton}
                                     <div className="media-details-action-chips">
+                                        {phoneUi ? startOverButton : null}
                                     {shuffleChip}
                                     {!isTvShell && trailer ? (
                                         <button

@@ -457,6 +457,9 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
     const canEditHero = isAdmin || (typeof window !== 'undefined' && Boolean(window.__PLEX_CLIENT__));
     // Phone Home has no hero: its options move out, keeping the Continue Watching poster toggle.
     const phoneUi = !tvShell && isPhoneUi();
+    // The phone app uses the TV app's tabs and sections, in the same places (touch works on them).
+    // TV-only rows (screensaver, focus ring, nav style...) are left out on the phone.
+    const tvLayout = tvShell || (phoneUi && isPlexDirectMode());
     const [settings, updateSettings, { dirty: playerDirty, saving: playerSaving, saveSettings, discardSettings }] = usePlayerSettings();
     // Device-only, saved straight away (not part of the synced player settings).
     const [homeAutoSignIn, setHomeAutoSignIn] = useState(readHomeAutoSignIn);
@@ -751,15 +754,16 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
     })), [locale]);
     const tvAccountTab = showHomeAutoSignIn || servers.length > 1 || showConnectionTab;
     const settingsTabs = useMemo(() => {
-        if (tvShell) {
+        if (tvLayout) {
             const tvRows: Array<{ id: SettingsTabId; label: string }> = [
                 { id: 'home', label: t('mediaPlayerPage.settingsTabHome') },
                 { id: 'layout', label: t('mediaPlayerPage.settingsTabHomeLayout') },
                 { id: 'playback', label: t('mediaPlayerPage.settingsTabPlayback') },
                 { id: 'audio', label: t('mediaPlayerPage.settingsTabAudioSubtitles') },
                 { id: 'display', label: t('mediaPlayerPage.settingsTabDisplay') },
-                { id: 'screensaver', label: t('mediaPlayerPage.settingsTabScreensaver') },
             ];
+            // An idle screensaver only exists on TV.
+            if (tvShell) tvRows.push({ id: 'screensaver', label: t('mediaPlayerPage.settingsTabScreensaver') });
             if (tvAccountTab) tvRows.push({ id: 'account', label: t('mediaPlayerPage.settingsTabAccount') });
             return tvRows;
         }
@@ -771,13 +775,15 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
         if (servers.length > 1) rows.push({ id: 'servers', label: t('mediaPlayerPage.settingsTabServers') });
         if (showConnectionTab) rows.push({ id: 'connection', label: t('mediaPlayerPage.settingsTabConnection') });
         return rows;
-    }, [servers.length, showConnectionTab, t, tvAccountTab, tvShell]);
+    }, [servers.length, showConnectionTab, t, tvAccountTab, tvLayout, tvShell]);
 
     useEffect(() => {
         if (settingsTab === 'servers' && servers.length < 2) setSettingsTab('home');
         if (settingsTab === 'connection' && !showConnectionTab) setSettingsTab('home');
         if (settingsTab === 'account' && !tvAccountTab) setSettingsTab('home');
-    }, [servers.length, settingsTab, showConnectionTab, tvAccountTab]);
+        // A tab that this layout does not have (the phone has no Screensaver tab).
+        if (!settingsTabs.some((row) => row.id === settingsTab)) setSettingsTab('home');
+    }, [servers.length, settingsTab, settingsTabs, showConnectionTab, tvAccountTab]);
 
     const heroDirty = !!heroBaseline && (
         heroMode !== heroBaseline.mode
@@ -1121,23 +1127,63 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
         </div>
     );
 
+    // Touch screens: Save / Discard stay on screen at the bottom while you change things.
+    const stickySaveBar = (
+        <StickySaveBar className="!bottom-5">
+            {dirty ? (
+                <p className="px-2 text-xs font-bold text-muted">{t('mediaPlayerPage.unsavedSettings')}</p>
+            ) : saveState === 'saved' ? (
+                <p className="px-2 text-xs font-bold text-muted">{t('mediaPlayerPage.settingsSaved')}</p>
+            ) : saveState === 'error' ? (
+                <p className="px-2 text-xs font-bold text-red-400">{t('mediaPlayerPage.settingsSaveError')}</p>
+            ) : null}
+            <button
+                type="button"
+                onClick={discardAll}
+                disabled={!dirty || saving}
+                className="inline-flex items-center justify-center rounded-xl bg-white/[0.06] px-3.5 py-2.5 text-sm font-bold text-text transition-colors hover:bg-white/10 disabled:opacity-40"
+            >
+                {t('mediaPlayerPage.discardChanges')}
+            </button>
+            <button
+                type="button"
+                onClick={() => { void handleSave(); }}
+                disabled={!dirty || saving}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-plex px-4 py-2.5 text-sm font-bold text-background shadow-lg shadow-plex/15 transition-colors hover:bg-plex-hover disabled:opacity-50"
+            >
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                {t('mediaPlayerPage.saveSettings')}
+            </button>
+        </StickySaveBar>
+    );
+
     const versionLabel = appVersion ? (
         <p className={tvShell ? 'mt-8 text-sm font-semibold text-muted/70' : 'px-1 text-xs font-bold text-muted/70'}>
             {t('mediaPlayerPage.appVersion', { version: appVersion })}
         </p>
     ) : null;
 
-    if (tvShell) {
+    if (tvLayout) {
         return (
-            <div className="flex w-full flex-col gap-8 pb-16" data-tv-settings="1">
+            <div className={`flex w-full flex-col pb-16 ${tvShell ? 'gap-8' : 'gap-6 pb-28'}`} data-tv-settings="1">
                 <div data-tv-page-top="1" className="h-0 w-full" aria-hidden />
                 <div>
+                    {!tvShell ? (
+                        <button
+                            type="button"
+                            onClick={onBack}
+                            className="player-page-back mb-2 inline-flex items-center gap-2 text-sm font-bold text-muted hover:text-text"
+                        >
+                            <ArrowLeft className="h-4 w-4" />
+                            {t('mediaPlayerPage.back')}
+                        </button>
+                    ) : null}
                     <p className={discoveryTheme.personalEyebrow}>{t('navigation.mediaPlayer')}</p>
                     <h1 className={discoveryTheme.heading}>{t('mediaPlayerPage.settings')}</h1>
-                    <p className="mt-2 text-base text-muted">{t('mediaPlayerPage.settingsHintTv')}</p>
+                    <p className="mt-2 text-base text-muted">{tvShell ? t('mediaPlayerPage.settingsHintTv') : t('mediaPlayerPage.settingsHint')}</p>
                 </div>
 
-                <SettingsTabBar tabs={settingsTabs} value={settingsTab} onChange={setSettingsTab} tv />
+                <SettingsTabBar tabs={settingsTabs} value={settingsTab} onChange={setSettingsTab} tv={tvShell} />
 
                 <div className="flex flex-col gap-3" data-tv-settings-panel="1">
                 {settingsTab === 'home' ? (
@@ -1148,6 +1194,28 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         checked={settings.showContinueWatching}
                         onChange={(checked) => updateSettings({ showContinueWatching: checked })}
                     />
+                    {phoneUi ? (
+                        <>
+                            <TvChoiceRow
+                                title={t('mediaPlayerPage.continueWatchingLayout')}
+                                description={t('mediaPlayerPage.continueWatchingLayoutHint')}
+                                value={settings.continueWatchingLayout}
+                                options={[
+                                    { value: 'poster', label: t('mediaPlayerPage.continueWatchingLayoutPoster') },
+                                    { value: 'title', label: t('mediaPlayerPage.continueWatchingLayoutTitle') },
+                                ]}
+                                onChange={(value) => updateSettings({
+                                    continueWatchingLayout: value as typeof settings.continueWatchingLayout,
+                                })}
+                            />
+                            <TvToggleRow
+                                title={t('mediaPlayerPage.mixLibraries')}
+                                description={t('mediaPlayerPage.mixLibrariesHint')}
+                                checked={settings.mixLibraries}
+                                onChange={(checked) => updateSettings({ mixLibraries: checked })}
+                            />
+                        </>
+                    ) : null}
                     <TvChoiceRow
                         title={t('mediaPlayerPage.continueWatchingSort')}
                         description={t('mediaPlayerPage.continueWatchingSortHint')}
@@ -1446,12 +1514,21 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         checked={settings.reduceMotion}
                         onChange={(checked) => updateSettings({ reduceMotion: checked })}
                     />
-                    <TvToggleRow
-                        title={t('mediaPlayerPage.liteBillboard')}
-                        description={t('mediaPlayerPage.liteBillboardHint')}
-                        checked={settings.liteBillboard}
-                        onChange={(checked) => updateSettings({ liteBillboard: checked })}
-                    />
+                    {tvShell ? (
+                        <TvToggleRow
+                            title={t('mediaPlayerPage.liteBillboard')}
+                            description={t('mediaPlayerPage.liteBillboardHint')}
+                            checked={settings.liteBillboard}
+                            onChange={(checked) => updateSettings({ liteBillboard: checked })}
+                        />
+                    ) : (
+                        <TvToggleRow
+                            title={t('mediaPlayerPage.phoneOverviewPoster')}
+                            description={t('mediaPlayerPage.phoneOverviewPosterHint')}
+                            checked={settings.phoneOverviewPoster}
+                            onChange={(checked) => updateSettings({ phoneOverviewPoster: checked })}
+                        />
+                    )}
                     <TvToggleRow
                         title={t('mediaPlayerPage.detailsArtworkTint')}
                         description={t('mediaPlayerPage.detailsArtworkTintHint')}
@@ -1473,7 +1550,7 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                             onChange={(checked) => setSidebarItemShown(row.item, checked)}
                         />
                     ))}
-                    <PerfDiagnosticsRows />
+                    {tvShell ? <PerfDiagnosticsRows /> : null}
                     <TvChoiceRow
                         title={t('mediaPlayerPage.dateFormat')}
                         description={t('mediaPlayerPage.dateFormatHint')}
@@ -1497,20 +1574,24 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                                 options={accentColorOptions}
                                 onChange={(value) => updateSettings({ accentColor: value as PlayerAccentColor })}
                             />
-                            <TvChoiceRow
-                                title={t('mediaPlayerPage.focusRingWidth')}
-                                description={t('mediaPlayerPage.focusRingWidthHint')}
-                                value={settings.focusRingWidth}
-                                options={focusRingWidthOptions}
-                                onChange={(value) => updateSettings({ focusRingWidth: value as PlayerFocusRingWidth })}
-                            />
-                            <TvChoiceRow
-                                title={t('mediaPlayerPage.navigationSound')}
-                                description={t('mediaPlayerPage.navigationSoundHint')}
-                                value={settings.navigationSound}
-                                options={navigationSoundOptions}
-                                onChange={chooseNavigationSound}
-                            />
+                            {tvShell ? (
+                                <>
+                                    <TvChoiceRow
+                                        title={t('mediaPlayerPage.focusRingWidth')}
+                                        description={t('mediaPlayerPage.focusRingWidthHint')}
+                                        value={settings.focusRingWidth}
+                                        options={focusRingWidthOptions}
+                                        onChange={(value) => updateSettings({ focusRingWidth: value as PlayerFocusRingWidth })}
+                                    />
+                                    <TvChoiceRow
+                                        title={t('mediaPlayerPage.navigationSound')}
+                                        description={t('mediaPlayerPage.navigationSoundHint')}
+                                        value={settings.navigationSound}
+                                        options={navigationSoundOptions}
+                                        onChange={chooseNavigationSound}
+                                    />
+                                </>
+                            ) : null}
                             <TvChoiceRow
                                 title={t('mediaPlayerPage.posterCorners')}
                                 description={t('mediaPlayerPage.posterCornersHint')}
@@ -1536,20 +1617,24 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                                     })}
                                 />
                             ))}
-                            <TvChoiceRow
-                                title={t('mediaPlayerPage.navStyle')}
-                                description={t('mediaPlayerPage.navStyleHint')}
-                                value={settings.navStyle}
-                                options={navStyleOptions}
-                                onChange={(value) => updateSettings({ navStyle: value as PlayerNavStyle })}
-                            />
-                            <TvChoiceRow
-                                title={t('mediaPlayerPage.navClosedStyle')}
-                                description={t('mediaPlayerPage.navClosedStyleHint')}
-                                value={settings.navClosedStyle}
-                                options={navClosedStyleOptions}
-                                onChange={(value) => updateSettings({ navClosedStyle: value as PlayerNavClosedStyle })}
-                            />
+                            {tvShell ? (
+                                <>
+                                    <TvChoiceRow
+                                        title={t('mediaPlayerPage.navStyle')}
+                                        description={t('mediaPlayerPage.navStyleHint')}
+                                        value={settings.navStyle}
+                                        options={navStyleOptions}
+                                        onChange={(value) => updateSettings({ navStyle: value as PlayerNavStyle })}
+                                    />
+                                    <TvChoiceRow
+                                        title={t('mediaPlayerPage.navClosedStyle')}
+                                        description={t('mediaPlayerPage.navClosedStyleHint')}
+                                        value={settings.navClosedStyle}
+                                        options={navClosedStyleOptions}
+                                        onChange={(value) => updateSettings({ navClosedStyle: value as PlayerNavClosedStyle })}
+                                    />
+                                </>
+                            ) : null}
                             <TvChoiceRow
                                 title={t('mediaPlayerPage.appFont')}
                                 description={t('mediaPlayerPage.appFontHint')}
@@ -1557,27 +1642,31 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                                 options={appFontOptions}
                                 onChange={(value) => updateSettings({ appFont: value as PlayerAppFont })}
                             />
-                            <TvChoiceRow
-                                title={t('mediaPlayerPage.viewMoreStyle')}
-                                description={t('mediaPlayerPage.viewMoreStyleHint')}
-                                value={settings.viewMoreStyle}
-                                options={viewMoreStyleOptions}
-                                onChange={(value) => updateSettings({ viewMoreStyle: value as PlayerViewMoreStyle })}
-                            />
-                            <TvChoiceRow
-                                title={t('mediaPlayerPage.showClock')}
-                                description={t('mediaPlayerPage.showClockHint')}
-                                value={!settings.showClock ? 'off' : settings.clockBackground ? 'on' : 'plain'}
-                                options={[
-                                    { value: 'on', label: t('mediaPlayerPage.clockOn') },
-                                    { value: 'plain', label: t('mediaPlayerPage.clockOnPlain') },
-                                    { value: 'off', label: t('mediaPlayerPage.clockOff') },
-                                ]}
-                                onChange={(value) => updateSettings({
-                                    showClock: value !== 'off',
-                                    clockBackground: value !== 'plain',
-                                })}
-                            />
+                            {tvShell ? (
+                                <>
+                                    <TvChoiceRow
+                                        title={t('mediaPlayerPage.viewMoreStyle')}
+                                        description={t('mediaPlayerPage.viewMoreStyleHint')}
+                                        value={settings.viewMoreStyle}
+                                        options={viewMoreStyleOptions}
+                                        onChange={(value) => updateSettings({ viewMoreStyle: value as PlayerViewMoreStyle })}
+                                    />
+                                    <TvChoiceRow
+                                        title={t('mediaPlayerPage.showClock')}
+                                        description={t('mediaPlayerPage.showClockHint')}
+                                        value={!settings.showClock ? 'off' : settings.clockBackground ? 'on' : 'plain'}
+                                        options={[
+                                            { value: 'on', label: t('mediaPlayerPage.clockOn') },
+                                            { value: 'plain', label: t('mediaPlayerPage.clockOnPlain') },
+                                            { value: 'off', label: t('mediaPlayerPage.clockOff') },
+                                        ]}
+                                        onChange={(value) => updateSettings({
+                                            showClock: value !== 'off',
+                                            clockBackground: value !== 'plain',
+                                        })}
+                                    />
+                                </>
+                            ) : null}
                         </>
                     ) : null}
                     <TvToggleRow
@@ -1633,7 +1722,7 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                 </section>
                 ) : null}
 
-                {settingsTab === 'screensaver' ? (
+                {settingsTab === 'screensaver' && tvShell ? (
                 <section className="flex flex-col gap-3">
                     <TvChoiceRow
                         title={t('mediaPlayerPage.screensaverSource')}
@@ -1692,8 +1781,9 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                 </section>
                 ) : null}
                 </div>
-                {saveActions}
+                {tvShell ? saveActions : null}
                 {versionLabel}
+                {!tvShell ? stickySaveBar : null}
             </div>
         );
     }

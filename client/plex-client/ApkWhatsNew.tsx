@@ -73,6 +73,16 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.647': [
+        {
+            title: 'Phone',
+            items: [
+                'Phone Settings now has the same tabs as the TV app, in the same places: Home, Home layout, Playback, Audio & subtitles, Display and Account. TV-only options are left out, and Save and Discard stay at the bottom of the screen',
+                'Poster corners, Text size and Accent colour now actually change things on a phone',
+                'Film and episode pages on a phone have a tidy action area: the Resume button with the next-episode button beside it, then one even row of round icons. Start from beginning is now a round icon like on TV',
+            ],
+        },
+    ],
     '1.0.646': [
         {
             title: 'Phone',

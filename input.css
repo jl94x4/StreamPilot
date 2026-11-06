@@ -1234,6 +1234,18 @@ html[data-phone="1"] .player-phone-nav-toggle {
 html[data-phone="1"] .player-card-play {
   display: none !important;
 }
+/* Settings → Poster corners, on the phone (the TV rules only match the TV). */
+html[data-phone="1"] [data-tv-poster="1"],
+html[data-phone="1"] [data-tv-poster="1"] > img,
+html[data-phone="1"] .player-poster-frame,
+html[data-phone="1"] .player-poster-frame > img,
+html[data-phone="1"] [data-tv-poster-btn="1"],
+html[data-phone="1"] [data-tv-season-poster-btn="1"],
+html[data-phone="1"] [data-tv-episode-btn="1"],
+html[data-phone="1"] [data-tv-extra-btn="1"] {
+  border-radius: var(--phone-poster-radius, 12px) !important;
+  overflow: hidden;
+}
 html[data-phone="1"] .page-bleed-x {
   margin-left: 0 !important;
   margin-right: 0 !important;
