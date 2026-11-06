@@ -4368,9 +4368,13 @@ html[data-tv="1"] .player-tv-screensaver-clock {
 }
 html[data-tv="1"] .player-tv-screensaver-logo {
   display: block;
-  height: 3.1rem;
+  /* Wide wordmarks sit at the base height; small, square or padded marks are grown (--logo-scale,
+     set by growSmall) so every logo is readable from the sofa. */
+  height: calc(4.4rem * var(--logo-scale, 1));
+  max-height: 8.5rem;
+  min-height: 3.4rem;
   width: auto;
-  max-width: 100%;
+  max-width: min(100%, 22rem);
   object-fit: contain;
   object-position: center center;
   filter: none;

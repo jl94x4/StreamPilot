@@ -468,6 +468,7 @@ export const PlayerTvScreensaver: React.FC<Props> = ({
                         src={current.logoUrl}
                         alt={current.title}
                         className="player-tv-screensaver-logo"
+                        growSmall
                     />
                 ) : current.title ? (
                     <p className="player-tv-screensaver-title">{current.title}</p>

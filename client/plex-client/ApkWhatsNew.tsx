@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.641': [
+        {
+            title: 'Screensaver',
+            items: [
+                'Clear logos on the screensaver are bigger and have a minimum size, so small or square ones like Ali G and the Idaho murders are easy to read',
+            ],
+        },
+    ],
     '1.0.640': [
         {
             title: 'Details pages',
