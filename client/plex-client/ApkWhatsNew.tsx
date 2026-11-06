@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.637': [
+        {
+            title: 'Compatibility',
+            items: [
+                'The app can be installed again on Ethernet-only boxes and TVs that have no Wi-Fi radio',
+            ],
+        },
+    ],
     '1.0.636': [
         {
             title: 'Details pages',

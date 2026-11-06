@@ -4,6 +4,9 @@
     <!-- Phone + Android TV (Play Store): touchscreen not required; leanback optional. -->
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <uses-feature android:name="android.software.leanback" android:required="false" />
+    <!-- The Wi-Fi permissions below make Play assume Wi-Fi hardware is required, which would drop
+         Ethernet-only boxes and TVs. Hosting a Watch Together room works over any network. -->
+    <uses-feature android:name="android.hardware.wifi" android:required="false" />
 
     <application
         android:allowBackup="true"
