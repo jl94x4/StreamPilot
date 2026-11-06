@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.645': [
+        {
+            title: 'Watch Together',
+            items: [
+                'Finding your router to open the port is more reliable on phones: it asks over Wi-Fi specifically, asks the router directly, and tries each local address',
+                'If no router answers, the message now says which address it looked from and what it heard, so the problem is easy to pin down',
+            ],
+        },
+    ],
     '1.0.644': [
         {
             title: 'Watch Together',

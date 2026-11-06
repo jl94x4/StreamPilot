@@ -145,9 +145,28 @@ public class WatchTogetherHostPlugin extends Plugin {
             } catch (SecurityException | IllegalStateException ignored) {
                 /* discovery may still work without the lock */
             }
-            UpnpPortMapper.Result result;
+            UpnpPortMapper.Result result = null;
             try {
-                result = mapper.map(lan, port, port, LEASE_SECONDS);
+                // The first address asked for, then any other local one (a phone can have several),
+                // until a router answers.
+                List<String> candidates = new ArrayList<>();
+                if (lan != null && !lan.isEmpty()) candidates.add(lan);
+                for (String other : lanAddresses()) if (!candidates.contains(other)) candidates.add(other);
+                if (candidates.size() > 3) candidates = candidates.subList(0, 3);
+                String dhcpGateway = wifiGateway();
+                for (String candidate : candidates) {
+                    List<String> gateways = new ArrayList<>();
+                    if (!dhcpGateway.isEmpty()) gateways.add(dhcpGateway);
+                    int dot = candidate.lastIndexOf('.');
+                    if (dot > 0) {
+                        String guess = candidate.substring(0, dot) + ".1";
+                        if (!gateways.contains(guess)) gateways.add(guess);
+                    }
+                    mapper.setGateways(gateways);
+                    result = mapper.map(candidate, port, port, LEASE_SECONDS);
+                    if (result.ok || !result.reason.startsWith("No router answered")) break;
+                }
+                if (result == null) result = mapper.map(lan, port, port, LEASE_SECONDS);
             } finally {
                 if (lock != null && lock.isHeld()) lock.release();
             }
@@ -187,6 +206,20 @@ public class WatchTogetherHostPlugin extends Plugin {
         stopServer();
         worker.shutdown();
         super.handleOnDestroy();
+    }
+
+    /** The Wi-Fi router's address as the device was told it, or "". */
+    @SuppressWarnings("deprecation")
+    private String wifiGateway() {
+        try {
+            WifiManager wifi = (WifiManager) getContext().getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            if (wifi == null || wifi.getDhcpInfo() == null) return "";
+            int g = wifi.getDhcpInfo().gateway;
+            if (g == 0) return "";
+            return (g & 0xff) + "." + ((g >> 8) & 0xff) + "." + ((g >> 16) & 0xff) + "." + ((g >> 24) & 0xff);
+        } catch (RuntimeException e) {
+            return "";
+        }
     }
 
     private String firstLan() {

@@ -9,9 +9,13 @@ import java.net.DatagramSocket;
 import java.net.HttpURLConnection;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.MulticastSocket;
+import java.net.NetworkInterface;
 import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -56,7 +60,8 @@ final class UpnpPortMapper {
         boundLanIp = lanIp;
         try {
             if (!discover(lanIp)) {
-                result.reason = "No router answered. UPnP may be switched off on it, or this device is not on a home network.";
+                result.reason = "No router answered (looked from " + lanIp + "). UPnP may be switched off on it, or this device is not on a home network."
+                    + (note.isEmpty() ? "" : " " + note);
                 return result;
             }
             String externalIp = getExternalIp();
@@ -115,28 +120,64 @@ final class UpnpPortMapper {
         }
     }
 
-    /** Finds the router's control address. Read-only. */
+    /** The router's address(es) on this network, when the device knows them (asked directly, no multicast). */
+    private final List<String> gateways = new ArrayList<>();
+    /** What discovery saw, to explain a failure ("heard 192.168.1.1 but ..."). */
+    private String note = "";
+
+    synchronized void setGateways(List<String> addresses) {
+        gateways.clear();
+        if (addresses != null) gateways.addAll(addresses);
+    }
+
+    synchronized String note() {
+        return note;
+    }
+
+    /**
+     * Finds the router's control address. Read-only. Asks on the multicast address (out of the Wi-Fi
+     * interface specifically: a phone also has mobile data) and directly at the router, since some
+     * phones and routers drop multicast but answer a direct question.
+     */
     synchronized boolean discover(String lanIp) throws IOException {
         controlUrl = null;
         serviceType = null;
+        note = "";
         String[] searchTargets = {
             "urn:schemas-upnp-org:device:InternetGatewayDevice:1",
             "urn:schemas-upnp-org:device:InternetGatewayDevice:2",
             "upnp:rootdevice",
         };
         InetAddress local = InetAddress.getByName(lanIp);
-        try (DatagramSocket socket = new DatagramSocket(new InetSocketAddress(local, 0))) {
-            socket.setSoTimeout(400);
-            InetAddress group = InetAddress.getByName(SSDP_ADDRESS);
-            for (String target : searchTargets) {
-                String message = "M-SEARCH * HTTP/1.1\r\nHOST: " + SSDP_ADDRESS + ":" + SSDP_PORT + "\r\n"
-                    + "MAN: \"ssdp:discover\"\r\nMX: 2\r\nST: " + target + "\r\n\r\n";
-                byte[] data = message.getBytes(StandardCharsets.US_ASCII);
-                socket.send(new DatagramPacket(data, data.length, group, SSDP_PORT));
+        try (MulticastSocket socket = new MulticastSocket(new InetSocketAddress(local, 0))) {
+            try {
+                NetworkInterface nic = NetworkInterface.getByInetAddress(local);
+                if (nic != null) socket.setNetworkInterface(nic);
+            } catch (IOException | RuntimeException ignored) {
+                /* the bound address already picks the interface on most devices */
             }
-            long until = System.currentTimeMillis() + DISCOVERY_MS;
+            socket.setTimeToLive(2);
+            socket.setSoTimeout(300);
+            InetAddress group = InetAddress.getByName(SSDP_ADDRESS);
+            long start = System.currentTimeMillis();
+            long until = start + DISCOVERY_MS;
+            long nextSend = start;
             byte[] buffer = new byte[4096];
             while (System.currentTimeMillis() < until) {
+                if (System.currentTimeMillis() >= nextSend) {
+                    // Twice, a second apart: a single datagram can be lost on busy Wi-Fi.
+                    nextSend += 1100;
+                    for (String target : searchTargets) {
+                        sendSearch(socket, group, target);
+                        for (String gateway : gateways) {
+                            try {
+                                sendSearch(socket, InetAddress.getByName(gateway), target);
+                            } catch (IOException | RuntimeException ignored) {
+                                /* not an address */
+                            }
+                        }
+                    }
+                }
                 DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
                 try {
                     socket.receive(packet);
@@ -147,9 +188,17 @@ final class UpnpPortMapper {
                 String location = header(reply, "location");
                 if (location.isEmpty()) continue;
                 if (readDescription(location)) return true;
+                if (note.isEmpty()) note = "Heard " + packet.getAddress().getHostAddress() + " but it has no internet-gateway service.";
             }
         }
         return false;
+    }
+
+    private static void sendSearch(DatagramSocket socket, InetAddress to, String target) throws IOException {
+        String message = "M-SEARCH * HTTP/1.1\r\nHOST: " + SSDP_ADDRESS + ":" + SSDP_PORT + "\r\n"
+            + "MAN: \"ssdp:discover\"\r\nMX: 2\r\nST: " + target + "\r\n\r\n";
+        byte[] data = message.getBytes(StandardCharsets.US_ASCII);
+        socket.send(new DatagramPacket(data, data.length, to, SSDP_PORT));
     }
 
     private static String header(String reply, String name) {
@@ -178,8 +227,9 @@ final class UpnpPortMapper {
                 serviceType = type;
                 return true;
             }
-        } catch (IOException | RuntimeException ignored) {
-            /* not the router: try the next reply */
+        } catch (IOException | RuntimeException e) {
+            /* not the router, or it would not let us read it: try the next reply */
+            if (note.isEmpty()) note = "Heard a device but could not read it (" + e.getClass().getSimpleName() + ").";
         }
         return false;
     }

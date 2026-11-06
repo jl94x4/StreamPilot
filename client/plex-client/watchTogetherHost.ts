@@ -56,7 +56,7 @@ export type HostIdentity = { name: string; thumb?: string | null; id?: string };
 
 const PREFERRED_PORT = 47653;
 const JOIN_TIMEOUT_MS = 20_000;
-const MAP_TIMEOUT_MS = 9_000;
+const MAP_TIMEOUT_MS = 14_000;
 const START_TIMEOUT_MS = 10_000;
 
 /** What hosting is doing right now, for the lobby's progress steps. */
