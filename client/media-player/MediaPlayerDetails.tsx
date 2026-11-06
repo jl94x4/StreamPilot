@@ -2198,6 +2198,25 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             : `${playLabel} • ${phoneLeft} ${t('mediaPlayerPage.remaining')}`)
         : (phoneOnDeckCode ? `${playLabel} ${phoneOnDeckCode}` : playLabel);
     const actionPlayLabel = phonePlayLabel;
+    // Plex-style progress ring that replaces the play triangle while there is something to resume.
+    const resumeFraction = phoneLeft && Number(phonePlayTarget?.durationMs || 0) > 0
+        ? Math.min(1, Math.max(0, Number(phonePlayTarget?.viewOffsetMs || 0) / Number(phonePlayTarget?.durationMs || 1)))
+        : 0;
+    const playIcon = resumeFraction > 0 ? (
+        <svg className="h-4 w-4 -rotate-90" viewBox="0 0 20 20" aria-hidden="true">
+            <circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" strokeOpacity="0.3" strokeWidth="3" />
+            <circle
+                cx="10"
+                cy="10"
+                r="8"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="3"
+                strokeLinecap="round"
+                strokeDasharray={`${(resumeFraction * 50.27).toFixed(2)} 50.27`}
+            />
+        </svg>
+    ) : <Play className="h-4 w-4 fill-current" />;
     const actionWatchedLabel = item.watched ? t('mediaPlayerPage.watched') : t('mediaPlayerPage.unwatched');
     const actionPlaylistLabel = t('mediaPlayerPage.actionPlaylist');
     const phoneListEpisodes = phoneUi
@@ -3014,7 +3033,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                                     disabled={playing || playbackActive}
                                                     className={playButtonClass}
                                                 >
-                                                    {playing || playbackActive ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4 fill-current" />}
+                                                    {playing || playbackActive ? <Loader2 className="h-4 w-4 animate-spin" /> : playIcon}
                                                     {actionPlayLabel}
                                                 </button>
                                             ) : null}
@@ -3245,7 +3264,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                             disabled={playing || playbackActive}
                                             className={playButtonClass}
                                         >
-                                            {playing || playbackActive ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4 fill-current" />}
+                                            {playing || playbackActive ? <Loader2 className="h-4 w-4 animate-spin" /> : playIcon}
                                             {actionPlayLabel}
                                         </button>
                                     ) : null}
