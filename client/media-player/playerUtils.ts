@@ -559,9 +559,10 @@ const tvLowBackdrop = () => {
             const smallScreen = drawnWidth > 0 && drawnWidth < 1600;
             if (fireTv || smallScreen || (memory > 0 && memory <= 2)) {
                 // A 720p picture stretched over a 1080p screen looks soft, so a device that really
-                // draws 1080p gets 1600x900 (about 40% of the memory of full 1080p) unless it only has 1 GB.
+                // draws 1080p and has 2 GB gets the full 1080p picture (at a lower JPEG quality, which
+                // costs file size but no decode memory). Only 1 GB devices and sub-1080p screens stay at 720p.
                 const tight = smallScreen || (memory > 0 && memory <= 1);
-                low = tight ? { width: 1280, height: 720 } : { width: 1600, height: 900 };
+                low = tight ? { width: 1280, height: 720 } : { width: 1920, height: 1080 };
             }
             tvLowBackdropCache = low;
         }

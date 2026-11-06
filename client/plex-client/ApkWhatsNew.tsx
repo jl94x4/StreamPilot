@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.639': [
+        {
+            title: 'Fire TV',
+            items: [
+                'Backdrops on Fire TV devices with 2 GB of memory now load at full 1080p, so they are as sharp as on other TVs. Devices with 1 GB keep the smaller size to stay smooth',
+            ],
+        },
+    ],
     '1.0.638': [
         {
             title: 'Fire TV',
