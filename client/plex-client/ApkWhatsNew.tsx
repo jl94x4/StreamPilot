@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.635': [
+        {
+            title: 'Details pages',
+            items: [
+                'The Resume button now shows how long is left, like Plex does: "Resume • 1h 39m left". On a show it follows the episode you are on',
+            ],
+        },
+    ],
     '1.0.634': [
         {
             title: 'Profiles',

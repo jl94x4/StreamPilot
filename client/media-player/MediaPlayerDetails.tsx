@@ -2181,9 +2181,15 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             {t('mediaPlayerPage.startFromBeginning')}
         </button>
     ) : null;
-    const phonePlayTarget = applyRememberedProgress(playTarget || playbackItem);
-    const phoneLeft = formatPlayerDuration(remainingWatchMs(phonePlayTarget));
-    const phoneOnDeckCode = (item.type === 'show' || item.type === 'season')
+    // The button says how much is left ("Resume • 23m left"), on phones, desktop and TV. On TV the
+    // target follows the focused episode, same as the Resume decision above.
+    const phonePlayTarget = isTvShell && (item.type === 'episode' || item.type === 'season')
+        ? applyRememberedProgress(tvHubPlayTarget())
+        : applyRememberedProgress(playTarget || playbackItem);
+    const phoneLeft = playLabel === t('mediaPlayerPage.resume')
+        ? formatPlayerDuration(remainingWatchMs(phonePlayTarget))
+        : '';
+    const phoneOnDeckCode = (phoneUi && (item.type === 'show' || item.type === 'season'))
         ? formatEpisodeCode(onDeck || phonePlayTarget)
         : '';
     const phonePlayLabel = phoneLeft
@@ -2191,7 +2197,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             ? `${playLabel} ${phoneOnDeckCode} • ${phoneLeft} ${t('mediaPlayerPage.remaining')}`
             : `${playLabel} • ${phoneLeft} ${t('mediaPlayerPage.remaining')}`)
         : (phoneOnDeckCode ? `${playLabel} ${phoneOnDeckCode}` : playLabel);
-    const actionPlayLabel = phoneUi ? phonePlayLabel : playLabel;
+    const actionPlayLabel = phonePlayLabel;
     const actionWatchedLabel = item.watched ? t('mediaPlayerPage.watched') : t('mediaPlayerPage.unwatched');
     const actionPlaylistLabel = t('mediaPlayerPage.actionPlaylist');
     const phoneListEpisodes = phoneUi
