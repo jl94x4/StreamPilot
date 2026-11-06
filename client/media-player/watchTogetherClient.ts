@@ -13,6 +13,7 @@ import {
 import {
     getInAppHost,
     isHostInAppSupported,
+    reportHostStage,
     startInAppHost,
     stopInAppHost,
     type HostIdentity,
@@ -450,6 +451,7 @@ export class WatchTogetherClient {
         this.transport.urls = [directUrl(info.loopbackUrl, identity, { hostKey: info.hostKey })];
         this.hostedHere = true;
         this.shareCode = '';
+        reportHostStage('room');
         try {
             const state = await this.create({ ...opts, codeLength: DIRECT_ROOM_CODE_LENGTH });
             const share = encodeDirectInvite({

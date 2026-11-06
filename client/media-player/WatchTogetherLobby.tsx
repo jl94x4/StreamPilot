@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Copy, Loader2, Users } from 'lucide-react';
+import { ArrowLeft, Check, Copy, Loader2, RotateCcw, Users } from 'lucide-react';
 import { useDiscoverI18n } from './host';
 import { isAndroidTvUi } from '../plex-client/config';
-import { isHostInAppSupported, type HostInfo } from '../plex-client/watchTogetherHost';
+import { isHostInAppSupported, onHostStage, type HostInfo, type HostStage } from '../plex-client/watchTogetherHost';
+import { plexBackdropUrl, plexImageUrl } from './playerUtils';
 import {
     collectWatchTogetherGuids,
     discardWatchTogetherClient,
@@ -15,6 +16,21 @@ import {
 import type { PlayerItem } from './types';
 
 type Mode = 'create' | 'join';
+
+/** A room that has not come up by now will not: show what happened instead of waiting. */
+const CREATE_TIMEOUT_MS = 35_000;
+
+const withDeadline = <T,>(promise: Promise<T>, ms: number): Promise<T> => (
+    new Promise<T>((resolve, reject) => {
+        const timer = window.setTimeout(() => reject(new Error('Starting the room took too long.')), ms);
+        promise.then(
+            (value) => { window.clearTimeout(timer); resolve(value); },
+            (error) => { window.clearTimeout(timer); reject(error); },
+        );
+    })
+);
+
+const STAGE_ORDER: HostStage[] = ['starting', 'router', 'room'];
 
 type Props = {
     mode: Mode;
@@ -46,17 +62,24 @@ export const WatchTogetherLobby: React.FC<Props> = ({
     const [hostInfo, setHostInfo] = useState<HostInfo | null>(null);
     const startedRef = useRef(false);
     const inputRef = useRef<HTMLInputElement>(null);
+    /** Which step of starting a hosted room is under way (null on the relay or before it starts). */
+    const [stage, setStage] = useState<HostStage | null>(null);
+    /** Bumped by "Try again" so the room is started once more. */
+    const [attempt, setAttempt] = useState(0);
 
     useEffect(() => {
         const client = getWatchTogetherClient();
         return client.onState((state) => setRoom(state));
     }, []);
 
+    useEffect(() => onHostStage((next) => setStage(next)), []);
+
     useEffect(() => {
         if (mode !== 'create' || !item?.ratingKey || room) return;
         let cancelled = false;
         setBusy(true);
         setError('');
+        setStage(null);
         const opts = {
             ratingKey: item.ratingKey,
             serverId: String(item.serverId || ''),
@@ -90,18 +113,21 @@ export const WatchTogetherLobby: React.FC<Props> = ({
             client.useRelay();
             return client.create(opts);
         };
-        void create()
+        void withDeadline(create(), CREATE_TIMEOUT_MS)
             .then((state) => {
                 if (!cancelled) setRoom(state);
             })
             .catch((err: any) => {
-                if (!cancelled) setError(String(err?.message || t('mediaPlayerPage.watchTogetherError')));
+                if (cancelled) return;
+                // Stop whatever half started, so "Try again" begins clean.
+                discardWatchTogetherClient();
+                setError(String(err?.message || t('mediaPlayerPage.watchTogetherError')));
             })
             .finally(() => {
                 if (!cancelled) setBusy(false);
             });
         return () => { cancelled = true; };
-    }, [mode, item?.ratingKey, item?.serverId, item?.title, item?.type, item?.thumb, item?.viewOffsetMs, item?.plexGuid, item?.tmdbId, item?.year, item?.externalIds, room, t]);
+    }, [mode, item?.ratingKey, item?.serverId, item?.title, item?.type, item?.thumb, item?.viewOffsetMs, item?.plexGuid, item?.tmdbId, item?.year, item?.externalIds, room, t, attempt]);
 
     useEffect(() => {
         const code = String(inviteCodeProp || '').trim();
@@ -189,13 +215,36 @@ export const WatchTogetherLobby: React.FC<Props> = ({
         return t('mediaPlayerPage.watchTogetherWaitingHint');
     }, [mode, showJoinForm, t]);
 
+    const backdrop = item?.art ? plexBackdropUrl(item.art) : '';
+    const poster = item?.thumb ? plexImageUrl(item.thumb, 360, 540) : '';
+    const hosting = mode === 'create' && isHostInAppSupported();
+    const stageIndex = stage ? STAGE_ORDER.indexOf(stage) : -1;
+    const stageRows: Array<{ id: HostStage; label: string }> = [
+        { id: 'starting', label: 'Starting the room on this device' },
+        { id: 'router', label: 'Opening your router so friends can join from anywhere' },
+        { id: 'room', label: 'Creating your room' },
+    ];
+
     return (
         <div
-            className="flex min-h-full flex-col gap-6 px-4 py-6 md:px-8"
+            className="relative flex min-h-screen flex-col gap-6 px-4 py-6 md:px-8"
             data-tv-watch-together="1"
             data-tv-screen="1"
         >
-            <div className="flex items-center gap-3">
+            {/* One full-screen backdrop behind everything, so the page is never half one colour. */}
+            <div className="pointer-events-none fixed inset-0 z-0 bg-[#06080d]" aria-hidden="true">
+                {backdrop ? (
+                    <img
+                        src={backdrop}
+                        alt=""
+                        className="h-full w-full object-cover opacity-40"
+                        decoding="async"
+                    />
+                ) : null}
+                <div className="absolute inset-0 bg-gradient-to-r from-[#06080d] via-[#06080d]/85 to-[#06080d]/45" />
+                <div className="absolute inset-0 bg-gradient-to-t from-[#06080d] via-transparent to-[#06080d]/70" />
+            </div>
+            <div className="relative z-10 flex items-center gap-3">
                 <button
                     type="button"
                     data-tv-item="1"
@@ -217,13 +266,26 @@ export const WatchTogetherLobby: React.FC<Props> = ({
             </div>
 
             {error ? (
-                <p className="rounded-xl border border-red-500/30 bg-red-950/40 px-4 py-3 text-sm text-red-100" role="alert">
-                    {error}
-                </p>
+                <div className="relative z-10 flex max-w-xl flex-col items-start gap-3 rounded-2xl border border-red-500/30 bg-red-950/40 px-5 py-4" role="alert">
+                    <p className="text-sm text-red-100">{error}</p>
+                    {mode === 'create' ? (
+                        <button
+                            type="button"
+                            data-tv-item="1"
+                            data-tv-action="1"
+                            data-tv-key="wt-retry"
+                            onClick={() => { setError(''); setAttempt((n) => n + 1); }}
+                            className="inline-flex h-11 items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 text-sm font-bold text-white hover:bg-white/15"
+                        >
+                            <RotateCcw className="h-4 w-4" />
+                            Try again
+                        </button>
+                    ) : null}
+                </div>
             ) : null}
 
             {showJoinForm ? (
-                <form className="flex max-w-md flex-col gap-3" onSubmit={(e) => void onJoinSubmit(e)}>
+                <form className="relative z-10 flex max-w-md flex-col gap-3" onSubmit={(e) => void onJoinSubmit(e)}>
                     <label className="text-xs font-bold uppercase tracking-wider text-zinc-500">
                         {t('mediaPlayerPage.watchTogetherInviteCode')}
                         <input
@@ -254,7 +316,7 @@ export const WatchTogetherLobby: React.FC<Props> = ({
             ) : null}
 
             {room ? (
-                <div className="flex max-w-xl flex-col gap-5">
+                <div className="relative z-10 flex max-w-xl flex-col gap-5">
                     <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-5">
                         <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-zinc-500">
                             {t('mediaPlayerPage.watchTogetherInviteCode')}
@@ -324,10 +386,40 @@ export const WatchTogetherLobby: React.FC<Props> = ({
                 </div>
             ) : null}
 
-            {busy && !room ? (
-                <div className="flex items-center gap-2 text-sm text-zinc-400">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    {t('mediaPlayerPage.watchTogetherConnecting')}
+            {busy && !room && !error ? (
+                <div className="relative z-10 flex max-w-2xl items-center gap-6 rounded-3xl border border-white/10 bg-black/40 p-6 backdrop-blur-sm">
+                    {poster ? (
+                        <img src={poster} alt="" className="hidden h-44 w-[7.5rem] shrink-0 rounded-xl object-cover shadow-2xl sm:block" decoding="async" />
+                    ) : null}
+                    <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-3">
+                            <span className="relative flex h-3 w-3">
+                                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-plex opacity-60" />
+                                <span className="relative inline-flex h-3 w-3 rounded-full bg-plex" />
+                            </span>
+                            <p className="text-base font-bold text-white">
+                                {mode === 'join' ? 'Joining the room…' : 'Setting up your room…'}
+                            </p>
+                        </div>
+                        {hosting ? (
+                            <ul className="mt-5 flex flex-col gap-3">
+                                {stageRows.map((row, index) => {
+                                    const done = stageIndex > index;
+                                    const active = stageIndex === index;
+                                    return (
+                                        <li key={row.id} className={`flex items-center gap-3 text-sm ${done ? 'text-zinc-300' : active ? 'text-white' : 'text-zinc-600'}`}>
+                                            <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border ${done ? 'border-emerald-400/60 bg-emerald-400/15 text-emerald-300' : active ? 'border-plex/60 text-plex' : 'border-white/10'}`}>
+                                                {done ? <Check className="h-3.5 w-3.5" /> : active ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                                            </span>
+                                            {row.label}
+                                        </li>
+                                    );
+                                })}
+                            </ul>
+                        ) : (
+                            <p className="mt-3 text-sm text-zinc-400">{t('mediaPlayerPage.watchTogetherConnecting')}</p>
+                        )}
+                    </div>
                 </div>
             ) : null}
         </div>

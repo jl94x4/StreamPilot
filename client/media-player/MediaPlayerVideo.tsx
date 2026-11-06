@@ -575,6 +575,8 @@ export const MediaPlayerVideo: React.FC<Props> = ({
     const nativeExclusiveRef = useRef(nativeExclusive);
     nativeExclusiveRef.current = nativeExclusive;
     const nativeTimelineStateRef = useRef<'playing' | 'paused' | 'buffering'>('playing');
+    /** Watch Together: the last settled play/pause state of the native player (buffering does not count). */
+    const wtNativeStateRef = useRef<'playing' | 'paused'>('playing');
     const onCloseRef = useRef(onClose);
     onCloseRef.current = onClose;
     const onPlaybackErrorRef = useRef(onPlaybackError);
@@ -721,6 +723,9 @@ export const MediaPlayerVideo: React.FC<Props> = ({
         const applyPaused = async (shouldPause: boolean) => {
             setPaused(shouldPause);
             if (nativeLiveRef.current) {
+                // Remember it first, so the native player's next progress report is not mistaken
+                // for this person pressing pause and sent back to everyone.
+                wtNativeStateRef.current = shouldPause ? 'paused' : 'playing';
                 await setNativePlayerPaused(shouldPause);
                 return;
             }
@@ -1106,6 +1111,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
             currentMsRef.current = session.offsetMs || 0;
             durationMsRef.current = session.item.durationMs || durationMsRef.current || 0;
             nativeTimelineStateRef.current = 'playing';
+            wtNativeStateRef.current = 'playing';
             // No "playing" report from here: the native player sends its own as it starts.
             const auth = absoluteWithAuth(nativeSrc);
             const gen = ++nativeOpenGen;
@@ -1366,6 +1372,16 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                         const changed = nativeTimelineStateRef.current !== state;
                         nativeTimelineStateRef.current = state;
                         if (changed) sendTimelineRef.current(state, event.positionMs);
+                        // Watch Together: this person paused or resumed in the native player, so
+                        // everyone else does the same. (Buffering is not a press.)
+                        if (watchTogetherRef.current && state !== 'buffering' && wtNativeStateRef.current !== state) {
+                            wtNativeStateRef.current = state;
+                            if (!applyingRemoteRef.current) {
+                                const at = Math.max(0, Math.floor(event.positionMs || 0));
+                                if (state === 'paused') getWatchTogetherClient().pause(at);
+                                else getWatchTogetherClient().play(at);
+                            }
+                        }
                         if (watchTogetherRef.current && !applyingRemoteRef.current) {
                             const buffering = event.state === 'buffering'
                                 && Date.now() >= wtRemoteSeekGuardUntilRef.current;

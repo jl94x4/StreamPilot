@@ -57,6 +57,33 @@ export type HostIdentity = { name: string; thumb?: string | null; id?: string };
 const PREFERRED_PORT = 47653;
 const JOIN_TIMEOUT_MS = 20_000;
 const MAP_TIMEOUT_MS = 9_000;
+const START_TIMEOUT_MS = 10_000;
+
+/** What hosting is doing right now, for the lobby's progress steps. */
+export type HostStage = 'starting' | 'router' | 'room';
+let stageListener: ((stage: HostStage) => void) | null = null;
+export const onHostStage = (listener: (stage: HostStage) => void): (() => void) => {
+    stageListener = listener;
+    return () => { if (stageListener === listener) stageListener = null; };
+};
+export const reportHostStage = (stage: HostStage) => {
+    try {
+        stageListener?.(stage);
+    } catch {
+        /* the screen is gone */
+    }
+};
+
+/** Reject instead of waiting forever on a native call that never answers. */
+const withTimeout = <T,>(promise: Promise<T>, ms: number, message: string): Promise<T> => (
+    new Promise<T>((resolve, reject) => {
+        const timer = window.setTimeout(() => reject(new Error(message)), ms);
+        promise.then(
+            (value) => { window.clearTimeout(timer); resolve(value); },
+            (error) => { window.clearTimeout(timer); reject(error); },
+        );
+    })
+);
 const FAIL_WINDOW_MS = 60_000;
 const FAIL_LIMIT = 5;
 
@@ -92,10 +119,16 @@ export const __setHostPluginForTests = (fake: HostPlugin | null) => {
     plugin = fake;
 };
 
-const loadPlugin = async (): Promise<HostPlugin> => {
+/**
+ * The native plugin. Never return it from an async function or await it: a Capacitor plugin object
+ * answers `then` with an error, so a promise that resolves to it never settles (the lobby sat on
+ * "Connecting" forever). Callers use it directly.
+ */
+const loadPlugin = (): HostPlugin => {
     if (plugin) return plugin;
-    const { registerPlugin } = await import('@capacitor/core');
-    plugin = registerPlugin<HostPlugin>('WatchTogetherHost');
+    const cap = (window as unknown as { Capacitor?: { registerPlugin?: <T>(name: string) => T } }).Capacitor;
+    if (!cap?.registerPlugin) throw new Error('Hosting a room needs the Android app.');
+    plugin = cap.registerPlugin<HostPlugin>('WatchTogetherHost');
     return plugin;
 };
 
@@ -188,9 +221,10 @@ export const startInAppHost = (): Promise<HostInfo> => {
     if (current) return Promise.resolve(current);
     if (starting) return starting;
     starting = (async () => {
-        const host = await loadPlugin();
+        reportHostStage('starting');
+        const host = loadPlugin();
         const hostKey = randomToken();
-        const started = await host.start({ port: PREFERRED_PORT });
+        const started = await withTimeout(host.start({ port: PREFERRED_PORT }), START_TIMEOUT_MS, 'The room server did not start on this device.');
         removers = [
             await host.addListener('hostConnect', onConnect(host, hostKey)),
             await host.addListener('hostMessage', (event: { connId: string; data: string }) => {
@@ -202,6 +236,7 @@ export const startInAppHost = (): Promise<HostInfo> => {
         reaper = window.setInterval(reapEmptyRooms, 30_000);
 
         let mapped: Awaited<ReturnType<HostPlugin['mapPort']>> | null = null;
+        reportHostStage('router');
         try {
             mapped = await Promise.race([
                 host.mapPort({ port: started.port, lan: started.lan || undefined }),
@@ -263,7 +298,7 @@ export const stopInAppHost = async (): Promise<void> => {
     }
     current = null;
     try {
-        const host = await loadPlugin();
+        const host = loadPlugin();
         await host.unmapPort().catch(() => undefined);
         await host.stop().catch(() => undefined);
     } catch {

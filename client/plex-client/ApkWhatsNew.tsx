@@ -73,6 +73,16 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.643': [
+        {
+            title: 'Watch Together',
+            items: [
+                'Fixed Watch Together sitting on "Connecting" forever when you start a room on your own device',
+                'Starting a room now shows what it is doing, step by step, on a proper full-screen page with the film behind it. If it takes too long you get a message and a Try again button',
+                'Pause and play now stay in sync on the TV player: when one person pauses or resumes, everyone else does too',
+            ],
+        },
+    ],
     '1.0.642': [
         {
             title: 'Setup',
