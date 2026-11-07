@@ -120,6 +120,7 @@ import {
 } from './lib/watch-together/index.js';
 import { startOverlaysScheduler, startOverlaysBundleScheduler, runOverlaysScheduledJob } from './lib/overlays/scheduler.js';
 import { decidePlexHeavyJob } from './lib/plexHeavyJobGate.js';
+import { devicesMapFromResponse, resolveHistoryRowIdentity } from './lib/plex/historyIdentity.js';
 import { createSessionRevocationStore } from './lib/sessionRevocation.js';
 import {
     evaluateExtensionEligibility,
@@ -18939,15 +18940,31 @@ app.get('/api/plex/analytics/title/:ratingKey', requireAuth, requireAdmin, async
             const fetchUrl = `${uri}/status/sessions/history/all?sort=viewedAt%3Adesc&${filterKey}=${encodeURIComponent(ratingKey)}&X-Plex-Container-Start=0&X-Plex-Container-Size=200&X-Plex-Token=${config.plexToken}`;
             const resData = await fetch(fetchUrl, { headers: plexClientHeaders(config.plexToken) }).then((r) => r.json()).catch(() => null);
             const rows = resData?.MediaContainer?.Metadata || [];
+            // History rows only carry accountID / deviceID: look the names up (a live session has
+            // User / Player objects, history does not), or everyone shows as "Unknown User".
+            const [serverAccounts, devicesRes, portalUsersForTitle] = rows.length
+                ? await Promise.all([
+                    fetchPlexServerAccounts(uri, config).catch(() => null),
+                    fetchWithTimeout(`${uri}/devices?X-Plex-Token=${config.plexToken}`, { headers: plexClientHeaders(config.plexToken) }, 8000)
+                        .then((r) => r.json()).catch(() => null),
+                    loadFile(USERS_PATH, []).catch(() => []),
+                ])
+                : [null, null, []];
+            const identityContext = {
+                accounts: serverAccounts?.map || {},
+                devices: devicesMapFromResponse(devicesRes),
+                portalUsers: portalUsersForTitle,
+            };
             for (const row of rows) {
+                const who = resolveHistoryRowIdentity(row, identityContext);
                 history.push(mapTitleHistoryRow({
-                    user: row.User?.title || 'Unknown User',
-                    userThumb: row.User?.thumb || null,
+                    user: who.user,
+                    userThumb: who.userThumb,
                     date: row.viewedAt,
                     duration: row.duration ? Math.round(row.duration / 1000) : 0,
-                    player: row.Player?.title || null,
-                    platform: row.Player?.platform || null,
-                    product: row.Player?.product || null,
+                    player: who.player,
+                    platform: who.platform,
+                    product: who.product,
                     title: row.grandparentTitle ? `${row.grandparentTitle} - ${row.title}` : row.title,
                     episodeTitle: row.grandparentTitle ? row.title : null,
                     seasonNumber: row.parentIndex,
