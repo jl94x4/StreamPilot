@@ -2721,7 +2721,10 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                         (tvActiveRow && (tvRowFocusRef.current[tvActiveRow.id] || tvFocusKeyRef.current)) || ''
                     }
                     detailsArtworkTint={settings.detailsArtworkTint}
-                    liteBillboard={settings.liteBillboard || isWeakTvDevice()}
+                    // Only the person's own "Lighter billboard" drops the artwork colour. Fire TVs keep
+                    // it: the sample is a tiny copy of the image and the colour is applied with no
+                    // animation (data-lite-billboard / data-simple-motion), so it costs next to nothing.
+                    liteBillboard={settings.liteBillboard}
                     onFocusKey={noteTvFocusKey}
                     stack={home && tvActiveRow ? (
                         <PlayerTvRowStack
