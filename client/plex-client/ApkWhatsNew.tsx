@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.650': [
+        {
+            title: 'Watchlist',
+            items: [
+                'Removing a title from your Watchlist now takes it out of the Watchlist row on Home, and off the Watchlist page, straight away instead of after the next refresh',
+            ],
+        },
+    ],
     '1.0.649': [
         {
             title: 'Fire TV',

@@ -9,7 +9,7 @@ import {
     useDiscoverGridSize,
     useDiscoverI18n,
 } from './host';
-import { fetchMediaPlayerWatchlist, setMediaPlayerWatched } from './api';
+import { fetchMediaPlayerWatchlist, PLAYER_WATCHLIST_EVENT, sameWatchlistEntry, setMediaPlayerWatched, type PlayerWatchlistChange } from './api';
 import { PlayerPosterCard } from './PlayerPosterCard';
 import { PlayerTvStatusPanel } from './PlayerTvStatusPanel';
 import type { PlayerItem, PlayerPlayOptions } from './types';
@@ -78,6 +78,23 @@ export const MediaPlayerWatchlist: React.FC<Props> = ({
             });
         return () => { cancelled = true; };
     }, [t]);
+
+    // Removed from the item menu (or anywhere else): drop it from this page right away.
+    useEffect(() => {
+        const onChange = (event: Event) => {
+            const detail = (event as CustomEvent<PlayerWatchlistChange>).detail || {};
+            if (detail.watchlisted === false && detail.item) {
+                const gone = detail.item;
+                setItems((prev) => prev.filter((row) => !sameWatchlistEntry(row, gone)));
+            } else if (detail.refresh) {
+                fetchMediaPlayerWatchlist(true)
+                    .then((data) => setItems(data.items || []))
+                    .catch(() => undefined);
+            }
+        };
+        window.addEventListener(PLAYER_WATCHLIST_EVENT, onChange);
+        return () => window.removeEventListener(PLAYER_WATCHLIST_EVENT, onChange);
+    }, []);
 
     const toggleWatched = async (item: PlayerItem) => {
         const next = !item.watched;

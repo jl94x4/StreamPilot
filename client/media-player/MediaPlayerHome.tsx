@@ -15,7 +15,7 @@ import {
     upgraderPosterGridStyle,
 } from './host';
 import { resolveLanImages } from './lanImage';
-import { beginHomeRowPriority, endHomeRowPriority, fetchLiveTvOnNow, fetchMediaPlayerHome, fetchMediaPlayerHomeFull, fetchMediaPlayerHomeHero, fetchMediaPlayerHomeHeroRefresh, fetchMediaPlayerItem, fetchMediaPlayerLibrary, fetchMediaPlayerWatchlist, prefetchMediaPlayerItem, recordPopularSearch, searchMediaPlayer, setMediaPlayerWatched } from './api';
+import { PLAYER_WATCHLIST_EVENT, sameWatchlistEntry, type PlayerWatchlistChange, beginHomeRowPriority, endHomeRowPriority, fetchLiveTvOnNow, fetchMediaPlayerHome, fetchMediaPlayerHomeFull, fetchMediaPlayerHomeHero, fetchMediaPlayerHomeHeroRefresh, fetchMediaPlayerItem, fetchMediaPlayerLibrary, fetchMediaPlayerWatchlist, prefetchMediaPlayerItem, recordPopularSearch, searchMediaPlayer, setMediaPlayerWatched } from './api';
 import { whenRemoteQuiet } from '../shared/remoteActivity';
 import { isPhoneUi, isPlexDirectMode } from '../plex-client/config';
 import { PlayerPullToRefresh } from './PlayerPullToRefresh';
@@ -1514,6 +1514,32 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             });
         return () => { cancelled = true; };
     }, [active, showWatchlistRail]);
+
+    // Add or remove from anywhere (the item menu, a title page): the row follows at once.
+    useEffect(() => {
+        if (!showWatchlistRail) return undefined;
+        let cancelled = false;
+        const onChange = (event: Event) => {
+            const detail = (event as CustomEvent<PlayerWatchlistChange>).detail || {};
+            if (detail.watchlisted === false && detail.item) {
+                const gone = detail.item;
+                setWatchlistItems((prev) => prev.filter((row) => !sameWatchlistEntry(row, gone)));
+                return;
+            }
+            if (detail.refresh) {
+                void fetchMediaPlayerWatchlist(true)
+                    .then((data) => {
+                        if (!cancelled) setWatchlistItems(Array.isArray(data?.items) ? data.items : []);
+                    })
+                    .catch(() => undefined);
+            }
+        };
+        window.addEventListener(PLAYER_WATCHLIST_EVENT, onChange);
+        return () => {
+            cancelled = true;
+            window.removeEventListener(PLAYER_WATCHLIST_EVENT, onChange);
+        };
+    }, [showWatchlistRail]);
 
     useEffect(() => {
         if (!active || !settings.showOnNowHome) {

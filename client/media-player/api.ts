@@ -1210,9 +1210,40 @@ export const fetchMediaPlayerScreensaver = (source: string) => (
     }>
 );
 
+/** Fired when the Watchlist changes, so every row showing it can follow at once. */
+export const PLAYER_WATCHLIST_EVENT = 'smp-watchlist-changed';
+export type PlayerWatchlistChange = { item?: PlayerItem; watchlisted?: boolean; refresh?: boolean };
+
+const announceWatchlistChange = (detail: PlayerWatchlistChange) => {
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(new CustomEvent<PlayerWatchlistChange>(PLAYER_WATCHLIST_EVENT, { detail }));
+};
+
+/** The same title, whichever id the list or the menu knows it by. */
+export const sameWatchlistEntry = (a?: Partial<PlayerItem> | null, b?: Partial<PlayerItem> | null) => {
+    if (!a || !b) return false;
+    const ids = (row: Partial<PlayerItem>) => [row.ratingKey, row.discoverRatingKey, row.plexGuid, row.showPlexGuid]
+        .map((value) => String(value || '').trim())
+        .filter(Boolean);
+    const mine = new Set(ids(a));
+    return ids(b).some((id) => mine.has(id));
+};
+
 export const setMediaPlayerWatchlisted = (item: PlayerItem, watchlisted: boolean) => {
-    watchlistCache = null;
-    return apiFetch(`${PLAYER_API_ROOT}/watchlist`, {
+    if (!watchlisted && watchlistCache) {
+        // Taking something off: drop it from the stored list and tell the rows right now, instead of
+        // waiting for the server (which can still list it for a moment) and the next refresh.
+        const stored = watchlistCache;
+        watchlistCache = stored.then((data) => ({
+            ...data,
+            items: (data?.items || []).filter((row) => !sameWatchlistEntry(row, item)),
+        }));
+        watchlistCache.catch(() => { watchlistCache = null; });
+    } else {
+        watchlistCache = null;
+    }
+    if (!watchlisted) announceWatchlistChange({ item, watchlisted: false });
+    return (apiFetch(`${PLAYER_API_ROOT}/watchlist`, {
         method: watchlisted ? 'POST' : 'DELETE',
         body: JSON.stringify({
             ratingKey: item.ratingKey,
@@ -1221,7 +1252,18 @@ export const setMediaPlayerWatchlisted = (item: PlayerItem, watchlisted: boolean
             serverId: item.serverId || undefined,
             remove: !watchlisted,
         }),
-    }) as Promise<{ ok: boolean }>;
+    }) as Promise<{ ok: boolean }>).then(
+        (result) => {
+            if (watchlisted) announceWatchlistChange({ item, watchlisted: true, refresh: true });
+            return result;
+        },
+        (error) => {
+            // It did not go through: put the real list back.
+            watchlistCache = null;
+            announceWatchlistChange({ refresh: true });
+            throw error;
+        },
+    );
 };
 
 export const fetchMediaPlayerShuffleQueue = (ratingKey: string, serverId?: string | null) => (
