@@ -1,9 +1,13 @@
 package com.servermanagerportal.mediaplayer;
 
+import android.app.PendingIntent;
 import android.app.PictureInPictureParams;
+import android.app.RemoteAction;
 import android.app.UiModeManager;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
@@ -37,6 +41,7 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.graphics.RectF;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.Icon;
 import android.graphics.drawable.StateListDrawable;
 import android.content.res.ColorStateList;
 import androidx.core.graphics.drawable.RoundedBitmapDrawable;
@@ -1602,10 +1607,12 @@ public class PlayerActivity extends AppCompatActivity {
                 }
                 updatePlayPauseLabel();
                 emitProgress(isPlaying ? "playing" : "paused");
+                updatePipParams();
             }
 
             @Override
             public void onVideoSizeChanged(VideoSize videoSize) {
+                updatePipParams();
                 updateResolutionChip();
                 updateCodecChips();
                 updateSubtitleChip();
@@ -4536,6 +4543,7 @@ public class PlayerActivity extends AppCompatActivity {
             intent.setDataAndType(Uri.parse(currentUrl), "video/*");
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             Intent chooser = Intent.createChooser(intent, getString(R.string.player_external));
+            leavingForOurOwnScreen = true;
             startActivity(chooser);
             emitProgress("paused");
         } catch (Exception e) {
@@ -4543,25 +4551,114 @@ public class PlayerActivity extends AppCompatActivity {
         }
     }
 
-    private void enterPip() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
-        if (isTelevision()) return;
-        if (!getPackageManager().hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) return;
+    private static final String PIP_PLAY_PAUSE_ACTION = "com.streampilot.mediaplayer.PIP_PLAY_PAUSE";
+    private BroadcastReceiver pipReceiver;
+    /** Our own screens (the external-player chooser) also count as "leaving"; they must not open the window. */
+    private boolean leavingForOurOwnScreen;
+
+    /** True when this device can show a picture-in-picture window at all. */
+    private boolean canPip() {
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+            && getPackageManager().hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE);
+    }
+
+    /** The window takes the shape of the picture being played (16:9 until the size is known). */
+    private Rational pipAspectRatio() {
+        int width = 16;
+        int height = 9;
         try {
-            PictureInPictureParams params = new PictureInPictureParams.Builder()
-                .setAspectRatio(new Rational(16, 9))
-                .build();
-            enterPictureInPictureMode(params);
+            VideoSize size = player == null ? null : player.getVideoSize();
+            if (size != null && size.width > 0 && size.height > 0) {
+                width = Math.max(1, Math.round(size.width * (size.pixelWidthHeightRatio > 0 ? size.pixelWidthHeightRatio : 1f) * 100));
+                height = size.height * 100;
+            }
+        } catch (Throwable ignored) {
+            /* keep 16:9 */
+        }
+        // Android refuses ratios outside roughly 1:2.39 to 2.39:1.
+        double ratio = width / (double) height;
+        if (ratio > 2.39) return new Rational(239, 100);
+        if (ratio < 1 / 2.39) return new Rational(100, 239);
+        return new Rational(width, height);
+    }
+
+    /** Play / pause on the little window itself. */
+    private RemoteAction pipPlayPauseAction() {
+        boolean playing = player != null && player.getPlayWhenReady();
+        String label = getString(playing ? R.string.player_pause : R.string.player_play);
+        Intent intent = new Intent(PIP_PLAY_PAUSE_ACTION).setPackage(getPackageName());
+        PendingIntent pending = PendingIntent.getBroadcast(this, 7, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        return new RemoteAction(
+            Icon.createWithResource(this, playing ? R.drawable.ic_player_pause : R.drawable.ic_player_play),
+            label, label, pending);
+    }
+
+    private PictureInPictureParams pipParams() {
+        PictureInPictureParams.Builder builder = new PictureInPictureParams.Builder()
+            .setAspectRatio(pipAspectRatio())
+            .setActions(java.util.Collections.singletonList(pipPlayPauseAction()));
+        return builder.build();
+    }
+
+    /** Keeps the window's shape and play / pause button right while it is showing. */
+    private void updatePipParams() {
+        if (!canPip() || !isInPictureInPictureMode()) return;
+        try {
+            setPictureInPictureParams(pipParams());
+        } catch (Throwable ignored) {
+            /* window is closing */
+        }
+    }
+
+    private void registerPipReceiver() {
+        if (pipReceiver != null || !canPip()) return;
+        pipReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                if (intent == null || !PIP_PLAY_PAUSE_ACTION.equals(intent.getAction()) || player == null) return;
+                applyPlayPause(!player.getPlayWhenReady());
+                updatePipParams();
+            }
+        };
+        ContextCompat.registerReceiver(this, pipReceiver, new IntentFilter(PIP_PLAY_PAUSE_ACTION),
+            ContextCompat.RECEIVER_NOT_EXPORTED);
+    }
+
+    private void unregisterPipReceiver() {
+        if (pipReceiver == null) return;
+        try {
+            unregisterReceiver(pipReceiver);
+        } catch (Throwable ignored) {
+            /* already gone */
+        }
+        pipReceiver = null;
+    }
+
+    private void enterPip() {
+        if (!canPip() || finishing || player == null) return;
+        if (isInPictureInPictureMode()) return;
+        try {
+            registerPipReceiver();
+            enterPictureInPictureMode(pipParams());
             setChromeVisible(false);
         } catch (Exception e) {
             toast("PiP unavailable");
         }
     }
 
+    /** Pressing Home (or swiping up) while something is playing shrinks it to a window instead of stopping it. */
+    @Override
+    protected void onUserLeaveHint() {
+        super.onUserLeaveHint();
+        if (finishing || minimized || player == null || userPaused || leavingForOurOwnScreen) return;
+        if (!player.getPlayWhenReady() || isInPictureInPictureMode()) return;
+        enterPip();
+    }
+
     private void updatePipVisibility() {
-        boolean show = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
-            && !isTelevision()
-            && getPackageManager().hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE);
+        // The button is for touch screens; on a TV the remote's Home button opens the window.
+        boolean show = canPip() && !isTelevision();
         if (pipBtn != null) pipBtn.setVisibility(show ? View.VISIBLE : View.GONE);
     }
 
@@ -5331,6 +5428,7 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void bumpChrome() {
+        if (inPictureInPicture()) return;
         setChromeVisible(true);
         mainHandler.removeCallbacks(hideChromeRunnable);
         mainHandler.postDelayed(hideChromeRunnable, controlsTimeoutMs);
@@ -6027,6 +6125,12 @@ public class PlayerActivity extends AppCompatActivity {
     @Override
     public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode);
+        if (isInPictureInPictureMode) {
+            // Nothing but the picture and the window's own play / pause button.
+            mainHandler.removeCallbacks(hideChromeRunnable);
+            setChromeVisible(false);
+            updatePipParams();
+        }
         setClockVisible(chromeVisible && !isInPictureInPictureMode);
     }
 
@@ -6320,6 +6424,7 @@ public class PlayerActivity extends AppCompatActivity {
     protected void onStart() {
         super.onStart();
         PlayerBridge.get().keepHostWebViewAlive();
+        leavingForOurOwnScreen = false;
         if (player != null && !userPaused) player.setPlayWhenReady(true);
         if (finishing) return;
     }
@@ -6327,6 +6432,12 @@ public class PlayerActivity extends AppCompatActivity {
     @Override
     protected void onStop() {
         super.onStop();
+        // The window's close button stops the activity while it is still a window: end playback
+        // properly (position saved) instead of leaving a film playing with nothing on screen.
+        if (player != null && !finishing && !minimized && inPictureInPicture()) {
+            finishWithResult(false, false);
+            return;
+        }
         if (player != null && !finishing && !minimized && !isInPictureInPictureMode()) {
             try {
                 player.pause();
@@ -6339,6 +6450,7 @@ public class PlayerActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        unregisterPipReceiver();
         PlayerBridge.get().detachActivity(this);
         if (faceEngine != null) faceEngine.shutdown();
         // The face model and detectors are only for the player: free them for browsing.

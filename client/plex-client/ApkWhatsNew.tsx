@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.651': [
+        {
+            title: 'Player',
+            items: [
+                'Picture in picture now works properly: press Home while something is playing and it shrinks to a small window instead of stopping',
+                'The window takes the shape of the film or episode and has its own play / pause button. Closing it ends playback and saves your place',
+            ],
+        },
+    ],
     '1.0.650': [
         {
             title: 'Watchlist',
