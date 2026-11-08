@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.652': [
+        {
+            title: 'Watchlist',
+            items: [
+                'With more than one server, removing a title from the Watchlist can no longer hide a different title from another server that shares its id',
+            ],
+        },
+    ],
     '1.0.651': [
         {
             title: 'Player',

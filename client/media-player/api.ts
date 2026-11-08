@@ -1222,6 +1222,8 @@ const announceWatchlistChange = (detail: PlayerWatchlistChange) => {
 /** The same title, whichever id the list or the menu knows it by. */
 export const sameWatchlistEntry = (a?: Partial<PlayerItem> | null, b?: Partial<PlayerItem> | null) => {
     if (!a || !b) return false;
+    // Library ids repeat from one server to the next: two different titles can share one.
+    if (a.serverId && b.serverId && String(a.serverId) !== String(b.serverId)) return false;
     const ids = (row: Partial<PlayerItem>) => [row.ratingKey, row.discoverRatingKey, row.plexGuid, row.showPlexGuid]
         .map((value) => String(value || '').trim())
         .filter(Boolean);
