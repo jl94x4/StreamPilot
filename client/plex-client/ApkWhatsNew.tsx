@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.653': [
+        {
+            title: 'Watch Together',
+            items: [
+                'The Watch Together setup screen text can now be translated like the rest of the app',
+                'The Join Watch Together hint in Settings no longer says a relay does the work, which is not true for rooms hosted on a device',
+            ],
+        },
+    ],
     '1.0.652': [
         {
             title: 'Watchlist',

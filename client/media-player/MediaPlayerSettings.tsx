@@ -2212,49 +2212,6 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                                 />
                             </div>
                         ) : null}
-                        {isPlexDirectMode() ? (
-                            <>
-                                <div className="border-t border-border/40 py-4">
-                                    <label className="mb-2 block text-sm font-bold text-text" htmlFor="media-player-poster-corners">
-                                        {t('mediaPlayerPage.posterCorners')}
-                                    </label>
-                                    <p className="mb-3 text-xs text-muted">{t('mediaPlayerPage.posterCornersHint')}</p>
-                                    <CustomSelect
-                                        id="media-player-poster-corners"
-                                        value={settings.posterCorners}
-                                        onChange={(value) => updateSettings({ posterCorners: value as PlayerPosterCorners })}
-                                        className="max-w-xl"
-                                        options={posterCornerOptions.map(({ value, label }) => ({ value, label }))}
-                                    />
-                                </div>
-                                <div className="border-t border-border/40 py-4">
-                                    <label className="mb-2 block text-sm font-bold text-text" htmlFor="media-player-text-size">
-                                        {t('mediaPlayerPage.textSize')}
-                                    </label>
-                                    <p className="mb-3 text-xs text-muted">{t('mediaPlayerPage.textSizeHint')}</p>
-                                    <CustomSelect
-                                        id="media-player-text-size"
-                                        value={settings.textSize}
-                                        onChange={(value) => updateSettings({ textSize: value as PlayerTextSize })}
-                                        className="max-w-xl"
-                                        options={textSizeOptions.map(({ value, label }) => ({ value, label }))}
-                                    />
-                                </div>
-                                <div className="border-t border-border/40 py-4">
-                                    <label className="mb-2 block text-sm font-bold text-text" htmlFor="media-player-app-font">
-                                        {t('mediaPlayerPage.appFont')}
-                                    </label>
-                                    <p className="mb-3 text-xs text-muted">{t('mediaPlayerPage.appFontHint')}</p>
-                                    <CustomSelect
-                                        id="media-player-app-font"
-                                        value={settings.appFont}
-                                        onChange={(value) => updateSettings({ appFont: value as PlayerAppFont })}
-                                        className="max-w-xl"
-                                        options={appFontOptions.map(({ value, label }) => ({ value, label }))}
-                                    />
-                                </div>
-                            </>
-                        ) : null}
                     </div>
                 </section>
             ) : null}

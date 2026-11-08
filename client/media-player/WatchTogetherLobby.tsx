@@ -20,9 +20,11 @@ type Mode = 'create' | 'join';
 /** A room that has not come up by now will not: show what happened instead of waiting. */
 const CREATE_TIMEOUT_MS = 35_000;
 
+class DeadlineError extends Error {}
+
 const withDeadline = <T,>(promise: Promise<T>, ms: number): Promise<T> => (
     new Promise<T>((resolve, reject) => {
-        const timer = window.setTimeout(() => reject(new Error('Starting the room took too long.')), ms);
+        const timer = window.setTimeout(() => reject(new DeadlineError('deadline')), ms);
         promise.then(
             (value) => { window.clearTimeout(timer); resolve(value); },
             (error) => { window.clearTimeout(timer); reject(error); },
@@ -142,7 +144,9 @@ export const WatchTogetherLobby: React.FC<Props> = ({
                 if (cancelled) return;
                 // Stop whatever half started, so "Try again" begins clean.
                 discardWatchTogetherClient();
-                setError(String(err?.message || t('mediaPlayerPage.watchTogetherError')));
+                setError(err instanceof DeadlineError
+                    ? t('mediaPlayerPage.watchTogetherTookTooLong')
+                    : String(err?.message || t('mediaPlayerPage.watchTogetherError')));
             })
             .finally(() => {
                 if (!cancelled) setBusy(false);
@@ -241,9 +245,9 @@ export const WatchTogetherLobby: React.FC<Props> = ({
     const hosting = mode === 'create' && isHostInAppSupported();
     const stageIndex = stage ? STAGE_ORDER.indexOf(stage) : -1;
     const stageRows: Array<{ id: HostStage; label: string }> = [
-        { id: 'starting', label: 'Starting the room on this device' },
-        { id: 'router', label: 'Opening your router so friends can join from anywhere' },
-        { id: 'room', label: 'Creating your room' },
+        { id: 'starting', label: t('mediaPlayerPage.watchTogetherStageStarting') },
+        { id: 'router', label: t('mediaPlayerPage.watchTogetherStageRouter') },
+        { id: 'room', label: t('mediaPlayerPage.watchTogetherStageRoom') },
     ];
 
     return (
@@ -299,7 +303,7 @@ export const WatchTogetherLobby: React.FC<Props> = ({
                             className="inline-flex h-11 items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 text-sm font-bold text-white hover:bg-white/15"
                         >
                             <RotateCcw className="h-4 w-4" />
-                            Try again
+                            {t('mediaPlayerPage.watchTogetherTryAgain')}
                         </button>
                     ) : null}
                 </div>
@@ -361,8 +365,8 @@ export const WatchTogetherLobby: React.FC<Props> = ({
                         {hostInfo ? (
                             <p className={`mt-3 text-sm ${hostInfo.publicReachable ? 'text-emerald-300' : 'text-amber-300'}`}>
                                 {hostInfo.publicReachable
-                                    ? 'Hosted on this device. Friends can join from anywhere with this code. Keep the app open while you watch.'
-                                    : `Hosted on this device. Friends on your network can join with this code. ${hostInfo.reason} To invite people elsewhere, set up a relay in Settings → Connection or turn on UPnP on your router.`}
+                                    ? t('mediaPlayerPage.watchTogetherHostedOpen')
+                                    : t('mediaPlayerPage.watchTogetherHostedLan', { reason: hostInfo.reason })}
                             </p>
                         ) : null}
                     </div>
@@ -417,7 +421,7 @@ export const WatchTogetherLobby: React.FC<Props> = ({
                                 <span className="relative inline-flex h-3 w-3 rounded-full bg-plex" />
                             </span>
                             <p className="text-base font-bold text-white">
-                                {mode === 'join' ? 'Joining the room…' : 'Setting up your room…'}
+                                {mode === 'join' ? t('mediaPlayerPage.watchTogetherJoining') : t('mediaPlayerPage.watchTogetherSettingUp')}
                             </p>
                         </div>
                         {hosting ? (
