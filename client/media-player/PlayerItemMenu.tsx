@@ -67,6 +67,7 @@ import {
 } from '../plex-client/mediaDownloads';
 import { isPhoneUi } from '../plex-client/config';
 import { portalUrl } from '../shared/basePath';
+import { TvButton } from '../shared/TvButton';
 
 export type PlayerItemMenuHandle = {
     openAt: (clientX?: number, clientY?: number) => void;
@@ -582,7 +583,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
 
     /** TV matches Plex Web: both Mark Watched and Mark Unwatched stay listed. */
     const markWatchedBtn = canWatchToggle ? (
-        <button
+        <TvButton
             type="button"
             role="menuitem"
             data-tv-item="1"
@@ -592,11 +593,11 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
         >
             {useContextSheet ? <CheckCircle2 className={iconClass} /> : <Eye className={iconClass} />}
             {t('mediaPlayerPage.markWatched')}
-        </button>
+        </TvButton>
     ) : null;
 
     const markUnwatchedBtn = canWatchToggle ? (
-        <button
+        <TvButton
             type="button"
             role="menuitem"
             data-tv-item="1"
@@ -606,7 +607,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
         >
             {useContextSheet ? <Circle className={iconClass} /> : <EyeOff className={iconClass} />}
             {t('mediaPlayerPage.markUnwatched')}
-        </button>
+        </TvButton>
     ) : null;
 
     const watchToggle = canWatchToggle ? (
@@ -616,7 +617,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                 {markUnwatchedBtn}
             </>
         ) : (
-            <button
+            <TvButton
                 type="button"
                 role="menuitem"
                 data-tv-item="1"
@@ -626,7 +627,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
             >
                 {item.watched ? <EyeOff className={iconClass} /> : <Eye className={iconClass} />}
                 {item.watched ? t('mediaPlayerPage.markUnwatched') : t('mediaPlayerPage.markWatched')}
-            </button>
+            </TvButton>
         )
     ) : null;
 
@@ -634,7 +635,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
     const spoilerKey = spoilerShowKey(item);
     const spoilersHidden = isSpoilerShow(readPlayerSettings(), spoilerKey);
     const spoilerBtn = spoilerKey ? (
-        <button
+        <TvButton
             type="button"
             role="menuitem"
             data-tv-item="1"
@@ -647,11 +648,11 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
         >
             {spoilersHidden ? <ShieldCheck className={iconClass} /> : <Shield className={iconClass} />}
             {spoilersHidden ? t('mediaPlayerPage.spoilersShow') : t('mediaPlayerPage.spoilersHide')}
-        </button>
+        </TvButton>
     ) : null;
 
     const watchlistBtn = canWatchlist && watchlistTarget ? (
-        <button
+        <TvButton
             type="button"
             role="menuitem"
             data-tv-item="1"
@@ -666,11 +667,11 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
         >
             {watchlisted ? <BookmarkCheck className={iconClass} /> : <Bookmark className={iconClass} />}
             {watchlisted ? t('mediaPlayerPage.removeFromWatchlist') : t('mediaPlayerPage.addToWatchlist')}
-        </button>
+        </TvButton>
     ) : null;
 
     const goToShowBtn = canGoShow ? (
-        <button
+        <TvButton
             type="button"
             role="menuitem"
             data-tv-item="1"
@@ -691,10 +692,10 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
         >
             <Tv className={iconClass} />
             <span className="whitespace-nowrap">{goShowLabel}</span>
-        </button>
+        </TvButton>
     ) : null;
     const goToSeasonBtn = canGoSeason ? (
-        <button
+        <TvButton
             type="button"
             role="menuitem"
             data-tv-item="1"
@@ -717,10 +718,10 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
         >
             <Layers className={iconClass} />
             <span className="whitespace-nowrap">{goSeasonLabel}</span>
-        </button>
+        </TvButton>
     ) : null;
     const markSeasonBtn = canMarkSeasonWatched ? (
-        <button
+        <TvButton
             type="button"
             role="menuitem"
             data-tv-item="1"
@@ -737,7 +738,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                     ? t('mediaPlayerPage.markSeasonWatchedNamed', { title: seasonName })
                     : t('mediaPlayerPage.markSeasonWatched')}
             </span>
-        </button>
+        </TvButton>
     ) : null;
 
     // TV sheet: Rate sits directly under Resume / Play; elsewhere it stays in the list.
@@ -748,7 +749,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
             </p>
             <div className="flex items-center gap-0.5 px-1">
                 {[1, 2, 3, 4, 5].map((star) => (
-                    <button
+                    <TvButton
                         key={star}
                         type="button"
                         data-tv-item="1"
@@ -765,10 +766,10 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                         <Star
                             className={`h-5 w-5 ${ratingStars >= star ? 'fill-plex text-plex' : 'text-white/35'}`}
                         />
-                    </button>
+                    </TvButton>
                 ))}
                 {ratingStars > 0 ? (
-                    <button
+                    <TvButton
                         type="button"
                         data-tv-item="1"
                         data-tv-menu-item="1"
@@ -779,7 +780,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                         })}
                     >
                         {t('mediaPlayerPage.clearRating')}
-                    </button>
+                    </TvButton>
                 ) : null}
             </div>
         </div>
@@ -791,7 +792,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
             {useContextSheet ? watchlistBtn : null}
             {spoilerBtn}
             {canPlayNext ? (
-                <button
+                <TvButton
                     type="button"
                     role="menuitem"
                     data-tv-item="1"
@@ -804,10 +805,10 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                 >
                     <ListVideo className={iconClass} />
                     {t('mediaPlayerPage.playNext')}
-                </button>
+                </TvButton>
             ) : null}
             {canShuffle ? (
-                <button
+                <TvButton
                     type="button"
                     role="menuitem"
                     data-tv-item="1"
@@ -817,10 +818,10 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                 >
                     <Shuffle className={iconClass} />
                     {t('mediaPlayerPage.shufflePlay')}
-                </button>
+                </TvButton>
             ) : null}
             {canShuffle && (item.type === 'show' || item.type === 'season') ? (
-                <button
+                <TvButton
                     type="button"
                     role="menuitem"
                     data-tv-item="1"
@@ -834,10 +835,10 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                 >
                     <Shuffle className={iconClass} />
                     {t('mediaPlayerPage.shuffleUnwatched')}
-                </button>
+                </TvButton>
             ) : null}
             {canPlayFromHere ? (
-                <button
+                <TvButton
                     type="button"
                     role="menuitem"
                     data-tv-item="1"
@@ -847,10 +848,10 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                 >
                     <Play className={iconClass} />
                     {t('mediaPlayerPage.playFromHere')}
-                </button>
+                </TvButton>
             ) : null}
             {canPlayFromHere && item.type === 'episode' ? (
-                <button
+                <TvButton
                     type="button"
                     role="menuitem"
                     data-tv-item="1"
@@ -864,7 +865,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                 >
                     <Play className={iconClass} />
                     {t('mediaPlayerPage.playUnwatchedFromHere')}
-                </button>
+                </TvButton>
             ) : null}
             {useContextSheet && (item.type === 'episode' || item.type === 'season') ? (
                 <>
@@ -876,7 +877,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
             {!useContextSheet ? watchlistBtn : null}
             {!useContextSheet ? rateRow : null}
             {canPlaylist ? (
-                <button
+                <TvButton
                     type="button"
                     role="menuitem"
                     data-tv-item="1"
@@ -890,7 +891,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                     <ListPlus className={iconClass} />
                     <span className="min-w-0 flex-1 whitespace-nowrap">{t('mediaPlayerPage.addToPlaylist')}</span>
                     <ChevronRight className="h-3.5 w-3.5 shrink-0 opacity-60" />
-                </button>
+                </TvButton>
             ) : null}
             {useContextSheet || !isTv ? watchToggle : null}
             {canGoShow || canGoSeason || canGoArtist || canGoAlbum ? (
@@ -905,7 +906,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                 </>
             ) : null}
             {canGoArtist ? (
-                <button
+                <TvButton
                     type="button"
                     role="menuitem"
                     data-tv-item="1"
@@ -928,10 +929,10 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                     <span className="whitespace-nowrap">
                         {artistName ? t('mediaPlayerPage.goToNamed', { title: artistName }) : t('mediaPlayerPage.goToArtist')}
                     </span>
-                </button>
+                </TvButton>
             ) : null}
             {canGoAlbum ? (
-                <button
+                <TvButton
                     type="button"
                     role="menuitem"
                     data-tv-item="1"
@@ -955,10 +956,10 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                     <span className="whitespace-nowrap">
                         {albumName ? t('mediaPlayerPage.goToNamed', { title: albumName }) : t('mediaPlayerPage.goToAlbum')}
                     </span>
-                </button>
+                </TvButton>
             ) : null}
             {showRemoveFromContinueWatching ? (
-                <button
+                <TvButton
                     type="button"
                     role="menuitem"
                     data-tv-item="1"
@@ -975,10 +976,10 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                 >
                     <XCircle className={iconClass} />
                     {t('mediaPlayerPage.removeFromContinueWatching')}
-                </button>
+                </TvButton>
             ) : null}
             {canPickAudio ? (
-                <button
+                <TvButton
                     type="button"
                     role="menuitem"
                     data-tv-item="1"
@@ -997,10 +998,10 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                 >
                     <Volume2 className={iconClass} />
                     {t('mediaPlayerPage.selectAudio')}
-                </button>
+                </TvButton>
             ) : null}
             {canPickSubtitles ? (
-                <button
+                <TvButton
                     type="button"
                     role="menuitem"
                     data-tv-item="1"
@@ -1019,10 +1020,10 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                 >
                     <Captions className={iconClass} />
                     {t('mediaPlayerPage.selectSubtitles')}
-                </button>
+                </TvButton>
             ) : null}
             {canFileInfo ? (
-                <button
+                <TvButton
                     type="button"
                     role="menuitem"
                     data-tv-item="1"
@@ -1032,10 +1033,10 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                 >
                     <Info className={iconClass} />
                     {t('mediaPlayerPage.fileInfo')}
-                </button>
+                </TvButton>
             ) : null}
             {canRefreshMetadata ? (
-                <button
+                <TvButton
                     type="button"
                     role="menuitem"
                     data-tv-item="1"
@@ -1057,13 +1058,13 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                 >
                     <RefreshCw className={iconClass} />
                     {t('mediaPlayerPage.refreshMetadata')}
-                </button>
+                </TvButton>
             ) : null}
             {canOfflineDownload ? (
                 <>
                     {!useContextSheet ? <div className="my-1.5 border-t border-white/10" /> : null}
                     {downloadRow?.status === 'complete' ? (
-                        <button
+                        <TvButton
                             type="button"
                             role="menuitem"
                             data-tv-item="1"
@@ -1088,9 +1089,9 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                         >
                             <Trash2 className={iconClass} />
                             {t('mediaPlayerPage.downloadRemove')}
-                        </button>
+                        </TvButton>
                     ) : downloadRow?.status === 'downloading' || downloadRow?.status === 'queued' ? (
-                        <button
+                        <TvButton
                             type="button"
                             role="menuitem"
                             data-tv-item="1"
@@ -1116,9 +1117,9 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                                     percent: Math.min(99, Math.round((Number(downloadRow.bytes) / Number(downloadRow.totalBytes)) * 100)),
                                 })
                                 : t('mediaPlayerPage.downloadCancel')}
-                        </button>
+                        </TvButton>
                     ) : (
-                        <button
+                        <TvButton
                             type="button"
                             role="menuitem"
                             data-tv-item="1"
@@ -1157,7 +1158,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                         >
                             <Download className={iconClass} />
                             {t('mediaPlayerPage.download')}
-                        </button>
+                        </TvButton>
                     )}
                 </>
             ) : null}
@@ -1165,7 +1166,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                 <>
                     {!useContextSheet && !canOfflineDownload ? <div className="my-1.5 border-t border-white/10" /> : null}
                     {canAdminFileDownload ? (
-                        <button
+                        <TvButton
                             type="button"
                             role="menuitem"
                             data-tv-item="1"
@@ -1178,9 +1179,9 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                         >
                             <Download className={iconClass} />
                             {t('mediaPlayerPage.download')}
-                        </button>
+                        </TvButton>
                     ) : null}
-                    <button
+                    <TvButton
                         type="button"
                         role="menuitem"
                         data-tv-item="1"
@@ -1200,13 +1201,13 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                     >
                         <Trash2 className={iconClass} />
                         {t('mediaPlayerPage.delete')}
-                    </button>
+                    </TvButton>
                 </>
             ) : null}
         </>
     ) : (
         <div className={`flex flex-col ${useContextSheet ? 'min-h-0 flex-1' : 'max-h-72'}`}>
-            <button
+            <TvButton
                 type="button"
                 data-tv-item="1"
                 data-tv-menu-item="1"
@@ -1216,10 +1217,10 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                 onClick={() => setMode('main')}
             >
                 {t('mediaPlayerPage.back')}
-            </button>
+            </TvButton>
             <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar" data-tv-overlay-scroll="1">
                 {playlists.map((playlist) => (
-                    <button
+                    <TvButton
                         key={playlist.ratingKey}
                         type="button"
                         data-tv-item="1"
@@ -1231,7 +1232,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                         })}
                     >
                         <span className="truncate">{playlist.title}</span>
-                    </button>
+                    </TvButton>
                 ))}
             </div>
             <form
@@ -1262,7 +1263,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
     const showSeasonLinks = showSeasonQuickLinks ? (
         <>
             <div className="my-2 border-t border-white/10" />
-            <button
+            <TvButton
                 type="button"
                 role="menuitem"
                 data-tv-item="1"
@@ -1272,9 +1273,9 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
             >
                 <Tv className={iconClass} />
                 <span className="whitespace-nowrap">{t('mediaPlayerPage.goToShow')}</span>
-            </button>
+            </TvButton>
             {sheetSeasons.map((season) => (
-                <button
+                <TvButton
                     key={season.ratingKey}
                     type="button"
                     role="menuitem"
@@ -1297,7 +1298,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                     <span className="min-w-0 flex-1 truncate">
                         {season.title || (season.index != null ? t('mediaPlayerPage.goToNamed', { title: `Season ${season.index}` }) : t('mediaPlayerPage.goToSeason'))}
                     </span>
-                </button>
+                </TvButton>
             ))}
         </>
     ) : null;
@@ -1354,7 +1355,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                             {(canPrimaryOpen || canPrimaryWatch || (mode === 'main' && rateRow)) ? (
                                 <div className="mb-4 flex w-full shrink-0 flex-col gap-2.5">
                                     {canPrimaryWatch ? (
-                                        <button
+                                        <TvButton
                                             type="button"
                                             role="menuitem"
                                             data-tv-item="1"
@@ -1365,11 +1366,11 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                                         >
                                             <Play className="h-5 w-5 fill-current" />
                                             {primaryWatchLabel}
-                                        </button>
+                                        </TvButton>
                                     ) : null}
                                     {mode === 'main' ? rateRow : null}
                                     {canPrimaryOpen ? (
-                                        <button
+                                        <TvButton
                                             type="button"
                                             role="menuitem"
                                             data-tv-item="1"
@@ -1379,7 +1380,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                                             onClick={() => choose(() => onOpenItem?.(item))}
                                         >
                                             {t('mediaPlayerPage.moreInfo')}
-                                        </button>
+                                        </TvButton>
                                     ) : null}
                                 </div>
                             ) : null}
@@ -1448,7 +1449,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
 
     return (
         <div className={variant === 'toolbar' ? 'relative media-details-action-slot' : ''}>
-            <button
+            <TvButton
                 ref={triggerRef}
                 type="button"
                 tabIndex={hideTrigger || useMobileModal ? -1 : undefined}
@@ -1473,7 +1474,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
             >
                 <MoreVertical className="h-4 w-4" />
                 {variant === 'toolbar' ? <span className="media-details-action-label">{t('mediaPlayerPage.actionMore')}</span> : null}
-            </button>
+            </TvButton>
             {menu}
             {fileInfoItem ? (
                 <PlayerFileInfo
@@ -1510,7 +1511,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                                         ? String(row.id) === String(audioStreamId || audioTracks[0]?.id)
                                         : String(row.id) === String(subtitleStreamId || '0');
                                     return (
-                                        <button
+                                        <TvButton
                                             key={row.id}
                                             type="button"
                                             data-tv-item="1"
@@ -1530,12 +1531,12 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                                             <span className="min-w-0 truncate">{row.label}</span>
                                             {/* A tick, not a fill: a filled row read as a second focus ring on TV. */}
                                             {selected ? <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden /> : null}
-                                        </button>
+                                        </TvButton>
                                     );
                                 })}
                             </div>
                         </div>
-                        <button
+                        <TvButton
                             type="button"
                             data-tv-item="1"
                             data-tv-action="1"
@@ -1543,7 +1544,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                             className="mt-3 shrink-0 rounded-xl px-4 py-2.5 text-sm font-bold text-muted hover:text-text outline-none"
                         >
                             {t('common.close')}
-                        </button>
+                        </TvButton>
                     </div>
                 </div>,
                 document.body,

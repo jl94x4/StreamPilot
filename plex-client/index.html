@@ -635,8 +635,10 @@
     html[data-tv="1"] .player-row-header-title,
     html[data-tv="1"] .player-row-header h2,
     html[data-tv="1"] .player-row-header > button,
+    html[data-tv="1"] .player-row-header > [role="button"],
     html[data-tv="1"] .player-home-rows [data-tv-row="1"] h2,
     html[data-tv="1"] .player-home-rows [data-tv-row="1"] > div > button,
+    html[data-tv="1"] .player-home-rows [data-tv-row="1"] > div > [role="button"],
     html[data-tv="1"] .player-home-rows .player-row-header-title,
     html[data-tv="1"] [data-tv-library="1"] .player-row-header-title {
       font-family: "Satoshi", "Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif !important;
@@ -796,7 +798,8 @@
     html[data-tv="1"] [data-tv-action="1"]:not([data-tv-play="1"]):not([data-tv-episode-neighbor-btn="1"]):focus-visible *:not(.smp-version-res):not(.smp-version-detail):not(.smp-version-rate) {
       color: #0b0b0d !important;
     }
-    html[data-tv="1"] [data-tv-library-tabs="1"] button {
+    html[data-tv="1"] [data-tv-library-tabs="1"] button ,
+    html[data-tv="1"] [data-tv-library-tabs="1"] [role="button"] {
       min-height: 2.6rem !important;
       padding: 0.45rem 1.1rem !important;
       border-radius: 999px !important;
@@ -806,7 +809,8 @@
       font-size: 1rem !important;
       font-weight: 700 !important;
     }
-    html[data-tv="1"] [data-tv-library-tabs="1"] button[aria-current="page"] {
+    html[data-tv="1"] [data-tv-library-tabs="1"] button[aria-current="page"] ,
+    html[data-tv="1"] [data-tv-library-tabs="1"] [role="button"][aria-current="page"] {
       border-color: rgb(var(--tv-accent) / 0.75) !important;
       background: rgb(var(--tv-accent) / 0.16) !important;
       color: rgb(var(--tv-accent)) !important;
@@ -816,7 +820,8 @@
       flex-wrap: wrap !important;
       gap: 0.65rem !important;
     }
-    html[data-tv="1"] [data-tv-settings-tabs="1"] button {
+    html[data-tv="1"] [data-tv-settings-tabs="1"] button ,
+    html[data-tv="1"] [data-tv-settings-tabs="1"] [role="button"] {
       min-height: 3.15rem !important;
       padding: 0.5rem 1.25rem !important;
       border-radius: 0.7rem !important;
@@ -826,7 +831,8 @@
       font-size: 1.05rem !important;
       font-weight: 700 !important;
     }
-    html[data-tv="1"] [data-tv-settings-tabs="1"] button[aria-current="page"] {
+    html[data-tv="1"] [data-tv-settings-tabs="1"] button[aria-current="page"] ,
+    html[data-tv="1"] [data-tv-settings-tabs="1"] [role="button"][aria-current="page"] {
       border-color: rgb(var(--tv-accent) / 0.75) !important;
       background: rgb(var(--tv-accent) / 0.16) !important;
       color: rgb(var(--tv-accent)) !important;
@@ -837,7 +843,8 @@
       max-width: none !important;
       flex: 0 0 auto !important;
     }
-    html[data-tv="1"] [data-tv-library-filters="1"] button {
+    html[data-tv="1"] [data-tv-library-filters="1"] button ,
+    html[data-tv="1"] [data-tv-library-filters="1"] [role="button"] {
       width: auto !important;
       min-height: 3.05rem !important;
       min-width: max-content !important;
@@ -846,7 +853,8 @@
       font-size: 1.05rem !important;
       font-weight: 700 !important;
     }
-    html[data-tv="1"] [data-tv-library-filters="1"] button span {
+    html[data-tv="1"] [data-tv-library-filters="1"] button span ,
+    html[data-tv="1"] [data-tv-library-filters="1"] [role="button"] span {
       overflow: visible !important;
       text-overflow: unset !important;
       white-space: nowrap !important;
@@ -901,7 +909,9 @@
       margin: calc(-2px / var(--tv-zoom, 1)) !important;
     }
     html[data-tv="1"] [data-tv-library-filters="1"] button:focus,
-    html[data-tv="1"] [data-tv-library-filters="1"] button:focus-visible {
+    html[data-tv="1"] [data-tv-library-filters="1"] [role="button"]:focus,
+    html[data-tv="1"] [data-tv-library-filters="1"] button:focus-visible ,
+    html[data-tv="1"] [data-tv-library-filters="1"] [role="button"]:focus-visible {
       z-index: 8 !important;
       position: relative !important;
     }
@@ -949,7 +959,8 @@
     html[data-tv="1"] [data-tv-alpha="1"]::-webkit-scrollbar {
       display: none !important;
     }
-    html[data-tv="1"] [data-tv-alpha="1"] button {
+    html[data-tv="1"] [data-tv-alpha="1"] button ,
+    html[data-tv="1"] [data-tv-alpha="1"] [role="button"] {
       flex: 1 1 0 !important;
       width: 100% !important;
       min-height: 0 !important;
@@ -964,17 +975,21 @@
       line-height: 1 !important;
       letter-spacing: 0 !important;
     }
-    html[data-tv="1"] [data-tv-alpha="1"] button[data-tv-key="alpha-all"] {
+    html[data-tv="1"] [data-tv-alpha="1"] button[data-tv-key="alpha-all"] ,
+    html[data-tv="1"] [data-tv-alpha="1"] [role="button"][data-tv-key="alpha-all"] {
       font-size: 0.58rem !important;
     }
-    html[data-tv="1"] [data-tv-alpha="1"] button[aria-current="true"] {
+    html[data-tv="1"] [data-tv-alpha="1"] button[aria-current="true"] ,
+    html[data-tv="1"] [data-tv-alpha="1"] [role="button"][aria-current="true"] {
       border-color: transparent !important;
       background: rgb(var(--tv-accent) / 0.28) !important;
       color: rgb(var(--tv-accent-soft)) !important;
     }
     /* Focused letter: solid pill so D-pad position is obvious and not clipped. */
     html[data-tv="1"] [data-tv-alpha="1"] button:focus,
+    html[data-tv="1"] [data-tv-alpha="1"] [role="button"]:focus,
     html[data-tv="1"] [data-tv-alpha="1"] button:focus-visible,
+    html[data-tv="1"] [data-tv-alpha="1"] [role="button"]:focus-visible,
     html[data-tv="1"] [data-tv-alpha-btn="1"]:focus,
     html[data-tv="1"] [data-tv-alpha-btn="1"]:focus-visible {
       outline: none !important;
@@ -2096,6 +2111,7 @@
     html[data-tv="1"] .player-row-header-title,
     html[data-tv="1"] .player-row-header h2,
     html[data-tv="1"] .player-row-header > button,
+    html[data-tv="1"] .player-row-header > [role="button"],
     html[data-tv="1"] .player-library-title,
     html[data-tv="1"] [data-tv-library="1"] h1,
     html[data-tv="1"] .player-home-stage .player-row-header-title,
@@ -4521,8 +4537,11 @@
       letter-spacing: 0 !important;
     }
     [data-tv-context-sheet="1"] button,
+    [data-tv-context-sheet="1"] [role="button"],
     .player-mobile-context-modal button,
-    .player-context-menu button {
+    .player-mobile-context-modal [role="button"],
+    .player-context-menu button ,
+    .player-context-menu [role="button"] {
       font-weight: 500 !important;
     }
     /* Diagnostics (Settings → Display): frame meter, and switches to turn effects off. */

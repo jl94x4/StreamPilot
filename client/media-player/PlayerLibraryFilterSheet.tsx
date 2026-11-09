@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, ChevronLeft, ChevronRight, SlidersHorizontal, X } from 'lucide-react';
 import { useDiscoverI18n } from './host';
+import { TvButton } from '../shared/TvButton';
 
 export type LibraryFilterGroup = {
     id: string;
@@ -107,7 +108,7 @@ export const PlayerLibraryFilterSheet: React.FC<Props> = ({ groups, toggles, onC
 
     return (
         <>
-            <button
+            <TvButton
                 ref={triggerRef}
                 type="button"
                 data-tv-item="1"
@@ -121,9 +122,9 @@ export const PlayerLibraryFilterSheet: React.FC<Props> = ({ groups, toggles, onC
                 <SlidersHorizontal className="h-[1.1em] w-[1.1em]" strokeWidth={2.25} aria-hidden />
                 <span>{t('mediaPlayerPage.filters')}</span>
                 {activeCount ? <span className="player-library-filter-count">{activeCount}</span> : null}
-            </button>
+            </TvButton>
             {activeGroups.map((row) => (
-                <button
+                <TvButton
                     key={`chip-${row.id}`}
                     type="button"
                     data-tv-item="1"
@@ -135,10 +136,10 @@ export const PlayerLibraryFilterSheet: React.FC<Props> = ({ groups, toggles, onC
                 >
                     <span>{valueLabel(row)}</span>
                     <X className="h-[0.95em] w-[0.95em]" strokeWidth={2.5} aria-hidden />
-                </button>
+                </TvButton>
             ))}
             {activeToggles.map((row) => (
-                <button
+                <TvButton
                     key={`chip-${row.id}`}
                     type="button"
                     data-tv-item="1"
@@ -150,7 +151,7 @@ export const PlayerLibraryFilterSheet: React.FC<Props> = ({ groups, toggles, onC
                 >
                     <span>{row.label}</span>
                     <X className="h-[0.95em] w-[0.95em]" strokeWidth={2.5} aria-hidden />
-                </button>
+                </TvButton>
             ))}
             {open && typeof document !== 'undefined' ? createPortal(
                 <div
@@ -184,7 +185,7 @@ export const PlayerLibraryFilterSheet: React.FC<Props> = ({ groups, toggles, onC
                                 [{ value: '', label: group.allLabel }, ...group.options].map((opt) => {
                                     const isSelected = opt.value === group.value;
                                     return (
-                                        <button
+                                        <TvButton
                                             key={opt.value || '__all'}
                                             type="button"
                                             role="menuitemradio"
@@ -205,13 +206,13 @@ export const PlayerLibraryFilterSheet: React.FC<Props> = ({ groups, toggles, onC
                                             ) : (
                                                 <span className="h-5 w-5 shrink-0" aria-hidden />
                                             )}
-                                        </button>
+                                        </TvButton>
                                     );
                                 })
                             ) : (
                                 <>
                                     {activeCount ? (
-                                        <button
+                                        <TvButton
                                             type="button"
                                             role="menuitem"
                                             className={`${rowClass} text-white/90`}
@@ -225,10 +226,10 @@ export const PlayerLibraryFilterSheet: React.FC<Props> = ({ groups, toggles, onC
                                         >
                                             <span className="min-w-0 truncate">{t('mediaPlayerPage.clearFilters')}</span>
                                             <X className="h-5 w-5 shrink-0" strokeWidth={2.5} aria-hidden />
-                                        </button>
+                                        </TvButton>
                                     ) : null}
                                     {toggles.map((row) => (
-                                        <button
+                                        <TvButton
                                             key={row.id}
                                             type="button"
                                             role="menuitemcheckbox"
@@ -246,10 +247,10 @@ export const PlayerLibraryFilterSheet: React.FC<Props> = ({ groups, toggles, onC
                                             ) : (
                                                 <span className="h-5 w-5 shrink-0" aria-hidden />
                                             )}
-                                        </button>
+                                        </TvButton>
                                     ))}
                                     {groups.map((row) => (
-                                        <button
+                                        <TvButton
                                             key={row.id}
                                             type="button"
                                             role="menuitem"
@@ -271,7 +272,7 @@ export const PlayerLibraryFilterSheet: React.FC<Props> = ({ groups, toggles, onC
                                                 <span className="truncate">{valueLabel(row)}</span>
                                                 <ChevronRight className="h-4 w-4 shrink-0" strokeWidth={2.5} aria-hidden />
                                             </span>
-                                        </button>
+                                        </TvButton>
                                     ))}
                                 </>
                             )}

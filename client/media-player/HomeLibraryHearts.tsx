@@ -3,6 +3,7 @@ import { Heart } from 'lucide-react';
 import { useDiscoverI18n } from '../discovery/i18n';
 import { homeLibraryKey, homeLibraryShown, type HomeLibraryPicks } from './homeLibraries';
 import type { PlayerSection } from './types';
+import { TvButton } from '../shared/TvButton';
 
 const HOME_LIBRARY_TYPES = new Set(['movie', 'show', 'artist']);
 
@@ -68,7 +69,7 @@ export const HomeLibraryHearts: React.FC<{
                     {rows.map((library) => {
                         const shown = homeLibraryShown(picks, library.serverId, library.key);
                         return (
-                            <button
+                            <TvButton
                                 key={homeLibraryKey(library.serverId, library.key)}
                                 type="button"
                                 data-tv-item="1"
@@ -89,7 +90,7 @@ export const HomeLibraryHearts: React.FC<{
                                     strokeWidth={2.2}
                                     aria-label={shown ? t('mediaPlayerPage.homeLibraryShown') : t('mediaPlayerPage.homeLibraryHidden')}
                                 />
-                            </button>
+                            </TvButton>
                         );
                     })}
                 </div>

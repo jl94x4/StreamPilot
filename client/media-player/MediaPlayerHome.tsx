@@ -88,6 +88,7 @@ import { peekSurfaceColor, sampleBackdropSurfaceColor } from '../shared/imageFoc
 import { TV_FLOOR_RGB, tvTintSurfaceRgb } from './tvSurface';
 import { homeHubHiddenByPicks, homeLibraryShown } from './homeLibraries';
 import type { PlayerHome, PlayerItem, PlayerLibraryHub, PlayerPlayOptions, PlayerSection } from './types';
+import { TvButton } from '../shared/TvButton';
 
 type Props = {
     active?: boolean;
@@ -2814,7 +2815,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                         {chipLibraries.map((library) => {
                             const Icon = libraryChipIcon(library.type);
                             return (
-                                <button
+                                <TvButton
                                     key={library.key}
                                     type="button"
                                     data-tv-item="1"
@@ -2823,7 +2824,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                                 >
                                     <Icon className="h-3.5 w-3.5 shrink-0 opacity-80" />
                                     <span className="max-w-[10rem] truncate sm:max-w-[14rem]">{library.title}</span>
-                                </button>
+                                </TvButton>
                             );
                         })}
                     </div>
@@ -2909,7 +2910,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                     aria-live="polite"
                 >
                     <p className="text-sm text-white/80">{t('mediaPlayerPage.longPressHint')}</p>
-                    <button
+                    <TvButton
                         type="button"
                         data-tv-item="1"
                         data-tv-action="1"
@@ -2920,7 +2921,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                         className="shrink-0 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-bold text-white outline-none"
                     >
                         {t('mediaPlayerPage.longPressHintDismiss')}
-                    </button>
+                    </TvButton>
                 </div>
             ) : null}
 

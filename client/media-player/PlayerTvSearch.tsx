@@ -1,6 +1,7 @@
 import React from 'react';
 import { Delete, History, Search, Trash2 } from 'lucide-react';
 import { useDiscoverI18n } from './host';
+import { TvButton } from '../shared/TvButton';
 
 /** Alphabetical 6-column pad (Plex / Netflix TV style). Row and column feed the remote's search plan. */
 export const TV_SEARCH_KEY_ROWS = [
@@ -53,7 +54,7 @@ export const PlayerTvSearchHistory: React.FC<HistoryProps> = ({ recent, onPick, 
                     <p className="player-tv-search-label">{t('mediaPlayerPage.searchRecent')}</p>
                     <div className="player-tv-search-history-list">
                         {recent.map((row, index) => (
-                            <button
+                            <TvButton
                                 key={row}
                                 type="button"
                                 className="player-tv-search-history-item"
@@ -63,9 +64,9 @@ export const PlayerTvSearchHistory: React.FC<HistoryProps> = ({ recent, onPick, 
                             >
                                 <History className="player-tv-search-history-icon h-5 w-5" />
                                 <span className="player-tv-search-history-text">{row}</span>
-                            </button>
+                            </TvButton>
                         ))}
-                        <button
+                        <TvButton
                             type="button"
                             className="player-tv-search-history-clear"
                             data-tv-item="1"
@@ -74,7 +75,7 @@ export const PlayerTvSearchHistory: React.FC<HistoryProps> = ({ recent, onPick, 
                         >
                             <Trash2 className="h-4 w-4" />
                             {t('mediaPlayerPage.searchClearHistory')}
-                        </button>
+                        </TvButton>
                     </div>
                 </section>
             ) : null}
@@ -144,7 +145,7 @@ export const PlayerTvSearch: React.FC<Props> = ({ query, onChange }) => {
                                 ? t('mediaPlayerPage.searchDelete')
                                 : key.toUpperCase();
                     return (
-                        <button
+                        <TvButton
                             key={key}
                             type="button"
                             className={`player-tv-search-key${action ? ' is-action' : ''}`}
@@ -157,7 +158,7 @@ export const PlayerTvSearch: React.FC<Props> = ({ query, onChange }) => {
                             onClick={() => press(key)}
                         >
                             {key === 'backspace' ? <Delete className="h-5 w-5" /> : label}
-                        </button>
+                        </TvButton>
                     );
                 }))}
             </div>

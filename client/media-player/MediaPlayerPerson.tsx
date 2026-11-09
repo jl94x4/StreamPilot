@@ -25,6 +25,7 @@ import { PlayerTvStatusPanel } from './PlayerTvStatusPanel';
 import { formatPersonDate, personAgeYears, splitBiography } from '../discovery/personCredits';
 import { safeImageSrc } from '../shared/safeUrl';
 import type { PlayerItem, PlayerPersonCreditRow, PlayerPersonProfile, PlayerPlayOptions } from './types';
+import { TvButton } from '../shared/TvButton';
 
 type Props = {
     actorId: string;
@@ -439,7 +440,7 @@ export const MediaPlayerPerson: React.FC<Props> = ({ actorId, name, thumb, onBac
                                     {bioShown}
                                 </p>
                                 {bioHasMore ? (
-                                    <button
+                                    <TvButton
                                         type="button"
                                         data-tv-item="1"
                                         data-tv-action="1"
@@ -449,7 +450,7 @@ export const MediaPlayerPerson: React.FC<Props> = ({ actorId, name, thumb, onBac
                                     >
                                         {bioExpanded ? t('common.showLess') : t('person.more')}
                                         <ChevronDown className={`h-4 w-4 transition-transform ${bioExpanded ? 'rotate-180' : ''}`} />
-                                    </button>
+                                    </TvButton>
                                 ) : null}
                             </div>
 
@@ -581,7 +582,7 @@ export const MediaPlayerPerson: React.FC<Props> = ({ actorId, name, thumb, onBac
                                             row.onServer ? 'is-on-server' : 'is-static'
                                         }`;
                                         return (
-                                            <button
+                                            <TvButton
                                                 key={`${row.id}-${index}`}
                                                 type="button"
                                                 onClick={() => { if (interactive) openCredit(row); }}
@@ -608,7 +609,7 @@ export const MediaPlayerPerson: React.FC<Props> = ({ actorId, name, thumb, onBac
                                                         {t('person.onServerBadge')}
                                                     </span>
                                                 ) : null}
-                                            </button>
+                                            </TvButton>
                                         );
                                     })}
                                 </div>

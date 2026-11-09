@@ -29,5 +29,8 @@ module.exports = {
       }
     },
   },
-  plugins: [],
+  plugins: [
+    // TV renders some buttons as role="button" divs (shared/TvButton): disabled: must match those too.
+    ({ addVariant }) => { addVariant('disabled', ['&:disabled', '&[aria-disabled="true"]']); },
+  ],
 }

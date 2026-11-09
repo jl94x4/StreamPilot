@@ -14,6 +14,7 @@ import {
 import type { PlayerItem, PlayerPersonCredit } from './types';
 import { useDiscoveryPreferences } from '../discovery/useDiscoveryPreferences';
 import { usePlayerSettings } from './usePlayerSettings';
+import { TvButton } from '../shared/TvButton';
 
 type PersonHandler = (person: { id: string; name: string; thumb?: string | null }) => void;
 type StudioHandler = (studio: { key: string; name: string; sectionKey?: string; mediaType?: 'movie' | 'show' }) => void;
@@ -775,7 +776,7 @@ const EpisodeNeighborCard: React.FC<{
             className="player-episode-neighbor relative flex min-h-[5.8rem] min-w-0 shrink-0 items-center gap-3.5 rounded-xl border border-border bg-white/5 px-3.5 py-2.5 w-[28.6rem] max-w-full"
             data-tv-episode-neighbor="1"
         >
-            <button
+            <TvButton
                 type="button"
                 data-tv-item="1"
                 data-tv-action="1"
@@ -805,7 +806,7 @@ const EpisodeNeighborCard: React.FC<{
                         <p className="text-[11px] text-muted">{formatPlayerDuration(item.durationMs)}</p>
                     ) : null}
                 </div>
-            </button>
+            </TvButton>
             {item.canPlay ? (
                 <button
                     type="button"

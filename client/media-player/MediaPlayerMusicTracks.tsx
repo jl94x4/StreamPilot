@@ -2,6 +2,7 @@ import React from 'react';
 import { useDiscoverI18n } from './host';
 import { formatPlayerDuration } from './playerUtils';
 import type { PlayerItem } from './types';
+import { TvButton } from '../shared/TvButton';
 
 type Props = {
     tracks: PlayerItem[];
@@ -22,7 +23,7 @@ export const MediaPlayerMusicTracks: React.FC<Props> = ({ tracks, activeKey, onP
                     const active = String(row.ratingKey) === String(activeKey || '');
                     const number = row.index || index + 1;
                     return (
-                        <button
+                        <TvButton
                             key={row.ratingKey || `${row.title}-${index}`}
                             type="button"
                             data-tv-item="1"
@@ -44,7 +45,7 @@ export const MediaPlayerMusicTracks: React.FC<Props> = ({ tracks, activeKey, onP
                             <span className="shrink-0 text-sm font-semibold tabular-nums text-white/45">
                                 {formatPlayerDuration(row.durationMs) || ''}
                             </span>
-                        </button>
+                        </TvButton>
                     );
                 })}
             </div>

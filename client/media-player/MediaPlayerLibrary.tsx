@@ -58,6 +58,7 @@ import {
     withShowPoster,
 } from './playerUtils';
 import type { PlayerItem, PlayerLibraryHome, PlayerLibraryHub, PlayerPlayOptions } from './types';
+import { TvButton } from '../shared/TvButton';
 
 type LibraryTab = 'home' | 'browse' | 'collections' | 'studios';
 
@@ -1241,7 +1242,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                 {tabs.map((row) => {
                     const selected = tab === row.id;
                     return (
-                        <button
+                        <TvButton
                             key={row.id}
                             type="button"
                             data-tv-item="1"
@@ -1256,7 +1257,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                             }`}
                         >
                             {row.label}
-                        </button>
+                        </TvButton>
                     );
                 })}
             </div>
@@ -1537,7 +1538,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                                                 key={`net-${card.key}-${card.title}`}
                                                 className="player-studio-network-card relative z-0 w-[10.5rem] flex-shrink-0 snap-start sm:w-[12rem]"
                                             >
-                                                <button
+                                                <TvButton
                                                     type="button"
                                                     data-tv-item={tvShell ? '1' : undefined}
                                                     data-tv-key={tvShell ? `studio-network-${card.key}` : undefined}
@@ -1582,7 +1583,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                                                             </span>
                                                         )}
                                                     </div>
-                                                </button>
+                                                </TvButton>
                                             </div>
                                         );
                                     })}
@@ -1607,7 +1608,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                                             key={`stu-${card.key}-${card.title}`}
                                             className="player-studio-plate-card relative z-0 w-[17.5rem] flex-shrink-0 snap-start sm:w-[20rem]"
                                         >
-                                            <button
+                                            <TvButton
                                                 type="button"
                                                 data-tv-item={tvShell ? '1' : undefined}
                                                 data-tv-key={tvShell ? `studio-studio-${card.key}` : undefined}
@@ -1635,7 +1636,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                                                         {card.title}
                                                     </span>
                                                 )}
-                                            </button>
+                                            </TvButton>
                                         </div>
                                     ))}
                                 </Carousel>
@@ -1652,7 +1653,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                     {sort === 'titleSort' ? (
                         <div data-tv-alpha-track="1">
                             <div data-tv-alpha="1" role="listbox" aria-label={t('mediaPlayerPage.alphaJump')}>
-                                <button
+                                <TvButton
                                     type="button"
                                     role="option"
                                     aria-selected={!letter}
@@ -1662,11 +1663,11 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                                     onClick={() => setLetter('')}
                                 >
                                     {t('mediaPlayerPage.alphaAll')}
-                                </button>
+                                </TvButton>
                                 {alphaLetters.map((row) => {
                                     const current = row.title.toUpperCase() === markedLetter || (!!letter && row.key === letter);
                                     return (
-                                        <button
+                                        <TvButton
                                             key={row.key}
                                             type="button"
                                             role="option"
@@ -1678,7 +1679,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                                             onClick={() => setLetter(letter === row.key ? '' : row.key)}
                                         >
                                             {row.title}
-                                        </button>
+                                        </TvButton>
                                     );
                                 })}
                             </div>

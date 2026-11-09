@@ -78,6 +78,7 @@ import { isWatchTogetherAvailable } from './watchTogetherClient';
 import { readPerfFlags, writePerfFlags } from './PlayerPerfOverlay';
 import { playerAccentCss } from './playerAppearance';
 import { previewNavSound } from './navSounds';
+import { TvButton } from '../shared/TvButton';
 
 type Props = {
     onBack: () => void;
@@ -154,7 +155,7 @@ const PerfDiagnosticsRows: React.FC = () => {
 const TvToggleRow: React.FC<TvToggleRowProps> = ({ title, description, checked, onChange }) => {
     const { t } = useDiscoverI18n();
     return (
-        <button
+        <TvButton
             type="button"
             data-tv-item="1"
             data-tv-action="1"
@@ -169,7 +170,7 @@ const TvToggleRow: React.FC<TvToggleRowProps> = ({ title, description, checked, 
             <span className={`shrink-0 text-base font-black ${checked ? 'text-plex' : 'text-muted'}`}>
                 {checked ? t('mediaPlayerPage.settingsOn') : t('mediaPlayerPage.settingsOff')}
             </span>
-        </button>
+        </TvButton>
     );
 };
 
@@ -238,7 +239,7 @@ const TvChoiceRow: React.FC<TvChoiceRowProps> = ({ title, description, value, op
 
     return (
         <>
-            <button
+            <TvButton
                 ref={triggerRef}
                 type="button"
                 data-tv-item="1"
@@ -255,7 +256,7 @@ const TvChoiceRow: React.FC<TvChoiceRowProps> = ({ title, description, value, op
                     {selected?.icon}
                     <ChoiceLabel row={selected} />
                 </span>
-            </button>
+            </TvButton>
             {open && typeof document !== 'undefined' ? createPortal(
                 <div
                     className="fixed inset-0 z-[3500] flex justify-end bg-black/35"
@@ -289,7 +290,7 @@ const TvChoiceRow: React.FC<TvChoiceRowProps> = ({ title, description, value, op
                             {options.map((row) => {
                                 const isSelected = row.value === value;
                                 return (
-                                    <button
+                                    <TvButton
                                         key={row.value}
                                         type="button"
                                         role="menuitem"
@@ -315,7 +316,7 @@ const TvChoiceRow: React.FC<TvChoiceRowProps> = ({ title, description, value, op
                                         ) : (
                                             <span className="h-5 w-5 shrink-0" aria-hidden />
                                         )}
-                                    </button>
+                                    </TvButton>
                                 );
                             })}
                         </div>
@@ -347,7 +348,7 @@ const TvReorderList: React.FC<{
                     {description ? <p className="mt-1 text-sm text-muted">{description}</p> : null}
                 </div>
                 {onReset ? (
-                    <button
+                    <TvButton
                         type="button"
                         data-tv-item="1"
                         data-tv-action="1"
@@ -355,7 +356,7 @@ const TvReorderList: React.FC<{
                         className="shrink-0 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-bold text-muted outline-none"
                     >
                         {resetLabel || t('mediaPlayerPage.homeRowReset')}
-                    </button>
+                    </TvButton>
                 ) : null}
             </div>
             <div className="flex flex-col gap-2">
@@ -368,7 +369,7 @@ const TvReorderList: React.FC<{
                             {index + 1}
                         </span>
                         <p className="min-w-0 flex-1 truncate text-base font-bold text-text">{item.label}</p>
-                        <button
+                        <TvButton
                             type="button"
                             data-tv-item="1"
                             data-tv-action="1"
@@ -378,8 +379,8 @@ const TvReorderList: React.FC<{
                             aria-label={t('mediaPlayerPage.homeRowMoveUp')}
                         >
                             <ChevronUp className="h-4 w-4" />
-                        </button>
-                        <button
+                        </TvButton>
+                        <TvButton
                             type="button"
                             data-tv-item="1"
                             data-tv-action="1"
@@ -389,7 +390,7 @@ const TvReorderList: React.FC<{
                             aria-label={t('mediaPlayerPage.homeRowMoveDown')}
                         >
                             <ChevronDown className="h-4 w-4" />
-                        </button>
+                        </TvButton>
                     </div>
                 ))}
             </div>
@@ -416,7 +417,7 @@ const SettingsTabBar: React.FC<{
         {tabs.map((row) => {
             const selected = value === row.id;
             return (
-                <button
+                <TvButton
                     key={row.id}
                     type="button"
                     role="tab"
@@ -434,7 +435,7 @@ const SettingsTabBar: React.FC<{
                     }`}
                 >
                     {row.label}
-                </button>
+                </TvButton>
             );
         })}
     </div>
@@ -1005,7 +1006,7 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                             </p>
                         ) : null}
                         {wtRelayDraft || wtRelayBaseline ? (
-                            <button
+                            <TvButton
                                 type="button"
                                 data-tv-item="1"
                                 data-tv-action="1"
@@ -1022,7 +1023,7 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                                 }
                             >
                                 {t('mediaPlayerPage.settingsWtRelayUrlClear')}
-                            </button>
+                            </TvButton>
                         ) : null}
                     </>
                 ) : null}
@@ -1068,7 +1069,7 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                             </p>
                         )}
                         {portalUrlDraft || portalUrlBaseline ? (
-                            <button
+                            <TvButton
                                 type="button"
                                 data-tv-item="1"
                                 data-tv-action="1"
@@ -1085,7 +1086,7 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                                 }
                             >
                                 {t('mediaPlayerPage.settingsPortalUrlClear')}
-                            </button>
+                            </TvButton>
                         ) : null}
                     </>
                 ) : null}
@@ -1100,7 +1101,7 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                                 {t('mediaPlayerPage.settingsWatchTogetherJoinHint')}
                             </p>
                         ) : null}
-                        <button
+                        <TvButton
                             type="button"
                             data-tv-item="1"
                             data-tv-action="1"
@@ -1120,7 +1121,7 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                             }
                         >
                             {t('mediaPlayerPage.settingsWatchTogetherJoin')}
-                        </button>
+                        </TvButton>
                     </div>
                 ) : null}
             </div>
@@ -1138,7 +1139,7 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                 <p className="text-sm font-bold text-red-400">{t('mediaPlayerPage.settingsSaveError')}</p>
             ) : null}
             <div className="flex flex-wrap items-center gap-3">
-                <button
+                <TvButton
                     type="button"
                     data-tv-item="1"
                     data-tv-action="1"
@@ -1149,8 +1150,8 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                 >
                     {saving ? <Loader2 className="h-5 w-5 animate-spin" /> : <Save className="h-5 w-5" />}
                     {t('mediaPlayerPage.saveSettings')}
-                </button>
-                <button
+                </TvButton>
+                <TvButton
                     type="button"
                     data-tv-item="1"
                     data-tv-action="1"
@@ -1159,7 +1160,7 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                     className={`inline-flex h-12 items-center justify-center rounded-xl border border-white/15 bg-white/5 px-5 text-base font-bold text-text outline-none hover:bg-white/10 ${saveLocked ? 'opacity-40' : ''}`}
                 >
                     {t('mediaPlayerPage.discardChanges')}
-                </button>
+                </TvButton>
             </div>
         </div>
     );

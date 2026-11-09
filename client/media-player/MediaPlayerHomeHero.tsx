@@ -11,6 +11,7 @@ import { PlayerClearLogo } from './PlayerClearLogo';
 import { PlayerBackdropImage } from './PlayerBackdropImage';
 import { plexBackdropUrl, plexLogoUrl, prefetchPlayerImages } from './playerUtils';
 import type { PlayerItem, PlayerPlayOptions } from './types';
+import { TvButton } from '../shared/TvButton';
 
 export type HomeHeroSlide = {
     ratingKey: string;
@@ -393,7 +394,7 @@ export const MediaPlayerHomeHero: React.FC<Props> = ({ items, effectiveMode, act
                 })}
 
                 {tvShell ? (
-                    <button
+                    <TvButton
                         ref={heroBtnRef}
                         type="button"
                         data-tv-item="1"
@@ -424,7 +425,7 @@ export const MediaPlayerHomeHero: React.FC<Props> = ({ items, effectiveMode, act
                         <div className="player-home-hero-footer flex items-end gap-4">
                             {dots}
                         </div>
-                    </button>
+                    </TvButton>
                 ) : (
                     <div className="absolute inset-0 z-10 flex flex-col justify-end gap-3 p-4 sm:gap-4 sm:p-6 lg:p-8 max-md:gap-2 max-md:p-3.5 max-md:pb-3.5">
                         <div className="player-home-hero-eyebrow-row max-md:hidden">

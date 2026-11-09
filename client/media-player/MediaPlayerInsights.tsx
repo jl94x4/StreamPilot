@@ -20,6 +20,7 @@ import { PlayerTvStatusPanel } from './PlayerTvStatusPanel';
 import { buildWatchInsights, type InsightFavourite } from './watchInsights';
 import { buildInsightDetail, type DetailKind, type InsightDetail } from './insightDetails';
 import type { PlayerItem, PlayerPlayOptions } from './types';
+import { TvButton } from '../shared/TvButton';
 
 type Props = {
     onBack: () => void;
@@ -217,7 +218,7 @@ const InsightDetailSheet: React.FC<{
                         <h2 className="truncate text-2xl font-black text-white">{detail.title}</h2>
                         {detail.lead ? <p className="mt-1 text-sm text-muted">{detail.lead}</p> : null}
                     </div>
-                    <button
+                    <TvButton
                         ref={closeRef}
                         type="button"
                         data-tv-item="1"
@@ -227,7 +228,7 @@ const InsightDetailSheet: React.FC<{
                         className="insights-row inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/15 bg-white/5 text-white outline-none hover:bg-white/10"
                     >
                         <X className="h-5 w-5" />
-                    </button>
+                    </TvButton>
                 </div>
                 <div ref={bodyRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-7 py-5 hide-scrollbar" data-tv-overlay-scroll="1">
                     {detail.stats.length ? (
@@ -250,7 +251,7 @@ const InsightDetailSheet: React.FC<{
                             ) : null}
                             {(section.rows || []).map((row) => (
                                 row.item ? (
-                                    <button
+                                    <TvButton
                                         key={row.id}
                                         type="button"
                                         data-tv-item="1"
@@ -264,7 +265,7 @@ const InsightDetailSheet: React.FC<{
                                         <span className="min-w-0 flex-1 truncate font-bold text-white">{row.label}</span>
                                         {row.sub ? <span className="shrink-0 text-sm text-muted">{row.sub}</span> : null}
                                         {row.value ? <span className="w-28 shrink-0 text-right tabular-nums text-white/90">{row.value}</span> : null}
-                                    </button>
+                                    </TvButton>
                                 ) : (
                                     <div key={row.id} tabIndex={0} data-tv-item="1" className={rowClass}>
                                         <span className="min-w-0 flex-1 truncate font-bold text-white">{row.label}</span>
@@ -481,7 +482,7 @@ const InsightsPage: React.FC<Props> = (props) => {
             {incomplete && !readingMore ? (
                 <div data-tv-row="1" data-tv-row-id="insights:notice" data-tv-insights-band="first" style={BAND_STYLE} className="flex flex-wrap items-center gap-4 rounded-2xl border border-amber-400/30 bg-amber-400/10 px-5 py-3">
                     <p className="min-w-0 flex-1 text-sm text-amber-100">{t('mediaPlayerPage.insightsIncomplete')}</p>
-                    <button
+                    <TvButton
                         type="button"
                         data-tv-item="1"
                         data-tv-action="1"
@@ -489,7 +490,7 @@ const InsightsPage: React.FC<Props> = (props) => {
                         className="insights-row inline-flex h-10 shrink-0 items-center rounded-xl border border-white/20 bg-white/10 px-4 text-sm font-bold text-white outline-none hover:bg-white/15"
                     >
                         {t('mediaPlayerPage.insightsTryAgain')}
-                    </button>
+                    </TvButton>
                 </div>
             ) : null}
 

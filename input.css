@@ -3,6 +3,14 @@
 @tailwind utilities;
 
 @layer base {
+  /* TV renders many buttons as role="button" divs (shared/TvButton). Give them a button's
+     defaults here, in the base layer, so every utility / component class still wins. */
+  .tv-btn {
+    display: inline-block;
+    text-align: center;
+    cursor: pointer;
+    user-select: none;
+  }
   :root, [data-theme="plex"], [data-theme="dynamic"] {
     --color-bg: 13 17 23;
     --color-card: 22 27 34;
@@ -2925,7 +2933,8 @@ html[data-tv="1"] .media-details-billboard-identity {
   padding: 0 0 calc(1.15rem / var(--tv-zoom, 1));
   pointer-events: none;
 }
-html[data-tv="1"] .media-details-billboard-identity button {
+html[data-tv="1"] .media-details-billboard-identity button ,
+html[data-tv="1"] .media-details-billboard-identity [role="button"] {
   pointer-events: auto;
 }
 html[data-tv="1"] .media-details-billboard-title-stack {
@@ -3374,6 +3383,10 @@ html[data-tv="1"] [data-tv-kind="season"] .media-details-season-pills::-webkit-s
 }
 html[data-tv="1"] .media-details-season-pill {
   flex: 0 0 auto;
+  /* A role="button" div on TV (shared/TvButton): centre the label like a <button> did. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   height: 2.45rem;
   padding: 0 1.15rem;
   border: 0;
@@ -4095,6 +4108,7 @@ html[data-tv="1"] {
 html[data-tv="1"] .player-row-header-title,
 html[data-tv="1"] .player-row-header h2,
 html[data-tv="1"] .player-row-header > button,
+html[data-tv="1"] .player-row-header > [role="button"],
 html[data-tv="1"] .player-library-title,
 html[data-tv="1"] [data-tv-library="1"] h1,
 html[data-tv="1"] .player-home-stage .player-row-header-title,
@@ -4218,7 +4232,8 @@ html[data-reduce-motion="1"] .player-rail-card-new {
 }
 html[data-tv="1"] .player-row-header-title,
 html[data-tv="1"] .player-row-header h2,
-html[data-tv="1"] .player-row-header > button {
+html[data-tv="1"] .player-row-header > button ,
+html[data-tv="1"] .player-row-header > [role="button"] {
   font-size: 1.45rem !important;
   font-weight: 800 !important;
   letter-spacing: 0.01em !important;
@@ -5165,6 +5180,7 @@ html[data-tv="1"] [data-tv-library-tabs="1"] [data-tv-item="1"] {
 }
 /* Browse filter chips match Recommended / Browse / Collections pills. */
 html[data-tv="1"] [data-tv-library-filters="1"] button,
+html[data-tv="1"] [data-tv-library-filters="1"] [role="button"],
 html[data-tv="1"] [data-tv-library-filters="1"] [data-tv-item="1"] {
   border-radius: 999px !important;
 }
@@ -5175,7 +5191,8 @@ html[data-tv="1"] [data-tv-library-filters="1"] {
   padding-left: calc(6px / var(--tv-zoom, 1));
   padding-right: calc(6px / var(--tv-zoom, 1));
 }
-.player-library-filter-select button {
+.player-library-filter-select button ,
+.player-library-filter-select [role="button"] {
   border-radius: 999px !important;
 }
 html[data-tv="1"] .player-person-hero {
@@ -6674,8 +6691,13 @@ html[data-tv="1"] .player-library-header [data-tv-library-tabs="1"] {
   gap: 0.35rem !important;
 }
 html[data-tv="1"] .player-library-header [data-tv-library-tabs="1"] button,
+html[data-tv="1"] .player-library-header [data-tv-library-tabs="1"] [role="button"],
 html[data-tv="1"] .player-library-header [data-tv-library-tabs="1"] [data-tv-item="1"] {
   position: relative;
+  /* role="button" divs on TV (shared/TvButton): centre the label like a <button> did. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: 0 !important;
   border-radius: 0.6rem !important;
   background: transparent !important;
@@ -6683,11 +6705,13 @@ html[data-tv="1"] .player-library-header [data-tv-library-tabs="1"] [data-tv-ite
   font-size: calc(1.15rem * var(--tv-text-scale, 1)) !important;
   padding: 0.4rem 0.85rem 0.55rem !important;
 }
-html[data-tv="1"] .player-library-header [data-tv-library-tabs="1"] button[aria-current="page"] {
+html[data-tv="1"] .player-library-header [data-tv-library-tabs="1"] button[aria-current="page"] ,
+html[data-tv="1"] .player-library-header [data-tv-library-tabs="1"] [role="button"][aria-current="page"] {
   color: #fff !important;
   background: transparent !important;
 }
-html[data-tv="1"] .player-library-header [data-tv-library-tabs="1"] button[aria-current="page"]::after {
+html[data-tv="1"] .player-library-header [data-tv-library-tabs="1"] button[aria-current="page"]::after ,
+html[data-tv="1"] .player-library-header [data-tv-library-tabs="1"] [role="button"][aria-current="page"]::after {
   content: "";
   position: absolute;
   left: 0.85rem;
@@ -6705,7 +6729,8 @@ html[data-tv="1"] [data-tv-library-filters="1"].player-library-toolbar {
   padding: 0 !important;
   gap: 0.75rem !important;
 }
-html[data-tv="1"] [data-tv-library-filters="1"].player-library-toolbar button {
+html[data-tv="1"] [data-tv-library-filters="1"].player-library-toolbar button ,
+html[data-tv="1"] [data-tv-library-filters="1"].player-library-toolbar [role="button"] {
   min-height: 2.75rem !important;
   padding: 0.45rem 1.05rem !important;
   font-size: calc(1rem * var(--tv-text-scale, 1)) !important;
@@ -6742,7 +6767,8 @@ html[data-tv="1"] .player-library-count {
   font-size: calc(1rem * var(--tv-text-scale, 1));
   font-weight: 600;
 }
-html[data-tv="1"] [data-tv-library-filters="1"].player-library-toolbar button span {
+html[data-tv="1"] [data-tv-library-filters="1"].player-library-toolbar button span ,
+html[data-tv="1"] [data-tv-library-filters="1"].player-library-toolbar [role="button"] span {
   font-size: inherit !important;
 }
 
@@ -6851,7 +6877,9 @@ html[data-tv="1"] [data-tv-library-scroll="1"]::-webkit-scrollbar {
 /* Library tabs (Recommended / Browse / Collections / Studios): focus like the side nav,
    a white pill with dark text instead of the glow ring. */
 html[data-tv="1"] .player-library-header [data-tv-library-tabs="1"] button[data-tv-action="1"]:focus,
-html[data-tv="1"] .player-library-header [data-tv-library-tabs="1"] button[data-tv-action="1"]:focus-visible {
+html[data-tv="1"] .player-library-header [data-tv-library-tabs="1"] [role="button"][data-tv-action="1"]:focus,
+html[data-tv="1"] .player-library-header [data-tv-library-tabs="1"] button[data-tv-action="1"]:focus-visible ,
+html[data-tv="1"] .player-library-header [data-tv-library-tabs="1"] [role="button"][data-tv-action="1"]:focus-visible {
   outline: none !important;
   box-shadow: none !important;
   background: #fff !important;
@@ -6859,7 +6887,9 @@ html[data-tv="1"] .player-library-header [data-tv-library-tabs="1"] button[data-
   border-radius: 9999px !important;
 }
 html[data-tv="1"] .player-library-header [data-tv-library-tabs="1"] button[data-tv-action="1"][aria-current="page"]:focus::after,
-html[data-tv="1"] .player-library-header [data-tv-library-tabs="1"] button[data-tv-action="1"][aria-current="page"]:focus-visible::after {
+html[data-tv="1"] .player-library-header [data-tv-library-tabs="1"] [role="button"][data-tv-action="1"][aria-current="page"]:focus::after,
+html[data-tv="1"] .player-library-header [data-tv-library-tabs="1"] button[data-tv-action="1"][aria-current="page"]:focus-visible::after ,
+html[data-tv="1"] .player-library-header [data-tv-library-tabs="1"] [role="button"][data-tv-action="1"][aria-current="page"]:focus-visible::after {
   background: #18181b;
 }
 
@@ -6871,7 +6901,8 @@ html[data-tv="1"] .player-library-studios > :last-child .player-studio-tiles[dat
   padding-bottom: calc(160px / var(--tv-zoom, 1)) !important;
 }
 /* Library tabs: no underline; the current tab is the bright one. */
-html[data-tv="1"] .player-library-header [data-tv-library-tabs="1"] button[aria-current="page"]::after {
+html[data-tv="1"] .player-library-header [data-tv-library-tabs="1"] button[aria-current="page"]::after ,
+html[data-tv="1"] .player-library-header [data-tv-library-tabs="1"] [role="button"][aria-current="page"]::after {
   content: none !important;
   display: none !important;
 }

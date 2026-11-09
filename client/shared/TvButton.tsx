@@ -39,13 +39,18 @@ export const TvButton = React.forwardRef<HTMLElement, TvButtonProps>(function Tv
         );
     }
     const divProps = rest as unknown as React.HTMLAttributes<HTMLDivElement>;
+    // A `disabled` attribute too, so useTvRemote's hasAttribute('disabled') checks and
+    // [disabled] selectors keep treating it like a disabled button.
+    const disabledAttr = (disabled ? { disabled: true } : {}) as React.HTMLAttributes<HTMLDivElement>;
     return (
         <div
             ref={ref as React.Ref<HTMLDivElement>}
             role="button"
-            tabIndex={tabIndex ?? 0}
-            aria-disabled={disabled || undefined}
             {...divProps}
+            className={divProps.className ? `tv-btn ${divProps.className}` : 'tv-btn'}
+            {...disabledAttr}
+            tabIndex={disabled ? -1 : (tabIndex ?? 0)}
+            aria-disabled={disabled || undefined}
             onClick={disabled ? undefined : divProps.onClick}
         >
             {children}

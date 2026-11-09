@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Calendar, ChevronDown, MapPin, Star } from 'lucide-react';
 import { useDiscoverI18n } from './i18n';
 import { formatPersonDate, personAgeYears, splitBiography } from './personCredits';
+import { TvButton } from '../shared/TvButton';
 
 export type PersonProfileHeaderPerson = {
     name?: string | null;
@@ -112,7 +113,7 @@ export const PersonProfileHeader: React.FC<Props> = ({
                         {bioHasMore && bioExpanded ? <p>{bioRest}</p> : null}
                     </div>
                     {bioHasMore ? (
-                        <button
+                        <TvButton
                             type="button"
                             data-tv-item="1"
                             data-tv-action="1"
@@ -121,7 +122,7 @@ export const PersonProfileHeader: React.FC<Props> = ({
                         >
                             {bioExpanded ? t('common.showLess') : t('common.readMore')}
                             <ChevronDown className={`w-4 h-4 transition-transform ${bioExpanded ? 'rotate-180' : ''}`} />
-                        </button>
+                        </TvButton>
                     ) : null}
                 </div>
             ) : null}

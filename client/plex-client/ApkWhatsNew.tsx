@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.666': [
+        {
+            title: 'Faster remote',
+            items: [
+                'The quicker remote from the last update now covers title pages too (Watch and the buttons beside it, seasons, episodes, cast and extras), plus Settings, library tabs and filters, Search and the hold-OK menu on a poster',
+            ],
+        },
+    ],
     '1.0.665': [
         {
             title: 'Faster remote',
