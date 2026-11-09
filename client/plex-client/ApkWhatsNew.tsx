@@ -73,6 +73,16 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.671': [
+        {
+            title: 'Player',
+            items: [
+                'Left and Right seek straight away, without bringing the controls up first. The controls appear as you seek, and further presses keep seeking',
+                'Quick presses add up: press three times to jump 30 seconds in one go. The on-screen number shows the total',
+                'Hold Left or Right and seeking speeds up the longer you hold',
+            ],
+        },
+    ],
     '1.0.670': [
         {
             title: 'Library Browse',

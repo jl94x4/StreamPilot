@@ -98,6 +98,9 @@ final class PlayerKeyHandler {
          */
         boolean ensureControlFocus();
 
+        /** Controls showing with focus on none of them: Left / Right still seek. */
+        boolean seekKeysFree();
+
         /** Who's on screen labels are drawn over the paused picture. */
         boolean facesVisible();
 
@@ -368,6 +371,10 @@ final class PlayerKeyHandler {
             || keyCode == KeyEvent.KEYCODE_DPAD_DOWN
             || keyCode == KeyEvent.KEYCODE_DPAD_LEFT
             || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT;
+        if ((seekLeft || seekRight) && host.seekKeysFree()) {
+            if (event.getRepeatCount() == 0) host.startSeekHold(seekLeft ? -1 : 1);
+            return Result.HANDLED;
+        }
         if (dpad && host.ensureControlFocus()) {
             host.bumpChrome();
             return Result.HANDLED;

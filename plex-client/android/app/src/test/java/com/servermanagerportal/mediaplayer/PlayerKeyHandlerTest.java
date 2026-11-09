@@ -44,6 +44,7 @@ public class PlayerKeyHandlerTest {
         @Override public void setChromeVisible(boolean visible) { calls.add("chrome:" + visible); }
         @Override public void bumpChrome() { calls.add("bump"); }
         @Override public boolean seekHoldActive() { return seekHold; }
+        @Override public boolean seekKeysFree() { return false; }
         @Override public void startSeekHold(int direction) { calls.add("hold:" + direction); }
         @Override public void stopSeekHold() { calls.add("stopHold"); }
         @Override public boolean isUpNextVisible() { return upNextVisible; }

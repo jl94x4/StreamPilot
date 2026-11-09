@@ -398,6 +398,15 @@ public class PlayerActivity extends AppCompatActivity {
         }
 
         @Override
+        public boolean seekKeysFree() {
+            // Controls up but the remote is on no control (they came up from a seek): Left /
+            // Right keep seeking instead of moving onto Play.
+            if (!chromeVisible || isOptionDialogShowing() || isUpNextVisible()) return false;
+            View focus = getCurrentFocus();
+            return focus == null || !focus.isShown() || focus.getId() == R.id.player_root;
+        }
+
+        @Override
         public boolean ensureControlFocus() {
             if (!chromeVisible || isOptionDialogShowing() || isUpNextVisible() || playPauseBtn == null) return false;
             View focus = getCurrentFocus();
@@ -471,14 +480,38 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private int seekHoldDirection;
+    /** Where this run of seek presses started; the flash shows the total moved from here. */
+    private long seekGestureOriginMs = -1;
+    private long seekHoldStartedAtMs;
+    /** Taps add up: the seek is applied once, a moment after the last press is released. */
+    private static final long SEEK_COMMIT_DELAY_MS = 500L;
+    private final Runnable seekCommitRunnable = new Runnable() {
+        @Override
+        public void run() {
+            seekGestureOriginMs = -1;
+            if (seekHoldDirection != 0 || scrubTargetMs < 0 || player == null || finishing) return;
+            seekToContent(scrubTargetMs, true);
+        }
+    };
+
+    /** Holding: the step grows the longer the key is held (x1, x2, x4, x8, x16). */
+    private int seekHoldMultiplier() {
+        long held = android.os.SystemClock.elapsedRealtime() - seekHoldStartedAtMs;
+        if (held < 1500) return 1;
+        if (held < 3000) return 2;
+        if (held < 5000) return 4;
+        if (held < 8000) return 8;
+        return 16;
+    }
+
     private final Runnable seekHoldRunnable = new Runnable() {
         @Override
         public void run() {
             if (seekHoldDirection == 0) return;
             // Move the clock only. One seek is applied when the key is released.
-            previewSeekBy(seekHoldDirection * seekStepMs(seekHoldDirection));
+            previewSeekBy(seekHoldDirection * seekStepMs(seekHoldDirection) * seekHoldMultiplier());
             flashSeek(seekHoldDirection);
-            mainHandler.postDelayed(this, 350);
+            mainHandler.postDelayed(this, 250);
         }
     };
     private final Runnable hideSeekFlashRunnable = new Runnable() {
@@ -4843,10 +4876,10 @@ public class PlayerActivity extends AppCompatActivity {
         bumpChrome();
         seekFlashView.animate().cancel();
         seekFlashView.setAlpha(1f);
-        seekFlashView.setText((direction < 0 ? "−" : "+") + (seekStepMs(direction) / 1000L));
+        seekFlashView.setText(seekFlashLabel(direction));
         seekFlashView.setVisibility(View.VISIBLE);
         mainHandler.removeCallbacks(hideSeekFlashRunnable);
-        mainHandler.postDelayed(hideSeekFlashRunnable, 650);
+        mainHandler.postDelayed(hideSeekFlashRunnable, 900);
     }
 
     private void previewSeekBy(long deltaMs) {
@@ -4872,8 +4905,24 @@ public class PlayerActivity extends AppCompatActivity {
         }
     }
 
+    /** Total moved by this run of presses: "+30" under a minute, "+1:30" beyond. */
+    private String seekFlashLabel(int direction) {
+        long moved = seekGestureOriginMs >= 0 && scrubTargetMs >= 0
+            ? scrubTargetMs - seekGestureOriginMs
+            : direction * seekStepMs(direction);
+        long seconds = Math.round(Math.abs(moved) / 1000d);
+        String sign = moved < 0 || (moved == 0 && direction < 0) ? "−" : "+";
+        if (seconds < 60) return sign + seconds;
+        return sign + (seconds / 60) + ":" + String.format(Locale.US, "%02d", seconds % 60);
+    }
+
     private void startSeekHold(int direction) {
+        mainHandler.removeCallbacks(seekCommitRunnable);
+        if (seekGestureOriginMs < 0) {
+            seekGestureOriginMs = scrubTargetMs >= 0 ? scrubTargetMs : contentPositionMs();
+        }
         seekHoldDirection = direction < 0 ? -1 : 1;
+        seekHoldStartedAtMs = android.os.SystemClock.elapsedRealtime();
         previewSeekBy(seekHoldDirection * seekStepMs(seekHoldDirection));
         flashSeek(seekHoldDirection);
         mainHandler.removeCallbacks(seekHoldRunnable);
@@ -4884,9 +4933,12 @@ public class PlayerActivity extends AppCompatActivity {
         int direction = seekHoldDirection;
         seekHoldDirection = 0;
         mainHandler.removeCallbacks(seekHoldRunnable);
-        if (direction != 0 && scrubTargetMs >= 0 && player != null && !finishing) {
-            seekToContent(scrubTargetMs, true);
-        }
+        if (direction == 0) return;
+        // Not yet: another press within the delay adds to this one (one seek for the lot,
+        // which on a transcode is one stream restart instead of one per press).
+        scrubHoldUntilMs = android.os.SystemClock.elapsedRealtime() + 1600;
+        mainHandler.removeCallbacks(seekCommitRunnable);
+        mainHandler.postDelayed(seekCommitRunnable, SEEK_COMMIT_DELAY_MS);
     }
 
     private void setTimeLabels(long pos, long duration) {
