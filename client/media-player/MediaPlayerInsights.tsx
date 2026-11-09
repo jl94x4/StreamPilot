@@ -151,6 +151,20 @@ const InsightDetailSheet: React.FC<{
     const closeRef = useRef<HTMLButtonElement | null>(null);
     const returnTo = useRef<HTMLElement | null>(typeof document === 'undefined' ? null : (document.activeElement as HTMLElement | null));
 
+    /**
+     * Close, handing focus back to the box that opened this first. The remote refocuses the page
+     * once a panel is gone and nothing holds focus; landing on the first box there threw the page
+     * back to the top, so the box must already have it by then.
+     */
+    const dismiss = React.useCallback(() => {
+        try {
+            returnTo.current?.focus({ preventScroll: true });
+        } catch {
+            /* ignore */
+        }
+        onClose();
+    }, [onClose]);
+
     useEffect(() => {
         // The remote treats an open panel as its own world (Back closes it, arrows stay inside).
         try {
@@ -158,10 +172,10 @@ const InsightDetailSheet: React.FC<{
         } catch {
             /* ignore */
         }
-        const close = () => onClose();
+        const close = () => dismiss();
         window.addEventListener('smp-tv-overlay-close', close);
         const onKey = (event: KeyboardEvent) => {
-            if (event.key === 'Escape') onClose();
+            if (event.key === 'Escape') dismiss();
         };
         window.addEventListener('keydown', onKey);
         const focusTimer = window.setTimeout(() => {
@@ -179,7 +193,7 @@ const InsightDetailSheet: React.FC<{
             }
             window.requestAnimationFrame(() => returnTo.current?.focus({ preventScroll: true }));
         };
-    }, [onClose]);
+    }, [dismiss]);
 
     const rowClass = 'insights-row flex w-full min-w-0 items-center gap-4 rounded-xl px-4 py-3 text-left outline-none hover:bg-white/[0.06]';
     return createPortal(
@@ -187,7 +201,7 @@ const InsightDetailSheet: React.FC<{
             className="fixed inset-0 z-[3500] flex items-center justify-center bg-black/75 px-4"
             data-tv-settings-dialog="1"
             onClick={(event) => {
-                if (event.target === event.currentTarget) onClose();
+                if (event.target === event.currentTarget) dismiss();
             }}
         >
             <div
@@ -209,7 +223,7 @@ const InsightDetailSheet: React.FC<{
                         data-tv-item="1"
                         data-tv-action="1"
                         aria-label={t('mediaPlayerPage.insightsDetClose')}
-                        onClick={onClose}
+                        onClick={dismiss}
                         className="insights-row inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/15 bg-white/5 text-white outline-none hover:bg-white/10"
                     >
                         <X className="h-5 w-5" />
