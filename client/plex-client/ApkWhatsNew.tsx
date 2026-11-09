@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.667': [
+        {
+            title: 'Fixes',
+            items: [
+                'Opening the side menu on a title page no longer pushes the page twice as far as it should, which left a large empty gap between the menu and the title',
+                'The StreamPilot logo on the loading screen no longer shows as a broken image when the app reloads while on a title page, and the app fonts load properly in that case too',
+            ],
+        },
+    ],
     '1.0.666': [
         {
             title: 'Faster remote',

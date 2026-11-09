@@ -90,7 +90,7 @@ export const AuthMediaWall: React.FC = () => (
     </div>
 );
 
-const LOGO_SRC = './logo.png';
+const LOGO_SRC = '/logo.png';
 
 export const AuthMark: React.FC<{ tv?: boolean }> = ({ tv }) => (
     <div className={`smp-auth-mark relative ${tv ? 'h-16 w-[min(100%,22rem)]' : 'h-12 w-[min(100%,18rem)] sm:h-14 sm:w-[22rem]'}`}>

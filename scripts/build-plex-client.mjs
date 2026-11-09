@@ -42,8 +42,8 @@ const injected = html
         `appVersion: ${JSON.stringify(appVersion)}`,
     )
     .replace('__APP_VERSION__', appVersion || '')
-    .replace('./tailwind.css"', `./tailwind.css?v=${assetStamp}"`)
-    .replace('./plex-client.js"', `./plex-client.js?v=${assetStamp}"`);
+    .replace('/tailwind.css"', `/tailwind.css?v=${assetStamp}"`)
+    .replace('/plex-client.js"', `/plex-client.js?v=${assetStamp}"`);
 fs.writeFileSync(path.join(outDir, 'index.html'), injected);
 
 const logoSrc = path.join(root, 'static', 'logo.png');
