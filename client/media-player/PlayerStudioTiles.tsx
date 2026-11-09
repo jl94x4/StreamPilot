@@ -1,6 +1,7 @@
 import React from 'react';
 import { DiscoverSectionHeader, RowHeaderMark, SkeletonBlock } from './host';
 import { PlayerWhiteLogo } from './PlayerWhiteLogo';
+import { TvButton } from '../shared/TvButton';
 import { plexImageUrl } from './playerUtils';
 import type { PlayerStudioBrowseCard } from './types';
 
@@ -45,7 +46,7 @@ export const PlayerStudioTiles: React.FC<Props> = ({ title, cards, keyPrefix, on
                     // The card wrapper is what the remote scrolls into view (not the whole grid).
                     return (
                         <div key={`${keyPrefix}-${card.key}-${card.title}`} data-tv-poster-card="1" className="min-w-0">
-                        <button
+                        <TvButton
                             type="button"
                             data-tv-item="1"
                             data-tv-poster-btn="1"
@@ -82,7 +83,7 @@ export const PlayerStudioTiles: React.FC<Props> = ({ title, cards, keyPrefix, on
                                     )}
                                 </span>
                             </div>
-                        </button>
+                        </TvButton>
                         </div>
                     );
                 })}

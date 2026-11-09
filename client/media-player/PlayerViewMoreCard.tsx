@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
+import { TvButton } from '../shared/TvButton';
 import {
     fetchMediaPlayerCollection,
     fetchMediaPlayerHub,
@@ -140,7 +141,7 @@ export const PlayerViewMoreCard: React.FC<Props> = ({
     }, [aspect, excludeKey, shelfSource, sourceKey, title]);
 
     return (
-        <button
+        <TvButton
             type="button"
             data-tv-item="1"
             data-tv-poster-btn="1"
@@ -202,6 +203,6 @@ export const PlayerViewMoreCard: React.FC<Props> = ({
                     ) : null}
                 </span>
             </div>
-        </button>
+        </TvButton>
     );
 };

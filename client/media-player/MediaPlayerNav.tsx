@@ -34,6 +34,7 @@ import { homeLibraryShown, type HomeLibraryPicks } from './homeLibraries';
 import { applyLibraryNavOrder, PLAYER_SETTINGS_DRAFT_EVENT, PLAYER_SETTINGS_EVENT, readPlayerSettings, type PlayerNavItem, type PlayerSettings } from './playerSettings';
 import { clearHeroSlidesCache, clearPlayerLibrariesCache, invalidatePlayerHomeCache } from './playerMemory';
 import { PLAYER_TV_NAV_EVENT } from './paths';
+import { TvButton } from '../shared/TvButton';
 import type { PlayerProfile, PlayerSection } from './types';
 import { focusTvContent, hasRememberedTvFocus, restoreTvFocusWhenReady } from '../plex-client/useTvRemote';
 
@@ -377,7 +378,7 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                 </div>
             ) : null}
             <div className={`flex shrink-0 flex-col ${showLabels ? 'gap-1' : 'items-center gap-1'}`}>
-                <button
+                <TvButton
                     type="button"
                     {...tvNavProps(isTvShell, expanded, page === 'home')}
                     className={navButtonClass(page === 'home', showLabels, isTvShell)}
@@ -386,8 +387,8 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                 >
                     <NavIcon><Home className={NAV_ICON_CLASS} /></NavIcon>
                     {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.navHome')}</span> : null}
-                </button>
-                {navShown('watchlist') ? <button
+                </TvButton>
+                {navShown('watchlist') ? <TvButton
                     type="button"
                     {...tvNavProps(isTvShell, expanded, page === 'watchlist')}
                     className={navButtonClass(page === 'watchlist', showLabels, isTvShell)}
@@ -396,9 +397,9 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                 >
                     <NavIcon><Bookmark className={NAV_ICON_CLASS} /></NavIcon>
                     {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.navWatchlist')}</span> : null}
-                </button> : null}
+                </TvButton> : null}
                 {onHistory && navShown('history') ? (
-                    <button
+                    <TvButton
                         type="button"
                         {...tvNavProps(isTvShell, expanded, page === 'history')}
                         className={navButtonClass(page === 'history', showLabels, isTvShell)}
@@ -407,10 +408,10 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                     >
                         <NavIcon><BarChart3 className={NAV_ICON_CLASS} /></NavIcon>
                         {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.navInsights')}</span> : null}
-                    </button>
+                    </TvButton>
                 ) : null}
                 {onLiveTv && navShown('livetv') ? (
-                    <button
+                    <TvButton
                         type="button"
                         {...tvNavProps(isTvShell, expanded, page === 'livetv')}
                         className={navButtonClass(page === 'livetv', showLabels, isTvShell)}
@@ -419,7 +420,7 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                     >
                         <NavIcon><Radio className={NAV_ICON_CLASS} /></NavIcon>
                         {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.navLiveTv')}</span> : null}
-                    </button>
+                    </TvButton>
                 ) : null}
                 {onDownloads && !isTvShell && navShown('downloads') ? (
                     <button
@@ -432,7 +433,7 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                         {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.navDownloads')}</span> : null}
                     </button>
                 ) : null}
-                {navShown('search') ? <button
+                {navShown('search') ? <TvButton
                     type="button"
                     {...tvNavProps(isTvShell, expanded, false)}
                     className={navButtonClass(false, showLabels, isTvShell)}
@@ -441,7 +442,7 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                 >
                     <NavIcon><Search className={NAV_ICON_CLASS} /></NavIcon>
                     {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.navSearch')}</span> : null}
-                </button> : null}
+                </TvButton> : null}
             </div>
 
             {showAll && (orderedLibraries.length || (playlistsEnabled && onOpenPlaylists)) ? (
@@ -470,7 +471,7 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                                 ? `${section.title} — ${t('mediaPlayerPage.libraryServerOffline')}`
                                 : section.title;
                             return (
-                                <button
+                                <TvButton
                                     key={section.key}
                                     type="button"
                                     {...tvNavProps(isTvShell, expanded, active)}
@@ -487,11 +488,11 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                                             aria-hidden
                                         />
                                     ) : null}
-                                </button>
+                                </TvButton>
                             );
                         })}
                         {playlistsEnabled && onOpenPlaylists ? (
-                            <button
+                            <TvButton
                                 type="button"
                                 {...tvNavProps(isTvShell, expanded, page === 'playlists')}
                                 className={navButtonClass(page === 'playlists', showLabels, isTvShell)}
@@ -500,7 +501,7 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                             >
                                 <NavIcon><ListMusic className={NAV_ICON_CLASS} /></NavIcon>
                                 {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.playlists')}</span> : null}
-                            </button>
+                            </TvButton>
                         ) : null}
                     </div>
                 </div>
@@ -510,7 +511,7 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                 showLabels ? 'gap-1 border-t border-white/10 pt-3' : 'items-center gap-1 pt-1'
             }`}>
                 {compact ? <div className="mb-1 h-px w-5 bg-white/15" /> : null}
-                <button
+                <TvButton
                     type="button"
                     {...tvNavProps(isTvShell, expanded, page === 'settings')}
                     className={navButtonClass(page === 'settings', showLabels, isTvShell)}
@@ -519,9 +520,9 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                 >
                     <NavIcon><Settings className={NAV_ICON_CLASS} /></NavIcon>
                     {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.navSettings')}</span> : null}
-                </button>
+                </TvButton>
                 {showAll && isPlexClient ? (
-                    <button
+                    <TvButton
                         type="button"
                         {...tvNavProps(isTvShell, expanded, false)}
                         className={navButtonClass(false, showLabels, isTvShell)}
@@ -530,10 +531,10 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                     >
                         <NavIcon><LogOut className={NAV_ICON_CLASS} /></NavIcon>
                         {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.logOut')}</span> : null}
-                    </button>
+                    </TvButton>
                 ) : null}
                 {showLabels && !isTvShell && !isPlexClient ? (
-                    <button
+                    <TvButton
                         type="button"
                         {...tvNavProps(isTvShell, expanded, false)}
                         className={navButtonClass(false, showLabels, isTvShell)}
@@ -542,9 +543,9 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                     >
                         <NavIcon><LogOut className={NAV_ICON_CLASS} /></NavIcon>
                         <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.exitToPortal')}</span>
-                    </button>
+                    </TvButton>
                 ) : null}
-                <button
+                <TvButton
                     type="button"
                     {...tvNavProps(isTvShell, expanded, false)}
                     className={navButtonClass(false, showLabels, isTvShell)}
@@ -566,7 +567,7 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                             <ChevronRight className="h-4 w-4 shrink-0 text-white/40" />
                         </>
                     ) : null}
-                </button>
+                </TvButton>
             </div>
         </nav>
         );

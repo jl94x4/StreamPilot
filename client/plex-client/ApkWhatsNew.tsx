@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.665': [
+        {
+            title: 'Faster remote',
+            items: [
+                'Moving along rows, between rows and in and out of the side menu does much less work per press. After every press, Android was searching the whole page for a text box to decide what the on-screen keyboard\'s Next button should do, even with no keyboard open. Posters and side menu entries no longer set that search off, which roughly halves the work behind each press',
+            ],
+        },
+    ],
     '1.0.664': [
         {
             title: 'Playback',

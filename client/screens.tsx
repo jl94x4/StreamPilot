@@ -16,6 +16,7 @@ import { ExtensionRequestsAdmin } from './extension/ExtensionRequestsAdmin';
 import { LibraryMaintenancePanel } from './maintenance/LibraryMaintenancePanel';
 import { appAlert, appConfirm, askConfirm } from './shared/confirm';
 import { apiFetch, apiFetchShared } from './shared/api';
+import { TvButton } from './shared/TvButton';
 import { InAppNotificationsBell } from './shared/InAppNotificationsBell';
 import { IN_APP_NOTIFICATIONS_CHANGED_EVENT } from './shared/inAppNotificationsRefresh';
 import { getPublicOrigin, logoUrl, portalUrl, resolvePortalAssetUrl, stripBasePath, PLEX_ICON_URL, JELLYFIN_ICON_URL, EMBY_ICON_URL } from './shared/basePath';
@@ -7419,7 +7420,7 @@ export const DiscoverPosterCard: React.FC<{
 
     if (posterOnlyLink) {
         const posterWrapper = onPosterClick ? (
-            <button
+            <TvButton
                 type="button"
                 onClick={onPosterClick}
                 onMouseEnter={onPosterHover}
@@ -7433,7 +7434,7 @@ export const DiscoverPosterCard: React.FC<{
                 style={{ color: 'inherit' }}
             >
                 {posterInner}
-            </button>
+            </TvButton>
         ) : (
             <a
                 href={item.plexUrl}
