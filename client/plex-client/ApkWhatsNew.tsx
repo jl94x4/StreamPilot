@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.659': [
+        {
+            title: 'Libraries',
+            items: [
+                'The hearts under Settings → Libraries to show now also decide which libraries appear in the sidebar and in the library row along the top of Home: an empty heart hides a library from all of them. This replaces the separate per-library sidebar switches added in the last version',
+                'Browsing a library on a phone is tidier: the long block of filter dropdowns is now one Filters button next to the sort, like on the TV. Pick a filter from the list, and the filters you have on show as chips you can tap to remove',
+            ],
+        },
+    ],
     '1.0.658': [
         {
             title: 'Libraries',

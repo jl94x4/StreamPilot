@@ -6945,3 +6945,61 @@ html[data-tv="1"] .media-details-page .player-meta-chips .player-csm-icon {
   overflow: visible;
   flex-shrink: 0;
 }
+
+/* Library Browse on a phone: sort + one Filters button (the sheet lists every filter), like TV. */
+html:not([data-tv="1"]) .player-library-filter-button,
+html:not([data-tv="1"]) .player-library-filter-chip {
+  min-height: 2.5rem;
+  padding: 0.4rem 0.95rem;
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+html:not([data-tv="1"]) .player-library-filter-button.is-active {
+  border-color: rgba(255, 255, 255, 0.4);
+}
+html:not([data-tv="1"]) .player-library-filter-chip {
+  background: rgba(255, 255, 255, 0.12);
+}
+html:not([data-tv="1"]) .player-library-filter-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.45em;
+  height: 1.45em;
+  padding: 0 0.35em;
+  border-radius: 999px;
+  background: #fff;
+  color: #000;
+  font-size: 0.8em;
+  font-weight: 800;
+}
+html:not([data-tv="1"]) .player-library-count {
+  margin-left: 0.25rem;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+/* The Filters sheet on a phone: a bottom sheet (TV styles it as a side panel). */
+html:not([data-tv="1"]) [data-tv-context-backdrop="1"] {
+  align-items: flex-end !important;
+  justify-content: center !important;
+  background: rgba(0, 0, 0, 0.6) !important;
+}
+html:not([data-tv="1"]) .player-context-sheet[data-tv-context-sheet="1"] {
+  width: 100% !important;
+  max-width: 32rem !important;
+  min-width: 0 !important;
+  max-height: 80vh !important;
+  padding: 0.75rem 0.5rem calc(0.75rem + env(safe-area-inset-bottom, 0px)) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 1.25rem 1.25rem 0 0 !important;
+  background: #0f1623;
+  box-shadow: 0 -20px 60px rgba(0, 0, 0, 0.55);
+}
+html:not([data-tv="1"]) .player-context-sheet[data-tv-context-sheet="1"] button:hover,
+html:not([data-tv="1"]) .player-context-sheet[data-tv-context-sheet="1"] button:focus-visible {
+  background: rgba(255, 255, 255, 0.07);
+}

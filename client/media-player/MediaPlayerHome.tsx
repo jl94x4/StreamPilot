@@ -85,7 +85,7 @@ import { applyRememberedProgress, asRecentlyAddedPlayerItem, rememberBillboardBa
 import { usePlayerSettings } from './usePlayerSettings';
 import { peekSurfaceColor, sampleBackdropSurfaceColor } from '../shared/imageFocalPoint';
 import { TV_FLOOR_RGB, tvTintSurfaceRgb } from './tvSurface';
-import { homeHubHiddenByPicks } from './homeLibraries';
+import { homeHubHiddenByPicks, homeLibraryShown } from './homeLibraries';
 import type { PlayerHome, PlayerItem, PlayerLibraryHub, PlayerPlayOptions, PlayerSection } from './types';
 
 type Props = {
@@ -1351,6 +1351,11 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             libraryNavOrder,
         ),
         [home?.libraries, libraryNavOrder],
+    );
+    /** The library row at the top: only the hearted libraries. */
+    const chipLibraries = useMemo(
+        () => orderedLibraries.filter((library) => homeLibraryShown(settings.homeLibraries, library.serverId, library.key)),
+        [orderedLibraries, settings.homeLibraries],
     );
 
     const mapRecentItem = useCallback(
@@ -2785,7 +2790,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 </div>
             ) : null}
 
-            {!searchActive && orderedLibraries.length && onOpenLibrary && !isTvShell ? (
+            {!searchActive && chipLibraries.length && onOpenLibrary && !isTvShell ? (
                 <section className="flex flex-col gap-2" aria-label={t('mediaPlayerPage.jumpToLibrary')}>
                     <div className="flex items-center justify-between gap-3">
                         <p className="min-w-0 text-[10px] font-bold uppercase tracking-[0.18em] text-muted">
@@ -2794,7 +2799,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                         <DiscoverGridSizeSelect className="player-phone-hide shrink-0 max-md:hidden" value={gridSize} onChange={setGridSize} />
                     </div>
                     <div className="player-library-chips flex gap-2 overflow-x-auto hide-scrollbar pb-1">
-                        {orderedLibraries.map((library) => {
+                        {chipLibraries.map((library) => {
                             const Icon = libraryChipIcon(library.type);
                             return (
                                 <button
