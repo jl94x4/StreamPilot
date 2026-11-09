@@ -1530,6 +1530,28 @@ const mapFilterFacet = (data: any, facet: string, cap = FILTER_FACET_CAP) => {
 /** "The Matrix" is filed under M. */
 const sortTitleHead = (title?: string | null) => String(title || '').replace(/^(the|a|an)\s+/i, '').trim();
 
+/**
+ * Movie-library media filters onto a Plex /all query. Codec / channel values pass through;
+ * bitrate "min-max" (Mbps) becomes Plex's mediaBitrate>>= / <<= (bits per second).
+ */
+const applyLibraryMediaFilters = (params: URLSearchParams, query: URLSearchParams) => {
+    for (const key of ['videoCodec', 'audioCodec', 'audioLayout'] as const) {
+        const value = String(query.get(key) || '').trim();
+        if (value) params.set(key, value);
+    }
+    for (const key of ['dovi', 'hdr10plus', 'atmos'] as const) {
+        if (query.get(key) === '1') params.set(key, '1');
+    }
+    const bitrate = String(query.get('bitrate') || '').trim();
+    const range = bitrate.match(/^(\d*)-(\d*)$/);
+    if (range) {
+        const min = Number(range[1]);
+        const max = Number(range[2]);
+        if (range[1] && min > 0) params.set('mediaBitrate>>', String(min * 1_000_000));
+        if (range[2] && max > 0) params.set('mediaBitrate<<', String(max * 1_000_000));
+    }
+};
+
 const letterCharOf = (raw: string) => {
     const value = String(raw || '').trim();
     if (!value || value.length > 8 || /[&=\s/]/.test(value)) return '';
@@ -6405,6 +6427,7 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
         else if (query.get('unwatched') === '1') params.set('unwatched', '1');
         if (query.get('hdr') === '1') params.set('hdr', '1');
         if (query.get('duplicate') === '1') params.set('duplicate', '1');
+        applyLibraryMediaFilters(params, query);
         const letter = letterCharOf(String(query.get('letter') || ''));
         const pinnedType = sectionAllType(sectionRow?.type || '');
         if (pinnedType) params.set('type', pinnedType);
@@ -6441,6 +6464,14 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                 'filters',
                 'hdr',
                 'duplicate',
+                'videoCodec',
+                'audioCodec',
+                'audioLayout',
+                'dovi',
+                'hdr10plus',
+                'atmos',
+                'mediaBitrate>>',
+                'mediaBitrate<<',
             ].map((key) => params.get(key) || '').join('|');
             const cacheKey = `${server?.id || ''}:${section}:${wantedUpper}:${filterStamp}`;
             const isWantedLetter = (rows: ReturnType<typeof mapList>) => {
@@ -6799,7 +6830,18 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                 8000,
             ).then(mapFirstCharacters).catch(() => [] as Array<{ key: string; title: string }>),
         ]);
+        // Media filters (codecs, channels) are file-level, so only movie libraries offer them.
+        const movieLibrary = pinnedType === '1';
+        const none = Promise.resolve([] as Array<{ key: string; title: string }>);
+        const [videoCodecs, audioCodecs, audioLayouts] = await Promise.all([
+            movieLibrary ? facet('videoCodec') : none,
+            movieLibrary ? facet('audioCodec') : none,
+            movieLibrary ? facet('audioLayout') : none,
+        ]);
         return {
+            videoCodecs,
+            audioCodecs,
+            audioLayouts,
             genres,
             decades,
             years,

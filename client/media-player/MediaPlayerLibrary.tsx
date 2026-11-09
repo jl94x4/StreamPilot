@@ -289,6 +289,8 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
     const [inProgress, setInProgress] = useState(false);
     const [hdr, setHdr] = useState(false);
     const [duplicate, setDuplicate] = useState(false);
+    // Movie media filters (codecs, channels, bitrate range, Dolby Vision / HDR10+ / Atmos).
+    const [mediaFilters, setMediaFilters] = useState<Record<string, string>>({});
     const [letter, setLetter] = useState('');
     const [scrollLetter, setScrollLetter] = useState('');
     const [letters, setLetters] = useState<FilterOption[]>([]);
@@ -308,6 +310,9 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
     const [writers, setWriters] = useState<FilterOption[]>([]);
     const [producers, setProducers] = useState<FilterOption[]>([]);
     const [labels, setLabels] = useState<FilterOption[]>([]);
+    const [videoCodecs, setVideoCodecs] = useState<FilterOption[]>([]);
+    const [audioCodecs, setAudioCodecs] = useState<FilterOption[]>([]);
+    const [audioLayouts, setAudioLayouts] = useState<FilterOption[]>([]);
     const homeHubs = useMemo(() => {
         let keptContinue = false;
         return hubs.map((hub) => (
@@ -543,6 +548,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                 hdr,
                 duplicate,
                 letter: jumpLetter,
+                media: mediaFilters,
             });
             if (gen !== browseGenRef.current) return;
             const batch = data.items || [];
@@ -627,6 +633,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
         inProgress,
         label,
         letter,
+        mediaFilters,
         network,
         producer,
         resolution,
@@ -909,6 +916,9 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                     setProducers(data.producers || []);
                     setLabels(data.labels || []);
                     setLetters(data.letters || []);
+                    setVideoCodecs(data.videoCodecs || []);
+                    setAudioCodecs(data.audioCodecs || []);
+                    setAudioLayouts(data.audioLayouts || []);
                 })
                 .catch(() => {
                     if (cancelled) return;
@@ -930,6 +940,9 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                     setProducers([]);
                     setLabels([]);
                     setLetters([]);
+                    setVideoCodecs([]);
+                    setAudioCodecs([]);
+                    setAudioLayouts([]);
                 });
         }, 40);
         return () => {
@@ -983,6 +996,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
         setInProgress(saved.inProgress);
         setHdr(saved.hdr);
         setDuplicate(saved.duplicate);
+        setMediaFilters(saved.media || {});
         setLetter('');
         setLetters([]);
         filtersKey.current = '';
@@ -1024,8 +1038,10 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
             inProgress,
             hdr,
             duplicate,
+            media: mediaFilters,
         });
     }, [
+        mediaFilters,
         actor,
         audioLanguage,
         collection,
@@ -1160,6 +1176,16 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
         'viewCount:desc': t('mediaPlayerPage.sortPlayCount'),
         'duration:desc': t('mediaPlayerPage.sortDuration'),
         'mediaHeight:desc': t('mediaPlayerPage.sortResolution'),
+        'mediaBitrate:desc': t('mediaPlayerPage.sortBitrate'),
+        'mediaSize:desc': t('mediaPlayerPage.sortFileSize'),
+    };
+    const movieLibrary = libraryType === 'movie';
+    // Bitrate / file size are per file, so only movie libraries sort by them.
+    const sortIds: string[] = movieLibrary ? [...SORT_IDS, 'mediaBitrate:desc', 'mediaSize:desc'] : [...SORT_IDS];
+    const sortOptions = sortIds.map((id) => ({ value: id, label: sortLabels[id] || id }));
+    const changeSort = (value: string) => {
+        setSort(value);
+        if (value !== 'titleSort') setLetter('');
     };
     const tvShell = isTvShell();
     const filterSelectClass = 'player-library-filter-select min-w-[10rem] max-md:min-w-0 max-md:flex-1 max-md:basis-[calc(50%-0.25rem)]';
@@ -1266,12 +1292,33 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
 
     // TV Browse: every filter lives in one Plex-style Filters sheet; active ones show as chips.
     const opts = (rows: Array<{ key: string; title: string }>) => rows.map((row) => ({ value: row.key, label: row.title }));
+    const setMedia = (key: string, value: string) => setMediaFilters((prev) => {
+        const next = { ...prev };
+        if (value) next[key] = value;
+        else delete next[key];
+        return next;
+    });
+    const bitrateOptions = [
+        { value: '-10', label: t('mediaPlayerPage.bitrateUnder', { max: 10 }) },
+        { value: '10-20', label: t('mediaPlayerPage.bitrateBetween', { min: 10, max: 20 }) },
+        { value: '20-40', label: t('mediaPlayerPage.bitrateBetween', { min: 20, max: 40 }) },
+        { value: '40-60', label: t('mediaPlayerPage.bitrateBetween', { min: 40, max: 60 }) },
+        { value: '60-80', label: t('mediaPlayerPage.bitrateBetween', { min: 60, max: 80 }) },
+        { value: '80-', label: t('mediaPlayerPage.bitrateOver', { min: 80 }) },
+    ];
+    const mediaGroups: LibraryFilterGroup[] = movieLibrary ? [
+        { id: 'bitrate', label: t('mediaPlayerPage.filterBy_bitrate'), allLabel: t('mediaPlayerPage.allBitrates'), value: mediaFilters.bitrate || '', options: bitrateOptions, onChange: (value: string) => setMedia('bitrate', value) },
+        { id: 'videoCodec', label: t('mediaPlayerPage.filterBy_videoCodec'), allLabel: t('mediaPlayerPage.allVideoCodecs'), value: mediaFilters.videoCodec || '', options: opts(videoCodecs), onChange: (value: string) => setMedia('videoCodec', value) },
+        { id: 'audioCodec', label: t('mediaPlayerPage.filterBy_audioCodec'), allLabel: t('mediaPlayerPage.allAudioCodecs'), value: mediaFilters.audioCodec || '', options: opts(audioCodecs), onChange: (value: string) => setMedia('audioCodec', value) },
+        { id: 'audioLayout', label: t('mediaPlayerPage.filterBy_audioLayout'), allLabel: t('mediaPlayerPage.allAudioLayouts'), value: mediaFilters.audioLayout || '', options: opts(audioLayouts), onChange: (value: string) => setMedia('audioLayout', value) },
+    ] : [];
     const filterGroups: LibraryFilterGroup[] = [
         { id: 'genre', label: t('mediaPlayerPage.genre'), allLabel: t('mediaPlayerPage.allGenres'), value: genre, options: opts(genres), onChange: setGenre },
+        { id: 'resolution', label: t('mediaPlayerPage.resolution'), allLabel: t('mediaPlayerPage.allResolutions'), value: resolution, options: opts(resolutions), onChange: setResolution },
+        ...mediaGroups,
         { id: 'decade', label: t('mediaPlayerPage.decade'), allLabel: t('mediaPlayerPage.allDecades'), value: decade, options: opts(decades), onChange: (value: string) => { setDecade(value); if (value) setYear(''); } },
         { id: 'year', label: t('mediaPlayerPage.filterBy_year'), allLabel: t('mediaPlayerPage.allYears'), value: year, options: opts(years), onChange: (value: string) => { setYear(value); if (value) setDecade(''); } },
         { id: 'contentRating', label: t('mediaPlayerPage.filterBy_contentRating'), allLabel: t('mediaPlayerPage.allContentRatings'), value: contentRating, options: opts(contentRatings), onChange: setContentRating },
-        { id: 'resolution', label: t('mediaPlayerPage.resolution'), allLabel: t('mediaPlayerPage.allResolutions'), value: resolution, options: opts(resolutions), onChange: setResolution },
         { id: 'network', label: t('mediaPlayerPage.filterBy_network'), allLabel: t('mediaPlayerPage.allNetworks'), value: network, options: opts(networks), onChange: setNetwork },
         { id: 'studio', label: t('mediaPlayerPage.filterBy_studio'), allLabel: t('mediaPlayerPage.allStudios'), value: studio, options: opts(studios), onChange: setStudio },
         { id: 'country', label: t('mediaPlayerPage.filterBy_country'), allLabel: t('mediaPlayerPage.allCountries'), value: country, options: opts(countries), onChange: setCountry },
@@ -1289,6 +1336,11 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
         { id: 'inProgress', label: t('mediaPlayerPage.inProgress'), on: inProgress, onToggle: () => { setInProgress((prev) => !prev); setUnwatched(false); } },
         ...(!musicLibrary ? [
             { id: 'hdr', label: t('mediaPlayerPage.hdr'), on: hdr, onToggle: () => setHdr((prev) => !prev) },
+            ...(movieLibrary ? [
+                { id: 'dovi', label: t('mediaPlayerPage.dolbyVision'), on: mediaFilters.dovi === '1', onToggle: () => setMedia('dovi', mediaFilters.dovi === '1' ? '' : '1') },
+                { id: 'hdr10plus', label: t('mediaPlayerPage.hdr10Plus'), on: mediaFilters.hdr10plus === '1', onToggle: () => setMedia('hdr10plus', mediaFilters.hdr10plus === '1' ? '' : '1') },
+                { id: 'atmos', label: t('mediaPlayerPage.dolbyAtmos'), on: mediaFilters.atmos === '1', onToggle: () => setMedia('atmos', mediaFilters.atmos === '1' ? '' : '1') },
+            ] : []),
             { id: 'duplicates', label: t('mediaPlayerPage.duplicates'), on: duplicate, onToggle: () => setDuplicate((prev) => !prev) },
         ] : []),
     ];
@@ -1298,6 +1350,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
         setInProgress(false);
         setHdr(false);
         setDuplicate(false);
+        setMediaFilters({});
     };
 
     if (tvShell && tab === 'home') {
@@ -1332,19 +1385,13 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                     {libraryChrome}
             {tab === 'browse' ? (
                 <div className="player-library-toolbar flex flex-wrap items-center" data-tv-library-filters="1">
-                    <CustomSelect
-                        compact
-                        value={sort}
-                        onChange={(value) => {
-                            setSort(value);
-                            if (value !== 'titleSort') setLetter('');
-                        }}
-                        dropdownClassName="player-filter-menu"
-                        className="player-library-filter-select"
-                        triggerProps={tvFilterTrigger('library-sort')}
-                        options={SORT_IDS.map((id) => ({ value: id, label: sortLabels[id] || id }))}
+                    <PlayerLibraryFilterSheet
+                        groups={filterGroups}
+                        toggles={filterToggles}
+                        onClearAll={clearAllFilters}
+                        sort={{ value: sort, options: sortOptions, onChange: changeSort }}
+                        chips={false}
                     />
-                    <PlayerLibraryFilterSheet groups={filterGroups} toggles={filterToggles} onClearAll={clearAllFilters} />
                     {total > 0 ? (
                         <span className="player-library-count">
                             {t('mediaPlayerPage.itemCount', { count: total.toLocaleString() })}
@@ -1368,7 +1415,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                         dropdownClassName="player-filter-menu"
                         className={`${filterSelectClass} min-w-[11rem]`}
                         triggerProps={tvFilterTrigger('library-sort')}
-                        options={SORT_IDS.map((id) => ({ value: id, label: sortLabels[id] || id }))}
+                        options={sortOptions}
                     />
                     <PlayerLibraryFilterSheet groups={filterGroups} toggles={filterToggles} onClearAll={clearAllFilters} />
                     {total > 0 ? (

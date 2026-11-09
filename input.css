@@ -6767,6 +6767,16 @@ html[data-tv="1"] .player-library-count {
   font-size: calc(1rem * var(--tv-text-scale, 1));
   font-weight: 600;
 }
+/* Active filters as text beside the buttons (changed in the sheet, not separate stops). */
+html[data-tv="1"] .player-library-filter-summary {
+  max-width: 34rem;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: calc(1rem * var(--tv-text-scale, 1));
+  font-weight: 700;
+}
+html[data-tv="1"] .player-library-filter-summary + .player-library-count {
+  margin-left: 0;
+}
 html[data-tv="1"] [data-tv-library-filters="1"].player-library-toolbar button span ,
 html[data-tv="1"] [data-tv-library-filters="1"].player-library-toolbar [role="button"] span {
   font-size: inherit !important;

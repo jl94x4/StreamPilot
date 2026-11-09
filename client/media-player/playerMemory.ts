@@ -53,6 +53,8 @@ export type LibraryBrowseState = {
     inProgress: boolean;
     hdr: boolean;
     duplicate: boolean;
+    /** Movie media filters: codecs, channels, bitrate range, Dolby Vision / HDR10+ / Atmos. */
+    media: Record<string, string>;
 };
 
 const DEFAULT_PLAYBACK: LocalPlaybackPrefs = { volume: 1, muted: false, speed: 1 };
@@ -80,6 +82,7 @@ const DEFAULT_LIBRARY: LibraryBrowseState = {
     inProgress: false,
     hdr: false,
     duplicate: false,
+    media: {},
 };
 
 const readJson = (key: string): unknown => {
@@ -499,6 +502,10 @@ export const readLibraryBrowseState = (sectionKey: string): LibraryBrowseState =
         inProgress: saved.inProgress === true,
         hdr: saved.hdr === true,
         duplicate: saved.duplicate === true,
+        media: Object.fromEntries(
+            Object.entries(saved.media && typeof saved.media === 'object' ? saved.media : {})
+                .filter(([, value]) => typeof value === 'string' && value),
+        ) as Record<string, string>,
     };
 };
 

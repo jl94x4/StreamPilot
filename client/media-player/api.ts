@@ -43,7 +43,9 @@ import type {
     PlayerProfile,
     PlayerSection,
     PlayerStudioBrowseCard,
+    LibraryMediaFilters,
 } from './types';
+import { LIBRARY_MEDIA_FILTER_KEYS } from './types';
 
 const prefetchItemBackdrop = (item?: { art?: string | null; backdropArt?: string | null; thumb?: string | null; logo?: string | null } | null) => {
     const art = item?.backdropArt || item?.art || item?.thumb;
@@ -303,12 +305,17 @@ export const fetchMediaPlayerLibrary = (
         hdr?: boolean;
         duplicate?: boolean;
         letter?: string;
+        media?: LibraryMediaFilters;
     } = {},
 ) => {
     const qs = new URLSearchParams({
         start: String(start),
         size: String(size),
     });
+    for (const key of LIBRARY_MEDIA_FILTER_KEYS) {
+        const value = String(opts.media?.[key] || '').trim();
+        if (value) qs.set(key, value);
+    }
     if (opts.sort) qs.set('sort', opts.sort);
     if (opts.genre) qs.set('genre', opts.genre);
     if (opts.decade) qs.set('decade', opts.decade);

@@ -73,6 +73,16 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.669': [
+        {
+            title: 'Library Browse',
+            items: [
+                'Sort and filters are simpler with the remote: two buttons, Sort and Filters, open the same side panel. Up and down to move, OK to pick, Back to close. Sort by is also at the top of the Filters panel, so you can change it at any time, filters or not',
+                'New filters for films: Bitrate, Video codec, Audio codec, Audio channels, Dolby Vision, HDR10+ and Dolby Atmos. Films can also be sorted by Bitrate or File size',
+                'Active filters are listed beside the buttons instead of as extra buttons, and Down from the library tabs now always lands on Sort',
+            ],
+        },
+    ],
     '1.0.668': [
         {
             title: 'Big 4K remuxes',

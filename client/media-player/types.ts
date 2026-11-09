@@ -367,7 +367,19 @@ export type PlayerLibraryFilters = {
     producers?: PlayerLibraryFilterOption[];
     labels?: PlayerLibraryFilterOption[];
     letters?: PlayerLibraryFilterOption[];
+    /** Movie libraries: values for the media filters (see LIBRARY_MEDIA_FILTER_KEYS). */
+    videoCodecs?: PlayerLibraryFilterOption[];
+    audioCodecs?: PlayerLibraryFilterOption[];
+    audioLayouts?: PlayerLibraryFilterOption[];
 };
+
+/**
+ * Media filters for movie libraries, sent as-is: videoCodec / audioCodec / audioLayout (Plex
+ * values), bitrate ("min-max" in Mbps, either side may be empty) and the dovi / hdr10plus /
+ * atmos switches ("1").
+ */
+export const LIBRARY_MEDIA_FILTER_KEYS = ['videoCodec', 'audioCodec', 'audioLayout', 'bitrate', 'dovi', 'hdr10plus', 'atmos'] as const;
+export type LibraryMediaFilters = Partial<Record<typeof LIBRARY_MEDIA_FILTER_KEYS[number], string>>;
 
 export type PlayerLibraryPage = {
     title: string;

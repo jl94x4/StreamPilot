@@ -2661,6 +2661,32 @@ export const useTvRemote = (enabled = true) => {
                     return;
                 }
             }
+            // Down from any library tab lands on Sort when Browse shows its toolbar. Spatially the
+            // tabs on the right sit over the grid, so Down skipped the toolbar entirely.
+            if (!target && !menuRoot && dir === 'down' && current.closest('[data-tv-library-tabs="1"]')) {
+                const toolbar = document.querySelector<HTMLElement>('[data-tv-library-filters="1"]');
+                const first = toolbar ? focusableTvItems(toolbar)[0] : null;
+                if (first) {
+                    focusItem(first, 'start');
+                    return;
+                }
+            }
+            // The toolbar is one short row: Left / Right stay in it (never off to the letter bar,
+            // which then dropped focus into the grid), Down goes to the posters.
+            if (!target && !menuRoot && (dir === 'left' || dir === 'right') && current.closest('[data-tv-library-filters="1"]')) {
+                const toolbar = current.closest<HTMLElement>('[data-tv-library-filters="1"]');
+                const items = toolbar ? focusableTvItems(toolbar) : [];
+                const idx = items.findIndex((el) => el === current || el.contains(current));
+                if (idx >= 0) {
+                    const next = items[idx + (dir === 'right' ? 1 : -1)];
+                    if (next) focusItem(next, 'nearest', dir);
+                    else if (dir === 'left') {
+                        setNavOpen(true);
+                        window.setTimeout(focusNavItem, 50);
+                    }
+                    return;
+                }
+            }
             // Browse filters sit between tabs and the grid — Up must reach the tab row.
             if (!target && !menuRoot && dir === 'up' && current.closest('[data-tv-library-filters="1"]')) {
                 const tab = libraryTabForFocus();
