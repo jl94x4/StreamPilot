@@ -4538,6 +4538,13 @@ html[data-tv="1"][data-simple-motion="1"] .player-tv-screensaver-wall { transfor
 html[data-tv="1"][data-simple-motion="1"] .player-tv-screensaver-wall-row { will-change: auto; }
 html[data-tv="1"][data-reduce-motion="1"] .player-tv-screensaver-wall-row { animation: none; }
 
+/* Insights detail rows get the same ring as the boxes. */
+html[data-tv="1"] .insights-row:focus,
+html[data-tv="1"] .insights-row:focus-visible {
+  outline: var(--tv-focus-width, 2px) solid rgb(var(--tv-focus-accent, 245 158 11));
+  outline-offset: 2px;
+  background: rgba(255, 255, 255, 0.08);
+}
 /* Insights page: each block is a stop for the remote. */
 html[data-tv="1"] .insights-card:focus,
 html[data-tv="1"] .insights-card:focus-visible {

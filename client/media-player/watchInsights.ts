@@ -39,6 +39,12 @@ export type WatchInsights = {
     facts: InsightFact[];
     peakWeekday: number | null;
     peakPart: number | null;
+    /** Every watched title with its plays and time: the detail panels slice this. */
+    all: InsightFavourite[];
+    /** Titles last watched in each hour of the day. */
+    hourly: number[];
+    /** The month with the most titles, as YYYY-MM (or ''). */
+    busiestMonthKey: string;
 };
 
 const num = (value: unknown) => {
@@ -104,6 +110,7 @@ export const buildWatchInsights = (
     const studioMap = new Map<string, number>();
     const weekdays = new Array<number>(7).fill(0);
     const partsOfDay = new Array<number>(4).fill(0);
+    const hourly = new Array<number>(24).fill(0);
     const monthCounts = new Map<string, number>();
     const favourites: InsightFavourite[] = [];
     let totalMs = 0;
@@ -145,6 +152,7 @@ export const buildWatchInsights = (
         const at = new Date(num(item.lastViewedAt));
         weekdays[at.getDay()] += 1;
         partsOfDay[partOfDay(at.getHours())] += 1;
+        hourly[at.getHours()] += 1;
         const monthKey = `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}`;
         monthCounts.set(monthKey, (monthCounts.get(monthKey) || 0) + 1);
     }
@@ -228,5 +236,8 @@ export const buildWatchInsights = (
         facts,
         peakWeekday,
         peakPart,
+        all: favourites,
+        hourly,
+        busiestMonthKey: busiest ? busiest[0] : '',
     };
 };

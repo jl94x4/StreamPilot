@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { ArrowLeft, X } from 'lucide-react';
 import {
     discoveryTheme,
     PosterGridSkeleton,
@@ -17,6 +18,7 @@ import { PlayerPosterCard } from './PlayerPosterCard';
 import { PlayerRail } from './PlayerRail';
 import { PlayerTvStatusPanel } from './PlayerTvStatusPanel';
 import { buildWatchInsights, type InsightFavourite } from './watchInsights';
+import { buildInsightDetail, type DetailKind, type InsightDetail } from './insightDetails';
 import type { PlayerItem, PlayerPlayOptions } from './types';
 
 type Props = {
@@ -37,6 +39,19 @@ const isTvShell = () => {
     }
 };
 
+/** Select (OK on the remote, Enter, a tap) on a box. */
+const selectable = (onSelect?: () => void) => (onSelect ? {
+    role: 'button' as const,
+    'data-tv-action': '1',
+    onClick: onSelect,
+    onKeyDown: (event: React.KeyboardEvent) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            onSelect();
+        }
+    },
+} : {});
+
 /** One block of the page. On a TV each is a stop for the remote, so Down walks the page. */
 const InsightCard: React.FC<{
     id: string;
@@ -44,7 +59,8 @@ const InsightCard: React.FC<{
     note?: string;
     children: React.ReactNode;
     className?: string;
-}> = ({ id, title, note, children, className = '' }) => (
+    onSelect?: () => void;
+}> = ({ id, title, note, children, className = '', onSelect }) => (
     <section data-tv-row="1" data-tv-row-id={`insights:${id}`} className="flex min-w-0 flex-col gap-2">
         {title ? (
             <div className="player-row-header flex min-w-0 items-center gap-3">
@@ -55,7 +71,8 @@ const InsightCard: React.FC<{
         <div
             tabIndex={0}
             data-tv-item="1"
-            className={`insights-card rounded-2xl border border-white/10 bg-white/[0.04] p-5 outline-none ${className}`}
+            {...selectable(onSelect)}
+            className={`insights-card rounded-2xl border border-white/10 bg-white/[0.04] p-5 outline-none ${onSelect ? 'cursor-pointer hover:bg-white/[0.07]' : ''} ${className}`}
         >
             {children}
             {note ? <p className="mt-4 text-xs text-muted">{note}</p> : null}
@@ -63,11 +80,12 @@ const InsightCard: React.FC<{
     </section>
 );
 
-const StatTile: React.FC<{ value: string; label: string; hint?: string }> = ({ value, label, hint }) => (
+const StatTile: React.FC<{ value: string; label: string; hint?: string; onSelect?: () => void }> = ({ value, label, hint, onSelect }) => (
     <div
         tabIndex={0}
         data-tv-item="1"
-        className="insights-card flex min-w-0 flex-col gap-1 rounded-2xl border border-white/10 bg-white/[0.04] p-5 outline-none"
+        {...selectable(onSelect)}
+        className={`insights-card flex min-w-0 flex-col gap-1 rounded-2xl border border-white/10 bg-white/[0.04] p-5 outline-none ${onSelect ? 'cursor-pointer hover:bg-white/[0.07]' : ''}`}
     >
         <span className="text-4xl font-black leading-none text-white tabular-nums">{value}</span>
         <span className="text-sm font-bold text-muted">{label}</span>
@@ -113,6 +131,134 @@ const Columns: React.FC<{ rows: Array<{ label: string; value: number; hot?: bool
     );
 };
 
+/** The detail behind a box: its numbers, then the titles that make them up. */
+const InsightDetailSheet: React.FC<{
+    detail: InsightDetail;
+    onClose: () => void;
+    onOpenItem: (item: PlayerItem) => void;
+}> = ({ detail, onClose, onOpenItem }) => {
+    const { t } = useDiscoverI18n();
+    const bodyRef = useRef<HTMLDivElement | null>(null);
+    const closeRef = useRef<HTMLButtonElement | null>(null);
+    const returnTo = useRef<HTMLElement | null>(typeof document === 'undefined' ? null : (document.activeElement as HTMLElement | null));
+
+    useEffect(() => {
+        // The remote treats an open panel as its own world (Back closes it, arrows stay inside).
+        try {
+            document.documentElement.dataset.tvMenuOpen = '1';
+        } catch {
+            /* ignore */
+        }
+        const close = () => onClose();
+        window.addEventListener('smp-tv-overlay-close', close);
+        const onKey = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') onClose();
+        };
+        window.addEventListener('keydown', onKey);
+        const focusTimer = window.setTimeout(() => {
+            const first = bodyRef.current?.querySelector<HTMLElement>('[data-tv-item="1"]') || closeRef.current;
+            first?.focus({ preventScroll: true });
+        }, 40);
+        return () => {
+            window.clearTimeout(focusTimer);
+            window.removeEventListener('smp-tv-overlay-close', close);
+            window.removeEventListener('keydown', onKey);
+            try {
+                delete document.documentElement.dataset.tvMenuOpen;
+            } catch {
+                /* ignore */
+            }
+            window.requestAnimationFrame(() => returnTo.current?.focus({ preventScroll: true }));
+        };
+    }, [onClose]);
+
+    const rowClass = 'insights-row flex w-full min-w-0 items-center gap-4 rounded-xl px-4 py-3 text-left outline-none hover:bg-white/[0.06]';
+    return createPortal(
+        <div
+            className="fixed inset-0 z-[3500] flex items-center justify-center bg-black/75 px-4"
+            data-tv-settings-dialog="1"
+            onClick={(event) => {
+                if (event.target === event.currentTarget) onClose();
+            }}
+        >
+            <div
+                role="dialog"
+                aria-label={detail.title}
+                data-tv-item-menu="1"
+                className="flex w-full max-w-[64rem] flex-col overflow-hidden rounded-3xl border border-white/10 bg-[#0b1018] shadow-[0_30px_80px_rgba(0,0,0,0.6)]"
+                style={{ maxHeight: 'calc(88vh / var(--tv-zoom, 1))' }}
+                onClick={(event) => event.stopPropagation()}
+            >
+                <div className="flex shrink-0 items-start justify-between gap-4 border-b border-white/10 px-7 py-5">
+                    <div className="min-w-0">
+                        <h2 className="truncate text-2xl font-black text-white">{detail.title}</h2>
+                        {detail.lead ? <p className="mt-1 text-sm text-muted">{detail.lead}</p> : null}
+                    </div>
+                    <button
+                        ref={closeRef}
+                        type="button"
+                        data-tv-item="1"
+                        data-tv-action="1"
+                        aria-label={t('mediaPlayerPage.insightsDetClose')}
+                        onClick={onClose}
+                        className="insights-row inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/15 bg-white/5 text-white outline-none hover:bg-white/10"
+                    >
+                        <X className="h-5 w-5" />
+                    </button>
+                </div>
+                <div ref={bodyRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-7 py-5 hide-scrollbar" data-tv-overlay-scroll="1">
+                    {detail.stats.length ? (
+                        <div className="mb-5 flex flex-wrap gap-3">
+                            {detail.stats.map((stat) => (
+                                <div key={stat.label} className="min-w-[9rem] rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-3">
+                                    <p className="truncate text-2xl font-black text-white">{stat.value}</p>
+                                    <p className="text-xs font-bold text-muted">{stat.label}</p>
+                                </div>
+                            ))}
+                        </div>
+                    ) : null}
+                    {detail.sections.map((section, index) => (
+                        <section key={`${section.title}-${index}`} className="mb-6 flex flex-col gap-1">
+                            <h3 className="mb-1 text-xs font-black uppercase tracking-widest text-muted">{section.title}</h3>
+                            {section.columns ? (
+                                <div tabIndex={0} data-tv-item="1" className="insights-row rounded-xl px-4 py-3 outline-none">
+                                    <Columns rows={section.columns} height={72} />
+                                </div>
+                            ) : null}
+                            {(section.rows || []).map((row) => (
+                                row.item ? (
+                                    <button
+                                        key={row.id}
+                                        type="button"
+                                        data-tv-item="1"
+                                        data-tv-action="1"
+                                        onClick={() => {
+                                            onClose();
+                                            onOpenItem(row.item as PlayerItem);
+                                        }}
+                                        className={rowClass}
+                                    >
+                                        <span className="min-w-0 flex-1 truncate font-bold text-white">{row.label}</span>
+                                        {row.sub ? <span className="shrink-0 text-sm text-muted">{row.sub}</span> : null}
+                                        {row.value ? <span className="w-28 shrink-0 text-right tabular-nums text-white/90">{row.value}</span> : null}
+                                    </button>
+                                ) : (
+                                    <div key={row.id} tabIndex={0} data-tv-item="1" className={rowClass}>
+                                        <span className="min-w-0 flex-1 truncate font-bold text-white">{row.label}</span>
+                                        {row.sub ? <span className="shrink-0 text-sm text-muted">{row.sub}</span> : null}
+                                        {row.value ? <span className="w-28 shrink-0 text-right tabular-nums text-white/90">{row.value}</span> : null}
+                                    </div>
+                                )
+                            ))}
+                        </section>
+                    ))}
+                </div>
+            </div>
+        </div>,
+        document.body,
+    );
+};
+
 const FavouriteRail: React.FC<{
     id: string;
     title: string;
@@ -153,6 +299,8 @@ const InsightsPage: React.FC<Props> = (props) => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [attempt, setAttempt] = useState(0);
+    const [detailKind, setDetailKind] = useState<DetailKind | null>(null);
+    const [incomplete, setIncomplete] = useState(false);
     const tvShell = isTvShell();
     const density = homeRailPosterDensity(gridSize);
 
@@ -165,6 +313,7 @@ const InsightsPage: React.FC<Props> = (props) => {
                 .then((data) => {
                     if (cancelled) return;
                     setItems(data.items || []);
+                    setIncomplete(data.incomplete === true);
                     setError(null);
                 })
                 .catch((err) => {
@@ -187,6 +336,11 @@ const InsightsPage: React.FC<Props> = (props) => {
         [items],
     );
     const groups = useMemo(() => groupHistory(recent, t, locale), [recent, t, locale]);
+    const detail = useMemo(
+        () => (detailKind ? buildInsightDetail(detailKind, insights, t, locale) : null),
+        [detailKind, insights, t, locale],
+    );
+    const closeDetail = React.useCallback(() => setDetailKind(null), []);
 
     const toggleWatched = async (item: PlayerItem) => {
         const next = !item.watched;
@@ -212,7 +366,7 @@ const InsightsPage: React.FC<Props> = (props) => {
             ) : null}
             <h1 className={discoveryTheme.heading}>{t('mediaPlayerPage.navInsights')}</h1>
             {!loading && !error && insights.titles ? (
-                <p className="mt-1 text-sm text-muted">{t('mediaPlayerPage.insightsBasedOn', { count: insights.titles })}</p>
+                <p className="mt-1 text-sm text-muted">{t('mediaPlayerPage.insightsBasedOn', { count: insights.titles })} {t('mediaPlayerPage.insightsSelectHint')}</p>
             ) : null}
         </div>
     );
@@ -273,19 +427,33 @@ const InsightsPage: React.FC<Props> = (props) => {
     return (
         <div className="flex flex-col gap-6 pb-10">
             {heading}
+            {incomplete ? (
+                <div className="flex flex-wrap items-center gap-4 rounded-2xl border border-amber-400/30 bg-amber-400/10 px-5 py-3">
+                    <p className="min-w-0 flex-1 text-sm text-amber-100">{t('mediaPlayerPage.insightsIncomplete')}</p>
+                    <button
+                        type="button"
+                        data-tv-item="1"
+                        data-tv-action="1"
+                        onClick={() => setAttempt((n) => n + 1)}
+                        className="insights-row inline-flex h-10 shrink-0 items-center rounded-xl border border-white/20 bg-white/10 px-4 text-sm font-bold text-white outline-none hover:bg-white/15"
+                    >
+                        {t('mediaPlayerPage.insightsTryAgain')}
+                    </button>
+                </div>
+            ) : null}
 
             <div className={`grid gap-3 ${colsTiles}`}>
-                <StatTile value={hoursText} label={t('mediaPlayerPage.insightsHours')} hint={t('mediaPlayerPage.insightsEstimate')} />
-                <StatTile value={String(insights.titles)} label={t('mediaPlayerPage.insightsTitles')} />
-                <StatTile value={String(insights.episodes)} label={t('mediaPlayerPage.insightsEpisodes')} />
-                <StatTile value={String(insights.movies)} label={t('mediaPlayerPage.insightsMovies')} />
-                <StatTile value={String(insights.showsFinished)} label={t('mediaPlayerPage.insightsShowsFinished')} hint={t('mediaPlayerPage.insightsShowsStarted', { count: insights.showsInProgress })} />
-                <StatTile value={String(insights.rewatches)} label={t('mediaPlayerPage.insightsRewatches')} />
+                <StatTile value={hoursText} label={t('mediaPlayerPage.insightsHours')} hint={t('mediaPlayerPage.insightsEstimate')} onSelect={() => setDetailKind('hours')} />
+                <StatTile value={String(insights.titles)} label={t('mediaPlayerPage.insightsTitles')} onSelect={() => setDetailKind('titles')} />
+                <StatTile value={String(insights.episodes)} label={t('mediaPlayerPage.insightsEpisodes')} onSelect={() => setDetailKind('episodes')} />
+                <StatTile value={String(insights.movies)} label={t('mediaPlayerPage.insightsMovies')} onSelect={() => setDetailKind('movies')} />
+                <StatTile value={String(insights.showsFinished)} label={t('mediaPlayerPage.insightsShowsFinished')} hint={t('mediaPlayerPage.insightsShowsStarted', { count: insights.showsInProgress })} onSelect={() => setDetailKind('showsFinished')} />
+                <StatTile value={String(insights.rewatches)} label={t('mediaPlayerPage.insightsRewatches')} onSelect={() => setDetailKind('rewatches')} />
             </div>
 
             <div className={`grid gap-5 ${colsThree}`}>
                 {insights.genres.length ? (
-                    <InsightCard id="genres" title={t('mediaPlayerPage.insightsGenres')}>
+                    <InsightCard id="genres" title={t('mediaPlayerPage.insightsGenres')} onSelect={() => setDetailKind('genres')}>
                         <BarList rows={insights.genres.map((g) => ({
                             label: g.name,
                             value: g.hours,
@@ -295,18 +463,18 @@ const InsightsPage: React.FC<Props> = (props) => {
                     </InsightCard>
                 ) : null}
                 {insights.decades.length ? (
-                    <InsightCard id="decades" title={t('mediaPlayerPage.insightsDecades')}>
+                    <InsightCard id="decades" title={t('mediaPlayerPage.insightsDecades')} onSelect={() => setDetailKind('decades')}>
                         <BarList rows={insights.decades.map((d) => ({ label: d.label, value: d.titles, display: String(d.titles) }))} />
                     </InsightCard>
                 ) : null}
                 {insights.studios.length ? (
-                    <InsightCard id="studios" title={t('mediaPlayerPage.insightsStudios')}>
+                    <InsightCard id="studios" title={t('mediaPlayerPage.insightsStudios')} onSelect={() => setDetailKind('studios')}>
                         <BarList rows={insights.studios.map((s) => ({ label: s.name, value: s.titles, display: String(s.titles) }))} />
                     </InsightCard>
                 ) : null}
             </div>
 
-            <InsightCard id="when" title={t('mediaPlayerPage.insightsWhen')} note={t('mediaPlayerPage.insightsWhenNote')}>
+            <InsightCard id="when" title={t('mediaPlayerPage.insightsWhen')} note={t('mediaPlayerPage.insightsWhenNote')} onSelect={() => setDetailKind('when')}>
                 <div className={`grid gap-8 ${colsThree}`}>
                     <div className="flex flex-col gap-2">
                         <p className="text-xs font-black uppercase tracking-widest text-muted">{t('mediaPlayerPage.insightsWeekdays')}</p>
@@ -335,7 +503,8 @@ const InsightsPage: React.FC<Props> = (props) => {
                                 key={fact.id}
                                 tabIndex={0}
                                 data-tv-item="1"
-                                className="insights-card flex min-w-0 flex-col gap-1 rounded-2xl border border-white/10 bg-white/[0.04] p-5 outline-none"
+                                {...selectable(() => setDetailKind(`fact:${fact.id}`))}
+                                className="insights-card flex min-w-0 cursor-pointer flex-col gap-1 rounded-2xl border border-white/10 bg-white/[0.04] p-5 outline-none hover:bg-white/[0.07]"
                             >
                                 <span className="text-xs font-black uppercase tracking-widest text-muted">{factTitle(fact.id)}</span>
                                 <span className="truncate text-2xl font-black text-white">{fact.value}</span>
@@ -394,6 +563,7 @@ const InsightsPage: React.FC<Props> = (props) => {
                     </div>
                 </section>
             ))}
+            {detail ? <InsightDetailSheet detail={detail} onClose={closeDetail} onOpenItem={onOpenItem} /> : null}
         </div>
     );
 };

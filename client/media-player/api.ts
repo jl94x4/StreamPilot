@@ -418,21 +418,24 @@ export const fetchMediaPlayerHistory = () => {
     return historyInflight;
 };
 
-let insightsInflight: Promise<{ items: PlayerItem[] }> | null = null;
+type InsightsData = { items: PlayerItem[]; incomplete: boolean };
+let insightsInflight: Promise<InsightsData> | null = null;
 let insightsCache: { at: number; items: PlayerItem[] } | null = null;
 const INSIGHTS_CACHE_TTL_MS = 3 * 60_000;
 
 /** Everything this profile has watched, for the Insights page. Kept a few minutes between visits. */
 export const fetchMediaPlayerInsights = (opts: { force?: boolean } = {}) => {
     if (!opts.force && insightsCache && Date.now() - insightsCache.at < INSIGHTS_CACHE_TTL_MS) {
-        return Promise.resolve({ items: insightsCache.items });
+        return Promise.resolve({ items: insightsCache.items, incomplete: false });
     }
     if (insightsInflight) return insightsInflight;
-    insightsInflight = (apiFetch(`${PLAYER_API_ROOT}/insights`) as Promise<{ items?: PlayerItem[] }>)
+    insightsInflight = (apiFetch(`${PLAYER_API_ROOT}/insights`) as Promise<{ items?: PlayerItem[]; incomplete?: boolean }>)
         .then((data) => {
             const items = Array.isArray(data?.items) ? data.items : [];
-            insightsCache = { at: Date.now(), items };
-            return { items };
+            const incomplete = data?.incomplete === true;
+            // A partial answer is not kept: the next visit asks again.
+            insightsCache = incomplete ? null : { at: Date.now(), items };
+            return { items, incomplete };
         })
         .finally(() => { insightsInflight = null; });
     return insightsInflight;

@@ -7982,17 +7982,29 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
         // Libraries are read two at a time and a library stops at its first unwatched title (the
         // list is sorted by last watched), so a small history costs one small request.
         const servers = enabledServers();
+        // A library that does not answer (a busy server) must not quietly vanish from the numbers:
+        // each page gets a second try, and the page says so when something is still missing.
+        let incomplete = false;
         const perServer = await Promise.all(servers.map((server) => withMapServer(server, async () => {
-            const sections = mapSections(await pms('/library/sections', server).catch(() => null))
+            const sectionsRaw = await pms('/library/sections', server).catch(() => null);
+            if (!sectionsRaw) incomplete = true;
+            const sections = mapSections(sectionsRaw)
                 .filter((section) => section.type === 'movie' || section.type === 'show');
             const lists = await mapPool(sections, 2, async (section) => {
                 const rows: ReturnType<typeof mapList> = [];
                 for (let start = 0; start < INSIGHTS_PER_SECTION; start += INSIGHTS_PAGE) {
-                    const page = await pms(
-                        `/library/sections/${encodeURIComponent(section.key)}/all?type=${section.type === 'show' ? 2 : 1}&sort=lastViewedAt:desc&X-Plex-Container-Start=${start}&X-Plex-Container-Size=${INSIGHTS_PAGE}`,
-                        server,
-                        20000,
-                    ).then(mapList).catch(() => [] as ReturnType<typeof mapList>);
+                    let page: ReturnType<typeof mapList> | null = null;
+                    for (let attempt = 0; attempt < 2 && !page; attempt += 1) {
+                        page = await pms(
+                            `/library/sections/${encodeURIComponent(section.key)}/all?type=${section.type === 'show' ? 2 : 1}&sort=lastViewedAt:desc&X-Plex-Container-Start=${start}&X-Plex-Container-Size=${INSIGHTS_PAGE}`,
+                            server,
+                            25000,
+                        ).then(mapList).catch(() => null);
+                    }
+                    if (!page) {
+                        incomplete = true;
+                        break;
+                    }
                     const watched = page.filter((item) => Number(item.lastViewedAt) > 0);
                     rows.push(...watched);
                     if (watched.length < page.length || page.length < INSIGHTS_PAGE) break;
@@ -8001,7 +8013,7 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
             });
             return lists.flat();
         })));
-        return { items: perServer.flat() };
+        return { items: perServer.flat(), incomplete };
     }
     if (path === '/api/media-player/playlists') {
         const items = await pms('/playlists?playlistType=video').then(mapList).catch(() => []);

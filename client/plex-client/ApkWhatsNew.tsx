@@ -73,6 +73,16 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.656': [
+        {
+            title: 'Insights',
+            items: [
+                'Select any box on Insights to see the detail behind it: hours watched break down into films and series with where the time went, genres list every genre with its top titles, decades and studios show the titles behind each bar, when you watch shows every hour and day, and each fun fact opens to its own list',
+                'Pick a title in any of those lists to open it',
+                'Insights can be turned off in Settings (Home tab, Show Insights in the menu), and nothing is loaded for it while it is off',
+            ],
+        },
+    ],
     '1.0.655': [
         {
             title: 'Insights',
