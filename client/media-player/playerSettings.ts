@@ -644,6 +644,8 @@ export type PlayerSettings = {
     libraryNavOrder: string[];
     /** Sidebar items turned off in Settings (Home and Settings always show). */
     hiddenNavItems: PlayerNavItem[];
+    /** Libraries left out of the sidebar (their keys). They still show on Home and in Search. */
+    hiddenNavLibraries: string[];
     /** Hide watched movies/shows from Recently Added rows. */
     hideWatchedFromRecents: boolean;
     /** Recently Added TV: use season posters instead of the series poster. */
@@ -1082,6 +1084,7 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
     homeRowOrder: [],
     libraryNavOrder: [],
     hiddenNavItems: [],
+    hiddenNavLibraries: [],
     hideWatchedFromRecents: false,
     recentlyAddedSeasonPoster: false,
     screensaverSource: 'continue_watching',
@@ -1122,6 +1125,17 @@ const normalizeHiddenNavItems = (raw: unknown): PlayerNavItem[] => {
     if (!Array.isArray(raw)) return [];
     const picked = new Set(raw.map((value) => String(value)));
     return PLAYER_NAV_ITEMS.filter((item) => picked.has(item));
+};
+
+const normalizeHiddenNavLibraries = (raw: unknown): string[] => {
+    if (!Array.isArray(raw)) return [];
+    const out: string[] = [];
+    for (const value of raw) {
+        const key = String(value || '').trim();
+        if (key && key.length < 120 && !out.includes(key)) out.push(key);
+        if (out.length >= 200) break;
+    }
+    return out;
 };
 
 export const normalizePlayerSettings = (raw: Partial<PlayerSettings> | Record<string, unknown> | null | undefined): PlayerSettings => {
@@ -1213,6 +1227,7 @@ export const normalizePlayerSettings = (raw: Partial<PlayerSettings> | Record<st
                 : libraryNavOrderFromHomeRows(raw?.homeRowOrder),
         ),
         hiddenNavItems: normalizeHiddenNavItems(raw?.hiddenNavItems),
+        hiddenNavLibraries: normalizeHiddenNavLibraries(raw?.hiddenNavLibraries),
         hideWatchedFromRecents: raw?.hideWatchedFromRecents === true,
         recentlyAddedSeasonPoster: raw?.recentlyAddedSeasonPoster === true,
         screensaverSource: isPlayerScreensaverSource(raw?.screensaverSource)
@@ -1317,6 +1332,7 @@ export const playerSettingsEqual = (a: PlayerSettings, b: PlayerSettings) => (
     && a.homeRowOrder.join('\0') === b.homeRowOrder.join('\0')
     && a.libraryNavOrder.join('\0') === b.libraryNavOrder.join('\0')
     && a.hiddenNavItems.join('\0') === b.hiddenNavItems.join('\0')
+    && a.hiddenNavLibraries.join('\0') === b.hiddenNavLibraries.join('\0')
     && a.hideWatchedFromRecents === b.hideWatchedFromRecents
     && a.recentlyAddedSeasonPoster === b.recentlyAddedSeasonPoster
     && a.screensaverSource === b.screensaverSource

@@ -162,6 +162,25 @@ const scrollOverlayOnly = (el: HTMLElement) => {
     else if (row.bottom + margin > box.bottom) scroller.scrollTop += (row.bottom + margin - box.bottom) / zoom;
 };
 
+/**
+ * Keep a focused sidebar library visible inside its own list. A long list (dozens of libraries) must
+ * follow focus down and up on any remote, including held-down presses, so this sets the position
+ * outright (no smooth scroll to be interrupted) and never moves the page.
+ */
+const keepNavItemVisible = (scroller: HTMLElement, el: HTMLElement) => {
+    const box = scroller.getBoundingClientRect();
+    const row = el.getBoundingClientRect();
+    const zoom = Math.max(0.01, readDocumentZoom());
+    const margin = Math.min(box.height / 4, row.height * 0.5);
+    let delta = 0;
+    if (row.top - margin < box.top) delta = (row.top - margin - box.top) / zoom;
+    else if (row.bottom + margin > box.bottom) delta = (row.bottom + margin - box.bottom) / zoom;
+    if (!delta) return;
+    const top = Math.max(0, Math.min(scroller.scrollHeight - scroller.clientHeight, scroller.scrollTop + delta));
+    scroller.scrollTo({ top, behavior: 'instant' as ScrollBehavior });
+    if (Math.abs(scroller.scrollTop - top) > 2) scroller.scrollTop = top;
+};
+
 const PEEK_PX = 72;
 const SLOT_PEEK_PX = 40;
 
@@ -759,6 +778,11 @@ const focusItem = (el: HTMLElement, block: ScrollLogicalPosition = 'nearest', di
         el.focus();
     }
     syncPosterFocusAttr();
+    const navList = el.closest<HTMLElement>('[data-tv-nav-libraries-scroll="1"]');
+    if (navList) {
+        keepNavItemVisible(navList, el);
+        return;
+    }
     const stickyHeader = el.closest<HTMLElement>('[data-tv-sticky-header="1"]');
     if (stickyHeader) {
         scrollEl(stickyHeader, 'start');

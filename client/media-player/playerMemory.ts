@@ -15,6 +15,8 @@ export const PLAYER_SEARCH_CLEAR_EVENT = 'smp-player-search-clear';
 export const PLAYER_RECENT_SEARCHES_KEY = 'portal-media-player-recent-searches-v1';
 export const PLAYER_LOCAL_PLAYBACK_KEY = 'portal-media-player-local-playback';
 export const PLAYER_LIBRARY_STATE_KEY = 'portal-media-player-library-state-v2';
+/** Per library: the tab it was last left on, and its sort. Kept across restarts (filters are not). */
+export const PLAYER_LIBRARY_PREFS_KEY = 'portal-media-player-library-prefs-v1';
 export const PLAYER_MINI_WIDTH_KEY = 'portal-media-player-mini-width';
 export const PLAYER_NAV_EXPANDED_KEY = 'portal-media-player-nav-expanded';
 export const PLAYER_AV_CHOICES_KEY = 'portal-media-player-av-choices';
@@ -439,11 +441,44 @@ export const writePlayerNavExpanded = (expanded: boolean) => {
     writeJson(window.localStorage, PLAYER_NAV_EXPANDED_KEY, expanded !== false);
 };
 
+type LibraryPrefs = { tab?: string; sort?: string };
+
+const readLibraryPrefs = (): Record<string, LibraryPrefs> => {
+    if (typeof window === 'undefined') return {};
+    try {
+        const parsed = JSON.parse(window.localStorage.getItem(PLAYER_LIBRARY_PREFS_KEY) || '{}');
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+        return {};
+    }
+};
+
+const patchLibraryPrefs = (sectionKey: string, patch: LibraryPrefs) => {
+    if (typeof window === 'undefined' || !sectionKey) return;
+    const all = readLibraryPrefs();
+    const next = { ...(all[sectionKey] || {}), ...patch };
+    if (all[sectionKey]?.tab === next.tab && all[sectionKey]?.sort === next.sort) return;
+    all[sectionKey] = next;
+    writeJson(window.localStorage, PLAYER_LIBRARY_PREFS_KEY, all);
+};
+
+const LIBRARY_TABS = ['home', 'browse', 'collections', 'studios'];
+
+/** The tab this library was last left on (Recommended, Browse, ...), or '' when never changed. */
+export const readLibraryTab = (sectionKey: string): string => {
+    const tab = String(readLibraryPrefs()[String(sectionKey || '')]?.tab || '');
+    return LIBRARY_TABS.includes(tab) ? tab : '';
+};
+
+export const rememberLibraryTab = (sectionKey: string, tab: string) => {
+    if (LIBRARY_TABS.includes(tab)) patchLibraryPrefs(String(sectionKey || ''), { tab });
+};
+
 export const readLibraryBrowseState = (sectionKey: string): LibraryBrowseState => {
     const all = (readJson(PLAYER_LIBRARY_STATE_KEY) || {}) as Record<string, Partial<LibraryBrowseState>>;
     const saved = all[String(sectionKey || '')] || {};
     return {
-        sort: String(saved.sort || DEFAULT_LIBRARY.sort),
+        sort: String(saved.sort || readLibraryPrefs()[String(sectionKey || '')]?.sort || DEFAULT_LIBRARY.sort),
         genre: String(saved.genre || ''),
         decade: String(saved.decade || ''),
         year: String(saved.year || ''),
@@ -472,6 +507,7 @@ export const writeLibraryBrowseState = (sectionKey: string, state: LibraryBrowse
     const all = (readJson(PLAYER_LIBRARY_STATE_KEY) || {}) as Record<string, LibraryBrowseState>;
     all[sectionKey] = state;
     writeJson(window.sessionStorage, PLAYER_LIBRARY_STATE_KEY, all);
+    patchLibraryPrefs(sectionKey, { sort: state.sort });
 };
 
 const playerScrollerIsContainer = () => {

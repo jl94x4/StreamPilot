@@ -54,7 +54,9 @@ import {
     PLAYER_SERVERS_EVENT,
     readAvChoice,
     readMediaIndexChoice,
+    readLibraryTab,
     rememberLastLibraryPath,
+    rememberLibraryTab,
     resolveAvChoiceForTracks,
     writeMediaIndexChoice,
     readPlayerItemCache,
@@ -496,6 +498,7 @@ export const MediaPlayerDashboard: React.FC = () => {
         if (view.kind === 'library') {
             setKeepLibrary({ sectionKey: view.sectionKey, tab: view.tab });
             rememberLastLibraryPath(libraryPath(view.sectionKey, view.tab));
+            rememberLibraryTab(view.sectionKey, view.tab);
         } else if (
             view.kind === 'home'
             || view.kind === 'watchlist'
@@ -745,9 +748,10 @@ export const MediaPlayerDashboard: React.FC = () => {
         navigate(`${itemPath}${serverQs}`, opts);
     }, [navigate, view.kind]);
 
-    const openLibrary = useCallback((section: PlayerSection, tab: LibraryTab = 'home') => {
+    const openLibrary = useCallback((section: PlayerSection, tab?: LibraryTab) => {
         if (!section?.key) return;
-        const path = libraryPath(section.key, tab);
+        // A library opens on the tab it was last left on (Browse stays Browse), Recommended the first time.
+        const path = libraryPath(section.key, tab || (readLibraryTab(String(section.key)) as LibraryTab) || 'home');
         rememberLastLibraryPath(path);
         navigate(path);
     }, [navigate]);

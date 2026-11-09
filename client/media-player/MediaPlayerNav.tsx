@@ -152,6 +152,7 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
     // Settings → Sidebar items. Follows the unsaved draft too, so a toggle shows straight away.
     const [hiddenNavItems, setHiddenNavItems] = useState<PlayerNavItem[]>(() => readPlayerSettings().hiddenNavItems);
     const navShown = (item: PlayerNavItem) => !hiddenNavItems.includes(item);
+    const [hiddenNavLibraries, setHiddenNavLibraries] = useState<string[]>(() => readPlayerSettings().hiddenNavLibraries);
     const [homeSwitchOpen, setHomeSwitchOpen] = useState(false);
     const [homeSwitchUsers, setHomeSwitchUsers] = useState<PlexHomeProfile[]>([]);
     const [homeSwitchCurrentId, setHomeSwitchCurrentId] = useState<string | null>(null);
@@ -160,7 +161,8 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
     const [homeSwitchBusy, setHomeSwitchBusy] = useState(false);
     const [homeSwitchError, setHomeSwitchError] = useState('');
     const isPlexClient = typeof window !== 'undefined' && Boolean(window.__PLEX_CLIENT__);
-    const orderedLibraries = applyLibraryNavOrder(libraries, draftLibraryOrder || libraryOrder);
+    const orderedLibraries = applyLibraryNavOrder(libraries, draftLibraryOrder || libraryOrder)
+        .filter((section) => !hiddenNavLibraries.includes(String(section.key)));
     const offlineServerSet = useMemo(
         () => new Set((offlineServerIds || []).map((id) => String(id || '').trim()).filter(Boolean)),
         [offlineServerIds],
@@ -244,8 +246,13 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
         const onDraft = (event: Event) => {
             const detail = (event as CustomEvent<Partial<PlayerSettings>>).detail;
             if (Array.isArray(detail?.hiddenNavItems)) setHiddenNavItems(detail.hiddenNavItems);
+            if (Array.isArray(detail?.hiddenNavLibraries)) setHiddenNavLibraries(detail.hiddenNavLibraries);
         };
-        const onSaved = () => setHiddenNavItems(readPlayerSettings().hiddenNavItems);
+        const onSaved = () => {
+            const saved = readPlayerSettings();
+            setHiddenNavItems(saved.hiddenNavItems);
+            setHiddenNavLibraries(saved.hiddenNavLibraries);
+        };
         window.addEventListener(PLAYER_SETTINGS_DRAFT_EVENT, onDraft);
         window.addEventListener(PLAYER_SETTINGS_EVENT, onSaved);
         return () => {

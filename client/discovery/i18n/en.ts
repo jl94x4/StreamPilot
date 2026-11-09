@@ -348,6 +348,7 @@ export const en = {
         clock24Hour: '24-hour clock',
         clock24HourHint: 'Show the corner clock as 15:36. Turn off for 3:36 PM.',
         sidebarItemShow: '{name} in the sidebar',
+        sidebarLibraryHint: 'A library you turn off here still shows on Home and in Search.',
         sidebarItemsHint: 'Turn off what you don\'t use. Home and Settings always stay.',
         hideWatchedFromRecents: 'Hide watched from Recently Added',
         hideWatchedFromRecentsHint: 'Keep Recently Added rows to titles you have not finished yet.',

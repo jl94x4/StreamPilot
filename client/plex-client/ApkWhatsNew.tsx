@@ -73,6 +73,17 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.658': [
+        {
+            title: 'Libraries',
+            items: [
+                'A library now opens on the tab you left it on, so a library you browse stays on Browse instead of going back to Recommended each time, even after the app is closed',
+                'A library keeps its sort order (Title, Date Added and so on) between visits, including after the app is closed',
+                'Choose which libraries show in the sidebar: Settings has a switch for each library, next to the other sidebar switches. A library you turn off still shows on Home and in Search',
+                'The sidebar list of libraries follows the remote smoothly all the way down, however many libraries you have',
+            ],
+        },
+    ],
     '1.0.657': [
         {
             title: 'Insights',

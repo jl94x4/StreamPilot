@@ -683,6 +683,10 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
         const hidden = settings.hiddenNavItems.filter((row) => row !== item);
         updateSettings({ hiddenNavItems: shown ? hidden : [...hidden, item] });
     };
+    const setLibraryInSidebar = (key: string, shown: boolean) => {
+        const hidden = settings.hiddenNavLibraries.filter((row) => row !== key);
+        updateSettings({ hiddenNavLibraries: shown ? hidden : [...hidden, key] });
+    };
     const rowMarkerOptions = useMemo(() => PLAYER_ROW_MARKERS.map((marker) => ({
         value: marker,
         label: t(`mediaPlayerPage.rowMarker_${marker}`),
@@ -1575,6 +1579,15 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                             onChange={(checked) => setSidebarItemShown(row.item, checked)}
                         />
                     ))}
+                    {orderedLibraries.map((library) => (
+                        <TvToggleRow
+                            key={`nav-${library.key}`}
+                            title={t('mediaPlayerPage.sidebarItemShow', { name: library.title })}
+                            description={t('mediaPlayerPage.sidebarLibraryHint')}
+                            checked={!settings.hiddenNavLibraries.includes(String(library.key))}
+                            onChange={(checked) => setLibraryInSidebar(String(library.key), checked)}
+                        />
+                    ))}
                     {tvShell ? <PerfDiagnosticsRows /> : null}
                     <TvChoiceRow
                         title={t('mediaPlayerPage.dateFormat')}
@@ -2261,6 +2274,15 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                                 description={t('mediaPlayerPage.sidebarItemsHint')}
                                 checked={row.shown}
                                 onChange={(checked) => setSidebarItemShown(row.item, checked)}
+                            />
+                        ))}
+                        {orderedLibraries.map((library) => (
+                            <SettingsToggleRow
+                                key={`nav-${library.key}`}
+                                title={t('mediaPlayerPage.sidebarItemShow', { name: library.title })}
+                                description={t('mediaPlayerPage.sidebarLibraryHint')}
+                                checked={!settings.hiddenNavLibraries.includes(String(library.key))}
+                                onChange={(checked) => setLibraryInSidebar(String(library.key), checked)}
                             />
                         ))}
                         {isPlexDirectMode() ? (
