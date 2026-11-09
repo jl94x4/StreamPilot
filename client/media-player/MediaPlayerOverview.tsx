@@ -360,7 +360,7 @@ export const OverviewSummary: React.FC<{ text: string }> = ({ text }) => {
             >
                 {text}
             </p>
-            {long && !tvShell ? (
+            {long && !tvShell && !phone ? (
                 <button
                     type="button"
                     onClick={() => setOpen((prev) => !prev)}

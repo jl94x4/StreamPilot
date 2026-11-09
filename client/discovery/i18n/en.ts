@@ -832,6 +832,8 @@ export const en = {
         newEpisode: 'New Episode',
         episodeCountHeading: '{count} Episode',
         episodeCountHeading_plural: '{count} Episodes',
+        seasonCountHeading: '{count} Season',
+        seasonCountHeading_plural: '{count} Seasons',
         goToNamed: 'Go to {title}',
         goToShow: 'Go to show',
         goToSeason: 'Go to season',

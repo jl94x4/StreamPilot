@@ -73,6 +73,18 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.661': [
+        {
+            title: 'Phone title pages',
+            items: [
+                'Show pages list their seasons again ("8 Seasons" with the posters), like the Plex app',
+                'A season page has "Season 2" with a down arrow under the logo: tap it to jump to any other season from a sheet with each season poster and episode count',
+                'Tapping an episode title now opens a proper episode sheet: each episode with its still, episode number, air date and summary, the one you are on highlighted, and Go to Season and Go to Show side by side at the bottom',
+                'The round buttons under Watch are smaller, all the same width and centred with even spacing, with lighter labels. File Info and Add to Playlist live in the More menu',
+                'Lighter text throughout, a "Directed by" line under the summary in place of the long credits block, bigger cast photos and wider trailer stills',
+            ],
+        },
+    ],
     '1.0.660': [
         {
             title: 'Phone title pages',

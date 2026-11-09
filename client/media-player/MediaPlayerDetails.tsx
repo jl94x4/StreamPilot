@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, Bookmark, BookmarkCheck, Calendar, Captions, Check, ChevronDown, ChevronUp, Clock, Eye, EyeOff, Film, Info, ListPlus, Loader2, Play, RotateCcw, Shuffle, SkipForward, Star, Users, Volume2, X } from 'lucide-react';
+import { ArrowLeft, Bookmark, BookmarkCheck, Calendar, Captions, Check, CircleCheck, ChevronDown, ChevronUp, Clock, Eye, EyeOff, Film, Info, ListPlus, Loader2, Play, RotateCcw, Shuffle, SkipForward, Star, Users, Volume2, X } from 'lucide-react';
 import { isWatchTogetherAvailable } from './watchTogetherClient';
 import {
     Carousel,
@@ -411,7 +411,7 @@ const PhoneSheet: React.FC<{
         };
     }, [onClose]);
     useEffect(() => {
-        document.querySelector<HTMLElement>('.phone-sheet-row.is-active')?.scrollIntoView({ block: 'center' });
+        document.querySelector<HTMLElement>('.phone-sheet [aria-current="true"]')?.scrollIntoView({ block: 'center' });
     }, []);
     if (typeof document === 'undefined') return null;
     return createPortal(
@@ -427,6 +427,55 @@ const PhoneSheet: React.FC<{
     );
 };
 
+/** One episode row as the Plex app draws it: 16:9 still with the episode badge, title, date, two lines of summary. */
+const PhoneEpisodeRow: React.FC<{
+    row: PlayerItem;
+    locale: string;
+    label: string;
+    current?: boolean;
+    spoiler?: boolean;
+    onPress: () => void;
+}> = ({ row, locale, label, current = false, spoiler = false, onPress }) => {
+    const aired = airdateNode(row.originallyAvailableAt, locale);
+    return (
+        <button
+            type="button"
+            onClick={onPress}
+            className={`phone-episode-row${current ? ' is-current' : ''}`}
+            aria-label={label}
+            aria-current={current ? 'true' : undefined}
+        >
+            <span className="phone-episode-row-art">
+                {row.thumb ? (
+                    <FadeImg
+                        src={plexImageUrl(row.thumb, 320, 180, { quality: PLAYER_POSTER_QUALITY })}
+                        alt=""
+                        className={`aspect-video w-full object-cover${spoiler ? ' player-spoiler-img' : ''}`}
+                    />
+                ) : (
+                    <span className="block aspect-video w-full bg-white/5" />
+                )}
+                {row.index != null ? <span className="phone-episode-row-badge">E{row.index}</span> : null}
+                {row.watched ? (
+                    <span className="phone-episode-row-tick" aria-hidden>
+                        <Check className="h-2.5 w-2.5 stroke-[3]" />
+                    </span>
+                ) : null}
+                {progressPercent(row) > 0 ? (
+                    <span className="phone-episode-row-progress">
+                        <span style={{ width: `${progressPercent(row)}%` }} />
+                    </span>
+                ) : null}
+            </span>
+            <span className="phone-episode-row-text">
+                <span className="phone-episode-row-title">{row.title}</span>
+                {aired ? <span className="phone-episode-row-date">{aired}</span> : null}
+                {row.summary && !spoiler ? <span className="phone-episode-row-summary">{row.summary}</span> : null}
+            </span>
+        </button>
+    );
+};
+
 const PhoneEpisodeList: React.FC<{
     rows: PlayerItem[];
     heading: string;
@@ -436,83 +485,25 @@ const PhoneEpisodeList: React.FC<{
     onPlayEpisode: (row: PlayerItem) => void;
     /** Per-show spoiler hiding: blur this episode's still. */
     hideSpoiler?: (row: PlayerItem) => boolean;
-    /** "Season 2 ∨" above the list, on shows with several seasons. */
-    seasonControl?: React.ReactNode;
-}> = ({ rows, heading, locale, playLabel, resumeLabel, onPlayEpisode, hideSpoiler, seasonControl }) => (
+}> = ({ rows, heading, locale, playLabel, resumeLabel, onPlayEpisode, hideSpoiler }) => (
     <section className="media-details-episodes media-details-episode-list mt-2">
-        {seasonControl}
-        {rows.length ? (
-            <h3 className="mb-1 text-[1.05rem] font-black tracking-tight text-text">{heading}</h3>
-        ) : null}
-        {rows.length ? (
-        <div className="media-details-episode-rows flex flex-col">
+        <h3 className="phone-section-heading">{heading}</h3>
+        <div className="phone-episode-rows">
             {rows.map((raw) => {
                 const row = applyRememberedProgress(raw);
-                const aired = airdateNode(row.originallyAvailableAt, locale);
-                const code = row.index != null ? `E${row.index}` : '';
                 const action = shouldOfferResume(row) ? resumeLabel : playLabel;
                 return (
-                    <button
+                    <PhoneEpisodeRow
                         key={row.ratingKey}
-                        type="button"
-                        onClick={() => onPlayEpisode(row)}
-                        className="media-details-episode-row flex w-full items-start gap-3 py-3.5 text-left"
-                        aria-label={`${action}: ${row.title}`}
-                    >
-                        <div className="relative w-[8.4rem] shrink-0 overflow-hidden rounded-md bg-black/40">
-                            {row.thumb ? (
-                                <FadeImg
-                                    src={plexImageUrl(row.thumb, 320, 180, { quality: PLAYER_POSTER_QUALITY })}
-                                    alt=""
-                                    className={`aspect-video w-full object-cover${hideSpoiler?.(row) ? ' player-spoiler-img' : ''}`}
-                                />
-                            ) : (
-                                <div className="aspect-video w-full bg-white/5" />
-                            )}
-                            {code ? (
-                                <span className="absolute bottom-1 left-1 rounded bg-black/70 px-1 py-px text-[10px] font-black text-white">
-                                    {code}
-                                </span>
-                            ) : null}
-                            {row.watched ? (
-                                <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-black/70 text-white">
-                                    <Check className="h-2.5 w-2.5 stroke-[3]" />
-                                </span>
-                            ) : null}
-                            {progressPercent(row) > 0 ? (
-                                <div className="absolute inset-x-0 bottom-0 h-0.5 bg-black/50">
-                                    <div className="h-full bg-progress" style={{ width: `${progressPercent(row)}%` }} />
-                                </div>
-                            ) : null}
-                        </div>
-                        <div className="min-w-0 flex-1 pt-0.5">
-                            <p className="line-clamp-2 text-[0.95rem] font-bold leading-snug text-text">{row.title}</p>
-                            {aired || row.durationMs ? (
-                                <p className="mt-0.5 text-[12px] text-white/55">
-                                    {joinMeta([aired, row.durationMs ? formatPlayerDuration(row.durationMs) : ''], '  ·  ')}
-                                </p>
-                            ) : null}
-                            {row.summary ? (
-                                <p className="mt-1 line-clamp-2 text-[12px] leading-snug text-white/55">{row.summary}</p>
-                            ) : null}
-                        </div>
-                    </button>
+                        row={row}
+                        locale={locale}
+                        label={`${action}: ${row.title}`}
+                        spoiler={!!hideSpoiler?.(row)}
+                        onPress={() => onPlayEpisode(row)}
+                    />
                 );
             })}
         </div>
-        ) : (
-            <div className="mt-3 space-y-3" aria-hidden="true">
-                {[0, 1, 2].map((n) => (
-                    <div key={n} className="flex gap-3">
-                        <div className="aspect-video w-[8.4rem] shrink-0 animate-pulse rounded-md bg-white/10" />
-                        <div className="flex-1 space-y-2 pt-1">
-                            <div className="h-3.5 w-2/3 animate-pulse rounded bg-white/10" />
-                            <div className="h-3 w-full animate-pulse rounded bg-white/10" />
-                        </div>
-                    </div>
-                ))}
-            </div>
-        )}
     </section>
 );
 
@@ -777,8 +768,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
     const [phoneSeasonEpisodes, setPhoneSeasonEpisodes] = useState<PlayerItem[] | null>(null);
     // Phone, Plex-style: the bar over the art turns solid once the page scrolls.
     const [phoneBarSolid, setPhoneBarSolid] = useState(false);
-    const [phoneSeasonKey, setPhoneSeasonKey] = useState('');
-    const [phoneSeasonRows, setPhoneSeasonRows] = useState<PlayerItem[] | null>(null);
+    const [phoneSeasonList, setPhoneSeasonList] = useState<PlayerItem[]>([]);
     const [phoneSiblings, setPhoneSiblings] = useState<PlayerItem[]>([]);
     const [phonePicker, setPhonePicker] = useState<'season' | 'episode' | null>(null);
     const phoneSeasonCache = useRef(new Map<string, PlayerItem[]>());
@@ -1344,17 +1334,6 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         return () => { cancelled = true; };
     }, [phoneUi, settings.skipSingleSeason, item?.type, item?.ratingKey, children, serverId]);
 
-    const phoneShowSeasons = useMemo(() => (
-        phoneUi && item?.type === 'show'
-            ? children.filter((row) => (
-                row.type === 'season'
-                && row.ratingKey
-                && Number(row.index) !== -1
-                && !/^all\s+episodes$/i.test(String(row.title || '').trim())
-            ))
-            : []
-    ), [phoneUi, item?.type, children]);
-
     useEffect(() => {
         setPhonePicker(null);
         if (!phoneUi) {
@@ -1377,39 +1356,28 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         return () => window.removeEventListener('scroll', onScroll, true);
     }, [phoneUi, ratingKey]);
 
-    // Show page, several seasons: the season Plex would open (where you are, else the first).
+    // Season page: the show's other seasons, for the "Season 2 ∨" picker under the logo.
     useEffect(() => {
-        if (phoneShowSeasons.length < 2) {
-            setPhoneSeasonKey('');
-            setPhoneSeasonRows(null);
-            return;
+        if (!phoneUi || item?.type !== 'season' || !item.parentRatingKey) {
+            setPhoneSeasonList([]);
+            return undefined;
         }
-        setPhoneSeasonKey((prev) => {
-            if (prev && phoneShowSeasons.some((row) => String(row.ratingKey) === prev)) return prev;
-            const deck = onDeck?.parentRatingKey ? String(onDeck.parentRatingKey) : '';
-            if (deck && phoneShowSeasons.some((row) => String(row.ratingKey) === deck)) return deck;
-            const first = phoneShowSeasons.find((row) => Number(row.index) > 0) || phoneShowSeasons[0];
-            return String(first.ratingKey);
-        });
-    }, [phoneShowSeasons, onDeck?.parentRatingKey]);
-
-    useEffect(() => {
-        if (!phoneUi || !phoneSeasonKey) return undefined;
-        const cached = phoneSeasonCache.current.get(phoneSeasonKey);
-        setPhoneSeasonRows(cached ? cached.map((row) => applyRememberedProgress(row)) : null);
         let cancelled = false;
-        fetchMediaPlayerItem(phoneSeasonKey, { serverId: item?.serverId || serverId || null })
+        fetchMediaPlayerItem(String(item.parentRatingKey), { core: true, serverId: item.serverId || serverId || null })
             .then((page) => {
                 if (cancelled) return;
-                const rows = (page.children || []).filter((row) => row.type === 'episode');
-                phoneSeasonCache.current.set(phoneSeasonKey, rows);
-                setPhoneSeasonRows(rows.map((row) => applyRememberedProgress(row)));
+                setPhoneSeasonList((page.children || []).filter((row) => (
+                    row.type === 'season'
+                    && row.ratingKey
+                    && Number(row.index) !== -1
+                    && !/^all\s+episodes$/i.test(String(row.title || '').trim())
+                )));
             })
             .catch(() => {
-                if (!cancelled) setPhoneSeasonRows((prev) => prev || []);
+                if (!cancelled) setPhoneSeasonList([]);
             });
         return () => { cancelled = true; };
-    }, [phoneUi, phoneSeasonKey, item?.serverId, serverId]);
+    }, [phoneUi, item?.type, item?.ratingKey, item?.parentRatingKey, item?.serverId, serverId]);
 
     // Episode page: the season's episodes, for the title picker.
     useEffect(() => {
@@ -1421,7 +1389,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         const cached = phoneSeasonCache.current.get(key);
         setPhoneSiblings(cached || []);
         let cancelled = false;
-        fetchMediaPlayerItem(key, { core: true, serverId: item.serverId || serverId || null })
+        fetchMediaPlayerItem(key, { serverId: item.serverId || serverId || null })
             .then((page) => {
                 if (cancelled) return;
                 const rows = (page.children || []).filter((row) => row.type === 'episode');
@@ -2382,12 +2350,8 @@ export const MediaPlayerDetails: React.FC<Props> = ({
     const actionWatchedLabel = item.watched ? t('mediaPlayerPage.markUnwatched') : t('mediaPlayerPage.markWatched');
     const actionPlaylistLabel = t('mediaPlayerPage.actionPlaylist');
     const phoneListEpisodes = phoneUi
-        ? ((isEpisodeGrid ? children.filter((row) => row.type === 'episode') : null)
-            || phoneSeasonEpisodes
-            || (phoneShowSeasons.length > 1 ? phoneSeasonRows : null)
-            || [])
+        ? ((isEpisodeGrid ? children.filter((row) => row.type === 'episode') : null) || phoneSeasonEpisodes || [])
         : [];
-    const phoneActiveSeason = phoneShowSeasons.find((row) => String(row.ratingKey) === phoneSeasonKey) || phoneShowSeasons[0] || null;
     const genres = (item.genres || []).slice(0, 4);
     const episodeCode = formatEpisodeCode(item);
     const metaChips = [
@@ -2589,17 +2553,6 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         if (row.index != null) return t('common.seasonN', { number: row.index });
         return t('mediaPlayerPage.seasons');
     };
-    const phoneSeasonControl = phoneUi && phoneShowSeasons.length > 1 && phoneActiveSeason ? (
-        <button
-            type="button"
-            className="media-details-phone-season"
-            onClick={() => setPhonePicker('season')}
-            aria-haspopup="dialog"
-        >
-            <span>{seasonPillLabel(phoneActiveSeason)}</span>
-            <ChevronDown className="h-5 w-5" aria-hidden />
-        </button>
-    ) : null;
     const onSeasonPill = (season: PlayerItem) => {
         const key = String(season.ratingKey || '');
         if (!key) return;
@@ -2781,6 +2734,12 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         if (w >= 1200 || h >= 700) return '720p';
         return '';
     })();
+    const phoneDirectors = (item.type === 'movie' || item.type === 'episode')
+        ? [
+            ...((item as { directorPeople?: Array<{ name?: string }> }).directorPeople || []).map((row) => String(row?.name || '')),
+            ...(item.directors || []).map(String),
+        ].filter(Boolean)
+        : [];
     const phoneAired = item.type === 'episode' ? airdateNode(item.originallyAvailableAt, locale) : null;
     const phoneMetaLine = phoneUi && preplayUi ? (
         <p className="media-details-phone-meta">
@@ -2860,7 +2819,19 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             )}
             <h1 className="sr-only">{item.title}</h1>
             {preplayUi && item.type === 'season' && seasonLabel && !isTvShell ? (
-                <p className="mt-1 text-[1.05rem] font-bold text-white/90 drop-shadow-[0_6px_16px_rgba(0,0,0,0.75)]">{seasonLabel}</p>
+                phoneUi && phoneSeasonList.length > 1 ? (
+                    <button
+                        type="button"
+                        className="media-details-phone-picker pointer-events-auto"
+                        onClick={() => setPhonePicker('season')}
+                        aria-haspopup="dialog"
+                    >
+                        <span className="truncate">{seasonLabel}</span>
+                        <ChevronDown className="h-5 w-5 shrink-0" aria-hidden />
+                    </button>
+                ) : (
+                    <p className="media-details-phone-picker mt-1 text-[1.05rem] font-bold text-white/90 drop-shadow-[0_6px_16px_rgba(0,0,0,0.75)]">{seasonLabel}</p>
+                )
             ) : null}
             {preplayUi && (item.type === 'episode' || (isTvShell && item.type === 'season')) ? (
                 isTvShell ? (
@@ -2889,7 +2860,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                 ) : phoneSeasonClickable ? (
                     <button
                         type="button"
-                        className="pointer-events-auto mt-1 inline-flex max-w-full items-center gap-1 text-[1.05rem] font-bold text-white/90 drop-shadow-[0_6px_16px_rgba(0,0,0,0.75)]"
+                        className="media-details-phone-picker pointer-events-auto mt-1 inline-flex max-w-full items-center gap-1 text-[1.05rem] font-bold text-white/90 drop-shadow-[0_6px_16px_rgba(0,0,0,0.75)]"
                         onClick={() => (phoneSiblings.length > 1 ? setPhonePicker('episode') : openCrumb(seasonKey))}
                         aria-label={phoneSiblings.length > 1 ? t('mediaPlayerPage.episodes') : t('mediaPlayerPage.goToSeason')}
                     >
@@ -2906,7 +2877,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                     {phoneBillboardMeta}
                 </p>
             ) : null}
-            {preplayUi && !(isTvShell && (item.type === 'episode' || item.type === 'season')) ? (
+            {preplayUi && !(isTvShell && (item.type === 'episode' || item.type === 'season')) && !(phoneUi && item.type === 'season') ? (
                 <div className="media-details-billboard-ratings pointer-events-auto mt-2.5 flex w-full flex-col items-center gap-2">
                     {phoneUi ? phoneMetaLine : metaChipRow(metaChips, 'justify-center')}
                     <MediaRatingPills
@@ -3221,10 +3192,15 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                         <div className="h-4 w-5/6 rounded bg-white/10 animate-pulse" />
                                         <div className="h-4 w-2/3 rounded bg-white/10 animate-pulse" />
                                     </div>
-                                ) : musicItem ? null : (
+                                ) : musicItem || (phoneUi && item.type === 'season') ? null : (
                                     <OverviewSummary text={t('media.noDescription')} />
                                 )}
                                 </div>
+                                {phoneUi && phoneDirectors.length ? (
+                                    <p className="media-details-phone-directed">
+                                        {t('mediaPlayerPage.directedBy')} {phoneDirectors[0]}
+                                    </p>
+                                ) : null}
                                 {phoneUi && didYouKnowWidget ? (
                                     <div className="media-details-did-you-know">{didYouKnowWidget}</div>
                                 ) : null}
@@ -3291,7 +3267,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                                     aria-label={watchedTarget.watched ? t('mediaPlayerPage.markUnwatched') : t('mediaPlayerPage.markWatched')}
                                                     className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/15 bg-white/5 text-white transition-colors hover:border-plex/40 hover:bg-white/10"
                                                 >
-                                                    {watchedTarget.watched ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                                    {phoneUi ? <CircleCheck className={`h-4 w-4${watchedTarget.watched ? ' text-plex' : ''}`} /> : (watchedTarget.watched ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />)}
                                                     <span className="media-details-action-label">{phoneUi ? actionWatchedLabel : (watchedTarget.watched ? t('mediaPlayerPage.markUnwatched') : t('mediaPlayerPage.markWatched'))}</span>
                                                 </button>
                                             ) : null}
@@ -3448,7 +3424,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                         {titleMetaBlock}
                                     </div>
                                 ) : null}
-                                {phoneUi && (item.type === 'show' || item.type === 'season') ? null : (
+                                {phoneUi ? null : (
                                 <OverviewFacts
                                     item={item}
                                     onOpenPerson={onOpenPerson}
@@ -3522,7 +3498,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                         aria-label={watchedTarget.watched ? t('mediaPlayerPage.markUnwatched') : t('mediaPlayerPage.markWatched')}
                                         className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/15 bg-white/5 text-white transition-colors hover:border-plex/40 hover:bg-white/10"
                                     >
-                                        {watchedTarget.watched ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                        {phoneUi ? <CircleCheck className={`h-4 w-4${watchedTarget.watched ? ' text-plex' : ''}`} /> : (watchedTarget.watched ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />)}
                                         <span className="media-details-action-label">{phoneUi ? actionWatchedLabel : (watchedTarget.watched ? t('mediaPlayerPage.markUnwatched') : t('mediaPlayerPage.markWatched'))}</span>
                                     </button>
                                     {watchlistChip}
@@ -3702,10 +3678,12 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                         </div>
                     ) : null}
 
-                    {seasonChildren.length && !isEpisodeGrid && !phoneListEpisodes.length && !phoneSeasonControl && !musicItem ? (
+                    {seasonChildren.length && !isEpisodeGrid && !phoneListEpisodes.length && !musicItem ? (
                     <section className="media-details-seasons mt-6" data-tv-row="1" data-tv-row-id={`seasons:${item.ratingKey}`}>
                         <SectionHeading>
-                            {isTvShell
+                            {phoneUi
+                                ? t('mediaPlayerPage.seasonCountHeading', { count: seasonChildren.length })
+                                : isTvShell
                                 ? t(seasonChildren.length === 1 ? 'common.seasonCount' : 'common.seasonCount_plural', { count: seasonChildren.length })
                                 : t('mediaPlayerPage.seasons')}
                         </SectionHeading>
@@ -3776,9 +3754,8 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                     </section>
                     ) : null}
 
-                    {phoneListEpisodes.length || phoneSeasonControl ? (
+                    {phoneListEpisodes.length ? (
                     <PhoneEpisodeList
-                        seasonControl={phoneSeasonControl}
                         rows={phoneListEpisodes}
                         heading={t('mediaPlayerPage.episodeCountHeading', { count: phoneListEpisodes.length })}
                         locale={locale}
@@ -4008,7 +3985,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             </div>
             {phoneUi && phonePicker === 'episode' && item.type === 'episode' && phoneSiblings.length > 1 ? (
                 <PhoneSheet
-                    title={item.seasonTitle || (item.parentIndex != null ? t('common.seasonN', { number: item.parentIndex }) : t('mediaPlayerPage.episodes'))}
+                    title={item.showTitle || item.seasonTitle || t('mediaPlayerPage.episodes')}
                     onClose={() => setPhonePicker(null)}
                     footer={(
                         <>
@@ -4035,14 +4012,18 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                         </>
                     )}
                 >
-                    {phoneSiblings.map((row) => {
+                    {phoneSiblings.map((raw) => {
+                        const row = applyRememberedProgress(raw);
                         const current = String(row.ratingKey) === String(item.ratingKey);
                         return (
-                            <button
+                            <PhoneEpisodeRow
                                 key={row.ratingKey}
-                                type="button"
-                                className={`phone-sheet-row${current ? ' is-active' : ''}`}
-                                onClick={() => {
+                                row={row}
+                                locale={locale}
+                                label={row.title || ''}
+                                current={current}
+                                spoiler={hideEpisodeSpoilers(settings, row)}
+                                onPress={() => {
                                     setPhonePicker(null);
                                     if (!current) {
                                         onOpenItem({
@@ -4052,31 +4033,49 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                         } as PlayerItem);
                                     }
                                 }}
-                            >
-                                <span className="phone-sheet-row-num">{row.index != null ? `${row.index}.` : ''}</span>
-                                <span className="phone-sheet-row-title">{row.title}</span>
-                                {row.watched ? <Check className="h-4 w-4 shrink-0 opacity-70" /> : null}
-                            </button>
+                            />
                         );
                     })}
                 </PhoneSheet>
             ) : null}
-            {phoneUi && phonePicker === 'season' && phoneShowSeasons.length > 1 ? (
-                <PhoneSheet title={t('mediaPlayerPage.seasons')} onClose={() => setPhonePicker(null)}>
-                    {phoneShowSeasons.map((season) => {
-                        const current = String(season.ratingKey) === phoneSeasonKey;
+            {phoneUi && phonePicker === 'season' && item.type === 'season' && phoneSeasonList.length > 1 ? (
+                <PhoneSheet title={item.showTitle || t('mediaPlayerPage.seasons')} onClose={() => setPhonePicker(null)}>
+                    {phoneSeasonList.map((season) => {
+                        const current = String(season.ratingKey) === String(item.ratingKey);
+                        const leaf = Number(season.leafCount || 0);
                         return (
                             <button
                                 key={season.ratingKey}
                                 type="button"
-                                className={`phone-sheet-row${current ? ' is-active' : ''}`}
+                                className={`phone-season-row${current ? ' is-current' : ''}`}
+                                aria-current={current ? 'true' : undefined}
                                 onClick={() => {
-                                    setPhoneSeasonKey(String(season.ratingKey));
                                     setPhonePicker(null);
+                                    if (current) return;
+                                    onOpenItem({
+                                        ...season,
+                                        thumb: season.thumb || item.thumb,
+                                        art: season.art || item.art,
+                                        showTitle: season.showTitle || item.showTitle,
+                                    } as PlayerItem);
                                 }}
                             >
-                                <span className="phone-sheet-row-title">{seasonPillLabel(season)}</span>
-                                {current ? <Check className="h-4 w-4 shrink-0" /> : null}
+                                <span className="phone-season-row-art">
+                                    {season.thumb || item.thumb ? (
+                                        <FadeImg
+                                            src={plexImageUrl(season.thumb || item.thumb, 120, 180, { quality: PLAYER_POSTER_QUALITY })}
+                                            alt=""
+                                            className="h-full w-full object-cover"
+                                        />
+                                    ) : null}
+                                </span>
+                                <span className="phone-episode-row-text">
+                                    <span className="phone-episode-row-title">{seasonPillLabel(season)}</span>
+                                    {leaf > 0 ? (
+                                        <span className="phone-episode-row-date">{t('common.episodeCount', { count: leaf })}</span>
+                                    ) : null}
+                                </span>
+                                {current ? <Check className="h-5 w-5 shrink-0 text-plex" /> : null}
                             </button>
                         );
                     })}
