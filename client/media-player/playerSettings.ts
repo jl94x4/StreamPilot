@@ -220,11 +220,32 @@ export const PLAYER_SCREENSAVER_DELAYS = [1, 2, 5, 10, 15, 30] as const;
 /** Seconds each screensaver picture stays up. */
 export const PLAYER_SCREENSAVER_SLIDE_SECONDS = [8, 14, 30, 60] as const;
 
-/** Screensaver look: crossfading art (original), slow pan and zoom, or a clock on black. */
-export type PlayerScreensaverStyle = 'slideshow' | 'panZoom' | 'clock';
-export const PLAYER_SCREENSAVER_STYLES: PlayerScreensaverStyle[] = ['slideshow', 'panZoom', 'clock'];
+/**
+ * Screensaver look: crossfading art (original), slow pan and zoom, a framed Gallery picture, a
+ * Spotlight with the title's details, a drifting Poster wall, or a clock on black.
+ */
+export type PlayerScreensaverStyle = 'slideshow' | 'panZoom' | 'gallery' | 'spotlight' | 'posters' | 'clock';
+export const PLAYER_SCREENSAVER_STYLES: PlayerScreensaverStyle[] = ['slideshow', 'panZoom', 'gallery', 'spotlight', 'posters', 'clock'];
 export const isPlayerScreensaverStyle = (value: unknown): value is PlayerScreensaverStyle => (
     PLAYER_SCREENSAVER_STYLES.includes(String(value || '') as PlayerScreensaverStyle)
+);
+
+/** What sits with the art: just the clock, plus the title, or plus the title's details. */
+export type PlayerScreensaverInfo = 'clock' | 'title' | 'details';
+export const PLAYER_SCREENSAVER_INFO: PlayerScreensaverInfo[] = ['clock', 'title', 'details'];
+/** Where the clock sits (or off). */
+export type PlayerScreensaverClockPos = 'bottomLeft' | 'bottomRight' | 'topLeft' | 'topRight' | 'center' | 'off';
+export const PLAYER_SCREENSAVER_CLOCK_POS: PlayerScreensaverClockPos[] = ['bottomLeft', 'bottomRight', 'topLeft', 'topRight', 'center', 'off'];
+export type PlayerScreensaverClockSize = 'small' | 'medium' | 'large';
+export const PLAYER_SCREENSAVER_CLOCK_SIZES: PlayerScreensaverClockSize[] = ['small', 'medium', 'large'];
+/** How dark the shading over the art is. */
+export type PlayerScreensaverDim = 'light' | 'medium' | 'dark';
+export const PLAYER_SCREENSAVER_DIMS: PlayerScreensaverDim[] = ['light', 'medium', 'dark'];
+/** Between pictures: a crossfade, or an instant swap (lightest on a slow stick). */
+export type PlayerScreensaverTransition = 'fade' | 'instant';
+export const PLAYER_SCREENSAVER_TRANSITIONS: PlayerScreensaverTransition[] = ['fade', 'instant'];
+const pickOf = <T extends string>(list: readonly T[], value: unknown, fallback: T): T => (
+    list.includes(String(value || '') as T) ? (String(value) as T) : fallback
 );
 
 const pickNumber = (value: unknown, allowed: readonly number[], fallback: number) => {
@@ -631,6 +652,14 @@ export type PlayerSettings = {
     screensaverSource: PlayerScreensaverSource;
     /** TV screensaver: nudge the clock each slide so it does not burn into OLED panels. */
     screensaverShiftClock: boolean;
+    /** TV screensaver: what is shown with the art. */
+    screensaverInfo: PlayerScreensaverInfo;
+    screensaverClockPos: PlayerScreensaverClockPos;
+    screensaverClockSize: PlayerScreensaverClockSize;
+    screensaverDim: PlayerScreensaverDim;
+    screensaverTransition: PlayerScreensaverTransition;
+    /** Show where the pictures come from (e.g. "Continue Watching") above the clock. */
+    screensaverShowSource: boolean;
     /** TV: skip focus zoom and screen-enter motion. */
     reduceMotion: boolean;
     /** TV Home billboard: instant art swap, fixed fade colour, 720p art. For slower TV sticks. */
@@ -1057,6 +1086,12 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
     recentlyAddedSeasonPoster: false,
     screensaverSource: 'continue_watching',
     screensaverShiftClock: false,
+    screensaverInfo: 'title',
+    screensaverClockPos: 'bottomLeft',
+    screensaverClockSize: 'medium',
+    screensaverDim: 'medium',
+    screensaverTransition: 'fade',
+    screensaverShowSource: true,
     reduceMotion: false,
     liteBillboard: false,
     detailsArtworkTint: true,
@@ -1184,6 +1219,12 @@ export const normalizePlayerSettings = (raw: Partial<PlayerSettings> | Record<st
             ? raw.screensaverSource
             : 'continue_watching',
         screensaverShiftClock: raw?.screensaverShiftClock === true,
+        screensaverInfo: pickOf(PLAYER_SCREENSAVER_INFO, raw?.screensaverInfo, 'title'),
+        screensaverClockPos: pickOf(PLAYER_SCREENSAVER_CLOCK_POS, raw?.screensaverClockPos, 'bottomLeft'),
+        screensaverClockSize: pickOf(PLAYER_SCREENSAVER_CLOCK_SIZES, raw?.screensaverClockSize, 'medium'),
+        screensaverDim: pickOf(PLAYER_SCREENSAVER_DIMS, raw?.screensaverDim, 'medium'),
+        screensaverTransition: pickOf(PLAYER_SCREENSAVER_TRANSITIONS, raw?.screensaverTransition, 'fade'),
+        screensaverShowSource: raw?.screensaverShowSource !== false,
         reduceMotion: raw?.reduceMotion === true,
         liteBillboard: raw?.liteBillboard === true,
         detailsArtworkTint: raw?.detailsArtworkTint !== false,
@@ -1280,6 +1321,12 @@ export const playerSettingsEqual = (a: PlayerSettings, b: PlayerSettings) => (
     && a.recentlyAddedSeasonPoster === b.recentlyAddedSeasonPoster
     && a.screensaverSource === b.screensaverSource
     && a.screensaverShiftClock === b.screensaverShiftClock
+    && a.screensaverInfo === b.screensaverInfo
+    && a.screensaverClockPos === b.screensaverClockPos
+    && a.screensaverClockSize === b.screensaverClockSize
+    && a.screensaverDim === b.screensaverDim
+    && a.screensaverTransition === b.screensaverTransition
+    && a.screensaverShowSource === b.screensaverShowSource
     && a.reduceMotion === b.reduceMotion
     && a.liteBillboard === b.liteBillboard
     && a.detailsArtworkTint === b.detailsArtworkTint

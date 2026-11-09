@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.654': [
+        {
+            title: 'Screensaver',
+            items: [
+                'Three new screensaver styles: Gallery (each picture framed with its title below), Spotlight (full picture with the title, details and summary), and Poster wall (rows of posters drifting across the screen)',
+                'New screensaver settings: what to show with the art, clock position (any corner, centre or off), clock size, shading, instant or fade between pictures, and whether to show the picture source',
+            ],
+        },
+    ],
     '1.0.653': [
         {
             title: 'Watch Together',

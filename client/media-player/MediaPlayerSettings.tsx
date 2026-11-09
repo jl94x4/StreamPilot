@@ -23,6 +23,11 @@ import {
     PLAYER_SCREENSAVER_DELAYS,
     PLAYER_SCREENSAVER_SLIDE_SECONDS,
     PLAYER_SCREENSAVER_STYLES,
+    PLAYER_SCREENSAVER_INFO,
+    PLAYER_SCREENSAVER_CLOCK_POS,
+    PLAYER_SCREENSAVER_CLOCK_SIZES,
+    PLAYER_SCREENSAVER_DIMS,
+    PLAYER_SCREENSAVER_TRANSITIONS,
     PLAYER_SUBTITLE_SIZES,
     applyHomeRowOrder,
     applyLibraryNavOrder,
@@ -741,6 +746,26 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
     const screensaverStyleOptions = useMemo(() => PLAYER_SCREENSAVER_STYLES.map((value) => ({
         value,
         label: t(`mediaPlayerPage.screensaverStyle_${value}`),
+    })), [t]);
+    const screensaverInfoOptions = useMemo(() => PLAYER_SCREENSAVER_INFO.map((value) => ({
+        value,
+        label: t(`mediaPlayerPage.screensaverInfo_${value}`),
+    })), [t]);
+    const screensaverClockPosOptions = useMemo(() => PLAYER_SCREENSAVER_CLOCK_POS.map((value) => ({
+        value,
+        label: t(`mediaPlayerPage.screensaverClockPos_${value}`),
+    })), [t]);
+    const screensaverClockSizeOptions = useMemo(() => PLAYER_SCREENSAVER_CLOCK_SIZES.map((value) => ({
+        value,
+        label: t(`mediaPlayerPage.screensaverClockSize_${value}`),
+    })), [t]);
+    const screensaverDimOptions = useMemo(() => PLAYER_SCREENSAVER_DIMS.map((value) => ({
+        value,
+        label: t(`mediaPlayerPage.screensaverDim_${value}`),
+    })), [t]);
+    const screensaverTransitionOptions = useMemo(() => PLAYER_SCREENSAVER_TRANSITIONS.map((value) => ({
+        value,
+        label: t(`mediaPlayerPage.screensaverTransition_${value}`),
     })), [t]);
     const chooseNavigationSound = (value: string) => {
         const sound = value as PlayerNavigationSound;
@@ -1745,6 +1770,47 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         value={settings.screensaverStyle}
                         options={screensaverStyleOptions}
                         onChange={(value) => updateSettings({ screensaverStyle: value as PlayerScreensaverStyle })}
+                    />
+                    <TvChoiceRow
+                        title={t('mediaPlayerPage.screensaverInfo')}
+                        description={t('mediaPlayerPage.screensaverInfoHint')}
+                        value={settings.screensaverInfo}
+                        options={screensaverInfoOptions}
+                        onChange={(value) => updateSettings({ screensaverInfo: value as typeof settings.screensaverInfo })}
+                    />
+                    <TvChoiceRow
+                        title={t('mediaPlayerPage.screensaverClockPos')}
+                        description={t('mediaPlayerPage.screensaverClockPosHint')}
+                        value={settings.screensaverClockPos}
+                        options={screensaverClockPosOptions}
+                        onChange={(value) => updateSettings({ screensaverClockPos: value as typeof settings.screensaverClockPos })}
+                    />
+                    <TvChoiceRow
+                        title={t('mediaPlayerPage.screensaverClockSize')}
+                        description={t('mediaPlayerPage.screensaverClockSizeHint')}
+                        value={settings.screensaverClockSize}
+                        options={screensaverClockSizeOptions}
+                        onChange={(value) => updateSettings({ screensaverClockSize: value as typeof settings.screensaverClockSize })}
+                    />
+                    <TvChoiceRow
+                        title={t('mediaPlayerPage.screensaverDim')}
+                        description={t('mediaPlayerPage.screensaverDimHint')}
+                        value={settings.screensaverDim}
+                        options={screensaverDimOptions}
+                        onChange={(value) => updateSettings({ screensaverDim: value as typeof settings.screensaverDim })}
+                    />
+                    <TvChoiceRow
+                        title={t('mediaPlayerPage.screensaverTransition')}
+                        description={t('mediaPlayerPage.screensaverTransitionHint')}
+                        value={settings.screensaverTransition}
+                        options={screensaverTransitionOptions}
+                        onChange={(value) => updateSettings({ screensaverTransition: value as typeof settings.screensaverTransition })}
+                    />
+                    <TvToggleRow
+                        title={t('mediaPlayerPage.screensaverShowSource')}
+                        description={t('mediaPlayerPage.screensaverShowSourceHint')}
+                        checked={settings.screensaverShowSource}
+                        onChange={(checked) => updateSettings({ screensaverShowSource: checked })}
                     />
                     <TvChoiceRow
                         title={t('mediaPlayerPage.screensaverDelayMin')}

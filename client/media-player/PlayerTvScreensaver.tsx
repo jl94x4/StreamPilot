@@ -2,9 +2,17 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { fetchMediaPlayerScreensaver, fetchMediaPlayerWatchlist } from './api';
 import { buildPlayDeck } from './screensaverDeck.js';
-import { plexLogoUrl, plexScreensaverBackdropUrl } from './playerUtils';
+import { formatPlayerDuration, isWeakTvDevice, plexImageUrl, plexLogoUrl, plexScreensaverBackdropUrl } from './playerUtils';
 import { PlayerClearLogo } from './PlayerClearLogo';
-import type { PlayerScreensaverSource, PlayerScreensaverStyle } from './playerSettings';
+import type {
+    PlayerScreensaverClockPos,
+    PlayerScreensaverClockSize,
+    PlayerScreensaverDim,
+    PlayerScreensaverInfo,
+    PlayerScreensaverSource,
+    PlayerScreensaverStyle,
+    PlayerScreensaverTransition,
+} from './playerSettings';
 import type { PlayerItem } from './types';
 
 const IDLE_MS = 120_000;
@@ -34,6 +42,25 @@ type Slide = {
     artUrl: string;
     title: string;
     logoUrl: string;
+    /** Year, rating, runtime and genres on one line (Spotlight, Gallery). */
+    meta: string;
+    summary: string;
+    /** Small poster for the Poster wall. */
+    posterUrl: string;
+};
+
+const metaLineFor = (item: PlayerItem) => [
+    item.year ? String(item.year) : '',
+    item.contentRating ? String(item.contentRating) : '',
+    item.durationMs ? formatPlayerDuration(item.durationMs) : '',
+    Array.isArray(item.genres) ? item.genres.slice(0, 3).join(', ') : '',
+].filter(Boolean).join('   ·   ');
+
+const posterFor = (item: PlayerItem) => {
+    const thumb = item.type === 'episode'
+        ? String((item as { grandparentThumb?: string }).grandparentThumb || item.thumb || '')
+        : String(item.thumb || '');
+    return thumb ? plexImageUrl(thumb, 300, 450) : '';
 };
 
 const slidesFromItems = (items: PlayerItem[]): Slide[] => {
@@ -67,6 +94,9 @@ const slidesFromItems = (items: PlayerItem[]): Slide[] => {
             artUrl,
             title: String(item.showTitle || item.title || '').trim(),
             logoUrl: plexLogoUrl(item.logo) || '',
+            meta: metaLineFor(item),
+            summary: String(item.tagline || item.summary || '').trim().slice(0, 320),
+            posterUrl: posterFor(item),
         });
         if (out.length >= 24) break;
     }
@@ -96,8 +126,16 @@ type Props = {
     delayMs?: number;
     /** How long each picture stays up. */
     slideMs?: number;
-    /** Crossfading art, slow pan and zoom, or a clock on black. */
+    /** Crossfading art, slow pan and zoom, a framed Gallery, a Spotlight, a Poster wall or a clock. */
     look?: PlayerScreensaverStyle;
+    /** What appears with the art. */
+    info?: PlayerScreensaverInfo;
+    clockPos?: PlayerScreensaverClockPos;
+    clockSize?: PlayerScreensaverClockSize;
+    dim?: PlayerScreensaverDim;
+    transition?: PlayerScreensaverTransition;
+    /** Show the picture source above the clock. */
+    showSource?: boolean;
 };
 
 /** useTvRemote fires this when the native Back arrives while the screensaver is up. */
@@ -119,6 +157,12 @@ export const PlayerTvScreensaver: React.FC<Props> = ({
     delayMs = IDLE_MS,
     slideMs = SLIDE_MS,
     look = 'slideshow',
+    info = 'title',
+    clockPos = 'bottomLeft',
+    clockSize = 'medium',
+    dim = 'medium',
+    transition = 'fade',
+    showSource = true,
 }) => {
     const [remoteItems, setRemoteItems] = useState<PlayerItem[]>([]);
     const fetchGen = useRef(0);
@@ -420,19 +464,40 @@ export const PlayerTvScreensaver: React.FC<Props> = ({
 
     if (!active || !frame?.current) return null;
 
-    const { current, outgoing, gen } = frame;
-    const watermark = String(sourceLabel || '').trim();
+    const { current, gen } = frame;
+    // An instant swap has no outgoing picture to fade out.
+    const outgoing = transition === 'instant' ? null : frame.outgoing;
+    const watermark = showSource ? String(sourceLabel || '').trim() : '';
     const clockNudge = shiftClock ? CLOCK_NUDGES[Math.abs(gen) % CLOCK_NUDGES.length] : null;
 
-    // Portal to <body>: inside Home a parent stacking context let the nav rail draw on top.
-    // --ss-slide-ms: pan and zoom lasts exactly one picture (its direction alternates per slide).
-    return createPortal((
-        <div
-            className={`player-tv-screensaver player-tv-screensaver--${look}`}
-            data-tv-screensaver="1"
-            aria-hidden
-            style={{ '--ss-slide-ms': `${slideMs}ms` } as React.CSSProperties}
-        >
+    const isClockStyle = look === 'clock';
+    const isWall = look === 'posters';
+    const isGallery = look === 'gallery';
+    const isSpotlight = look === 'spotlight';
+    // Gallery and Spotlight keep the bottom-left for the picture's details: the clock goes top right.
+    const pos: PlayerScreensaverClockPos = isClockStyle
+        ? 'bottomLeft'
+        : ((isGallery || isSpotlight) && clockPos === 'bottomLeft' ? 'topRight' : clockPos);
+    const showClock = isClockStyle || pos !== 'off';
+    const clockInFooter = showClock && pos === 'bottomLeft';
+    const clockFloats = showClock && pos !== 'bottomLeft' && pos !== 'off';
+    const showTitle = !isClockStyle && !isWall && info !== 'clock';
+    const showDetails = showTitle && (info === 'details' || isSpotlight);
+
+    const clockBlock = (
+        <>
+            {watermark ? <p className="player-tv-screensaver-watermark">{watermark}</p> : null}
+            <p
+                className="player-tv-screensaver-clock"
+                style={clockNudge ? { transform: `translate(${clockNudge.x}px, ${clockNudge.y}px)` } : undefined}
+            >
+                {clock}
+            </p>
+        </>
+    );
+
+    const picture = (
+        <>
             {outgoing ? (
                 <img
                     key={`out-${outgoing.key}-${gen}`}
@@ -452,27 +517,73 @@ export const PlayerTvScreensaver: React.FC<Props> = ({
                 draggable={false}
                 onError={() => setBrokenKeys((prev) => (prev.includes(current.key) ? prev : [...prev, current.key]))}
             />
+        </>
+    );
+
+    // Poster wall: a few rows of posters drifting in opposite directions. Fewer on a slow stick.
+    const wallPosters = isWall ? slides.filter((slide) => slide.posterUrl) : [];
+    const weak = isWall && isWeakTvDevice();
+    const wallRows = weak ? 2 : 3;
+    // Half a row (one copy) must be wider than the screen, or the loop shows a gap: 28vh posters
+    // are about 0.19 of the screen height wide each, so ten always cover it.
+    const perRow = 10;
+    const wall = isWall ? (
+        <div className="player-tv-screensaver-wall" aria-hidden>
+            {Array.from({ length: wallRows }, (_, rowIndex) => {
+                const row = wallPosters.length
+                    ? Array.from({ length: perRow }, (_, i) => wallPosters[(rowIndex * 3 + i) % wallPosters.length])
+                    : [];
+                return (
+                    <div
+                        key={rowIndex}
+                        className={`player-tv-screensaver-wall-row${rowIndex % 2 ? ' is-reverse' : ''}`}
+                        style={{ '--ss-row-ms': `${70_000 + rowIndex * 14_000}ms` } as React.CSSProperties}
+                    >
+                        {[...row, ...row].map((slide, i) => (
+                            <img key={`${slide.key}-${i}`} alt="" className="player-tv-screensaver-wall-poster" src={slide.posterUrl} draggable={false} />
+                        ))}
+                    </div>
+                );
+            })}
+        </div>
+    ) : null;
+
+    const infoBlock = showTitle ? (
+        <>
+            {current.logoUrl ? (
+                <PlayerClearLogo
+                    src={current.logoUrl}
+                    alt={current.title}
+                    className="player-tv-screensaver-logo"
+                    growSmall
+                />
+            ) : current.title ? (
+                <p className="player-tv-screensaver-title">{current.title}</p>
+            ) : null}
+            {showDetails && current.meta ? <p className="player-tv-screensaver-meta">{current.meta}</p> : null}
+            {showDetails && current.summary ? <p className="player-tv-screensaver-summary">{current.summary}</p> : null}
+        </>
+    ) : null;
+
+    // Portal to <body>: inside Home a parent stacking context let the nav rail draw on top.
+    // --ss-slide-ms: pan and zoom lasts exactly one picture (its direction alternates per slide).
+    return createPortal((
+        <div
+            className={`player-tv-screensaver player-tv-screensaver--${look} player-tv-screensaver--dim-${dim} player-tv-screensaver--size-${clockSize}${
+                transition === 'instant' ? ' player-tv-screensaver--instant' : ''
+            }`}
+            data-tv-screensaver="1"
+            aria-hidden
+            style={{ '--ss-slide-ms': `${slideMs}ms` } as React.CSSProperties}
+        >
+            {isWall ? wall : (isGallery ? <div className="player-tv-screensaver-frame">{picture}</div> : picture)}
             <div className="player-tv-screensaver-scrim" />
+            {clockFloats ? (
+                <div className={`player-tv-screensaver-float player-tv-screensaver-float--${pos}`}>{clockBlock}</div>
+            ) : null}
             <div className="player-tv-screensaver-footer">
-                {watermark ? (
-                    <p className="player-tv-screensaver-watermark">{watermark}</p>
-                ) : null}
-                <p
-                    className="player-tv-screensaver-clock"
-                    style={clockNudge ? { transform: `translate(${clockNudge.x}px, ${clockNudge.y}px)` } : undefined}
-                >
-                    {clock}
-                </p>
-                {current.logoUrl ? (
-                    <PlayerClearLogo
-                        src={current.logoUrl}
-                        alt={current.title}
-                        className="player-tv-screensaver-logo"
-                        growSmall
-                    />
-                ) : current.title ? (
-                    <p className="player-tv-screensaver-title">{current.title}</p>
-                ) : null}
+                {clockInFooter ? clockBlock : null}
+                {infoBlock}
             </div>
         </div>
     ), document.body);

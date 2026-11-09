@@ -4323,7 +4323,7 @@ html[data-tv="1"] .player-tv-screensaver--clock .player-tv-screensaver-footer {
   transform: translate(-50%, -50%);
 }
 html[data-tv="1"] .player-tv-screensaver--clock .player-tv-screensaver-clock {
-  font-size: clamp(6rem, 13vw, 10rem);
+  font-size: calc(clamp(6rem, 13vw, 10rem) * var(--ss-clock-scale, 1));
   color: rgb(255 255 255 / 0.82);
 }
 @keyframes player-tv-screensaver-in {
@@ -4371,7 +4371,7 @@ html[data-tv="1"] .player-tv-screensaver-clock {
   margin: 0;
   color: #fff;
   font-family: var(--tv-display-font);
-  font-size: clamp(4.6rem, 9.5vw, 7.25rem);
+  font-size: calc(clamp(4.6rem, 9.5vw, 7.25rem) * var(--ss-clock-scale, 1));
   font-weight: 700;
   letter-spacing: 0.02em;
   line-height: 0.92;
@@ -4401,6 +4401,143 @@ html[data-tv="1"] .player-tv-screensaver-title {
   text-align: center;
   text-shadow: 0 8px 22px rgba(0, 0, 0, 0.55);
 }
+/* Settings → Screensaver: size, shading, clock position, transition and the extra looks. */
+html[data-tv="1"] .player-tv-screensaver--size-small { --ss-clock-scale: 0.7; }
+html[data-tv="1"] .player-tv-screensaver--size-large { --ss-clock-scale: 1.3; }
+html[data-tv="1"] .player-tv-screensaver--dim-light .player-tv-screensaver-scrim { opacity: 0.45; }
+html[data-tv="1"] .player-tv-screensaver--dim-dark .player-tv-screensaver-scrim {
+  background:
+    linear-gradient(90deg, rgba(0, 0, 0, 0.9) 0%, rgba(0, 0, 0, 0.58) 45%, rgba(0, 0, 0, 0.36) 100%),
+    linear-gradient(0deg, rgba(0, 0, 0, 0.92) 0%, rgba(0, 0, 0, 0.42) 40%, rgba(0, 0, 0, 0.28) 100%);
+}
+html[data-tv="1"] .player-tv-screensaver--instant .player-tv-screensaver-slide--enter,
+html[data-tv="1"] .player-tv-screensaver--instant .player-tv-screensaver-slide--exit {
+  animation: none;
+}
+/* A clock that is not bottom-left floats in its corner (or the middle). */
+html[data-tv="1"] .player-tv-screensaver-float {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.55rem;
+  pointer-events: none;
+}
+html[data-tv="1"] .player-tv-screensaver-float--topLeft { top: 2.4rem; left: 2.75rem; }
+html[data-tv="1"] .player-tv-screensaver-float--topRight { top: 2.4rem; right: 2.75rem; }
+html[data-tv="1"] .player-tv-screensaver-float--bottomRight { bottom: 2.4rem; right: 2.75rem; }
+html[data-tv="1"] .player-tv-screensaver-float--center { top: 50%; left: 50%; transform: translate(-50%, -50%); }
+html[data-tv="1"] .player-tv-screensaver-meta {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.7);
+  font-family: var(--tv-display-font);
+  font-size: 1.05rem;
+  letter-spacing: 0.02em;
+  text-align: center;
+  text-shadow: 0 6px 18px rgba(0, 0, 0, 0.55);
+}
+html[data-tv="1"] .player-tv-screensaver-summary {
+  margin: 0;
+  max-width: 34rem;
+  color: rgba(255, 255, 255, 0.82);
+  font-family: var(--tv-display-font);
+  font-size: 1.1rem;
+  line-height: 1.45;
+  text-align: center;
+  text-shadow: 0 6px 18px rgba(0, 0, 0, 0.55);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
+/* Gallery: the picture framed in the middle, its title below. */
+html[data-tv="1"] .player-tv-screensaver-frame {
+  position: absolute;
+  left: 50%;
+  /* The TV root is zoomed (--tv-zoom): viewport units are divided by it, as elsewhere. */
+  top: calc(7vh / var(--tv-zoom, 1));
+  width: calc(min(66vw, calc(66vh * 16 / 9)) / var(--tv-zoom, 1));
+  aspect-ratio: 16 / 9;
+  transform: translateX(-50%);
+  overflow: hidden;
+  border-radius: 0.5rem;
+  background: #0b0f16;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+html[data-tv="1"] .player-tv-screensaver--gallery .player-tv-screensaver-scrim { z-index: 1; }
+html[data-tv="1"] .player-tv-screensaver--gallery .player-tv-screensaver-footer {
+  left: 50%;
+  bottom: 2.2rem;
+  transform: translateX(-50%);
+  align-items: center;
+  text-align: center;
+}
+
+/* Spotlight: full picture, the title's details on the left. */
+html[data-tv="1"] .player-tv-screensaver--spotlight .player-tv-screensaver-scrim {
+  background:
+    linear-gradient(90deg, rgba(0, 0, 0, 0.88) 0%, rgba(0, 0, 0, 0.62) 36%, rgba(0, 0, 0, 0.1) 68%, transparent 100%),
+    linear-gradient(0deg, rgba(0, 0, 0, 0.6) 0%, transparent 40%);
+}
+html[data-tv="1"] .player-tv-screensaver--spotlight .player-tv-screensaver-footer {
+  left: 4.5rem;
+  top: 50%;
+  bottom: auto;
+  transform: translateY(-50%);
+  align-items: flex-start;
+  max-width: 36rem;
+  gap: 1rem;
+}
+html[data-tv="1"] .player-tv-screensaver--spotlight .player-tv-screensaver-logo {
+  height: calc(6.2rem * var(--logo-scale, 1));
+  max-height: 10rem;
+  max-width: 100%;
+  object-position: left center;
+}
+html[data-tv="1"] .player-tv-screensaver--spotlight .player-tv-screensaver-title,
+html[data-tv="1"] .player-tv-screensaver--spotlight .player-tv-screensaver-meta,
+html[data-tv="1"] .player-tv-screensaver--spotlight .player-tv-screensaver-summary {
+  text-align: left;
+}
+html[data-tv="1"] .player-tv-screensaver--spotlight .player-tv-screensaver-title { font-size: 2.1rem; }
+
+/* Poster wall: rows of posters drifting in opposite directions. One transform per row. */
+html[data-tv="1"] .player-tv-screensaver-wall {
+  position: absolute;
+  inset: -8%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1.2rem;
+  transform: rotate(-4deg);
+}
+html[data-tv="1"] .player-tv-screensaver-wall-row {
+  display: flex;
+  gap: 1.2rem;
+  width: max-content;
+  will-change: transform;
+  animation: player-tv-screensaver-wall var(--ss-row-ms, 80s) linear infinite;
+}
+html[data-tv="1"] .player-tv-screensaver-wall-row.is-reverse { animation-direction: reverse; }
+html[data-tv="1"] .player-tv-screensaver-wall-poster {
+  flex: none;
+  height: calc(28vh / var(--tv-zoom, 1));
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  border-radius: 0.45rem;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+}
+html[data-tv="1"] .player-tv-screensaver--posters .player-tv-screensaver-scrim { z-index: 1; }
+@keyframes player-tv-screensaver-wall {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(-50%, 0, 0); }
+}
+html[data-tv="1"][data-simple-motion="1"] .player-tv-screensaver-wall { transform: none; }
+html[data-tv="1"][data-simple-motion="1"] .player-tv-screensaver-wall-row { will-change: auto; }
+html[data-tv="1"][data-reduce-motion="1"] .player-tv-screensaver-wall-row { animation: none; }
+
 /* Global music dock — fixed bottom bar on every browse surface while minimized. */
 html[data-tv="1"] .player-home-now-playing {
   position: fixed;
