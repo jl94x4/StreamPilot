@@ -1432,6 +1432,9 @@ export const startMediaPlayerPlayback = (ratingKey: string, opts: {
     if (caps.hevc) qs.set('canPlayHevc', '1');
     if (caps.ac3) qs.set('canPlayAc3', '1');
     if (caps.hls) qs.set('canPlayNativeHls', '1');
+    // The app plays TrueHD / DTS itself (bitstream or decoded on the device), so the server
+    // must not send those to the transcoder.
+    if ('bitstreamAudio' in caps && caps.bitstreamAudio) qs.set('audioPassthrough', '1');
     return apiFetch(`${PLAYER_API_ROOT}/play/${encodeURIComponent(ratingKey)}?${qs}`) as Promise<PlayerPlaySession>;
 };
 

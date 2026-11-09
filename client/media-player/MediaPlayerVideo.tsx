@@ -1476,7 +1476,10 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                             const wantOriginal = safeQuality === 'original';
                             // Seek stays on the open Direct Play. Forcing HLS here starts a
                             // new transcode session for every scrub.
-                            const forceHls = currentlyHls && !wantOriginal;
+                            // unseekable: the Direct Play file has no seek index (Exo jumps to 0), so
+                            // seeking / resuming needs an HLS stream that starts at the offset.
+                            const unseekable = event.reason === 'unseekable';
+                            const forceHls = (currentlyHls && !wantOriginal) || unseekable;
                             // Fresh session when leaving a capped HLS ladder for Original so PMS
                             // does not keep the prior 720/1080 decision on the reused session id.
                             const sessionForStart = (currentlyHls && wantOriginal)
@@ -1494,7 +1497,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                             };
                             let fresh = await startMediaPlayerPlayback(ratingKey, startOpts).catch(() => null);
                             // Original←transcode sometimes races stop; retry Direct Play first.
-                            if (!fresh?.src && wantOriginal) {
+                            if (!fresh?.src && wantOriginal && !unseekable) {
                                 for (const waitMs of [250, 600]) {
                                     await new Promise<void>((resolve) => window.setTimeout(resolve, waitMs));
                                     if (cancelled || gen !== nativeOpenGenRef.current || changeGen !== streamChangeGenRef.current) {
@@ -1525,7 +1528,8 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                             if (changeGen === streamChangeGenRef.current) streamRebuildInFlightRef.current = false;
                             return;
                         }
-                        if (!nextSrc && !(isPlexDirectMode() && event.reason === 'seek' && currentlyHls)) {
+                        if (!nextSrc && !(isPlexDirectMode() && event.reason === 'seek' && currentlyHls)
+                            && event.reason !== 'unseekable') {
                             nextSrc = buildNativePlaybackSrc(ratingKey, {
                                 ...session,
                                 src: playbackSrcRef.current || session.src,
@@ -1544,7 +1548,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                             });
                             startedId = playSessionIdFromSrc(nextSrc) || reuseSessionId;
                         }
-                        if (!nextSrc && isPlexDirectMode()) {
+                        if (!nextSrc && isPlexDirectMode() && event.reason !== 'unseekable') {
                             const forced = await startMediaPlayerPlayback(ratingKey, {
                                 offsetMs: offset,
                                 qualityId: safeQuality,

@@ -1938,29 +1938,22 @@ export const buildNativePlaybackSrc = (
  */
 const BITSTREAM_NATIVE_AUDIO = /^(truehd|mlp|dca|dts|dtsc|dtsh|dtshd|dtsma|dtsl)$/i;
 
-export const nativeAudioIsDirectPlayable = (codec?: string | null) => {
-    const value = String(codec || '').trim().toLowerCase();
-    if (!value) return true;
-    // EAC3 / Atmos JOC / AC3 are never gated by Bitstream.
-    if (/eac3|ec-3|e-ac-3|ec\+3|joc|ac3|ac-3/.test(value)) return true;
-    if (!BITSTREAM_NATIVE_AUDIO.test(value)) return true;
-    try {
-        const passthrough = window.localStorage?.getItem('portal-media-player-settings');
-        if (!passthrough) return false;
-        const parsed = JSON.parse(passthrough);
-        // Opt-in only — TrueHD/DTS DP can native-abort on TVs without passthrough.
-        return parsed?.audioPassthrough === true;
-    } catch {
-        return false;
-    }
-};
+/**
+ * Every audio codec Direct Plays in the app. TrueHD / DTS (BITSTREAM_NATIVE_AUDIO) go out as
+ * bitstream when the TV or receiver takes them and are otherwise decoded on the device (FFmpeg,
+ * as Kodi does). They used to need Settings → Bitstream or went to the server to transcode,
+ * which fails outright on servers with transcoding turned off.
+ */
+export const nativeAudioIsDirectPlayable = (_codec?: string | null) => true;
+void BITSTREAM_NATIVE_AUDIO;
 
 export const browserPlaybackCaps = () => {
     if (typeof document === 'undefined') return { hevc: false, ac3: false, hls: false };
     // ExoPlayer on Android TV Direct Plays HEVC/AC3 and bitstreams TrueHD/DTS
     // when the HDMI sink supports passthrough.
     if (isPlexNativePlayback()) {
-        return { hevc: true, ac3: true, hls: true };
+        // bitstreamAudio: TrueHD / DTS play in the app (bitstream, or decoded on the device).
+        return { hevc: true, ac3: true, hls: true, bitstreamAudio: true };
     }
     const video = document.createElement('video');
     const can = (type: string) => {

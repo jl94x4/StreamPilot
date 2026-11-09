@@ -2191,11 +2191,13 @@ const nativeAudioPassthroughEnabled = () => {
     }
 };
 
-const nativeAudioPlayable = (stream?: PlexMeta | null) => {
-    // EAC3/AC3/AAC/FLAC always Direct Play like official Plex. Only TrueHD/DTS need Bitstream.
-    if (!isBitstreamAudioCodec(stream?.codec)) return true;
-    return nativeAudioPassthroughEnabled();
-};
+/**
+ * Every audio codec Direct Plays in the app. TrueHD / DTS go out as bitstream when the TV or
+ * receiver takes them, and are otherwise decoded on the device (FFmpeg, as Kodi does). They used
+ * to need Settings → Bitstream or went to the server to transcode, which fails outright on
+ * servers with transcoding turned off (giant 4K remuxes carry only TrueHD / DTS-HD tracks).
+ */
+const nativeAudioPlayable = (_stream?: PlexMeta | null) => true;
 
 const isTextSubtitle = (stream?: PlexMeta | null) => (
     !subtitleCodecNeedsBurn(stream?.codec, nativeBurnSubtitlesMode(), true)
@@ -2313,7 +2315,8 @@ const playSrc = (
         mediaIndex,
         audioStreamId: id,
         subtitleStreamId: subtitleId,
-        audioPassthrough: passthrough,
+        // TrueHD / DTS are playable in the app (see nativeAudioPlayable).
+        audioPassthrough: true,
     });
     // Bitstream off + TrueHD/DTS → switch to AC3/AAC track so we Direct Play instead of HLS+AAC.
     let capsOk = capsForAudio(audioId) && nativeAudioPlayable(chosenAudio);
@@ -7596,6 +7599,21 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                 qualityId: qualityId === 'auto' ? 'original' : qualityId,
                 canDirectPlay: chosen.mode === 'directPlay',
                 canCopyOriginal: true,
+                // The native player sizes its network buffer from the bitrate (a 100 Mbps remux needs
+                // far more than the default) and shows these in its stats.
+                source: (() => {
+                    const media = (chosen.media || {}) as PlexMeta;
+                    const num = (value: unknown) => (Number(value) > 0 ? Number(value) : null);
+                    return {
+                        videoCodec: media.videoCodec ? String(media.videoCodec) : null,
+                        audioCodec: media.audioCodec ? String(media.audioCodec) : null,
+                        container: media.container ? String(media.container) : null,
+                        width: num(media.width),
+                        height: num(media.height),
+                        videoResolution: media.videoResolution ? String(media.videoResolution) : null,
+                        bitrate: num(media.bitrate),
+                    };
+                })(),
                 audioTracks: streams.audio.map((stream) => ({
                     id: String(stream.id || ''),
                     label: String(stream.displayTitle || stream.language || stream.codec || 'Audio'),

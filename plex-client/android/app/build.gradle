@@ -15,9 +15,9 @@ android {
         applicationId "com.streampilot.mediaplayer"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 667
+        versionCode 668
         // Settings shows this versionName. `npm run build:apk` auto-bumps both.
-        versionName "1.0.667"
+        versionName "1.0.668"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             // TVs and phones are ARM. x86 is kept for the Android TV emulator: without it the whole
@@ -106,6 +106,10 @@ dependencies {
     implementation "androidx.media3:media3-ui:$media3Version"
     implementation "androidx.media3:media3-datasource:$media3Version"
     implementation "androidx.media3:media3-session:$media3Version"
+    // TrueHD / DTS(-HD) decoded on the device when the TV or receiver cannot take them as
+    // bitstream (as Kodi does), so giant 4K remuxes Direct Play instead of needing a transcode.
+    // Jellyfin's prebuilt FFmpeg decoder for Media3; only its audio renderer is used.
+    implementation "org.jellyfin.media3:media3-ffmpeg-decoder:1.9.0+1"
     implementation "androidx.tvprovider:tvprovider:1.1.0"
     // Who's on screen (test): offline face detection + FaceNet embeddings, all on the TV.
     implementation "com.google.mlkit:face-detection:16.1.7"

@@ -73,6 +73,17 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.668': [
+        {
+            title: 'Big 4K remuxes',
+            items: [
+                'Films with only TrueHD or DTS / DTS-HD audio, like most 4K remuxes, now Direct Play. The app decodes that audio itself when your TV or receiver cannot take it, as Kodi does, so nothing is sent to your server to transcode. Before, they failed with a playback error on servers with transcoding turned off',
+                'If your TV or receiver supports TrueHD / DTS, turn on Settings → Bitstream audio to send it untouched for Atmos and DTS:X',
+                'The player now keeps far more of a big file in memory when the app talks to Plex directly, so short network dips no longer stop playback',
+                'Seeking in the rare file written without a seek index now switches to a stream that starts where you asked, instead of jumping back to the beginning',
+            ],
+        },
+    ],
     '1.0.667': [
         {
             title: 'Fixes',

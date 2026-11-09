@@ -83,8 +83,13 @@ import androidx.media3.exoplayer.DefaultRenderersFactory;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.SeekParameters;
 import androidx.media3.exoplayer.Renderer;
+import androidx.media3.decoder.ffmpeg.FfmpegAudioRenderer;
+import androidx.media3.decoder.ffmpeg.FfmpegLibrary;
+import androidx.media3.exoplayer.audio.AudioRendererEventListener;
 import androidx.media3.exoplayer.audio.AudioSink;
 import androidx.media3.exoplayer.audio.DefaultAudioSink;
+import androidx.media3.exoplayer.audio.ForwardingAudioSink;
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.exoplayer.text.TextOutput;
 import androidx.media3.exoplayer.text.TextRenderer;
@@ -581,6 +586,10 @@ public class PlayerActivity extends AppCompatActivity {
     private long lastSeekAtMs;
     /** One HTTP failure after a seek can reload the stream. A second one is shown. */
     private boolean seekRecoveryUsed;
+    /** Resume offset handed to a Direct Play file (checked once it is READY). */
+    private long directStartMs;
+    /** Already asked for an HLS stream because the Direct Play file cannot seek. */
+    private boolean unseekableRemuxTried;
     /** The previous playlist 404s while a replacement stream is opening. Ignore that. */
     private boolean streamSwapInFlight;
     private float playbackSpeed = 1f;
@@ -1053,11 +1062,66 @@ public class PlayerActivity extends AppCompatActivity {
                     boolean enableFloatOutput,
                     boolean enableAudioTrackPlaybackParams
                 ) {
-                    return new DefaultAudioSink.Builder(context)
+                    AudioSink sink = new DefaultAudioSink.Builder(context)
                         .setEnableFloatOutput(enableFloatOutput)
                         .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
                         .setAudioProcessors(new AudioProcessor[] { delayAudioProcessor })
                         .build();
+                    if (audioPassthrough) return sink;
+                    // Bitstream off: never hand TrueHD / DTS to HDMI (that hard-crashed boxes whose
+                    // TV claimed support it did not have). FFmpeg decodes them to PCM instead.
+                    return new ForwardingAudioSink(sink) {
+                        @Override
+                        public boolean supportsFormat(Format format) {
+                            return !isBitstreamOnlyAudio(format) && super.supportsFormat(format);
+                        }
+
+                        @Override
+                        public int getFormatSupport(Format format) {
+                            return isBitstreamOnlyAudio(format)
+                                ? AudioSink.SINK_FORMAT_UNSUPPORTED
+                                : super.getFormatSupport(format);
+                        }
+                    };
+                }
+
+                @Override
+                protected void buildAudioRenderers(
+                    Context context,
+                    int extensionRendererMode,
+                    MediaCodecSelector mediaCodecSelector,
+                    boolean enableDecoderFallback,
+                    AudioSink audioSink,
+                    Handler eventHandler,
+                    AudioRendererEventListener eventListener,
+                    ArrayList<Renderer> out
+                ) {
+                    // Bitstream off: hide any platform TrueHD / DTS decoder too (the same crash), so
+                    // those tracks always go to FFmpeg below.
+                    MediaCodecSelector selector = audioPassthrough
+                        ? mediaCodecSelector
+                        : (mimeType, requiresSecureDecoder, requiresTunnelingDecoder) ->
+                            isBitstreamOnlyMime(mimeType)
+                                ? java.util.Collections.emptyList()
+                                : mediaCodecSelector.getDecoderInfos(mimeType, requiresSecureDecoder, requiresTunnelingDecoder);
+                    super.buildAudioRenderers(context, extensionRendererMode, selector,
+                        enableDecoderFallback, audioSink, eventHandler, eventListener, out);
+                    // After the platform renderer: TrueHD / DTS still go out as bitstream when the
+                    // TV or receiver takes them; otherwise FFmpeg decodes them here (as Kodi does)
+                    // instead of the file needing a server transcode. Video is untouched.
+                    try {
+                        if (FfmpegLibrary.isAvailable()) {
+                            out.add(new FfmpegAudioRenderer(eventHandler, eventListener, audioSink));
+                            Log.i(TAG, "FFmpeg audio decoder " + FfmpegLibrary.getVersion()
+                                + " (truehd=" + FfmpegLibrary.supportsFormat(MimeTypes.AUDIO_TRUEHD)
+                                + ", dts=" + FfmpegLibrary.supportsFormat(MimeTypes.AUDIO_DTS)
+                                + ", dts-hd=" + FfmpegLibrary.supportsFormat(MimeTypes.AUDIO_DTS_HD) + ")");
+                        } else {
+                            Log.w(TAG, "FFmpeg audio decoder not available");
+                        }
+                    } catch (Throwable error) {
+                        Log.w(TAG, "FFmpeg audio decoder failed to load", error);
+                    }
                 }
 
                 @Override
@@ -1485,6 +1549,15 @@ public class PlayerActivity extends AppCompatActivity {
                     playbackError = false;
                     hideError();
                     hideBurnInProgress();
+                    // Resume point in a file that cannot seek (an MKV with no index): Exo quietly
+                    // started at 0. Get a stream that starts at the resume point instead.
+                    if (directStartMs > 5000 && directUnseekable()
+                        && player.getCurrentPosition() < directStartMs - 5000) {
+                        long resumeAt = directStartMs;
+                        directStartMs = 0;
+                        if (requestUnseekableRemux(resumeAt)) return;
+                    }
+                    directStartMs = 0;
                     if (pendingSeekMs > 0 && !PlaybackUrls.isTranscodeUrl(currentUrl)) {
                         long seekTo = pendingSeekMs;
                         pendingSeekMs = 0;
@@ -2225,6 +2298,16 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     /** Plex reports kbps; anything above 1 Gbps worth of kbps is really bits per second. */
+    /** TrueHD and every DTS flavour: bitstream to HDMI, or decoded by FFmpeg. */
+    private static boolean isBitstreamOnlyMime(String mimeType) {
+        if (mimeType == null) return false;
+        return MimeTypes.AUDIO_TRUEHD.equals(mimeType) || mimeType.startsWith("audio/vnd.dts");
+    }
+
+    private static boolean isBitstreamOnlyAudio(Format format) {
+        return format != null && isBitstreamOnlyMime(format.sampleMimeType);
+    }
+
     private static int streamKbps(int bitrate) {
         if (bitrate <= 0) return 0;
         return bitrate > 1_000_000 ? bitrate / 1000 : bitrate;
@@ -5982,6 +6065,8 @@ public class PlayerActivity extends AppCompatActivity {
             mainHandler.postDelayed(transcodeSeekRunnable, immediate ? 180 : 400);
             return;
         }
+        // A file that cannot seek (an MKV with no index) would jump back to 0 on every seek.
+        if (directUnseekable() && requestUnseekableRemux(target)) return;
         scrubHoldUntilMs = android.os.SystemClock.elapsedRealtime() + 1600;
         mainHandler.removeCallbacks(directSeekRunnable);
         if (immediate) directSeekRunnable.run();
@@ -6021,8 +6106,28 @@ public class PlayerActivity extends AppCompatActivity {
         // that read and starts another; the player then treats the glitch as a
         // failed Direct Play and opens a transcode on top of it. That second
         // session is what crashes PMS.
+        directStartMs = start;
         if (start > 0) player.setMediaItem(item, start);
         else player.setMediaItem(item);
+    }
+
+    /** Direct Play of a file Exo cannot seek in (e.g. an MKV written without a Cues index). */
+    private boolean directUnseekable() {
+        if (player == null || currentUrl == null || PlaybackUrls.isTranscodeUrl(currentUrl)) return false;
+        if (player.getCurrentTimeline().isEmpty()) return false;
+        return !player.isCurrentMediaItemSeekable();
+    }
+
+    /**
+     * Ask JS for an HLS stream starting at positionMs, which seeks fine. Once per title: when the
+     * server refuses (transcoding off), the Direct Play keeps going rather than looping.
+     */
+    private boolean requestUnseekableRemux(long positionMs) {
+        if (unseekableRemuxTried || streamSwapInFlight) return false;
+        unseekableRemuxTried = true;
+        Log.i(TAG, "Direct Play cannot seek (no index); asking for a stream at " + positionMs + "ms");
+        requestStreamChange(qualityId, audioStreamId, subtitleStreamId, mediaIndex, positionMs, "unseekable");
+        return true;
     }
 
     private static String sidecarSubtitleMime(String url, String codec) {
