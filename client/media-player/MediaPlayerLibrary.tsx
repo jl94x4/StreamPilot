@@ -181,6 +181,67 @@ const SORT_IDS = [
 
 type FilterOption = { key: string; title: string };
 
+const shortDate = (value: number | string | null | undefined) => {
+    if (value == null || value === '') return '';
+    const date = new Date(typeof value === 'number' ? value : String(value));
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+};
+
+const fileSizeLabel = (bytes: number) => {
+    if (!(bytes > 0)) return '';
+    if (bytes >= 1e12) return `${(bytes / 1e12).toFixed(2)} TB`;
+    if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} GB`;
+    return `${Math.max(1, Math.round(bytes / 1e6))} MB`;
+};
+
+const runtimeLabel = (ms: number) => {
+    const minutes = Math.round(ms / 60000);
+    if (!(minutes > 0)) return '';
+    const hours = Math.floor(minutes / 60);
+    return hours ? `${hours}h ${minutes % 60}m` : `${minutes}m`;
+};
+
+/**
+ * Browse caption extra: the value the grid is sorted by, shown after the year ("2001 · 88.9 Mbps").
+ * Title and Year sorts add nothing — the caption already says it.
+ */
+const sortCaptionNote = (
+    sort: string,
+    item: PlayerItem,
+    t: (key: string, vars?: Record<string, string | number>) => string,
+): string => {
+    const media = item.mediaInfo?.[0];
+    switch (String(sort || '').replace(/:(asc|desc)$/, '')) {
+        case 'mediaBitrate': {
+            const kbps = Number(media?.bitrate || item.versions?.[0]?.bitrate || 0);
+            return kbps > 0 ? `${(kbps / 1000).toFixed(1)} Mbps` : '';
+        }
+        case 'mediaSize':
+            return fileSizeLabel((media?.parts || []).reduce((sum, part) => sum + (Number(part.size) || 0), 0));
+        case 'duration':
+            return runtimeLabel(Number(item.durationMs || media?.durationMs || 0));
+        case 'mediaHeight':
+            return String(item.versions?.[0]?.resolution || media?.videoResolution || '').toUpperCase().replace(/(\d)P$/, '$1p');
+        case 'audienceRating':
+            return item.audienceRating != null && item.audienceRating > 0 ? `★ ${item.audienceRating.toFixed(1)}` : '';
+        case 'rating': {
+            const critic = item.ratings?.rottenTomatoes;
+            return critic?.percent != null ? `${Math.round(critic.percent)}%` : '';
+        }
+        case 'addedAt':
+            return shortDate(item.addedAt);
+        case 'lastViewedAt':
+            return shortDate(item.lastViewedAt);
+        case 'originallyAvailableAt':
+            return shortDate(item.originallyAvailableAt);
+        case 'viewCount':
+            return item.viewCount ? t('mediaPlayerPage.playCountCaption', { count: item.viewCount }) : '';
+        default:
+            return '';
+    }
+};
+
 export const MediaPlayerLibrary: React.FC<Props> = ({
     sectionKey,
     tab,
@@ -1180,12 +1241,26 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
         'mediaSize:desc': t('mediaPlayerPage.sortFileSize'),
     };
     const movieLibrary = libraryType === 'movie';
-    // Bitrate / file size are per file, so only movie libraries sort by them.
-    const sortIds: string[] = movieLibrary ? [...SORT_IDS, 'mediaBitrate:desc', 'mediaSize:desc'] : [...SORT_IDS];
+    // Bitrate / file size are per file, so only movie libraries sort by them. Title (Z–A) is
+    // Title pressed twice now, so it is not a row of its own.
+    const sortIds: string[] = [...SORT_IDS, ...(movieLibrary ? ['mediaBitrate:desc', 'mediaSize:desc'] : [])]
+        .filter((id) => id !== 'titleSort:desc');
     const sortOptions = sortIds.map((id) => ({ value: id, label: sortLabels[id] || id }));
+    // Phone keeps its dropdown, with Title (Z–A) as its own entry.
+    const phoneSortOptions = [...SORT_IDS, ...(movieLibrary ? ['mediaBitrate:desc', 'mediaSize:desc'] : [])]
+        .map((id) => ({ value: id, label: sortLabels[id] || id }));
+    const sortBase = (value: string) => String(value || '').replace(/:(asc|desc)$/, '');
+    const sortDescending = /:desc$/.test(sort);
+    const selectedSortOption = sortIds.find((id) => sortBase(id) === sortBase(sort)) || sortIds[0];
+    // Picking the selected sort again flips it; a new one starts in its usual direction.
     const changeSort = (value: string) => {
-        setSort(value);
-        if (value !== 'titleSort') setLetter('');
+        let next = value;
+        if (sortBase(value) === sortBase(sort)) {
+            const base = sortBase(sort);
+            next = sortDescending ? (base === 'titleSort' ? 'titleSort' : `${base}:asc`) : `${base}:desc`;
+        }
+        setSort(next);
+        if (next !== 'titleSort') setLetter('');
     };
     const tvShell = isTvShell();
     const filterSelectClass = 'player-library-filter-select min-w-[10rem] max-md:min-w-0 max-md:flex-1 max-md:basis-[calc(50%-0.25rem)]';
@@ -1389,7 +1464,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                         groups={filterGroups}
                         toggles={filterToggles}
                         onClearAll={clearAllFilters}
-                        sort={{ value: sort, options: sortOptions, onChange: changeSort }}
+                        sort={{ value: selectedSortOption, descending: sortDescending, options: sortOptions, onChange: changeSort }}
                         chips={false}
                     />
                     {total > 0 ? (
@@ -1415,7 +1490,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                         dropdownClassName="player-filter-menu"
                         className={`${filterSelectClass} min-w-[11rem]`}
                         triggerProps={tvFilterTrigger('library-sort')}
-                        options={sortOptions}
+                        options={phoneSortOptions}
                     />
                     <PlayerLibraryFilterSheet groups={filterGroups} toggles={filterToggles} onClearAll={clearAllFilters} />
                     {total > 0 ? (
@@ -1775,6 +1850,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                                                 key={item.ratingKey}
                                                 item={item}
                                                 browseIndex={index}
+                                                captionNote={sortCaptionNote(sort, item, t) || undefined}
                                                 aspect={musicLibrary ? 'square' : undefined}
                                                 imagePriority={index < eagerCount}
                                                 loading={index < eagerCount ? 'eager' : 'lazy'}

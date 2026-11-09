@@ -31,6 +31,8 @@ type Props = {
     imagePriority?: boolean;
     loading?: 'lazy' | 'eager';
     browseIndex?: number;
+    /** Browse: the value the grid is sorted by (88.9 Mbps, 55.2 GB…), shown after the year. */
+    captionNote?: string;
 };
 
 const LONG_PRESS_MS = 700;
@@ -79,6 +81,7 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
     imagePriority = false,
     loading: loadingProp,
     browseIndex,
+    captionNote,
 }: Props) {
     const { t } = useDiscoverI18n();
     const [settings] = usePlayerSettings();
@@ -383,9 +386,9 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
                                 <div className={`${isTvShell ? 'text-base font-semibold' : 'text-xs font-medium'} line-clamp-2 leading-snug text-text`}>
                                     {item.title}
                                 </div>
-                                {item.year ? (
+                                {item.year || captionNote ? (
                                     <div className={`${isTvShell ? 'text-sm' : 'text-[11px]'} mt-0.5 truncate text-muted`}>
-                                        {item.year}
+                                        {[item.year ? String(item.year) : '', captionNote || ''].filter(Boolean).join(' · ')}
                                     </div>
                                 ) : null}
                             </>
@@ -522,6 +525,7 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
     && prev.item.viewOffsetMs === next.item.viewOffsetMs
     && prev.item.durationMs === next.item.durationMs
     && prev.browseIndex === next.browseIndex
+    && prev.captionNote === next.captionNote
     && prev.imagePriority === next.imagePriority
     && prev.loading === next.loading
     && prev.aspect === next.aspect

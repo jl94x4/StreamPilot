@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowDownUp, Check, ChevronLeft, ChevronRight, SlidersHorizontal, X } from 'lucide-react';
+import { ArrowDown, ArrowDownUp, ArrowUp, Check, ChevronLeft, ChevronRight, SlidersHorizontal, X } from 'lucide-react';
 import { useDiscoverI18n } from './host';
 import { TvButton } from '../shared/TvButton';
 
@@ -22,8 +22,11 @@ export type LibraryFilterToggle = {
 };
 
 export type LibrarySortControl = {
+    /** The selected option's value (its base sort, without a direction). */
     value: string;
+    descending: boolean;
     options: Array<{ value: string; label: string }>;
+    /** Picking the selected option again flips ascending / descending. */
     onChange: (value: string) => void;
 };
 
@@ -147,6 +150,8 @@ export const PlayerLibraryFilterSheet: React.FC<Props> = ({ groups, toggles, onC
         options: Array<{ value: string; label: string }>,
         current: string,
         onPick: (value: string) => void,
+        /** Sort list: the selected row shows its direction instead of a tick. */
+        direction?: 'asc' | 'desc',
     ) => options.map((opt) => {
         const isSelected = opt.value === current;
         return (
@@ -163,7 +168,11 @@ export const PlayerLibraryFilterSheet: React.FC<Props> = ({ groups, toggles, onC
                 onClick={() => onPick(opt.value)}
             >
                 <span className="min-w-0 truncate">{opt.label}</span>
-                {check(isSelected)}
+                {isSelected && direction
+                    ? (direction === 'desc'
+                        ? <ArrowDown className="h-5 w-5 shrink-0" strokeWidth={2.75} aria-hidden />
+                        : <ArrowUp className="h-5 w-5 shrink-0" strokeWidth={2.75} aria-hidden />)
+                    : check(isSelected)}
             </TvButton>
         );
     });
@@ -185,7 +194,9 @@ export const PlayerLibraryFilterSheet: React.FC<Props> = ({ groups, toggles, onC
                     className="player-library-filter-button player-library-sort-button inline-flex items-center gap-2 rounded-full border"
                     aria-label={`${t('mediaPlayerPage.sortBy')}: ${sortLabel}`}
                 >
-                    <ArrowDownUp className="h-[1.05em] w-[1.05em]" strokeWidth={2.25} aria-hidden />
+                    {sort.descending
+                        ? <ArrowDown className="h-[1.05em] w-[1.05em]" strokeWidth={2.5} aria-hidden />
+                        : <ArrowUp className="h-[1.05em] w-[1.05em]" strokeWidth={2.5} aria-hidden />}
                     <span>{sortLabel}</span>
                 </TvButton>
             ) : null}
@@ -271,11 +282,9 @@ export const PlayerLibraryFilterSheet: React.FC<Props> = ({ groups, toggles, onC
                             data-tv-overlay-scroll="1"
                         >
                             {sortView && sort ? (
-                                choiceList(sort.options, sort.value, (value) => {
-                                    sort.onChange(value);
-                                    if (sortOnlyRef.current) close();
-                                    else backToList();
-                                })
+                                // Stays open: OK again on the chosen sort flips its direction, the
+                                // grid updates behind the sheet, and Back closes it.
+                                choiceList(sort.options, sort.value, (value) => sort.onChange(value), sort.descending ? 'desc' : 'asc')
                             ) : group ? (
                                 choiceList(
                                     [{ value: '', label: group.allLabel }, ...group.options],

@@ -960,6 +960,8 @@ export const en = {
         sortBy: 'Sort by',
         sortBitrate: 'Bitrate',
         sortFileSize: 'File size',
+        playCountCaption: '{count} play',
+        playCountCaption_plural: '{count} plays',
         filterBy_bitrate: 'Bitrate',
         allBitrates: 'Any bitrate',
         bitrateUnder: 'Under {max} Mbps',

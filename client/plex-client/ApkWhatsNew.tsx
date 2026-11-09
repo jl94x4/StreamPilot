@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.670': [
+        {
+            title: 'Library Browse',
+            items: [
+                'Press OK on the sort you already have to flip it between ascending and descending. An arrow on the Sort button and in the list shows which way it is sorted, and the list stays open so you can flip it straight away (Back closes it)',
+                'When Browse is sorted by something other than title or year, each poster shows that value after the year: bitrate, file size, duration, resolution, rating, date added, last played, release date or play count',
+            ],
+        },
+    ],
     '1.0.669': [
         {
             title: 'Library Browse',
