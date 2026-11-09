@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.664': [
+        {
+            title: 'Playback',
+            items: [
+                'Very large files such as 4K remuxes buffer far less. The player used to keep only a few seconds of a 100 Mbps file in memory, so any short network dip stopped playback. It now sizes its buffer from the file\'s bitrate and the memory your device has, and waits a moment longer before starting heavy files so playback has something in hand',
+                'The stats overlay shows the right bitrate for files above 100 Mbps',
+            ],
+        },
+    ],
     '1.0.662': [
         {
             title: 'Libraries',

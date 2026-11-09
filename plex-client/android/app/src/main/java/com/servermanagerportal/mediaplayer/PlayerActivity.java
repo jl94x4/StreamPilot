@@ -1027,14 +1027,20 @@ public class PlayerActivity extends AppCompatActivity {
             // LAN hitch stalled playback for 2–3 seconds. Keep a real buffer on the
             // network path; local files stay small. minBuffer must stay >= the
             // playback / rebuffer start thresholds or LoadControl throws.
+            // A flat 48MB held under 4s of a 100 Mbps 4K remux, so every Wi-Fi dip
+            // rebuffered. Size the byte cap from the stream bitrate and the heap the
+            // device actually grants (largeHeap), and wait a little longer before
+            // (re)starting very heavy files so the buffer has something to absorb peaks.
+            int targetBytes = localPlayback ? 4 * 1024 * 1024 : networkBufferBytes(streamBitrate);
+            boolean heavyStream = !localPlayback && streamKbps(streamBitrate) >= 60_000;
             DefaultLoadControl loadControl = new DefaultLoadControl.Builder()
                 .setBufferDurationsMs(
                     localPlayback ? 2_500 : 15_000,
                     localPlayback ? 10_000 : 50_000,
-                    localPlayback ? 500 : 2_500,
-                    localPlayback ? 1_000 : 5_000
+                    localPlayback ? 500 : (heavyStream ? 4_000 : 2_500),
+                    localPlayback ? 1_000 : (heavyStream ? 8_000 : 5_000)
                 )
-                .setTargetBufferBytes(localPlayback ? 4 * 1024 * 1024 : 48 * 1024 * 1024)
+                .setTargetBufferBytes(targetBytes)
                 .setPrioritizeTimeOverSizeThresholds(false)
                 .build();
 
@@ -2198,7 +2204,7 @@ public class PlayerActivity extends AppCompatActivity {
 
     private String formatBitrateLabel(int bitrate) {
         if (bitrate <= 0) return "";
-        double mbps = bitrate >= 100000 ? bitrate / 1_000_000.0 : bitrate / 1000.0;
+        double mbps = streamKbps(bitrate) / 1000.0;
         return String.format(Locale.US, "%.1f Mbps", mbps);
     }
 
@@ -2216,6 +2222,28 @@ public class PlayerActivity extends AppCompatActivity {
             if (audioStreamId.equals(row.id)) return row.label;
         }
         return "";
+    }
+
+    /** Plex reports kbps; anything above 1 Gbps worth of kbps is really bits per second. */
+    private static int streamKbps(int bitrate) {
+        if (bitrate <= 0) return 0;
+        return bitrate > 1_000_000 ? bitrate / 1000 : bitrate;
+    }
+
+    /**
+     * Network buffer byte cap: about 40 seconds of the stream, never below the old 48MB,
+     * and never more than 40% of the Java heap the allocator draws from (256MB ceiling).
+     */
+    private static int networkBufferBytes(int bitrate) {
+        final long floor = 48L * 1024 * 1024;
+        long heapCap = (long) (Runtime.getRuntime().maxMemory() * 0.4);
+        long cap = Math.max(floor, Math.min(heapCap, 256L * 1024 * 1024));
+        int kbps = streamKbps(bitrate);
+        long wanted = kbps <= 0 ? floor : (long) kbps * 1000L / 8L * 40L;
+        long bytes = Math.max(floor, Math.min(wanted, cap));
+        Log.i(TAG, "Network buffer " + (bytes / (1024 * 1024)) + "MB for " + kbps + " kbps (heap "
+            + (Runtime.getRuntime().maxMemory() / (1024 * 1024)) + "MB)");
+        return (int) bytes;
     }
 
     private void refreshStatsOverlay() {
