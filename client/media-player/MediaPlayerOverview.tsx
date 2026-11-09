@@ -347,12 +347,17 @@ export const useOverviewServiceLogos = (item: PlayerItem, region: string) => {
 export const OverviewSummary: React.FC<{ text: string }> = ({ text }) => {
     const { t } = useDiscoverI18n();
     const [open, setOpen] = useState(false);
-    const long = text.length > 420;
     const tvShell = isTvShell();
+    // Phones: three lines and an ellipsis, like the Plex app. Tap the text to read it all.
+    const phone = !tvShell && typeof document !== 'undefined' && document.documentElement?.dataset?.phone === '1';
+    const long = text.length > (phone ? 150 : 420);
     // TV preplay: always show the full synopsis — no clamp / read-more.
     return (
         <div className="media-overview-summary flex flex-col gap-2">
-            <p className={`text-sm sm:text-base lg:text-[17px] text-text leading-relaxed ${tvShell ? 'media-overview-summary-full' : (long && !open ? 'line-clamp-5' : '')}`}>
+            <p
+                className={`text-sm sm:text-base lg:text-[17px] text-text leading-relaxed ${tvShell ? 'media-overview-summary-full' : (long && !open ? (phone ? 'line-clamp-3' : 'line-clamp-5') : '')}`}
+                onClick={phone && long ? () => setOpen((prev) => !prev) : undefined}
+            >
                 {text}
             </p>
             {long && !tvShell ? (

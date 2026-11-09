@@ -7003,3 +7003,355 @@ html:not([data-tv="1"]) .player-context-sheet[data-tv-context-sheet="1"] button:
 html:not([data-tv="1"]) .player-context-sheet[data-tv-context-sheet="1"] button:focus-visible {
   background: rgba(255, 255, 255, 0.07);
 }
+
+/* ---------------------------------------------------------------------------------------------
+   Phone title pages, laid out like the Plex mobile app: a bar over the art that turns solid
+   on scroll, a plain meta line, a Watch pill with round buttons under it, labelled actions that
+   scroll sideways, season / episode bottom sheets and divided episode rows.
+   --------------------------------------------------------------------------------------------- */
+html[data-phone="1"] .media-details-back {
+  display: none !important;
+}
+html[data-phone="1"] .media-details-phone-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 45;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: calc(3.25rem + env(safe-area-inset-top, 0px));
+  padding: env(safe-area-inset-top, 0px) max(0.65rem, env(safe-area-inset-right, 0px)) 0 max(0.65rem, env(safe-area-inset-left, 0px));
+  background: transparent;
+  pointer-events: none;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease;
+}
+html[data-phone="1"] .media-details-phone-bar.is-solid {
+  background: rgb(var(--tv-details-surface, 22 22 26));
+  box-shadow: 0 1px 0 rgb(255 255 255 / 0.07);
+}
+html[data-phone="1"] .media-details-phone-bar-btn {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 2.5rem;
+  height: 2.5rem;
+  border: 0;
+  border-radius: 999px;
+  color: #fff;
+  background: rgb(0 0 0 / 0.45);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+html[data-phone="1"] .media-details-phone-bar.is-solid .media-details-phone-bar-btn {
+  background: rgb(255 255 255 / 0.1);
+}
+html[data-phone="1"] .media-details-phone-bar-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 1rem;
+  font-weight: 800;
+  color: #fff;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+html[data-phone="1"] .media-details-phone-bar.is-solid .media-details-phone-bar-title {
+  opacity: 1;
+}
+html[data-phone="1"] .media-details-phone-bar-spacer {
+  flex: none;
+  width: 2.5rem;
+}
+
+/* Meta line under the logo: plain text, rating in an outlined box. */
+html[data-phone="1"] .media-details-phone-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem 0.8rem;
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.5;
+  color: rgb(255 255 255 / 0.9);
+  text-shadow: 0 1px 8px rgb(0 0 0 / 0.55);
+}
+html[data-phone="1"] .media-details-phone-meta-box {
+  padding: 0 0.32rem;
+  border: 1px solid rgb(255 255 255 / 0.55);
+  border-radius: 0.25rem;
+  font-size: 0.72rem;
+  line-height: 1.2rem;
+}
+html[data-phone="1"] .media-details-billboard-ratings .media-rating-pills > * {
+  background: transparent !important;
+  border-color: transparent !important;
+  backdrop-filter: none !important;
+}
+
+/* Watch pill with the start-over circle beside it. */
+html[data-phone="1"] .media-details-page .media-details-actions [data-tv-action-row="1"] [data-tv-play="1"] {
+  flex: 1 1 0 !important;
+  width: auto !important;
+  max-width: none !important;
+  min-width: 0;
+  height: 3.1rem;
+  min-height: 3.1rem;
+}
+html[data-phone="1"] .media-details-page .media-details-actions [data-tv-start-over="1"] {
+  flex: 0 0 3.1rem;
+  width: 3.1rem !important;
+  height: 3.1rem;
+  padding: 0;
+  border-radius: 999px;
+  border: 0;
+  background: rgb(255 255 255 / 0.16);
+}
+
+/* Labelled round actions in a row that scrolls sideways. */
+html[data-phone="1"] .media-details-page .media-details-action-chips {
+  display: flex;
+  flex: 0 0 calc(100% + 2rem);
+  width: calc(100% + 2rem);
+  min-width: 0;
+  max-width: none;
+  margin: 0.15rem -1rem 0;
+  padding: 0.1rem 1rem 0.1rem;
+  box-sizing: border-box;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 0.1rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+html[data-phone="1"] .media-details-page .media-details-action-chips::-webkit-scrollbar {
+  display: none;
+}
+/* Centred while they fit; the auto margins collapse to nothing once they overflow. */
+html[data-phone="1"] .media-details-page .media-details-action-chips > :first-child {
+  margin-left: auto;
+}
+html[data-phone="1"] .media-details-page .media-details-action-chips > :last-child {
+  margin-right: auto;
+}
+html[data-phone="1"] .media-details-page .media-details-action-chips > * {
+  flex: 0 0 4.9rem !important;
+  width: 4.9rem !important;
+  min-width: 4.9rem !important;
+  max-width: 4.9rem !important;
+  height: auto !important;
+}
+html[data-phone="1"] .media-details-page .media-details-action-chips > .media-details-playlist-slot {
+  display: none !important;
+}
+html[data-phone="1"] .media-details-page .media-details-action-chips > [data-tv-key^="watchlist:"] { order: -3; }
+html[data-phone="1"] .media-details-page .media-details-action-chips > [data-tv-key^="trailer:"] { order: -2; }
+html[data-phone="1"] .media-details-page .media-details-action-chips > [data-tv-key^="watched:"] { order: -1; }
+html[data-phone="1"] .media-details-page .media-details-action-chips > .media-details-action-slot { order: 5; }
+html[data-phone="1"] .media-details-page .media-details-action-chips [data-tv-action="1"] {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  height: auto !important;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  overflow: visible;
+  color: rgb(255 255 255 / 0.88);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.15;
+  text-align: center;
+}
+html[data-phone="1"] .media-details-page .media-details-action-chips [data-tv-action="1"] svg {
+  box-sizing: content-box;
+  width: 1.2rem;
+  height: 1.2rem;
+  padding: 0.9rem;
+  border-radius: 999px;
+  border: 1px solid rgb(255 255 255 / 0.08);
+  background: rgb(255 255 255 / 0.12);
+  transition: background-color 0.15s ease;
+}
+html[data-phone="1"] .media-details-page .media-details-action-chips [data-tv-action="1"]:active svg {
+  background: rgb(255 255 255 / 0.22);
+}
+html[data-phone="1"] .media-details-page .media-details-action-chips .media-details-action-label {
+  display: -webkit-box !important;
+  max-width: 4.6rem;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+/* Video / Audio / Subtitles as quiet key-value rows. */
+html[data-phone="1"] .media-details-media-info .grid {
+  grid-template-columns: 5.6rem 1fr;
+  row-gap: 0.7rem;
+  column-gap: 0.75rem;
+}
+html[data-phone="1"] .media-details-media-info .grid > span:nth-child(odd) {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: rgb(255 255 255 / 0.6);
+}
+html[data-phone="1"] .media-details-media-info .grid > span:nth-child(even) {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+html[data-phone="1"] .media-details-media-info .grid > .media-details-media-accent {
+  color: rgb(var(--color-plex));
+}
+
+/* Rails: bold titles, no dividers, smaller people. */
+html[data-phone="1"] .media-details-lower > section {
+  border-top: 0 !important;
+  padding-top: 0 !important;
+}
+html[data-phone="1"] .media-details-lower h3 {
+  text-transform: none;
+  letter-spacing: -0.01em;
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #fff;
+}
+html[data-phone="1"] .media-details-lower > section > div:first-child > .h-px {
+  display: none;
+}
+html[data-phone="1"] .media-details-page .media-details-lower [data-tv-cast="1"] {
+  width: 5.6rem;
+}
+html[data-phone="1"] .media-details-page .media-details-lower [data-tv-cast-avatar="1"] {
+  width: 5.6rem;
+  height: 5.6rem;
+}
+html[data-phone="1"] .media-details-page .media-details-lower [data-tv-cast="1"] .text-sm {
+  font-size: 0.72rem;
+}
+html[data-phone="1"] .media-details-page .media-details-lower [data-tv-cast="1"] .text-xs {
+  font-size: 0.64rem;
+  color: rgb(255 255 255 / 0.55);
+}
+
+/* Show page: season control and divided episode rows. */
+html[data-phone="1"] .media-details-phone-season {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0.2rem 0 0.75rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #fff;
+  font-size: 1.2rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+html[data-phone="1"] .media-details-episode-row + .media-details-episode-row {
+  border-top: 1px solid rgb(255 255 255 / 0.09);
+}
+
+/* Bottom sheets: season / episode pickers. */
+.phone-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 3400;
+  display: flex;
+  align-items: flex-end;
+  background: rgb(0 0 0 / 0.55);
+  animation: fade-in 0.18s ease-out;
+}
+.phone-sheet {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-height: 78vh;
+  box-sizing: border-box;
+  padding: 0.55rem 1rem calc(1rem + env(safe-area-inset-bottom, 0px));
+  border-radius: 1.2rem 1.2rem 0 0;
+  background: #1c1d21;
+  color: #fff;
+  box-shadow: 0 -20px 60px rgb(0 0 0 / 0.5);
+  animation: slide-up 0.25s ease-out;
+}
+.phone-sheet-handle {
+  align-self: center;
+  width: 2.5rem;
+  height: 0.25rem;
+  margin-bottom: 0.75rem;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.25);
+}
+.phone-sheet-title {
+  margin: 0 0 0.4rem;
+  text-align: center;
+  font-size: 1rem;
+  font-weight: 800;
+}
+.phone-sheet-body {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.phone-sheet-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.85rem 0.25rem;
+  border: 0;
+  border-bottom: 1px solid rgb(255 255 255 / 0.07);
+  background: none;
+  color: rgb(255 255 255 / 0.9);
+  text-align: left;
+  font-size: 0.98rem;
+  font-weight: 600;
+}
+.phone-sheet-row.is-active {
+  color: rgb(var(--color-plex));
+}
+.phone-sheet-row-num {
+  min-width: 1.6rem;
+  color: rgb(255 255 255 / 0.5);
+}
+.phone-sheet-row.is-active .phone-sheet-row-num {
+  color: inherit;
+}
+.phone-sheet-row-title {
+  flex: 1;
+  min-width: 0;
+}
+.phone-sheet-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.8rem;
+}
+.phone-sheet-pill {
+  width: 100%;
+  padding: 0.8rem 1rem;
+  border: 0;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.12);
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 700;
+}

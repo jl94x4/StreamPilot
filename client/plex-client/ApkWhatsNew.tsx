@@ -73,6 +73,19 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.660': [
+        {
+            title: 'Phone title pages',
+            items: [
+                'Movie, show and episode pages on a phone now follow the Plex app layout: the back button floats over the artwork and becomes a bar with the title as you scroll, the year, length, genre and rating sit on one plain line under the logo, and the Watch button has the start-over circle beside it',
+                'The round action buttons now have a label under each one and scroll sideways, so none are cut off: Add to Watchlist, Watch Trailer, Mark as Watched, Watch Together, File Info and More',
+                'The summary shows three lines with a Read more, and the Video, Audio and Subtitles rows read as a quiet list with the chosen subtitles in your accent colour',
+                'A show with several seasons lists the episodes right on its page under a Season picker: tap Season 2 to switch seasons from a bottom sheet. Episode rows have a still, an episode badge, the date and a short summary, with a line between each',
+                'On an episode page, tap the episode title to open a sheet of every episode in the season, with Go to Season and Go to Show underneath',
+                'Cast, trailers and related rails have bolder headings and smaller cast photos',
+            ],
+        },
+    ],
     '1.0.659': [
         {
             title: 'Libraries',
