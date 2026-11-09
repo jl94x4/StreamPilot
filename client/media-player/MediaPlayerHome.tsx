@@ -73,6 +73,7 @@ import {
     writeHeroSlidesCache,
     writeLongPressHintSeen,
     writePlayerHomeCache,
+    invalidatePlayerHomeCache,
 } from './playerMemory';
 import { PlayerTvStatusPanel } from './PlayerTvStatusPanel';
 import { CommonSenseMediaIcon } from './CommonSenseMediaIcon';
@@ -1132,6 +1133,17 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 endHomeRowPriority();
             });
     }, [isTvShell, t]);
+
+    // Hearts changed in Settings: reload Home so a library switched back on gets its rows again
+    // (rows of a library switched off are dropped at fetch time too).
+    const libraryPicksKey = JSON.stringify(settings.homeLibraries || {});
+    const libraryPicksSeen = useRef(libraryPicksKey);
+    useEffect(() => {
+        if (libraryPicksSeen.current === libraryPicksKey) return;
+        libraryPicksSeen.current = libraryPicksKey;
+        invalidatePlayerHomeCache();
+        void refreshHome({ force: true });
+    }, [libraryPicksKey, refreshHome]);
 
     const pullToRefresh = useCallback(() => {
         allowRandomRowReshuffle();

@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.662': [
+        {
+            title: 'Libraries',
+            items: [
+                'The library hearts under Settings → Home layout now apply the moment you tap them, with no need to press Save. Before, a heart changed on the TV and left with Back was never saved, so the library stayed in the sidebar and on Home',
+                'An empty heart drops the library from the sidebar, the library row along the top and its rows on Home straight away; filling it again brings them all back without restarting the app',
+            ],
+        },
+    ],
     '1.0.661': [
         {
             title: 'Phone title pages',

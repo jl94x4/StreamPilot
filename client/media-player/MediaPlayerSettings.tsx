@@ -3,8 +3,9 @@ import { createPortal } from 'react-dom';
 import { ArrowLeft, Check, ChevronDown, ChevronUp, Loader2, Save } from 'lucide-react';
 import { CustomSelect, discoveryTheme, MediaPlayerBetaBanner, SettingsToggleRow, StickySaveBar, useDiscoverI18n } from './host';
 import { HomeLibraryHearts } from './HomeLibraryHearts';
-import { fetchMediaPlayerHomeHeroConfig, fetchMediaPlayerLibraries, fetchMediaPlayerServers, saveMediaPlayerHomeHeroConfig, saveMediaPlayerServers } from './api';
-import { clearHeroSlidesCache, notifyPlayerServersChanged, PLAYER_SERVERS_EVENT } from './playerMemory';
+import { fetchMediaPlayerHomeHeroConfig, fetchMediaPlayerLibraries, fetchMediaPlayerServers, saveMediaPlayerHomeHeroConfig, saveMediaPlayerServers, saveMediaPlayerSettings } from './api';
+import { clearHeroSlidesCache, invalidatePlayerHomeCache, notifyPlayerServersChanged, PLAYER_SERVERS_EVENT } from './playerMemory';
+import type { HomeLibraryPicks } from './homeLibraries';
 import {
     PLAYER_AUDIO_LANGUAGES,
     PLAYER_QUALITY_CHOICES,
@@ -53,6 +54,8 @@ import {
     type PlayerSubtitleMode,
     PLAYER_NAV_ITEMS,
     type PlayerNavItem,
+    readPlayerSettings,
+    writePlayerSettings,
 } from './playerSettings';
 import { usePlayerSettings } from './usePlayerSettings';
 import { formatPlayerDate } from './playerUtils';
@@ -653,6 +656,15 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
 
     const orderedRowIds = applyHomeRowOrder(defaultHomeRowIds(), settings.homeRowOrder);
     const orderedLibraries = applyLibraryNavOrder(libraries, settings.libraryNavOrder);
+    // Hearts apply the moment they change (sidebar, library row, Home rows): no Save needed.
+    // On a TV it is easy to change one and press Back, which used to drop it unsaved.
+    const saveLibraryPicks = (next: HomeLibraryPicks) => {
+        updateSettings({ homeLibraries: next });
+        const saved = { ...readPlayerSettings(), homeLibraries: next };
+        writePlayerSettings(saved);
+        invalidatePlayerHomeCache();
+        void saveMediaPlayerSettings(saved).catch(() => undefined);
+    };
 
     const hiddenRows = new Set<string>();
     if (!settings.showContinueWatching) hiddenRows.add('continueWatching');
@@ -1335,7 +1347,7 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                             libraries={libraries}
                             servers={servers}
                             picks={settings.homeLibraries}
-                            onChange={(next) => updateSettings({ homeLibraries: next })}
+                            onChange={saveLibraryPicks}
                         />
                     </div>
                 </section>
@@ -1936,7 +1948,7 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                             libraries={libraries}
                             servers={servers}
                             picks={settings.homeLibraries}
-                            onChange={(next) => updateSettings({ homeLibraries: next })}
+                            onChange={saveLibraryPicks}
                         />
                     </div>
                     <div className="border-b border-border/40 py-4">

@@ -666,7 +666,7 @@ export const en = {
         skipMarkerAuto: 'Automatic',
         plexServers: 'Plex servers',
         homeLibraries: 'Libraries to show',
-        homeLibrariesHint: 'A filled heart shows a library on Home, in the sidebar and in the library row at the top. An empty heart hides it from all of them (Search still covers it). Home itself shows what is pinned on your Plex server.',
+        homeLibrariesHint: 'A filled heart shows a library on Home, in the sidebar and in the library row at the top. An empty heart hides it from all of them (Search still covers it). Hearts apply straight away, no need to save.',
         homeLibrariesEmpty: 'No libraries found on your servers yet.',
         homeLibraryMovies: 'Movies',
         homeLibraryShows: 'TV shows',
