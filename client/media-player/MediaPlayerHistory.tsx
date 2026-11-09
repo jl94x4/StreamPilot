@@ -25,7 +25,7 @@ type Props = {
     playlistsEnabled?: boolean;
 };
 
-type HistoryGroup = { label: string; items: PlayerItem[] };
+export type HistoryGroup = { label: string; items: PlayerItem[] };
 
 const DAY_MS = 86_400_000;
 
@@ -39,7 +39,7 @@ const isTvShell = () => {
 };
 
 /** Today / Yesterday / This week / Earlier this month, then one group per month. */
-const groupHistory = (
+export const groupHistory = (
     items: PlayerItem[],
     t: (key: string) => string,
     locale: string,

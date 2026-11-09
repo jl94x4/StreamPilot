@@ -418,6 +418,26 @@ export const fetchMediaPlayerHistory = () => {
     return historyInflight;
 };
 
+let insightsInflight: Promise<{ items: PlayerItem[] }> | null = null;
+let insightsCache: { at: number; items: PlayerItem[] } | null = null;
+const INSIGHTS_CACHE_TTL_MS = 3 * 60_000;
+
+/** Everything this profile has watched, for the Insights page. Kept a few minutes between visits. */
+export const fetchMediaPlayerInsights = (opts: { force?: boolean } = {}) => {
+    if (!opts.force && insightsCache && Date.now() - insightsCache.at < INSIGHTS_CACHE_TTL_MS) {
+        return Promise.resolve({ items: insightsCache.items });
+    }
+    if (insightsInflight) return insightsInflight;
+    insightsInflight = (apiFetch(`${PLAYER_API_ROOT}/insights`) as Promise<{ items?: PlayerItem[] }>)
+        .then((data) => {
+            const items = Array.isArray(data?.items) ? data.items : [];
+            insightsCache = { at: Date.now(), items };
+            return { items };
+        })
+        .finally(() => { insightsInflight = null; });
+    return insightsInflight;
+};
+
 let playlistsInflight: Promise<{ items: PlayerItem[] }> | null = null;
 let playlistsCache: { at: number; items: PlayerItem[] } | null = null;
 const PLAYLISTS_CACHE_TTL_MS = 60_000;

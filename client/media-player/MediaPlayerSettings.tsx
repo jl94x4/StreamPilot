@@ -667,7 +667,7 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
     // Settings → Sidebar items: one switch per item, on = shown. Downloads only exists off TV.
     const sidebarItemLabels: Record<PlayerNavItem, string> = {
         watchlist: t('mediaPlayerPage.navWatchlist'),
-        history: t('mediaPlayerPage.navHistory'),
+        history: t('mediaPlayerPage.navInsights'),
         livetv: t('mediaPlayerPage.navLiveTv'),
         downloads: t('mediaPlayerPage.navDownloads'),
         search: t('mediaPlayerPage.navSearch'),

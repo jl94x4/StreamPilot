@@ -4338,8 +4338,8 @@ html[data-tv="1"] .player-tv-screensaver-scrim {
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(90deg, rgba(0, 0, 0, 0.72) 0%, rgba(0, 0, 0, 0.28) 42%, rgba(0, 0, 0, 0.08) 70%, transparent 100%),
-    linear-gradient(0deg, rgba(0, 0, 0, 0.78) 0%, rgba(0, 0, 0, 0.2) 38%, transparent 62%);
+    linear-gradient(90deg, rgba(0, 0, 0, 0.5) 0%, rgba(0, 0, 0, 0.16) 42%, rgba(0, 0, 0, 0.03) 70%, transparent 100%),
+    linear-gradient(0deg, rgba(0, 0, 0, 0.6) 0%, rgba(0, 0, 0, 0.12) 36%, transparent 58%);
   pointer-events: none;
 }
 html[data-tv="1"] .player-tv-screensaver-footer {
@@ -4404,7 +4404,7 @@ html[data-tv="1"] .player-tv-screensaver-title {
 /* Settings → Screensaver: size, shading, clock position, transition and the extra looks. */
 html[data-tv="1"] .player-tv-screensaver--size-small { --ss-clock-scale: 0.7; }
 html[data-tv="1"] .player-tv-screensaver--size-large { --ss-clock-scale: 1.3; }
-html[data-tv="1"] .player-tv-screensaver--dim-light .player-tv-screensaver-scrim { opacity: 0.45; }
+html[data-tv="1"] .player-tv-screensaver--dim-light .player-tv-screensaver-scrim { opacity: 0.3; }
 html[data-tv="1"] .player-tv-screensaver--dim-dark .player-tv-screensaver-scrim {
   background:
     linear-gradient(90deg, rgba(0, 0, 0, 0.9) 0%, rgba(0, 0, 0, 0.58) 45%, rgba(0, 0, 0, 0.36) 100%),
@@ -4537,6 +4537,13 @@ html[data-tv="1"] .player-tv-screensaver--posters .player-tv-screensaver-scrim {
 html[data-tv="1"][data-simple-motion="1"] .player-tv-screensaver-wall { transform: none; }
 html[data-tv="1"][data-simple-motion="1"] .player-tv-screensaver-wall-row { will-change: auto; }
 html[data-tv="1"][data-reduce-motion="1"] .player-tv-screensaver-wall-row { animation: none; }
+
+/* Insights page: each block is a stop for the remote. */
+html[data-tv="1"] .insights-card:focus,
+html[data-tv="1"] .insights-card:focus-visible {
+  outline: var(--tv-focus-width, 2px) solid rgb(var(--tv-focus-accent, 245 158 11));
+  outline-offset: 3px;
+}
 
 /* Global music dock — fixed bottom bar on every browse surface while minimized. */
 html[data-tv="1"] .player-home-now-playing {

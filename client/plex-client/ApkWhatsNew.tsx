@@ -73,6 +73,22 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.655': [
+        {
+            title: 'Insights',
+            items: [
+                'History is now Insights: your watching in numbers. Hours watched, titles, episodes, shows finished and movies rewatched, your top genres, decades and studios, when you watch, fun facts, and the shows and films you come back to most',
+                'Your recently watched list is still there, at the bottom of the page',
+                'Hours are estimated from run times and play counts, and times of day count each title once, when you last watched it',
+            ],
+        },
+        {
+            title: 'Screensaver',
+            items: [
+                'The screensaver picture is brighter: the default shading is lighter, and the Light shading option is lighter still',
+            ],
+        },
+    ],
     '1.0.654': [
         {
             title: 'Screensaver',

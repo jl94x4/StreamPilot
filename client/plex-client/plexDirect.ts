@@ -3530,6 +3530,9 @@ const hubsFrom = (data: any, server: PlexServer, many: boolean) => {
 /** Watch history: most recent titles read per library, and the most shown in all. */
 const HISTORY_PER_SECTION = 60;
 const HISTORY_MAX = 240;
+/** Insights reads further back: pages of this size, newest first, until the first unwatched title. */
+const INSIGHTS_PAGE = 150;
+const INSIGHTS_PER_SECTION = 900;
 
 const mapPool = async <T, R>(rows: T[], limit: number, run: (row: T) => Promise<R>): Promise<R[]> => {
     const out = new Array<R>(rows.length);
@@ -7972,6 +7975,33 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
             .sort((a, b) => Number(b.lastViewedAt) - Number(a.lastViewedAt))
             .slice(0, HISTORY_MAX);
         return { items };
+    }
+    if (path === '/api/media-player/insights') {
+        // Everything this profile has watched, per library, newest first. Plex's own play log is
+        // owner-only, so the numbers come from each title: plays, last watched, run time, genres.
+        // Libraries are read two at a time and a library stops at its first unwatched title (the
+        // list is sorted by last watched), so a small history costs one small request.
+        const servers = enabledServers();
+        const perServer = await Promise.all(servers.map((server) => withMapServer(server, async () => {
+            const sections = mapSections(await pms('/library/sections', server).catch(() => null))
+                .filter((section) => section.type === 'movie' || section.type === 'show');
+            const lists = await mapPool(sections, 2, async (section) => {
+                const rows: ReturnType<typeof mapList> = [];
+                for (let start = 0; start < INSIGHTS_PER_SECTION; start += INSIGHTS_PAGE) {
+                    const page = await pms(
+                        `/library/sections/${encodeURIComponent(section.key)}/all?type=${section.type === 'show' ? 2 : 1}&sort=lastViewedAt:desc&X-Plex-Container-Start=${start}&X-Plex-Container-Size=${INSIGHTS_PAGE}`,
+                        server,
+                        20000,
+                    ).then(mapList).catch(() => [] as ReturnType<typeof mapList>);
+                    const watched = page.filter((item) => Number(item.lastViewedAt) > 0);
+                    rows.push(...watched);
+                    if (watched.length < page.length || page.length < INSIGHTS_PAGE) break;
+                }
+                return rows;
+            });
+            return lists.flat();
+        })));
+        return { items: perServer.flat() };
     }
     if (path === '/api/media-player/playlists') {
         const items = await pms('/playlists?playlistType=video').then(mapList).catch(() => []);

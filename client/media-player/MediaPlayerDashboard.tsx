@@ -11,7 +11,7 @@ import { MediaPlayerHome } from './MediaPlayerHome';
 import { MediaPlayerWatchlist } from './MediaPlayerWatchlist';
 import { MediaPlayerDownloads } from './MediaPlayerDownloads';
 import { MediaPlayerPlaylists } from './MediaPlayerPlaylists';
-import { MediaPlayerHistory } from './MediaPlayerHistory';
+import { MediaPlayerInsights } from './MediaPlayerInsights';
 import { getMediaDownloadLocalUrl, isMediaDownloadsSupported } from '../plex-client/mediaDownloads';
 import { isPhoneUi } from '../plex-client/config';
 import { MediaPlayerCollection } from './MediaPlayerCollection';
@@ -1538,7 +1538,7 @@ export const MediaPlayerDashboard: React.FC = () => {
             ) : null}
             {view.kind === 'history' ? (
                 <div key="history" className={screenEnterClass(tvShell, tvScreenEnter)}>
-                    <MediaPlayerHistory
+                    <MediaPlayerInsights
                         onBack={goHome}
                         onOpenItem={openItem}
                         onPlay={playItem}

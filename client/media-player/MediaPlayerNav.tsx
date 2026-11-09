@@ -4,7 +4,7 @@ import {
     CircleAlert,
     Clapperboard,
     Bookmark,
-    History,
+    BarChart3,
     Download,
     Home,
     Image as ImageIcon,
@@ -394,10 +394,10 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                         {...tvNavProps(isTvShell, expanded, page === 'history')}
                         className={navButtonClass(page === 'history', showLabels, isTvShell)}
                         onClick={() => go(onHistory)}
-                        title={t('mediaPlayerPage.navHistory')}
+                        title={t('mediaPlayerPage.navInsights')}
                     >
-                        <NavIcon><History className={NAV_ICON_CLASS} /></NavIcon>
-                        {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.navHistory')}</span> : null}
+                        <NavIcon><BarChart3 className={NAV_ICON_CLASS} /></NavIcon>
+                        {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.navInsights')}</span> : null}
                     </button>
                 ) : null}
                 {onLiveTv && navShown('livetv') ? (
