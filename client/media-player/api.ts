@@ -424,7 +424,12 @@ let insightsCache: { at: number; items: PlayerItem[] } | null = null;
 const INSIGHTS_CACHE_TTL_MS = 3 * 60_000;
 
 /** Everything this profile has watched, for the Insights page. Kept a few minutes between visits. */
-export const fetchMediaPlayerInsights = (opts: { force?: boolean } = {}) => {
+export const fetchMediaPlayerInsights = (opts: { force?: boolean; quick?: boolean } = {}) => {
+    if (opts.quick) {
+        // Only the newest page of every library: enough to open the page at once.
+        return (apiFetch(`${PLAYER_API_ROOT}/insights?depth=quick`) as Promise<{ items?: PlayerItem[]; incomplete?: boolean }>)
+            .then((data) => ({ items: Array.isArray(data?.items) ? data.items : [], incomplete: data?.incomplete === true }));
+    }
     if (!opts.force && insightsCache && Date.now() - insightsCache.at < INSIGHTS_CACHE_TTL_MS) {
         return Promise.resolve({ items: insightsCache.items, incomplete: false });
     }

@@ -52,6 +52,9 @@ const selectable = (onSelect?: () => void) => (onSelect ? {
     },
 } : {});
 
+/** Keeps the focus ring clear of the screen edge when the remote scrolls a band into view. */
+const BAND_STYLE: React.CSSProperties = { scrollMarginBlock: 28 };
+
 /** One block of the page. On a TV each is a stop for the remote, so Down walks the page. */
 const InsightCard: React.FC<{
     id: string;
@@ -60,8 +63,14 @@ const InsightCard: React.FC<{
     children: React.ReactNode;
     className?: string;
     onSelect?: () => void;
-}> = ({ id, title, note, children, className = '', onSelect }) => (
-    <section data-tv-row="1" data-tv-row-id={`insights:${id}`} className="flex min-w-0 flex-col gap-2">
+    /** A card alone on its line is a row for the remote; cards sharing a line sit in a row together. */
+    alone?: boolean;
+}> = ({ id, title, note, children, className = '', onSelect, alone = false }) => (
+    <section
+        {...(alone ? { 'data-tv-row': '1', 'data-tv-row-id': `insights:${id}`, 'data-tv-insights-band': '1' } : {})}
+        style={alone ? BAND_STYLE : undefined}
+        className="flex min-w-0 flex-col gap-2"
+    >
         {title ? (
             <div className="player-row-header flex min-w-0 items-center gap-3">
                 <RowHeaderMark />
@@ -301,26 +310,51 @@ const InsightsPage: React.FC<Props> = (props) => {
     const [attempt, setAttempt] = useState(0);
     const [detailKind, setDetailKind] = useState<DetailKind | null>(null);
     const [incomplete, setIncomplete] = useState(false);
+    /** The newest titles are in; the rest of the history is still being read. */
+    const [readingMore, setReadingMore] = useState(false);
     const tvShell = isTvShell();
     const density = homeRailPosterDensity(gridSize);
 
     useEffect(() => {
         let cancelled = false;
         setLoading(true);
-        // Reading the whole history is the heavy part: let the page paint first.
+        setReadingMore(false);
+        // The page opens on the newest titles of every library, then the rest of the history is read
+        // behind it. A slow library cannot keep the whole page blank, or quietly drop out of it.
         const timer = window.setTimeout(() => {
-            fetchMediaPlayerInsights({ force: attempt > 0 })
+            const showFull = () => {
+                fetchMediaPlayerInsights({ force: attempt > 0 })
+                    .then((data) => {
+                        if (cancelled) return;
+                        setItems(data.items || []);
+                        setIncomplete(data.incomplete === true);
+                        setError(null);
+                    })
+                    .catch(() => {
+                        // The quick pass is on screen: keep it, and say the rest did not load.
+                        if (!cancelled) setIncomplete(true);
+                    })
+                    .finally(() => {
+                        if (!cancelled) {
+                            setReadingMore(false);
+                            setLoading(false);
+                        }
+                    });
+            };
+            fetchMediaPlayerInsights({ quick: true })
                 .then((data) => {
                     if (cancelled) return;
-                    setItems(data.items || []);
-                    setIncomplete(data.incomplete === true);
-                    setError(null);
+                    if (data.items.length) {
+                        setItems(data.items);
+                        setIncomplete(data.incomplete === true);
+                        setError(null);
+                        setLoading(false);
+                        setReadingMore(true);
+                    }
+                    showFull();
                 })
-                .catch((err) => {
-                    if (!cancelled) setError(String(err?.message || t('mediaPlayerPage.loadError')));
-                })
-                .finally(() => {
-                    if (!cancelled) setLoading(false);
+                .catch(() => {
+                    if (!cancelled) showFull();
                 });
         }, 60);
         return () => {
@@ -425,10 +459,13 @@ const InsightsPage: React.FC<Props> = (props) => {
     const ratedLabel = (row: InsightFavourite) => `${(Number(row.item.userRating) || 0).toFixed(1)}/10`;
 
     return (
-        <div className="flex flex-col gap-6 pb-10">
+        <div data-tv-insights-root="1" className="flex flex-col gap-6 pb-10">
             {heading}
-            {incomplete ? (
-                <div className="flex flex-wrap items-center gap-4 rounded-2xl border border-amber-400/30 bg-amber-400/10 px-5 py-3">
+            {readingMore ? (
+                <p className="text-sm text-muted">{t('mediaPlayerPage.insightsReadingMore')}</p>
+            ) : null}
+            {incomplete && !readingMore ? (
+                <div data-tv-row="1" data-tv-row-id="insights:notice" data-tv-insights-band="first" style={BAND_STYLE} className="flex flex-wrap items-center gap-4 rounded-2xl border border-amber-400/30 bg-amber-400/10 px-5 py-3">
                     <p className="min-w-0 flex-1 text-sm text-amber-100">{t('mediaPlayerPage.insightsIncomplete')}</p>
                     <button
                         type="button"
@@ -442,7 +479,13 @@ const InsightsPage: React.FC<Props> = (props) => {
                 </div>
             ) : null}
 
-            <div className={`grid gap-3 ${colsTiles}`}>
+            <div
+                data-tv-row="1"
+                data-tv-row-id="insights:tiles"
+                data-tv-insights-band="first"
+                style={BAND_STYLE}
+                className={`grid gap-3 ${colsTiles}`}
+            >
                 <StatTile value={hoursText} label={t('mediaPlayerPage.insightsHours')} hint={t('mediaPlayerPage.insightsEstimate')} onSelect={() => setDetailKind('hours')} />
                 <StatTile value={String(insights.titles)} label={t('mediaPlayerPage.insightsTitles')} onSelect={() => setDetailKind('titles')} />
                 <StatTile value={String(insights.episodes)} label={t('mediaPlayerPage.insightsEpisodes')} onSelect={() => setDetailKind('episodes')} />
@@ -451,7 +494,13 @@ const InsightsPage: React.FC<Props> = (props) => {
                 <StatTile value={String(insights.rewatches)} label={t('mediaPlayerPage.insightsRewatches')} onSelect={() => setDetailKind('rewatches')} />
             </div>
 
-            <div className={`grid gap-5 ${colsThree}`}>
+            <div
+                data-tv-row="1"
+                data-tv-row-id="insights:breakdowns"
+                data-tv-insights-band="1"
+                style={BAND_STYLE}
+                className={`grid gap-5 ${colsThree}`}
+            >
                 {insights.genres.length ? (
                     <InsightCard id="genres" title={t('mediaPlayerPage.insightsGenres')} onSelect={() => setDetailKind('genres')}>
                         <BarList rows={insights.genres.map((g) => ({
@@ -474,7 +523,7 @@ const InsightsPage: React.FC<Props> = (props) => {
                 ) : null}
             </div>
 
-            <InsightCard id="when" title={t('mediaPlayerPage.insightsWhen')} note={t('mediaPlayerPage.insightsWhenNote')} onSelect={() => setDetailKind('when')}>
+            <InsightCard alone id="when" title={t('mediaPlayerPage.insightsWhen')} note={t('mediaPlayerPage.insightsWhenNote')} onSelect={() => setDetailKind('when')}>
                 <div className={`grid gap-8 ${colsThree}`}>
                     <div className="flex flex-col gap-2">
                         <p className="text-xs font-black uppercase tracking-widest text-muted">{t('mediaPlayerPage.insightsWeekdays')}</p>
@@ -492,7 +541,7 @@ const InsightsPage: React.FC<Props> = (props) => {
             </InsightCard>
 
             {insights.facts.length ? (
-                <section data-tv-row="1" data-tv-row-id="insights:facts" className="flex min-w-0 flex-col gap-2">
+                <section data-tv-row="1" data-tv-row-id="insights:facts" data-tv-insights-band="1" style={BAND_STYLE} className="flex min-w-0 flex-col gap-2">
                     <div className="player-row-header flex min-w-0 items-center gap-3">
                         <RowHeaderMark />
                         <h2 className="player-row-header-title text-lg font-black text-white">{t('mediaPlayerPage.insightsFacts')}</h2>

@@ -416,6 +416,7 @@ export const en = {
         insightsRecent: 'Recently watched',
         insightsIncomplete: 'Some of your libraries did not answer in time, so these numbers may be missing some titles.',
         insightsTryAgain: 'Try again',
+        insightsReadingMore: 'Showing your newest titles first. Reading the rest of your history…',
         insightsSelectHint: 'Select any box to see the detail behind it.',
         insightsDetClose: 'Close',
         insightsDetHoursLead: 'That is about {days} days, or around {films} feature-length films back to back.',

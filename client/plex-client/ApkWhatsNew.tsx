@@ -73,6 +73,16 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.657': [
+        {
+            title: 'Insights',
+            items: [
+                'Insights now shows your series as well as your films reliably: it opens straight away on your newest titles from every library, then reads the rest of your history behind it. If a library is slow, the page says so instead of leaving it out',
+                'Fixed series that went missing from Insights on some servers (the server hands back shorter pages than asked for, and the rest of the history was being skipped)',
+                'The remote now walks Insights box by box in every direction, no longer jumps to the middle of the page, and every box can be selected; the page opens on its first box',
+            ],
+        },
+    ],
     '1.0.656': [
         {
             title: 'Insights',

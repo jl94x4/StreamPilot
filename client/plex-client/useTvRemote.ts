@@ -800,6 +800,19 @@ const focusItem = (el: HTMLElement, block: ScrollLogicalPosition = 'nearest', di
         scrollEl(el, 'nearest', 'css');
         return;
     }
+    // Insights boxes: scroll only as far as the box needs (centering threw the page to the middle),
+    // and bring the heading back when the first band is reached.
+    const insightsBand = el.closest<HTMLElement>('[data-tv-insights-band]');
+    if (insightsBand) {
+        if (insightsBand.getAttribute('data-tv-insights-band') === 'first') {
+            // scrollTop is a no-op under the TV zoom; scrolling the page's first element into view works.
+            const top = el.closest<HTMLElement>('[data-tv-insights-root="1"]');
+            if (top) scrollEl(top, 'start', 'css');
+        } else {
+            scrollEl(insightsBand, 'nearest', 'css');
+        }
+        return;
+    }
     if (isHeaderControl(el)) {
         if (el.closest('[data-tv-details="1"]')) {
             pinTvDetailsTop();
@@ -1085,6 +1098,8 @@ const findTvItemByKey = (key: string) => (
 
 /** Restore the last focused poster on this page. Retries until the kept-alive home rail has layout. */
 export const restoreTvFocus = (): boolean => {
+    // Insights always opens on its first box: a remembered poster far down the page threw the view to the middle.
+    if (document.querySelector('[data-tv-insights-band]')) return false;
     const snapshot = tvFocusByPath.get(currentPath());
     const key = snapshot?.key;
     if (!key) return false;
@@ -1562,6 +1577,15 @@ export const focusTvContent = (): boolean => {
         if (poster) {
             focusItem(poster, 'center');
             requestAnimationFrame(syncPosterFocusAttr);
+            return true;
+        }
+    }
+    // Insights opens on its first box, not on whichever poster rail happens to lie lowest.
+    const insightsFirst = document.querySelector<HTMLElement>('[data-tv-insights-band="first"]');
+    if (insightsFirst && hasLayout(insightsFirst)) {
+        const first = focusableTvItems(insightsFirst)[0];
+        if (first) {
+            focusItem(first, 'nearest');
             return true;
         }
     }

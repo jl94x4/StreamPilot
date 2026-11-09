@@ -3531,7 +3531,8 @@ const hubsFrom = (data: any, server: PlexServer, many: boolean) => {
 const HISTORY_PER_SECTION = 60;
 const HISTORY_MAX = 240;
 /** Insights reads further back: pages of this size, newest first, until the first unwatched title. */
-const INSIGHTS_PAGE = 150;
+const INSIGHTS_PAGE = 80;
+const INSIGHTS_QUICK_PAGE = 60;
 const INSIGHTS_PER_SECTION = 900;
 
 const mapPool = async <T, R>(rows: T[], limit: number, run: (row: T) => Promise<R>): Promise<R[]> => {
@@ -7979,8 +7980,13 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
     if (path === '/api/media-player/insights') {
         // Everything this profile has watched, per library, newest first. Plex's own play log is
         // owner-only, so the numbers come from each title: plays, last watched, run time, genres.
-        // Libraries are read two at a time and a library stops at its first unwatched title (the
-        // list is sorted by last watched), so a small history costs one small request.
+        // quick=1 reads only the newest page of every library so the page can open at once; the
+        // full read follows. A library stops at its first unwatched title (the list is sorted by
+        // last watched), so a small history costs one small request.
+        const quick = query.get('depth') === 'quick';
+        const pageSize = quick ? INSIGHTS_QUICK_PAGE : INSIGHTS_PAGE;
+        const limit = quick ? INSIGHTS_QUICK_PAGE : INSIGHTS_PER_SECTION;
+        const began = Date.now();
         const servers = enabledServers();
         // A library that does not answer (a busy server) must not quietly vanish from the numbers:
         // each page gets a second try, and the page says so when something is still missing.
@@ -7990,29 +7996,35 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
             if (!sectionsRaw) incomplete = true;
             const sections = mapSections(sectionsRaw)
                 .filter((section) => section.type === 'movie' || section.type === 'show');
-            const lists = await mapPool(sections, 2, async (section) => {
+            const lists = await mapPool(sections, quick ? 4 : 2, async (section) => {
                 const rows: ReturnType<typeof mapList> = [];
-                for (let start = 0; start < INSIGHTS_PER_SECTION; start += INSIGHTS_PAGE) {
+                // Plex may hand back fewer titles than asked for (80 of 100), so the next page starts
+                // after what actually came back; a short page is not the end of the list.
+                for (let start = 0; start < limit;) {
                     let page: ReturnType<typeof mapList> | null = null;
+                    const pageBegan = Date.now();
                     for (let attempt = 0; attempt < 2 && !page; attempt += 1) {
                         page = await pms(
-                            `/library/sections/${encodeURIComponent(section.key)}/all?type=${section.type === 'show' ? 2 : 1}&sort=lastViewedAt:desc&X-Plex-Container-Start=${start}&X-Plex-Container-Size=${INSIGHTS_PAGE}`,
+                            `/library/sections/${encodeURIComponent(section.key)}/all?type=${section.type === 'show' ? 2 : 1}&sort=lastViewedAt:desc&excludeFields=summary,tagline&X-Plex-Container-Start=${start}&X-Plex-Container-Size=${pageSize}`,
                             server,
-                            25000,
+                            30000,
                         ).then(mapList).catch(() => null);
                     }
+                    console.info(`[insights] ${quick ? 'quick' : 'full'} ${section.type} library ${section.key} from ${start}: ${page ? page.length + ' titles' : 'FAILED'} in ${Date.now() - pageBegan} ms`);
                     if (!page) {
                         incomplete = true;
                         break;
                     }
                     const watched = page.filter((item) => Number(item.lastViewedAt) > 0);
                     rows.push(...watched);
-                    if (watched.length < page.length || page.length < INSIGHTS_PAGE) break;
+                    if (!page.length || watched.length < page.length) break;
+                    start += page.length;
                 }
                 return rows;
             });
             return lists.flat();
         })));
+        console.info(`[insights] ${quick ? 'quick' : 'full'} read done in ${Date.now() - began} ms${incomplete ? ' (incomplete)' : ''}`);
         return { items: perServer.flat(), incomplete };
     }
     if (path === '/api/media-player/playlists') {
