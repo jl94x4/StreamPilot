@@ -1195,7 +1195,9 @@ public class PlayerActivity extends AppCompatActivity {
             // short prompts. Becoming noisy: pause when headphones or BT audio drop.
             player = new ExoPlayer.Builder(this, renderersFactory)
                 .setTrackSelector(trackSelector)
-                .setMediaSourceFactory(new DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory))
+                // MkvSeekIndexDataSource: MKVs whose index sits behind a second SeekHead stay seekable.
+                .setMediaSourceFactory(new DefaultMediaSourceFactory(
+                    new MkvSeekIndexDataSource.Factory(dataSourceFactory), extractorsFactory))
                 .setLoadControl(loadControl)
                 .setAudioAttributes(audioAttributes, true)
                 .setHandleAudioBecomingNoisy(true)

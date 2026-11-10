@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.672': [
+        {
+            title: 'Player',
+            items: [
+                'Some MKV files (often older TrueHD / DTS remuxes) were treated as unable to seek, so resuming or seeking switched them to a server transcode. They now Direct Play, resume and seek normally',
+            ],
+        },
+    ],
     '1.0.671': [
         {
             title: 'Player',
