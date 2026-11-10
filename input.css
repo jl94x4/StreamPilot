@@ -4578,8 +4578,17 @@ html[data-tv="1"] .insights-row:focus-visible {
 /* Insights page: each block is a stop for the remote. */
 html[data-tv="1"] .insights-card:focus,
 html[data-tv="1"] .insights-card:focus-visible {
-  outline: var(--tv-focus-width, 2px) solid rgb(var(--tv-focus-accent, 245 158 11));
+  /* A thin accent line round the box; the box itself never fills in. */
+  outline: var(--tv-focus-width, 2px) solid rgb(var(--tv-focus-accent, 245 158 11)) !important;
   outline-offset: 3px;
+  background-color: rgba(255, 255, 255, 0.04) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  box-shadow: none !important;
+  color: inherit !important;
+}
+html[data-tv="1"] .insights-card:focus *,
+html[data-tv="1"] .insights-card:focus-visible * {
+  color: inherit;
 }
 
 /* Global music dock — fixed bottom bar on every browse surface while minimized. */
