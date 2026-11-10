@@ -50,23 +50,31 @@ public class FaceLabelsView extends View {
         super(context, attrs);
         dp = getResources().getDisplayMetrics().density;
         ring.setStyle(Paint.Style.STROKE);
-        ring.setColor(0xFFFFFFFF);
+        ring.setColor(accentColor(context));
         ring.setShadowLayer(6 * dp, 0, 0, 0x99000000);
         pill.setColor(0xFFFFFFFF);
         dimPill.setColor(0xCC0B0B0D);
         panel.setColor(0xCC000000);
-        nameText.setColor(0xFF0B0B0D);
+        nameText.setColor(0xFFFFFFFF);
+        nameText.setShadowLayer(5 * dp, 0, 0, 0xE6000000);
         nameText.setTextSize(15 * dp);
         nameText.setTypeface(Typeface.DEFAULT_BOLD);
-        roleText.setColor(0xB30B0B0D);
+        roleText.setColor(0xE6FFFFFF);
+        roleText.setShadowLayer(5 * dp, 0, 0, 0xE6000000);
         roleText.setTextSize(12 * dp);
         dimNameText.set(nameText);
-        dimNameText.setColor(0xFFFFFFFF);
+        dimNameText.setColor(0xB3FFFFFF);
         dimRoleText.set(roleText);
-        dimRoleText.setColor(0xB3FFFFFF);
+        dimRoleText.setColor(0x80FFFFFF);
         infoText.setColor(0xFFFFFFFF);
         infoText.setTextSize(13 * dp);
         setWillNotDraw(false);
+    }
+
+    private static int accentColor(Context context) {
+        android.util.TypedValue value = new android.util.TypedValue();
+        if (context.getTheme().resolveAttribute(R.attr.playerAccent, value, true)) return value.data;
+        return 0xFFFFFFFF;
     }
 
     void showStatus(String message) {
@@ -175,7 +183,6 @@ public class FaceLabelsView extends View {
     }
 
     private void drawLabel(Canvas canvas, float cx, float top, String name, @Nullable String role, boolean dim) {
-        Paint box = dim ? dimPill : pill;
         Paint nameP = dim ? dimNameText : nameText;
         Paint roleP = dim ? dimRoleText : roleText;
         float padX = 10 * dp;
@@ -188,7 +195,7 @@ public class FaceLabelsView extends View {
         float height = nameH + roleH + padY * 2;
         float left = Math.max(4 * dp, Math.min(getWidth() - width - 4 * dp, cx - width / 2f));
         float y = Math.min(top, getHeight() - height - 4 * dp);
-        canvas.drawRoundRect(new RectF(left, y, left + width, y + height), 10 * dp, 10 * dp, box);
+        // No box behind the names: the accent ring marks the face, the text carries a shadow.
         canvas.drawText(name, left + (width - nameW) / 2f, y + padY + nameH * 0.85f, nameP);
         if (role != null) {
             canvas.drawText(role, left + (width - roleW) / 2f, y + padY + nameH + roleH * 0.85f, roleP);

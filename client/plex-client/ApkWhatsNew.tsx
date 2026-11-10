@@ -73,6 +73,20 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.674': [
+        {
+            title: 'Look',
+            items: [
+                'Posters are now slightly rounded by default (change it in Settings → Appearance)',
+            ],
+        },
+        {
+            title: 'Player',
+            items: [
+                'Who's on screen: each cast member is circled in your accent colour with just their name, instead of a big white box',
+            ],
+        },
+    ],
     '1.0.673': [
         {
             title: 'Screensaver',
