@@ -4357,6 +4357,21 @@ html[data-tv="1"] .player-tv-screensaver-scrim {
     linear-gradient(0deg, rgba(0, 0, 0, 0.6) 0%, rgba(0, 0, 0, 0.12) 36%, transparent 58%);
   pointer-events: none;
 }
+html[data-tv="1"] .player-tv-screensaver-up {
+  position: absolute;
+  left: 50%;
+  top: 1.6rem;
+  z-index: 3;
+  margin-left: -1.4rem;
+  color: rgb(255 255 255 / 0.9);
+  pointer-events: none;
+  filter: drop-shadow(0 2px 8px rgb(0 0 0 / 0.6));
+  animation: player-tv-screensaver-up 1.8s ease-in-out infinite;
+}
+@keyframes player-tv-screensaver-up {
+  0%, 100% { opacity: 0.25; transform: translateY(6px); }
+  50% { opacity: 1; transform: translateY(-4px); }
+}
 html[data-tv="1"] .player-tv-screensaver-footer {
   position: absolute;
   left: 2.75rem;

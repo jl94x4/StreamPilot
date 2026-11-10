@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.673': [
+        {
+            title: 'Screensaver',
+            items: [
+                'A small arrow pulses at the top of the screensaver: press Up on the remote to open the title that is showing',
+            ],
+        },
+    ],
     '1.0.672': [
         {
             title: 'Player',

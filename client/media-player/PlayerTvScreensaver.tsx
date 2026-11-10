@@ -47,6 +47,8 @@ type Slide = {
     summary: string;
     /** Small poster for the Poster wall. */
     posterUrl: string;
+    /** The title behind the picture: Up on the remote opens it. */
+    item: PlayerItem;
 };
 
 const metaLineFor = (item: PlayerItem) => [
@@ -97,6 +99,7 @@ const slidesFromItems = (items: PlayerItem[]): Slide[] => {
             meta: metaLineFor(item),
             summary: String(item.tagline || item.summary || '').trim().slice(0, 320),
             posterUrl: posterFor(item),
+            item,
         });
         if (out.length >= 24) break;
     }
@@ -136,6 +139,8 @@ type Props = {
     transition?: PlayerScreensaverTransition;
     /** Show the picture source above the clock. */
     showSource?: boolean;
+    /** Up on the remote while the screensaver is showing opens that title. */
+    onOpenItem?: (item: PlayerItem) => void;
 };
 
 /** useTvRemote fires this when the native Back arrives while the screensaver is up. */
@@ -163,7 +168,10 @@ export const PlayerTvScreensaver: React.FC<Props> = ({
     dim = 'medium',
     transition = 'fade',
     showSource = true,
+    onOpenItem,
 }) => {
+    const onOpenItemRef = useRef(onOpenItem);
+    onOpenItemRef.current = onOpenItem;
     const [remoteItems, setRemoteItems] = useState<PlayerItem[]>([]);
     const fetchGen = useRef(0);
     const continueWatchingRef = useRef(continueWatchingItems);
@@ -320,6 +328,19 @@ export const PlayerTvScreensaver: React.FC<Props> = ({
         const onKeyDown = (event: KeyboardEvent) => {
             if (cancelled || document.visibilityState === 'hidden') return;
             if (activeRef.current) {
+                if ((event.key === 'ArrowUp' || event.keyCode === 38) && onOpenItemRef.current) {
+                    const shown = slidesRef.current.find((row) => row.key === currentKeyRef.current);
+                    if (shown) {
+                        const open = onOpenItemRef.current;
+                        event.preventDefault();
+                        event.stopImmediatePropagation();
+                        swallowKeyUp = event.key || String(event.keyCode);
+                        markClosed();
+                        dismiss();
+                        window.setTimeout(() => open(shown.item), 0);
+                        return;
+                    }
+                }
                 event.preventDefault();
                 event.stopImmediatePropagation();
                 swallowKeyUp = event.key || String(event.keyCode);
@@ -578,6 +599,13 @@ export const PlayerTvScreensaver: React.FC<Props> = ({
         >
             {isWall ? wall : (isGallery ? <div className="player-tv-screensaver-frame">{picture}</div> : picture)}
             <div className="player-tv-screensaver-scrim" />
+            {onOpenItem ? (
+                <div className="player-tv-screensaver-up" aria-hidden>
+                    <svg viewBox="0 0 24 24" width="44" height="44" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M5 15l7-7 7 7" />
+                    </svg>
+                </div>
+            ) : null}
             {clockFloats ? (
                 <div className={`player-tv-screensaver-float player-tv-screensaver-float--${pos}`}>{clockBlock}</div>
             ) : null}
