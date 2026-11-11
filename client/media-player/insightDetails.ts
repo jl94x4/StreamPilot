@@ -21,7 +21,7 @@ export type InsightDetail = {
 
 export type DetailKind =
     | 'hours' | 'titles' | 'episodes' | 'movies' | 'showsFinished' | 'rewatches'
-    | 'genres' | 'decades' | 'studios' | 'when'
+    | 'genres' | 'decades' | 'studios' | 'certificates' | 'countries' | 'when'
     | `fact:${string}`;
 
 type T = (key: string, vars?: Record<string, string | number>) => string;
@@ -225,6 +225,26 @@ export const buildInsightDetail = (
                 rows: all.filter((r) => String(r.item.studio || '').trim() === s.name).sort(byHours).slice(0, 3).map(timeRow),
             })),
         };
+    case 'certificates':
+        return {
+            title: p('insightsCertificates'),
+            lead: p('insightsDetCertificatesLead', { count: ins.certificates.length }),
+            stats: ins.certificates.slice(0, 4).map((c) => ({ label: c.name, value: p('insightsTitlesShort', { count: c.titles }) })),
+            sections: ins.certificates.slice(0, 6).map((c) => ({
+                title: `${c.name} · ${p('insightsTitlesShort', { count: c.titles })}`,
+                rows: all.filter((r) => String(r.item.contentRating || '').trim() === c.name).sort(byHours).slice(0, 3).map(timeRow),
+            })),
+        };
+    case 'countries':
+        return {
+            title: p('insightsCountries'),
+            lead: p('insightsDetCountriesLead', { count: ins.countries.length }),
+            stats: ins.countries.slice(0, 4).map((c) => ({ label: c.name, value: p('insightsTitlesShort', { count: c.titles }) })),
+            sections: ins.countries.slice(0, 6).map((c) => ({
+                title: `${c.name} · ${p('insightsTitlesShort', { count: c.titles })}`,
+                rows: all.filter((r) => (Array.isArray(r.item.countries) ? r.item.countries : []).includes(c.name)).sort(byHours).slice(0, 3).map(timeRow),
+            })),
+        };
     case 'when': {
         const dayName = (day: number) => new Date(2024, 0, 7 + day).toLocaleDateString(locale, { weekday: 'long' });
         const partNames = [p('insightsMorning'), p('insightsAfternoon'), p('insightsEvening'), p('insightsNight')];
@@ -341,6 +361,76 @@ export const buildInsightDetail = (
             sections: [{ title: p('insightsDetMostIn', { name }), rows: all.filter((r) => genreOf(r).includes(name)).sort(byHours).slice(0, 6).map(timeRow) }],
         };
     }
+    case 'avgRuntime':
+        return {
+            title,
+            lead: fact ? `${fact.value} · ${p('insightsTitlesShort', { count: Number(fact.detail) })}` : '',
+            stats: [],
+            sections: [{
+                title: p('insightsDetLongest'),
+                rows: movies.filter((r) => num(r.item.durationMs) > 0).sort((a, b) => num(b.item.durationMs) - num(a.item.durationMs)).slice(0, 6)
+                    .map((r) => row(r, runtimeText(num(r.item.durationMs)), r.item.year ? String(r.item.year) : '')),
+            }],
+        };
+    case 'newest':
+        return {
+            title,
+            lead: fact ? `${fact.value} · ${fact.detail}` : '',
+            stats: [],
+            sections: [{
+                title: p('insightsDetNewestList'),
+                rows: movies.filter((r) => num(r.item.year) >= 1900).sort((a, b) => num(b.item.year) - num(a.item.year)).slice(0, 6)
+                    .map((r) => row(r, String(r.item.year), playsText(r.plays))),
+            }],
+        };
+    case 'peakHour':
+        return {
+            title,
+            lead: fact ? `${fact.value} · ${p('insightsTitlesShort', { count: Number(fact.detail) })}` : '',
+            stats: [],
+            sections: [{
+                title: p('insightsDetByHour'),
+                columns: ins.hourly.map((value, hour) => ({ label: String(hour), value, hot: `${String(hour).padStart(2, '0')}:00` === fact?.value && value > 0 })),
+            }],
+        };
+    case 'topStudio': {
+        const name = fact?.value || '';
+        return {
+            title,
+            lead: fact ? `${fact.value} · ${p('insightsTitlesShort', { count: Number(fact.detail) })}` : '',
+            stats: [],
+            sections: [{ title: p('insightsDetMostIn', { name }), rows: all.filter((r) => String(r.item.studio || '').trim() === name).sort(byHours).slice(0, 6).map(timeRow) }],
+        };
+    }
+    case 'longestShow':
+        return {
+            title,
+            lead: fact ? `${fact.value} · ${hoursText(Number(fact.detail))}` : '',
+            stats: [],
+            sections: [{ title: p('insightsDetWhereTime'), rows: shows.filter((r) => r.hours > 0).sort(byHours).slice(0, 6).map(timeRow) }],
+        };
+    case 'avgRating':
+        return {
+            title,
+            lead: fact ? `${fact.value} · ${p('insightsTitlesShort', { count: Number(fact.detail) })}` : '',
+            stats: [],
+            sections: [{
+                title: p('insightsTopRated'),
+                rows: all.filter((r) => num(r.item.userRating) > 0).sort((a, b) => num(b.item.userRating) - num(a.item.userRating)).slice(0, 8)
+                    .map((r) => row(r, `${num(r.item.userRating).toFixed(1)}/10`)),
+            }],
+        };
+    case 'inProgress':
+        return {
+            title,
+            lead: fact ? `${fact.value} · ${fact.detail}` : '',
+            stats: [],
+            sections: [{
+                title: p('insightsDetStillGoing'),
+                rows: shows.filter((r) => !(num(r.item.leafCount) > 0 && r.episodes >= num(r.item.leafCount))).sort(byRecent).slice(0, 10)
+                    .map((r) => row(r, episodesText(r.episodes), num(r.item.leafCount) > 0 ? p('insightsDetOfTotal', { count: num(r.item.leafCount) }) : '')),
+            }],
+        };
     default:
         return { title, lead, stats: [], sections: [] };
     }

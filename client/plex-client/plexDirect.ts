@@ -1214,6 +1214,7 @@ const mapItem = (meta: PlexMeta) => {
         tmdbId: ids.tmdb,
         originallyAvailableAt: meta.originallyAvailableAt || null,
         genres: asList<PlexMeta>(meta.Genre).map((row) => String(row.tag || '')).filter(Boolean),
+        countries: asList<PlexMeta>(meta.Country).map((row) => String(row.tag || '')).filter(Boolean),
         addedAt: meta.addedAt ? Number(meta.addedAt) * 1000 : null,
         lastViewedAt: meta.lastViewedAt ? Number(meta.lastViewedAt) * 1000 : null,
         viewCount: Number(meta.viewCount) || 0,

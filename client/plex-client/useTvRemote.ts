@@ -875,6 +875,17 @@ const focusItem = (el: HTMLElement, block: ScrollLogicalPosition = 'nearest', di
     const posterGrid = el.closest<HTMLElement>('[data-tv-poster-grid="1"], .upgrader-poster-grid');
     const posterCard = el.closest<HTMLElement>('[data-tv-poster-card="1"]')
         || (el.getAttribute('data-tv-poster-btn') === '1' ? el.parentElement : null);
+    // Insights poster rows and history groups: centre the whole group (heading and posters) so the
+    // row above and the row below both peek in and you can see where you are on the page. A group
+    // taller than the screen centres the focused line of posters instead.
+    if ((dir === 'up' || dir === 'down') && el.closest('[data-tv-insights-root="1"]')) {
+        const row = focusedRow(el);
+        const group = row.closest<HTMLElement>('section') || row;
+        const port = document.getElementById(PLAYER_SCROLL_ID)?.getBoundingClientRect();
+        const fitsOnScreen = !port || group.getBoundingClientRect().height <= port.height * 0.7;
+        scrollRowWithoutPanningRails(fitsOnScreen ? group : (posterCard || el), 'center', 'css');
+        return;
+    }
     // Wrapping poster grids (actor, library, hub): keep the whole card — art + title —
     // in the safe area. Centering the last row otherwise clips it on the bezel.
     if (posterGrid && posterCard) {

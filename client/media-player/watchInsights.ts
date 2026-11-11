@@ -29,6 +29,9 @@ export type WatchInsights = {
     genres: InsightRow[];
     decades: Array<{ label: string; titles: number }>;
     studios: Array<{ name: string; titles: number }>;
+    /** Certificates (TV-MA, 15, PG-13...) of what was watched. */
+    certificates: Array<{ name: string; titles: number }>;
+    countries: Array<{ name: string; titles: number }>;
     weekdays: number[];
     /** Morning 5-12, afternoon 12-17, evening 17-22, night 22-5. */
     partsOfDay: number[];
@@ -108,6 +111,8 @@ export const buildWatchInsights = (
     const genreMap = new Map<string, InsightRow>();
     const decadeMap = new Map<number, number>();
     const studioMap = new Map<string, number>();
+    const certMap = new Map<string, number>();
+    const countryMap = new Map<string, number>();
     const weekdays = new Array<number>(7).fill(0);
     const partsOfDay = new Array<number>(4).fill(0);
     const hourly = new Array<number>(24).fill(0);
@@ -148,6 +153,12 @@ export const buildWatchInsights = (
         if (year >= 1900) decadeMap.set(Math.floor(year / 10) * 10, (decadeMap.get(Math.floor(year / 10) * 10) || 0) + 1);
         const studio = String(item.studio || '').trim();
         if (studio) studioMap.set(studio, (studioMap.get(studio) || 0) + 1);
+        const cert = String(item.contentRating || '').trim();
+        if (cert) certMap.set(cert, (certMap.get(cert) || 0) + 1);
+        for (const country of Array.isArray(item.countries) ? item.countries : []) {
+            const name = String(country || '').trim();
+            if (name) countryMap.set(name, (countryMap.get(name) || 0) + 1);
+        }
 
         const at = new Date(num(item.lastViewedAt));
         weekdays[at.getDay()] += 1;
@@ -170,6 +181,11 @@ export const buildWatchInsights = (
         .map((row) => ({ ...row, hours: round1(row.hours) }));
     const decades = [...decadeMap.entries()].sort((a, b) => a[0] - b[0]).map(([decade, titles]) => ({ label: `${decade}s`, titles }));
     const studios = [...studioMap.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name, titles]) => ({ name, titles }));
+
+    const rank = (map: Map<string, number>, count: number) => [...map.entries()]
+        .sort((a, b) => b[1] - a[1]).slice(0, count).map(([name, titles]) => ({ name, titles }));
+    const certificates = rank(certMap, 6);
+    const countries = rank(countryMap, 6);
 
     const topShows = favourites.filter((row) => isShow(row.item) && row.episodes > 0)
         .sort((a, b) => b.hours - a.hours).slice(0, 8);
@@ -213,6 +229,30 @@ export const buildWatchInsights = (
         });
     }
     if (genres[0]) facts.push({ id: 'topGenre', value: genres[0].name, detail: String(genres[0].titles) });
+    if (timed.length) {
+        const avg = timed.reduce((sum, row) => sum + num(row.item.durationMs), 0) / timed.length;
+        const minutes = Math.round(avg / 60_000);
+        facts.push({ id: 'avgRuntime', value: `${Math.floor(minutes / 60)}h ${minutes % 60}m`, detail: String(timed.length) });
+    }
+    if (dated.length) {
+        const newest = dated.reduce((a, b) => (num(b.item.year) > num(a.item.year) ? b : a));
+        facts.push({ id: 'newest', value: String(newest.item.year), detail: newest.item.title || '' });
+    }
+    const peakHour = peak(hourly);
+    if (peakHour != null) facts.push({ id: 'peakHour', value: `${String(peakHour).padStart(2, '0')}:00`, detail: String(hourly[peakHour]) });
+    if (studios[0]) facts.push({ id: 'topStudio', value: studios[0].name, detail: String(studios[0].titles) });
+    const longestShow = [...favourites].filter((row) => isShow(row.item) && row.hours > 0).sort((a, b) => b.hours - a.hours)[0];
+    if (longestShow) facts.push({ id: 'longestShow', value: longestShow.item.title || '', detail: String(round1(longestShow.hours)) });
+    const rated = favourites.filter((row) => num(row.item.userRating) > 0);
+    if (rated.length) {
+        const avgRating = rated.reduce((sum, row) => sum + num(row.item.userRating), 0) / rated.length;
+        facts.push({ id: 'avgRating', value: `${round1(avgRating)}/10`, detail: String(rated.length) });
+    }
+    if (showsInProgress > 0) {
+        const going = favourites.filter((row) => isShow(row.item) && !(num(row.item.leafCount) > 0 && row.episodes >= num(row.item.leafCount)))
+            .sort((a, b) => num(b.item.lastViewedAt) - num(a.item.lastViewedAt))[0];
+        facts.push({ id: 'inProgress', value: String(showsInProgress), detail: going?.item.title || '' });
+    }
 
     return {
         titles: items.length,
@@ -227,6 +267,8 @@ export const buildWatchInsights = (
         genres,
         decades,
         studios,
+        certificates,
+        countries,
         weekdays,
         partsOfDay,
         months,

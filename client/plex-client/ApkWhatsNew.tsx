@@ -73,6 +73,16 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.685': [
+        {
+            title: 'Insights',
+            items: [
+                'Moving up and down the rows now centres the row you are on, so the one above and the one below always peek in and you can see where you are',
+                'More stats: age ratings and countries of what you watch, plus new fun facts (average film length, newest film, busiest hour, most watched studio, the show you spent longest on, your average rating and shows still going)',
+                'Every new box opens its own detail panel',
+            ],
+        },
+    ],
     '1.0.683': [
         {
             title: 'Screensaver',

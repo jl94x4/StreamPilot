@@ -524,7 +524,7 @@ const InsightsPage: React.FC<Props> = (props) => {
     const ratedLabel = (row: InsightFavourite) => `${(Number(row.item.userRating) || 0).toFixed(1)}/10`;
 
     return (
-        <div data-tv-insights-root="1" className="flex flex-col gap-6 pb-10">
+        <div data-tv-insights-root="1" className="flex flex-col gap-6 pb-10" style={tvShell ? { paddingBottom: '45vh' } : undefined}>
             {heading}
             {readingMore ? (
                 <p className="text-sm text-muted">{t('mediaPlayerPage.insightsReadingMore')}</p>
@@ -588,6 +588,27 @@ const InsightsPage: React.FC<Props> = (props) => {
                 ) : null}
             </div>
 
+            {insights.certificates.length || insights.countries.length ? (
+                <div
+                    data-tv-row="1"
+                    data-tv-row-id="insights:more"
+                    data-tv-insights-band="1"
+                    style={BAND_STYLE}
+                    className={`grid gap-5 ${colsThree}`}
+                >
+                    {insights.certificates.length ? (
+                        <InsightCard id="certificates" title={t('mediaPlayerPage.insightsCertificates')} onSelect={() => setDetailKind('certificates')}>
+                            <BarList rows={insights.certificates.map((c) => ({ label: c.name, value: c.titles, display: String(c.titles) }))} />
+                        </InsightCard>
+                    ) : null}
+                    {insights.countries.length ? (
+                        <InsightCard id="countries" title={t('mediaPlayerPage.insightsCountries')} onSelect={() => setDetailKind('countries')}>
+                            <BarList rows={insights.countries.map((c) => ({ label: c.name, value: c.titles, display: String(c.titles) }))} />
+                        </InsightCard>
+                    ) : null}
+                </div>
+            ) : null}
+
             <InsightCard alone id="when" title={t('mediaPlayerPage.insightsWhen')} note={t('mediaPlayerPage.insightsWhenNote')} onSelect={() => setDetailKind('when')}>
                 <div className={`grid gap-8 ${colsThree}`}>
                     <div className="flex flex-col gap-2">
@@ -625,8 +646,11 @@ const InsightsPage: React.FC<Props> = (props) => {
                                 <span className="truncate text-sm text-muted">
                                     {fact.id === 'days'
                                         ? t('mediaPlayerPage.insightsFactDays')
-                                        : fact.id === 'busiestMonth' || fact.id === 'topGenre'
+                                        : fact.id === 'busiestMonth' || fact.id === 'topGenre' || fact.id === 'peakHour'
+                                            || fact.id === 'topStudio' || fact.id === 'avgRating' || fact.id === 'avgRuntime'
                                             ? t('mediaPlayerPage.insightsTitlesShort', { count: Number(fact.detail) })
+                                            : fact.id === 'longestShow'
+                                                ? t('mediaPlayerPage.insightsHoursShort', { count: Number(fact.detail) })
                                             : fact.id === 'binge'
                                                 ? t('mediaPlayerPage.insightsEpisodesShort', { count: Number(fact.detail) })
                                                 : fact.id === 'rewatch'
