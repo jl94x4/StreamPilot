@@ -315,74 +315,6 @@ const FavouriteRail: React.FC<{
     );
 };
 
-type HistoryCardProps = Pick<React.ComponentProps<typeof PlayerPosterCard>,
-    'onOpenItem' | 'onPlay' | 'onPlayNext' | 'onToggleWatched' | 'onToast' | 'isAdmin' | 'playlistsEnabled'>;
-
-/** One "Today / Yesterday / March 2026" block of the history. */
-const HistoryGroupSection: React.FC<{
-    group: { label: string; items: PlayerItem[] };
-    groupIndex: number;
-    mounted: boolean;
-    tvShell: boolean;
-    gridSize: ReturnType<typeof useDiscoverGridSize>[0];
-    heights: React.MutableRefObject<Map<string, number>>;
-    onFocusGroup: (index: number) => void;
-    cardProps: HistoryCardProps;
-}> = ({ group, groupIndex, mounted, tvShell, gridSize, heights, onFocusGroup, cardProps }) => {
-    const ref = useRef<HTMLElement | null>(null);
-
-    // Remember how tall the group is while it is drawn, so its spacer is exactly as tall and the
-    // page does not shift when it is swapped out.
-    React.useLayoutEffect(() => {
-        const node = ref.current;
-        if (!mounted || !node) return undefined;
-        const measure = () => {
-            const h = node.offsetHeight;
-            if (h > 0) heights.current.set(group.label, h);
-        };
-        measure();
-        if (typeof ResizeObserver === 'undefined') return undefined;
-        const observer = new ResizeObserver(measure);
-        observer.observe(node);
-        return () => observer.disconnect();
-    }, [mounted, group.label, group.items.length, heights]);
-
-    if (!mounted) {
-        // Never drawn yet: a rough height (about 8 posters a line), corrected once it is drawn.
-        const guess = 64 + Math.ceil(group.items.length / 8) * 330;
-        return <div aria-hidden="true" data-history-spacer="1" style={{ height: heights.current.get(group.label) ?? guess }} />;
-    }
-    return (
-        <section
-            ref={ref}
-            className="flex flex-col gap-2"
-            onFocusCapture={tvShell ? () => onFocusGroup(groupIndex) : undefined}
-        >
-            <div className="player-row-header flex min-w-0 items-center gap-3">
-                <RowHeaderMark />
-                <h3 className="player-row-header-title text-lg font-black text-white">{group.label}</h3>
-            </div>
-            <div
-                className={upgraderPosterGridClass(gridSize)}
-                style={upgraderPosterGridStyle(gridSize)}
-                data-tv-row={tvShell ? '1' : undefined}
-                data-tv-rail={tvShell ? '1' : undefined}
-                data-tv-poster-grid={tvShell ? '1' : undefined}
-                data-tv-row-id={tvShell ? `history:${group.label}` : undefined}
-            >
-                {group.items.map((item, index) => (
-                    <PlayerPosterCard
-                        key={item.ratingKey}
-                        item={item}
-                        imagePriority={groupIndex === 0 && index < 12}
-                        {...cardProps}
-                    />
-                ))}
-            </div>
-        </section>
-    );
-};
-
 const InsightsPage: React.FC<Props> = (props) => {
     const { onBack, onOpenItem, onPlay, onPlayNext, onToast, isAdmin = false, playlistsEnabled = true } = props;
     const { t, locale } = useDiscoverI18n();
@@ -395,9 +327,6 @@ const InsightsPage: React.FC<Props> = (props) => {
     const [incomplete, setIncomplete] = useState(false);
     /** The newest titles are in; the rest of the history is still being read. */
     const [readingMore, setReadingMore] = useState(false);
-    /** The history group the remote is on (TV draws only it and its neighbours). */
-    const [focusGroup, setFocusGroup] = useState(0);
-    const groupHeights = useRef(new Map<string, number>());
     const tvShell = isTvShell();
     const density = homeRailPosterDensity(gridSize);
 
@@ -741,20 +670,52 @@ const InsightsPage: React.FC<Props> = (props) => {
             <div className="mt-2 flex flex-col gap-1">
                 <h2 className="text-2xl font-black text-white">{t('mediaPlayerPage.insightsRecent')}</h2>
             </div>
-            {groups.map((group, groupIndex) => (
-                <HistoryGroupSection
+            {tvShell ? groups.map((group) => (
+                <PlayerRail
                     key={group.label}
-                    group={group}
-                    groupIndex={groupIndex}
-                    // TV: only the group you are on and its neighbours are drawn; the rest are empty
-                    // spacers of the same height (hundreds of posters at once left the page part-drawn).
-                    mounted={!tvShell || Math.abs(groupIndex - focusGroup) <= 1}
-                    tvShell={tvShell}
-                    gridSize={gridSize}
-                    heights={groupHeights}
-                    onFocusGroup={setFocusGroup}
-                    cardProps={{ onOpenItem, onPlay, onPlayNext, onToggleWatched: toggleWatched, onToast, isAdmin, playlistsEnabled }}
+                    title={group.label}
+                    rowId={`history:${group.label}`}
+                    items={group.items}
+                    density={density}
+                    aspect="2/3"
+                    onOpenItem={onOpenItem}
+                    onPlay={onPlay}
+                    onPlayNext={onPlayNext}
+                    onToast={onToast}
+                    isAdmin={isAdmin}
+                    playlistsEnabled={playlistsEnabled}
                 />
+            )) : null}
+            {tvShell ? null : groups.map((group, groupIndex) => (
+                <section key={group.label} className="flex flex-col gap-2">
+                    <div className="player-row-header flex min-w-0 items-center gap-3">
+                        <RowHeaderMark />
+                        <h3 className="player-row-header-title text-lg font-black text-white">{group.label}</h3>
+                    </div>
+                    <div
+                        className={upgraderPosterGridClass(gridSize)}
+                        style={upgraderPosterGridStyle(gridSize)}
+                        data-tv-row={tvShell ? '1' : undefined}
+                        data-tv-rail={tvShell ? '1' : undefined}
+                        data-tv-poster-grid={tvShell ? '1' : undefined}
+                        data-tv-row-id={tvShell ? `history:${group.label}` : undefined}
+                    >
+                        {group.items.map((item, index) => (
+                            <PlayerPosterCard
+                                key={item.ratingKey}
+                                item={item}
+                                imagePriority={groupIndex === 0 && index < 12}
+                                onOpenItem={onOpenItem}
+                                onPlay={onPlay}
+                                onPlayNext={onPlayNext}
+                                onToggleWatched={toggleWatched}
+                                onToast={onToast}
+                                isAdmin={isAdmin}
+                                playlistsEnabled={playlistsEnabled}
+                            />
+                        ))}
+                    </div>
+                </section>
             ))}
             {detail ? <InsightDetailSheet detail={detail} onClose={closeDetail} onOpenItem={onOpenItem} /> : null}
         </div>
