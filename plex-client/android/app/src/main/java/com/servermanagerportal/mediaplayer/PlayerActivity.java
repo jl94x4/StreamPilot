@@ -2518,7 +2518,7 @@ public class PlayerActivity extends AppCompatActivity {
 
             TextView name = new TextView(this);
             name.setText(member.name);
-            name.setTextSize(13);
+            name.setTextSize(11);
             name.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
             name.setTextColor(nameColors);
             name.setDuplicateParentStateEnabled(true);
@@ -2534,7 +2534,7 @@ public class PlayerActivity extends AppCompatActivity {
             if (!member.role.isEmpty()) {
                 TextView role = new TextView(this);
                 role.setText(member.role);
-                role.setTextSize(11);
+                role.setTextSize(9.5f);
                 role.setTextColor(roleColors);
                 role.setDuplicateParentStateEnabled(true);
                 role.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
