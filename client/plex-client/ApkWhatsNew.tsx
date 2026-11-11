@@ -77,6 +77,7 @@ const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
         {
             title: 'People',
             items: [
+                'A person with no photo shows their initials on a dark circle instead of a blank white one',
                 'A person page no longer borrows the biography, birth and death of an unrelated person with the same name (a TV narrator showing a Danish painter)',
             ],
         },

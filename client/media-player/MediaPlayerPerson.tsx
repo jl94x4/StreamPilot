@@ -356,8 +356,12 @@ export const MediaPlayerPerson: React.FC<Props> = ({ actorId, name, thumb, onBac
                             ) : loading ? (
                                 <div className="h-full w-full animate-pulse bg-white/10" />
                             ) : (
-                                <div className="flex h-full w-full items-center justify-center text-sm font-bold text-white/35">
-                                    {t('person.noPhoto')}
+                                <div
+                                    className="flex h-full w-full items-center justify-center font-black text-white/70"
+                                    style={{ background: 'rgb(38 42 50)', fontSize: '4.5rem' }}
+                                    aria-label={t('person.noPhoto')}
+                                >
+                                    {String(title || '').trim().split(/\s+/).filter(Boolean).map((part, index, parts) => (index === 0 || index === parts.length - 1 ? part.charAt(0).toUpperCase() : '')).join('')}
                                 </div>
                             )}
                         </div>
