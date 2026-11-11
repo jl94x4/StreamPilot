@@ -524,7 +524,7 @@ const InsightsPage: React.FC<Props> = (props) => {
     const ratedLabel = (row: InsightFavourite) => `${(Number(row.item.userRating) || 0).toFixed(1)}/10`;
 
     return (
-        <div data-tv-insights-root="1" className="flex flex-col gap-6 pb-10" style={tvShell ? { paddingBottom: '45vh' } : undefined}>
+        <div data-tv-insights-root="1" className="flex flex-col gap-6 pb-10">
             {heading}
             {readingMore ? (
                 <p className="text-sm text-muted">{t('mediaPlayerPage.insightsReadingMore')}</p>
@@ -632,7 +632,7 @@ const InsightsPage: React.FC<Props> = (props) => {
                         <RowHeaderMark />
                         <h2 className="player-row-header-title text-lg font-black text-white">{t('mediaPlayerPage.insightsFacts')}</h2>
                     </div>
-                    <div className={`grid gap-3 ${colsFacts}`}>
+                    <div data-tv-wrap-grid="1" className={`grid gap-3 ${colsFacts}`}>
                         {insights.facts.map((fact) => (
                             <div
                                 key={fact.id}
