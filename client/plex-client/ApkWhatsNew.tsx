@@ -77,6 +77,7 @@ const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
         {
             title: 'Player',
             items: [
+                'The player cast strip lists people in the same order as the episode page (guest stars first)',
                 'Cast members with no photo show their initials in a circle instead of an empty one',
             ],
         },

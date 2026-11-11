@@ -445,6 +445,14 @@ const mergeCast = (...lists: Array<PlayerPersonCredit[] | null | undefined>) => 
     return out;
 };
 
+/** The episode page's order: people only in this episode first (guest stars), then the regular cast. */
+const castLikeTitlePage = (own: PlayerPersonCredit[], show: PlayerPersonCredit[]) => {
+    const showNames = new Set(show.map((row) => String(row?.name || '').trim().toLowerCase()));
+    const guests = own.filter((row) => !showNames.has(String(row?.name || '').trim().toLowerCase()));
+    const guestNames = new Set(guests.map((row) => String(row?.name || '').trim().toLowerCase()));
+    return mergeCast(guests, own.filter((row) => !guestNames.has(String(row?.name || '').trim().toLowerCase())), show);
+};
+
 const nativeNextItemPayload = (item?: PlayerItem | null) => {
     if (!item?.ratingKey) return { ratingKey: '', title: '' as string | undefined, thumb: '' };
     const thumb = item.thumb
@@ -2353,7 +2361,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
             ? item.cast
             : (readPlayerItemCache(item.ratingKey, item.serverId)?.item?.cast || []);
         const cachedShow = showKey ? (readPlayerItemCache(showKey, item.serverId)?.item?.cast || []) : [];
-        castRef.current = mergeCast(cachedOwn, cachedShow);
+        castRef.current = castLikeTitlePage(cachedOwn, cachedShow);
         const publish = () => {
             if (cancelled || !castRef.current.length || !nativeExclusiveRef.current) return;
             void updateNativePlayerSession({
@@ -2372,7 +2380,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                 const own = needOwn ? await fetchMediaPlayerCast(item.ratingKey, item.serverId).catch(() => []) : cachedOwn;
                 const show = needShow ? await fetchMediaPlayerCast(showKey, item.serverId).catch(() => []) : cachedShow;
                 if (cancelled) return;
-                castRef.current = mergeCast(own, show);
+                castRef.current = castLikeTitlePage(own, show);
                 publish();
             })();
         }, CAST_FETCH_DELAY_MS);
