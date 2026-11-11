@@ -784,8 +784,8 @@
       stroke: #18181b !important;
     }
     /* Action buttons: white fill, black text and icons (like the nav). Watch/Play has its own fill. */
-    html[data-tv="1"] [data-tv-action="1"]:not([data-tv-play="1"]):not([data-tv-episode-neighbor-btn="1"]):focus,
-    html[data-tv="1"] [data-tv-action="1"]:not([data-tv-play="1"]):not([data-tv-episode-neighbor-btn="1"]):focus-visible {
+    html[data-tv="1"] [data-tv-action="1"]:not([data-tv-play="1"]):not([data-tv-episode-neighbor-btn="1"]):not(.insights-card):focus,
+    html[data-tv="1"] [data-tv-action="1"]:not([data-tv-play="1"]):not([data-tv-episode-neighbor-btn="1"]):not(.insights-card):focus-visible {
       outline: none !important;
       outline-offset: 0;
       background: #fff !important;
@@ -794,8 +794,8 @@
       box-shadow: none !important;
       z-index: 6;
     }
-    html[data-tv="1"] [data-tv-action="1"]:not([data-tv-play="1"]):not([data-tv-episode-neighbor-btn="1"]):focus *:not(.smp-version-res):not(.smp-version-detail):not(.smp-version-rate),
-    html[data-tv="1"] [data-tv-action="1"]:not([data-tv-play="1"]):not([data-tv-episode-neighbor-btn="1"]):focus-visible *:not(.smp-version-res):not(.smp-version-detail):not(.smp-version-rate) {
+    html[data-tv="1"] [data-tv-action="1"]:not([data-tv-play="1"]):not([data-tv-episode-neighbor-btn="1"]):not(.insights-card):focus *:not(.smp-version-res):not(.smp-version-detail):not(.smp-version-rate),
+    html[data-tv="1"] [data-tv-action="1"]:not([data-tv-play="1"]):not([data-tv-episode-neighbor-btn="1"]):not(.insights-card):focus-visible *:not(.smp-version-res):not(.smp-version-detail):not(.smp-version-rate) {
       color: #0b0b0d !important;
     }
     html[data-tv="1"] [data-tv-library-tabs="1"] button ,
