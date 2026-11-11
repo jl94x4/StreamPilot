@@ -782,6 +782,10 @@ const stampedArtPath = (
     const existing = libraryImagePath(existingPath);
     if (!key) return existing;
     if (existing && !existing.includes(`/library/metadata/${key}/`)) return existing;
+    // Plex's own art path ends in the time that background was set, so it changes the moment the
+    // background is swapped. The item's updatedAt does not always change, which left the old
+    // picture served from cache under an unchanged address. Use Plex's path whenever it has one.
+    if (existing && new RegExp(`/library/metadata/${key}/art/\\d+`).test(existing)) return existing;
     const stamp = String(updatedAt ?? '').replace(/\D/g, '');
     if (stamp) return `/library/metadata/${key}/art/${stamp}`;
     return existing || `/library/metadata/${key}/art`;

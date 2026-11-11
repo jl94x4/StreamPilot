@@ -77,6 +77,7 @@ const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
         {
             title: 'Screensaver',
             items: [
+                'Show backgrounds follow the one picked in Plex everywhere (Home, Continue Watching, screensaver), instead of an older cached picture',
                 'The screensaver picks up a show\'s current background each time it starts, instead of the one from when the app opened',
             ],
         },
