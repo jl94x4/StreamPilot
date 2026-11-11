@@ -2477,13 +2477,11 @@ public class PlayerActivity extends AppCompatActivity {
         castBuiltFor = sig.toString();
         castRow.removeAllViews();
         float dp = getResources().getDisplayMetrics().density;
-        // Same focus as the app: a white box with black text, nothing when not focused.
-        ColorStateList nameColors = new ColorStateList(
-            new int[][] { new int[] { android.R.attr.state_focused }, new int[] {} },
-            new int[] { 0xFF0B0B0D, 0xFFFFFFFF });
-        ColorStateList roleColors = new ColorStateList(
-            new int[][] { new int[] { android.R.attr.state_focused }, new int[] {} },
-            new int[] { 0xB30B0B0D, 0xB3FFFFFF });
+        // Focus is a thin accent ring round the photo only: no box, the text stays white.
+        ColorStateList nameColors = ColorStateList.valueOf(0xFFFFFFFF);
+        ColorStateList roleColors = ColorStateList.valueOf(0xB3FFFFFF);
+        android.util.TypedValue accentValue = new android.util.TypedValue();
+        int accent = getTheme().resolveAttribute(R.attr.playerAccent, accentValue, true) ? accentValue.data : 0xFFFFFFFF;
         int lastId = 0;
         for (int i = 0; i < castMembers.size(); i++) {
             final CastMember member = castMembers.get(i);
@@ -2494,13 +2492,7 @@ public class PlayerActivity extends AppCompatActivity {
             card.setFocusable(true);
             card.setClickable(true);
             card.setPadding((int) (8 * dp), (int) (8 * dp), (int) (8 * dp), (int) (8 * dp));
-            GradientDrawable focused = new GradientDrawable();
-            focused.setColor(0xFFFFFFFF);
-            focused.setCornerRadius(12 * dp);
-            StateListDrawable bg = new StateListDrawable();
-            bg.addState(new int[] { android.R.attr.state_focused }, focused);
-            bg.addState(new int[] {}, new android.graphics.drawable.ColorDrawable(0x00000000));
-            card.setBackground(bg);
+            card.setBackground(new android.graphics.drawable.ColorDrawable(0x00000000));
             LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams((int) (112 * dp), LinearLayout.LayoutParams.WRAP_CONTENT);
             cardLp.setMarginEnd((int) (6 * dp));
             card.setLayoutParams(cardLp);
@@ -2508,6 +2500,15 @@ public class PlayerActivity extends AppCompatActivity {
             ImageView photo = new ImageView(this);
             int size = (int) (72 * dp);
             photo.setLayoutParams(new LinearLayout.LayoutParams(size, size));
+            GradientDrawable ring = new GradientDrawable();
+            ring.setShape(GradientDrawable.OVAL);
+            ring.setColor(0x00000000);
+            ring.setStroke((int) (3 * dp), accent);
+            StateListDrawable ringStates = new StateListDrawable();
+            ringStates.addState(new int[] { android.R.attr.state_focused }, ring);
+            ringStates.addState(new int[] {}, new android.graphics.drawable.ColorDrawable(0x00000000));
+            photo.setForeground(ringStates);
+            photo.setDuplicateParentStateEnabled(true);
             GradientDrawable blank = new GradientDrawable();
             blank.setShape(GradientDrawable.OVAL);
             blank.setColor(0x33FFFFFF);
