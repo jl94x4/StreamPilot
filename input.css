@@ -4581,7 +4581,7 @@ html[data-tv="1"][data-tv="1"] body [data-tv-insights-root="1"] .insights-card:f
 html[data-tv="1"][data-tv="1"] body [data-tv-insights-root="1"] .insights-card:focus-visible,
 html[data-tv="1"][data-tv="1"] body [data-tv-insights-root="1"] .insights-card[data-tv-item="1"]:focus,
 html[data-tv="1"][data-tv="1"] body [data-tv-insights-root="1"] .insights-card[data-tv-item="1"]:focus-visible {
-  outline: var(--tv-focus-width, 2px) solid rgb(var(--tv-focus-accent, 245 158 11)) !important;
+  outline: calc(var(--tv-focus-width, 2px) + 1.5px) solid rgb(var(--tv-focus-accent, 245 158 11)) !important;
   outline-offset: 3px !important;
   background: rgba(255, 255, 255, 0.04) !important;
   background-color: rgba(255, 255, 255, 0.04) !important;
@@ -6949,21 +6949,21 @@ html[data-tv="1"] .player-library-header [data-tv-library-tabs="1"] [role="butto
 }
 
 /* Settings (tabs + rows): focus like the side nav, a white fill with dark text instead of a ring. */
-html[data-tv="1"] [data-tv-settings="1"] [data-tv-item="1"]:not([data-tv-settings-save="1"]):focus,
-html[data-tv="1"] [data-tv-settings="1"] [data-tv-item="1"]:not([data-tv-settings-save="1"]):focus-visible {
+html[data-tv="1"] [data-tv-settings="1"] [data-tv-item="1"]:not([data-tv-settings-save="1"]):not(.insights-card):not(.insights-row):focus,
+html[data-tv="1"] [data-tv-settings="1"] [data-tv-item="1"]:not([data-tv-settings-save="1"]):not(.insights-card):not(.insights-row):focus-visible {
   outline: none !important;
   box-shadow: none !important;
   background: #fff !important;
   border-color: #fff !important;
   color: #18181b !important;
 }
-html[data-tv="1"] [data-tv-settings="1"] [data-tv-item="1"]:not([data-tv-settings-save="1"]):focus *,
-html[data-tv="1"] [data-tv-settings="1"] [data-tv-item="1"]:not([data-tv-settings-save="1"]):focus-visible * {
+html[data-tv="1"] [data-tv-settings="1"] [data-tv-item="1"]:not([data-tv-settings-save="1"]):not(.insights-card):not(.insights-row):focus *,
+html[data-tv="1"] [data-tv-settings="1"] [data-tv-item="1"]:not([data-tv-settings-save="1"]):not(.insights-card):not(.insights-row):focus-visible * {
   color: #18181b !important;
 }
 /* "On" keeps its accent so toggles still read at a glance. */
-html[data-tv="1"] [data-tv-settings="1"] [data-tv-item="1"]:not([data-tv-settings-save="1"]):focus .text-plex,
-html[data-tv="1"] [data-tv-settings="1"] [data-tv-item="1"]:not([data-tv-settings-save="1"]):focus-visible .text-plex {
+html[data-tv="1"] [data-tv-settings="1"] [data-tv-item="1"]:not([data-tv-settings-save="1"]):not(.insights-card):not(.insights-row):focus .text-plex,
+html[data-tv="1"] [data-tv-settings="1"] [data-tv-item="1"]:not([data-tv-settings-save="1"]):not(.insights-card):not(.insights-row):focus-visible .text-plex {
   color: rgb(var(--color-plex)) !important;
 }
 
