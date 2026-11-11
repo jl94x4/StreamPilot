@@ -21,6 +21,40 @@ import type {
 
 const ROOT = '/api/poster-sets';
 
+type ApplyBody = Record<string, unknown>;
+type ApplyResponse = { ok: boolean; jobId: string; job: PosterSetsJob; queued?: boolean };
+
+/** Applying a set for a show/movie that already has a watched set asks first, then replaces the old one. */
+const applyRequest = async (body: ApplyBody): Promise<ApplyResponse> => {
+    const send = async (extra: ApplyBody) => {
+        const response = await fetch(portalUrl(`${ROOT}/apply`), {
+            credentials: 'same-origin',
+            ...json({ ...body, ...extra }),
+            headers: portalRequestHeaders(),
+        });
+        const data = await response.json().catch(() => ({ error: 'Apply failed' })) as {
+            error?: string;
+            code?: string;
+            existing?: PosterSetsWatch[];
+            incoming?: PosterSetsWatch | null;
+        } & Partial<ApplyResponse>;
+        return { response, data };
+    };
+    const first = await send({});
+    if (first.response.status === 409 && first.data.code === 'title_watch_exists') {
+        const { confirmReplaceTitleWatch } = await import('./pinWatch');
+        const conflict = new PosterSetsTitleWatchConflict(first.data);
+        if (!(await confirmReplaceTitleWatch(conflict))) {
+            throw new Error('Cancelled - that title is already watching a different set.');
+        }
+        const second = await send({ replaceExisting: true });
+        if (!second.response.ok) throw new Error(second.data.error || `Apply failed (${second.response.status})`);
+        return second.data as ApplyResponse;
+    }
+    if (!first.response.ok) throw new Error(first.data.error || `Apply failed (${first.response.status})`);
+    return first.data as ApplyResponse;
+};
+
 export class PosterSetsTitleWatchConflict extends Error {
     code = 'title_watch_exists' as const;
     existing: PosterSetsWatch[];
@@ -37,6 +71,14 @@ export class PosterSetsTitleWatchConflict extends Error {
         this.incoming = data.incoming || null;
     }
 }
+
+export type PosterSetsWatchBackup = {
+    name: string;
+    kind: 'daily' | 'before-restore';
+    date: string | null;
+    savedAt: string;
+    count: number;
+};
 
 export type PosterSetsAddWatchPayload = {
     url: string;
@@ -303,7 +345,7 @@ export const posterSetsApi = {
         plexHint?: { ratingKey?: string; title?: string; mediaType?: string } | null,
         selectedAssets?: PosterSetsJobInput['selectedAssets'],
     ) => (
-        apiFetch(`${ROOT}/apply`, json({
+        applyRequest({
             url,
             ...(selectedIds?.length ? { selectedIds } : {}),
             ...(setMeta ? { setMeta } : {}),
@@ -311,7 +353,7 @@ export const posterSetsApi = {
             ...(mediuxFilters?.length ? { mediuxFilters } : {}),
             ...(plexHint ? { plexHint } : {}),
             ...(selectedAssets?.length ? { selectedAssets } : {}),
-        })) as Promise<{ ok: boolean; jobId: string; job: PosterSetsJob; queued?: boolean }>
+        })
     ),
     imageUrl: (thumbUrl: string) => `${ROOT}/image?url=${encodeURIComponent(thumbUrl)}`,
     bulk: (payload: { urls?: string[]; text?: string; fromFile?: boolean }) => (
@@ -449,6 +491,14 @@ export const posterSetsApi = {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
     }) as Promise<{ ok: boolean; watch: PosterSetsWatch }>,
+    watchBackups: () => apiFetch(`${ROOT}/watch-backups`) as Promise<{ ok: boolean; backups: PosterSetsWatchBackup[] }>,
+    backupWatchesNow: () => apiFetch(`${ROOT}/watch-backups`, json({})) as Promise<{ ok: boolean; backups: PosterSetsWatchBackup[] }>,
+    restoreWatchBackup: (name: string) => apiFetch(`${ROOT}/watch-backups/restore`, json({ name })) as Promise<{
+        ok: boolean;
+        restored: number;
+        previous: number;
+        backups: PosterSetsWatchBackup[];
+    }>,
     clearWatchErrors: () => apiFetch(`${ROOT}/watches/clear-errors`, json({})) as Promise<{
         ok: boolean;
         cleared: number;

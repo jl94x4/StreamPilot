@@ -30,6 +30,7 @@ import { BetaBadge, PosterSetsBetaBanner } from '../../shared/BetaBadge';
 import { askConfirm } from '../../shared/confirm';
 import { portalUrl, getPublicOrigin } from '../../shared/basePath';
 import { posterSetsApi } from '../api';
+import { WatchBackupsPanel } from '../WatchBackupsPanel';
 import { buildTpdbImportBookmarklet } from '../../../lib/poster-sets/tpdbImportTools.js';
 import { MEDIUX_FILTER_OPTIONS, type PosterSetsConfig } from '../types';
 import { formatTpdbEta } from '../shared/tpdbCacheUi';
@@ -1882,6 +1883,7 @@ export const PosterSetsSettingsView: React.FC = () => {
                             border={false}
                         />
                     </div>
+                    <WatchBackupsPanel toast={toast} onRestored={() => void loadWatches()} />
                     <label className="block max-w-xs">
                         <span className="text-xs font-bold uppercase tracking-wide text-muted">watch interval (hours)</span>
                         <input
