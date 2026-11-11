@@ -5436,7 +5436,12 @@ const refreshScreensaverArt = async <T extends {
             const data = await pms(`/library/metadata/${chunk}?includeImages=1`, server, 8000).catch(() => null);
             for (const meta of asList<PlexMeta>(containerOf(data).Metadata)) {
                 const id = String(meta.ratingKey || '').replace(/\D/g, '');
-                const path = stampedArtPath(id, meta.updatedAt as string | number | null | undefined, meta.art);
+                // Plex's own art path carries its own timestamp, which changes when the background is
+                // swapped; the item's updatedAt does not always, so it kept the old cached picture.
+                const own = libraryImagePath(meta.art);
+                const path = own && own.includes(`/library/metadata/${id}/art/`)
+                    ? own
+                    : stampedArtPath(id, meta.updatedAt as string | number | null | undefined, meta.art);
                 if (id && path) artByOwner.set(`${server.id}:${id}`, path);
             }
         }

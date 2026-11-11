@@ -226,6 +226,27 @@ export const PlayerTvScreensaver: React.FC<Props> = ({
             : '',
     ]);
 
+    // The pool is otherwise fetched once per session, so a background changed on a show since then
+    // kept showing the old picture. Each time the screensaver starts, quietly pull a fresh pool.
+    const activeForRefresh = useRef(false);
+    const [activeFlag, setActiveFlag] = useState(false);
+    useEffect(() => {
+        if (!enabled || !activeFlag || activeForRefresh.current) return undefined;
+        if (source === 'watchlist' || source === 'recommended') return undefined;
+        activeForRefresh.current = true;
+        let cancelled = false;
+        void fetchMediaPlayerScreensaver(source)
+            .then((data) => {
+                const items = data?.items || [];
+                if (!cancelled && items.length) setRemoteItems(items);
+            })
+            .catch(() => undefined);
+        return () => { cancelled = true; };
+    }, [enabled, activeFlag, source]);
+    useEffect(() => {
+        if (!activeFlag) activeForRefresh.current = false;
+    }, [activeFlag]);
+
     const poolItems = useMemo(() => {
         if (remoteItems.length) return remoteItems;
         if (source === 'recommended' && recommendedItems.length) return recommendedItems;
@@ -250,6 +271,7 @@ export const PlayerTvScreensaver: React.FC<Props> = ({
     const [active, setActive] = useState(false);
     const activeRef = useRef(false);
     activeRef.current = active;
+    useEffect(() => { setActiveFlag(active); }, [active]);
     const [clock, setClock] = useState(() => formatClock(new Date()));
     const [frame, setFrame] = useState<{
         current: Slide;
