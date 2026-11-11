@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.682': [
+        {
+            title: 'People',
+            items: [
+                'A person page no longer borrows the biography, birth and death of an unrelated person with the same name (a TV narrator showing a Danish painter)',
+            ],
+        },
+    ],
     '1.0.681': [
         {
             title: 'Player',

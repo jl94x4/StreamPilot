@@ -8255,6 +8255,15 @@ const wikiOccupationScore = (text: string) => {
     return value;
 };
 
+/**
+ * A same-name page is only used when it is about someone who works on screen or in audio. Without this,
+ * a narrator or a crew member with a common name got the biography, birth and death of an unrelated
+ * person (a Danish painter for a TV narrator).
+ */
+const isScreenPerson = (text: string) => (
+    /actor|actress|voice|narrator|filmmaker|director|screenwriter|producer|presenter|broadcaster|comedian|television|film|host|singer|musician|stunt|cinematograph|reporter|journalist|chef|personality|wrestler|model|entertainer/i.test(String(text || ''))
+);
+
 /** Direct mode has no TMDB key. Prefer Wikidata for DOB/place, Wikipedia for bio. */
 const loadWikipediaPerson = async (name: string) => {
     const queryName = String(name || '').trim();
@@ -8278,6 +8287,7 @@ const loadWikipediaPerson = async (name: string) => {
         const qid = String(hit?.id || '').trim();
         const label = String(hit?.label || '').trim();
         const desc = String(hit?.description || '').toLowerCase();
+        if (!isScreenPerson(desc)) continue;
         const entity = await loadWikidataEntityFacts(qid);
         if (!entity?.birthday && !entity?.placeOfBirth) continue;
         const sitelinks = await wikiApiJson(
@@ -8326,6 +8336,7 @@ const loadWikipediaPerson = async (name: string) => {
     for (const row of ranked.slice(0, 4)) {
         const facts = await loadWikidataPersonFacts(row.title);
         if (!facts) continue;
+        if (!isScreenPerson(`${row.snippet} ${String(facts.biography || '').slice(0, 360)}`)) continue;
         if (facts.biography || facts.birthday || facts.placeOfBirth) {
             return { ...facts, name: queryName, tmdbId: null as number | null };
         }
