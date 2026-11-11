@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.688': [
+        {
+            title: 'Insights',
+            items: [
+                'On TV, the Recently watched list only draws the group you are on and the ones next to it, so the page no longer shows blank areas under the row you are on',
+            ],
+        },
+    ],
     '1.0.687': [
         {
             title: 'Insights',
