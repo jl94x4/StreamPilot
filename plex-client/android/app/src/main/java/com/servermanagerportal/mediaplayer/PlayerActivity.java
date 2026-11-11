@@ -2509,10 +2509,7 @@ public class PlayerActivity extends AppCompatActivity {
             ringStates.addState(new int[] {}, new android.graphics.drawable.ColorDrawable(0x00000000));
             photo.setForeground(ringStates);
             photo.setDuplicateParentStateEnabled(true);
-            GradientDrawable blank = new GradientDrawable();
-            blank.setShape(GradientDrawable.OVAL);
-            blank.setColor(0x33FFFFFF);
-            photo.setImageDrawable(blank);
+            photo.setImageDrawable(new InitialsDrawable(member.name, 0x33FFFFFF, size));
             card.addView(photo);
             loadCastPhoto(member.thumb, photo);
 
@@ -2551,6 +2548,43 @@ public class PlayerActivity extends AppCompatActivity {
         // The ends of the strip stay put instead of jumping up into the controls.
         View last = castRow.getChildCount() > 0 ? castRow.getChildAt(castRow.getChildCount() - 1) : null;
         if (last != null) last.setNextFocusRightId(lastId);
+    }
+
+    /** A cast member with no photo: a soft circle with their initials. */
+    private static final class InitialsDrawable extends android.graphics.drawable.Drawable {
+        private final android.graphics.Paint fill = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        private final android.graphics.Paint text = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        private final String initials;
+        private final int size;
+
+        InitialsDrawable(String name, int color, int size) {
+            this.size = size;
+            fill.setColor(color);
+            text.setColor(0xCCFFFFFF);
+            text.setTextAlign(android.graphics.Paint.Align.CENTER);
+            text.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            text.setTextSize(size * 0.36f);
+            String[] parts = (name == null ? "" : name.trim()).split("\s+");
+            StringBuilder out = new StringBuilder();
+            if (parts.length > 0 && !parts[0].isEmpty()) out.append(Character.toUpperCase(parts[0].charAt(0)));
+            if (parts.length > 1 && !parts[parts.length - 1].isEmpty()) out.append(Character.toUpperCase(parts[parts.length - 1].charAt(0)));
+            initials = out.toString();
+        }
+
+        @Override
+        public void draw(android.graphics.Canvas canvas) {
+            android.graphics.Rect b = getBounds();
+            float cx = b.exactCenterX();
+            float cy = b.exactCenterY();
+            canvas.drawCircle(cx, cy, Math.min(b.width(), b.height()) / 2f, fill);
+            canvas.drawText(initials, cx, cy - (text.descent() + text.ascent()) / 2f, text);
+        }
+
+        @Override public void setAlpha(int alpha) { fill.setAlpha(alpha); }
+        @Override public void setColorFilter(@Nullable android.graphics.ColorFilter filter) { fill.setColorFilter(filter); }
+        @Override public int getOpacity() { return android.graphics.PixelFormat.TRANSLUCENT; }
+        @Override public int getIntrinsicWidth() { return size; }
+        @Override public int getIntrinsicHeight() { return size; }
     }
 
     private void loadCastPhoto(String url, ImageView target) {
