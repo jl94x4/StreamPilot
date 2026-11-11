@@ -220,7 +220,7 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
             const active = root.querySelector<HTMLElement>('[data-tv-nav="1"][data-tv-nav-active="1"]');
             const first = root.querySelector<HTMLElement>('[data-tv-nav="1"]');
             const target = active || first;
-            if (target && !root.contains(document.activeElement)) target.focus();
+            if (target && !root.contains(document.activeElement)) target.focus({ preventScroll: true });
         }, 30);
         return () => window.clearTimeout(id);
     }, [expanded, isTvShell]);
