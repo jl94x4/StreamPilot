@@ -4575,20 +4575,27 @@ html[data-tv="1"] .insights-row:focus-visible {
   outline-offset: 2px;
   background: rgba(255, 255, 255, 0.08);
 }
-/* Insights page: each block is a stop for the remote. */
-html[data-tv="1"] .insights-card:focus,
-html[data-tv="1"] .insights-card:focus-visible {
-  /* A thin accent line round the box; the box itself never fills in. */
+/* Insights page: each block is a stop for the remote. A thin accent line round the box; the box never
+   fills in. Extra specificity so no other focus fill (white rows, settings-style) can win. */
+html[data-tv="1"][data-tv="1"] body [data-tv-insights-root="1"] .insights-card:focus,
+html[data-tv="1"][data-tv="1"] body [data-tv-insights-root="1"] .insights-card:focus-visible,
+html[data-tv="1"][data-tv="1"] body [data-tv-insights-root="1"] .insights-card[data-tv-item="1"]:focus,
+html[data-tv="1"][data-tv="1"] body [data-tv-insights-root="1"] .insights-card[data-tv-item="1"]:focus-visible {
   outline: var(--tv-focus-width, 2px) solid rgb(var(--tv-focus-accent, 245 158 11)) !important;
-  outline-offset: 3px;
+  outline-offset: 3px !important;
+  background: rgba(255, 255, 255, 0.04) !important;
   background-color: rgba(255, 255, 255, 0.04) !important;
   border-color: rgba(255, 255, 255, 0.1) !important;
   box-shadow: none !important;
   color: inherit !important;
 }
-html[data-tv="1"] .insights-card:focus *,
-html[data-tv="1"] .insights-card:focus-visible * {
-  color: inherit;
+html[data-tv="1"][data-tv="1"] body [data-tv-insights-root="1"] .insights-card:focus .text-white,
+html[data-tv="1"][data-tv="1"] body [data-tv-insights-root="1"] .insights-card:focus-visible .text-white {
+  color: #fff !important;
+}
+html[data-tv="1"][data-tv="1"] body [data-tv-insights-root="1"] .insights-card:focus .text-muted,
+html[data-tv="1"][data-tv="1"] body [data-tv-insights-root="1"] .insights-card:focus-visible .text-muted {
+  color: rgb(var(--color-muted)) !important;
 }
 
 /* Global music dock — fixed bottom bar on every browse surface while minimized. */

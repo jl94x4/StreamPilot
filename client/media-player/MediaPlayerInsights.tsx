@@ -433,14 +433,64 @@ const InsightsPage: React.FC<Props> = (props) => {
         );
     }
     if (loading) {
+        // Same shape as the loaded page: six stat tiles, three breakdown cards, the wide "when" card, four facts.
+        const box = 'animate-pulse rounded-2xl border border-white/10 bg-white/[0.04]';
+        const bar = (width: string) => <div className="h-3 rounded-full bg-white/10" style={{ width }} />;
+        const skelTiles = tvShell ? 'grid-cols-6' : 'grid-cols-2 md:grid-cols-3 xl:grid-cols-6';
+        const skelThree = tvShell ? 'grid-cols-3' : 'grid-cols-1 lg:grid-cols-3';
+        const skelFacts = tvShell ? 'grid-cols-4' : 'grid-cols-1 md:grid-cols-2 xl:grid-cols-4';
         return (
-            <div className="flex flex-col gap-5 pb-8">
+            <div className="flex flex-col gap-6 pb-10" aria-busy="true">
                 {heading}
-                <PosterGridSkeleton
-                    className={upgraderPosterGridClass(gridSize)}
-                    style={upgraderPosterGridStyle(gridSize)}
-                    {...(tvShell ? { count: 12, variant: 'home' as const } : {})}
-                />
+                <div className={`grid gap-3 ${skelTiles}`}>
+                    {Array.from({ length: 6 }, (_, i) => (
+                        <div key={i} className={`${box} flex flex-col gap-3 p-5`}>
+                            <div className="h-9 w-1/2 rounded-lg bg-white/10" />
+                            {bar('70%')}
+                        </div>
+                    ))}
+                </div>
+                <div className={`grid gap-5 ${skelThree}`}>
+                    {Array.from({ length: 3 }, (_, i) => (
+                        <div key={i} className="flex flex-col gap-2">
+                            <div className="h-5 w-32 animate-pulse rounded bg-white/10" />
+                            <div className={`${box} flex flex-col gap-4 p-5`}>
+                                {['90%', '72%', '58%', '44%', '30%'].map((w) => (
+                                    <div key={w} className="flex flex-col gap-1.5">
+                                        {bar('40%')}
+                                        <div className="h-2 rounded-full bg-white/10" style={{ width: w }} />
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+                <div className="flex flex-col gap-2">
+                    <div className="h-5 w-40 animate-pulse rounded bg-white/10" />
+                    <div className={`${box} p-5`}>
+                        <div className={`grid gap-8 ${skelThree}`}>
+                            {Array.from({ length: 3 }, (_, i) => (
+                                <div key={i} className="flex h-32 items-end gap-2">
+                                    {[40, 70, 55, 90, 65, 30, 80].map((h, j) => (
+                                        <div key={j} className="flex-1 rounded-t-md bg-white/10" style={{ height: `${h}%` }} />
+                                    ))}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+                <div className="flex flex-col gap-2">
+                    <div className="h-5 w-32 animate-pulse rounded bg-white/10" />
+                    <div className={`grid gap-3 ${skelFacts}`}>
+                        {Array.from({ length: 4 }, (_, i) => (
+                            <div key={i} className={`${box} flex flex-col gap-2 p-5`}>
+                                {bar('50%')}
+                                <div className="h-6 w-3/4 rounded bg-white/10" />
+                                {bar('40%')}
+                            </div>
+                        ))}
+                    </div>
+                </div>
             </div>
         );
     }

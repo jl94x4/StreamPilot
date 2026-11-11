@@ -1433,7 +1433,7 @@ export const MediaPlayerDashboard: React.FC = () => {
 
     return (
         <div className="relative flex h-full min-h-0 w-full flex-col">
-            {tvShell && settings.showClock && !playSession && view.kind !== 'settings' && !(view.kind === 'library' && view.tab === 'browse') ? <PlayerTvClock /> : null}
+            {tvShell && settings.showClock && !playSession && view.kind !== 'settings' && view.kind !== 'history' && !(view.kind === 'library' && view.tab === 'browse') ? <PlayerTvClock /> : null}
             <MediaPlayerNav
                 libraries={libraries}
                 libraryOrder={settings.libraryNavOrder}

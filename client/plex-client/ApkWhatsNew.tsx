@@ -73,6 +73,16 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.676': [
+        {
+            title: 'Insights',
+            items: [
+                'Selected Insights boxes keep a thin accent outline only, never a white fill',
+                'The corner clock is hidden on the Insights page',
+                'The loading placeholder now matches the page: stat tiles, breakdown cards, the viewing-times chart and facts, instead of a poster grid',
+            ],
+        },
+    ],
     '1.0.675': [
         {
             title: 'Insights',
