@@ -883,7 +883,17 @@ const focusItem = (el: HTMLElement, block: ScrollLogicalPosition = 'nearest', di
         const group = row.closest<HTMLElement>('section') || row;
         const port = document.getElementById(PLAYER_SCROLL_ID)?.getBoundingClientRect();
         const fitsOnScreen = !port || group.getBoundingClientRect().height <= port.height * 0.7;
-        scrollRowWithoutPanningRails(fitsOnScreen ? group : (posterCard || el), 'center', 'css');
+        // Same recipe as Home: balanced edge insets so centring leaves a sliver of the rows above
+        // and below, and an instant jump (stacked smooth scrolls left the page part-drawn).
+        const page = document.getElementById(PLAYER_SCROLL_ID);
+        if (page) {
+            const edge = Math.round(48 / Math.max(0.01, readDocumentZoom()));
+            page.style.scrollPaddingTop = `${edge}px`;
+            page.style.scrollPaddingBottom = `${edge}px`;
+        }
+        const target = fitsOnScreen ? group : (posterCard || el);
+        scrollRowWithoutPanningRails(target, 'center', 'auto');
+        window.requestAnimationFrame(() => scrollRowWithoutPanningRails(target, 'center', 'auto'));
         return;
     }
     // Wrapping poster grids (actor, library, hub): keep the whole card — art + title —
