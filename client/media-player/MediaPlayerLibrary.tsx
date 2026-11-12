@@ -523,6 +523,9 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
             setError(null);
             return hasContentHub;
         };
+        // Nothing saved yet: show Recently Added / Released straight away while Plex builds the many
+        // pinned rows (a big library can take 10+ seconds), instead of an empty page.
+        if (!cached?.hubs?.length) void paintLists();
         try {
             // First open (nothing saved): a quick answer paints the rows, then the full one fills in
             // cover art, brand logos and labels. With a saved copy it is already on screen.

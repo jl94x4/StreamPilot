@@ -6608,20 +6608,28 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
         // Prefer includeMeta so pinned shells often arrive with items (matches portal).
         // Always fetch section On Deck in parallel — /hubs/sections often omits Continue
         // Watching (or returns an empty shell), which hid the rail on Recommended.
+        // A library with dozens of pinned rows makes Plex build them all before it answers (about 10 s
+        // for a 25-row TV library on a busy server). 8 s cut that off and the page quietly fell back to
+        // Continue Watching / Recently Added / Recently Released: three rows.
+        const HUBS_TIMEOUT_MS = 40_000;
         const requestedP = pms(
             `/hubs/sections/${encodeURIComponent(section)}?includeMeta=1&includeGuids=1&count=18`,
             active,
-            8000,
+            HUBS_TIMEOUT_MS,
         )
             .then((data) => ({ data, answered: true as const }))
             .catch(() => ({ data: null, answered: false as const }));
-        const plainP = pms(
-            `/hubs/sections/${encodeURIComponent(section)}?includeGuids=1&count=18`,
-            active,
-            8000,
-        )
-            .then((data) => ({ data, answered: true as const }))
-            .catch(() => ({ data: null, answered: false as const }));
+        // The plain request is only a fallback. Sending it alongside doubled the load on a server that
+        // was already slow to build the rows.
+        const plainP = requestedP.then((meta) => (meta.answered
+            ? meta
+            : pms(
+                `/hubs/sections/${encodeURIComponent(section)}?includeGuids=1&count=18`,
+                active,
+                HUBS_TIMEOUT_MS,
+            )
+                .then((data) => ({ data, answered: true as const }))
+                .catch(() => ({ data: null, answered: false as const }))));
         const onDeckP = pms(
             `/library/sections/${encodeURIComponent(section)}/onDeck?X-Plex-Container-Size=24`,
             active,
