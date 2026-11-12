@@ -1346,6 +1346,7 @@ public class PlayerActivity extends AppCompatActivity {
         timeView = findViewById(R.id.player_time);
         remainingView = findViewById(R.id.player_remaining);
         endsAtView = findViewById(R.id.player_ends_at);
+        placeBadgesForWidth();
         speedLabel = findViewById(R.id.player_speed_label);
         metaView = findViewById(R.id.player_meta);
         seekFlashView = findViewById(R.id.player_seek_flash);
@@ -4841,6 +4842,57 @@ public class PlayerActivity extends AppCompatActivity {
         // The button is for touch screens; on a TV the remote's Home button opens the window.
         boolean show = canPip() && !isTelevision();
         if (pipBtn != null) pipBtn.setVisibility(show ? View.VISIBLE : View.GONE);
+    }
+
+    private ViewGroup badgesHomeRow;
+    private ViewGroup bufferedHome;
+    private int bufferedHomeIndex;
+    private ViewGroup.LayoutParams badgesHomeParams;
+
+    /**
+     * The delivery / resolution / codec chips sit centred on the transport row. On a phone in
+     * portrait that row also holds the transport buttons, the time, the end time and the gear, so
+     * they overlap: there the chips get their own line under the row instead.
+     */
+    private void placeBadgesForWidth() {
+        View badges = findViewById(R.id.player_osd_badges);
+        ViewGroup chrome = findViewById(R.id.player_chrome);
+        if (badges == null || chrome == null || !(badges.getParent() instanceof ViewGroup)) return;
+        if (badgesHomeRow == null) {
+            badgesHomeRow = (ViewGroup) badges.getParent();
+            badgesHomeParams = badges.getLayoutParams();
+        }
+        boolean narrow = !isTelevision() && getResources().getConfiguration().screenWidthDp < 600;
+        boolean stacked = badges.getParent() == chrome;
+        if (narrow == stacked) return;
+        // "44s buffered" also collides with the end time in portrait: it rides along with the chips.
+        View buffered = findViewById(R.id.player_buffer_label);
+        if (buffered != null && buffered.getParent() instanceof ViewGroup && badges instanceof ViewGroup) {
+            if (bufferedHome == null) {
+                bufferedHome = (ViewGroup) buffered.getParent();
+                bufferedHomeIndex = bufferedHome.indexOfChild(buffered);
+            }
+            ((ViewGroup) buffered.getParent()).removeView(buffered);
+            if (narrow) ((ViewGroup) badges).addView(buffered);
+            else bufferedHome.addView(buffered, Math.min(bufferedHomeIndex, bufferedHome.getChildCount()));
+        }
+        ((ViewGroup) badges.getParent()).removeView(badges);
+        if (narrow) {
+            int at = chrome.indexOfChild(badgesHomeRow) + 1;
+            android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.gravity = android.view.Gravity.CENTER_HORIZONTAL;
+            lp.topMargin = Math.round(8 * getResources().getDisplayMetrics().density);
+            chrome.addView(badges, at, lp);
+        } else {
+            badgesHomeRow.addView(badges, badgesHomeParams);
+        }
+    }
+
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        placeBadgesForWidth();
     }
 
     private boolean isTelevision() {

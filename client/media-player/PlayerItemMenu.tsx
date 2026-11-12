@@ -107,7 +107,7 @@ const MENU_MAX_WIDTH = 420;
 
 const rowClass = 'flex w-full items-center gap-3.5 px-1 py-3 text-left text-[1.02rem] font-semibold tracking-tight text-white/95 hover:bg-white/[0.06] disabled:opacity-50';
 const compactRowClass = 'flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left font-semibold hover:bg-white/10 disabled:opacity-50';
-const mobileRowClass = 'flex w-full items-center gap-3 px-4 py-3.5 text-left text-[0.95rem] font-semibold text-white/95 active:bg-white/[0.08] disabled:opacity-50';
+const mobileRowClass = 'flex w-full items-center gap-5 px-6 py-[0.95rem] text-left text-[1.05rem] font-medium text-white active:bg-white/[0.08] disabled:opacity-50';
 
 const isPhonePosterUi = () => {
     if (typeof window === 'undefined') return false;
@@ -198,9 +198,12 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
         || window.__PLEX_CLIENT__?.isTv === true
     );
     const useContextSheet = isTv;
-    const useMobileModal = !isTv && variant !== 'toolbar' && phoneUi;
+    // Phones: the page's More button and a long-press both open the Plex-style bottom sheet.
+    const useMobileModal = !isTv && phoneUi;
     // TV: the page's ⋯ menu and a Select-hold on the same title must offer the same options.
-    const fullMenu = variant !== 'toolbar' || isTv;
+    const fullMenu = variant !== 'toolbar' || isTv || useMobileModal;
+    // Poster cards open the sheet from a long-press; the page's toolbar keeps its visible More button.
+    const hidePosterTrigger = useMobileModal && variant !== 'toolbar';
     const canFileInfo = fullMenu
         && (item.type === 'movie' || item.type === 'episode' || item.type === 'clip' || item.type === 'trailer');
     const canRefreshMetadata = fullMenu
@@ -325,7 +328,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
     const iconClass = useContextSheet
         ? 'h-[1.15rem] w-[1.15rem] shrink-0 opacity-90'
         : useMobileModal
-            ? 'h-[1.15rem] w-[1.15rem] shrink-0 opacity-90'
+            ? 'h-6 w-6 shrink-0'
             : 'h-4 w-4 shrink-0 opacity-80';
 
     useEffect(() => {
@@ -1399,7 +1402,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
             </div>
         ) : useMobileModal ? (
             <div
-                className="fixed inset-0 z-[3500] flex items-center justify-center bg-black/55 p-5"
+                className="fixed inset-0 z-[3500] flex items-end bg-black/60"
                 data-player-mobile-context="1"
                 onClick={(event) => {
                     if (event.target === event.currentTarget) close();
@@ -1409,24 +1412,39 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                     ref={menuRef}
                     role="menu"
                     data-tv-item-menu="1"
-                    className="player-mobile-context-modal flex max-h-[min(78dvh,36rem)] w-full max-w-[22rem] flex-col overflow-hidden rounded-2xl border border-white/12 bg-[#1c2028] shadow-[0_24px_80px_rgba(0,0,0,0.6)]"
+                    className="player-mobile-context-modal flex max-h-[88dvh] w-full flex-col overflow-hidden rounded-t-[1.75rem] bg-black pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-12px_60px_rgba(0,0,0,0.7)]"
                     {...stopBubble}
                 >
-                    <div className="shrink-0 border-b border-white/10 px-4 py-3.5">
-                        <p className="truncate text-[1.05rem] font-bold leading-tight text-white">
-                            {item.title || t('mediaPlayerPage.unknownTitle')}
-                        </p>
-                    </div>
-                    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-                        {actionRows}
-                    </div>
                     <button
                         type="button"
-                        className="shrink-0 border-t border-white/10 px-4 py-3.5 text-center text-sm font-bold text-white/75 active:bg-white/[0.06]"
+                        aria-label={t('common.close')}
+                        className="flex shrink-0 justify-center pb-3 pt-3"
                         onClick={close}
                     >
-                        {t('common.close')}
+                        <span className="h-1 w-11 rounded-full bg-white/35" />
                     </button>
+                    <div className="shrink-0 px-6 pb-4 text-center">
+                        <p className="truncate text-[1.1rem] font-bold leading-tight text-white">
+                            {(item.type === 'episode' ? (item.showTitle || item.title) : item.title) || t('mediaPlayerPage.unknownTitle')}
+                        </p>
+                        {item.type === 'episode' && item.parentIndex != null && item.index != null ? (
+                            <p className="mt-0.5 text-sm text-white/60">{`S${item.parentIndex} • E${item.index}`}</p>
+                        ) : null}
+                    </div>
+                    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+                        {mode === 'main' && canPrimaryWatch ? (
+                            <button
+                                type="button"
+                                role="menuitem"
+                                className={itemClass}
+                                onClick={() => choose(() => onPlay?.(resumeItem))}
+                            >
+                                <Play className="h-6 w-6 shrink-0 fill-current" />
+                                {primaryWatchLabel}
+                            </button>
+                        ) : null}
+                        {actionRows}
+                    </div>
                 </div>
             </div>
         ) : (
@@ -1452,15 +1470,15 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
             <TvButton
                 ref={triggerRef}
                 type="button"
-                tabIndex={hideTrigger || useMobileModal ? -1 : undefined}
+                tabIndex={hideTrigger || hidePosterTrigger ? -1 : undefined}
                 data-tv-item={variant === 'toolbar' && !hideTrigger ? '1' : undefined}
                 data-tv-action={variant === 'toolbar' && !hideTrigger ? '1' : undefined}
                 data-tv-key={variant === 'toolbar' && !hideTrigger ? `more:${item.ratingKey}` : undefined}
-                aria-hidden={hideTrigger || useMobileModal ? true : undefined}
+                aria-hidden={hideTrigger || hidePosterTrigger ? true : undefined}
                 aria-label={t('mediaPlayerPage.moreActions')}
                 aria-haspopup="menu"
                 aria-expanded={open}
-                className={hideTrigger || useMobileModal
+                className={hideTrigger || hidePosterTrigger
                     ? 'sr-only'
                     : variant === 'toolbar'
                     ? 'inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/15 bg-white/5 text-white transition-colors hover:border-plex/40 hover:bg-white/10'

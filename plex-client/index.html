@@ -3476,6 +3476,54 @@
       border: 1px solid rgb(var(--tv-accent) / 0.35);
     }
     /* TV: full width, nothing capped. */
+    /* ───────── Person page — phone ───────── */
+    html[data-phone="1"] .player-person-page {
+      gap: 1.5rem;
+      padding-top: calc(env(safe-area-inset-top, 0px) + 0.75rem);
+    }
+    html[data-phone="1"] .player-person-page > .player-page-back {
+      align-self: flex-start;
+      margin-bottom: 0.25rem;
+    }
+    /* One fade for the whole backdrop, so it dissolves into the page instead of ending in an edge. */
+    html[data-phone="1"] .player-person-ambient {
+      height: 30rem;
+      -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 45%, transparent 100%);
+      mask-image: linear-gradient(to bottom, #000 0%, #000 45%, transparent 100%);
+    }
+    html[data-phone="1"] .player-person-ambient-scrim {
+      background: linear-gradient(to bottom, rgba(0, 0, 0, 0.15), rgba(0, 0, 0, 0.55));
+    }
+    html[data-phone="1"] .player-person-hero { gap: 1.25rem; padding-top: 0.5rem; }
+    html[data-phone="1"] .player-person-portrait { width: 11rem; height: 11rem; }
+    html[data-phone="1"] .player-person-name-under { max-width: 100%; font-size: 1.9rem; margin-top: 1.1rem !important; }
+    html[data-phone="1"] .player-person-copy { text-align: center; }
+    html[data-phone="1"] .player-person-eyebrow { text-align: center; margin-bottom: 0; }
+    html[data-phone="1"] .player-person-glance { text-align: left; }
+    html[data-phone="1"] .player-person-glance-tile {
+      background: rgba(255, 255, 255, 0.06);
+      padding: 0.75rem 0.9rem;
+    }
+    html[data-phone="1"] .player-person-glance-label { font-size: 0.64rem; }
+    html[data-phone="1"] .player-person-glance-value { font-size: 1.05rem; overflow-wrap: anywhere; }
+    html[data-phone="1"] .player-person-bio { text-align: left; }
+    html[data-phone="1"] .player-person-bio-body { font-size: 0.95rem; line-height: 1.55; }
+    html[data-phone="1"] .player-person-knownfor { text-align: left; font-size: 0.85rem; line-height: 1.5; }
+    html[data-phone="1"] .player-person-knownfor > span { display: inline; }
+    html[data-phone="1"] .player-person-knownfor > span:first-child { display: block; margin-bottom: 0.2rem; }
+    html[data-phone="1"] .player-person-knownfor > span:nth-child(2) { display: none; }
+    html[data-phone="1"] .player-person-decade { grid-template-columns: minmax(0, 1fr); row-gap: 0.5rem; }
+    html[data-phone="1"] .player-person-decade-label {
+      width: auto;
+      flex-direction: row;
+      align-items: baseline;
+      gap: 0.6rem;
+      flex-wrap: wrap;
+    }
+    html[data-phone="1"] .player-person-decade-count { margin-top: 0; }
+    html[data-phone="1"] .player-person-decade-rule { flex: 1 1 100%; margin-top: 0.15rem; }
+    html[data-phone="1"] .player-person-credit-title { white-space: normal; }
+    html[data-phone="1"] .player-person-credit-row { padding: 0.55rem 0.75rem; }
     html[data-tv="1"] .player-person-page,
     html[data-tv="1"] .player-person-hero,
     html[data-tv="1"] .player-person-copy,

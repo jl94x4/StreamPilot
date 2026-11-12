@@ -3,6 +3,7 @@ import { Lightbulb, RefreshCw } from 'lucide-react';
 import { apiFetch } from '../shared/api';
 import { usePoll } from '../shared/usePoll';
 import { useDiscoverI18n } from './i18n';
+import { isPhoneUi } from '../plex-client/config';
 
 type FactResponse = {
     facts?: string[];
@@ -155,7 +156,7 @@ export const DiscoveryFactWidget: React.FC<{
 
     const current = facts[index] || facts[0];
     const bodyClass = compact
-        ? 'text-sm text-text/80 leading-snug line-clamp-2 whitespace-normal'
+        ? `text-sm text-text/80 leading-snug whitespace-normal${isPhoneUi() ? '' : ' line-clamp-2'}`
         : 'text-sm text-text/80 leading-relaxed';
     const textColClass = compact
         ? 'flex min-w-0 max-w-full flex-col justify-center gap-1.5'

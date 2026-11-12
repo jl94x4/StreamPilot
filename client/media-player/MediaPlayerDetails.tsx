@@ -13,7 +13,7 @@ import {
     useDiscoverI18n,
     type CombinedRatings,
 } from './host';
-import { addMediaPlayerPlaylistItem, createMediaPlayerPlaylist, fetchMediaPlayerItem, fetchMediaPlayerItemMore, fetchMediaPlayerNeighbors, fetchMediaPlayerPlaylists, fetchMediaPlayerWatchlist, pausePlayerBackgroundLoads, resumePlayerBackgroundLoads, setMediaPlayerWatched, setMediaPlayerWatchlisted, setSeasonEpisodesWatched } from './api';
+import { addMediaPlayerPlaylistItem, createMediaPlayerPlaylist, fetchMediaPlayerItem, fetchMediaPlayerItemMore, fetchMediaPlayerNeighbors, fetchMediaPlayerPlaylists, fetchMediaPlayerWatchlist, pausePlayerBackgroundLoads, resumePlayerBackgroundLoads, setMediaPlayerRating, setMediaPlayerWatched, setMediaPlayerWatchlisted, setSeasonEpisodesWatched } from './api';
 import { MediaPlayerThemeTune } from './MediaPlayerThemeTune';
 import {
     OVERVIEW_FACT_WIDTH_CLASS,
@@ -1756,6 +1756,59 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                 <span className="media-details-action-label">{t('mediaPlayerPage.watchTogether')}</span>
             </TvButton>
         ) : null;
+    const [rateOpen, setRateOpen] = useState(false);
+    const rateStars = Math.max(0, Math.min(5, Math.round(Number(item?.userRating || 0) / 2)));
+    const rateItem = async (stars: number) => {
+        if (!item) return;
+        setRateOpen(false);
+        try {
+            await setMediaPlayerRating(item.ratingKey, stars * 2, item.serverId);
+            setItem({ ...item, userRating: stars * 2 });
+            onToast?.(stars ? t('mediaPlayerPage.ratingSaved') : t('mediaPlayerPage.ratingCleared'));
+        } catch {
+            onToast?.(t('mediaPlayerPage.actionError'), 'error');
+        }
+    };
+    const rateChip = item && (item.type === 'movie' || item.type === 'show' || item.type === 'episode' || item.type === 'season') ? (
+        <>
+            <TvButton
+                type="button"
+                data-tv-item="1"
+                data-tv-action="1"
+                data-tv-key={`rate:${item.ratingKey}`}
+                onClick={() => setRateOpen(true)}
+                title={t('mediaPlayerPage.rate')}
+                aria-label={t('mediaPlayerPage.rate')}
+                className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/15 bg-white/5 text-white transition-colors hover:border-plex/40 hover:bg-white/10"
+            >
+                <Star className={`h-4 w-4${rateStars ? ' fill-plex text-plex' : ''}`} />
+                <span className="media-details-action-label">{t('mediaPlayerPage.rate')}</span>
+            </TvButton>
+            {rateOpen ? (
+                <div
+                    className="fixed inset-0 z-[3500] flex items-end bg-black/60"
+                    onClick={(event) => { if (event.target === event.currentTarget) setRateOpen(false); }}
+                >
+                    <div className="flex w-full flex-col items-center rounded-t-[1.75rem] bg-black px-6 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-3">
+                        <span className="mb-4 h-1 w-11 rounded-full bg-white/35" />
+                        <p className="mb-4 text-[1.1rem] font-bold text-white">{item.title}</p>
+                        <div className="flex items-center gap-2">
+                            {[1, 2, 3, 4, 5].map((star) => (
+                                <button key={star} type="button" aria-label={`${star}`} className="p-1.5" onClick={() => { void rateItem(star); }}>
+                                    <Star className={`h-9 w-9 ${rateStars >= star ? 'fill-plex text-plex' : 'text-white/40'}`} />
+                                </button>
+                            ))}
+                        </div>
+                        {rateStars > 0 ? (
+                            <button type="button" className="mt-4 px-4 py-2 text-sm font-semibold text-white/65" onClick={() => { void rateItem(0); }}>
+                                {t('mediaPlayerPage.clearRating')}
+                            </button>
+                        ) : null}
+                    </div>
+                </div>
+            ) : null}
+        </>
+    ) : null;
     const tvTrailerButton = isTvShell && trailer && item ? (
         <TvButton
             type="button"
@@ -3240,7 +3293,8 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                             {tvTrailerButton}
                                             {playNextButton}
                                             <div className="media-details-action-chips">
-                                            {shuffleChip}
+                                            {phoneUi ? watchlistChip : null}
+                                            {phoneUi ? null : shuffleChip}
                                             {!isTvShell && trailer ? (
                                                 <TvButton
                                                     type="button"
@@ -3257,6 +3311,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                                     <span className="media-details-action-label">{t('mediaPlayerPage.trailer')}</span>
                                                 </TvButton>
                                             ) : null}
+                                            {phoneUi ? rateChip : null}
                                             {item.type === 'movie' || item.type === 'episode' || item.type === 'show' || item.type === 'season' ? (
                                                 <TvButton
                                                     type="button"
@@ -3272,11 +3327,11 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                                     <span className="media-details-action-label">{phoneUi ? actionWatchedLabel : (watchedTarget.watched ? t('mediaPlayerPage.markUnwatched') : t('mediaPlayerPage.markWatched'))}</span>
                                                 </TvButton>
                                             ) : null}
-                                            {watchlistChip}
-                                            {watchTogetherChip}
+                                            {phoneUi ? null : watchlistChip}
+                                            {phoneUi ? null : watchTogetherChip}
                                             {settings.showPlaylists
                                                 && (item.type === 'movie' || item.type === 'episode' || item.type === 'show' || item.type === 'season') ? (
-                                                <div className="relative media-details-action-slot media-details-playlist-slot">
+                                                <div className="relative media-details-action-slot media-details-playlist-slot" style={phoneUi ? { display: 'none' } : undefined}>
                                                     <TvButton
                                                         type="button"
                                                         data-tv-item="1"
@@ -3352,6 +3407,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                                     data-tv-item="1"
                                                     data-tv-action="1"
                                                     data-tv-key={`info:${item.ratingKey}`}
+                                                    style={phoneUi ? { display: 'none' } : undefined}
                                                     onClick={() => setFileInfoOpen(true)}
                                                     title={t('mediaPlayerPage.fileInfo')}
                                                     aria-label={t('mediaPlayerPage.fileInfo')}
@@ -3472,7 +3528,8 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                     {tvTrailerButton}
                                     {playNextButton}
                                     <div className="media-details-action-chips">
-                                    {shuffleChip}
+                                    {phoneUi ? watchlistChip : null}
+                                    {phoneUi ? null : shuffleChip}
                                     {!isTvShell && trailer ? (
                                         <TvButton
                                             type="button"
@@ -3489,6 +3546,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                             <span className="media-details-action-label">{t('mediaPlayerPage.trailer')}</span>
                                         </TvButton>
                                     ) : null}
+                                    {phoneUi ? rateChip : null}
                                     <TvButton
                                         type="button"
                                         data-tv-item="1"
@@ -3502,10 +3560,10 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                         {phoneUi ? <CircleCheck className={`h-4 w-4${watchedTarget.watched ? ' text-plex' : ''}`} /> : (watchedTarget.watched ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />)}
                                         <span className="media-details-action-label">{phoneUi ? actionWatchedLabel : (watchedTarget.watched ? t('mediaPlayerPage.markUnwatched') : t('mediaPlayerPage.markWatched'))}</span>
                                     </TvButton>
-                                    {watchlistChip}
-                                    {watchTogetherChip}
+                                    {phoneUi ? null : watchlistChip}
+                                    {phoneUi ? null : watchTogetherChip}
                                     {settings.showPlaylists ? (
-                                        <div className="relative media-details-action-slot media-details-playlist-slot">
+                                        <div className="relative media-details-action-slot media-details-playlist-slot" style={phoneUi ? { display: 'none' } : undefined}>
                                             <TvButton
                                                 type="button"
                                                 data-tv-item="1"
@@ -3580,6 +3638,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                         data-tv-item="1"
                                         data-tv-action="1"
                                         data-tv-key={`info:${item.ratingKey}`}
+                                        style={phoneUi ? { display: 'none' } : undefined}
                                         onClick={() => setFileInfoOpen(true)}
                                         title={t('mediaPlayerPage.fileInfo')}
                                         aria-label={t('mediaPlayerPage.fileInfo')}

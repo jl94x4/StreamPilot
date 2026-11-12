@@ -113,7 +113,8 @@ dependencies {
     implementation "androidx.tvprovider:tvprovider:1.1.0"
     // Who's on screen (test): offline face detection + FaceNet embeddings, all on the TV.
     implementation "com.google.mlkit:face-detection:16.1.7"
-    implementation "org.tensorflow:tensorflow-lite:2.16.1"
+    // LiteRT (the renamed TensorFlow Lite) ships 16 KB-aligned native libraries; Google Play requires them.
+    implementation "com.google.ai.edge.litert:litert:1.4.0"
     implementation project(':capacitor-android')
     testImplementation "junit:junit:$junitVersion"
     // Real android.net.Uri / org.json on the JVM for the player helper tests (.\gradlew.bat test).
