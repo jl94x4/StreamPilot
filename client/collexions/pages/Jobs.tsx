@@ -8,9 +8,7 @@ import {
     Trash2,
     RefreshCcw,
     Clock,
-    Calendar,
     Database,
-    CheckCircle2,
     Activity,
     ChevronRight,
     Search,
@@ -35,7 +33,34 @@ interface ManagedJob {
     auto_sync: boolean;
     last_status?: string;
     last_error?: string;
+    last_change?: {
+        at?: string;
+        added?: number;
+        removed?: number;
+        total?: number;
+        source_total?: number;
+        created?: boolean;
+        added_titles?: string[];
+        removed_titles?: string[];
+    };
 }
+
+const GRID_COLS = 'lg:grid-cols-[minmax(0,2.2fr)_110px_minmax(0,1.6fr)_150px_210px]';
+
+const relTime = (raw?: string): string => {
+    if (!raw) return '-';
+    const t = new Date(raw.replace(' ', 'T')).getTime();
+    if (!Number.isFinite(t)) return raw;
+    const diff = Date.now() - t;
+    const abs = Math.abs(diff);
+    const mins = Math.round(abs / 60000);
+    let text: string;
+    if (mins < 1) text = 'moments';
+    else if (mins < 60) text = `${mins} min`;
+    else if (mins < 60 * 48) text = `${Math.round(mins / 60)} hr`;
+    else text = `${Math.round(mins / 1440)} days`;
+    return diff >= 0 ? `${text} ago` : `in ${text}`;
+};
 
 type JobMemberRow = {
     title?: string;
@@ -146,6 +171,7 @@ const JobsPage: React.FC = () => {
     const [serviceFilter, setServiceFilter] = useState<'all' | 'trakt' | 'mdblist' | 'justwatch' | 'letterboxd'>('all');
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(10);
+    const [expandedJobs, setExpandedJobs] = useState<Set<string>>(new Set());
 
     useEffect(() => {
         fetchJobs();
@@ -618,83 +644,142 @@ const JobsPage: React.FC = () => {
                 </div>
             ) : (
                 <div className="space-y-4">
-                    <div className="grid grid-cols-1 gap-4">
-                        {paginatedJobs.map(([id, job]) => (
-                            <div key={id} className="bg-card/50 border border-border rounded-xl p-5 hover:border-border transition-all group">
-                                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-                                    {/* Left: Job Info */}
-                                    <div className="flex items-start gap-4">
-                                        <div className="p-3 bg-card rounded-lg text-plex">
-                                            <Database className="w-6 h-6" />
-                                        </div>
-                                        <div className="min-w-0">
-                                            <div className="flex items-center gap-2 flex-wrap">
-                                                <h3 className="text-lg font-bold text-text uppercase tracking-tight truncate max-w-[200px] md:max-w-md">{job.name}</h3>
-                                                {getSourceBadge(job.source_type)}
-                                                {getSortBadge(job.sort_order)}
-                                                <JobStatusPill job={job} isRunning={isJobRunning(id)} />
+                    <div className={`hidden lg:grid ${GRID_COLS} gap-4 px-5 text-[10px] font-bold uppercase tracking-widest text-muted`}>
+                        <span>Collection</span>
+                        <span>Status</span>
+                        <span>Last sync &amp; changes</span>
+                        <span>Next sync</span>
+                        <span className="text-right">Actions</span>
+                    </div>
+                    <div className="grid grid-cols-1 gap-3">
+                        {paginatedJobs.map(([id, job]) => {
+                            const change = job.last_change;
+                            const open = expandedJobs.has(id);
+                            const hasTitles = Boolean(change && ((change.added_titles || []).length || (change.removed_titles || []).length));
+                            return (
+                                <div key={id} className="bg-card/50 border border-border rounded-xl px-5 py-4 hover:border-plex/30 transition-all">
+                                    <div className={`grid grid-cols-1 ${GRID_COLS} gap-3 lg:gap-4 lg:items-center`}>
+                                        <div className="flex items-center gap-3 min-w-0">
+                                            <div className="p-2.5 bg-card rounded-lg text-plex shrink-0">
+                                                <Database className="w-5 h-5" />
                                             </div>
-                                            <div className="flex items-center gap-4 mt-1 text-sm text-muted">
-                                                <span className="flex items-center gap-1">
-                                                    <Database className="w-3 h-3" /> {job.library}
-                                                </span>
-                                                <span className="flex items-center gap-1">
-                                                    <Activity className="w-3 h-3" /> {job.source_type.replace(/_/g, ' ')}
-                                                </span>
+                                            <div className="min-w-0">
+                                                <h3 className="text-base font-bold text-text truncate" title={job.name}>{job.name}</h3>
+                                                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+                                                    <span>{job.library}</span>
+                                                    {getSourceBadge(job.source_type)}
+                                                    {getSortBadge(job.sort_order)}
+                                                </div>
                                             </div>
                                         </div>
-                                    </div>
 
-                                    {/* Middle: Timing */}
-                                    <div className="grid grid-cols-2 md:grid-cols-3 gap-6 flex-1 max-w-2xl">
-                                        <div className="flex flex-col">
-                                            <span className="text-[10px] text-muted font-bold uppercase tracking-widest mb-1 flex items-center gap-1">
-                                                <CheckCircle2 className={`w-3 h-3 ${String(job.last_status || '').toLowerCase() === 'failed' ? 'text-red-400' : String(job.last_status || '').toLowerCase() === 'warning' ? 'text-amber-400' : 'text-green-500'}`} /> Last Sync
-                                            </span>
-                                            <span className="text-sm font-mono text-text">{job.last_run}</span>
+                                        <div>
+                                            <JobStatusPill job={job} isRunning={isJobRunning(id)} />
                                         </div>
-                                        <div className="flex flex-col">
-                                            <span className="text-[10px] text-muted font-bold uppercase tracking-widest mb-1 flex items-center gap-1">
-                                                <Clock className="w-3 h-3 text-plex" /> Next Sync
-                                            </span>
-                                            <span className="text-sm font-mono text-text uppercase">{job.next_run}</span>
-                                        </div>
-                                        <div className="flex flex-col hidden md:flex">
-                                            <span className="text-[10px] text-muted font-bold uppercase tracking-widest mb-1 flex items-center gap-1">
-                                                <Calendar className="w-3 h-3" /> Created
-                                            </span>
-                                            <span className="text-xs text-muted">{job.created_at}</span>
-                                        </div>
-                                    </div>
 
-                                    {/* Right: Actions */}
-                                    <div className="flex items-center gap-2 border-t lg:border-t-0 pt-4 lg:pt-0">
-                                        <button
-                                            onClick={() => handleRunNow(id)}
-                                            disabled={runningJob !== null}
-                                            className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-green-950/30 hover:bg-green-600 text-green-400 hover:text-text border border-green-900/50 rounded-lg text-sm font-bold transition-all disabled:opacity-50"
-                                        >
-                                            {isJobRunning(id) ? <RefreshCcw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-                                            {isJobRunning(id) ? '...' : 'Run Now'}
-                                        </button>
-                                        <button
-                                            onClick={() => openEdit(id)}
-                                            className="flex items-center justify-center p-2.5 bg-card hover:bg-white/10 text-muted hover:text-text border border-border rounded-lg transition-all"
-                                            title="Edit collection settings"
-                                        >
-                                            <Pencil className="w-4 h-4" />
-                                        </button>
-                                        <button
-                                            onClick={() => handleDelete(id)}
-                                            className="flex items-center justify-center p-2.5 bg-red-950/30 hover:bg-red-600 text-red-500 hover:text-text border border-red-950 rounded-lg transition-all"
-                                            title="Stop Auto-Sync"
-                                        >
-                                            <Trash2 className="w-4 h-4" />
-                                        </button>
+                                        <div className="min-w-0 space-y-1.5">
+                                            <p className="text-sm text-text" title={job.last_run}>
+                                                {relTime(job.last_run)}
+                                                <span className="ml-2 font-mono text-[11px] text-muted">{job.last_run}</span>
+                                            </p>
+                                            {change ? (
+                                                <div className="flex flex-wrap items-center gap-1.5">
+                                                    {change.created ? (
+                                                        <span className="rounded-md border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-[11px] font-semibold text-sky-300">Created</span>
+                                                    ) : null}
+                                                    {change.added ? (
+                                                        <span className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-300">+{change.added} added</span>
+                                                    ) : null}
+                                                    {change.removed ? (
+                                                        <span className="rounded-md border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-[11px] font-semibold text-red-300">-{change.removed} removed</span>
+                                                    ) : null}
+                                                    {!change.added && !change.removed ? (
+                                                        <span className="rounded-md border border-border bg-background/40 px-2 py-0.5 text-[11px] font-semibold text-muted">No changes</span>
+                                                    ) : null}
+                                                    {typeof change.total === 'number' ? (
+                                                        <span className="text-[11px] text-muted">{change.total} titles{change.source_total && change.source_total !== change.total ? ` (of ${change.source_total} on list)` : ''}</span>
+                                                    ) : null}
+                                                    {hasTitles ? (
+                                                        <button
+                                                            type="button"
+                                                            className="text-[11px] font-semibold text-plex hover:underline"
+                                                            onClick={() => setExpandedJobs((prev) => {
+                                                                const next = new Set(prev);
+                                                                if (next.has(id)) next.delete(id); else next.add(id);
+                                                                return next;
+                                                            })}
+                                                        >
+                                                            {open ? 'Hide' : 'Details'}
+                                                        </button>
+                                                    ) : null}
+                                                </div>
+                                            ) : (
+                                                <p className="text-[11px] text-muted">Changes are recorded from the next sync.</p>
+                                            )}
+                                            {job.last_error && String(job.last_status || '').toLowerCase() !== 'success' ? (
+                                                <p className="text-[11px] text-amber-300 truncate" title={job.last_error}>{job.last_error}</p>
+                                            ) : null}
+                                        </div>
+
+                                        <div>
+                                            <p className="text-sm text-text">{relTime(job.next_run)}</p>
+                                            <p className="font-mono text-[11px] text-muted">{job.next_run}</p>
+                                        </div>
+
+                                        <div className="flex items-center gap-2 lg:justify-end">
+                                            <button
+                                                onClick={() => handleRunNow(id)}
+                                                disabled={runningJob !== null}
+                                                className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-green-950/30 hover:bg-green-600 text-green-400 hover:text-text border border-green-900/50 rounded-lg text-sm font-bold transition-all disabled:opacity-50"
+                                            >
+                                                {isJobRunning(id) ? <RefreshCcw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+                                                {isJobRunning(id) ? '...' : 'Run Now'}
+                                            </button>
+                                            <button
+                                                onClick={() => openEdit(id)}
+                                                className="flex items-center justify-center p-2 bg-card hover:bg-white/10 text-muted hover:text-text border border-border rounded-lg transition-all"
+                                                title="Edit collection settings"
+                                            >
+                                                <Pencil className="w-4 h-4" />
+                                            </button>
+                                            <button
+                                                onClick={() => handleDelete(id)}
+                                                className="flex items-center justify-center p-2 bg-red-950/30 hover:bg-red-600 text-red-500 hover:text-text border border-red-950 rounded-lg transition-all"
+                                                title="Stop Auto-Sync"
+                                            >
+                                                <Trash2 className="w-4 h-4" />
+                                            </button>
+                                        </div>
                                     </div>
+                                    {open && change ? (
+                                        <div className="mt-3 grid gap-3 border-t border-white/10 pt-3 sm:grid-cols-2">
+                                            <div>
+                                                <p className="mb-1 text-[10px] font-bold uppercase tracking-widest text-emerald-300">Added</p>
+                                                {(change.added_titles || []).length ? (
+                                                    <ul className="space-y-0.5 text-xs text-text">
+                                                        {(change.added_titles || []).map((t) => <li key={t} className="truncate">+ {t}</li>)}
+                                                        {(change.added || 0) > (change.added_titles || []).length ? (
+                                                            <li className="text-muted">and {(change.added || 0) - (change.added_titles || []).length} more</li>
+                                                        ) : null}
+                                                    </ul>
+                                                ) : <p className="text-xs text-muted">Nothing added.</p>}
+                                            </div>
+                                            <div>
+                                                <p className="mb-1 text-[10px] font-bold uppercase tracking-widest text-red-300">Removed</p>
+                                                {(change.removed_titles || []).length ? (
+                                                    <ul className="space-y-0.5 text-xs text-text">
+                                                        {(change.removed_titles || []).map((t) => <li key={t} className="truncate">- {t}</li>)}
+                                                        {(change.removed || 0) > (change.removed_titles || []).length ? (
+                                                            <li className="text-muted">and {(change.removed || 0) - (change.removed_titles || []).length} more</li>
+                                                        ) : null}
+                                                    </ul>
+                                                ) : <p className="text-xs text-muted">Nothing removed.</p>}
+                                            </div>
+                                        </div>
+                                    ) : null}
                                 </div>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
 
                     {/* Pagination Controls */}

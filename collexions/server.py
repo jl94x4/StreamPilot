@@ -2167,6 +2167,18 @@ def _delete_duplicate_collections(library, title, keep_rating_key=None):
     return removed
 
 
+def _delta_titles(items, limit=12):
+    out = []
+    for item in items or []:
+        title = str(getattr(item, 'title', '') or '').strip()
+        if title:
+            year = getattr(item, 'year', None)
+            out.append(f"{title} ({year})" if year else title)
+        if len(out) >= limit:
+            break
+    return out
+
+
 def _update_collection_items_in_place(coll, matched_items, label):
     """Sync collection membership. Returns {changed, added, removed, memberKeys}."""
     current_by_key = {}
@@ -2198,6 +2210,8 @@ def _update_collection_items_in_place(coll, matched_items, label):
         'changed': bool(to_add or to_remove),
         'added': len(to_add),
         'removed': len(to_remove),
+        'added_titles': _delta_titles(to_add),
+        'removed_titles': _delta_titles(to_remove),
         'memberKeys': sorted(target_by_key.keys()),
     }
 
@@ -2670,6 +2684,8 @@ def _ensure_random_smart_collection(library, title, matched_items, label='Collex
             'changed': bool(to_add or to_remove) or created,
             'added': len(to_add),
             'removed': len(to_remove),
+            'added_titles': _delta_titles(to_add),
+            'removed_titles': _delta_titles(to_remove),
             'memberKeys': sorted(target_by_key.keys()),
         }
 
@@ -3623,6 +3639,19 @@ def run_sync_job(job_id=None):
                         log_action(f"Auto-Sync: Created '{coll_name}' with {len(plex_items)} items.")
                     else:
                         log_action(f"Auto-Sync: Updated '{coll_name}' in place (key {coll_key or keep_key or '?'}).")
+                    try:
+                        job['last_change'] = {
+                            'at': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            'added': int(membership_delta.get('added') or 0),
+                            'removed': int(membership_delta.get('removed') or 0),
+                            'total': len(plex_items),
+                            'source_total': len(items),
+                            'created': bool(created_fresh),
+                            'added_titles': list(membership_delta.get('added_titles') or (_delta_titles(plex_items) if created_fresh else []))[:12],
+                            'removed_titles': list(membership_delta.get('removed_titles') or [])[:12],
+                        }
+                    except Exception:
+                        pass
                     if membership_delta.get('skipped_smart'):
                         _stamp_job_run(
                             job,
