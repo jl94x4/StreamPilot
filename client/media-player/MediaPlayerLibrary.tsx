@@ -507,6 +507,8 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
             // still run list fallbacks for Recently Added / Released.
             const hasContentHub = incoming.some((hub) => hub.items?.length && !isContinueWatchingHub(hub));
             setHubs((prev) => {
+                // The server could not get Plex's section rows this time: keep the fuller list we have.
+                if ((data as { incomplete?: boolean }).incomplete && prev.length > incoming.length) return prev;
                 if (hasContentHub && incoming.length > 1) {
                     writeLibraryHomeCache(sectionKey, { ...data, hubs: incoming });
                     return incoming;
@@ -529,6 +531,13 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
             const hasContentHub = applyHome(data);
             if (hasContentHub && data.fast) setLoading(false);
             if (!hasContentHub) await paintLists();
+            if ((data as { incomplete?: boolean }).incomplete) {
+                // Plex was slow on its section rows: ask again shortly for the full Recommended list.
+                window.setTimeout(() => {
+                    if (!alive()) return;
+                    void fetchMediaPlayerLibraryHome(sectionKey).then((again) => { if (alive()) applyHome(again); }).catch(() => undefined);
+                }, 6000);
+            }
             if (data.fast && alive()) {
                 const full = await fetchMediaPlayerLibraryHome(sectionKey).catch(() => null);
                 if (full && alive()) applyHome(full);

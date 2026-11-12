@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.693': [
+        {
+            title: 'Libraries',
+            items: [
+                'Library Recommended retries when Plex is slow to answer, so you no longer end up with only three rows',
+            ],
+        },
+    ],
     '1.0.692': [
         {
             title: 'Home and libraries',
