@@ -78,6 +78,7 @@ const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
             title: 'Libraries',
             items: [
                 'Library Recommended is remembered between launches, so every row is there instantly and refreshes quietly in the background',
+                'New items now appear on a library's Recommended rows while you are looking at them, not only after you reopen it',
             ],
         },
     ],

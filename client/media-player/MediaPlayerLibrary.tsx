@@ -28,7 +28,7 @@ import { discoveryLogoUrl } from '../discovery/discoveryLogoUtils';
 import { studioBrowsePlateBackground } from './studioBrowsePlate.js';
 import type { PlayerStudioBrowseCard } from './types';
 import { keepCurrentContinueItems, readLibraryBrowseState, readLibraryHomeCache, writeLibraryBrowseState, writeLibraryHomeCache } from './playerMemory';
-import { PLAYER_SCROLL_ID } from './paths';
+import { PLAYER_HOME_LIVE_EVENT, PLAYER_SCROLL_ID } from './paths';
 import { PlayerLibraryFilterSheet, type LibraryFilterGroup, type LibraryFilterToggle } from './PlayerLibraryFilterSheet';
 import { PlayerPosterCard } from './PlayerPosterCard';
 import { PlayerStudioTiles, PlayerStudioTilesSkeleton } from './PlayerStudioTiles';
@@ -555,6 +555,22 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
             if (alive()) setLoading(false);
         }
     }, [sectionKey, t]);
+
+    // Plex pushed an add / delete / stopped-playback change: reload the rows while you are on them
+    // (Home already does this). Debounced, and only on the visible Recommended tab.
+    useEffect(() => {
+        if (!active || tab !== 'home' || !hydrated) return undefined;
+        let timer = 0;
+        const onLive = () => {
+            window.clearTimeout(timer);
+            timer = window.setTimeout(() => { void loadHome(); }, 1500);
+        };
+        window.addEventListener(PLAYER_HOME_LIVE_EVENT, onLive);
+        return () => {
+            window.clearTimeout(timer);
+            window.removeEventListener(PLAYER_HOME_LIVE_EVENT, onLive);
+        };
+    }, [active, tab, hydrated, loadHome]);
 
     const browsePageSize = () => {
         if (!browseColumnsRef.current) {
