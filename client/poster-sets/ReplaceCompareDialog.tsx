@@ -24,8 +24,8 @@ const Side: React.FC<{ heading: string; watch: PosterSetsWatch | null | undefine
     return (
         <div className="min-w-0 flex-1 space-y-2 text-center">
             <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted">{heading}</p>
-            <div className="mx-auto flex h-44 w-32 items-center justify-center overflow-hidden rounded-lg border border-white/10 bg-black/40">
-                {src ? <img src={src} alt="" className="h-full w-full object-contain" loading="lazy" /> : <span className="px-2 text-xs text-muted">No preview</span>}
+            <div className="mx-auto flex aspect-[2/3] w-32 items-center justify-center overflow-hidden rounded-lg bg-white/5">
+                {src ? <img src={src} alt="" className="h-full w-full object-cover" loading="lazy" /> : <span className="px-2 text-xs text-muted">No preview</span>}
             </div>
             <p className="line-clamp-2 break-words text-xs font-semibold text-text">{describe(watch)}</p>
         </div>
