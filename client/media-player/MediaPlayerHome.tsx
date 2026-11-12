@@ -2084,7 +2084,11 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 ? Math.min(rows.length - 1, current + 1)
                 : Math.max(0, current - 1);
             const prev = rows[current];
-            const focusKey = tvFocusKeyRef.current;
+            // The ref lags the remote (debounced); the focused poster is the truth.
+            const liveKey = String((document.activeElement as HTMLElement | null)?.closest?.('[data-tv-key]')?.getAttribute('data-tv-key') || '').trim();
+            const focusKey = liveKey && prev?.items.some((item) => String(item.ratingKey || '') === liveKey)
+                ? liveKey
+                : tvFocusKeyRef.current;
             if (prev && focusKey && !landOnFirstRef.current) {
                 tvRowFocusRef.current[prev.id] = focusKey;
             }
@@ -2105,8 +2109,11 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         if (landOnFirst && tvRowIndexRef.current !== 0) return undefined;
         const rowHas = (key: string) => Boolean(key) && tvActiveRow.items.some((item) => String(item.ratingKey || '') === key);
         const remembered = landOnFirst ? '' : peekRememberedTvFocusKey();
-        const saved = (rowHas(remembered) ? remembered : '')
-            || (rowHas(tvRowFocusRef.current[rowId] || '') ? tvRowFocusRef.current[rowId] : '')
+        // This row's own last poster wins; the path-wide key is the poster from the row just left
+        // and the same title can sit in several rows.
+        const ownSaved = tvRowFocusRef.current[rowId] || '';
+        const saved = (rowHas(ownSaved) ? ownSaved : '')
+            || (rowHas(remembered) ? remembered : '')
             || (rowHas(tvFocusKeyRef.current) ? tvFocusKeyRef.current : '');
         let cancelled = false;
         let attempts = 0;

@@ -539,8 +539,12 @@ export const PlayerTvHubStage: React.FC<Props> = ({
         const rowId = tvActiveRow.id;
         const rowHas = (key: string) => Boolean(key) && tvActiveRow.items.some((item) => String(item.ratingKey || '') === key);
         const remembered = peekRememberedTvFocusKey();
-        const saved = (rowHas(remembered) ? remembered : '')
-            || (rowHas(tvRowFocusRef.current[rowId] || '') ? tvRowFocusRef.current[rowId] : '')
+        // This row's own last poster wins. The path-wide "last focused" key is the poster from the
+        // row we just left, and library rows overlap (Recently Added / Released / collections), so
+        // preferring it snapped the new row to the same title instead of where you were in it.
+        const ownSaved = tvRowFocusRef.current[rowId] || '';
+        const saved = (rowHas(ownSaved) ? ownSaved : '')
+            || (rowHas(remembered) ? remembered : '')
             || (rowHas(tvFocusKey) ? tvFocusKey : '');
         let cancelled = false;
         const focusSaved = () => {
