@@ -127,6 +127,27 @@ def labels_from_kometa_entry(entry: Optional[dict]) -> list[str]:
     return names
 
 
+def custom_collection_label_names(data_dir: Path) -> list[str]:
+    """Labels the Overlays custom-collection rules stamp (rule id + rule name, e.g. Trending).
+
+    These are not in the built-in list, so a poster that only carried a collection badge kept its
+    label after Poster Sets replaced it, and Overlays then trusted the old backup.
+    """
+    config = _load_json_object(Path(data_dir) / "config.json")
+    rules = config.get("customCollectionOverlays") or config.get("custom_collection_overlays") or []
+    names: list[str] = []
+    seen: set[str] = set()
+    for rule in rules if isinstance(rules, list) else []:
+        if not isinstance(rule, dict):
+            continue
+        for value in (rule.get("id"), rule.get("name"), rule.get("title"), rule.get("label")):
+            label = str(value or "").strip()
+            if label and label.casefold() not in seen:
+                seen.add(label.casefold())
+                names.append(label)
+    return names
+
+
 def _load_json_object(path: Path) -> dict:
     if not path.is_file():
         return {}
@@ -250,7 +271,16 @@ def clear_overlays_after_poster_apply(item, config: Optional[dict] = None, progr
     for key in keys:
         extra.extend(labels_from_kometa_entry(kometa_log.get(key)))
     try:
+        extra.extend(custom_collection_label_names(data_dir))
+    except Exception:
+        pass
+    try:
         clear_overlay_labels(item, extra_labels=extra, progress=progress)
+        # Overlays treats any stamp label still on the item as "already stamped": say so if one stuck.
+        want = {str(name).strip().casefold() for name in list(known_overlay_stamp_label_names()) + extra if str(name).strip()}
+        left = [_label_tag(lab) for lab in (getattr(item, "labels", None) or []) if _label_tag(lab).casefold() in want]
+        if left:
+            emit(progress, f"Overlay label(s) still on the item after clearing: {', '.join(left)}")
     except Exception as exc:
         emit(progress, f"Overlay label clear skipped: {exc}")
     try:

@@ -7,6 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from clear_overlays import (
+    custom_collection_label_names,
     clear_overlay_labels,
     forget_overlay_tracking,
     known_overlay_stamp_label_names,
@@ -89,6 +90,19 @@ class ClearOverlaysTests(unittest.TestCase):
         self.assertIn("Overlay", removed)
         self.assertIn("Keep-Me", remaining)
         self.assertNotIn("4K-HDR", remaining)
+
+    def test_custom_collection_labels_read_from_config(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            cfg = {"customCollectionOverlays": [{"id": "weekly-trending", "name": "Trending"}, {"id": "x"}, "bad"]}
+            (root / "config.json").write_text(json.dumps(cfg), encoding="utf-8")
+            self.assertEqual(custom_collection_label_names(root), ["weekly-trending", "Trending", "x"])
+            self.assertEqual(custom_collection_label_names(root / "missing"), [])
+
+    def test_clear_overlay_labels_drops_custom_collection_labels(self):
+        item = FakeItem("111", labels=["Trending", "weekly-trending", "Keep-Me"])
+        clear_overlay_labels(item, extra_labels=["Trending", "weekly-trending"])
+        self.assertEqual([lab.tag for lab in item.labels], ["Keep-Me"])
 
     def test_season_tracking_keys_include_season_ne(self):
         item = FakeItem("55", item_type="season", parent="10")
