@@ -1,3 +1,4 @@
+import { AttentionCard } from '../AttentionCard';
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { appAlert, askConfirm } from '../../shared/confirm';
 import { usePoll } from '../../shared/usePoll';
@@ -501,6 +502,8 @@ const Dashboard: React.FC = () => {
                     </div>
                 </div>
             )}
+
+            <AttentionCard />
 
             {/* Controls */}
             <div className="flex flex-wrap items-center justify-between gap-3">

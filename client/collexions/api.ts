@@ -39,6 +39,15 @@ const withTimeout = async <T,>(
     }
 };
 
+export type CollexionsConfigBackup = {
+    name: string;
+    kind: 'daily' | 'before-restore';
+    date: string | null;
+    savedAt: string;
+    libraries: number;
+    jobs: number;
+};
+
 export type CollexionsHealth = {
     ok: boolean;
     enabled: boolean;
@@ -374,6 +383,18 @@ class CollexionsApiService {
             COLLEXIONS_LONG_MS,
             'Creating collection',
         );
+    }
+
+    async getConfigBackups(): Promise<{ success: boolean; backups: CollexionsConfigBackup[] }> {
+        return apiFetch(base('/config-backups'));
+    }
+
+    async backupConfigNow(): Promise<{ success: boolean; backups: CollexionsConfigBackup[] }> {
+        return apiFetch(base('/config-backups'), { method: 'POST', body: '{}' });
+    }
+
+    async restoreConfigBackup(name: string): Promise<{ success: boolean; jobs: number; backups: CollexionsConfigBackup[] }> {
+        return apiFetch(base('/config-backups/restore'), { method: 'POST', body: JSON.stringify({ name }) });
     }
 
     async getJobs(): Promise<any> {

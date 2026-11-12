@@ -3510,9 +3510,101 @@ def run_sync_job(job_id=None):
     save_managed_collections(managed)
     GALLERY_CACHE['data'] = None
 
+# --- Daily backups of config + sync jobs (restorable from Config) ---
+CONFIG_BACKUP_DIR = os.path.join(_DATA_ROOT, "config", "backups")
+CONFIG_BACKUP_KEEP_DAILY = 14
+CONFIG_BACKUP_KEEP_SAFETY = 5
+_BACKUP_DAILY_RE = re.compile(r'^collexions-(\d{4}-\d{2}-\d{2})\.json$')
+_BACKUP_SAFETY_RE = re.compile(r'^collexions-before-restore-(\d{8}T\d{6})\.json$')
+_BACKUP_LOCK = threading.Lock()
+
+
+def _write_config_backup(name):
+    """Snapshot raw config (pin rules, exclusions, keys) and managed sync jobs into one file."""
+    raw = _read_raw_config()
+    jobs = load_managed_collections()
+    if not raw and not jobs:
+        return None
+    os.makedirs(CONFIG_BACKUP_DIR, exist_ok=True)
+    path = os.path.join(CONFIG_BACKUP_DIR, name)
+    payload = {
+        "version": 1,
+        "savedAt": datetime.now().isoformat(),
+        "config": raw,
+        "jobs": jobs,
+    }
+    tmp = path + '.tmp'
+    with open(tmp, 'w') as f:
+        json.dump(payload, f)
+    os.replace(tmp, path)
+    return {"name": name, "jobs": len(jobs) if isinstance(jobs, dict) else 0}
+
+
+def _prune_config_backups():
+    try:
+        names = os.listdir(CONFIG_BACKUP_DIR)
+    except OSError:
+        return
+    daily = sorted((n for n in names if _BACKUP_DAILY_RE.match(n)), reverse=True)
+    safety = sorted((n for n in names if _BACKUP_SAFETY_RE.match(n)), reverse=True)
+    for name in daily[CONFIG_BACKUP_KEEP_DAILY:] + safety[CONFIG_BACKUP_KEEP_SAFETY:]:
+        try:
+            os.remove(os.path.join(CONFIG_BACKUP_DIR, name))
+        except OSError:
+            pass
+
+
+def backup_config_if_due():
+    """Once per day. Never overwrites today's file, and never writes an empty snapshot."""
+    name = f"collexions-{datetime.now().strftime('%Y-%m-%d')}.json"
+    with _BACKUP_LOCK:
+        if os.path.exists(os.path.join(CONFIG_BACKUP_DIR, name)):
+            return False
+        try:
+            made = _write_config_backup(name)
+            if made:
+                _prune_config_backups()
+                logging.info("Config backup written: %s", name)
+            return bool(made)
+        except Exception as e:
+            logging.warning("Config backup failed: %s", e)
+            return False
+
+
+def _list_config_backups():
+    out = []
+    try:
+        names = os.listdir(CONFIG_BACKUP_DIR)
+    except OSError:
+        return out
+    for name in names:
+        daily = _BACKUP_DAILY_RE.match(name)
+        safety = _BACKUP_SAFETY_RE.match(name)
+        if not daily and not safety:
+            continue
+        path = os.path.join(CONFIG_BACKUP_DIR, name)
+        try:
+            with open(path, 'r') as f:
+                data = json.load(f)
+            cfg = data.get('config') if isinstance(data.get('config'), dict) else {}
+            jobs = data.get('jobs') if isinstance(data.get('jobs'), dict) else {}
+            out.append({
+                "name": name,
+                "kind": "daily" if daily else "before-restore",
+                "date": daily.group(1) if daily else None,
+                "savedAt": datetime.fromtimestamp(os.path.getmtime(path)).isoformat(),
+                "libraries": len(cfg.get('library_names') or []),
+                "jobs": len(jobs),
+            })
+        except Exception:
+            continue
+    return sorted(out, key=lambda row: row["savedAt"], reverse=True)
+
+
 def background_sync_loop():
     """Background thread that checks for due jobs every 10 minutes."""
     while True:
+        backup_config_if_due()
         try:
             run_sync_job()
         except Exception as e:
@@ -5060,6 +5152,57 @@ def bulk_pin_collections():
     SUMMARY_CACHE['timestamp'] = 0
     ok_count = sum(1 for r in results if r.get('ok'))
     return jsonify({"success": True, "ok_count": ok_count, "results": results})
+
+
+@app.route('/api/config-backups', methods=['GET', 'POST'])
+@require_auth
+def config_backups_endpoint():
+    if request.method == 'POST':
+        name = f"collexions-{datetime.now().strftime('%Y-%m-%d')}.json"
+        with _BACKUP_LOCK:
+            try:
+                made = _write_config_backup(name)
+            except Exception as e:
+                return jsonify({"error": _client_error("Backup failed", e)}), 500
+            if not made:
+                return jsonify({"error": "There is nothing to back up yet."}), 400
+            _prune_config_backups()
+    return jsonify({"success": True, "backups": _list_config_backups()})
+
+
+@app.route('/api/config-backups/restore', methods=['POST'])
+@require_auth
+def config_backups_restore():
+    global _plex_cache, GALLERY_CACHE, SUMMARY_CACHE
+    name = os.path.basename(str((request.json or {}).get('name') or ''))
+    if not (_BACKUP_DAILY_RE.match(name) or _BACKUP_SAFETY_RE.match(name)):
+        return jsonify({"error": "Unknown backup"}), 400
+    path = os.path.join(CONFIG_BACKUP_DIR, name)
+    try:
+        with open(path, 'r') as f:
+            data = json.load(f)
+    except Exception:
+        return jsonify({"error": "Backup not found or unreadable"}), 404
+    cfg = data.get('config')
+    jobs = data.get('jobs')
+    if not isinstance(cfg, dict) or not isinstance(jobs, dict) or not (cfg or jobs):
+        return jsonify({"error": "That backup is empty"}), 400
+    with _BACKUP_LOCK:
+        stamp = datetime.now().strftime('%Y%m%dT%H%M%S')
+        try:
+            _write_config_backup(f"collexions-before-restore-{stamp}.json")
+        except Exception as e:
+            logging.warning("Pre-restore snapshot failed: %s", e)
+        if cfg and not save_config(cfg, merge=False):
+            return jsonify({"error": "Failed to restore configuration"}), 500
+        save_managed_collections(jobs)
+        _prune_config_backups()
+    _plex_cache = None
+    GALLERY_CACHE['data'] = None
+    GALLERY_CACHE['timestamp'] = 0
+    SUMMARY_CACHE['data'] = None
+    SUMMARY_CACHE['timestamp'] = 0
+    return jsonify({"success": True, "jobs": len(jobs), "backups": _list_config_backups()})
 
 
 @app.route('/api/cache/clear', methods=['POST'])
