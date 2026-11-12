@@ -48,6 +48,56 @@ export type CollexionsConfigBackup = {
     jobs: number;
 };
 
+export type CreateOptions = {
+    min_items?: number;
+    interval_hours?: number;
+    exclude_from_pinning?: boolean;
+    poster?: 'auto' | 'plex' | 'item';
+    poster_item_key?: string;
+    allow_overwrite?: boolean;
+};
+
+export type CreatePreviewRequest = {
+    library: string;
+    title?: string;
+    template_id?: string;
+    source_type?: string;
+    source_id?: string;
+    items?: any[];
+    item_keys?: string[];
+};
+
+export type CreatePreview = {
+    success: boolean;
+    error?: string;
+    title: string;
+    total: number;
+    matched_count: number;
+    matched: Array<{ title?: string; year?: number | string | null; rating_key?: string }>;
+    unmatched: Array<{ title?: string; year?: number | string | null }>;
+    unmatched_count: number;
+    conflicts: Array<{ kind: 'same_name' | 'same_source'; title: string; ratingKey?: string; itemCount?: number | null }>;
+};
+
+/** Fired after a brand-new collection is created, so the Creator can offer Undo. */
+export const COLLEXIONS_CREATED_EVENT = 'collexions:created';
+
+const announceCreated = (res: any, fallbackTitle: string, library: string) => {
+    try {
+        if (res?.success && res?.created_fresh && res?.rating_key && typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent(COLLEXIONS_CREATED_EVENT, {
+                detail: {
+                    title: String(res.title || fallbackTitle),
+                    library: String(res.library || library),
+                    ratingKey: String(res.rating_key),
+                    at: Date.now(),
+                },
+            }));
+        }
+    } catch { /* best effort */ }
+    return res;
+};
+
 export type CollexionsHealth = {
     ok: boolean;
     enabled: boolean;
@@ -312,11 +362,20 @@ class CollexionsApiService {
         return apiFetch(base(`/search/discover?${searchParams.toString()}`));
     }
 
-    async createCollection(library: string, title: string, items: string[], sort_order = 'custom'): Promise<any> {
-        return apiFetch(base('/collections/create'), {
+    async createCollection(library: string, title: string, items: string[], sort_order = 'custom', options?: CreateOptions): Promise<any> {
+        const res = await apiFetch(base('/collections/create'), {
             method: 'POST',
-            body: JSON.stringify({ library, title, items, sort_order }),
+            body: JSON.stringify({ library, title, items, sort_order, options }),
         });
+        return announceCreated(res, title, library);
+    }
+
+    async previewCreate(payload: CreatePreviewRequest): Promise<CreatePreview> {
+        return withTimeout(
+            cx('/collections/preview-source', { method: 'POST', body: JSON.stringify(payload) }),
+            COLLEXIONS_LONG_MS,
+            'Preview',
+        );
     }
 
     async createFromExternal(
@@ -327,11 +386,13 @@ class CollexionsApiService {
         auto_sync = false,
         source_type?: string,
         source_id?: string,
+        options?: CreateOptions,
     ): Promise<any> {
-        return apiFetch(base('/collections/create-from-external'), {
+        const res = await apiFetch(base('/collections/create-from-external'), {
             method: 'POST',
-            body: JSON.stringify({ library, title, items, sort_order, auto_sync, source_type, source_id }),
+            body: JSON.stringify({ library, title, items, sort_order, auto_sync, source_type, source_id, options }),
         });
+        return announceCreated(res, title, library);
     }
 
     async getTemplates(): Promise<{
@@ -377,12 +438,14 @@ class CollexionsApiService {
         source_id?: string;
         sort_order?: string;
         auto_sync?: boolean;
+        options?: CreateOptions;
     }): Promise<{ success: boolean; matched?: number; total?: number; job_id?: string; title?: string; error?: string }> {
-        return withTimeout(
+        const res = await withTimeout(
             cx('/templates/create', { method: 'POST', body: JSON.stringify(payload) }),
             COLLEXIONS_LONG_MS,
             'Creating collection',
         );
+        return announceCreated(res, payload.title || '', payload.library);
     }
 
     async getConfigBackups(): Promise<{ success: boolean; backups: CollexionsConfigBackup[] }> {

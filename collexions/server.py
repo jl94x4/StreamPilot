@@ -1886,7 +1886,7 @@ def _managed_job_id(library_name, title):
     return f"{lib}::{name}".lower()
 
 
-def _register_managed_job(library_name, title, source_type, source_id, sort_order='custom', auto_sync=True, rating_key=None):
+def _register_managed_job(library_name, title, source_type, source_id, sort_order='custom', auto_sync=True, rating_key=None, extra=None):
     managed = load_managed_collections()
     job_id = _managed_job_id(library_name, title)
     existing = managed.get(job_id) if isinstance(managed.get(job_id), dict) else {}
@@ -1917,6 +1917,11 @@ def _register_managed_job(library_name, title, source_type, source_id, sort_orde
         "last_run": existing.get('last_run') or "Never",
         "next_run": existing.get('next_run') or (datetime.now() + timedelta(hours=6)).strftime("%Y-%m-%d %H:%M:%S"),
     }
+    for field in ('interval_hours', 'min_items'):
+        if existing.get(field):
+            payload[field] = existing.get(field)
+    if isinstance(extra, dict):
+        payload.update({k: v for k, v in extra.items() if v})
     keep_key = str(rating_key or existing.get('rating_key') or existing.get('ratingKey') or '').strip()
     if keep_key:
         payload['rating_key'] = keep_key
@@ -1952,6 +1957,102 @@ _collection_create_locks_guard = threading.Lock()
 
 def _normalize_collection_title(title):
     return str(title or '').strip()
+
+
+def _creation_options(raw):
+    """Per-collection choices from the Creator review dialog (all optional)."""
+    raw = raw if isinstance(raw, dict) else {}
+
+    def num(key, lo, hi):
+        try:
+            return max(lo, min(hi, int(raw.get(key) or 0)))
+        except (TypeError, ValueError):
+            return 0
+
+    poster = str(raw.get('poster') or 'auto').strip().lower()
+    if poster not in ('auto', 'plex', 'item'):
+        poster = 'auto'
+    return {
+        'min_items': num('min_items', 0, 5000),
+        'interval_hours': num('interval_hours', 0, 720) or None,
+        'exclude_from_pinning': bool(raw.get('exclude_from_pinning')),
+        'poster': poster,
+        'poster_item_key': str(raw.get('poster_item_key') or '').strip(),
+        'allow_overwrite': bool(raw.get('allow_overwrite')),
+    }
+
+
+def _find_creation_conflicts(library, library_name, title, source_type='', source_id=''):
+    """Existing collection with this name, or another job already syncing from the same source."""
+    conflicts = []
+    try:
+        existing = _resolve_collection(library, title=title)
+    except Exception:
+        existing = None
+    if existing is not None:
+        conflicts.append({
+            'kind': 'same_name',
+            'title': str(getattr(existing, 'title', '') or title),
+            'ratingKey': str(getattr(existing, 'ratingKey', '') or ''),
+            'itemCount': _collection_item_count_light(existing),
+        })
+    if source_type:
+        want_type = normalize_source_type(source_type, source_id)
+        want_id = str(source_id or '')
+        for job in (load_managed_collections() or {}).values():
+            if not isinstance(job, dict) or job.get('library') != library_name:
+                continue
+            if str(job.get('name') or '').strip() == title:
+                continue
+            if (
+                normalize_source_type(job.get('source_type'), job.get('source_id')) == want_type
+                and str(job.get('source_id') or '') == want_id
+            ):
+                conflicts.append({'kind': 'same_source', 'title': str(job.get('name') or ''), 'ratingKey': str(job.get('rating_key') or ''), 'itemCount': None})
+    return conflicts
+
+
+def _duplicate_error(conflicts):
+    first = conflicts[0]
+    if first['kind'] == 'same_name':
+        return f"A collection called '{first['title']}' already exists. Confirm to overwrite it."
+    return f"'{first['title']}' already syncs from this same source. Confirm to create another."
+
+
+def _exclude_title_from_pinning(title):
+    """Keep a collection out of the automatic home-screen pinning rotation."""
+    try:
+        raw = _read_raw_config()
+        current = raw.get('exclusion_list') if isinstance(raw.get('exclusion_list'), list) else []
+        if title not in [str(x).strip() for x in current]:
+            save_config({'exclusion_list': list(current) + [title]}, merge=True)
+    except Exception as e:
+        logging.warning("Could not exclude '%s' from pinning: %s", title, e)
+
+
+def _apply_poster_choice(coll, options, **art_kwargs):
+    """Poster mode from the review dialog: auto (default), keep Plex's own, or one title's poster."""
+    mode = (options or {}).get('poster', 'auto')
+    if mode == 'plex':
+        return False
+    if mode == 'item':
+        key = (options or {}).get('poster_item_key')
+        if key:
+            try:
+                server = getattr(coll, '_server', None) or get_plex_instance()
+                item = server.fetchItem(int(key))
+                url = getattr(item, 'posterUrl', None)
+                if url:
+                    coll.uploadPoster(url=url)
+                    try:
+                        coll.lockPoster()
+                    except Exception:
+                        pass
+                    log_action(f"Set poster for collection '{getattr(coll, 'title', '?')}' from '{getattr(item, 'title', '?')}'.")
+                    return True
+            except Exception as e:
+                logging.warning("Chosen poster could not be used, falling back to automatic art: %s", e)
+    return _ensure_collection_art(coll, **art_kwargs)
 
 
 @contextmanager
@@ -3179,13 +3280,14 @@ def _ensure_collection_art(coll, source_type='', source_id='', external_items=No
     return False
 
 
-def create_collection_from_source(library_name, title, source_type, source_id='', sort_order='custom', auto_sync=True, external_items=None):
+def create_collection_from_source(library_name, title, source_type, source_id='', sort_order='custom', auto_sync=True, external_items=None, options=None):
     """
     Fetch source (or use provided items), match to Plex, create collection, optionally register Job.
     Returns dict: success, matched, total, job_id, title, error?
     """
     title = _normalize_collection_title(title)
     library_name = str(library_name or '').strip()
+    options = _creation_options(options)
     config = load_config()
     label = config.get('collexions_label', 'Collexions')
     plex = get_plex_instance()
@@ -3222,10 +3324,21 @@ def create_collection_from_source(library_name, title, source_type, source_id=''
             mismatch = library_media_mismatch_error(library, source_type, source_id, items)
             if mismatch:
                 return {"success": False, "error": mismatch, "matched": 0, "total": len(items)}
+            if not options['allow_overwrite']:
+                conflicts = _find_creation_conflicts(library, library_name, title, source_type, source_id)
+                if conflicts:
+                    return {"success": False, "code": "duplicate", "error": _duplicate_error(conflicts), "conflicts": conflicts}
             logging.info(f"Matching {len(items)} source items against library '{library_name}'...")
             matched_items = _match_external_to_plex(library, items)
             if not matched_items:
                 return {"success": False, "error": "No items matched your local library", "matched": 0, "total": len(items)}
+            if options['min_items'] and len(matched_items) < options['min_items']:
+                return {
+                    "success": False,
+                    "error": f"Only {len(matched_items)} titles matched your library; the minimum is {options['min_items']}.",
+                    "matched": len(matched_items),
+                    "total": len(items),
+                }
 
             vis = _capture_collection_visibility(_resolve_collection(library, title=title))
             coll, created_fresh, membership_delta = _upsert_plex_collection(
@@ -3237,8 +3350,9 @@ def create_collection_from_source(library_name, title, source_type, source_id=''
             )
             _notify_portal_collection_updated(coll, library_name, title, membership_delta)
 
-            art_set = _ensure_collection_art(
+            art_set = _apply_poster_choice(
                 coll,
+                options,
                 source_type=source_type,
                 source_id=source_id,
                 external_items=items,
@@ -3259,8 +3373,14 @@ def create_collection_from_source(library_name, title, source_type, source_id=''
                     sort_order,
                     auto_sync=True,
                     rating_key=getattr(coll, 'ratingKey', None),
+                    extra={
+                        **({'interval_hours': options['interval_hours']} if options['interval_hours'] else {}),
+                        **({'min_items': options['min_items']} if options['min_items'] else {}),
+                    },
                 )
 
+            if options['exclude_from_pinning']:
+                _exclude_title_from_pinning(title)
             GALLERY_CACHE['data'] = None
             log_action(f"Created/updated collection '{title}' with {len(matched_items)}/{len(items)} items matched.")
             return {
@@ -3269,6 +3389,9 @@ def create_collection_from_source(library_name, title, source_type, source_id=''
                 "total": len(items),
                 "job_id": job_id,
                 "title": title,
+                "library": library_name,
+                "rating_key": str(getattr(coll, 'ratingKey', '') or ''),
+                "created_fresh": bool(created_fresh),
                 "art_set": bool(art_set),
                 "web_fixes": web_fixes,
             }
@@ -3281,7 +3404,11 @@ def create_collection_from_source(library_name, title, source_type, source_id=''
 
 def _stamp_job_run(job, status, error=''):
     job['last_run'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    job['next_run'] = (datetime.now() + timedelta(hours=6)).strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        hours = max(1, min(720, int(job.get('interval_hours') or 6)))
+    except (TypeError, ValueError):
+        hours = 6
+    job['next_run'] = (datetime.now() + timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M:%S")
     job['last_status'] = status
     job['last_error'] = str(error or '').strip()[:500]
 
@@ -3439,6 +3566,14 @@ def run_sync_job(job_id=None):
             if not plex_items:
                 log_action(f"Auto-Sync: No matching Plex items found for '{coll_name}'.")
                 _stamp_job_run(job, 'failed', 'No matching Plex items found')
+                continue
+            try:
+                job_min_items = int(job.get('min_items') or 0)
+            except (TypeError, ValueError):
+                job_min_items = 0
+            if job_min_items and len(plex_items) < job_min_items:
+                log_action(f"Auto-Sync: Skipping '{coll_name}' - only {len(plex_items)} titles matched (minimum {job_min_items}).")
+                _stamp_job_run(job, 'warning', f'Only {len(plex_items)} titles matched (minimum {job_min_items}); collection left unchanged.')
                 continue
 
             try:
@@ -6797,6 +6932,97 @@ def stop_script():
     log_action("Pinning service stopped." if stopped else "Pinning service already stopped.")
     return jsonify({"success": True, "stopped": stopped})
 
+@app.route('/api/collections/preview-source', methods=['POST'])
+@require_auth
+def preview_creation():
+    """Dry run for the Creator: what would match your library, what is missing, and what it would clash with."""
+    data = request.json or {}
+    library_name = str(data.get('library') or '').strip()
+    title = _normalize_collection_title(data.get('title'))
+    source_type = str(data.get('source_type') or '').strip()
+    source_id = str(data.get('source_id') or '').strip()
+    template_id = str(data.get('template_id') or '').strip()
+    item_keys = [str(k) for k in (data.get('item_keys') or []) if str(k).strip()]
+    items = [it for it in (data.get('items') or []) if isinstance(it, dict)]
+    if not library_name:
+        return jsonify({"success": False, "error": "Select a target library first."}), 400
+
+    config = load_config()
+    if template_id:
+        tpl = get_template_by_id(template_id)
+        if not tpl:
+            return jsonify({"success": False, "error": "Unknown template."}), 404
+        title = title or tpl['name']
+        source_type = tpl['source_type']
+        source_id = tpl.get('source_id') or ''
+        if tpl.get('category') == 'franchise' or source_type == 'tmdb_collection':
+            title = franchise_collection_title(title)
+    elif source_type == 'tmdb_collection' and title:
+        title = franchise_collection_title(title)
+    if not title:
+        return jsonify({"success": False, "error": "Give the collection a name first."}), 400
+
+    plex = get_plex_instance()
+    if not plex:
+        return jsonify({"success": False, "error": "Plex connection failed"}), 500
+    try:
+        library = plex.library.section(library_name)
+    except Exception as e:
+        return jsonify({"success": False, "error": _client_error("Library not found", e)}), 400
+
+    matched_rows = []
+    unmatched_rows = []
+    total = 0
+    try:
+        if item_keys:
+            total = len(item_keys)
+            for key in item_keys[:300]:
+                try:
+                    item = library.fetchItem(int(key))
+                    matched_rows.append(_serialize_member(item, status='matched'))
+                except Exception:
+                    unmatched_rows.append({'title': f'Item {key}', 'year': None})
+            matched_count = len(matched_rows)
+        else:
+            if source_type and not items:
+                items = fetch_source_items(source_type, source_id, config) or []
+            elif source_type and items:
+                try:
+                    full = fetch_source_items(source_type, source_id, config) or []
+                    if full:
+                        items = full
+                except Exception:
+                    pass
+            if not items:
+                return jsonify({"success": False, "error": "No titles were found for this source."}), 404
+            total = len(items)
+            mismatch = library_media_mismatch_error(library, source_type, source_id, items)
+            if mismatch:
+                return jsonify({"success": False, "error": mismatch}), 400
+            matched, rows = _match_external_to_plex(library, items, report=True)
+            matched_count = len(matched)
+            matched_rows = [r for r in rows if r.get('status') == 'matched']
+            unmatched_rows = [r for r in rows if r.get('status') == 'unmatched']
+    except Exception as e:
+        logging.error("preview_creation failed: %s", e, exc_info=True)
+        return jsonify({"success": False, "error": _client_error("Could not preview this source", e)}), 500
+
+    conflicts = _find_creation_conflicts(library, library_name, title, source_type, source_id)
+    return jsonify({
+        "success": True,
+        "title": title,
+        "total": total,
+        "matched_count": matched_count,
+        "matched": [
+            {"title": r.get('plex_title') or r.get('title'), "year": r.get('plex_year') or r.get('year'), "rating_key": r.get('rating_key')}
+            for r in matched_rows[:150]
+        ],
+        "unmatched": [{"title": r.get('title'), "year": r.get('year')} for r in unmatched_rows[:80]],
+        "unmatched_count": len(unmatched_rows),
+        "conflicts": conflicts,
+    })
+
+
 @app.route('/api/collections/create', methods=['POST'])
 @require_auth
 def create_custom_collection():
@@ -6805,6 +7031,7 @@ def create_custom_collection():
     title = _normalize_collection_title(data.get('title'))
     item_keys = data.get('items', []) # List of ratingKeys
     sort_order = data.get('sort_order', 'custom') # 'custom', 'random', 'release'
+    options = _creation_options(data.get('options'))
     
     if not library_name or not title or not item_keys:
         return jsonify({"success": False, "error": "Missing required fields"}), 400
@@ -6819,6 +7046,10 @@ def create_custom_collection():
     try:
         with _collection_create_lock(library_name, title):
             library = plex.library.section(library_name)
+            if not options['allow_overwrite']:
+                conflicts = _find_creation_conflicts(library, library_name, title)
+                if conflicts:
+                    return jsonify({"success": False, "code": "duplicate", "error": _duplicate_error(conflicts), "conflicts": conflicts}), 409
             # Fetch actual items by ratingKey
             items = []
             for key in item_keys:
@@ -6841,8 +7072,9 @@ def create_custom_collection():
             )
             _notify_portal_collection_updated(collection, library_name, title, membership_delta)
 
-            art_set = _ensure_collection_art(
+            art_set = _apply_poster_choice(
                 collection,
+                options,
                 matched_items=items,
                 config=config,
                 force=created_fresh,
@@ -6850,12 +7082,24 @@ def create_custom_collection():
             web_fixes = _finalize_collection_for_plex_web(collection, library, config)
             _restore_collection_visibility(collection, vis)
             
+            if options['exclude_from_pinning']:
+                _exclude_title_from_pinning(title)
             log_action(f"Created/updated collection '{title}' with {len(items)} items in {library_name} (Sort: {sort_order}).")
             
             # Clear cache since library changed
             GALLERY_CACHE['data'] = None
             
-            return jsonify({"success": True, "art_set": bool(art_set), "web_fixes": web_fixes})
+            return jsonify({
+                "success": True,
+                "art_set": bool(art_set),
+                "web_fixes": web_fixes,
+                "title": title,
+                "library": library_name,
+                "rating_key": str(getattr(collection, 'ratingKey', '') or ''),
+                "created_fresh": bool(created_fresh),
+                "matched": len(items),
+                "total": len(item_keys),
+            })
     except RuntimeError as e:
         return jsonify({"success": False, "error": _client_error("Collection create conflict", e)}), 409
     except Exception as e:
@@ -7154,12 +7398,15 @@ def create_from_external():
         sort_order=sort_order,
         auto_sync=bool(auto_sync),
         external_items=external_items,
+        options=data.get('options'),
     )
     status = 200 if result.get('success') else (404 if 'matched' in result else 500)
     if result.get('error') == 'Plex connection failed':
         status = 500
     elif result.get('error') == 'No items matched your local library':
         status = 404
+    elif result.get('code') == 'duplicate':
+        status = 409
     elif not result.get('success'):
         status = 400
     return jsonify(result), status
@@ -7317,10 +7564,13 @@ def create_from_template():
         source_id=source_id,
         sort_order=sort_order,
         auto_sync=bool(auto_sync),
+        options=data.get('options'),
     )
     if result.get('success'):
         return jsonify(result)
     status = 404 if 'matched' in (result.get('error') or '').lower() or result.get('matched') == 0 else 400
+    if result.get('code') == 'duplicate':
+        status = 409
     if result.get('error') == 'Plex connection failed':
         status = 500
     return jsonify(result), status

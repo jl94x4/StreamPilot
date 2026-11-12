@@ -3,6 +3,9 @@ import { Card } from '../components/ui/Card';
 import { usePoll } from '../../shared/usePoll';
 import { Plus, Search, ListMusic, Globe, Loader2, List, Trash2, Sparkles, Filter, ExternalLink, Compass, Clock, LayoutTemplate, Check } from 'lucide-react';
 import { api, collexionsImageUrl } from '../api';
+import { askText } from '../../shared/confirm';
+import { reviewBeforeCreate } from '../CreateReviewDialog';
+import { JustCreatedCard } from '../JustCreatedCard';
 import { CustomSelect } from '../components/ui/Inputs';
 import { AppConfig } from '../types';
 import { DISCOVER_NETWORKS, DISCOVER_STUDIOS } from '../../discovery/discoverConstants';
@@ -120,7 +123,73 @@ const DISCOVER_PRESETS: DiscoverPreset[] = [
             ? { status: '0', sort: 'popularity.desc', voteCount: '100' }
             : { sort: 'popularity.desc', voteCount: '200', voteCountMax: '' }),
     },
+    ...([
+        { id: 'classics', label: 'Classics', apply: () => ({ sort: 'vote_average.desc', yearTo: '1989', rating: '7.5', voteCount: '1000' }) },
+        { id: 'nineties', label: '90s Nostalgia', apply: () => ({ sort: 'popularity.desc', yearFrom: '1990', yearTo: '1999', voteCount: '500' }) },
+        { id: 'noughties', label: '2000s Favourites', apply: () => ({ sort: 'popularity.desc', yearFrom: '2000', yearTo: '2009', voteCount: '500' }) },
+        { id: 'twenty-tens', label: '2010s Hits', apply: () => ({ sort: 'popularity.desc', yearFrom: '2010', yearTo: '2019', voteCount: '500' }) },
+        {
+            id: 'blockbusters',
+            label: 'Blockbusters',
+            apply: (t: 'movie' | 'tv') => (t === 'tv' ? { sort: 'popularity.desc', voteCount: '500' } : { sort: 'revenue.desc', voteCount: '1000' }),
+        },
+        { id: 'acclaimed-drama', label: 'Acclaimed Drama', apply: () => ({ sort: 'vote_average.desc', genre: '18', rating: '7.8', voteCount: '1000' }) },
+        { id: 'comedy', label: 'Feel-Good Comedy', apply: () => ({ sort: 'popularity.desc', genre: '35', rating: '6.8', voteCount: '500' }) },
+        {
+            id: 'horror',
+            label: 'Horror & Mystery',
+            apply: (t: 'movie' | 'tv') => ({ sort: 'popularity.desc', genre: t === 'tv' ? '9648' : '27', rating: '6', voteCount: '300' }),
+        },
+        {
+            id: 'scifi',
+            label: 'Sci-Fi & Fantasy',
+            apply: (t: 'movie' | 'tv') => ({ sort: 'popularity.desc', genre: t === 'tv' ? '10765' : '878', rating: '6.5', voteCount: '300' }),
+        },
+        {
+            id: 'action',
+            label: 'Action Packed',
+            apply: (t: 'movie' | 'tv') => ({ sort: 'popularity.desc', genre: t === 'tv' ? '10759' : '28', voteCount: '500' }),
+        },
+        {
+            id: 'crime',
+            label: 'Crime & Thriller',
+            apply: (t: 'movie' | 'tv') => ({ sort: 'popularity.desc', genre: t === 'tv' ? '80' : '53', rating: '6.5', voteCount: '300' }),
+        },
+        { id: 'animation', label: 'Animation', apply: () => ({ sort: 'popularity.desc', genre: '16', rating: '7', voteCount: '300' }) },
+        { id: 'documentary', label: 'Documentaries', apply: () => ({ sort: 'vote_average.desc', genre: '99', rating: '7', voteCount: '100' }) },
+        { id: 'korean', label: 'Korean', apply: () => ({ sort: 'popularity.desc', language: 'ko', voteCount: '100' }) },
+        { id: 'japanese', label: 'Japanese', apply: () => ({ sort: 'popularity.desc', language: 'ja', voteCount: '100' }) },
+        { id: 'spanish', label: 'Spanish', apply: () => ({ sort: 'popularity.desc', language: 'es', voteCount: '100' }) },
+        { id: 'french', label: 'French', apply: () => ({ sort: 'popularity.desc', language: 'fr', voteCount: '100' }) },
+        {
+            id: 'epic',
+            label: 'Epic Length',
+            apply: (t: 'movie' | 'tv') => (t === 'tv' ? { sort: 'popularity.desc', runtimeMin: '60', voteCount: '200' } : { sort: 'vote_average.desc', runtimeMin: '150', rating: '7', voteCount: '500' }),
+        },
+        {
+            id: 'quick',
+            label: 'Quick Bites',
+            apply: (t: 'movie' | 'tv') => (t === 'tv' ? { sort: 'popularity.desc', runtimeMax: '30', voteCount: '200' } : { sort: 'popularity.desc', runtimeMax: '90', voteCount: '300' }),
+        },
+        {
+            id: 'ended',
+            label: 'Finished Series',
+            apply: (t: 'movie' | 'tv') => (t === 'tv' ? { sort: 'vote_average.desc', status: '3', rating: '7.5', voteCount: '300' } : { sort: 'vote_average.desc', rating: '7.5', voteCount: '300' }),
+        },
+    ] as DiscoverPreset[]),
 ];
+
+const SAVED_PRESETS_KEY = 'collexions.discoverPresets';
+type SavedDiscoverPreset = { id: string; label: string; snapshot: Record<string, string> };
+
+const readSavedPresets = (): SavedDiscoverPreset[] => {
+    try {
+        const parsed = JSON.parse(window.localStorage.getItem(SAVED_PRESETS_KEY) || '[]');
+        return Array.isArray(parsed) ? parsed.filter((row) => row && row.id && row.label && row.snapshot) : [];
+    } catch {
+        return [];
+    }
+};
 
 type JobTemplate = {
     id: string;
@@ -425,6 +494,8 @@ const Creator: React.FC = () => {
             return;
         }
         if (!ensureLibraryMatchesMedia(tpl.media || mediaFromSourceType(tpl.source_type))) return;
+        const reviewOptions = await reviewBeforeCreate({ library: targetLibrary, template_id: tpl.id, title: tpl.name, autoSync });
+        if (!reviewOptions) return;
         setCreatingTemplateId(tpl.id);
         setCreating(true);
         const mediaLabel = normalizeMediaKind(tpl.media) === 'show' ? 'shows' : 'movies';
@@ -444,6 +515,7 @@ const Creator: React.FC = () => {
                 template_id: tpl.id,
                 sort_order: sortOrder || tpl.default_sort,
                 auto_sync: autoSync,
+                options: reviewOptions,
             });
             if (res.success) {
                 showToast(
@@ -489,6 +561,14 @@ const Creator: React.FC = () => {
             return;
         }
         if (!ensureLibraryMatchesMedia(mediaFromSourceType(franchise.source_type) || 'movie')) return;
+        const reviewOptions = await reviewBeforeCreate({
+            library: targetLibrary,
+            title: franchise.name,
+            source_type: franchise.source_type,
+            source_id: franchise.source_id,
+            autoSync,
+        });
+        if (!reviewOptions) return;
         setCreatingTemplateId(`franchise-${franchise.source_id}`);
         setCreating(true);
         startBusy({
@@ -509,6 +589,7 @@ const Creator: React.FC = () => {
                 source_id: franchise.source_id,
                 sort_order: sortOrder === 'custom' ? 'release' : sortOrder,
                 auto_sync: autoSync,
+                options: reviewOptions,
             });
             if (res.success) {
                 showToast(
@@ -553,6 +634,15 @@ const Creator: React.FC = () => {
             || mediaFromSourceType(sourceType)
             || mediaFromItems(preset.items);
         if (!ensureLibraryMatchesMedia(expectedMedia)) return;
+        const reviewOptions = await reviewBeforeCreate({
+            library: targetLibrary,
+            title: preset.name,
+            items: preset.items,
+            source_type: sourceType,
+            source_id: sourceId,
+            autoSync,
+        });
+        if (!reviewOptions) return;
         setCreating(true);
         startBusy({
             headline: `Creating “${preset.name}”`,
@@ -572,7 +662,8 @@ const Creator: React.FC = () => {
                 sortOrder,
                 autoSync,
                 sourceType,
-                sourceId
+                sourceId,
+                reviewOptions,
             );
 
             setSelectionPool([]);
@@ -699,9 +790,102 @@ const Creator: React.FC = () => {
         };
     };
 
+    const resetDiscoverFilters = () => {
+        setSelectedGenre('');
+        setSelectedGenreAnd('');
+        setExcludeGenre('');
+        setDiscoverYearFrom('');
+        setDiscoverYearTo('');
+        setDiscoverRating('');
+        setDiscoverRatingMax('');
+        setDiscoverVoteCount('');
+        setDiscoverVoteCountMax('');
+        setDiscoverRuntimeMin('');
+        setDiscoverRuntimeMax('');
+        setDiscoverLanguage('');
+        setDiscoverNetwork('');
+        setDiscoverCompany('');
+        setDiscoverKeywords('');
+        setDiscoverExcludeKeywords('');
+        setDiscoverCertification('');
+        setDiscoverStatus('');
+        setDiscoverSort('popularity.desc');
+    };
+
+    const captureDiscoverSnapshot = (): Record<string, string> => ({
+        type: discoverType,
+        genre: selectedGenre,
+        genreAnd: selectedGenreAnd,
+        excludeGenre,
+        yearFrom: discoverYearFrom,
+        yearTo: discoverYearTo,
+        rating: discoverRating,
+        ratingMax: discoverRatingMax,
+        voteCount: discoverVoteCount,
+        voteCountMax: discoverVoteCountMax,
+        runtimeMin: discoverRuntimeMin,
+        runtimeMax: discoverRuntimeMax,
+        language: discoverLanguage,
+        network: discoverNetwork,
+        company: discoverCompany,
+        keywords: discoverKeywords,
+        excludeKeywords: discoverExcludeKeywords,
+        certification: discoverCertification,
+        status: discoverStatus,
+        sort: discoverSort,
+    });
+
+    const [savedPresets, setSavedPresets] = useState<SavedDiscoverPreset[]>(() => readSavedPresets());
+    const [showAllPresets, setShowAllPresets] = useState(false);
+
+    const persistSavedPresets = (next: SavedDiscoverPreset[]) => {
+        setSavedPresets(next);
+        try { window.localStorage.setItem(SAVED_PRESETS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+    };
+
+    const applySavedPreset = (preset: SavedDiscoverPreset) => {
+        const snap = preset.snapshot;
+        if (snap.type === 'movie' || snap.type === 'tv') setDiscoverType(snap.type);
+        setActiveDiscoverPreset(preset.id);
+        setSelectedGenre(snap.genre || '');
+        setSelectedGenreAnd(snap.genreAnd || '');
+        setExcludeGenre(snap.excludeGenre || '');
+        setDiscoverYearFrom(snap.yearFrom || '');
+        setDiscoverYearTo(snap.yearTo || '');
+        setDiscoverRating(snap.rating || '');
+        setDiscoverRatingMax(snap.ratingMax || '');
+        setDiscoverVoteCount(snap.voteCount || '');
+        setDiscoverVoteCountMax(snap.voteCountMax || '');
+        setDiscoverRuntimeMin(snap.runtimeMin || '');
+        setDiscoverRuntimeMax(snap.runtimeMax || '');
+        setDiscoverLanguage(snap.language || '');
+        setDiscoverNetwork(snap.network || '');
+        setDiscoverCompany(snap.company || '');
+        setDiscoverKeywords(snap.keywords || '');
+        setDiscoverExcludeKeywords(snap.excludeKeywords || '');
+        setDiscoverCertification(snap.certification || '');
+        setDiscoverStatus(snap.status || '');
+        setDiscoverSort(snap.sort || 'popularity.desc');
+    };
+
+    const saveCurrentAsPreset = async () => {
+        const name = await askText('Name this set of filters', {
+            title: 'Save preset',
+            placeholder: 'e.g. Cosy mysteries',
+            confirmLabel: 'Save',
+        });
+        const label = String(name || '').trim();
+        if (!label) return;
+        const next: SavedDiscoverPreset = { id: `saved-${Date.now()}`, label, snapshot: captureDiscoverSnapshot() };
+        persistSavedPresets([next, ...savedPresets].slice(0, 30));
+        showToast(`Saved preset “${label}”`, 'success');
+    };
+
     const applyDiscoverPreset = (preset: DiscoverPreset) => {
         const next = preset.apply(discoverType);
+        resetDiscoverFilters();
         setActiveDiscoverPreset(preset.id);
+        if (next.language != null) setDiscoverLanguage(next.language);
         if (next.sort != null) setDiscoverSort(next.sort);
         if (next.rating != null) setDiscoverRating(next.rating);
         if (next.ratingMax != null) setDiscoverRatingMax(next.ratingMax);
@@ -865,6 +1049,14 @@ const Creator: React.FC = () => {
             showToast('Please select a target library first!', 'error');
             return;
         }
+        const reviewOptions = await reviewBeforeCreate({
+            library: targetLibrary,
+            title: list.name,
+            source_type: 'trakt_list',
+            source_id: list.url,
+            autoSync,
+        });
+        if (!reviewOptions) return;
         setLoadingTraktListUrl(list.url);
         setCreating(true);
         startBusy({
@@ -899,6 +1091,7 @@ const Creator: React.FC = () => {
                 autoSync,
                 'trakt_list',
                 list.url,
+                reviewOptions,
             );
             if (res.success) {
                 showToast(`Created '${list.name}' — matched ${res.matched}/${res.total} titles.`, 'success');
@@ -954,6 +1147,16 @@ const Creator: React.FC = () => {
 
     const handleCreate = async () => {
         if (!targetLibrary || !collectionTitle || selectionPool.length === 0) return;
+        const poolHasExternal = selectionPool.some((i) => i.id && !i.ratingKey);
+        const reviewOptions = await reviewBeforeCreate({
+            library: targetLibrary,
+            title: collectionTitle,
+            ...(poolHasExternal
+                ? { items: selectionPool, source_type: 'manual_custom', source_id: 'custom_selection' }
+                : { item_keys: selectionPool.map((i) => String(i.ratingKey)) }),
+            autoSync: poolHasExternal && autoSync,
+        });
+        if (!reviewOptions) return;
         setCreating(true);
         startBusy({
             headline: `Creating “${collectionTitle}”`,
@@ -979,12 +1182,13 @@ const Creator: React.FC = () => {
                     sortOrder,
                     autoSync,
                     'manual_custom',
-                    'custom_selection'
+                    'custom_selection',
+                    reviewOptions,
                 );
             } else {
                 // All items are local library keys
                 const keys = selectionPool.map(i => i.ratingKey);
-                res = await api.createCollection(targetLibrary, collectionTitle, keys, sortOrder);
+                res = await api.createCollection(targetLibrary, collectionTitle, keys, sortOrder, reviewOptions);
             }
 
             if (res.success) {
@@ -1015,6 +1219,17 @@ const Creator: React.FC = () => {
             ? normalizeMediaKind(discoverType)
             : (mediaFromSourceType(sourceType) || mediaFromItems(itemsToUse));
         if (!ensureLibraryMatchesMedia(expectedMedia)) return;
+        const reviewSourceId = activeSubTab === 'import' ? importUrl :
+            (isDiscover ? JSON.stringify(buildDiscoverFilterPayload()) : externalQuery);
+        const reviewOptions = await reviewBeforeCreate({
+            library: targetLibrary,
+            title: collectionTitle,
+            items: itemsToUse,
+            source_type: sourceType,
+            source_id: reviewSourceId,
+            autoSync,
+        });
+        if (!reviewOptions) return;
         setCreating(true);
         startBusy({
             headline: `Creating “${collectionTitle}”`,
@@ -1037,7 +1252,8 @@ const Creator: React.FC = () => {
                 sortOrder,
                 autoSync,
                 sourceType,
-                sourceId
+                sourceId,
+                reviewOptions,
             );
             if (res.success) {
                 showToast(`Success! Matched ${res.matched}/${res.total} items.`, "success");
@@ -1328,6 +1544,8 @@ const Creator: React.FC = () => {
                     );
                 })}
             </div>
+
+            <JustCreatedCard onMessage={(text, kind) => showToast(text, kind)} />
 
             <div className="grid gap-6 relative z-0">
                 {activeSubTab === 'templates' && (
@@ -1622,9 +1840,44 @@ const Creator: React.FC = () => {
                     <div className="space-y-6 animate-in slide-in-from-bottom-2 duration-300">
                         <Card title="Discover Curated Collections">
                             <div className="mb-4 space-y-2">
-                                <p className="text-xs text-muted font-medium uppercase tracking-wide">Quick presets</p>
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <p className="text-xs text-muted font-medium uppercase tracking-wide">Quick presets</p>
+                                    <button
+                                        type="button"
+                                        onClick={() => void saveCurrentAsPreset()}
+                                        className="text-xs font-semibold text-plex hover:underline"
+                                    >
+                                        Save current filters as preset
+                                    </button>
+                                </div>
+                                {savedPresets.length ? (
+                                    <div className="flex flex-wrap gap-2">
+                                        {savedPresets.map((preset) => (
+                                            <span
+                                                key={preset.id}
+                                                className={`inline-flex items-center overflow-hidden rounded-lg border text-sm font-medium transition-colors ${
+                                                    activeDiscoverPreset === preset.id
+                                                        ? 'border-plex bg-plex/15 text-plex'
+                                                        : 'border-border bg-background/40 text-text hover:border-plex/40'
+                                                }`}
+                                            >
+                                                <button type="button" className="px-3 py-1.5" onClick={() => applySavedPreset(preset)}>
+                                                    ★ {preset.label}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    aria-label={`Delete preset ${preset.label}`}
+                                                    className="border-l border-white/10 px-2 py-1.5 text-muted hover:text-text"
+                                                    onClick={() => persistSavedPresets(savedPresets.filter((row) => row.id !== preset.id))}
+                                                >
+                                                    ✕
+                                                </button>
+                                            </span>
+                                        ))}
+                                    </div>
+                                ) : null}
                                 <div className="flex flex-wrap gap-2">
-                                    {DISCOVER_PRESETS.map((preset) => (
+                                    {(showAllPresets ? DISCOVER_PRESETS : DISCOVER_PRESETS.slice(0, 8)).map((preset) => (
                                         <button
                                             key={preset.id}
                                             type="button"
@@ -1638,6 +1891,13 @@ const Creator: React.FC = () => {
                                             {preset.label}
                                         </button>
                                     ))}
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowAllPresets((value) => !value)}
+                                        className="px-3 py-1.5 rounded-lg text-sm font-medium border border-dashed border-border text-muted hover:text-text"
+                                    >
+                                        {showAllPresets ? 'Fewer presets' : `More presets (+${Math.max(0, DISCOVER_PRESETS.length - 8)})`}
+                                    </button>
                                 </div>
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
