@@ -1394,17 +1394,32 @@ def _load_stamp_original(
     existing: dict | None = None,
     progress: ProgressFn | None = None,
     preview_mode: bool = False,
+    poster_replaced: bool = False,
 ) -> tuple[Image.Image, Path]:
-    """Clean original for composing. Ignore backups when overlay tags were removed."""
+    """Clean original for composing. Ignore backups when overlay tags were removed.
+
+    ``poster_replaced``: Plex's poster is no longer the one this engine last uploaded
+    (Poster Sets, a manual change). The overlay labels are usually still on the item then,
+    which made the old backup look trustworthy and the stamp came back on the OLD art.
+    """
     backup = _backup_file(paths, key)
     extra = existing.get("overlayLabels") if isinstance(existing, dict) else None
     ignore_backup = _should_ignore_overlay_backup(item, extra)
     title = getattr(item, "title", key)
+    replaced_poster = None
+    if poster_replaced and not ignore_backup and backup.exists():
+        # Only adopt the current poster when it is clean (no overlay marker of ours on it).
+        replaced_poster = _download_original(plex, item)
+        if replaced_poster is not None and not has_overlay_marker(replaced_poster):
+            ignore_backup = True
+            _progress(progress, f"Poster was replaced since the last stamp — using the new poster: {title}")
+        else:
+            replaced_poster = None
 
     if backup.exists() and not ignore_backup:
         return Image.open(backup).convert("RGBA"), backup
 
-    poster = _download_original(plex, item)
+    poster = replaced_poster if replaced_poster is not None else _download_original(plex, item)
     if poster is None:
         thumb = str(getattr(item, "thumb", None) or "").strip() or "(empty)"
         raise RuntimeError(f"failed to download poster (thumb={thumb})")
@@ -2471,6 +2486,7 @@ def run_kometa_parity(plex, config: dict, paths: dict, preview_mode: bool, progr
                 existing=existing if isinstance(existing, dict) else None,
                 progress=progress,
                 preview_mode=preview_mode,
+                poster_replaced=poster_replaced,
             )
 
             result = compose_poster(original, winners, config=config, paths=paths)
