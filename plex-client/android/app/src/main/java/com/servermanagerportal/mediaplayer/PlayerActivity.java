@@ -194,6 +194,9 @@ public class PlayerActivity extends AppCompatActivity {
     private Button upNextPlayBtn;
     private Button upNextCreditsBtn;
     private boolean watchCreditsChosen;
+    // "Keep watching" on the More like this card: stay on the credits (or a wrongly detected ending) with the card gone.
+    private boolean relatedDismissed;
+    private Button upNextKeepBtn;
     private TextView statsView;
     private TextView modeChipView;
     private TextView resolutionChipView;
@@ -1404,6 +1407,7 @@ public class PlayerActivity extends AppCompatActivity {
         upNextCountdown = findViewById(R.id.player_up_next_countdown);
         upNextPlayBtn = findViewById(R.id.player_up_next_play);
         upNextCreditsBtn = findViewById(R.id.player_up_next_credits);
+        upNextKeepBtn = findViewById(R.id.player_up_next_keep);
         zoomBtn = findViewById(R.id.player_zoom);
         delayBtn = findViewById(R.id.player_delay);
         repeatBtn = findViewById(R.id.player_repeat);
@@ -1830,7 +1834,7 @@ public class PlayerActivity extends AppCompatActivity {
             ratingKey = root.optString("ratingKey", ratingKey);
             showKey = root.optString("showKey", showKey);
             String nextRating = root.optString("ratingKey", ratingKey);
-            if (nextRating != null && !nextRating.equals(ratingKey)) watchCreditsChosen = false;
+            if (nextRating != null && !nextRating.equals(ratingKey)) { watchCreditsChosen = false; relatedDismissed = false; }
             ratingKey = nextRating;
             audioStreamId = root.optString("audioStreamId", audioStreamId);
             subtitleStreamId = root.optString("subtitleStreamId", subtitleStreamId);
@@ -5199,7 +5203,9 @@ public class PlayerActivity extends AppCompatActivity {
         boolean showWindow = nearEnd || inCredits;
         boolean hasNext = nextRatingKey != null && !nextRatingKey.isEmpty();
         boolean showNext = showWindow && hasNext && !watchCreditsChosen;
-        boolean showRelated = showWindow && !relatedItems.isEmpty() && (!hasNext || watchCreditsChosen);
+        // More like this only when nothing is left to play: the last episode of a season or series, or a movie.
+        // With a next episode, Watch credits just keeps playing, with no card.
+        boolean showRelated = showWindow && !relatedItems.isEmpty() && !hasNext && !relatedDismissed;
         boolean show = showNext || showRelated;
         boolean wasHidden = upNextRow.getVisibility() != View.VISIBLE;
         upNextRow.setVisibility(show ? View.VISIBLE : View.GONE);
@@ -5221,6 +5227,13 @@ public class PlayerActivity extends AppCompatActivity {
             if (upNextPlayBtn != null) {
                 upNextPlayBtn.setText(R.string.player_play_now);
                 upNextPlayBtn.setOnClickListener(v -> playRelatedItem(first.id));
+            }
+            if (upNextKeepBtn != null) {
+                upNextKeepBtn.setVisibility(View.VISIBLE);
+                upNextKeepBtn.setOnClickListener(v -> {
+                    relatedDismissed = true;
+                    if (upNextRow != null) upNextRow.setVisibility(View.GONE);
+                });
             }
         } else {
             if (upNextKicker != null) upNextKicker.setText(R.string.player_up_next);
@@ -5257,6 +5270,7 @@ public class PlayerActivity extends AppCompatActivity {
                     upNextCountdown.setVisibility(View.GONE);
                 }
             }
+            if (upNextKeepBtn != null) upNextKeepBtn.setVisibility(View.GONE);
             if (upNextCreditsBtn != null) {
                 upNextCreditsBtn.setVisibility(View.VISIBLE);
                 upNextCreditsBtn.setText(R.string.player_watch_credits);
@@ -5291,7 +5305,7 @@ public class PlayerActivity extends AppCompatActivity {
 
     private boolean isUpNextFocused() {
         View focus = getCurrentFocus();
-        return focus != null && (focus == upNextPlayBtn || focus == upNextCreditsBtn);
+        return focus != null && (focus == upNextPlayBtn || focus == upNextCreditsBtn || focus == upNextKeepBtn);
     }
 
     private void focusUpNextControls() {

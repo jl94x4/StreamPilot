@@ -800,13 +800,27 @@
                 android:orientation="horizontal">
 
                 <Button
+                    android:id="@+id/player_up_next_keep"
+                    style="@style/PlayerContextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="7dp"
+                    android:focusable="true"
+                    android:nextFocusLeft="@id/player_up_next_keep"
+                    android:nextFocusRight="@id/player_up_next_credits"
+                    android:nextFocusUp="@id/player_up_next_keep"
+                    android:nextFocusDown="@id/player_up_next_keep"
+                    android:text="@string/player_keep_watching"
+                    android:visibility="gone" />
+
+                <Button
                     android:id="@+id/player_up_next_credits"
                     style="@style/PlayerContextButton"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginEnd="7dp"
                     android:focusable="true"
-                    android:nextFocusLeft="@id/player_up_next_credits"
+                    android:nextFocusLeft="@id/player_up_next_keep"
                     android:nextFocusRight="@id/player_up_next_play"
                     android:nextFocusUp="@id/player_up_next_credits"
                     android:nextFocusDown="@id/player_up_next_credits"

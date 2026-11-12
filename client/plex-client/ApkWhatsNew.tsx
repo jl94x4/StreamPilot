@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.698': [
+        {
+            title: 'Player',
+            items: [
+                'The More like this card at the end only shows when nothing is left to play (the last episode of a season or series, or a movie), and it has a Keep watching button to put it away',
+            ],
+        },
+    ],
     '1.0.697': [
         {
             title: 'Phone',

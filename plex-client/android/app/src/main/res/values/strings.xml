@@ -36,6 +36,7 @@
     <string name="player_play_next">Play next</string>
     <string name="player_play_now">Play now</string>
     <string name="player_watch_credits">Watch credits</string>
+    <string name="player_keep_watching">Keep watching</string>
     <string name="player_up_next">Up next</string>
     <string name="player_up_next_in">Starts in %ds</string>
     <string name="player_direct_play">Direct Play</string>
