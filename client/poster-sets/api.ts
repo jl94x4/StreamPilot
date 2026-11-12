@@ -80,6 +80,15 @@ export type PosterSetsWatchBackup = {
     count: number;
 };
 
+export type PosterSetsArchivedWatch = {
+    id: string;
+    removedAt: string;
+    reason: string;
+    replacedByTitle?: string | null;
+    replacedByUrl?: string | null;
+    watch: PosterSetsWatch;
+};
+
 export type PosterSetsAddWatchPayload = {
     url: string;
     title?: string;
@@ -437,6 +446,7 @@ export const posterSetsApi = {
         user?: string;
         thumbUrl?: string;
         setKind?: string | null;
+        locked?: boolean;
         lastError?: null;
     }) => apiFetch(`${ROOT}/watches/${encodeURIComponent(id)}`, {
         method: 'PATCH',
@@ -498,6 +508,19 @@ export const posterSetsApi = {
         restored: number;
         previous: number;
         backups: PosterSetsWatchBackup[];
+    }>,
+    watchPause: () => apiFetch(`${ROOT}/watch-pause`) as Promise<{ ok: boolean; paused: boolean; until: string | null }>,
+    setWatchPause: (days: number) => apiFetch(`${ROOT}/watch-pause`, json({ days })) as Promise<{ ok: boolean; paused: boolean; until: string | null }>,
+    watchArchive: () => apiFetch(`${ROOT}/watch-archive`) as Promise<{ ok: boolean; entries: PosterSetsArchivedWatch[] }>,
+    restoreArchivedWatch: (id: string) => apiFetch(`${ROOT}/watch-archive/${encodeURIComponent(id)}/restore`, json({})) as Promise<{ ok: boolean; watch: PosterSetsWatch }>,
+    watchDuplicates: () => apiFetch(`${ROOT}/watches-duplicates`) as Promise<{ ok: boolean; groups: PosterSetsWatch[][] }>,
+    resolveWatchDuplicates: () => apiFetch(`${ROOT}/watches-duplicates/resolve`, json({})) as Promise<{ ok: boolean; groups: number; removed: number }>,
+    exportWatches: () => apiFetch(`${ROOT}/watches-export`) as Promise<unknown>,
+    importWatches: (payload: unknown) => apiFetch(`${ROOT}/watches/import`, json(payload)) as Promise<{
+        ok: boolean;
+        added: number;
+        skippedSame: number;
+        skippedTitle: number;
     }>,
     clearWatchErrors: () => apiFetch(`${ROOT}/watches/clear-errors`, json({})) as Promise<{
         ok: boolean;

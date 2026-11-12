@@ -12,6 +12,7 @@ import {
     History,
     Image as ImageIcon,
     Loader2,
+    Lock,
     MoreHorizontal,
     Pause,
     Play,
@@ -21,6 +22,7 @@ import {
     Search,
     Sparkles,
     Trash2,
+    Unlock,
     User,
     X,
 } from 'lucide-react';
@@ -29,6 +31,7 @@ import { CustomSelect, SettingsToggleRow } from '../../shared/ui';
 import { askConfirm } from '../../shared/confirm';
 import { ModalPortal } from '../../shared/ModalPortal';
 import { posterSetsApi } from '../api';
+import { WatchingToolsPanel } from '../WatchingToolsPanel';
 import { addWatchWithTitleReplaceConfirm } from '../pinWatch';
 import { MEDIUX_FILTER_OPTIONS, type PosterSetsWatch } from '../types';
 import { isPosterSetsUpstreamOutage } from '../upstreamErrors';
@@ -442,6 +445,48 @@ export const PosterSetsWatchingView: React.FC = () => {
         }
     };
 
+    const toggleWatchLock = async (watch: PosterSetsWatch) => {
+        setBusy('watches');
+        try {
+            const next = watch.locked !== true;
+            const response = await posterSetsApi.patchWatch(watch.id, { locked: next }) as { watch?: PosterSetsWatch };
+            await loadWatches();
+            setWatchSheet((current) => (
+                current && current.watch.id === watch.id
+                    ? { ...current, watch: response.watch || { ...current.watch, locked: next } }
+                    : current
+            ));
+            toast(next ? 'Locked: this title keeps its current set.' : 'Unlocked.');
+        } catch (error) {
+            toast(error instanceof Error ? error.message : 'Failed to update lock', 'error');
+        } finally {
+            setBusy(null);
+        }
+    };
+
+    const resetWatchArt = async (watch: PosterSetsWatch, title: string) => {
+        const ratingKey = String(watch.plexHint?.ratingKey || '').trim();
+        const mediaType = String(watch.plexHint?.mediaType || '').trim().toLowerCase();
+        if (!ratingKey || (mediaType !== 'movie' && mediaType !== 'show')) {
+            toast('This watch is not linked to a Plex title yet, so there is nothing to reset.', 'error');
+            return;
+        }
+        const ok = await askConfirm(
+            `Reset the artwork for "${title}" to Plex defaults? Custom art from poster sets is cleared. The set stays watched, so pause or remove the watch too if you do not want it applied again.`,
+            { title: 'Reset artwork?', confirmLabel: 'Reset', danger: true },
+        );
+        if (!ok) return;
+        setBusy('watches');
+        try {
+            await posterSetsApi.resetArt({ ratingKey, mediaType, scope: mediaType === 'movie' ? 'poster' : 'all' });
+            toast('Artwork reset to Plex defaults.');
+        } catch (error) {
+            toast(error instanceof Error ? error.message : 'Failed to reset artwork', 'error');
+        } finally {
+            setBusy(null);
+        }
+    };
+
     const patchWatchFilters = async (watch: PosterSetsWatch, optionId: string) => {
         const base = watch.mediuxFilters?.length
             ? [...watch.mediuxFilters]
@@ -667,6 +712,31 @@ export const PosterSetsWatchingView: React.FC = () => {
                                                 type="button"
                                                 className={`${buttonClass} !justify-start min-h-11`}
                                                 disabled={busy !== null || !sheetWatch}
+                                                title="A locked title keeps this set: no other set can replace it"
+                                                onClick={() => {
+                                                    if (!sheetWatch) return;
+                                                    void toggleWatchLock(sheetWatch);
+                                                }}
+                                            >
+                                                {sheetWatch?.locked ? <Unlock className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+                                                {sheetWatch?.locked ? 'Unlock set' : 'Lock set (never replace)'}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className={`${buttonClass} !justify-start min-h-11`}
+                                                disabled={busy !== null || !sheetWatch || !watchSheet}
+                                                onClick={() => {
+                                                    if (!sheetWatch || !watchSheet) return;
+                                                    void resetWatchArt(sheetWatch, watchSheet.title);
+                                                }}
+                                            >
+                                                <ImageIcon className="h-4 w-4" />
+                                                Reset artwork to Plex default…
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className={`${buttonClass} !justify-start min-h-11`}
+                                                disabled={busy !== null || !sheetWatch || !watchSheet}
                                                 onClick={() => {
                                                     if (!sheetWatch || !watchSheet) return;
                                                     setWatchSheet(null);
@@ -704,6 +774,20 @@ export const PosterSetsWatchingView: React.FC = () => {
                                             </button>
                                         </div>
                                     </div>
+
+                                    {sheetWatch?.history?.length ? (
+                                        <div className="space-y-2">
+                                            <p className="text-[11px] font-bold uppercase tracking-wide text-muted">History</p>
+                                            <ul className="max-h-44 space-y-1.5 overflow-y-auto">
+                                                {sheetWatch.history.map((row, index) => (
+                                                    <li key={`${row.at}-${index}`} className="flex items-start justify-between gap-3 text-xs">
+                                                        <span className="text-text">{row.text}</span>
+                                                        <span className="shrink-0 text-muted">{formatTime(row.at)}</span>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                    ) : null}
                                 </div>
                             </div>
                         </div>
@@ -806,6 +890,13 @@ export const PosterSetsWatchingView: React.FC = () => {
                         </div>
                     </div>
         
+                    <WatchingToolsPanel
+                        watches={watches}
+                        toast={toast}
+                        reload={() => loadWatches()}
+                        checkNow={(watch) => checkWatchNow(watch)}
+                    />
+
                     <form
                         className="flex flex-col gap-2 rounded-xl border border-white/10 bg-black/20 p-3 sm:flex-row sm:items-center sm:p-3.5"
                         onSubmit={async (event) => {

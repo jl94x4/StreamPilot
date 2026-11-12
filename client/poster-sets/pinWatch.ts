@@ -1,32 +1,12 @@
-import { askConfirm } from '../shared/confirm';
+import { askReplaceCompare } from './ReplaceCompareDialog';
 import {
     posterSetsApi,
     PosterSetsTitleWatchConflict,
     type PosterSetsAddWatchPayload,
 } from './api';
-import { formatSetLabel, providerLabel } from './shared/posterSetsFormat';
 import type { PosterSetsWatch } from './types';
 
-const describeWatchedSet = (watch: PosterSetsWatch | null | undefined) => {
-    const label = formatSetLabel(watch);
-    if (label) return label;
-    const creator = String(watch?.user || '').trim().replace(/^@/, '');
-    const provider = providerLabel(watch?.provider);
-    if (creator) return `@${creator} on ${provider}`;
-    const url = String(watch?.url || '').trim();
-    return url || 'the current set';
-};
-
-export const confirmReplaceTitleWatch = async (conflict: PosterSetsTitleWatchConflict) => {
-    const title = String(conflict.incoming?.title || conflict.existing[0]?.title || 'this title').trim();
-    const current = conflict.existing.map((watch) => describeWatchedSet(watch)).join(', ');
-    const next = describeWatchedSet(conflict.incoming);
-    const many = conflict.existing.length > 1;
-    return askConfirm(
-        `${title} is already being watched with ${current}. Only one set can be watched per show or movie, so using ${next} will stop watching and remove ${many ? 'those sets' : 'that set'}.`,
-        { title: 'Already watching a set', confirmLabel: 'Replace set', danger: true },
-    );
-};
+export const confirmReplaceTitleWatch = (conflict: PosterSetsTitleWatchConflict) => askReplaceCompare(conflict);
 
 export type AddWatchWithReplaceResult = {
     ok: boolean;

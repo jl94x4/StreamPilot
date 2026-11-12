@@ -1450,7 +1450,12 @@ const rejectPlexOauthState = (req, res, { redirectOnSuccess = false } = {}) => {
     return res.status(403).json({ error: message });
 };
 
-app.use(express.json({ limit: '1mb' })); // Poster Sets Warm + other admin payloads; was 50kb (413 on large Warm)
+const jsonBodyParser = express.json({ limit: '1mb' }); // Poster Sets Warm + other admin payloads; was 50kb (413 on large Warm)
+// Watching import carries every fingerprint of a whole library, far past 1mb.
+const largeJsonBodyParser = express.json({ limit: '64mb' });
+app.use((req, res, next) => (
+    req.path === '/api/poster-sets/watches/import' ? largeJsonBodyParser(req, res, next) : jsonBodyParser(req, res, next)
+));
 app.use(express.urlencoded({ extended: true, limit: '2mb' })); // Plex webhook form payloads
 app.use(cookieParser()); // Middleware to parse cookies
 

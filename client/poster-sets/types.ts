@@ -107,6 +107,8 @@ export type PosterSetsWatch = {
         title?: string | null;
         mediaType?: string | null;
     } | null;
+    locked?: boolean;
+    history?: Array<{ at: string; text: string }>;
     createdAt?: string | null;
     updatedAt?: string | null;
 };
