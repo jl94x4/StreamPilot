@@ -111,7 +111,12 @@ export const installMediaDownloadsBridge = () => {
         const cap = await loadCapacitorCore();
         if (!cap?.Capacitor?.isNativePlatform?.() || !cap.registerPlugin) return;
         const plugin = cap.registerPlugin<CapMediaDownloadsPlugin>('MediaDownloads');
-        capPlugin = plugin;
+        // Capacitor plugins answer any property, `then` included: handing one back from an async
+        // function (ensurePlugin) made the promise machinery call plugin.then() and reject with
+        // "MediaDownloads.then() is not implemented", which aborted playback on phones.
+        capPlugin = new Proxy(plugin as object, {
+            get: (target, prop, receiver) => (prop === 'then' ? undefined : Reflect.get(target, prop, receiver)),
+        }) as CapMediaDownloadsPlugin;
         const wire = async (event: string) => {
             try {
                 await plugin.addListener(event, (data) => {
