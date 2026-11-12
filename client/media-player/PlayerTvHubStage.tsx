@@ -356,7 +356,10 @@ export const PlayerTvHubStage: React.FC<Props> = ({
             ...base,
             ...extra,
             thumb: base.thumb || extra.thumb,
-            art: base.art || extra.art,
+            // Keep the billboard on the card's own picture. The focused poster paints art || thumb;
+            // taking the fetched details' art when the card has only a thumb gave the billboard a
+            // different image (episode still vs show art) and it flipped when the details landed.
+            art: base.art || (base.thumb ? undefined : extra.art),
             logo: extra.logo || base.logo,
             type: episodeBase ? 'episode' : (extra.type || base.type),
             title: base.title,

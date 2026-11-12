@@ -78,6 +78,7 @@ const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
             title: 'Libraries',
             items: [
                 'Library Recommended retries when Plex is slow to answer, so you no longer end up with only three rows',
+                'The big background on Home and Recommended no longer flips to a different picture a moment after you land on a title',
             ],
         },
     ],
