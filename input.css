@@ -2382,12 +2382,6 @@ html[data-phone-native="1"] *::-webkit-scrollbar-track {
     gap: 0.5rem;
   }
 
-  /* Long Discover/Requests grids: skip layout+paint for off-screen cells (big iOS Safari scroll win). */
-  .upgrader-poster-grid > * {
-    content-visibility: auto;
-    contain-intrinsic-size: auto 14rem;
-  }
-
   .upgrader-poster-grid--small {
     gap: 0.375rem;
   }
