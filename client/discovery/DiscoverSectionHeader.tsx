@@ -53,13 +53,12 @@ export const DiscoverSectionHeader: React.FC<{
             </div>
         );
     }
-    // Two lines: the marker stays beside the title and the subtitle lines up under it.
+    // One line: marker and title on the left, the subtitle (server name) at the far end of the row.
     return (
-        <div className={`player-row-header player-row-header--sub grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center pr-16 max-md:pr-0 ${className}`.trim()}>
-            {/* Own column; Row marker "None" renders nothing, so the margin goes too. */}
-            <span className="col-start-1 row-start-1 mr-3 flex items-center empty:mr-0"><RowHeaderMark /></span>
-            <div className="col-start-2 row-start-1 flex min-w-0 items-center gap-3">{heading}</div>
-            <p className="player-row-header-subtitle col-start-2 min-w-0 truncate text-sm text-muted">{subtitle}</p>
+        <div className={`player-row-header player-row-header--sub flex min-w-0 items-center gap-3 pr-16 max-md:pr-0 ${className}`.trim()}>
+            <span className="flex shrink-0 items-center"><RowHeaderMark /></span>
+            <div className="flex min-w-0 flex-1 items-center gap-3">{heading}</div>
+            <p className="player-row-header-subtitle ml-auto max-w-[40%] shrink-0 truncate text-sm text-muted">{subtitle}</p>
         </div>
     );
 };

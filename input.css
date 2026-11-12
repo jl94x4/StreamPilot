@@ -653,14 +653,14 @@ html[data-phone="1"] .media-details-hero {
     left: 0;
     bottom: auto;
     width: auto;
-    height: min(72vw, 24rem);
-    max-height: 24rem;
+    height: calc(min(72vw, 24rem) + 3.5rem);
+    max-height: calc(24rem + 3.5rem);
   }
   html[data-phone="1"] .media-details-page .media-details-hero-backdrop img {
     object-fit: cover;
     object-position: var(--tv-backdrop-position, 50% 18%);
     opacity: 1;
-    -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 62%, rgb(0 0 0 / 0.7) 82%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 72%, rgb(0 0 0 / 0.7) 88%, transparent 100%);
     mask-image: linear-gradient(to bottom, #000 0%, #000 62%, rgb(0 0 0 / 0.7) 82%, transparent 100%);
   }
   html[data-phone="1"] .media-details-page .media-details-hero-backdrop::before {
@@ -672,10 +672,10 @@ html[data-phone="1"] .media-details-hero {
     background: linear-gradient(
       to bottom,
       rgb(0 0 0 / 0.22) 0%,
-      transparent 26%,
-      rgb(var(--tv-details-surface) / 0.08) 52%,
-      rgb(var(--tv-details-surface) / 0.42) 72%,
-      rgb(var(--tv-details-surface) / 0.82) 88%,
+      transparent 32%,
+      rgb(var(--tv-details-surface) / 0.06) 62%,
+      rgb(var(--tv-details-surface) / 0.38) 80%,
+      rgb(var(--tv-details-surface) / 0.82) 93%,
       rgb(var(--tv-details-surface)) 100%
     );
   }
@@ -697,7 +697,7 @@ html[data-phone="1"] .media-details-hero {
     left: max(1rem, env(safe-area-inset-left, 0px));
     right: max(1rem, env(safe-area-inset-right, 0px));
     top: max(2.75rem, env(safe-area-inset-top, 0px));
-    height: min(72vw, 24.5rem);
+    height: calc(min(72vw, 24.5rem) + 3.5rem);
     display: flex;
     flex-direction: column;
     justify-content: flex-end;
@@ -743,7 +743,7 @@ html[data-phone="1"] .media-details-hero {
     order: 1;
     width: 100%;
     max-width: none;
-    padding-top: min(72vw, 24.5rem);
+    padding-top: calc(min(72vw, 24.5rem) + 3.5rem);
   }
   html[data-phone="1"] .media-details-episode-play {
     display: contents;

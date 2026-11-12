@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { createSheetSwipe } from './sheetSwipe';
 import { ArrowLeft, Bookmark, BookmarkCheck, Calendar, Captions, Check, CircleCheck, ChevronDown, ChevronUp, Clock, Eye, EyeOff, Film, Info, ListPlus, Loader2, Play, RotateCcw, Shuffle, SkipForward, Star, Users, Volume2, X } from 'lucide-react';
 import { isWatchTogetherAvailable } from './watchTogetherClient';
 import {
@@ -59,6 +60,7 @@ import {
     resizePlexArtUrl,
     billboardBackdropFor,
     plexBackdropUrl,
+    plexSquareArtUrl,
     plexLogoUrl,
     applyRememberedProgress,
     PLAYER_PROGRESS_EVENT,
@@ -1731,7 +1733,9 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         >
             {item.watchlisted ? <BookmarkCheck className="h-4 w-4" /> : <Bookmark className="h-4 w-4" />}
             <span className="media-details-action-label">
-                {item.watchlisted ? t('mediaPlayerPage.removeFromWatchlist') : t('mediaPlayerPage.addToWatchlist')}
+                {phoneUi
+                    ? t('mediaPlayerPage.navWatchlist')
+                    : (item.watchlisted ? t('mediaPlayerPage.removeFromWatchlist') : t('mediaPlayerPage.addToWatchlist'))}
             </span>
         </TvButton>
     ) : null;
@@ -1784,12 +1788,16 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                 <Star className={`h-4 w-4${rateStars ? ' fill-plex text-plex' : ''}`} />
                 <span className="media-details-action-label">{t('mediaPlayerPage.rate')}</span>
             </TvButton>
-            {rateOpen ? (
+            {rateOpen && typeof document !== 'undefined' ? createPortal(
                 <div
                     className="fixed inset-0 z-[3500] flex items-end bg-black/60"
+                    data-player-mobile-context="1"
                     onClick={(event) => { if (event.target === event.currentTarget) setRateOpen(false); }}
                 >
-                    <div className="flex w-full flex-col items-center rounded-t-[1.75rem] bg-black px-6 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-3">
+                    <div
+                        className="player-mobile-context-modal flex w-full flex-col items-center rounded-t-[1.75rem] bg-black px-6 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-3"
+                        {...createSheetSwipe(() => setRateOpen(false))}
+                    >
                         <span className="mb-4 h-1 w-11 rounded-full bg-white/35" />
                         <p className="mb-4 text-[1.1rem] font-bold text-white">{item.title}</p>
                         <div className="flex items-center gap-2">
@@ -1805,7 +1813,8 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                             </button>
                         ) : null}
                     </div>
-                </div>
+                </div>,
+                document.body,
             ) : null}
         </>
     ) : null;
@@ -2284,7 +2293,9 @@ export const MediaPlayerDetails: React.FC<Props> = ({
     const isEpisodeHub = isTvShell && (item.type === 'episode' || item.type === 'season');
     /** What the watched button marks: the focused episode on TV episode / season pages. */
     const watchedTarget = isEpisodeHub && hubItem.type === 'episode' ? hubItem : item;
-    const backdropUrl = episodeHubBackdropUrl || homeHandoff?.url || plexBackdropUrl(item.art || item.thumb);
+    // Phones: the title's Plex Square Art as the cover background, the normal background when it has none.
+    const phoneSquareUrl = !isTvShell && isPhoneDetailsUi() && item.squareArt ? plexSquareArtUrl(item.squareArt) : '';
+    const backdropUrl = phoneSquareUrl || episodeHubBackdropUrl || homeHandoff?.url || plexBackdropUrl(item.art || item.thumb);
     const hubTechPills = isTvShell && (item.type === 'episode' || item.type === 'season')
         ? episodeTechPills(hubItem)
         : [];
@@ -2872,6 +2883,11 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                 mobileShowTitleNode
             )}
             <h1 className="sr-only">{item.title}</h1>
+            {phoneUi && (item.type === 'movie' || item.type === 'show') && item.tagline ? (
+                <p className="media-details-tagline mt-2 max-w-[22rem] text-center text-[0.95rem] font-medium italic leading-snug text-white/85 drop-shadow-[0_2px_10px_rgba(0,0,0,0.85)]">
+                    {item.tagline}
+                </p>
+            ) : null}
             {preplayUi && item.type === 'season' && seasonLabel && !isTvShell ? (
                 phoneUi && phoneSeasonList.length > 1 ? (
                     <button
@@ -4035,7 +4051,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                 key={hub.identifier || hub.title}
                                 title={hub.title}
                                 items={hub.items}
-                                density={isPhoneDetailsUi() ? 6.75 : railPosterDensity}
+                                density={railPosterDensity}
                                 onOpenItem={onOpenItem}
                                 onPlay={onPlay}
                             />

@@ -1024,7 +1024,8 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             // TV retries too, but spaced well apart: a full pass fans out to every pin,
             // and back-to-back passes can stall a busy server into a restart.
             const retry = () => {
-                if (attempt >= 2 || !current()) return undefined;
+                // Phones keep asking longer (a slow second server can take a while to wake); TV stays at two.
+                if (attempt >= (isTvShell ? 2 : 5) || !current()) return undefined;
                 if (isTvShell) {
                     // Detached, so the first pass ends (and background loads resume) now;
                     // the retry takes row priority only while it runs.
@@ -1040,7 +1041,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                     }, attempt ? 30000 : 10000);
                     return undefined;
                 }
-                return new Promise<void>((resolve) => { window.setTimeout(resolve, attempt ? 8000 : 3000); })
+                return new Promise<void>((resolve) => { window.setTimeout(resolve, [3000, 8000, 15000, 30000, 60000][Math.min(attempt, 4)]); })
                     .then(() => (current() && homeActiveRef.current ? followFull(base, live, attempt + 1) : undefined));
             };
             return fetchMediaPlayerHomeFull()
@@ -1063,7 +1064,9 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                     endHomeRowPriority();
                 });
         }
-        if (isTvShell || (skipPartial && cachedNeedsFull)) {
+        // Phones take the same two-pass road as TV: the fast answer alone can carry rows from just one of
+        // several servers, the full pass brings every server's pinned rows.
+        if (isTvShell || isPhoneUi() || (skipPartial && cachedNeedsFull)) {
             // Paint includeMeta pins as soon as they arrive. The full pass still
             // fills empty shells and replaces the list — it must not be the first
             // paint, or opening the app waits on every hub refill.
@@ -2501,9 +2504,27 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             const onNowNodes: React.ReactNode[] = [];
             const recentNodes: React.ReactNode[] = [];
             let insertedWatchlist = false;
+            // More than one server (or library) can each answer with a Continue Watching hub, often with the
+            // same items: show one row with every entry once.
+            const cwHubs = hubs.filter(isContinueWatchingHub);
+            const mergedCwHub: PlayerLibraryHub | null = cwHubs.length > 1
+                ? (() => {
+                    const seen = new Set<string>();
+                    const items = cwHubs.flatMap((hub) => hub.items || []).filter((row) => {
+                        const key = `${row.serverId || ''}:${row.ratingKey}`;
+                        if (seen.has(key)) return false;
+                        seen.add(key);
+                        return true;
+                    });
+                    return { ...cwHubs[0], items };
+                })()
+                : null;
+            let cwDone = false;
             hubs.forEach((hub, hubIndex) => {
                 if (isContinueWatchingHub(hub)) {
-                    continueNodes.push(hubRail(hub, hubIndex));
+                    if (cwDone) return;
+                    cwDone = true;
+                    continueNodes.push(hubRail(mergedCwHub || hub, hubIndex));
                     const watchlistNode = watchlistRail(hubIndex + 0.5);
                     if (watchlistNode) continueNodes.push(watchlistNode);
                     insertedWatchlist = true;

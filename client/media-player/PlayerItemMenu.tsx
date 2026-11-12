@@ -1,3 +1,4 @@
+import { createSheetSwipe } from './sheetSwipe';
 import React, { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
 import { askConfirm } from '../shared/confirm';
 import { createPortal } from 'react-dom';
@@ -1412,8 +1413,9 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                     ref={menuRef}
                     role="menu"
                     data-tv-item-menu="1"
-                    className="player-mobile-context-modal flex max-h-[88dvh] w-full flex-col overflow-hidden rounded-t-[1.75rem] bg-black pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-12px_60px_rgba(0,0,0,0.7)]"
+                    className="player-mobile-context-modal flex max-h-[62dvh] w-full flex-col overflow-hidden rounded-t-[1.75rem] bg-black pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-12px_60px_rgba(0,0,0,0.7)]"
                     {...stopBubble}
+                    {...createSheetSwipe(close)}
                 >
                     <button
                         type="button"
@@ -1431,7 +1433,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                             <p className="mt-0.5 text-sm text-white/60">{`S${item.parentIndex} • E${item.index}`}</p>
                         ) : null}
                     </div>
-                    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+                    <div data-sheet-list="1" className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
                         {mode === 'main' && canPrimaryWatch ? (
                             <button
                                 type="button"

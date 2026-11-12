@@ -693,6 +693,14 @@
     .media-details-trailer-preview {
       transition: opacity 1.2s ease;
     }
+    /* Phone More sheet: backdrop fades in while the sheet slides up from the bottom edge. */
+    @keyframes player-sheet-backdrop-in { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes player-sheet-slide-up { from { transform: translateY(100%); } to { transform: none; } }
+    [data-player-mobile-context="1"] { animation: player-sheet-backdrop-in 0.22s ease-out both; }
+    .player-mobile-context-modal { animation: player-sheet-slide-up 0.34s cubic-bezier(0.22, 1, 0.36, 1) backwards; will-change: transform; }
+    @media (prefers-reduced-motion: reduce) {
+      [data-player-mobile-context="1"], .player-mobile-context-modal { animation: none; }
+    }
     /* Per-show spoiler hiding: an unwatched episode's still is blurred (frame clips the edges). */
     /* Live Home: a card Plex just added slides in from the left of its row. */
     @keyframes player-rail-card-in {
@@ -4026,6 +4034,37 @@
         font-size: 2.4rem;
       }
     }
+    /* Phone: everything in the first-run library picker at a calmer size. */
+    html[data-phone="1"] .smp-setup-shell {
+      gap: 1.1rem;
+      padding: calc(1.25rem + env(safe-area-inset-top, 0px)) 1rem 1.25rem;
+    }
+    html[data-phone="1"] .smp-setup-intro { gap: 0.75rem; }
+    html[data-phone="1"] .smp-setup-headline { font-size: 1.9rem; line-height: 1.05; }
+    html[data-phone="1"] .smp-setup-lede { font-size: 0.88rem; line-height: 1.45; }
+    html[data-phone="1"] .smp-setup-count { padding: 0.35rem 0.7rem; font-size: 0.8rem; }
+    html[data-phone="1"] .smp-setup-actions { margin-top: 0.1rem; gap: 0.5rem; }
+    html[data-phone="1"] .smp-setup-actions .smp-auth-button {
+      padding: 0.65rem 1.2rem;
+      font-size: 0.95rem;
+      border-radius: 0.9rem;
+    }
+    html[data-phone="1"] .smp-setup-ghost { padding: 0.6rem 1rem; font-size: 0.85rem; border-radius: 0.9rem; }
+    html[data-phone="1"] .smp-setup-panel { padding: 0.75rem; gap: 0.6rem; border-radius: 1.25rem; }
+    html[data-phone="1"] .smp-setup-grid { gap: 0.5rem; }
+    html[data-phone="1"] .smp-setup-card {
+      min-height: 3.4rem;
+      gap: 0.7rem;
+      padding: 0.55rem 0.75rem;
+      border-radius: 0.9rem;
+    }
+    html[data-phone="1"] .smp-setup-card-icon { width: 2.2rem; height: 2.2rem; border-radius: 0.65rem; }
+    html[data-phone="1"] .smp-setup-card-icon svg { width: 1.15rem; height: 1.15rem; }
+    html[data-phone="1"] .smp-setup-card-title { font-size: 0.92rem; }
+    html[data-phone="1"] .smp-setup-card-sub { font-size: 0.72rem; margin-top: 0.05rem; }
+    html[data-phone="1"] .smp-setup-card-heart { width: 1.9rem; height: 1.9rem; }
+    html[data-phone="1"] .smp-setup-card-heart svg { width: 1rem; height: 1rem; }
+    html[data-phone="1"] .smp-setup-server { padding: 0.45rem 0.6rem 0.45rem 0.8rem; font-size: 0.82rem; }
     html[data-tv="1"] [data-tv-auth="1"] {
       min-height: calc(100vh / var(--tv-zoom, 1)) !important;
       height: calc(100vh / var(--tv-zoom, 1)) !important;
@@ -4245,9 +4284,6 @@
         overflow-y: hidden;
         overscroll-behavior-x: contain;
       }
-      html[data-phone="1"] .media-details-related [data-tv-rail="1"] > * {
-        width: 6.75rem !important;
-      }
       html[data-phone="1"] .media-details-episode-card,
       html[data-phone="1"] .media-details-extra-card {
         width: 11.5rem !important;
@@ -4365,7 +4401,7 @@
         display: none !important;
       }
       html[data-phone="1"] .media-details-billboard-identity {
-        height: min(72vw, 24.5rem);
+        height: calc(min(72vw, 24.5rem) + 3.5rem);
       }
       html[data-phone="1"] .media-details-clearlogo {
         width: auto;
@@ -4380,45 +4416,101 @@
         min-width: 0;
         flex: 1 1 calc(50% - 0.25rem);
       }
+      /* Library tabs match the TV: loose pills in one swipeable row, no box around them. */
       html[data-phone="1"] [data-tv-library-tabs="1"] {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 0.3rem;
-        padding: 0.25rem;
-        border-radius: 0.9rem;
-        background: rgba(255, 255, 255, 0.05);
-        border: 1px solid rgba(255, 255, 255, 0.08);
+        display: flex;
+        flex-wrap: nowrap;
+        gap: 0.55rem;
+        overflow-x: auto;
+        scrollbar-width: none;
+        margin: 0 -1rem;
+        padding: 0 1rem;
       }
+      html[data-phone="1"] [data-tv-library-tabs="1"]::-webkit-scrollbar { display: none; }
       html[data-phone="1"] [data-tv-library-tabs="1"] button {
-        width: 100%;
-        min-height: 2.55rem;
-        border-radius: 0.7rem;
-        padding-left: 0.4rem;
-        padding-right: 0.4rem;
+        flex: 0 0 auto;
+        min-height: 2.6rem;
+        padding: 0.45rem 1.1rem;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        background: rgba(255, 255, 255, 0.06);
+        color: #fff;
+        font-size: 1rem;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+      html[data-phone="1"] [data-tv-library-tabs="1"] button[aria-current="page"] {
+        border-color: rgb(var(--tv-accent, 229 160 13) / 0.75);
+        background: rgb(var(--tv-accent, 229 160 13) / 0.16);
+        color: rgb(var(--tv-accent, 229 160 13));
+      }
+      /* Related rows (title pages) and Library Recommended use the Home poster size and caption sizes. */
+      html[data-phone="1"] .media-details-related [data-tv-row="1"] .snap-start:not(.player-rail-landscape),
+      html[data-phone="1"] .media-details-related [data-tv-rail="1"] > .snap-start,
+      html[data-phone="1"] [data-tv-library="1"] .player-home-rows [data-tv-row="1"] .snap-start:not(.player-rail-landscape) {
+        width: min(29vw, 10rem) !important;
+      }
+      html[data-phone="1"] .media-details-related .player-poster-caption--phone,
+      html[data-phone="1"] [data-tv-library="1"] .player-home-rows .player-poster-caption--phone { margin-top: 0.15rem; }
+      html[data-phone="1"] .media-details-related .player-poster-caption--phone > div:first-child,
+      html[data-phone="1"] [data-tv-library="1"] .player-home-rows .player-poster-caption--phone > div:first-child { font-size: 0.8rem; }
+      html[data-phone="1"] .media-details-related .player-poster-caption--phone > div + div,
+      html[data-phone="1"] [data-tv-library="1"] .player-home-rows .player-poster-caption--phone > div + div { font-size: 0.72rem; }
+      /* Row headings: a touch larger title, a touch smaller server name. */
+      html[data-phone="1"] .player-row-header-title { font-size: 1.4rem; font-weight: 800; }
+      html[data-phone="1"] .player-row-header-subtitle { font-size: 0.78rem; }
+      /* Browse A-Z: a slim index down the right edge instead of a row across the top. */
+      html[data-phone="1"] [data-tv-browse-layout="1"] {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.4rem;
+      }
+      html[data-phone="1"] [data-tv-browse-layout="1"] > [data-tv-browse-main="1"] {
+        flex: 1 1 auto;
+        min-width: 0;
+        order: 1;
+      }
+      html[data-phone="1"] [data-tv-alpha-track="1"] {
+        order: 2;
+        flex: 0 0 auto;
+        position: sticky;
+        top: 4.25rem;
+        align-self: flex-start;
+        /* Stretch the whole index down the screen so each letter is a big target. */
+        height: calc(100dvh - 7.5rem - env(safe-area-inset-bottom, 0px));
+        width: 2.1rem;
       }
       html[data-phone="1"] [data-tv-alpha="1"] {
         display: flex;
-        gap: 0.35rem;
-        overflow-x: auto;
-        margin-bottom: 0.85rem;
-        padding-bottom: 0.15rem;
+        flex-direction: column;
+        align-items: stretch;
+        justify-content: space-between;
+        height: 100%;
+        padding: 0.15rem 0;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.05);
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
       }
       html[data-phone="1"] [data-tv-alpha="1"] button {
-        flex: 0 0 auto;
-        min-width: 2.15rem;
-        min-height: 2.15rem;
-        padding: 0 0.45rem;
-        border-radius: 0.55rem;
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        background: rgba(255, 255, 255, 0.05);
-        color: #fff;
-        font-size: 0.85rem;
+        flex: 1 1 0;
+        min-height: 0;
+        width: 100%;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: rgba(255, 255, 255, 0.78);
+        font-size: 0.78rem;
         font-weight: 800;
+        line-height: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
       }
-      html[data-phone="1"] [data-tv-alpha="1"] button[aria-current="true"] {
-        border-color: rgb(var(--tv-accent) / 0.75);
-        background: rgb(var(--tv-accent) / 0.16);
-        color: rgb(var(--tv-accent));
+      html[data-phone="1"] [data-tv-alpha="1"] button[aria-current="true"],
+      html[data-phone="1"] [data-tv-alpha="1"] button[aria-selected="true"] {
+        color: rgb(var(--tv-accent, 229 160 13));
       }
       /* Bar owns the status-bar strip too, opaque — rows scrolled under it must not show through. */
       html[data-phone="1"] .player-phone-topbar {

@@ -104,6 +104,8 @@ export type PlayerItem = {
     heroCard?: boolean;
     /** Plex coverArt, the designed 16:9 hero Replex uses. */
     heroArt?: string | null;
+    /** Plex Square Art for the title, when it has one (phone cover background). */
+    squareArt?: string | null;
     /** Continue Watching poster uses the season art instead of the show art. */
     preferSeasonPoster?: boolean;
     /** Dedupe recently-added TV by show while keeping the episode ratingKey. */

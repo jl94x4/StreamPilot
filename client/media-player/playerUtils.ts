@@ -582,6 +582,12 @@ export const plexBackdropUrl = (path?: string | null) => {
     return backdropRequestUrl(path, PLAYER_BACKDROP_WIDTH, PLAYER_BACKDROP_HEIGHT, PLAYER_BACKDROP_QUALITY);
 };
 
+/** Plex Square Art as a phone cover: square, so ask for a square box (the normal backdrop box is 16:9). */
+export const plexSquareArtUrl = (path?: string | null) => {
+    if (!path) return '';
+    return backdropRequestUrl(path, 1080, 1080, 82);
+};
+
 /** Idle fullscreen art. One image at a time, so ask for the 4K source even on TV. */
 export const plexScreensaverBackdropUrl = (path?: string | null) => {
     if (!path) return '';

@@ -621,7 +621,7 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                         aria-label={t('mediaPlayerPage.closeNav')}
                         onClick={closeMobile}
                     />
-                    <aside className="player-phone-nav-panel relative mx-3 mb-3 mt-[max(0.75rem,env(safe-area-inset-top,0px))] flex max-h-[calc(100%-1.5rem-env(safe-area-inset-top,0px))] w-[min(20rem,86vw)] flex-col overflow-hidden rounded-[28px] border border-white bg-[#0b1018]/95 shadow-[0_18px_50px_rgba(0,0,0,0.45)]">
+                    <aside className="player-phone-nav-panel relative mx-3 mb-3 mt-[max(0.75rem,env(safe-area-inset-top,0px))] flex max-h-[calc(100%-1.5rem-env(safe-area-inset-top,0px))] w-[min(20rem,86vw)] flex-col overflow-hidden rounded-[28px] border border-white/10 bg-[#0b1018]/95 shadow-[0_18px_50px_rgba(0,0,0,0.45)]">
                         <button
                             type="button"
                             onClick={closeMobile}

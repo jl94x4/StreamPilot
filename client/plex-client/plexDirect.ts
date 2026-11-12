@@ -887,6 +887,16 @@ const taggedBackground = (meta: PlexMeta) => {
     return String(row?.url || row?.path || '').trim();
 };
 
+/** Plex Square Art (Edit > Square Art), when the title has one. The tag has been spelt a few ways, so match loosely. */
+const squareArtPath = (meta: PlexMeta) => {
+    const images = asList<PlexMeta>(meta.Image);
+    const row = images.find((image) => (
+        /square/i.test(String(image.type || ''))
+        || /\/squareArt/i.test(String(image.url || ''))
+    ));
+    return String(row?.url || row?.path || '').trim();
+};
+
 /** Show/movie Plex background. Episodes must not use the episode still. */
 const heroBackdropPath = (meta: PlexMeta, type: string) => {
     if (type === 'episode' || type === 'season') {
@@ -1189,6 +1199,7 @@ const mapItem = (meta: PlexMeta) => {
         art: imageUrl(meta.art || meta.grandparentArt, 1920, 1080),
         heroArt: coverArtUrl(meta) || null,
         backdropArt: imageUrl(heroBackdropPath(meta, type), 1920, 1080, { crop: false }),
+        squareArt: type === 'movie' || type === 'show' ? (imageUrl(squareArtPath(meta) || null, 1080, 1080, { crop: false }) || null) : null,
         logo: imageUrl(clearLogo(meta), 640, 240),
         ...mapTheme(meta),
         // Keep stamped library paths so Continue Watching can remount show/season

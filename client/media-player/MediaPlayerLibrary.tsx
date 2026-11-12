@@ -1,3 +1,4 @@
+import { isPhoneUi } from '../plex-client/config';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import {
@@ -96,6 +97,8 @@ const browseLetterOf = (title?: string | null) => {
 const estimateBrowseColumns = (size: Parameters<typeof posterGridScaleRem>[0]) => {
     if (size === 'list' || typeof document === 'undefined') return 1;
     const rem = posterGridScaleRem(size);
+    // Phones lay Browse out as a fixed column count (see browseGridStyle), so use the same number.
+    if (isPhoneUi()) return Math.max(2, Math.min(6, Math.round(24.75 / rem)));
     const rootPx = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
     const gapRem = rem < 6.25 ? 0.375 : rem < 8.25 ? 0.5 : rem < 11.5 ? 0.625 : 0.75;
     const col = rem * rootPx;
@@ -295,6 +298,17 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
     activeRef.current = active;
     const [gridSize, setGridSize] = useDiscoverGridSize();
     const recommendedPosterDensity = homeRailPosterDensity(gridSize);
+    // Phones: Browse, Collections and Studios use the same poster width as the Home rows.
+    const phoneGrid = isPhoneUi();
+    const gridDensity = phoneGrid ? recommendedPosterDensity : gridSize;
+    // Phones: three posters across by default; the Size slider changes the count (bigger = fewer).
+    const browseGridStyle = phoneGrid
+        ? {
+            ...upgraderPosterGridStyle(gridDensity),
+            gridTemplateColumns: `repeat(${Math.max(2, Math.min(6, Math.round(24.75 / posterGridScaleRem(gridSize))))}, minmax(0, 1fr))`,
+            gap: '0.6rem',
+        }
+        : upgraderPosterGridStyle(gridSize);
     const [title, setTitle] = useState(t('mediaPlayerPage.libraries'));
     const [libraryType, setLibraryType] = useState(() => readLibraryHomeCache(sectionKey)?.type || '');
     const musicLibrary = libraryType === 'artist';
@@ -603,7 +617,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
         }
         const gen = browseGenRef.current;
         const fullPage = browsePageSize();
-        const pageSize = !append && !prepend
+        const pageSize = !append && !prepend && !isPhoneUi()
             ? Math.min(fullPage, Math.max(8, (browseColumnsRef.current || 4) * 2))
             : fullPage;
         const jumpLetter = !append && !prepend && sort === 'titleSort' ? letter : '';
@@ -879,7 +893,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
             lastScrollTop = el.scrollTop;
             if (!movingDown) return;
             if (el.scrollHeight <= el.clientHeight + 8) return;
-            const cards = Array.from(grid.querySelectorAll<HTMLElement>('[data-tv-poster-btn="1"]'));
+            const cards = Array.from(grid.querySelectorAll<HTMLElement>('[data-browse-index]'));
             if (!cards.length) return;
             const cols = measureColumns(cards);
             const viewBottom = el.getBoundingClientRect().bottom + 4;
@@ -908,7 +922,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
             const abs = Number(card.closest('[data-browse-index]')?.getAttribute('data-browse-index'));
             let cols = browseColumnsRef.current;
             if (!cols) {
-                const cards = Array.from(grid.querySelectorAll<HTMLElement>('[data-tv-poster-btn="1"]'));
+                const cards = Array.from(grid.querySelectorAll<HTMLElement>('[data-browse-index]'));
                 cols = measureColumns(cards, true);
             }
             cols = Math.max(1, cols || estimateBrowseColumns(gridSizeRef.current));
@@ -1255,6 +1269,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
 
     const sortLabels: Record<string, string> = {
         'addedAt:desc': t('mediaPlayerPage.sortAdded'),
+        'episode.addedAt:desc': t('mediaPlayerPage.sortEpisodeAdded'),
         titleSort: t('mediaPlayerPage.sortTitle'),
         'titleSort:desc': t('mediaPlayerPage.sortTitleDesc'),
         'year:desc': t('mediaPlayerPage.sortYear'),
@@ -1271,11 +1286,11 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
     const movieLibrary = libraryType === 'movie';
     // Bitrate / file size are per file, so only movie libraries sort by them. Title (Z–A) is
     // Title pressed twice now, so it is not a row of its own.
-    const sortIds: string[] = [...SORT_IDS, ...(movieLibrary ? ['mediaBitrate:desc', 'mediaSize:desc'] : [])]
+    const sortIds: string[] = [...SORT_IDS.slice(0, 3), ...(libraryType === 'show' ? ['episode.addedAt:desc'] : []), ...SORT_IDS.slice(3), ...(movieLibrary ? ['mediaBitrate:desc', 'mediaSize:desc'] : [])]
         .filter((id) => id !== 'titleSort:desc');
     const sortOptions = sortIds.map((id) => ({ value: id, label: sortLabels[id] || id }));
     // Phone keeps its dropdown, with Title (Z–A) as its own entry.
-    const phoneSortOptions = [...SORT_IDS, ...(movieLibrary ? ['mediaBitrate:desc', 'mediaSize:desc'] : [])]
+    const phoneSortOptions = [...SORT_IDS.slice(0, 3), ...(libraryType === 'show' ? ['episode.addedAt:desc'] : []), ...SORT_IDS.slice(3), ...(movieLibrary ? ['mediaBitrate:desc', 'mediaSize:desc'] : [])]
         .map((id) => ({ value: id, label: sortLabels[id] || id }));
     const sortBase = (value: string) => String(value || '').replace(/:(asc|desc)$/, '');
     const sortDescending = /:desc$/.test(sort);
@@ -1343,6 +1358,40 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
             delete html.dataset.tvLibraryPinned;
         };
     }, [active, tab, tvShell]);
+
+    // Phone A-Z: slide a thumb down the strip to scrub through the letters.
+    const alphaScrubRef = useRef<{ down: boolean; key: string | null; swallowClick: boolean }>({ down: false, key: null, swallowClick: false });
+    const alphaPickAt = (x: number, y: number) => {
+        const key = (document.elementFromPoint(x, y) as HTMLElement | null)?.closest?.('[data-alpha-key]')?.getAttribute('data-alpha-key');
+        if (!key || key === alphaScrubRef.current.key) return;
+        alphaScrubRef.current.key = key;
+        setLetter(key === '__all' ? '' : key);
+        try { navigator.vibrate?.(6); } catch { /* ignore */ }
+    };
+    const alphaScrub = tvShell ? {} : {
+        onPointerDown: (event: React.PointerEvent<HTMLElement>) => {
+            if (event.pointerType !== 'touch') return;
+            alphaScrubRef.current = { down: true, key: null, swallowClick: true };
+            try { event.currentTarget.setPointerCapture(event.pointerId); } catch { /* ignore */ }
+            alphaPickAt(event.clientX, event.clientY);
+        },
+        onPointerMove: (event: React.PointerEvent<HTMLElement>) => {
+            if (!alphaScrubRef.current.down) return;
+            alphaPickAt(event.clientX, event.clientY);
+        },
+        onPointerUp: () => {
+            alphaScrubRef.current.down = false;
+            window.setTimeout(() => { alphaScrubRef.current.swallowClick = false; }, 400);
+        },
+        onPointerCancel: () => { alphaScrubRef.current.down = false; alphaScrubRef.current.swallowClick = false; },
+        // The touch already picked a letter; the tap's own click must not toggle it off again.
+        onClickCapture: (event: React.MouseEvent<HTMLElement>) => {
+            if (!alphaScrubRef.current.swallowClick) return;
+            alphaScrubRef.current.swallowClick = false;
+            event.preventDefault();
+            event.stopPropagation();
+        },
+    };
 
     const libraryChrome = (
         <div className="player-library-header flex flex-col gap-5">
@@ -1538,8 +1587,8 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                 </div>
             ) : loading && tab === 'collections' && !collections.length && !tvShell ? (
                 <PosterGridSkeleton
-                    className={upgraderPosterGridClass(gridSize)}
-                    style={upgraderPosterGridStyle(gridSize)}
+                    className={upgraderPosterGridClass(gridDensity)}
+                    style={browseGridStyle}
                 />
             ) : loading && tab === 'studios' && !studioNetworks.length && !studioStudios.length ? (
                 tvShell ? (
@@ -1623,8 +1672,8 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
             ) : tab === 'collections' ? (
                 collections.length ? (
                     <div
-                        className={upgraderPosterGridClass(gridSize)}
-                        style={upgraderPosterGridStyle(gridSize)}
+                        className={upgraderPosterGridClass(gridDensity)}
+                        style={browseGridStyle}
                         data-tv-rail={tvShell ? '1' : undefined}
                         data-tv-poster-rail={tvShell ? '1' : undefined}
                     >
@@ -1802,13 +1851,19 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                 <div data-tv-browse-layout="1">
                     {sort === 'titleSort' ? (
                         <div data-tv-alpha-track="1">
-                            <div data-tv-alpha="1" role="listbox" aria-label={t('mediaPlayerPage.alphaJump')}>
+                            <div
+                                data-tv-alpha="1"
+                                role="listbox"
+                                aria-label={t('mediaPlayerPage.alphaJump')}
+                                {...alphaScrub}
+                            >
                                 <TvButton
                                     type="button"
                                     role="option"
                                     aria-selected={!letter}
                                     data-tv-item={tvShell ? '1' : undefined}
                                     data-tv-alpha-btn={tvShell ? '1' : undefined}
+                                    data-alpha-key="__all"
                                     data-tv-key={tvShell ? 'alpha-all' : undefined}
                                     onClick={() => setLetter('')}
                                 >
@@ -1825,6 +1880,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                                             aria-current={current ? 'true' : undefined}
                                             data-tv-item={tvShell ? '1' : undefined}
                                             data-tv-alpha-btn={tvShell ? '1' : undefined}
+                                            data-alpha-key={row.key}
                                             data-tv-key={tvShell ? `alpha-${row.key}` : undefined}
                                             onClick={() => setLetter(letter === row.key ? '' : row.key)}
                                         >
@@ -1838,8 +1894,8 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                     <div data-tv-browse-main="1">
                         {loading ? (
                             <PosterGridSkeleton
-                                className={upgraderPosterGridClass(gridSize)}
-                                style={upgraderPosterGridStyle(gridSize)}
+                                className={upgraderPosterGridClass(gridDensity)}
+                                style={browseGridStyle}
                                 aspect={musicLibrary ? 'square' : '2/3'}
                                 {...(tvShell ? { count: browseCols * 3, variant: 'home' as const } : {})}
                             />
@@ -1865,8 +1921,8 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                         ) : (
                             <>
                                 <div
-                                    className={upgraderPosterGridClass(gridSize)}
-                                    style={upgraderPosterGridStyle(gridSize)}
+                                    className={upgraderPosterGridClass(gridDensity)}
+                                    style={browseGridStyle}
                                     data-tv-browse-grid="1"
                                     data-browse-abs-start={browseAbsStart}
                                     data-tv-rail={tvShell ? '1' : undefined}

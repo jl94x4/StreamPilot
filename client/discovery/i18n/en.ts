@@ -711,6 +711,7 @@ export const en = {
         emptyStudios: 'No studios or networks in this library yet.',
         sortLabel: 'Sort',
         sortAdded: 'Date added',
+        sortEpisodeAdded: 'Last episode date added',
         sortTitle: 'Title',
         sortTitleDesc: 'Title (Z–A)',
         sortYear: 'Year',

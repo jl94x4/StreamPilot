@@ -73,6 +73,34 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.697': [
+        {
+            title: 'Phone',
+            items: [
+                'Title pages use the Square Art from Plex as the cover when a movie or show has one, and the cover image shows more before it fades',
+                'The movie tagline sits under the clear logo',
+                'The Watchlist button just says Watchlist, and Related rows use the same poster size and caption size as Home',
+            ],
+        },
+    ],
+    '1.0.696': [
+        {
+            title: 'Phone',
+            items: [
+                'The More and Rate sheets slide up from the bottom and can be swiped back down; More is shorter, and Rate now covers the full width',
+                'Browse shows three posters across by default, loads the whole library as you scroll, and has an A to Z strip down the right edge that you can slide your thumb along',
+                'Library tabs look like the TV pills, poster sizes match between Home, Browse and Collections, and the server name sits at the end of each row title',
+                'Continue Watching shows once when you have more than one server, and Home keeps retrying until every server rows arrive',
+                'The first-run library picker is smaller, the menu border is softer and the app icon fills its shape',
+            ],
+        },
+        {
+            title: 'Libraries',
+            items: [
+                'TV show libraries can be sorted by Last episode date added, so shows with new episodes come first',
+            ],
+        },
+    ],
     '1.0.695': [
         {
             title: 'Phone',
