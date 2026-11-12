@@ -336,6 +336,8 @@ export const PlayerTvHubStage: React.FC<Props> = ({
     const tvRowIndexRef = useRef(0);
     const tvRowsRef = useRef(rows);
     const tvRowFocusRef = useRef<Record<string, string>>({});
+    const tvFocusKeyLiveRef = useRef('');
+    tvFocusKeyLiveRef.current = tvFocusKey;
     tvRowIndexRef.current = tvRowIndex;
     tvRowsRef.current = rows;
 
@@ -510,17 +512,25 @@ export const PlayerTvHubStage: React.FC<Props> = ({
                 ? Math.min(list.length - 1, current + 1)
                 : Math.max(0, current - 1);
             const prev = list[current];
-            if (prev && tvFocusKey) tvRowFocusRef.current[prev.id] = tvFocusKey;
+            // tvFocusKey is debounced (it lags the remote by ~90ms+), so a quick Left then Up/Down
+            // saved the poster from BEFORE the move. Read the poster that is focused right now.
+            const liveEl = document.activeElement as HTMLElement | null;
+            const liveKey = String(liveEl?.closest?.('[data-tv-key]')?.getAttribute('data-tv-key') || '').trim();
+            const prevHas = (key: string) => Boolean(key) && Boolean(prev?.items.some((item) => String(item.ratingKey || '') === key));
+            const savedKey = prevHas(liveKey) ? liveKey : (prevHas(tvFocusKeyLiveRef.current) ? tvFocusKeyLiveRef.current : '');
+            if (prev && savedKey) tvRowFocusRef.current[prev.id] = savedKey;
             if (next !== current) {
                 setTvRowIndex(next);
             }
         };
         window.addEventListener(TV_HOME_ROW_EVENT, onRow);
         return () => window.removeEventListener(TV_HOME_ROW_EVENT, onRow);
-    }, [active, tvFocusKey]);
+    }, [active]);
 
     useEffect(() => {
         if (!active || !tvActiveRow?.id || !tvFocusKey) return;
+        // Ignore a stale key from the row we just left: it must never overwrite this row's own memory.
+        if (!tvActiveRow.items.some((item) => String(item.ratingKey || '') === tvFocusKey)) return;
         tvRowFocusRef.current[tvActiveRow.id] = tvFocusKey;
     }, [active, tvActiveRow?.id, tvFocusKey]);
 
