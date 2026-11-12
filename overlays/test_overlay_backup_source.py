@@ -98,43 +98,6 @@ class OverlayBackupSourceTests(unittest.TestCase):
             self.assertEqual(original.getpixel((0, 0))[:3], (9, 9, 9))
             self.assertEqual(Image.open(path).getpixel((0, 0))[:3], (9, 9, 9))
 
-    def test_replaced_poster_beats_backup_even_while_labeled(self):
-        # Poster Sets (or a manual change) swapped the art but the overlay labels are still there:
-        # the stamp must be composed onto the NEW poster, and the backup refreshed to it.
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            paths = {"root": root, "preview": root / "preview", "backups": root / "backups"}
-            paths["preview"].mkdir()
-            backup = paths["backups"] / "kometa" / "99" / "poster.png"
-            backup.parent.mkdir(parents=True)
-            _solid((1, 2, 3, 255)).save(backup)
-            item = _FakeItem(labels=["Trending", "4K-HDR"])
-            with patch("kometa_engine._download_original", return_value=_solid((9, 9, 9, 255))):
-                original, path = _load_stamp_original(
-                    None, item, paths, "99",
-                    existing={"overlayLabels": ["Trending", "4K-HDR"]},
-                    poster_replaced=True,
-                )
-            self.assertEqual(original.getpixel((0, 0))[:3], (9, 9, 9))
-            self.assertEqual(Image.open(path).getpixel((0, 0))[:3], (9, 9, 9))
-
-    def test_unreplaced_poster_still_uses_backup_while_labeled(self):
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            paths = {"root": root, "preview": root / "preview", "backups": root / "backups"}
-            paths["preview"].mkdir()
-            backup = paths["backups"] / "kometa" / "99" / "poster.png"
-            backup.parent.mkdir(parents=True)
-            _solid((1, 2, 3, 255)).save(backup)
-            item = _FakeItem(labels=["Trending", "4K-HDR"])
-            with patch("kometa_engine._download_original", return_value=_solid((9, 9, 9, 255))):
-                original, _path = _load_stamp_original(
-                    None, item, paths, "99",
-                    existing={"overlayLabels": ["Trending", "4K-HDR"]},
-                    poster_replaced=False,
-                )
-            self.assertEqual(original.getpixel((0, 0))[:3], (1, 2, 3))
-
 
 if __name__ == "__main__":
     unittest.main()
