@@ -12,8 +12,8 @@ import type { MediaAvailabilityState } from './discoverAvailability';
 import { useDiscoverI18n, translateDiscoverAvailabilityDetail, translateDiscoverStatus } from './i18n';
 
 const overlayAnchor = 'absolute top-1 right-1 sm:top-1.5 sm:right-1.5 z-10';
-const iconBadgeClass = `${overlayAnchor} rounded-full p-0.5 sm:p-1 shadow-lg backdrop-blur-sm border flex items-center justify-center`;
-const labeledBadgeClass = `${overlayAnchor} flex items-center justify-center sm:justify-start gap-0 sm:gap-1 p-0.5 sm:px-1.5 sm:py-0.5 rounded-full text-[7px] leading-none sm:text-[10px] font-black uppercase tracking-tight sm:tracking-wide shadow-lg backdrop-blur-sm border`;
+const iconBadgeClass = `${overlayAnchor} rounded-full p-0.5 sm:p-1 shadow-lg border flex items-center justify-center`;
+const labeledBadgeClass = `${overlayAnchor} flex items-center justify-center sm:justify-start gap-0 sm:gap-1 p-0.5 sm:px-1.5 sm:py-0.5 rounded-full text-[7px] leading-none sm:text-[10px] font-black uppercase tracking-tight sm:tracking-wide shadow-lg border`;
 const iconOnlySize = 'w-3 h-3 sm:w-3.5 sm:h-3.5';
 const labeledIconSize = 'w-2.5 h-2.5 sm:w-3 sm:h-3';
 

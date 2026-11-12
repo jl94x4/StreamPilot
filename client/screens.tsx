@@ -7369,7 +7369,7 @@ export const DiscoverPosterCard: React.FC<{
                     </div>
                     {quickActionsOpen && (
                         <div
-                            className="absolute inset-0 bg-black/75 backdrop-blur-[1px] px-2 py-2 flex flex-col justify-end gap-1 pointer-events-auto"
+                            className="absolute inset-0 bg-black/80 px-2 py-2 flex flex-col justify-end gap-1 pointer-events-auto"
                             onClick={(event) => {
                                 event.preventDefault();
                                 event.stopPropagation();
