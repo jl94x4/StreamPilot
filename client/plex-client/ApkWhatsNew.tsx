@@ -73,6 +73,17 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.695': [
+        {
+            title: 'Phone',
+            items: [
+                'Playback works on phones again (it stopped on Playback is starting and then showed Could not start playback)',
+                'Title pages show Watchlist, Trailer, Rate, Mark watched and More under Watch, like Plex, and More opens as a bottom sheet',
+                'The player controls in portrait no longer overlap: the Direct Play and resolution chips sit on their own line',
+                'Did you know shows its full text, and the actor page is tidier',
+            ],
+        },
+    ],
     '1.0.694': [
         {
             title: 'Libraries',
