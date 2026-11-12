@@ -25,8 +25,9 @@ const attentionFor = (watches: PosterSetsWatch[]): Attention[] => {
             out.push({ watch, reason: 'Paused', tone: 'muted' });
         } else {
             const checked = Date.parse(watch.lastCheckedAt || '') || 0;
-            if (!checked || Date.now() - checked > 14 * DAY) {
-                out.push({ watch, reason: checked ? 'Not checked for over 2 weeks' : 'Never checked', tone: 'amber' });
+            // A watch that has never been checked is just new and waiting for its first pass.
+            if (checked && Date.now() - checked > 14 * DAY) {
+                out.push({ watch, reason: 'Not checked for over 2 weeks', tone: 'amber' });
             }
         }
     }
