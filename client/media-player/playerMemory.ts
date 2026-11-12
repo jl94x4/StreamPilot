@@ -1380,13 +1380,60 @@ type LibraryHomePayload = {
 
 const libraryHomeCache = new Map<string, { at: number; data: LibraryHomePayload }>();
 const LIBRARY_HOME_CLIENT_TTL_MS = 90_000;
+/** Saved copy that survives closing the app: a big library takes Plex 10+ s to build its rows. */
+const LIBRARY_HOME_STORE_KEY = 'portal-media-player-library-home-v1';
+const LIBRARY_HOME_STORE_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;
+const LIBRARY_HOME_STORE_MAX_CHARS = 1_800_000;
+let libraryHomeStoreLoaded = false;
+let libraryHomeStoreTimer = 0;
+
+const loadLibraryHomeStore = () => {
+    if (libraryHomeStoreLoaded || typeof window === 'undefined') return;
+    libraryHomeStoreLoaded = true;
+    try {
+        const parsed = JSON.parse(window.localStorage.getItem(LIBRARY_HOME_STORE_KEY) || '{}');
+        Object.entries(parsed || {}).forEach(([key, row]) => {
+            const at = Number((row as { at?: number })?.at || 0);
+            const data = (row as { data?: LibraryHomePayload })?.data;
+            if (!at || !data?.hubs?.length || Date.now() - at > LIBRARY_HOME_STORE_MAX_AGE_MS) return;
+            if (!libraryHomeCache.has(key)) libraryHomeCache.set(key, { at, data });
+        });
+    } catch {
+        /* no saved copy */
+    }
+};
+
+const saveLibraryHomeStoreSoon = () => {
+    if (typeof window === 'undefined') return;
+    window.clearTimeout(libraryHomeStoreTimer);
+    libraryHomeStoreTimer = window.setTimeout(() => {
+        try {
+            // Only full answers: a three-row fallback is not worth bringing back next launch.
+            const rows = [...libraryHomeCache.entries()]
+                .filter(([, row]) => (row.data.hubs?.length || 0) > 3)
+                .sort((a, b) => b[1].at - a[1].at)
+                .slice(0, 10);
+            while (rows.length) {
+                const text = JSON.stringify(Object.fromEntries(rows));
+                if (text.length <= LIBRARY_HOME_STORE_MAX_CHARS) {
+                    window.localStorage.setItem(LIBRARY_HOME_STORE_KEY, text);
+                    return;
+                }
+                rows.pop();
+            }
+        } catch {
+            /* storage full or blocked */
+        }
+    }, 2000);
+};
 
 export const readLibraryHomeCache = (sectionKey: string): LibraryHomePayload | null => {
     const key = String(sectionKey || '');
     if (!key) return null;
+    loadLibraryHomeStore();
     const row = libraryHomeCache.get(key);
     if (!row) return null;
-    if (Date.now() - row.at > LIBRARY_HOME_CLIENT_TTL_MS * 5) {
+    if (Date.now() - row.at > LIBRARY_HOME_STORE_MAX_AGE_MS) {
         libraryHomeCache.delete(key);
         return null;
     }
@@ -1396,7 +1443,9 @@ export const readLibraryHomeCache = (sectionKey: string): LibraryHomePayload | n
 export const writeLibraryHomeCache = (sectionKey: string, data: LibraryHomePayload) => {
     const key = String(sectionKey || '');
     if (!key) return;
+    loadLibraryHomeStore();
     libraryHomeCache.set(key, { at: Date.now(), data });
+    saveLibraryHomeStoreSoon();
     if (libraryHomeCache.size <= 24) return;
     const oldest = libraryHomeCache.keys().next().value;
     if (oldest && oldest !== key) libraryHomeCache.delete(oldest);
