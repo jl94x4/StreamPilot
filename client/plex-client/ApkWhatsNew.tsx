@@ -73,6 +73,32 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.700': [
+        {
+            title: 'Home',
+            items: [
+                'Tapping a Continue Watching title now resumes it straight away. Hold it for Start over, the title page and more (turn this off in Settings with Tap to resume)',
+                'Resume from the hold menu no longer shows a second Resume / Start over popup, and Start over is now in that menu',
+            ],
+        },
+        {
+            title: 'Player',
+            items: [
+                'If the audio output fails mid-playback (AudioTrack write failed), the player now rebuilds it and carries on instead of showing an error',
+                'Back while a playback error is showing leaves the player straight away',
+                'File info shows which server the title is on',
+            ],
+        },
+    ],
+    '1.0.699': [
+        {
+            title: 'Phone',
+            items: [
+                'Live TV guide on phones scrolls sideways with a readable width per hour, keeps the channel column pinned, and opens at the current time',
+                'The minutes left label on the Live TV card no longer wraps',
+            ],
+        },
+    ],
     '1.0.698': [
         {
             title: 'Player',

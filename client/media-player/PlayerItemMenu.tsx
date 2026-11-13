@@ -21,6 +21,7 @@ import {
     Music,
     Play,
     RefreshCw,
+    RotateCcw,
     Shield,
     ShieldCheck,
     Shuffle,
@@ -292,6 +293,15 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
         : shouldOfferResume(resumeItem)
             ? t('mediaPlayerPage.resume')
             : t('mediaPlayerPage.watch');
+    // Picking Resume from the menu is already a choice: no second resume / start-over popup.
+    const canResumeNow = !musicItem && shouldOfferResume(resumeItem);
+    const playPrimary = () => {
+        if (canResumeNow) {
+            onPlay?.(resumeItem, { skipResume: true, offsetMs: Number(resumeItem.viewOffsetMs || 0) });
+        } else {
+            onPlay?.(resumeItem);
+        }
+    };
     const canGoShow = Boolean(onOpenItem && showKey);
     const canGoSeason = Boolean(onOpenItem && seasonKey);
     const canGoArtist = Boolean(onOpenItem && artistKey);
@@ -795,6 +805,19 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
             {!useContextSheet && isTv ? watchToggle : null}
             {useContextSheet ? watchlistBtn : null}
             {spoilerBtn}
+            {canResumeNow && canPrimaryWatch ? (
+                <TvButton
+                    type="button"
+                    role="menuitem"
+                    data-tv-item="1"
+                    data-tv-menu-item="1"
+                    className={itemClass}
+                    onClick={() => choose(() => onPlay?.(resumeItem, { skipResume: true, offsetMs: 0 }))}
+                >
+                    <RotateCcw className={iconClass} />
+                    {t('mediaPlayerPage.startOver')}
+                </TvButton>
+            ) : null}
             {canPlayNext ? (
                 <TvButton
                     type="button"
@@ -1366,7 +1389,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                                             data-tv-menu-item="1"
                                             data-tv-menu-watch="1"
                                             className="flex w-full items-center justify-center gap-2.5 rounded-full bg-white px-5 py-3.5 text-[1.08rem] font-bold text-zinc-900 outline-none"
-                                            onClick={() => choose(() => onPlay?.(resumeItem))}
+                                            onClick={() => choose(playPrimary)}
                                         >
                                             <Play className="h-5 w-5 fill-current" />
                                             {primaryWatchLabel}
@@ -1439,7 +1462,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                                 type="button"
                                 role="menuitem"
                                 className={itemClass}
-                                onClick={() => choose(() => onPlay?.(resumeItem))}
+                                onClick={() => choose(playPrimary)}
                             >
                                 <Play className="h-6 w-6 shrink-0 fill-current" />
                                 {primaryWatchLabel}

@@ -564,6 +564,8 @@ export type PlayerSettings = {
     showContinueWatching: boolean;
     /** Portrait posters vs widescreen episode-style cards on Continue Watching rows. */
     continueWatchingLayout: PlayerContinueWatchingLayout;
+    /** Tapping a Continue Watching title resumes it straight away (otherwise it opens the title page). */
+    continueWatchingTapResumes: boolean;
     /** How Continue Watching cards are ordered. */
     continueWatchingSort: PlayerContinueWatchingSort;
     /** 2: moved to Match Plex once (1.0.582); after that the stored choice is kept. */
@@ -1032,6 +1034,7 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
     stillWatchingAfter: 3,
     showContinueWatching: true,
     continueWatchingLayout: 'poster',
+    continueWatchingTapResumes: true,
     continueWatchingSort: 'plex',
     continueWatchingSortVersion: CONTINUE_WATCHING_SORT_VERSION,
     dateFormat: 'long',
@@ -1137,6 +1140,7 @@ export const normalizePlayerSettings = (raw: Partial<PlayerSettings> | Record<st
             return Math.min(20, Math.max(0, Math.floor(n)));
         })(),
         showContinueWatching: raw?.showContinueWatching !== false,
+        continueWatchingTapResumes: raw?.continueWatchingTapResumes !== false,
         continueWatchingLayout: isPlayerContinueWatchingLayout(raw?.continueWatchingLayout)
             ? raw.continueWatchingLayout
             : 'poster',
@@ -1268,6 +1272,7 @@ export const playerSettingsEqual = (a: PlayerSettings, b: PlayerSettings) => (
     && a.stillWatchingAfter === b.stillWatchingAfter
     && a.showContinueWatching === b.showContinueWatching
     && a.continueWatchingLayout === b.continueWatchingLayout
+    && a.continueWatchingTapResumes === b.continueWatchingTapResumes
     && a.continueWatchingSort === b.continueWatchingSort
     && a.dateFormat === b.dateFormat
     && a.rowMarker === b.rowMarker

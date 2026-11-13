@@ -3,6 +3,7 @@ import { X } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useDiscoverI18n } from './host';
 import { formatBitrateMbps, formatBytes, formatMediaAudioLine, formatMediaVideoLine, plexImageUrl } from './playerUtils';
+import { readPlayerLibrariesCache } from './playerMemory';
 import type { PlayerItem, PlayerMediaInfo, PlayerMediaPartInfo, PlayerMediaStreamInfo } from './types';
 
 type Props = {
@@ -59,6 +60,17 @@ export const PlayerFileInfo: React.FC<Props> = ({
         return parts.map((part) => ({ media, part }));
     }, [item.mediaInfo, mediaIndex]);
     const released = formatRelease(item.originallyAvailableAt);
+    // Which server owns this title (useful with several servers, e.g. your own and a friend's).
+    const serverName = useMemo(() => {
+        const id = String(item.serverId || '').trim();
+        if (!id) return '';
+        try {
+            const row = readPlayerLibrariesCache().find((section) => String(section.serverId || '') === id && section.serverName);
+            return String(row?.serverName || '').trim();
+        } catch {
+            return '';
+        }
+    }, [item.serverId]);
 
     useEffect(() => {
         const onKey = (event: KeyboardEvent) => {
@@ -132,6 +144,9 @@ export const PlayerFileInfo: React.FC<Props> = ({
                 ) : null}
                 {released ? (
                     <p className="mt-3 text-base text-white/85 md:text-lg">{t('mediaPlayerPage.released')}: {released}</p>
+                ) : null}
+                {serverName ? (
+                    <p className="mt-1 text-base text-white/85 md:text-lg">{t('mediaPlayerPage.fileInfoServer')}: {serverName}</p>
                 ) : null}
                 {loading ? (
                     <p className="mt-6 text-lg text-white/70">{t('mediaPlayerPage.loading')}</p>

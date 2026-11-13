@@ -1300,6 +1300,12 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         onChange={(checked) => updateSettings({ showBecauseYouWatched: checked })}
                     />
                     <TvToggleRow
+                        title={t('mediaPlayerPage.continueWatchingTapResumes')}
+                        description={t('mediaPlayerPage.continueWatchingTapResumesHint')}
+                        checked={settings.continueWatchingTapResumes}
+                        onChange={(checked) => updateSettings({ continueWatchingTapResumes: checked })}
+                    />
+                    <TvToggleRow
                         title={t('mediaPlayerPage.hideWatchedFromRecents')}
                         description={t('mediaPlayerPage.hideWatchedFromRecentsHint')}
                         checked={settings.hideWatchedFromRecents}
@@ -2092,6 +2098,12 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         description={t('mediaPlayerPage.showBecauseYouWatchedHint')}
                         checked={settings.showBecauseYouWatched}
                         onChange={(checked) => updateSettings({ showBecauseYouWatched: checked })}
+                    />
+                    <SettingsToggleRow
+                        title={t('mediaPlayerPage.continueWatchingTapResumes')}
+                        description={t('mediaPlayerPage.continueWatchingTapResumesHint')}
+                        checked={settings.continueWatchingTapResumes}
+                        onChange={(checked) => updateSettings({ continueWatchingTapResumes: checked })}
                     />
                     <SettingsToggleRow
                         title={t('mediaPlayerPage.hideWatchedFromRecents')}

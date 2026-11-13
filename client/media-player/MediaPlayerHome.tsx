@@ -82,7 +82,7 @@ import { PlayerServiceBrandMark } from './PlayerServiceBrandMark';
 import { PlayerTvScreensaver } from './PlayerTvScreensaver';
 import { PlayerTvSearch, PlayerTvSearchHistory, PlayerTvSearchNotice, TV_SEARCH_FIRST_KEY } from './PlayerTvSearch';
 import { itemHasBillboardBrandMeta } from './studioLogo.js';
-import { applyRememberedProgress, asRecentlyAddedPlayerItem, rememberBillboardBackdrop, formatPlayerDate, formatPlayerDuration, isFuturePlayerDate, heroRowCardItem, hideWatchedPlayerItems, isMusicPlayerItem, isPlayerBackdropReady, isWeakTvDevice, keepContinueWatchingPoster, mapContinueWatchingItemsForLayout, pickRicherSummary, pinTvNeighborBackdrops, playerItemBackdropUrl, plexBackdropUrl, plexLogoUrl, PLAYER_PROGRESS_EVENT, prefetchContinueWatchingImages, prefetchHomeRowPosters, primeNearbyTvBillboard, replaceFamilyContinueSlot, restoreContinueSlot, shufflePlayerItems, continueWatchingRowFocused, stampFamilyLastViewed, warmPlayerBackdrop, watchTargetTouches, withShowPoster } from './playerUtils';
+import { applyRememberedProgress, asRecentlyAddedPlayerItem, rememberBillboardBackdrop, formatPlayerDate, formatPlayerDuration, isFuturePlayerDate, heroRowCardItem, hideWatchedPlayerItems, isMusicPlayerItem, isPlayerBackdropReady, isWeakTvDevice, shouldOfferResume, keepContinueWatchingPoster, mapContinueWatchingItemsForLayout, pickRicherSummary, pinTvNeighborBackdrops, playerItemBackdropUrl, plexBackdropUrl, plexLogoUrl, PLAYER_PROGRESS_EVENT, prefetchContinueWatchingImages, prefetchHomeRowPosters, primeNearbyTvBillboard, replaceFamilyContinueSlot, restoreContinueSlot, shufflePlayerItems, continueWatchingRowFocused, stampFamilyLastViewed, warmPlayerBackdrop, watchTargetTouches, withShowPoster } from './playerUtils';
 import { usePlayerSettings } from './usePlayerSettings';
 import { peekSurfaceColor, sampleBackdropSurfaceColor } from '../shared/imageFocalPoint';
 import { TV_FLOOR_RGB, tvTintSurfaceRgb } from './tvSurface';
@@ -904,6 +904,17 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         }
         onOpenItem(item);
     }, [onOpenItem, onPlay]);
+
+    // Continue Watching: a tap on something half-watched resumes it (the common case). Long-press
+    // still offers Start over and the title page.
+    const openContinueItem = useCallback((item: PlayerItem) => {
+        const playable = item.type === 'movie' || item.type === 'episode';
+        if (settings.continueWatchingTapResumes && playable && shouldOfferResume(item)) {
+            onPlay(item, { skipResume: true, offsetMs: Number(item.viewOffsetMs || 0) });
+            return;
+        }
+        onOpenItem(item);
+    }, [onOpenItem, onPlay, settings.continueWatchingTapResumes]);
 
     useEffect(() => {
         const openSearch = () => {
@@ -2365,7 +2376,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                                 : hub.items))}
                     density={homePosterDensity}
                     staggerIndex={hubIndex}
-                    onOpenItem={onOpenItem}
+                    onOpenItem={isCw ? openContinueItem : onOpenItem}
                     onPlay={onPlay}
                     onToggleWatched={toggleWatched}
                     showProgress={isCw}

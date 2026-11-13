@@ -622,6 +622,8 @@ public class PlayerActivity extends AppCompatActivity {
     private long lastSeekAtMs;
     /** One HTTP failure after a seek can reload the stream. A second one is shown. */
     private boolean seekRecoveryUsed;
+    /** Audio output died mid-playback (AudioTrack write failed, e.g. older Shield firmware). Rebuilt in place, a few times. */
+    private int audioSinkRecoveries;
     /** Resume offset handed to a Direct Play file (checked once it is READY). */
     private long directStartMs;
     /** Already asked for an HLS stream because the Direct Play file cannot seek. */
@@ -1373,6 +1375,11 @@ public class PlayerActivity extends AppCompatActivity {
         getOnBackPressedDispatcher().addCallback(this, new androidx.activity.OnBackPressedCallback(true) {
             @Override
             public void handleOnBackPressed() {
+                // Showing a playback error: Back leaves at once instead of waiting out the error timer.
+                if (playbackError && !finishing) {
+                    finishWithResult(false, false);
+                    return;
+                }
                 keyHandler.onBack();
             }
         });
@@ -1776,6 +1783,7 @@ public class PlayerActivity extends AppCompatActivity {
             @Override
             public void onPlayerError(PlaybackException error) {
                 Log.e(TAG, "ExoPlayer error " + error.getErrorCodeName(), error);
+                if (tryAudioSinkRecovery(error)) return;
                 if (!liveStream && trySeekRecovery(error)) return;
                 if (!liveStream && tryStreamFallback(error)) return;
                 playbackError = true;
@@ -6152,6 +6160,34 @@ public class PlayerActivity extends AppCompatActivity {
      * A seek that hits a rejected range or a dead transcode segment reloads
      * once at that timestamp. Errors from the stream being replaced are ignored.
      */
+    /**
+     * ERROR_CODE_AUDIO_TRACK_WRITE_FAILED (-6 = dead object) leaves the player idle although sound was
+     * playing. Preparing again rebuilds the audio sink at the same position, so a one-off audio
+     * output hiccup does not end playback or show an error.
+     */
+    private boolean tryAudioSinkRecovery(PlaybackException error) {
+        int code = error.errorCode;
+        if (code != PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED
+            && code != PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED) {
+            return false;
+        }
+        if (player == null || audioSinkRecoveries >= 3) return false;
+        audioSinkRecoveries++;
+        Log.w(TAG, "Audio output failed (" + error.getErrorCodeName() + "), rebuilding it, attempt " + audioSinkRecoveries);
+        playbackError = false;
+        hideError();
+        long position = Math.max(0, player.getCurrentPosition());
+        try {
+            player.seekTo(position);
+            player.prepare();
+            if (!userPaused) player.setPlayWhenReady(true);
+        } catch (Throwable t) {
+            Log.e(TAG, "Audio output recovery failed", t);
+            return false;
+        }
+        return true;
+    }
+
     private boolean trySeekRecovery(PlaybackException error) {
         if (!isSeekIoError(error)) return false;
         if (streamSwapInFlight && PlaybackUrls.isTranscodeUrl(currentUrl)) return true;
