@@ -23735,18 +23735,32 @@ const fetchCollexionsHistoryInternal = async (config, limit = 100) => {
     try {
         const base = sanitizeCollexionsProxyBase(config.collexionsInternalUrl || '');
         const serviceKey = String(config.collexionsServiceKey || process.env.COLLEXIONS_SERVICE_KEY || '').trim();
-        if (!base || !serviceKey) return { events: [] };
-        const url = `${base}/api/history?limit=${Math.max(1, Math.min(200, Number(limit) || 100))}`;
+        if (!base || !serviceKey) {
+            log('Collexions history for summary skipped: internal URL or service key is not configured.');
+            return { events: [] };
+        }
+        // A day of rotations is far more than 200 pin events, so the old cap undercounted.
+        const url = `${base}/api/history?limit=${Math.max(1, Math.min(10000, Number(limit) || 100))}`;
         const upstream = await fetchWithTimeout(url, {
             headers: {
                 Accept: 'application/json',
                 'X-Collexions-Service-Key': serviceKey,
                 'X-Portal-Admin': '1',
             },
-        }, 20000);
-        if (!upstream.ok) return { events: [] };
-        return await upstream.json().catch(() => ({ events: [] }));
-    } catch {
+        }, 60000);
+        if (!upstream.ok) {
+            log(`Collexions history for summary failed: worker answered HTTP ${upstream.status}.`);
+            return { events: [] };
+        }
+        const payload = await upstream.json().catch(() => null);
+        if (!payload) {
+            log('Collexions history for summary failed: worker returned invalid JSON.');
+            return { events: [] };
+        }
+        if (payload.error) log(`Collexions history for summary reported an error: ${payload.error}`);
+        return payload;
+    } catch (e) {
+        log(`Collexions history for summary failed: ${e?.message || e}`);
         return { events: [] };
     }
 };

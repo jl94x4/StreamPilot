@@ -4766,24 +4766,83 @@ def validate_config_endpoint():
     })
 
 
+_HISTORY_LOCK = threading.RLock()
+_HISTORY_SYNC_STATE = {'last': 0.0, 'running': False}
+# History is normally filled from the log whenever the Stats page asks for it. Also refresh it
+# in the background so rotation counts (Smart Summary, Stats) never depend on someone opening
+# a page before the log is cleared or trimmed.
+HISTORY_BACKGROUND_SYNC_SECONDS = 300
+
+
+def _write_history_atomic(data):
+    """Write history via temp file + rename so a crash/timeout can never leave half a file."""
+    ensure_dir_exists(HISTORY_FILE)
+    tmp_path = f"{HISTORY_FILE}.tmp"
+    with open(tmp_path, 'w') as f:
+        json.dump(data, f, separators=(',', ':'))
+    os.replace(tmp_path, HISTORY_FILE)
+
+
+def _load_history_list():
+    """Return the stored history list; quarantine and reset it when the file is unreadable."""
+    if not os.path.exists(HISTORY_FILE):
+        return []
+    try:
+        with open(HISTORY_FILE, 'r') as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except Exception as e:
+        stamp = time.strftime('%Y%m%d-%H%M%S')
+        broken = f"{HISTORY_FILE}.corrupt-{stamp}"
+        try:
+            os.replace(HISTORY_FILE, broken)
+            logging.error(f"history.json was unreadable ({e}); moved to {broken} and rebuilding from the log.")
+        except Exception as move_err:
+            logging.error(f"history.json unreadable ({e}) and could not be quarantined: {move_err}")
+        return []
+
+
+def _background_history_sync_if_due():
+    now = time.time()
+    state = _HISTORY_SYNC_STATE
+    if state['running'] or (now - state['last']) < HISTORY_BACKGROUND_SYNC_SECONDS:
+        return
+    state['running'] = True
+    state['last'] = now
+
+    def _run():
+        try:
+            sync_logs_to_history()
+        except Exception as e:
+            logging.error(f"Background history sync failed: {e}")
+        finally:
+            state['running'] = False
+
+    threading.Thread(target=_run, name='history-sync', daemon=True).start()
+
+
+@app.before_request
+def _kick_history_sync():
+    if request.path.startswith('/api/'):
+        _background_history_sync_if_due()
+
+
 def sync_logs_to_history():
     """Parses LOG_FILE and appends new pin events to HISTORY_FILE."""
+    with _HISTORY_LOCK:
+        _sync_logs_to_history_locked()
+
+
+def _sync_logs_to_history_locked():
     if not os.path.exists(LOG_FILE):
         return
         
     logging.debug("Starting auto-sync of logs to history...")
-    
+    _HISTORY_SYNC_STATE['last'] = time.time()
+
     # 1. Load existing history
-    history = []
-    if os.path.exists(HISTORY_FILE):
-        try:
-            with open(HISTORY_FILE, 'r') as f:
-                history = json.load(f)
-                if not isinstance(history, list):
-                    history = []
-        except:
-            history = []
-            
+    history = _load_history_list()
+
     # Create lookup for deduplication
     existing_keys = set()
     for e in history:
@@ -4845,9 +4904,7 @@ def sync_logs_to_history():
         # Sort by timestamp decending? history is usually stored ascending or just appended
         # Stats page sorts them, so append is fine.
         try:
-            ensure_dir_exists(HISTORY_FILE)
-            with open(HISTORY_FILE, 'w') as f:
-                json.dump(history, f, indent=4)
+            _write_history_atomic(history)
         except Exception as e:
             logging.error(f"Error saving history during sync: {e}")
 
@@ -4858,9 +4915,8 @@ def history_endpoint():
     if request.method == 'POST':
         try:
             data = request.json
-            ensure_dir_exists(HISTORY_FILE)
-            with open(HISTORY_FILE, 'w') as f:
-                json.dump(data, f, indent=4)
+            with _HISTORY_LOCK:
+                _write_history_atomic(data)
             return jsonify({"success": True})
         except Exception as e:
             return jsonify({"error": _client_error("Failed to save history", e)}), 500

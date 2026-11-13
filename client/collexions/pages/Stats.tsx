@@ -44,6 +44,7 @@ const StatsPage: React.FC = () => {
   const [runStats, setRunStats] = useState<RunStat[]>([]);
   const [isLive, setIsLive] = useState(true);
   const [lastSyncTime, setLastSyncTime] = useState<string>('');
+  const [loadError, setLoadError] = useState<string>('');
 
   // Persistence
   useEffect(() => {
@@ -74,7 +75,17 @@ const StatsPage: React.FC = () => {
     try {
       // 1. Fetch Source of Truth (Server History)
       // The backend now auto-syncs logs to history on this request
-      const historyResponse = await api.getHistory(10000);
+      // A failing history call must not blank the whole page: fall back to the live log below
+      // and tell the admin what went wrong.
+      let historyResponse: Awaited<ReturnType<typeof api.getHistory>> | null = null;
+      let historyError = '';
+      try {
+        historyResponse = await api.getHistory(10000);
+        if ((historyResponse as any)?.error) historyError = String((historyResponse as any).error);
+      } catch (historyErr: any) {
+        historyError = String(historyErr?.message || historyErr || 'History request failed');
+      }
+      setLoadError(historyError);
       setTrueTotalPins(historyResponse?.total_count || 0);
       setTrueUniqueCount(historyResponse?.unique_count || 0);
 
@@ -90,8 +101,9 @@ const StatsPage: React.FC = () => {
 
       setLastSyncTime(new Date().toLocaleTimeString());
 
-    } catch (e) {
+    } catch (e: any) {
       console.error("Stats sync failed", e);
+      setLoadError(String(e?.message || e || 'Stats sync failed'));
     }
 
     if (!isBackground) setLoading(false);
@@ -283,6 +295,12 @@ const StatsPage: React.FC = () => {
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500 pb-10">
+
+      {loadError && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+          Could not load saved statistics from ColleXions: {loadError}. Showing what the live log contains.
+        </div>
+      )}
 
       {/* Header Area */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
