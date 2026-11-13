@@ -5027,7 +5027,10 @@ const loadServerHome = async (server: PlexServer, many: boolean, full = false) =
     // Timeouts count time queued behind poster loads on the browser's ~6 sockets per
     // server. On a phone link that queue alone blew 5s, so pinned rows came back empty.
     const phone = typeof document !== 'undefined' && document.documentElement?.dataset?.phone === '1';
-    const ask = answered(full ? (phone ? 15000 : 5000) : (phone ? 8000 : 3500));
+    // The full pass runs behind rows that are already on screen, so it can be patient: on a busy server
+    // /hubs/promoted takes 20s or more, and a 5s limit aborted it (and re-sent it, piling up the work)
+    // every time, so the pinned rows never arrived.
+    const ask = answered(full ? 45000 : (phone ? 8000 : 3500));
     // User pins can live in either endpoint. In particular, /hubs/home commonly
     // carries the current Plex Home pin order while /hubs/promoted does not.
     const allHubsPromise = ask(`/hubs?${shellQuery}`);
@@ -5091,6 +5094,14 @@ const loadServerHome = async (server: PlexServer, many: boolean, full = false) =
     if (full && pinDirectoryAnswered && !hubs.some(contentHomeHub)) {
         const recent = await loadRecentFallbackHubs(server, many, sectionsRaw);
         hubs = mergeHomeHubs(hubs, recent);
+    } else if (!full && !pinDirectoryAnswered && !pinHit && !hubs.some(contentHomeHub)) {
+        // The slow pin list did not answer in time and nothing is cached: show Recently Added per library
+        // now instead of an empty Home. The full pass swaps in the real pinned rows when they arrive.
+        try {
+            hubs = mergeHomeHubs(hubs, await loadRecentFallbackHubs(server, many, sectionsRaw));
+        } catch {
+            /* keep Continue Watching alone */
+        }
     }
     hubs = uniquifyHubs(hubs);
     hubs = applyHomeLibraryPicks(hubs, server);
