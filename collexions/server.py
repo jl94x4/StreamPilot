@@ -296,13 +296,13 @@ def save_config(new_data, merge=True):
             config['number_of_collections_to_pin'] = {
                 k: v for k, v in pins.items() if k in managed
             }
-            
+
         ensure_dir_exists(CONFIG_FILE)
-        
+
         # Atomic write using a temporary file
         import tempfile
         import shutil
-        
+
         fd, temp_path = tempfile.mkstemp(dir=os.path.dirname(CONFIG_FILE) or ".", prefix="config_tmp_")
         try:
             with os.fdopen(fd, 'w') as f:
@@ -313,7 +313,7 @@ def save_config(new_data, merge=True):
             if os.path.exists(temp_path):
                 os.remove(temp_path)
             raise e
-            
+
         return True
     except Exception as e:
         logging.error(f"Failed to save config: {e}")
@@ -827,7 +827,7 @@ def fetch_source_items(source_type, source_id, config):
     tmdb_key = config.get('tmdb_api_key')
     trakt_id = config.get('trakt_client_id')
     headers = {'Content-Type': 'application/json', 'trakt-api-version': '2', 'trakt-api-key': trakt_id}
-    
+
     items = []
     try:
         if source_type == 'trending_preset':
@@ -1036,7 +1036,7 @@ def fetch_source_items(source_type, source_id, config):
                     logging.warning(f"TMDB collection {collection_id} returned HTTP {resp.status_code}")
     except Exception as e:
         logging.error(f"Error fetching source items for {source_type}: {e}")
-            
+
     return items
 
 
@@ -3494,11 +3494,11 @@ def run_sync_job(job_id=None):
     managed = load_managed_collections()
     if not managed:
         return
-        
+
     config = load_config()
     plex_url = config.get('plex_url')
     plex_token = config.get('plex_token')
-    
+
     if not plex_url or not plex_token:
         log_action("Sync failed: Plex URL or Token missing.")
         if job_id and job_id in managed:
@@ -3518,12 +3518,12 @@ def run_sync_job(job_id=None):
         return
 
     jobs_to_run = [job_id] if job_id else list(managed.keys())
-    
+
     for mid in jobs_to_run:
         job = managed.get(mid)
         if not job or (not job_id and not job.get('auto_sync', True)):
             continue
-            
+
         coll_name = job.get('name')
         lib_name = job.get('library')
         source_id = job.get('source_id')
@@ -3533,7 +3533,7 @@ def run_sync_job(job_id=None):
         sort_order = _normalize_sort_order(job.get('sort_order', 'custom'))
         if sort_order != job.get('sort_order'):
             job['sort_order'] = sort_order
-        
+
         # Respect schedule if not run manually
         if not job_id:
             next_run_str = job.get('next_run')
@@ -3544,7 +3544,7 @@ def run_sync_job(job_id=None):
                         continue # Skip, not time yet
                 except Exception:
                     pass # Invalid or missing format, proceed to run
-            
+
         log_action(f"Auto-Sync: Syncing items for '{coll_name}'...")
 
         # 1. Fetch latest items
@@ -3553,7 +3553,7 @@ def run_sync_job(job_id=None):
             log_action(f"Auto-Sync: No items found for '{coll_name}'. Skipping.")
             _stamp_job_run(job, 'failed', 'No items found from source')
             continue
-            
+
         # 2. Update Plex Collection (recreate if missing)
         try:
             library = plex.library.section(lib_name)
@@ -4578,11 +4578,11 @@ def get_logs():
             with open(LOG_FILE, 'rb') as f:
                 f.seek(0, os.SEEK_END)
                 file_size = f.tell()
-                
+
                 # Seek backwards from the end
                 offset = min(file_size, max_bytes)
                 f.seek(file_size - offset)
-                
+
                 content = f.read().decode('utf-8', errors='replace')
                 # Optional: Split lines to ensure we don't start mid-line
                 lines = content.splitlines()
@@ -4802,10 +4802,11 @@ def _load_history_list():
         return []
 
 
-def _background_history_sync_if_due():
+def _background_history_sync_if_due(min_interval=None):
     now = time.time()
     state = _HISTORY_SYNC_STATE
-    if state['running'] or (now - state['last']) < HISTORY_BACKGROUND_SYNC_SECONDS:
+    gap = HISTORY_BACKGROUND_SYNC_SECONDS if min_interval is None else min_interval
+    if state['running'] or (now - state['last']) < gap:
         return
     state['running'] = True
     state['last'] = now
@@ -4833,12 +4834,29 @@ def sync_logs_to_history():
         _sync_logs_to_history_locked()
 
 
+# Where the last sync stopped in the log, so each sync only reads what was appended since.
+# (Re-parsing a multi-megabyte log on every Stats request made the endpoint time out.)
+_LOG_SYNC_POS = {'offset': 0, 'library': 'Unknown Library'}
+
+
 def _sync_logs_to_history_locked():
     if not os.path.exists(LOG_FILE):
         return
-        
+
     logging.debug("Starting auto-sync of logs to history...")
     _HISTORY_SYNC_STATE['last'] = time.time()
+
+    try:
+        log_size = os.path.getsize(LOG_FILE)
+    except OSError:
+        return
+    if log_size < _LOG_SYNC_POS['offset']:
+        # Log was trimmed or rotated: read it from the start again.
+        _LOG_SYNC_POS['offset'] = 0
+        _LOG_SYNC_POS['library'] = 'Unknown Library'
+    if log_size == _LOG_SYNC_POS['offset']:
+        return
+    start_offset = _LOG_SYNC_POS['offset']
 
     # 1. Load existing history
     history = _load_history_list()
@@ -4849,41 +4867,47 @@ def _sync_logs_to_history_locked():
         # Use ISO format for consistency in key
         key = f"{e.get('timestamp')}|{e.get('library')}|{e.get('collectionName')}"
         existing_keys.add(key)
-        
+
     # 2. Parse Logs
     new_events = []
-    current_library = "Unknown Library"
-    
+    current_library = _LOG_SYNC_POS['library']
+
     # Regex patterns (matching frontend logic)
     lib_regex = re.compile(r'Processing Library:.*?[\'"](.+?)[\'"]')
     # Updated pin regex to be more robust
     pin_regex = re.compile(r'(\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{1,2}(?:\.\d+)?).*?(?:Pinning:|Pinned|Processing for pin:)\s+[\'"](.+?)[\'"]')
-    
+
+    end_offset = start_offset
     try:
-        with open(LOG_FILE, 'r', encoding='utf-8', errors='ignore') as f:
-            for line in f:
+        with open(LOG_FILE, 'rb') as f:
+            f.seek(start_offset)
+            for raw_line in f:
+                if not raw_line.endswith(b'\n'):
+                    break  # half-written last line: pick it up next time
+                end_offset += len(raw_line)
+                line = raw_line.decode('utf-8', errors='ignore')
                 # Library match
                 lib_match = lib_regex.search(line)
                 if lib_match:
                     current_library = lib_match.group(1)
                     continue
-                    
+
                 # Pin match
                 pin_match = pin_regex.search(line)
                 if pin_match:
                     raw_ts = pin_match.group(1).strip().replace(' ', 'T').replace(',', '.')
                     coll_name = pin_match.group(2)
-                    
+
                     # Normalize timestamp for ISO
                     try:
                         # Ensure T separator
                         if 'T' not in raw_ts:
                             raw_ts = raw_ts.replace(' ', 'T')
-                        
+
                         # Basic validation, convert to ISO if possible
                         # We just store the string for now, but ensure consistency
                         ts_key = f"{raw_ts}|{current_library}|{coll_name}"
-                        
+
                         if ts_key not in existing_keys:
                             new_events.append({
                                 "timestamp": raw_ts,
@@ -4898,6 +4922,7 @@ def _sync_logs_to_history_locked():
         return
 
     # 3. Save if new events found
+    saved = True
     if new_events:
         logging.info(f"Auto-sync found {len(new_events)} new events. Archiving to history.json")
         history.extend(new_events)
@@ -4906,7 +4931,11 @@ def _sync_logs_to_history_locked():
         try:
             _write_history_atomic(history)
         except Exception as e:
+            saved = False
             logging.error(f"Error saving history during sync: {e}")
+    if saved:
+        _LOG_SYNC_POS['offset'] = end_offset
+        _LOG_SYNC_POS['library'] = current_library
 
 # --- History Endpoint (New) ---
 @app.route('/api/history', methods=['GET', 'POST'])
@@ -4920,24 +4949,24 @@ def history_endpoint():
             return jsonify({"success": True})
         except Exception as e:
             return jsonify({"error": _client_error("Failed to save history", e)}), 500
-    
-    # Auto-sync from logs before returning GET
-    sync_logs_to_history()
-    
+
+    # Never parse the log inside the request: serve what is stored and refresh in the background.
+    _background_history_sync_if_due(min_interval=15)
+
     if os.path.exists(HISTORY_FILE):
         try:
             with open(HISTORY_FILE, 'r') as f:
                 data = json.load(f)
-            
+
             if not isinstance(data, list):
                 return jsonify({"events": [], "total_count": 0, "unique_count": 0})
 
             total_count = len(data)
             unique_count = len(set(e.get('collectionName') for e in data if 'collectionName' in e))
-                
+
             limit = request.args.get('limit', type=int)
             returned_events = data[-limit:] if limit else data
-                
+
             return jsonify({
                 "events": returned_events,
                 "total_count": total_count,
@@ -4950,15 +4979,15 @@ def history_endpoint():
 def start_background_process(wait_until_due=False):
     """Helper to start the background process."""
     global process
-    
+
     # Don't start if already running via managed process
     if process and process.poll() is None:
         return False, "Script is already running"
-    
+
     # Don't start if an external instance is already running (e.g. started before server)
     if is_script_already_running():
         return False, "Script is already running (external process detected)"
-    
+
     # Check if script exists
     script_path = os.path.join(BASE_DIR, SCRIPT_NAME)
     if not os.path.exists(script_path):
@@ -4991,7 +5020,7 @@ def start_background_process(wait_until_due=False):
             popen_kwargs['start_new_session'] = True
         process = subprocess.Popen(cmd, **popen_kwargs)
         logging.info(f"Background process started with PID: {process.pid} (cwd={_DATA_ROOT})")
-            
+
         return True, process.pid
     except Exception as e:
         return False, _client_error("Failed to start background process", e)
@@ -5024,7 +5053,7 @@ def get_plex_instance():
     global _plex_cache
     if _plex_cache:
         return _plex_cache
-        
+
     config = load_config()
     url = config.get('plex_url')
     token = config.get('plex_token')
@@ -5446,7 +5475,7 @@ def plex_libraries():
     plex = get_plex_instance()
     if not plex:
         return jsonify({"error": "Plex connection failed"}), 500
-        
+
     try:
         sections = plex.library.sections()
         libraries = []
@@ -5752,26 +5781,26 @@ def pin_collection():
     data = request.json
     title = data.get('title')
     library_name = data.get('library')
-    
+
     plex = get_plex_instance()
     config = load_config()
     label = config.get('collexions_label', 'Collexions')
-    
+
     if not plex or not title or not library_name:
         return jsonify({"success": False, "error": "Invalid request"}), 400
-        
+
     try:
         library = plex.library.section(library_name)
         collection = library.collection(title)
-        
+
         # Add label
         collection.addLabel(label)
-        
+
         # Pin
         hub = collection.visibility()
         hub.promoteHome()
         hub.promoteShared()
-        
+
         # Log to collexions.log in the same format as the main script
         log_action(f"Pinned '{title}' successfully.")
         GALLERY_CACHE['data'] = None
@@ -6055,7 +6084,7 @@ def delete_job():
     job_id = data.get('id')
     if not job_id:
         return jsonify({"success": False, "error": "Missing job ID"}), 400
-        
+
     managed = load_managed_collections()
     if job_id in managed:
         del managed[job_id]
@@ -6201,26 +6230,26 @@ def unpin_collection():
     data = request.json
     title = data.get('title')
     library_name = data.get('library')
-    
+
     plex = get_plex_instance()
     config = load_config()
     label = config.get('collexions_label', 'Collexions')
-    
+
     if not plex or not title or not library_name:
         return jsonify({"success": False, "error": "Invalid request"}), 400
-        
+
     try:
         library = plex.library.section(library_name)
         collection = library.collection(title)
-        
+
         # Remove label
         collection.removeLabel(label)
-        
+
         # Unpin
         hub = collection.visibility()
         hub.demoteHome()
         hub.demoteShared()
-        
+
         # Log to collexions.log in the same format as the main script
         log_action(f"Unpinned '{title}' successfully.")
         GALLERY_CACHE['data'] = None
@@ -7117,17 +7146,17 @@ def create_custom_collection():
     item_keys = data.get('items', []) # List of ratingKeys
     sort_order = data.get('sort_order', 'custom') # 'custom', 'random', 'release'
     options = _creation_options(data.get('options'))
-    
+
     if not library_name or not title or not item_keys:
         return jsonify({"success": False, "error": "Missing required fields"}), 400
-        
+
     plex = get_plex_instance()
     config = load_config()
     label = config.get('collexions_label', 'Collexions')
-    
+
     if not plex:
         return jsonify({"success": False, "error": "Plex connection failed"}), 500
-        
+
     try:
         with _collection_create_lock(library_name, title):
             library = plex.library.section(library_name)
@@ -7143,7 +7172,7 @@ def create_custom_collection():
                     items.append(item)
                 except:
                     logging.warning(f"Could not find item with key {key} in library {library_name}")
-                    
+
             if not items:
                 return jsonify({"success": False, "error": "No matching items found in library"}), 404
 
@@ -7166,14 +7195,14 @@ def create_custom_collection():
             )
             web_fixes = _finalize_collection_for_plex_web(collection, library, config)
             _restore_collection_visibility(collection, vis)
-            
+
             if options['exclude_from_pinning']:
                 _exclude_title_from_pinning(title)
             log_action(f"Created/updated collection '{title}' with {len(items)} items in {library_name} (Sort: {sort_order}).")
-            
+
             # Clear cache since library changed
             GALLERY_CACHE['data'] = None
-            
+
             return jsonify({
                 "success": True,
                 "art_set": bool(art_set),
@@ -7197,25 +7226,25 @@ def search_local():
     query = request.args.get('query', '')
     genre = request.args.get('genre')
     year = request.args.get('year')
-    
+
     if not library_name:
         return jsonify([])
-        
+
     plex = get_plex_instance()
     if not plex:
         return jsonify([])
-        
+
     try:
         library = plex.library.section(library_name)
-        
+
         # Build search params if filters are present
         search_params = {}
         if query: search_params['title'] = query
         if genre: search_params['genre'] = genre
         if year: search_params['year'] = year
-        
+
         results = library.search(**search_params)
-        
+
         items = []
         for item in results[:50]: # Increased limit for better selection
             items.append({
@@ -7225,7 +7254,7 @@ def search_local():
                 'thumb': item.thumb,
                 'type': item.type
             })
-            
+
         return jsonify(items)
     except Exception as e:
         logging.error(f"Local search error: {e}")
@@ -7238,10 +7267,10 @@ def search_external():
     tmdb_key = config.get('tmdb_api_key')
     query = request.args.get('query')
     media_type = request.args.get('type', 'movie') # 'movie' or 'tv'
-    
+
     if not tmdb_key or not query:
         return jsonify([])
-        
+
     try:
         url = f"https://api.themoviedb.org/3/search/{media_type}?api_key={tmdb_key}&query={query}"
         resp = requests.get(url, timeout=5)
@@ -7256,7 +7285,7 @@ def search_external():
             } for r in results[:15]])
     except Exception as e:
         logging.error(f"External search error: {e}")
-        
+
     return jsonify([])
 
 @app.route('/api/tmdb/genres')
@@ -7265,10 +7294,10 @@ def get_tmdb_genres():
     config = load_config()
     tmdb_key = config.get('tmdb_api_key')
     media_type = request.args.get('type', 'movie')
-    
+
     if not tmdb_key:
         return jsonify([])
-        
+
     try:
         url = f"https://api.themoviedb.org/3/genre/{media_type}/list?api_key={tmdb_key}&language=en-US"
         resp = requests.get(url, timeout=5)
@@ -7276,7 +7305,7 @@ def get_tmdb_genres():
             return jsonify(resp.json().get('genres', []))
     except Exception as e:
         logging.error(f"TMDB genres error: {e}")
-        
+
     return jsonify([])
 
 def _resolve_tmdb_keyword_ids(tmdb_key, keywords_text, joiner='|'):
@@ -7419,10 +7448,10 @@ def build_tmdb_discover_params(media_type, raw, tmdb_key):
 def search_discover():
     config = load_config()
     tmdb_key = config.get('tmdb_api_key')
-    
+
     if not tmdb_key:
         return jsonify([])
-        
+
     media_type, discover_params = build_tmdb_discover_params(
         request.args.get('type', 'movie'),
         request.args.to_dict(flat=True),
@@ -7433,7 +7462,7 @@ def search_discover():
         'api_key': tmdb_key,
         'page': request.args.get('page', 1),
     }
-            
+
     try:
         url = f"https://api.themoviedb.org/3/discover/{media_type}"
         all_items = []
@@ -7453,11 +7482,11 @@ def search_discover():
                     })
                 if page >= data.get('total_pages', 1): break
             else: break
-            
+
         return jsonify(all_items)
     except Exception as e:
         logging.error(f"Discover error: {e}")
-        
+
     return jsonify([])
 
 @app.route('/api/collections/create-from-external', methods=['POST'])
@@ -7822,20 +7851,20 @@ def get_mdblist():
     config = load_config()
     api_key = config.get('mdblist_api_key')
     url = request.args.get('url')
-    
+
     if not api_key:
         return jsonify({"error": "Missing MDBList API Key in Settings"}), 400
     if not url:
         return jsonify({"error": "Missing MDBList URL"}), 400
-        
+
     try:
         # Example URL: https://mdblist.com/lists/mojoard_pk/super-cool-movies
         parts = [p for p in url.strip().split('/') if p]
-        
+
         # Make sure it's a valid mdblist.com URL (host check, not substring)
         if not _is_mdblist_url(url):
             return jsonify({"error": "Not a valid MDBList URL. Must be from mdblist.com"}), 400
-            
+
         # Expecting at least 4 parts: ['https:', 'mdblist.com', 'lists', 'username']
         # The API endpoint is: api.mdblist.com/lists/[user]/[list]/items
         try:
@@ -7844,19 +7873,19 @@ def get_mdblist():
             list_slug = parts[lists_idx + 2] if len(parts) > lists_idx + 2 else ""
         except ValueError:
             return jsonify({"error": "Could not parse username/list from URL."}), 400
-            
+
         if not list_slug:
             return jsonify({"error": "URL seems to point to a user, not a specific list."}), 400
-            
+
         api_url = f"https://api.mdblist.com/lists/{username}/{list_slug}/items/?apikey={api_key}"
         resp = requests.get(api_url, timeout=10)
-        
+
         if resp.status_code == 200:
             items = parse_mdblist_items_payload(resp.json())
             return jsonify(items)
         else:
             return jsonify({"error": f"MDBList API error: {resp.status_code} - {resp.text}"}), 400
-            
+
     except Exception as e:
         return jsonify({"error": _client_error("Failed to fetch MDBList", e)}), 500
 
@@ -7905,14 +7934,14 @@ def auth_status():
     # Portal SSO mode: never require Collexions password setup.
     is_setup = True if (PORTAL_MODE or _service_key_ok()) else bool(config.get('admin_password_hash'))
     logging.debug(f"Auth status check: is_setup={is_setup}, has_hash={bool(config.get('admin_password_hash'))}, portal_mode={PORTAL_MODE}")
-    
+
     # Check if Plex config is missing
     plex_url = config.get('plex_url')
     plex_token = config.get('plex_token')
     needs_onboarding = not (plex_url and plex_token)
-    
+
     logging.debug(f"Needs onboarding: {needs_onboarding} (URL: {bool(plex_url)}, Token: {bool(plex_token)})")
-    
+
     return jsonify({
         'is_setup': is_setup,
         'needs_onboarding': needs_onboarding,
@@ -7928,11 +7957,11 @@ def auth_setup():
     config = load_config()
     if config.get('admin_password_hash'):
         return jsonify({'error': 'System already setup'}), 400
-        
+
     password = request.json.get('password')
     if not password or len(password) < 8:
         return jsonify({'error': 'Password must be at least 8 characters'}), 400
-        
+
     if save_config({'admin_password_hash': generate_password_hash(password)}, merge=True):
         logging.info("Admin password hash set successfully.")
         return jsonify({'success': True})
@@ -7945,24 +7974,24 @@ def auth_login():
         return jsonify({'error': 'Password login is disabled in portal mode'}), 403
     config = load_config()
     password = request.json.get('password')
-    
+
     hash_val = config.get('admin_password_hash')
     if not hash_val:
         return jsonify({'error': 'System not setup'}), 400
-        
+
     if check_password_hash(hash_val, password):
         token = jwt.encode({
             'user': 'admin',
             'exp': datetime.utcnow() + timedelta(days=7)
         }, SECRET_KEY, algorithm='HS256')
-        
+
         return jsonify({
             'token': token,
             'user': {
                 'username': 'Admin'
             }
         })
-        
+
     return jsonify({'error': 'Invalid password'}), 401
 
 @app.route('/api/auth/change-password', methods=['POST'])
@@ -7972,17 +8001,17 @@ def change_password():
     config = load_config()
     current_password = request.json.get('currentPassword')
     new_password = request.json.get('newPassword')
-    
+
     if not current_password or not new_password:
         return jsonify({'error': 'Missing password fields'}), 400
-        
+
     if len(new_password) < 8:
         return jsonify({'error': 'New password must be at least 8 characters'}), 400
-        
+
     hash_val = config.get('admin_password_hash')
     if not check_password_hash(hash_val, current_password):
         return jsonify({'error': 'Current password incorrect'}), 401
-        
+
     if save_config({'admin_password_hash': generate_password_hash(new_password)}, merge=True):
         logging.info("Admin password updated successfully.")
         return jsonify({'success': True})
@@ -7993,7 +8022,7 @@ def verify_token():
     auth_header = request.headers.get('Authorization')
     if not auth_header or not auth_header.startswith('Bearer '):
         return jsonify({'authenticated': False}), 401
-    
+
     try:
         token = auth_header.split(' ')[1]
         jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
@@ -8028,7 +8057,7 @@ if __name__ == "__main__":
     print(f"Target Script: {SCRIPT_NAME}")
     print(f"Log File: {LOG_FILE}")
     print("Web UI API available at http://localhost:5000")
-    
+
     # Create empty log file if it doesn't exist
     if not os.path.exists(LOG_FILE):
         ensure_dir_exists(LOG_FILE)
