@@ -24,6 +24,7 @@ import { useDiscoverGridSize } from './useDiscoverGridSize';
 import { useDiscoverInfiniteScroll } from './useDiscoverInfiniteScroll';
 import { useDiscoveryPreferences } from './useDiscoveryPreferences';
 import { useDiscoverI18n } from './i18n';
+import { discoveryTheme } from './discoveryThemeClasses';
 
 type GenreSliderItem = { id: number; name: string; image?: string };
 
@@ -283,6 +284,7 @@ const DiscoverStaticRailPage: React.FC<{
     const { t } = useDiscoverI18n();
     const [items, setItems] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [typeFilter, setTypeFilter] = useState<'all' | 'movie' | 'tv'>('all');
 
     useEffect(() => {
         let cancelled = false;
@@ -290,7 +292,7 @@ const DiscoverStaticRailPage: React.FC<{
         (async () => {
             try {
                 if (slug === 'recently-added') {
-                    const res = await apiFetch('/api/discovery/proxy/media?filter=allavailable&take=100&sort=mediaAdded').catch(() => null);
+                    const res = await apiFetch('/api/discovery/proxy/media?filter=allavailable&take=240&sort=mediaAdded').catch(() => null);
                     if (cancelled) return;
                     setItems((res?.results || []).map(normalizeRawDiscoveryItem));
                     return;
@@ -341,12 +343,44 @@ const DiscoverStaticRailPage: React.FC<{
     }, [hideAvailable, locale, slug]);
 
     const title = slug === 'recently-added' ? t('home.recentlyAdded') : t('home.contentGapPicks');
+    const showTypeChips = slug === 'recently-added';
+    const typeOf = (item: any) => (item?.mediaType === 'tv' || item?.type === 'tv' ? 'tv' : 'movie');
+    const shownItems = showTypeChips && typeFilter !== 'all'
+        ? items.filter((item) => typeOf(item) === typeFilter)
+        : items;
+    const typeCounts = {
+        all: items.length,
+        movie: items.filter((item) => typeOf(item) === 'movie').length,
+        tv: items.filter((item) => typeOf(item) === 'tv').length,
+    };
 
     return (
         <DiscoverRailShell title={title} onBack={onBack} gridSize={gridSize} setGridSize={setGridSize}>
+            {showTypeChips && !loading && items.length > 0 ? (
+                <div className="flex flex-wrap gap-2 px-2" role="group" aria-label={t('browse.layoutLabel')}>
+                    {([
+                        ['all', t('requestsPage.typeAll')],
+                        ['movie', t('requestsPage.typeMovies')],
+                        ['tv', t('requestsPage.typeShows')],
+                    ] as const).map(([value, label]) => (
+                        <button
+                            key={value}
+                            type="button"
+                            aria-pressed={typeFilter === value}
+                            onClick={() => setTypeFilter(value)}
+                            className={`${discoveryTheme.filterChip} ${typeFilter === value ? discoveryTheme.filterChipActive : ''}`}
+                        >
+                            {label}
+                            <span className={`${discoveryTheme.filterChipCount} ${typeFilter === value ? discoveryTheme.filterChipCountActive : ''}`}>
+                                {typeCounts[value]}
+                            </span>
+                        </button>
+                    ))}
+                </div>
+            ) : null}
             <div className="px-2">
                 <DiscoverPosterGrid
-                    items={items}
+                    items={shownItems}
                     gridSize={gridSize}
                     formatItem={formatItem}
                     onSelect={onSelect}

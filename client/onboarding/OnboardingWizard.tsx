@@ -47,6 +47,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
     const [navFeatures, setNavFeatures] = useState<Record<string, boolean>>({});
     const [index, setIndex] = useState(0);
     const [acked, setAcked] = useState<Set<string>>(new Set());
+    const [reloadKey, setReloadKey] = useState(0);
+    const STEP_KEY = 'portal-onboarding-step';
 
     useEffect(() => {
         if (preview) {
@@ -59,6 +61,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
         }
         let cancelled = false;
         setLoading(true);
+        setError('');
         apiFetch('/api/me/onboarding')
             .then((data) => {
                 if (cancelled) return;
@@ -77,7 +80,22 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                 if (!cancelled) setLoading(false);
             });
         return () => { cancelled = true; };
-    }, [preview, previewSteps, mediaServerType, onComplete, t]);
+    }, [preview, previewSteps, mediaServerType, onComplete, t, reloadKey]);
+
+    // Pick up where a reload or dropped connection left the member.
+    useEffect(() => {
+        if (preview || steps.length === 0) return;
+        try {
+            const saved = Number(window.sessionStorage.getItem(STEP_KEY));
+            if (Number.isInteger(saved) && saved > 0) setIndex(Math.min(saved, steps.length - 1));
+        } catch { /* storage unavailable */ }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [preview, steps.length]);
+
+    useEffect(() => {
+        if (preview) return;
+        try { window.sessionStorage.setItem(STEP_KEY, String(index)); } catch { /* ignore */ }
+    }, [index, preview]);
 
     const step = steps[index] || null;
     const isLast = index >= steps.length - 1;
@@ -105,6 +123,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                 method: 'POST',
                 body: JSON.stringify({ ackedStepIds: Array.from(acked) }),
             });
+            try { window.sessionStorage.removeItem(STEP_KEY); } catch { /* ignore */ }
             onComplete();
         } catch (e: any) {
             setError(e.message || t('onboarding.completeFailed'));
@@ -124,6 +143,17 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
 
     if (loading) {
         return <div className="min-h-[50vh] flex items-center justify-center text-muted">{t('onboarding.loading')}</div>;
+    }
+
+    if (!step && error) {
+        return (
+            <div className="min-h-[50vh] flex flex-col items-center justify-center gap-4 text-center px-4">
+                <p className="text-red-400 text-sm">{error}</p>
+                <button type="button" className="px-4 py-2 rounded-lg bg-plex text-background font-bold" onClick={() => setReloadKey((n) => n + 1)}>
+                    Try again
+                </button>
+            </div>
+        );
     }
 
     if (!step) {
@@ -153,6 +183,9 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                 </div>
 
                 {error && <div className="mb-4 text-sm text-red-400">{error}</div>}
+                {step.requireAck && !acked.has(step.id) && (
+                    <p className="mb-4 text-xs text-muted">Tick the box below to continue.</p>
+                )}
 
                 <div className="space-y-4 mb-8">
                     {step.body && (
