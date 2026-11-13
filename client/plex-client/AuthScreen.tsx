@@ -102,9 +102,16 @@ export const PlexClientBootSplash: React.FC = () => {
     const version = getPlexClientAppVersion();
     return (
         <div id="boot-splash">
+            {/* Same layers as the page's own splash, so the hand-over from it to this one does not change. */}
+            <div className="boot-splash-ring" aria-hidden />
+            <div className="boot-splash-particles" aria-hidden>
+                <span /><span /><span /><span /><span /><span />
+            </div>
+            <div className="boot-splash-streaks" aria-hidden><span /><span /><span /></div>
             <div className="boot-splash-mark">
                 <img src={LOGO_SRC} alt="StreamPilot" />
             </div>
+            <p className="boot-splash-status">Loading your library</p>
             <div className="boot-splash-progress" aria-hidden><span /></div>
             {version ? <p className="boot-splash-version">{version}</p> : null}
         </div>

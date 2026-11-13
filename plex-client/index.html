@@ -382,8 +382,8 @@
       100% { width: 100%; }
     }
     @keyframes boot-splash-bar-glow {
-      0%, 100% { box-shadow: 0 0 8px rgba(245, 158, 11, 0.3), 0 0 18px rgba(245, 158, 11, 0.1); }
-      50%      { box-shadow: 0 0 14px rgba(245, 158, 11, 0.55), 0 0 32px rgba(245, 158, 11, 0.2); }
+      0%, 100% { box-shadow: 0 0 8px rgba(255, 90, 20, 0.3), 0 0 18px rgba(255, 90, 20, 0.1); }
+      50%      { box-shadow: 0 0 14px rgba(255, 90, 20, 0.55), 0 0 32px rgba(255, 90, 20, 0.2); }
     }
     @keyframes boot-splash-pulse-ring {
       0%   { transform: translate(-50%, -50%) scale(0.85); opacity: 0.5; }
@@ -410,7 +410,8 @@
       justify-content: center;
       padding: 2rem;
       overflow: hidden;
-      background: #07080c;
+      background:
+        radial-gradient(120% 75% at 50% 40%, #17110d 0%, #0b0a0e 52%, #050507 100%);
     }
     /* Ambient radial glow behind the logo */
     #boot-splash::before {
@@ -424,8 +425,8 @@
       border-radius: 50%;
       background: radial-gradient(
         circle,
-        rgba(245, 158, 11, 0.1) 0%,
-        rgba(245, 158, 11, 0.04) 30%,
+        rgba(255, 90, 20, 0.1) 0%,
+        rgba(255, 90, 20, 0.04) 30%,
         transparent 65%
       );
       pointer-events: none;
@@ -442,8 +443,8 @@
       transform-origin: center center;
       border-radius: 50%;
       border: 1px solid transparent;
-      border-top-color: rgba(245, 158, 11, 0.25);
-      border-right-color: rgba(245, 158, 11, 0.08);
+      border-top-color: rgba(255, 90, 20, 0.25);
+      border-right-color: rgba(255, 90, 20, 0.08);
       animation: boot-splash-glow-orbit 4s linear infinite;
       margin-top: calc(min(46vw, 22rem) / -2);
       margin-left: calc(min(46vw, 22rem) / -2);
@@ -464,7 +465,7 @@
       height: auto;
       max-height: 22vh;
       object-fit: contain;
-      filter: drop-shadow(0 0 40px rgba(245, 158, 11, 0.25))
+      filter: drop-shadow(0 0 40px rgba(255, 90, 20, 0.25))
               drop-shadow(0 16px 32px rgba(0, 0, 0, 0.6));
     }
     /* Pulse ring behind logo */
@@ -474,7 +475,7 @@
       left: 50%;
       width: min(88vw, 42rem);
       height: min(22vh, 12rem);
-      border: 1px solid rgba(245, 158, 11, 0.15);
+      border: 1px solid rgba(255, 90, 20, 0.15);
       border-radius: 50%;
       transform: translate(-50%, -50%) scale(0.85);
       animation: boot-splash-pulse-ring 2.8s ease-in-out 0.6s infinite;
@@ -497,8 +498,8 @@
       width: 3px;
       height: 3px;
       border-radius: 50%;
-      background: rgba(245, 158, 11, 0.6);
-      box-shadow: 0 0 6px rgba(245, 158, 11, 0.4);
+      background: rgba(255, 90, 20, 0.6);
+      box-shadow: 0 0 6px rgba(255, 90, 20, 0.4);
       animation: boot-splash-particle 2.6s ease-out infinite;
     }
     #boot-splash .boot-splash-particles span:nth-child(1) { left: 12%; animation-delay: 0.4s; }
@@ -507,6 +508,52 @@
     #boot-splash .boot-splash-particles span:nth-child(4) { left: 60%; animation-delay: 1.6s; }
     #boot-splash .boot-splash-particles span:nth-child(5) { left: 76%; animation-delay: 0.2s; }
     #boot-splash .boot-splash-particles span:nth-child(6) { left: 88%; animation-delay: 1.3s; }
+    @keyframes boot-splash-streak {
+      0%   { opacity: 0; transform: translate3d(-40vw, 0, 0); }
+      12%  { opacity: 1; }
+      70%  { opacity: 0.9; }
+      100% { opacity: 0; transform: translate3d(140vw, 0, 0); }
+    }
+    @keyframes boot-splash-status-pulse {
+      0%, 100% { opacity: 0.45; }
+      50%      { opacity: 0.85; }
+    }
+    /* Speed streaks that cross behind the logo */
+    #boot-splash .boot-splash-streaks {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      pointer-events: none;
+      z-index: 0;
+    }
+    #boot-splash .boot-splash-streaks span {
+      position: absolute;
+      left: 0;
+      height: 2px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, transparent, rgba(255, 90, 20, 0.85), rgba(255, 185, 138, 0.9), transparent);
+      opacity: 0;
+      animation: boot-splash-streak 2.6s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+    #boot-splash .boot-splash-streaks span:nth-child(1) { top: 41%; width: 26vw; animation-delay: 0.9s; }
+    #boot-splash .boot-splash-streaks span:nth-child(2) { top: 47%; width: 38vw; animation-delay: 1.5s; }
+    #boot-splash .boot-splash-streaks span:nth-child(3) { top: 54%; width: 20vw; animation-delay: 2.1s; }
+    #boot-splash .boot-splash-status {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: calc(max(12%, 3.75rem) + 1.25rem);
+      z-index: 1;
+      margin: 0;
+      text-align: center;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.55);
+      animation: boot-splash-status-pulse 2.2s ease-in-out 1s infinite;
+    }
     /* Progress bar: determinate fill with glow */
     #boot-splash .boot-splash-progress {
       position: absolute;
@@ -525,7 +572,7 @@
       width: 0;
       height: 100%;
       border-radius: inherit;
-      background: linear-gradient(90deg, #b45309, #f59e0b, #fde68a);
+      background: linear-gradient(90deg, #c2410c, #ff5a14, #ffb98a);
       animation:
         boot-splash-bar-fill 2.8s cubic-bezier(0.25, 0.46, 0.45, 0.94) 0.3s forwards,
         boot-splash-bar-glow 1.4s ease-in-out 0.3s infinite;
@@ -560,7 +607,8 @@
       height: calc(100vh / var(--tv-zoom, 1));
       min-height: calc(100vh / var(--tv-zoom, 1));
       padding: 0;
-      background: #07080c;
+      background:
+        radial-gradient(120% 75% at 50% 40%, #17110d 0%, #0b0a0e 52%, #050507 100%);
     }
     html[data-tv="1"] #boot-splash img {
       width: min(62vw, 40rem);
@@ -572,9 +620,12 @@
       #boot-splash .boot-splash-progress > span,
       #boot-splash::after,
       #boot-splash .boot-splash-ring,
-      #boot-splash .boot-splash-particles span {
+      #boot-splash .boot-splash-particles span,
+      #boot-splash .boot-splash-streaks span,
+      #boot-splash .boot-splash-status {
         animation: none !important;
       }
+      #boot-splash .boot-splash-streaks { display: none; }
       #boot-splash .boot-splash-progress > span {
         width: 100% !important;
       }
@@ -4820,9 +4871,11 @@
     <div id="boot-splash">
       <div class="boot-splash-ring" aria-hidden="true"></div>
       <div class="boot-splash-particles" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span></div>
+      <div class="boot-splash-streaks" aria-hidden="true"><span></span><span></span><span></span></div>
       <div class="boot-splash-mark">
         <img src="/logo.png" alt="StreamPilot" />
       </div>
+      <p class="boot-splash-status">Loading your library</p>
       <div class="boot-splash-progress" aria-hidden="true"><span></span></div>
       <p class="boot-splash-version">__APP_VERSION__</p>
     </div>
