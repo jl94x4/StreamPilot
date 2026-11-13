@@ -126,6 +126,16 @@ class ClearOverlaysTests(unittest.TestCase):
             self.assertEqual({lab.tag for lab in item.labels}, {"HBO", "Trending", "Netflix", "Keep-Me"})
             self.assertFalse(any("still on the item" in message for message in messages))
 
+    def test_ledger_labels_are_removed_even_when_every_log_was_lost(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            (root / "label-ledger").mkdir()
+            (root / "label-ledger" / "111.json").write_text(json.dumps({"labels": ["Overlay", "4K-HDR", "Custom-Badge"]}), encoding="utf-8")
+            item = FakeItem("111", labels=["Overlay", "4K-HDR", "Custom-Badge", "Trending"])
+            clear_overlays_after_poster_apply(item, config={"overlays_data_dir": str(root)})
+            self.assertEqual({lab.tag for lab in item.labels}, {"Trending"})
+            self.assertFalse((root / "label-ledger" / "111.json").exists())
+
     def test_apply_does_not_strip_collection_labels_from_untouched_titles(self):
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)

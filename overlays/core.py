@@ -26,6 +26,8 @@ _APP_DIR = str(Path(__file__).resolve().parent)
 if _APP_DIR not in sys.path:
     sys.path.insert(0, _APP_DIR)
 
+import label_ledger as _ledger  # noqa: E402
+
 
 def _progress(progress: ProgressFn | None, message: str) -> None:
     if progress:
@@ -132,6 +134,7 @@ def _resolve_paths(config: dict) -> dict[str, Path]:
         elif (assets_dir / "new-season.png").exists():
             recently_overlay_path = assets_dir / "new-season.png"
 
+    _ledger.set_root(root)
     return {
         "root": root,
         "preview": preview,
@@ -265,12 +268,26 @@ def _load_log(log_path: Path) -> dict:
         data = json.loads(log_path.read_text(encoding="utf-8"))
         return data if isinstance(data, dict) else {}
     except Exception:
+        # Keep a corrupt log for inspection instead of letting the next save silently overwrite it.
+        try:
+            log_path.replace(log_path.with_name(log_path.name + f".corrupt-{int(time.time())}"))
+        except Exception:
+            pass
         return {}
 
 
 def _save_log(log_path: Path, data: dict) -> None:
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    tmp = log_path.with_name(log_path.name + f".{os.getpid()}.tmp")
+    try:
+        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        os.replace(tmp, log_path)
+    finally:
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except Exception:
+            pass
 
 
 def _connect(config: dict) -> PlexServer:
@@ -342,6 +359,7 @@ def _add_plex_overlay_label(item) -> bool:
     try:
         if _has_kometa_overlay_label(item):
             return True
+        _ledger.record_labels(_ledger.item_key(item), ["Overlay"])
         item.addLabel("Overlay")
         return True
     except Exception:

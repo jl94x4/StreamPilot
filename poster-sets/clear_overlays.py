@@ -150,6 +150,15 @@ def labels_from_log_entry(entry: Any) -> list[str]:
     return names
 
 
+def _ledger_path(data_dir: Path, key: str) -> Path:
+    return Path(data_dir) / "label-ledger" / (str(key).replace("/", "_").replace("\\", "_") + ".json")
+
+
+def _ledger_labels(data_dir: Path, key: str) -> list[str]:
+    data = _load_json_object(_ledger_path(data_dir, key))
+    return [str(x).strip() for x in (data.get("labels") or []) if str(x).strip()]
+
+
 def labels_recorded_for_keys(data_dir: Path, keys: Iterable[str]) -> list[str]:
     """Labels recorded for these rating keys in ANY overlay log, not just the Kometa one."""
     wanted = [str(key).strip() for key in keys if str(key).strip()]
@@ -162,6 +171,12 @@ def labels_recorded_for_keys(data_dir: Path, keys: Iterable[str]) -> list[str]:
                 if label.casefold() not in seen:
                     seen.add(label.casefold())
                     names.append(label)
+    # The write-ahead ledger survives a lost or overwritten log.
+    for key in wanted:
+        for label in _ledger_labels(data_dir, key):
+            if label.casefold() not in seen:
+                seen.add(label.casefold())
+                names.append(label)
     return names
 
 
@@ -234,6 +249,12 @@ def forget_overlay_tracking(data_dir: Path, rating_keys: Iterable[str]) -> dict[
                 logs_cleared += 1
         if changed:
             _save_json_object(path, data)
+
+    for key in keys:
+        try:
+            _ledger_path(root, key).unlink()
+        except OSError:
+            pass
 
     backups_cleared = 0
     backups = root / "backups"

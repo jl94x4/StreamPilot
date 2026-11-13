@@ -18,6 +18,7 @@ from typing import Any, Callable
 
 from PIL import Image
 
+import label_ledger as _ledger
 from kometa_detect import KometaDetector, Winner
 from kometa_render import compose_poster, has_overlay_marker, save_with_marker
 
@@ -1471,6 +1472,7 @@ def _overlay_label_explained_locally(paths: dict | None, rating_key: str) -> boo
 
 def _add_overlay_label(item) -> None:
     try:
+        _ledger.record_labels(_ledger.item_key(item), ["Overlay"])
         item.addLabel("Overlay")
     except Exception:
         pass
@@ -1638,6 +1640,7 @@ def _sync_plex_labels(item, wanted: list[str], previous: list[str] | None = None
         if name.casefold() in present_keys:
             continue
         try:
+            _ledger.record_labels(_ledger.item_key(item), [name])
             item.addLabel(name)
         except Exception:
             pass
