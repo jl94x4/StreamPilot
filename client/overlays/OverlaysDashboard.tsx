@@ -208,6 +208,7 @@ const DEFAULT_CONFIG: OverlaysConfig = {
     scheduleHours: 24,
     recentlyAddedScheduleHours: 24,
     kometaScheduleHours: 24,
+    collectionsScheduleHours: 0,
     skipIfKometaOverlayLabel: true,
 };
 
@@ -3591,6 +3592,24 @@ export const OverlaysDashboard: React.FC = () => {
                             actionsDisabled={busy !== null || jobRunning || !workerReady}
                         >
                             <p className="mb-3 text-sm text-muted">{t('overlays.jobs.collections.homeManageHint')}</p>
+                            <label className="mb-4 block max-w-xs">
+                                <span className={fieldLabelClass}>{t('overlays.fields.collectionsScheduleHours')}</span>
+                                <input
+                                    type="number"
+                                    min={0}
+                                    max={168}
+                                    className={fieldInputClass}
+                                    value={configDraft.collectionsScheduleHours ?? 0}
+                                    onChange={(e) => setConfigDraft((prev) => ({
+                                        ...prev,
+                                        collectionsScheduleHours: Math.max(0, Math.min(168, Number(e.target.value) || 0)),
+                                    }))}
+                                />
+                                <span className="mt-1 block text-[11px] text-muted">{t('overlays.settings.collectionsScheduleHint')}</span>
+                                <button type="button" className={`${buttonClass} mt-2`} disabled={busy !== null} onClick={() => void saveSettings()}>
+                                    <Save className="h-4 w-4" /> {t('overlays.actions.save')}
+                                </button>
+                            </label>
                             <div className="flex flex-wrap gap-2">
                                 <button
                                     type="button"

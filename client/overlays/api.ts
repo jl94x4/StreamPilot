@@ -391,6 +391,8 @@ export type OverlaysConfig = {
     scheduleHours?: number;
     recentlyAddedScheduleHours?: number;
     kometaScheduleHours?: number;
+    collectionsScheduleHours?: number;
+    collectionsLastRunAt?: string | null;
     skipIfKometaOverlayLabel?: boolean;
     plexSource?: string;
     lastRunAt?: string | null;

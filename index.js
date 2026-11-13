@@ -15967,6 +15967,20 @@ app.post('/api/tasks/run/:taskId', requireAdmin, async (req, res) => {
                         }, 'recently');
                         break;
                     }
+                    case 'overlaysCollections': {
+                        const cfg = await loadFile(CONFIG_PATH, {});
+                        if (!cfg.overlaysEnabled) {
+                            throw new Error('Overlays is disabled. Enable it in Settings → Features first.');
+                        }
+                        await runOverlaysScheduledJob({
+                            loadPortalConfig: async () => loadFile(CONFIG_PATH, {}),
+                            resolvePlex: resolveOverlaysPlex,
+                            markTaskStart,
+                            markTaskEnd,
+                            systemJob: systemJobs.overlaysCollections,
+                        }, 'collections');
+                        break;
+                    }
                     case 'overlaysKometaStyle': {
                         const cfg = await loadFile(CONFIG_PATH, {});
                         if (!cfg.overlaysEnabled) {
@@ -24387,6 +24401,16 @@ const systemJobs = {
         id: 'overlaysRecentlyAdded',
         name: 'Overlays: Recently Added',
         description: 'Stamps Recently Added banners only (separate from New Season / Kometa media).',
+        lastRun: null,
+        nextRun: null,
+        running: false,
+        lastDurationMs: null,
+        lastError: null,
+    },
+    overlaysCollections: {
+        id: 'overlaysCollections',
+        name: 'Overlays: Custom collections',
+        description: 'Custom collection badges (also restamped when ColleXions changes a collection).',
         lastRun: null,
         nextRun: null,
         running: false,
@@ -35407,7 +35431,11 @@ const httpServer = app.listen(PORT, BIND_HOST, async () => {
             ...overlaysSchedDeps,
             systemJob: systemJobs.overlaysKometaStyle,
         });
-        log('[overlays] Core / Recently Added / Kometa schedulers started');
+        startOverlaysBundleScheduler('collections', {
+            ...overlaysSchedDeps,
+            systemJob: systemJobs.overlaysCollections,
+        });
+        log('[overlays] Core / Recently Added / Kometa / Collections schedulers started');
     } catch (error) {
         log(`[overlays] Scheduler startup failed: ${error.message}`);
     }

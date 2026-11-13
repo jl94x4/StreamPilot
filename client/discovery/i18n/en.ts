@@ -2249,6 +2249,7 @@ export const en = {
             scheduleHours: 'Core schedule hours (0 = off)',
             recentlyAddedScheduleHours: 'Recently Added schedule hours (0 = off)',
             kometaScheduleHours: 'Media / Layer schedule hours (0 = off)',
+            collectionsScheduleHours: 'Custom collections schedule hours (0 = off)',
         },
         eligibleToast: 'Eligible: {count}',
         shows: {
@@ -2475,6 +2476,7 @@ export const en = {
             loadSectionsHint: 'Load sections to pick specific libraries.',
             visualSamplePlaceholderNote: 'Showing placeholder art — Plex poster could not be loaded. Try Refresh sample or pick a show.',
             coreScheduleHint: 'Applies only to Live / New Season / New Episode / Top 10. Recently Added and Media/Layer use their own schedules.',
+            collectionsScheduleHint: 'Restamps collection badges every X hours. Collections are also restamped automatically when ColleXions changes one. 0 = only on those changes or a manual run.',
             kometaScheduleHint: 'Heavy pass (stream inspection + external caches). Keep separate from core so New Season stays fast.',
         },
         import: {
