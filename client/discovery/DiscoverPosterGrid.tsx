@@ -5,6 +5,10 @@ import { upgraderPosterGridClass, upgraderPosterGridStyle, type PosterGridValue 
 import { dedupeDiscoverResults, getDiscoverItemKey } from './discoverItemUtils';
 import { discoveryTheme } from './discoveryThemeClasses';
 import { useDiscoverI18n } from './i18n';
+import { DiscoverSelectable } from './DiscoverSelectable';
+import { DiscoverListRow } from './DiscoverListRow';
+import { DiscoverSelectionBar } from './DiscoverSelectionBar';
+import { useDiscoverLayout, type DiscoverLayout } from './discoverViewState';
 import { apiFetch } from '../shared/api';
 
 type QuickAction = {
@@ -31,6 +35,9 @@ const isCoarsePointer = () => {
 };
 
 type CellProps = {
+    itemKey: string;
+    rawItem: any;
+    layout: DiscoverLayout;
     formatted: any;
     animate: boolean;
     delayMs: number;
@@ -40,7 +47,7 @@ type CellProps = {
 };
 
 /** Memoised so infinite-scroll appends don't re-render every poster already on screen. */
-const DiscoverGridCell = memo(({ formatted, animate, delayMs, onSelect, getQuickActions, prefetch }: CellProps) => {
+const DiscoverGridCell = memo(({ itemKey, rawItem, layout, formatted, animate, delayMs, onSelect, getQuickActions, prefetch }: CellProps) => {
     const quickActions = useMemo(
         () => (getQuickActions ? getQuickActions(formatted) : undefined),
         [getQuickActions, formatted],
@@ -50,8 +57,20 @@ const DiscoverGridCell = memo(({ formatted, animate, delayMs, onSelect, getQuick
         () => (prefetch ? () => prefetch(formatted) : undefined),
         [prefetch, formatted],
     );
+    // People are not requestable; everything else can be ticked for a bulk request.
+    const selectable = formatted?.mediaType !== 'person' && formatted?.type !== 'person';
+    if (layout !== 'grid') {
+        return (
+            <DiscoverSelectable itemKey={itemKey} item={formatted} selectable={selectable} className="min-w-0">
+                <DiscoverListRow item={formatted} compact={layout === 'compact'} onClick={handleClick} onHover={handleHover} />
+            </DiscoverSelectable>
+        );
+    }
     return (
-        <div
+        <DiscoverSelectable
+            itemKey={itemKey}
+            item={formatted}
+            selectable={selectable}
             className={animate ? 'discover-poster-enter min-w-0' : 'min-w-0'}
             style={animate ? { animationDelay: `${delayMs}ms` } : undefined}
         >
@@ -63,7 +82,7 @@ const DiscoverGridCell = memo(({ formatted, animate, delayMs, onSelect, getQuick
                 onPosterHover={handleHover}
                 quickActions={quickActions}
             />
-        </div>
+        </DiscoverSelectable>
     );
 });
 
@@ -94,6 +113,7 @@ export const DiscoverPosterGrid: React.FC<Props> = ({
     emptyMessage,
 }) => {
     const { t } = useDiscoverI18n();
+    const [layout] = useDiscoverLayout();
     const resolvedEmptyMessage = emptyMessage || t('common.noResults');
     const visibleItems = useMemo(() => dedupeDiscoverResults(items), [items]);
     const prefetchedDetailsRef = useRef(new Set<string>());
@@ -165,25 +185,32 @@ export const DiscoverPosterGrid: React.FC<Props> = ({
         );
     }
 
+    const listLayout = layout !== 'grid';
     return (
-        <div
-            className={upgraderPosterGridClass(gridSize)}
-            style={upgraderPosterGridStyle(gridSize)}
-        >
-            {formattedItems.map(({ rawItem, formatted }, index) => {
-                const itemKey = getDiscoverItemKey(rawItem) || `${formatted.mediaType || formatted.type}-${formatted.id}`;
-                return (
-                    <DiscoverGridCell
-                        key={itemKey}
-                        formatted={formatted}
-                        animate={animateEnter}
-                        delayMs={Math.min(index, 18) * 22}
-                        onSelect={onSelect}
-                        getQuickActions={getQuickActions}
-                        prefetch={prefetchDiscoverDetails}
-                    />
-                );
-            })}
-        </div>
+        <>
+            <div
+                className={listLayout ? `flex flex-col ${layout === 'compact' ? 'gap-1.5' : 'gap-2.5'} pb-4` : upgraderPosterGridClass(gridSize)}
+                style={listLayout ? undefined : upgraderPosterGridStyle(gridSize)}
+            >
+                {formattedItems.map(({ rawItem, formatted }, index) => {
+                    const itemKey = getDiscoverItemKey(rawItem) || `${formatted.mediaType || formatted.type}-${formatted.id}`;
+                    return (
+                        <DiscoverGridCell
+                            key={itemKey}
+                            itemKey={itemKey}
+                            rawItem={rawItem}
+                            layout={layout}
+                            formatted={formatted}
+                            animate={animateEnter && !listLayout}
+                            delayMs={Math.min(index, 18) * 22}
+                            onSelect={onSelect}
+                            getQuickActions={getQuickActions}
+                            prefetch={prefetchDiscoverDetails}
+                        />
+                    );
+                })}
+            </div>
+            <DiscoverSelectionBar />
+        </>
     );
 };

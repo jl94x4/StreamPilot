@@ -155,6 +155,7 @@ const DiscoverRailShell: React.FC<{
                         <p className="text-sm text-muted mt-2">{t('home.browseAllInRow')}</p>
                     </div>
                     <DiscoverGridSizeSelect
+                        tools
                         value={gridSize}
                         onChange={setGridSize}
                         className="self-start sm:self-end flex-shrink-0"

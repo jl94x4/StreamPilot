@@ -20,6 +20,7 @@ import { DiscoverHideRequestedToggle } from './DiscoverHideRequestedToggle';
 import { useHideRequestedToggle } from './useHideRequestedToggle';
 import { discoveryTheme } from './discoveryThemeClasses';
 import { useDiscoverI18n } from './i18n';
+import { readPersistedView, writePersistedView } from './usePersistedState';
 
 export const DiscoverMovies: React.FC<{
     onSelect: (item: any) => void;
@@ -39,12 +40,20 @@ export const DiscoverMovies: React.FC<{
     const containerRef = useRef<HTMLDivElement>(null);
     const [showFilters, setShowFilters] = React.useState(false);
 
-    const [filters, setFilters] = React.useState<FilterState>(() =>
-        parseFiltersFromSearch(typeof window !== 'undefined' ? window.location.search : '', defaultMovieFilters()),
-    );
+    const [filters, setFilters] = React.useState<FilterState>(() => {
+        if (typeof window === 'undefined') return defaultMovieFilters();
+        const saved = window.location.search
+            ? null
+            : readPersistedView<FilterState | null>('browse.filters.movies', null, (v) => !!v && typeof v === 'object');
+        return saved || parseFiltersFromSearch(window.location.search, defaultMovieFilters());
+    });
 
     const readFiltersFromUrl = useCallback(() => {
-        setFilters(parseFiltersFromSearch(window.location.search, defaultMovieFilters()));
+        // Bare URL: bring back the filters this person last applied on this page.
+        const saved = window.location.search
+            ? null
+            : readPersistedView<FilterState | null>('browse.filters.movies', null, (v) => !!v && typeof v === 'object');
+        setFilters(saved || parseFiltersFromSearch(window.location.search, defaultMovieFilters()));
     }, []);
 
     React.useEffect(() => {
@@ -90,6 +99,7 @@ export const DiscoverMovies: React.FC<{
 
     const applyFilters = (newFilters: FilterState) => {
         setFilters(newFilters);
+        writePersistedView('browse.filters.movies', newFilters);
         navigate(buildMovieFilterPath(newFilters));
     };
 
@@ -132,7 +142,7 @@ export const DiscoverMovies: React.FC<{
                         )}
                     </div>
                     <div className="flex items-center gap-3 flex-wrap justify-end">
-                        <DiscoverGridSizeSelect value={gridSize} onChange={setGridSize} />
+                        <DiscoverGridSizeSelect value={gridSize} onChange={setGridSize} tools />
                         <DiscoverHideRequestedToggle checked={hideRequested} onChange={setHideRequested} />
                         <button
                             type="button"
