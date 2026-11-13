@@ -13,6 +13,7 @@ import {
     Download,
     Eye,
     EyeOff,
+    FolderPlus,
     Info,
     Layers,
     ListPlus,
@@ -34,11 +35,15 @@ import {
 import { useDiscoverI18n } from './host';
 import { rectToFixedPixels } from '../shared/ui';
 import {
+    addMediaPlayerCollectionItem,
     addMediaPlayerPlaylistItem,
+    createMediaPlayerCollection,
     createMediaPlayerPlaylist,
     deleteMediaPlayerItem,
+    fetchMediaPlayerCollectionTargets,
     fetchMediaPlayerItem,
     fetchMediaPlayerPlaylists,
+    type CollectionTarget,
     refreshMediaPlayerItemMetadata,
     removeMediaPlayerProgress,
     setMediaPlayerRating,
@@ -102,7 +107,7 @@ type Props = {
     onSubtitleChange?: (id: string) => void;
 };
 
-type MenuMode = 'main' | 'playlist';
+type MenuMode = 'main' | 'playlist' | 'collection';
 
 const MENU_MIN_WIDTH = 220;
 const MENU_MAX_WIDTH = 420;
@@ -154,6 +159,9 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
     const [pos, setPos] = useState({ top: 0, left: 0, maxHeight: 0 });
     const [playlists, setPlaylists] = useState<PlayerItem[]>([]);
     const [newPlaylistName, setNewPlaylistName] = useState('');
+    const [collectionTargets, setCollectionTargets] = useState<CollectionTarget[]>([]);
+    const [collectionsLoading, setCollectionsLoading] = useState(false);
+    const [newCollectionName, setNewCollectionName] = useState('');
     const [fileInfoItem, setFileInfoItem] = useState<PlayerItem | null>(null);
     const [fileInfoLoading, setFileInfoLoading] = useState(false);
     const [trackPicker, setTrackPicker] = useState<'audio' | 'subtitles' | null>(null);
@@ -195,6 +203,11 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
     const ratingStars = Math.max(0, Math.min(5, Math.round(Number(item.userRating || 0) / 2)));
     const canPlaylist = playlistsEnabled
         && (item.type === 'movie' || item.type === 'episode' || item.type === 'show' || item.type === 'season');
+    // Collections are edited with the server owner's token, so only the admin sees this, and only in
+    // the app (the portal has no route for it).
+    const canCollection = isAdmin
+        && typeof window !== 'undefined' && !!window.__PLEX_CLIENT__
+        && (item.type === 'movie' || item.type === 'show');
     const isTv = typeof document !== 'undefined' && (
         document.documentElement?.dataset?.tv === '1'
         || window.__PLEX_CLIENT__?.isTv === true
@@ -366,6 +379,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
         setOpen(false);
         setMode('main');
         setNewPlaylistName('');
+        setNewCollectionName('');
         try {
             delete document.documentElement.dataset.tvMenuOpen;
         } catch {
@@ -395,7 +409,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
         const linkRows = mode === 'main'
             ? (canGoShow ? 1 : 0) + (canGoSeason ? 1 : 0) + (canGoArtist ? 1 : 0) + (canGoAlbum ? 1 : 0)
             : 0;
-        const height = (mode === 'playlist' ? 280 : 340) + linkRows * 44;
+        const height = (mode === 'playlist' || mode === 'collection' ? 280 : 340) + linkRows * 44;
         const rect = triggerRef.current?.getBoundingClientRect();
         const box = rect ? rectToFixedPixels(rect) : null;
         const zoom = box?.zoom || 1;
@@ -540,6 +554,19 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
             setPlaylists(Array.isArray(data.items) ? data.items : []);
         } catch {
             setPlaylists([]);
+        }
+    };
+
+    const loadCollectionTargets = async () => {
+        setCollectionsLoading(true);
+        setCollectionTargets([]);
+        try {
+            const data = await fetchMediaPlayerCollectionTargets(item.ratingKey, item.serverId);
+            setCollectionTargets(Array.isArray(data.items) ? data.items : []);
+        } catch {
+            setCollectionTargets([]);
+        } finally {
+            setCollectionsLoading(false);
         }
     };
 
@@ -920,6 +947,23 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                     <ChevronRight className="h-3.5 w-3.5 shrink-0 opacity-60" />
                 </TvButton>
             ) : null}
+            {canCollection ? (
+                <TvButton
+                    type="button"
+                    role="menuitem"
+                    data-tv-item="1"
+                    data-tv-menu-item="1"
+                    className={itemClass}
+                    onClick={() => {
+                        setMode('collection');
+                        void loadCollectionTargets();
+                    }}
+                >
+                    <FolderPlus className={iconClass} />
+                    <span className="min-w-0 flex-1 whitespace-nowrap">{t('mediaPlayerPage.addToCollection')}</span>
+                    <ChevronRight className="h-3.5 w-3.5 shrink-0 opacity-60" />
+                </TvButton>
+            ) : null}
             {useContextSheet || !isTv ? watchToggle : null}
             {canGoShow || canGoSeason || canGoArtist || canGoAlbum ? (
                 useContextSheet
@@ -1232,6 +1276,67 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                 </>
             ) : null}
         </>
+    ) : mode === 'collection' ? (
+        <div className={`flex flex-col ${useContextSheet ? 'min-h-0 flex-1' : 'max-h-72'}`}>
+            <TvButton
+                type="button"
+                data-tv-item="1"
+                data-tv-menu-item="1"
+                className={useContextSheet
+                    ? 'mb-1 flex items-center gap-2 px-1 py-2.5 text-left text-sm font-bold uppercase tracking-wider text-white/55 hover:bg-white/[0.06]'
+                    : 'flex items-center gap-2 px-3.5 py-2 text-left text-xs font-bold uppercase tracking-wider text-muted hover:bg-white/5'}
+                onClick={() => setMode('main')}
+            >
+                {t('mediaPlayerPage.back')}
+            </TvButton>
+            <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar" data-tv-overlay-scroll="1">
+                {collectionsLoading ? (
+                    <p className="px-1 py-3 text-sm text-white/55">{t('mediaPlayerPage.loading')}</p>
+                ) : null}
+                {collectionTargets.map((target) => (
+                    <TvButton
+                        key={target.ratingKey}
+                        type="button"
+                        data-tv-item="1"
+                        data-tv-menu-item="1"
+                        className={itemClass}
+                        onClick={() => choose(async () => {
+                            if (target.hasItem) {
+                                toast(t('mediaPlayerPage.alreadyInCollection', { name: target.title }), 'info');
+                                return;
+                            }
+                            await addMediaPlayerCollectionItem(target.ratingKey, item.ratingKey, item.serverId);
+                            toast(t('mediaPlayerPage.addedToCollection', { name: target.title }));
+                        })}
+                    >
+                        <span className="min-w-0 flex-1 truncate">{target.title}</span>
+                        {target.hasItem ? <CheckCircle2 className="h-4 w-4 shrink-0 text-plex" aria-hidden /> : null}
+                    </TvButton>
+                ))}
+            </div>
+            <form
+                className={`flex gap-1 ${useContextSheet ? 'mt-2 border-t border-white/10 pt-3' : 'border-t border-white/10 p-2'}`}
+                onSubmit={(event) => {
+                    event.preventDefault();
+                    const title = newCollectionName.trim();
+                    if (!title) return;
+                    choose(async () => {
+                        await createMediaPlayerCollection(title, item.ratingKey, item.serverId);
+                        toast(t('mediaPlayerPage.addedToCollection', { name: title }));
+                    });
+                }}
+            >
+                <input
+                    value={newCollectionName}
+                    onChange={(event) => setNewCollectionName(event.target.value)}
+                    placeholder={t('mediaPlayerPage.collectionName')}
+                    className="min-w-0 flex-1 rounded-lg border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white"
+                />
+                <button type="submit" className="rounded-lg bg-plex px-2 py-1.5 text-[10px] font-black text-black">
+                    {t('mediaPlayerPage.createCollection')}
+                </button>
+            </form>
+        </div>
     ) : (
         <div className={`flex flex-col ${useContextSheet ? 'min-h-0 flex-1' : 'max-h-72'}`}>
             <TvButton

@@ -495,6 +495,29 @@ export const addMediaPlayerPlaylistItem = (playlistKey: string, ratingKey: strin
     })
 );
 
+export type CollectionTarget = { ratingKey: string; title: string; hasItem: boolean };
+
+/** The title's library collections it could go into (manual ones only). Owner-only, app only. */
+export const fetchMediaPlayerCollectionTargets = (ratingKey: string, serverId?: string | null) => {
+    const qs = new URLSearchParams({ ratingKey });
+    if (serverId) qs.set('serverId', serverId);
+    return apiFetch(`${PLAYER_API_ROOT}/collection-targets?${qs.toString()}`) as Promise<{ items: CollectionTarget[] }>;
+};
+
+export const addMediaPlayerCollectionItem = (collectionKey: string, ratingKey: string, serverId?: string | null) => (
+    apiFetch(`${PLAYER_API_ROOT}/collections/${encodeURIComponent(collectionKey)}/items`, {
+        method: 'POST',
+        body: JSON.stringify({ ratingKey, serverId: serverId || undefined }),
+    })
+);
+
+export const createMediaPlayerCollection = (title: string, ratingKey: string, serverId?: string | null) => (
+    apiFetch(`${PLAYER_API_ROOT}/collections`, {
+        method: 'POST',
+        body: JSON.stringify({ title, ratingKey, serverId: serverId || undefined }),
+    })
+);
+
 export const setMediaPlayerWatched = async (
     ratingKey: string,
     watched: boolean,

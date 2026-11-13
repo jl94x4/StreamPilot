@@ -1660,6 +1660,7 @@ const pmsPost = async (
     pathAndQuery: string,
     server: PlexServer | null = readServer(),
     timeoutMs = 20000,
+    method: 'POST' | 'PUT' = 'POST',
 ) => {
     if (!server) throw new Error('No Plex server selected');
     const path = pathAndQuery.startsWith('/') ? pathAndQuery : `/${pathAndQuery}`;
@@ -1670,7 +1671,7 @@ const pmsPost = async (
     try {
         return await Promise.race([
             plexFetch(url.toString(), server.accessToken, {
-                method: 'POST',
+                method,
                 signal: controller.signal,
                 headers: { Accept: 'application/json' },
             }),
@@ -8141,6 +8142,78 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
         })));
         console.info(`[insights] ${quick ? 'quick' : 'full'} read done in ${Date.now() - began} ms${incomplete ? ' (incomplete)' : ''}`);
         return { items: perServer.flat(), incomplete };
+    }
+    // Add to collection (owner only in the menu): Plex's own collection endpoints.
+    const collectionItemUri = (server: PlexServer, ratingKey: string) => (
+        `server://${server.id}/com.plexapp.plugins.library/library/metadata/${encodeURIComponent(ratingKey)}`
+    );
+    const readCollectionMeta = async (server: PlexServer, ratingKey: string) => {
+        const data = await pms(`/library/metadata/${encodeURIComponent(ratingKey)}`, server, 15000).catch(() => null);
+        const meta = asList<PlexMeta>(containerOf(data).Metadata)[0] || {};
+        return { meta, section: String(meta.librarySectionID || '').replace(/\D/g, '') };
+    };
+    if (path === '/api/media-player/collection-targets' && method === 'GET') {
+        const ratingKey = String(query.get('ratingKey') || '').trim();
+        const server = resolveServer(query.get('serverId'), ratingKey);
+        if (!server || !ratingKey) return { items: [] };
+        const items = await withMapServer(server, async () => {
+            const { meta, section } = await readCollectionMeta(server, ratingKey);
+            if (!section) return [];
+            const inside = new Set(
+                asList<PlexMeta>(meta.Collection).map((tag) => String(tag.tag || '').trim().toLowerCase()),
+            );
+            const listed = await pms(
+                `/library/sections/${encodeURIComponent(section)}/collections?X-Plex-Container-Size=300`,
+                server,
+                15000,
+            ).catch(() => null);
+            return asList<PlexMeta>(containerOf(listed).Metadata)
+                // Smart collections fill themselves from a filter and cannot take items by hand.
+                .filter((row) => row.ratingKey && String(row.smart || '') !== '1')
+                .map((row) => ({
+                    ratingKey: String(row.ratingKey),
+                    title: String(row.title || ''),
+                    hasItem: inside.has(String(row.title || '').trim().toLowerCase()),
+                }))
+                .sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }));
+        });
+        return { items };
+    }
+    if (path === '/api/media-player/collections' && method === 'POST') {
+        const title = String(body?.title || '').trim();
+        const ratingKey = String(body?.ratingKey || '').trim();
+        const server = resolveServer(body?.serverId, ratingKey);
+        if (!server || !title || !ratingKey) throw new Error('Missing collection details');
+        await withMapServer(server, async () => {
+            const { meta, section } = await readCollectionMeta(server, ratingKey);
+            const typeId = meta.type === 'show' ? 2 : meta.type === 'movie' ? 1 : 0;
+            if (!section || !typeId) throw new Error('This title cannot go in a collection');
+            const params = new URLSearchParams({
+                type: String(typeId),
+                title,
+                smart: '0',
+                sectionId: section,
+                uri: collectionItemUri(server, ratingKey),
+            });
+            await pmsPost(`/library/collections?${params.toString()}`, server, 20000);
+        });
+        clearPlayerGetCache();
+        return { ok: true, title };
+    }
+    const collectionAdd = path.match(/^\/api\/media-player\/collections\/([^/]+)\/items$/);
+    if (collectionAdd && method === 'POST') {
+        const collectionKey = decodeURIComponent(collectionAdd[1]).replace(/\D/g, '');
+        const ratingKey = String(body?.ratingKey || '').trim();
+        const server = resolveServer(body?.serverId, ratingKey);
+        if (!server || !collectionKey || !ratingKey) throw new Error('Missing collection details');
+        await withMapServer(server, () => pmsPost(
+            `/library/collections/${collectionKey}/items?${new URLSearchParams({ uri: collectionItemUri(server, ratingKey) }).toString()}`,
+            server,
+            20000,
+            'PUT',
+        ));
+        clearPlayerGetCache();
+        return { ok: true };
     }
     if (path === '/api/media-player/playlists') {
         const items = await pms('/playlists?playlistType=video').then(mapList).catch(() => []);
