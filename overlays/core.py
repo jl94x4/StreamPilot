@@ -1029,6 +1029,16 @@ def _compress_poster_for_plex(src: Path, dest: Path, *, max_bytes: int = PLEX_PO
     )
 
 
+def _remember_uploaded_poster(item) -> None:
+    """Record the poster URL Plex now holds so a later change by someone else can be detected."""
+    try:
+        if hasattr(item, "reload") and callable(item.reload):
+            item.reload()
+        _ledger.record_thumb(_ledger.item_key(item), getattr(item, "thumb", "") or "")
+    except Exception:
+        pass
+
+
 def _upload_poster_resilient(
     item,
     filepath: str | Path,
@@ -1068,6 +1078,7 @@ def _upload_poster_resilient(
         for attempt in range(max(1, int(retries))):
             try:
                 item.uploadPoster(filepath=str(upload_path))
+                _remember_uploaded_poster(item)
                 return
             except Exception as exc:
                 last_exc = exc

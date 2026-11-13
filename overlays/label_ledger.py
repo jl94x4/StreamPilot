@@ -33,16 +33,63 @@ def _file(data_dir, rating_key) -> Path | None:
     return base / LEDGER_DIRNAME / f"{key}.json"
 
 
-def read_labels(data_dir, rating_key) -> list[str]:
+def _read(data_dir, rating_key) -> dict:
     path = _file(data_dir, rating_key)
     if path is None or not path.exists():
-        return []
+        return {}
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-        labels = data.get("labels") if isinstance(data, dict) else None
-        return [str(x).strip() for x in (labels or []) if str(x).strip()]
+        return data if isinstance(data, dict) else {}
     except Exception:
-        return []
+        return {}
+
+
+def _write(path: Path, data: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=path.name, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, ensure_ascii=False)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+
+def read_labels(data_dir, rating_key) -> list[str]:
+    labels = _read(data_dir, rating_key).get("labels")
+    return [str(x).strip() for x in (labels or []) if str(x).strip()]
+
+
+def read_thumb(data_dir, rating_key) -> str:
+    return str(_read(data_dir, rating_key).get("thumb") or "").strip()
+
+
+def record_thumb(rating_key, thumb: str, data_dir=None) -> bool:
+    """Remember the poster URL Plex held right after Overlays uploaded its art."""
+    try:
+        path = _file(data_dir, rating_key)
+        thumb = str(thumb or "").strip()
+        if path is None or not thumb:
+            return False
+        data = _read(data_dir, rating_key)
+        if data.get("thumb") == thumb:
+            return True
+        data["thumb"] = thumb
+        data.setdefault("labels", [])
+        _write(path, data)
+        return True
+    except Exception:
+        return False
+
+
+def poster_changed_since_stamp(item, data_dir=None) -> bool:
+    """True when the title's poster is not the one Overlays last uploaded (someone replaced it)."""
+    recorded = read_thumb(data_dir, item_key(item))
+    current = str(getattr(item, "thumb", "") or "").strip()
+    return bool(recorded and current and recorded != current)
 
 
 def record_labels(rating_key, labels: Iterable[str], data_dir=None) -> bool:
@@ -51,7 +98,8 @@ def record_labels(rating_key, labels: Iterable[str], data_dir=None) -> bool:
         path = _file(data_dir, rating_key)
         if path is None:
             return False
-        existing = read_labels(data_dir, rating_key)
+        data = _read(data_dir, rating_key)
+        existing = [str(x).strip() for x in (data.get("labels") or []) if str(x).strip()]
         seen = {x.casefold() for x in existing}
         changed = False
         for label in labels:
@@ -62,17 +110,8 @@ def record_labels(rating_key, labels: Iterable[str], data_dir=None) -> bool:
                 changed = True
         if not changed and path.exists():
             return True
-        path.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=path.name, suffix=".tmp")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as fh:
-                json.dump({"labels": existing}, fh, ensure_ascii=False)
-                fh.flush()
-                os.fsync(fh.fileno())
-            os.replace(tmp, path)
-        finally:
-            if os.path.exists(tmp):
-                os.unlink(tmp)
+        data["labels"] = existing
+        _write(path, data)
         return True
     except Exception:
         return False

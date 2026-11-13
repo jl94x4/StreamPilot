@@ -1402,10 +1402,20 @@ def _load_stamp_original(
     ignore_backup = _should_ignore_overlay_backup(item, extra)
     title = getattr(item, "title", key)
 
+    poster = None
     if backup.exists() and not ignore_backup:
-        return Image.open(backup).convert("RGBA"), backup
+        # Labels can be stale or edited by hand. If the poster is no longer the one Overlays uploaded
+        # and does not carry our marker, someone replaced it (e.g. Poster Sets): the backup is obsolete.
+        if _ledger.poster_changed_since_stamp(item):
+            poster = _download_original(plex, item)
+            if poster is not None and not has_overlay_marker(poster):
+                ignore_backup = True
+                _progress(progress, f"Poster was replaced since Overlays stamped it: {title}")
+        if not ignore_backup:
+            return Image.open(backup).convert("RGBA"), backup
 
-    poster = _download_original(plex, item)
+    if poster is None:
+        poster = _download_original(plex, item)
     if poster is None:
         thumb = str(getattr(item, "thumb", None) or "").strip() or "(empty)"
         raise RuntimeError(f"failed to download poster (thumb={thumb})")
