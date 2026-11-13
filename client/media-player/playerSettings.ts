@@ -1034,7 +1034,7 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
     stillWatchingAfter: 3,
     showContinueWatching: true,
     continueWatchingLayout: 'poster',
-    continueWatchingTapResumes: true,
+    continueWatchingTapResumes: false,
     continueWatchingSort: 'plex',
     continueWatchingSortVersion: CONTINUE_WATCHING_SORT_VERSION,
     dateFormat: 'long',
@@ -1140,7 +1140,7 @@ export const normalizePlayerSettings = (raw: Partial<PlayerSettings> | Record<st
             return Math.min(20, Math.max(0, Math.floor(n)));
         })(),
         showContinueWatching: raw?.showContinueWatching !== false,
-        continueWatchingTapResumes: raw?.continueWatchingTapResumes !== false,
+        continueWatchingTapResumes: raw?.continueWatchingTapResumes === true,
         continueWatchingLayout: isPlayerContinueWatchingLayout(raw?.continueWatchingLayout)
             ? raw.continueWatchingLayout
             : 'poster',

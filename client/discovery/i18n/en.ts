@@ -313,7 +313,7 @@ export const en = {
         showContinueWatching: 'Show Continue Watching',
         showContinueWatchingHint: 'Keep the in-progress row on Media Player home.',
         continueWatchingTapResumes: 'Tap to resume',
-        continueWatchingTapResumesHint: 'Tapping a Continue Watching title resumes it straight away. Hold it for Start over or the title page.',
+        continueWatchingTapResumesHint: 'When on, tapping a Continue Watching title resumes it straight away. Hold it for Start over or the title page. When off, a tap opens the title page.',
         continueWatchingLayout: 'Continue Watching layout',
         continueWatchingLayoutHint: 'Show in-progress titles as portrait posters or widescreen title cards.',
         continueWatchingLayoutPoster: 'Posters',

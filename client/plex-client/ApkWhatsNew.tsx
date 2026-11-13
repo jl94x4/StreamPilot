@@ -77,7 +77,7 @@ const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
         {
             title: 'Home',
             items: [
-                'Tapping a Continue Watching title now resumes it straight away. Hold it for Start over, the title page and more (turn this off in Settings with Tap to resume)',
+                'New setting Tap to resume (off by default): tapping a Continue Watching title resumes it straight away, and holding it still gives Start over, the title page and more',
                 'Resume from the hold menu no longer shows a second Resume / Start over popup, and Start over is now in that menu',
             ],
         },
