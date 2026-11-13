@@ -2,7 +2,7 @@ import React, {
     useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
 } from 'react';
 import {
-    GripVertical, Hash, Loader2, MessageSquare, Plus, Send, Trash2, X,
+    GripVertical, Hash, Loader2, MessageSquare, Plus, Search, Send, Smile, Trash2, X,
 } from 'lucide-react';
 import { ChatEmojiPicker } from './ChatEmojiPicker';
 import { insertAtCursor } from './insertAtCursor';
@@ -44,6 +44,7 @@ type ChatMessage = {
     id: number;
     message: string;
     mentions?: ChatMention[];
+    reactions?: Record<string, string[]>;
     createdAt: string | null;
     user: {
         id?: string | null;
@@ -65,6 +66,8 @@ type ConfirmDialogState = {
     danger?: boolean;
     confirmLabel?: string;
 };
+
+const QUICK_REACTIONS = ['👍', '❤️', '😂', '🎉', '👀'];
 
 const MESSAGE_POLL_MS = 5000;
 const ROOM_POLL_MS = 15000;
@@ -116,6 +119,12 @@ export const ChatRoom: React.FC<Props> = ({ sessionInfo, onCountsChange, initial
     const [messagesLoading, setMessagesLoading] = useState(false);
     const [draft, setDraft] = useState('');
     const [sending, setSending] = useState(false);
+    const [unreadFromId, setUnreadFromId] = useState<number | null>(null);
+    const [searchOpen, setSearchOpen] = useState(false);
+    const [searchText, setSearchText] = useState('');
+    const [searchMine, setSearchMine] = useState(false);
+    const [searchResults, setSearchResults] = useState<ChatMessage[] | null>(null);
+    const [reactionPickerFor, setReactionPickerFor] = useState<number | null>(null);
     const [isAdmin, setIsAdmin] = useState(!!sessionInfo?.session?.isAdmin);
     const [createOpen, setCreateOpen] = useState(false);
     const [newRoomName, setNewRoomName] = useState('');
@@ -271,6 +280,12 @@ export const ChatRoom: React.FC<Props> = ({ sessionInfo, onCountsChange, initial
             const batch = Array.isArray(data?.messages) ? data.messages as ChatMessage[] : [];
             if (replace) {
                 setMessages(batch);
+                // Mark where this member stopped reading, so the thread can show a "New" divider.
+                const lastRead = Number(data?.lastReadMessageId) || 0;
+                const firstNew = lastRead > 0
+                    ? batch.find((item) => Number(item.id) > lastRead && String(item.user?.id) !== currentUserId)
+                    : undefined;
+                setUnreadFromId(firstNew ? Number(firstNew.id) : null);
             } else if (batch.length) {
                 setMessages((prev) => {
                     const seen = new Set(prev.map((item) => item.id));
@@ -294,7 +309,7 @@ export const ChatRoom: React.FC<Props> = ({ sessionInfo, onCountsChange, initial
         } finally {
             setMessagesLoading(false);
         }
-    }, [onCountsChange]);
+    }, [onCountsChange, currentUserId]);
 
     useEffect(() => {
         let cancelled = false;
@@ -526,6 +541,50 @@ export const ChatRoom: React.FC<Props> = ({ sessionInfo, onCountsChange, initial
         });
     };
 
+    const toggleReaction = useCallback(async (message: ChatMessage, emoji: string) => {
+        if (!activeRoomId) return;
+        setReactionPickerFor(null);
+        try {
+            const data = await apiFetch(
+                `/api/chat/rooms/${encodeURIComponent(activeRoomId)}/messages/${message.id}/reactions`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ emoji }),
+                },
+            );
+            const updated = data?.message as ChatMessage | undefined;
+            if (updated) {
+                setMessages((prev) => prev.map((item) => (item.id === updated.id ? { ...item, reactions: updated.reactions } : item)));
+            }
+        } catch (e: any) {
+            toast(String(e?.message || 'Could not add reaction'), 'error');
+        }
+    }, [activeRoomId, toast]);
+
+    useEffect(() => {
+        setSearchOpen(false);
+        setSearchText('');
+        setSearchMine(false);
+        setSearchResults(null);
+    }, [activeRoomId]);
+
+    useEffect(() => {
+        if (!searchOpen || !activeRoomId) return undefined;
+        const q = searchText.trim();
+        if (!q && !searchMine) {
+            setSearchResults(null);
+            return undefined;
+        }
+        let cancelled = false;
+        const timer = window.setTimeout(() => {
+            apiFetch(`/api/chat/rooms/${encodeURIComponent(activeRoomId)}/search?q=${encodeURIComponent(q)}${searchMine ? '&mentions=1' : ''}`)
+                .then((data) => { if (!cancelled) setSearchResults(Array.isArray(data?.results) ? data.results : []); })
+                .catch(() => { if (!cancelled) setSearchResults([]); });
+        }, 250);
+        return () => { cancelled = true; window.clearTimeout(timer); };
+    }, [searchOpen, searchText, searchMine, activeRoomId]);
+
     const handleDeleteMessage = (message: ChatMessage) => {
         if (!activeRoomId) return;
         const canDelete = isAdmin || String(message.user.id) === currentUserId;
@@ -682,16 +741,61 @@ export const ChatRoom: React.FC<Props> = ({ sessionInfo, onCountsChange, initial
                                         <p className="mt-1 text-xs text-muted">{activeRoom.description}</p>
                                     ) : null}
                                 </div>
-                                {isAdmin ? (
+                                <div className="flex shrink-0 items-center gap-2">
                                     <button
                                         type="button"
-                                        className="rounded-md border border-red-400/20 px-2 py-1 text-[11px] font-semibold text-red-300 hover:bg-red-500/10"
-                                        onClick={() => void handleDeleteRoom(activeRoom)}
+                                        className={`rounded-md border px-2 py-1 text-muted hover:text-text ${searchOpen ? 'border-plex/40 text-plex' : 'border-white/10'}`}
+                                        onClick={() => setSearchOpen((value) => !value)}
+                                        aria-label="Search this channel"
+                                        aria-pressed={searchOpen}
                                     >
-                                        Delete channel
+                                        <Search className="h-3.5 w-3.5" />
                                     </button>
-                                ) : null}
+                                    {isAdmin ? (
+                                        <button
+                                            type="button"
+                                            className="rounded-md border border-red-400/20 px-2 py-1 text-[11px] font-semibold text-red-300 hover:bg-red-500/10"
+                                            onClick={() => void handleDeleteRoom(activeRoom)}
+                                        >
+                                            Delete channel
+                                        </button>
+                                    ) : null}
+                                </div>
                             </div>
+                            {searchOpen ? (
+                                <div className="border-b border-white/10 bg-black/20 px-4 py-3">
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            type="search"
+                                            value={searchText}
+                                            onChange={(e) => setSearchText(e.target.value)}
+                                            placeholder="Search recent messages"
+                                            className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/30 px-3 py-1.5 text-sm text-text outline-none focus:border-plex/50"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => setSearchMine((value) => !value)}
+                                            aria-pressed={searchMine}
+                                            className={`shrink-0 rounded-lg border px-2.5 py-1.5 text-xs font-bold ${searchMine ? 'border-plex/50 bg-plex/15 text-plex' : 'border-white/10 text-muted hover:text-text'}`}
+                                        >
+                                            Mentions me
+                                        </button>
+                                    </div>
+                                    {searchResults ? (
+                                        <ul className="mt-2 max-h-48 space-y-1.5 overflow-y-auto">
+                                            {searchResults.length === 0 ? (
+                                                <li className="text-xs text-muted">No matching messages in the last 200.</li>
+                                            ) : searchResults.map((item) => (
+                                                <li key={item.id} className="rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs">
+                                                    <span className="font-semibold text-text">{item.user.displayName}</span>
+                                                    <span className="ml-2 text-muted">{item.createdAt ? formatDateTime(item.createdAt) : ''}</span>
+                                                    <p className="mt-0.5 whitespace-pre-wrap break-words text-text/85">{item.message}</p>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    ) : null}
+                                </div>
+                            ) : null}
 
                             <div
                                 ref={scrollRef}
@@ -707,8 +811,17 @@ export const ChatRoom: React.FC<Props> = ({ sessionInfo, onCountsChange, initial
                                 {messages.map((message) => {
                                     const mine = String(message.user.id) === currentUserId;
                                     const canDelete = isAdmin || mine;
+                                    const reactionEntries = Object.entries(message.reactions || {}).filter(([, users]) => Array.isArray(users) && users.length);
                                     return (
-                                        <div key={message.id} className="group flex gap-3">
+                                        <React.Fragment key={message.id}>
+                                        {unreadFromId === Number(message.id) ? (
+                                            <div className="flex items-center gap-3 text-[11px] font-bold uppercase tracking-wide text-plex" role="separator" aria-label="New messages">
+                                                <span className="h-px flex-1 bg-plex/40" />
+                                                New messages
+                                                <span className="h-px flex-1 bg-plex/40" />
+                                            </div>
+                                        ) : null}
+                                        <div className="group flex gap-3">
                                             <button
                                                 type="button"
                                                 className="shrink-0"
@@ -733,10 +846,19 @@ export const ChatRoom: React.FC<Props> = ({ sessionInfo, onCountsChange, initial
                                                     <span className="text-[11px] text-muted">
                                                         {message.createdAt ? formatDateTime(message.createdAt) : ''}
                                                     </span>
+                                                    <button
+                                                        type="button"
+                                                        className="ml-auto opacity-60 transition group-hover:opacity-100 md:opacity-0"
+                                                        title="Add reaction"
+                                                        aria-label="Add reaction"
+                                                        onClick={() => setReactionPickerFor((value) => (value === message.id ? null : message.id))}
+                                                    >
+                                                        <Smile className="h-3.5 w-3.5 text-muted hover:text-plex" />
+                                                    </button>
                                                     {canDelete ? (
                                                         <button
                                                             type="button"
-                                                            className="ml-auto opacity-0 transition group-hover:opacity-100"
+                                                            className="opacity-0 transition group-hover:opacity-100"
                                                             title="Delete message"
                                                             onClick={() => void handleDeleteMessage(message)}
                                                         >
@@ -751,8 +873,41 @@ export const ChatRoom: React.FC<Props> = ({ sessionInfo, onCountsChange, initial
                                                         (userId) => openUserProfile(userId),
                                                     )}
                                                 </p>
+                                                {reactionPickerFor === message.id ? (
+                                                    <div className="mt-1.5 flex gap-1">
+                                                        {QUICK_REACTIONS.map((emoji) => (
+                                                            <button
+                                                                key={emoji}
+                                                                type="button"
+                                                                onClick={() => void toggleReaction(message, emoji)}
+                                                                className="rounded-full border border-white/10 bg-black/30 px-2 py-0.5 text-sm hover:border-plex/40"
+                                                            >
+                                                                {emoji}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                ) : null}
+                                                {reactionEntries.length ? (
+                                                    <div className="mt-1.5 flex flex-wrap gap-1">
+                                                        {reactionEntries.map(([emoji, users]) => {
+                                                            const mineReacted = users.includes(currentUserId);
+                                                            return (
+                                                                <button
+                                                                    key={emoji}
+                                                                    type="button"
+                                                                    onClick={() => void toggleReaction(message, emoji)}
+                                                                    aria-pressed={mineReacted}
+                                                                    className={`rounded-full border px-2 py-0.5 text-xs ${mineReacted ? 'border-plex/50 bg-plex/15 text-plex' : 'border-white/10 bg-black/20 text-muted hover:text-text'}`}
+                                                                >
+                                                                    {emoji} {users.length}
+                                                                </button>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                ) : null}
                                             </div>
                                         </div>
+                                        </React.Fragment>
                                     );
                                 })}
                                 {!messages.length && !messagesLoading ? (
