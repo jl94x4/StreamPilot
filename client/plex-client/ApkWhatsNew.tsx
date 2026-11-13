@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.704': [
+        {
+            title: 'Libraries',
+            items: [
+                'New Manage libraries button in the side menu: heart libraries to show or hide them and move them up or down, right there, no trip to Settings',
+                'Libraries are split by server, and every change applies straight away',
+            ],
+        },
+    ],
     '1.0.703': [
         {
             title: 'Home',

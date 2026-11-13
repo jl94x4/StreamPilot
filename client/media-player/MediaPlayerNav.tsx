@@ -8,6 +8,7 @@ import {
     Download,
     Home,
     Image as ImageIcon,
+    Library,
     ListMusic,
     LogOut,
     Menu,
@@ -34,6 +35,7 @@ import { homeLibraryShown, type HomeLibraryPicks } from './homeLibraries';
 import { applyLibraryNavOrder, PLAYER_SETTINGS_DRAFT_EVENT, PLAYER_SETTINGS_EVENT, readPlayerSettings, type PlayerNavItem, type PlayerSettings } from './playerSettings';
 import { clearHeroSlidesCache, clearPlayerLibrariesCache, invalidatePlayerHomeCache } from './playerMemory';
 import { PLAYER_TV_NAV_EVENT } from './paths';
+import { PlayerLibraryManager } from './PlayerLibraryManager';
 import { TvButton } from '../shared/TvButton';
 import type { PlayerProfile, PlayerSection } from './types';
 import { focusTvContent, hasRememberedTvFocus, restoreTvFocusWhenReady } from '../plex-client/useTvRemote';
@@ -156,6 +158,7 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
     const navShown = (item: PlayerNavItem) => !hiddenNavItems.includes(item);
     // The hearts in Settings (Libraries to show): an empty heart leaves a library out of the sidebar too.
     const [libraryPicks, setLibraryPicks] = useState<HomeLibraryPicks>(() => readPlayerSettings().homeLibraries);
+    const [manageLibrariesOpen, setManageLibrariesOpen] = useState(false);
     const [homeSwitchOpen, setHomeSwitchOpen] = useState(false);
     const [homeSwitchUsers, setHomeSwitchUsers] = useState<PlexHomeProfile[]>([]);
     const [homeSwitchCurrentId, setHomeSwitchCurrentId] = useState<string | null>(null);
@@ -302,6 +305,19 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
         }
     };
 
+    const openLibraryManager = () => {
+        closeMobile();
+        if (isTvShell) {
+            try {
+                delete document.documentElement.dataset.tvNavOpen;
+            } catch {
+                /* ignore */
+            }
+            window.dispatchEvent(new CustomEvent(PLAYER_TV_NAV_EVENT, { detail: { action: 'close' } }));
+        }
+        setManageLibrariesOpen(true);
+    };
+
     const openHomeSwitcher = async () => {
         setHomeSwitchError('');
         closeMobile();
@@ -445,7 +461,7 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                 </TvButton> : null}
             </div>
 
-            {showAll && (orderedLibraries.length || (playlistsEnabled && onOpenPlaylists)) ? (
+            {showAll && (orderedLibraries.length || libraries.length || (playlistsEnabled && onOpenPlaylists)) ? (
                 <div
                     data-tv-nav-libraries="1"
                     className={`flex min-h-0 flex-1 flex-col gap-1 ${showLabels ? '' : 'items-center'}`}
@@ -491,6 +507,18 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                                 </TvButton>
                             );
                         })}
+                        {libraries.length ? (
+                            <TvButton
+                                type="button"
+                                {...tvNavProps(isTvShell, expanded, false)}
+                                className={navButtonClass(false, showLabels, isTvShell)}
+                                onClick={openLibraryManager}
+                                title={t('mediaPlayerPage.manageLibraries')}
+                            >
+                                <NavIcon><Library className={NAV_ICON_CLASS} /></NavIcon>
+                                {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.manageLibraries')}</span> : null}
+                            </TvButton>
+                        ) : null}
                         {playlistsEnabled && onOpenPlaylists ? (
                             <TvButton
                                 type="button"
@@ -634,6 +662,17 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                     </aside>
                 </div>
             ) : null}
+
+            <PlayerLibraryManager
+                open={manageLibrariesOpen}
+                libraries={libraries}
+                order={libraryOrder}
+                picks={libraryPicks}
+                onClose={() => {
+                    setManageLibrariesOpen(false);
+                    if (isTvShell) window.requestAnimationFrame(() => focusTvContent());
+                }}
+            />
 
             <PlexHomeSwitchModal
                 open={homeSwitchOpen}
