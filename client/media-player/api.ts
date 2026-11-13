@@ -391,7 +391,7 @@ export const fetchMediaPlayerCollection = (ratingKey: string, sectionKey?: strin
     return apiFetch(`${PLAYER_API_ROOT}/collection/${encodeURIComponent(ratingKey)}${qs}`) as Promise<PlayerItemPage>;
 };
 
-type HubPage = { title: string; items: PlayerItem[] };
+type HubPage = { title: string; items: PlayerItem[]; hasMore?: boolean };
 /**
  * The View more card fetches its row's full list for the posters behind it; the View more page
  * asks for the same list. Share one request (and keep the answer briefly) so opening the page is
@@ -400,10 +400,11 @@ type HubPage = { title: string; items: PlayerItem[] };
 const hubFetches = new Map<string, { at: number; promise: Promise<HubPage> }>();
 const HUB_CACHE_TTL_MS = 2 * 60_000;
 
-export const fetchMediaPlayerHub = (path: string, opts: { title?: string; identifier?: string } = {}) => {
+export const fetchMediaPlayerHub = (path: string, opts: { title?: string; identifier?: string; limit?: number } = {}) => {
     const qs = new URLSearchParams({ path });
     if (opts.title) qs.set('title', opts.title);
     if (opts.identifier) qs.set('identifier', opts.identifier);
+    if (opts.limit) qs.set('limit', String(opts.limit));
     const key = qs.toString();
     const hit = hubFetches.get(key);
     if (hit && Date.now() - hit.at < HUB_CACHE_TTL_MS) return hit.promise;

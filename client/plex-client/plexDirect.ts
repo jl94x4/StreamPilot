@@ -6390,6 +6390,8 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
         if (!server || !hubPath) return { title: query.get('title') || '', items: [] };
         const identifier = String(query.get('identifier') || query.get('id') || '');
         const hubTitle = String(query.get('title') || '');
+        // The View more page asks for a bigger window each time it nears the bottom.
+        const wantLimit = Math.floor(Number(query.get('limit') || 0)) || 0;
         // "Recently Added in …": the row's key carries its own row size (36) and can be a
         // /library/sections/N/all list without type=, which pms() refuses, so the page came
         // up empty. Load the library's own recently-added list, grouped as Home does.
@@ -6400,25 +6402,38 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                 sectionId = sectionIdFromRecentTitle(hubTitle, sections);
             }
             if (sectionId) {
+                const recentLimit = Math.min(RECENT_MAX_ITEMS, Math.max(RECENT_PAGE_SIZE, wantLimit));
                 const data = await withMapServer(server, () => pms(
-                    `/library/sections/${encodeURIComponent(sectionId)}/recentlyAdded?X-Plex-Container-Start=0&X-Plex-Container-Size=${RECENT_PAGE_SIZE}`,
+                    `/library/sections/${encodeURIComponent(sectionId)}/recentlyAdded?X-Plex-Container-Start=0&X-Plex-Container-Size=${recentLimit}`,
                     server,
-                    15000,
+                    wantLimit > RECENT_PAGE_SIZE ? 30000 : 15000,
                 )).catch(() => null);
-                const recent = collapseRecentShows(mapList(data), identifier, hubTitle);
-                if (recent.length) return { title: hubTitle, items: recent };
+                const rawRecent = mapList(data);
+                const recent = collapseRecentShows(rawRecent, identifier, hubTitle);
+                if (recent.length) {
+                    return {
+                        title: hubTitle,
+                        items: recent,
+                        hasMore: rawRecent.length >= recentLimit && recentLimit < RECENT_MAX_ITEMS,
+                    };
+                }
             }
         }
         const random = isRandomOrderSource(hubPath) || isRandomOrderSource({ hubIdentifier: identifier, key: hubPath });
         const fetchPath = random ? withPlexSortParam(hubPath, 'random') : hubPath;
-        const pageSize = /recentlyadded/i.test(fetchPath) ? 500 : 80;
+        const basePageSize = /recentlyadded/i.test(fetchPath) ? 500 : 80;
+        const pageSize = Math.min(2000, Math.max(basePageSize, wantLimit));
         // The stored key may already carry the Home row's size: replace it, don't add a second one.
         const listUrl = new URL(fetchPath, 'http://plex.local');
         listUrl.searchParams.delete('count');
         listUrl.searchParams.set('X-Plex-Container-Size', String(pageSize));
         const data = await withMapServer(server, () => pms(`${listUrl.pathname}${listUrl.search}`, server));
         const items = mapList(data);
-        return { title: query.get('title') || '', items: random && items.length > 1 ? shuffleItems(items) : items };
+        return {
+            title: query.get('title') || '',
+            items: random && items.length > 1 ? shuffleItems(items) : items,
+            hasMore: !random && items.length >= pageSize && pageSize < 2000,
+        };
     }
     const library = path.match(/^\/api\/media-player\/libraries\/([^/]+)$/);
     if (library && method === 'GET') {

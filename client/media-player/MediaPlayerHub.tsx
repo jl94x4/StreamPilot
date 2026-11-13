@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import {
     DiscoverGridSizeSelect,
@@ -12,6 +12,7 @@ import {
     useDiscoverI18n,
 } from './host';
 import { fetchMediaPlayerHub, setMediaPlayerWatched } from './api';
+import { PLAYER_SCROLL_ID } from './paths';
 import { PlayerPosterCard } from './PlayerPosterCard';
 import { PlayerTvStatusPanel } from './PlayerTvStatusPanel';
 import { classifyPlayerHomeHub, stabilizeContinueWatchingOrder } from './playerSettings';
@@ -60,6 +61,16 @@ export const MediaPlayerHub: React.FC<Props> = ({
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const tvShell = isTvShell();
+    const [hasMore, setHasMore] = useState(false);
+    const [loadingMore, setLoadingMore] = useState(false);
+    const limitRef = useRef(0);
+    const sentinelRef = useRef<HTMLDivElement | null>(null);
+    const itemCountRef = useRef(0);
+
+    useEffect(() => {
+        limitRef.current = 0;
+        setHasMore(false);
+    }, [path]);
 
     useEffect(() => {
         let cancelled = false;
@@ -72,6 +83,7 @@ export const MediaPlayerHub: React.FC<Props> = ({
                 setTitle(data.title || titleHint || t('common.viewMore'));
                 const full = data.items || [];
                 setItems(full.length || !seed?.length ? full : seed);
+                setHasMore(data.hasMore === true);
                 setError(null);
                 hubSeeds.delete(path);
             })
@@ -84,6 +96,31 @@ export const MediaPlayerHub: React.FC<Props> = ({
             });
         return () => { cancelled = true; };
     }, [path, titleHint, identifier, t]);
+
+    itemCountRef.current = items.length;
+
+    // Near the bottom: ask for a bigger window (600, 1200, 2000 titles) and swap the list in.
+    useEffect(() => {
+        const node = sentinelRef.current;
+        if (!node || !hasMore || loading || loadingMore || typeof IntersectionObserver === 'undefined') return undefined;
+        const observer = new IntersectionObserver((entries) => {
+            if (!entries.some((entry) => entry.isIntersecting)) return;
+            observer.disconnect();
+            const limit = limitRef.current ? Math.min(2000, limitRef.current * 2) : 600;
+            limitRef.current = limit;
+            setLoadingMore(true);
+            fetchMediaPlayerHub(path, { title: titleHint, identifier, limit })
+                .then((data) => {
+                    const next = data.items || [];
+                    if (next.length > itemCountRef.current) setItems(next);
+                    setHasMore(data.hasMore === true && next.length > itemCountRef.current && limit < 2000);
+                })
+                .catch(() => setHasMore(false))
+                .finally(() => setLoadingMore(false));
+        }, { root: document.getElementById(PLAYER_SCROLL_ID), rootMargin: '0px 0px 900px 0px' });
+        observer.observe(node);
+        return () => observer.disconnect();
+    }, [hasMore, loading, loadingMore, items.length, path, titleHint, identifier]);
 
     const continueWatchingHub = classifyPlayerHomeHub({
         identifier,
@@ -195,6 +232,7 @@ export const MediaPlayerHub: React.FC<Props> = ({
                     ))}
                 </div>
             )}
+            {hasMore || loadingMore ? <div ref={sentinelRef} aria-hidden className="h-8 w-full" /> : null}
         </div>
     );
 };
