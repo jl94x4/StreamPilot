@@ -7643,3 +7643,12 @@ html[data-phone="1"] .media-details-related .player-row-header-title {
   letter-spacing: -0.01em;
   color: #fff;
 }
+
+/* Spinners rotate on the compositor, and reduce-motion drops the remaining player transitions. */
+.animate-spin {
+  will-change: transform;
+}
+html[data-reduce-motion="1"] .player-desktop-nav *,
+html[data-reduce-motion="1"] .player-home-hero-dots * {
+  transition: none !important;
+}

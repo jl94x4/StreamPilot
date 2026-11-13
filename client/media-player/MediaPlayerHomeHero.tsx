@@ -326,7 +326,7 @@ export const MediaPlayerHomeHero: React.FC<Props> = ({ items, effectiveMode, act
                     <span
                         key={slide.ratingKey}
                         aria-hidden
-                        className={`h-1 rounded-full transition-all duration-300 ${
+                        className={`h-1 rounded-full transition-colors duration-300 ${
                             slideIndex === index ? 'w-7 bg-white' : 'w-1.5 bg-white/30'
                         }`}
                     />
