@@ -16,7 +16,7 @@ export { discoveryLogoUrl } from '../discovery/discoveryLogoUtils';
 export { MediaRatingPills } from '../discovery/MediaRatingPills';
 export type { CombinedRatings } from '../discovery/mediaDetailUtils';
 export { PersonProfileHeader } from '../discovery/PersonProfileHeader';
-export { DiscoverPosterCard } from '../screens';
+export { DiscoverPosterCard } from '../portalScreens/discoverCard';
 export {
     DiscoverHomeSkeleton,
     DiscoverHomeRowSkeleton,

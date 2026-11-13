@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { PlusCircle, CheckCircle, Clock, ArrowLeft, Star, Calendar, Globe, Film, Tv, Loader2, Users, Ticket, Cloud, Disc, AlertTriangle, Bell } from 'lucide-react';
 import { apiFetch } from '../shared/api';
 import { portalUrl } from '../shared/basePath';
-import { DiscoverPosterCard } from '../screens';
+import { DiscoverPosterCard } from '../portalScreens/discoverCard';
 import { Carousel } from './Carousel';
 import { NoPosterPlaceholder } from '../shared/NoPosterPlaceholder';
 import { filterHiddenAvailableItems, useDiscoveryPreferences } from './useDiscoveryPreferences';

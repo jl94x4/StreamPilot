@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { Loader2, PlusCircle, Sparkles } from 'lucide-react';
 import { apiFetch } from '../shared/api';
-import { DiscoverPosterCard } from '../screens';
+import { DiscoverPosterCard } from '../portalScreens/discoverCard';
 import { Carousel } from './Carousel';
 import { RequestModal } from './RequestModal';
 import {

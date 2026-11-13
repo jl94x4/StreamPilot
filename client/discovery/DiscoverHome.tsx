@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { ChevronDown, ChevronUp, ClipboardList, Film, Music, RefreshCw, Sparkles } from 'lucide-react';
 import { apiFetch } from '../shared/api';
-import { DiscoverPosterCard } from '../screens';
+import { DiscoverPosterCard } from '../portalScreens/discoverCard';
 import { Carousel } from './Carousel';
 import { CompanyCard, GenreCard } from './DiscoverCards';
 import {

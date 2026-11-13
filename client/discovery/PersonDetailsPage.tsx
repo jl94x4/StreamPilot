@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowLeft, Loader2, Film } from 'lucide-react';
 import { apiFetch } from '../shared/api';
-import { DiscoverPosterCard } from '../screens';
+import { DiscoverPosterCard } from '../portalScreens/discoverCard';
 import { filterHiddenAvailableItems, useDiscoveryPreferences } from './useDiscoveryPreferences';
 import { enrichDiscoverItemsWithAvailability } from './discoverAvailabilityEnrich';
 import { upgraderPosterGridClass, upgraderPosterGridStyle } from '../shared/portalLayout';

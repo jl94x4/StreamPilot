@@ -8,7 +8,7 @@ import { CustomSelect, OverlayCheckbox } from '../shared/ui';
 import { Loader, ToastContainer, pushToast } from '../shared/toast';
 import { parsePosterGridValue, posterGridDensityBand, UPGRADER_GRID_SIZE_STORAGE_KEY, upgraderPosterGridClass, upgraderPosterGridStyle, type PosterGridValue } from '../shared/portalLayout';
 import { PosterGridSizeSlider } from '../shared/PosterGridSizeSlider';
-import { DiscoverPosterCard } from '../screens';
+import { DiscoverPosterCard } from '../portalScreens/discoverCard';
 import type { ToastMessage } from '../shared/types';
 import { mediaAutomationApi } from '../media-automation/api';
 import { ReportModal, type ReportModalSeed } from '../media-automation/ReportModal';

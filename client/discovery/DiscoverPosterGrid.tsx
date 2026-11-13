@@ -1,5 +1,5 @@
 import React, { memo, useCallback, useLayoutEffect, useMemo, useRef } from 'react';
-import { DiscoverPosterCard } from '../screens';
+import { DiscoverPosterCard } from '../portalScreens/discoverCard';
 import { PosterCardSkeleton } from '../shared/skeletons';
 import { upgraderPosterGridClass, upgraderPosterGridStyle, type PosterGridValue } from '../shared/portalLayout';
 import { dedupeDiscoverResults, getDiscoverItemKey } from './discoverItemUtils';
