@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import ReactDOM from 'react-dom';
-import { Delete, Lock, User, X } from 'lucide-react';
+import { Delete, Lock, LogOut, User, X } from 'lucide-react';
 import { lockBackgroundScroll } from './lockBackgroundScroll';
 
 export type PlexHomeProfile = {
@@ -87,6 +87,8 @@ export const PlexHomeSwitchModal: React.FC<{
     onClose: () => void;
     onViewProfile?: () => void;
     onUseDifferentAccount?: () => void;
+    /** Shows a Log out button under the profiles (app only). */
+    onLogOut?: () => void;
 }> = ({
     open,
     users,
@@ -101,6 +103,7 @@ export const PlexHomeSwitchModal: React.FC<{
     onClose,
     onViewProfile,
     onUseDifferentAccount,
+    onLogOut,
 }) => {
     const [pinUser, setPinUser] = useState<PlexHomeProfile | null>(null);
     const [pin, setPin] = useState('');
@@ -350,6 +353,19 @@ export const PlexHomeSwitchModal: React.FC<{
                         })}
                     </div>
                     {error ? <p className="mt-4 text-center text-base font-semibold text-red-300" role="alert">{error}</p> : null}
+                    {!loginMode && onLogOut ? (
+                        <button
+                            type="button"
+                            data-tv-item="1"
+                            data-tv-key="home-switch-logout"
+                            tabIndex={0}
+                            className="player-tv-home-pin-back"
+                            onClick={onLogOut}
+                            disabled={busy}
+                        >
+                            Log out
+                        </button>
+                    ) : null}
                     {loginMode && onUseDifferentAccount ? (
                         <button
                             type="button"
@@ -445,6 +461,21 @@ export const PlexHomeSwitchModal: React.FC<{
                             })}
                         </div>
                     )}
+
+                    {!loginMode && !pinUser && !isTvShell && onLogOut ? (
+                        <button
+                            type="button"
+                            data-tv-item="1"
+                            data-tv-key="home-switch-logout"
+                            tabIndex={0}
+                            onClick={onLogOut}
+                            disabled={busy}
+                            className="mt-3 sm:mt-5 flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 px-3 py-2.5 text-sm font-bold text-muted hover:border-red-400/40 hover:text-red-300"
+                        >
+                            <LogOut className="h-4 w-4" />
+                            Log out
+                        </button>
+                    ) : null}
 
                     {showRemember && !pinUser && !isTvShell ? (
                         <label className="mt-3 sm:mt-5 flex items-start gap-2.5 max-w-md cursor-pointer">

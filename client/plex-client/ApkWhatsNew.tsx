@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.705': [
+        {
+            title: 'Menu',
+            items: [
+                'Log out moved into Switch User: open it and press Log out under the profiles',
+            ],
+        },
+    ],
     '1.0.704': [
         {
             title: 'Libraries',

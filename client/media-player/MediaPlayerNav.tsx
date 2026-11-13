@@ -549,18 +549,6 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                     <NavIcon><Settings className={NAV_ICON_CLASS} /></NavIcon>
                     {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.navSettings')}</span> : null}
                 </TvButton>
-                {showAll && isPlexClient ? (
-                    <TvButton
-                        type="button"
-                        {...tvNavProps(isTvShell, expanded, false)}
-                        className={navButtonClass(false, showLabels, isTvShell)}
-                        onClick={() => go(logoutMediaPlayer)}
-                        title={t('mediaPlayerPage.logOut')}
-                    >
-                        <NavIcon><LogOut className={NAV_ICON_CLASS} /></NavIcon>
-                        {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.logOut')}</span> : null}
-                    </TvButton>
-                ) : null}
                 {showLabels && !isTvShell && !isPlexClient ? (
                     <TvButton
                         type="button"
@@ -684,6 +672,7 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                 busy={homeSwitchBusy}
                 error={homeSwitchError}
                 onSelect={handleHomeSwitch}
+                onLogOut={isPlexClient ? () => { setHomeSwitchOpen(false); void logoutMediaPlayer(); } : undefined}
                 onClose={() => {
                     if (homeSwitchBusy) return;
                     setHomeSwitchOpen(false);
