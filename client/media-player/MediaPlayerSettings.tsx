@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, Check, ChevronDown, ChevronUp, Loader2, Save } from 'lucide-react';
+import { ArrowLeft, Check, ChevronDown, ChevronRight, ChevronUp, Loader2, Save } from 'lucide-react';
 import { CustomSelect, discoveryTheme, MediaPlayerBetaBanner, SettingsToggleRow, StickySaveBar, useDiscoverI18n } from './host';
 import { HomeLibraryHearts } from './HomeLibraryHearts';
 import { fetchMediaPlayerHomeHeroConfig, fetchMediaPlayerLibraries, fetchMediaPlayerServers, saveMediaPlayerHomeHeroConfig, saveMediaPlayerServers, saveMediaPlayerSettings } from './api';
@@ -110,7 +110,7 @@ const readAppVersion = (): string => {
     }
 };
 
-const tvRowClass = 'flex w-full items-center justify-between gap-6 rounded-2xl border border-white/10 bg-white/[0.03] px-5 py-4 text-left outline-none';
+const tvRowClass = 'smp-settings-row flex w-full items-center justify-between gap-6 rounded-[1.4rem] border border-white/10 bg-gradient-to-b from-white/[0.06] to-white/[0.02] px-6 py-4 text-left outline-none';
 
 type TvToggleRowProps = {
     title: string;
@@ -164,11 +164,16 @@ const TvToggleRow: React.FC<TvToggleRowProps> = ({ title, description, checked, 
             className={tvRowClass}
         >
             <span className="min-w-0">
-                <span className="block text-base font-bold text-text">{title}</span>
+                <span className="block text-[1.1rem] font-bold leading-tight text-text">{title}</span>
                 {description ? <span className="mt-1 block text-sm leading-snug text-muted">{description}</span> : null}
             </span>
-            <span className={`shrink-0 text-base font-black ${checked ? 'text-plex' : 'text-muted'}`}>
-                {checked ? t('mediaPlayerPage.settingsOn') : t('mediaPlayerPage.settingsOff')}
+            <span className="inline-flex shrink-0 items-center gap-3">
+                <span className={`text-sm font-black uppercase tracking-[0.12em] ${checked ? 'text-plex' : 'text-muted'}`}>
+                    {checked ? t('mediaPlayerPage.settingsOn') : t('mediaPlayerPage.settingsOff')}
+                </span>
+                <span className="smp-switch" data-on={checked ? '1' : undefined} aria-hidden>
+                    <span className="smp-switch-knob" />
+                </span>
             </span>
         </TvButton>
     );
@@ -249,12 +254,13 @@ const TvChoiceRow: React.FC<TvChoiceRowProps> = ({ title, description, value, op
                 className={tvRowClass}
             >
                 <span className="min-w-0">
-                    <span className="block text-base font-bold text-text">{title}</span>
+                    <span className="block text-[1.1rem] font-bold leading-tight text-text">{title}</span>
                     {description ? <span className="mt-1 block text-sm leading-snug text-muted">{description}</span> : null}
                 </span>
-                <span className="inline-flex shrink-0 items-center gap-2 text-base font-bold text-white/85">
+                <span className="smp-settings-chip inline-flex shrink-0 items-center gap-2 rounded-full px-4 py-1.5 text-base font-bold text-white/90">
                     {selected?.icon}
                     <ChoiceLabel row={selected} />
+                    <ChevronRight className="h-[1.1em] w-[1.1em] opacity-60" strokeWidth={2.5} aria-hidden />
                 </span>
             </TvButton>
             {open && typeof document !== 'undefined' ? createPortal(
@@ -363,9 +369,9 @@ const TvReorderList: React.FC<{
                 {items.map((item, index) => (
                     <div
                         key={item.id}
-                        className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3"
+                        className="flex items-center gap-3 rounded-[1.4rem] border border-white/10 bg-gradient-to-b from-white/[0.06] to-white/[0.02] px-4 py-3"
                     >
-                        <span className="w-6 shrink-0 text-center text-sm font-bold tabular-nums text-muted">
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/10 text-sm font-bold tabular-nums text-white/80">
                             {index + 1}
                         </span>
                         <p className="min-w-0 flex-1 truncate text-base font-bold text-text">{item.label}</p>
@@ -375,7 +381,7 @@ const TvReorderList: React.FC<{
                             data-tv-action="1"
                             disabled={index === 0}
                             onClick={() => onMove(index, -1)}
-                            className="rounded-lg border border-white/10 bg-white/5 p-2 text-muted outline-none disabled:opacity-30"
+                            className="rounded-full border border-white/10 bg-white/5 p-2.5 text-muted outline-none disabled:opacity-30"
                             aria-label={t('mediaPlayerPage.homeRowMoveUp')}
                         >
                             <ChevronUp className="h-4 w-4" />
@@ -386,7 +392,7 @@ const TvReorderList: React.FC<{
                             data-tv-action="1"
                             disabled={index === items.length - 1}
                             onClick={() => onMove(index, 1)}
-                            className="rounded-lg border border-white/10 bg-white/5 p-2 text-muted outline-none disabled:opacity-30"
+                            className="rounded-full border border-white/10 bg-white/5 p-2.5 text-muted outline-none disabled:opacity-30"
                             aria-label={t('mediaPlayerPage.homeRowMoveDown')}
                         >
                             <ChevronDown className="h-4 w-4" />
@@ -428,11 +434,14 @@ const SettingsTabBar: React.FC<{
                     data-tv-key={tv ? `settings-tab-${row.id}` : undefined}
                     onClick={() => onChange(row.id)}
                     onFocus={() => { if (tv) onChange(row.id); }}
-                    className={`rounded-lg border px-4 py-2 text-sm font-bold outline-none ${
-                        selected
-                            ? 'border-plex/50 bg-plex/15 text-plex'
-                            : 'border-border bg-white/5 text-muted hover:text-text'
-                    }`}
+                    className={tv
+                        // TV: the same pill as the Browse screen's Filters and Sort buttons.
+                        ? `player-library-filter-button inline-flex items-center gap-2 rounded-full border outline-none ${selected ? 'is-active' : ''}`
+                        : `rounded-lg border px-4 py-2 text-sm font-bold outline-none ${
+                            selected
+                                ? 'border-plex/50 bg-plex/15 text-plex'
+                                : 'border-border bg-white/5 text-muted hover:text-text'
+                        }`}
                 >
                     {row.label}
                 </TvButton>

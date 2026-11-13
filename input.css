@@ -6816,6 +6816,19 @@ html[data-tv="1"] .player-library-filter-chip {
 html[data-tv="1"] .player-library-filter-button.is-active {
   border-color: rgba(255, 255, 255, 0.4);
 }
+/* Settings tabs reuse the Browse pill: same size and spacing, the current tab a little brighter. */
+html[data-tv="1"] [data-tv-settings-tabs="1"] {
+  gap: 0.75rem !important;
+}
+html[data-tv="1"] [data-tv-settings-tabs="1"] [data-tv-item="1"] {
+  min-height: 2.75rem !important;
+  padding: 0.45rem 1.05rem !important;
+  font-size: calc(1rem * var(--tv-text-scale, 1)) !important;
+  justify-content: center;
+}
+html[data-tv="1"] [data-tv-settings-tabs="1"] .player-library-filter-button.is-active {
+  background: rgba(255, 255, 255, 0.16);
+}
 html[data-tv="1"] .player-library-filter-count {
   display: inline-flex;
   align-items: center;
@@ -7000,6 +7013,42 @@ html[data-tv="1"] [data-tv-settings="1"] [data-tv-item="1"]:not([data-tv-setting
 html[data-tv="1"] [data-tv-settings="1"] [data-tv-item="1"]:not([data-tv-settings-save="1"]):not(.insights-card):not(.insights-row):focus *,
 html[data-tv="1"] [data-tv-settings="1"] [data-tv-item="1"]:not([data-tv-settings-save="1"]):not(.insights-card):not(.insights-row):focus-visible * {
   color: #18181b !important;
+}
+/* Switch on toggle rows: accent track when on, a quiet one when off (darker on the white focus fill). */
+.smp-switch {
+  position: relative;
+  display: inline-block;
+  width: 3.4rem;
+  height: 2rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+}
+.smp-switch-knob {
+  position: absolute;
+  top: 0.25rem;
+  left: 0.25rem;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  transform: translateX(0);
+}
+.smp-switch[data-on="1"] {
+  background: rgb(var(--color-plex));
+}
+.smp-switch[data-on="1"] .smp-switch-knob {
+  transform: translateX(1.4rem);
+}
+html[data-tv="1"] [data-tv-settings="1"] [data-tv-item="1"]:focus .smp-switch:not([data-on="1"]) {
+  background: rgba(24, 24, 27, 0.3);
+}
+/* Choice rows show their current value in a pill with a chevron. */
+.smp-settings-chip {
+  background: rgba(255, 255, 255, 0.1);
+}
+html[data-tv="1"] [data-tv-settings="1"] [data-tv-item="1"]:focus .smp-settings-chip {
+  background: rgba(24, 24, 27, 0.1);
 }
 /* "On" keeps its accent so toggles still read at a glance. */
 html[data-tv="1"] [data-tv-settings="1"] [data-tv-item="1"]:not([data-tv-settings-save="1"]):not(.insights-card):not(.insights-row):focus .text-plex,
