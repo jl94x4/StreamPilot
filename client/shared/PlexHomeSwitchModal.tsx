@@ -35,7 +35,7 @@ const ProfileAvatar: React.FC<{
     const [srcIndex, setSrcIndex] = useState(0);
     const sizeClass = compact
         ? 'h-11 w-11 sm:h-16 sm:w-16'
-        : 'h-12 w-12 sm:h-24 sm:w-24';
+        : 'h-16 w-16 sm:h-24 sm:w-24';
     const ringClass = current
         ? 'border-plex shadow-[0_0_0_3px_rgba(229,160,13,0.2)] sm:shadow-[0_0_0_4px_rgba(229,160,13,0.2)]'
         : 'border-white/15 group-hover:border-plex/70';
@@ -392,10 +392,13 @@ export const PlexHomeSwitchModal: React.FC<{
                 <div className="sm:hidden flex justify-center pt-2.5 pb-0.5" aria-hidden>
                     <span className="h-1 w-10 rounded-full bg-white/25" />
                 </div>
-                <div className="flex items-start justify-between gap-3 px-4 sm:px-8 pb-1 sm:pb-2 pt-3 sm:pt-7">
+                <div className="flex items-start justify-between gap-3 px-5 sm:px-8 pb-1 sm:pb-2 pt-3 sm:pt-8">
                     <div>
-                        <p className="text-[10px] sm:text-[11px] font-bold text-plex uppercase tracking-[0.22em] mb-0.5 sm:mb-1">Plex Home</p>
-                        <h2 id="plex-home-switch-title" className="font-black text-text tracking-tight text-xl sm:text-3xl">
+                        <span className="inline-flex items-center gap-1.5 rounded-full border border-plex/30 bg-plex/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-plex">
+                            <span className="h-1.5 w-1.5 rounded-full bg-plex" aria-hidden />
+                            Plex Home
+                        </span>
+                        <h2 id="plex-home-switch-title" className="mt-2.5 font-black text-text tracking-tight text-2xl sm:text-4xl">
                             Who&apos;s watching?
                         </h2>
                         <p className="hidden sm:block text-sm text-muted mt-1.5 max-w-md">
@@ -410,14 +413,14 @@ export const PlexHomeSwitchModal: React.FC<{
                         data-tv-key="home-switch-close"
                         tabIndex={0}
                         onClick={dismiss}
-                        className="p-1.5 sm:p-2 rounded-xl text-muted hover:text-text hover:bg-white/5 transition-colors shrink-0"
+                        className="shrink-0 rounded-full bg-white/5 p-2 text-muted transition-colors hover:bg-white/10 hover:text-text"
                         aria-label={loginMode ? 'Use a different Plex account' : 'Close profile switcher'}
                     >
                         <X className="w-5 h-5" />
                     </button>
                 </div>
 
-                <div className="px-4 sm:px-8 pb-[max(0.85rem,env(safe-area-inset-bottom))] sm:pb-6 pt-3 sm:pt-4">
+                <div className="px-5 sm:px-8 pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-8 pt-4 sm:pt-5">
                     {pinUser ? (
                         <div className="mb-3 flex items-center gap-3 rounded-xl border border-plex/40 bg-plex/10 px-3 py-2.5">
                             <ProfileAvatar user={pinUser} current compact />
@@ -427,7 +430,7 @@ export const PlexHomeSwitchModal: React.FC<{
                             </div>
                         </div>
                     ) : (
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-4" data-tv-rail="1">
+                        <div className="flex flex-wrap justify-center gap-2.5 sm:gap-4" data-tv-rail="1">
                             {profiles.map((user) => {
                                 const current = isSameProfile(user, currentUserId);
                                 const remembered = isSameProfile(user, rememberUserId);
@@ -441,26 +444,53 @@ export const PlexHomeSwitchModal: React.FC<{
                                         tabIndex={0}
                                         disabled={busy}
                                         onClick={() => choose(user)}
-                                        className={`group relative flex flex-col items-center gap-2 sm:gap-3 rounded-xl sm:rounded-2xl border px-2 py-3 sm:px-3 sm:py-5 transition-all duration-200 disabled:opacity-50 ${
+                                        className={`group relative flex w-[calc(50%-0.3125rem)] flex-col items-center gap-2.5 rounded-2xl border px-2 pb-3.5 pt-4 transition-all duration-200 active:scale-[0.97] disabled:opacity-50 sm:w-44 sm:gap-3 sm:rounded-3xl sm:px-3 sm:pb-5 sm:pt-6 ${
                                             current
-                                                ? 'border-plex/70 bg-plex/10 shadow-[0_0_32px_rgba(229,160,13,0.18)]'
+                                                ? 'border-plex/60 bg-gradient-to-b from-plex/20 to-plex/5 shadow-[0_12px_36px_rgba(229,160,13,0.18)]'
                                                 : remembered
-                                                    ? 'border-plex/50 bg-plex/5 ring-1 ring-plex/25'
-                                                    : 'border-white/10 bg-black/20 hover:border-plex/50 hover:bg-white/5 hover:-translate-y-0.5'
+                                                    ? 'border-white/15 bg-gradient-to-b from-white/[0.07] to-white/[0.02] ring-1 ring-plex/30'
+                                                    : 'border-white/10 bg-gradient-to-b from-white/[0.06] to-white/[0.015] hover:-translate-y-1 hover:border-plex/50 hover:from-white/10'
                                         }`}
                                     >
-                                        {current ? (
-                                            <span className="absolute top-1.5 right-1.5 sm:top-2.5 sm:right-2.5 text-[8px] sm:text-[9px] font-black uppercase tracking-[0.14em] text-plex">
-                                                Watching
-                                            </span>
-                                        ) : null}
                                         <ProfileAvatar user={user} current={current} />
-                                        <span className="text-xs sm:text-sm font-bold text-text line-clamp-2">{user.title}</span>
+                                        <span className="w-full text-center text-sm font-bold leading-tight text-text line-clamp-2 sm:text-[15px]">{user.title}</span>
+                                        <span className="min-h-[1.15rem]">
+                                            {current ? (
+                                                <span className="inline-flex items-center gap-1 rounded-full bg-plex/15 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-plex sm:text-[10px]">
+                                                    <span className="h-1.5 w-1.5 rounded-full bg-plex" aria-hidden />
+                                                    Watching
+                                                </span>
+                                            ) : remembered ? (
+                                                <span className="inline-flex items-center rounded-full bg-white/5 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] text-muted sm:text-[10px]">
+                                                    Auto sign-in
+                                                </span>
+                                            ) : null}
+                                        </span>
                                     </button>
                                 );
                             })}
                         </div>
                     )}
+
+                    {showRemember && !pinUser && !isTvShell ? (
+                        <label className="mt-4 sm:mt-6 flex cursor-pointer items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
+                            <span className="text-left text-xs leading-relaxed text-muted">
+                                <span className="block text-sm font-semibold text-text">Automatically sign in</span>
+                                as this profile next time on this device
+                            </span>
+                            <input
+                                type="checkbox"
+                                className="peer sr-only"
+                                checked={remember}
+                                onChange={(event) => setRemember(event.target.checked)}
+                                disabled={busy}
+                            />
+                            <span
+                                aria-hidden
+                                className="relative h-6 w-11 shrink-0 rounded-full bg-white/15 transition-colors after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-transform peer-checked:bg-plex peer-checked:after:translate-x-5 peer-focus-visible:ring-2 peer-focus-visible:ring-plex/50"
+                            />
+                        </label>
+                    ) : null}
 
                     {!loginMode && !pinUser && !isTvShell && onLogOut ? (
                         <button
@@ -470,26 +500,11 @@ export const PlexHomeSwitchModal: React.FC<{
                             tabIndex={0}
                             onClick={onLogOut}
                             disabled={busy}
-                            className="mt-3 sm:mt-5 flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 px-3 py-2.5 text-sm font-bold text-muted hover:border-red-400/40 hover:text-red-300"
+                            className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl border border-red-400/20 bg-red-500/5 px-3 py-3 text-sm font-bold text-red-300/90 transition-colors hover:border-red-400/40 hover:bg-red-500/15"
                         >
                             <LogOut className="h-4 w-4" />
                             Log out
                         </button>
-                    ) : null}
-
-                    {showRemember && !pinUser && !isTvShell ? (
-                        <label className="mt-3 sm:mt-5 flex items-start gap-2.5 max-w-md cursor-pointer">
-                            <input
-                                type="checkbox"
-                                className="mt-0.5 h-4 w-4 accent-plex"
-                                checked={remember}
-                                onChange={(event) => setRemember(event.target.checked)}
-                                disabled={busy}
-                            />
-                            <span className="text-xs text-muted leading-relaxed text-left">
-                                <span className="font-semibold text-text">Automatically sign in</span> as this profile next time on this device
-                            </span>
-                        </label>
                     ) : null}
 
                     {pinUser ? (

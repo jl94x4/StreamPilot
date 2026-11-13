@@ -5365,6 +5365,18 @@ html[data-tv="1"] .player-tv-home-who-profile:focus-visible .player-tv-home-who-
 html[data-tv="1"] .player-tv-home-who-profile:disabled {
   opacity: 0.5;
 }
+/* The focused profile sits on a soft card, so it reads from across the room. */
+html[data-tv="1"] .player-tv-home-who-profile:focus,
+html[data-tv="1"] .player-tv-home-who-profile:focus-visible {
+  background: rgba(255, 255, 255, 0.07);
+}
+html[data-tv="1"] .player-tv-home-who [data-tv-key="home-switch-logout"] {
+  color: rgba(252, 165, 165, 0.85);
+}
+html[data-tv="1"] .player-tv-home-who [data-tv-key="home-switch-logout"]:focus,
+html[data-tv="1"] .player-tv-home-who [data-tv-key="home-switch-logout"]:focus-visible {
+  color: #111 !important;
+}
 html[data-tv="1"] .player-tv-home-who .player-tv-home-pin-back {
   margin-top: 1.6rem;
 }
