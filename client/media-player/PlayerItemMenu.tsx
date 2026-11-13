@@ -112,7 +112,7 @@ type MenuMode = 'main' | 'playlist' | 'collection';
 const MENU_MIN_WIDTH = 220;
 const MENU_MAX_WIDTH = 420;
 
-const rowClass = 'flex w-full items-center gap-3.5 px-1 py-3 text-left text-[1.02rem] font-semibold tracking-tight text-white/95 hover:bg-white/[0.06] disabled:opacity-50';
+const rowClass = 'flex w-full items-center gap-3.5 px-4 py-3 text-left text-[1.02rem] font-semibold tracking-tight text-white/95 hover:bg-white/[0.06] disabled:opacity-50';
 const compactRowClass = 'flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left font-semibold hover:bg-white/10 disabled:opacity-50';
 const mobileRowClass = 'flex w-full items-center gap-5 px-6 py-[0.95rem] text-left text-[1.05rem] font-medium text-white active:bg-white/[0.08] disabled:opacity-50';
 
@@ -784,7 +784,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
 
     // TV sheet: Rate sits directly under Resume / Play; elsewhere it stays in the list.
     const rateRow = canRate ? (
-        <div className="px-1 py-1.5" data-tv-rail="1">
+        <div className="px-4 py-1.5" data-tv-rail="1">
             <p className="px-2.5 pb-1 text-[11px] font-bold uppercase tracking-[0.16em] text-white/45">
                 {t('mediaPlayerPage.rate')}
             </p>
@@ -1283,7 +1283,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                 data-tv-item="1"
                 data-tv-menu-item="1"
                 className={useContextSheet
-                    ? 'mb-1 flex items-center gap-2 px-1 py-2.5 text-left text-sm font-bold uppercase tracking-wider text-white/55 hover:bg-white/[0.06]'
+                    ? 'mb-1 flex items-center gap-2 px-4 py-2.5 text-left text-sm font-bold uppercase tracking-wider text-white/55 hover:bg-white/[0.06]'
                     : 'flex items-center gap-2 px-3.5 py-2 text-left text-xs font-bold uppercase tracking-wider text-muted hover:bg-white/5'}
                 onClick={() => setMode('main')}
             >
@@ -1291,7 +1291,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
             </TvButton>
             <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar" data-tv-overlay-scroll="1">
                 {collectionsLoading ? (
-                    <p className="px-1 py-3 text-sm text-white/55">{t('mediaPlayerPage.loading')}</p>
+                    <p className="px-4 py-3 text-sm text-white/55">{t('mediaPlayerPage.loading')}</p>
                 ) : null}
                 {collectionTargets.map((target) => (
                     <TvButton
@@ -1344,7 +1344,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                 data-tv-item="1"
                 data-tv-menu-item="1"
                 className={useContextSheet
-                    ? 'mb-1 flex items-center gap-2 px-1 py-2.5 text-left text-sm font-bold uppercase tracking-wider text-white/55 hover:bg-white/[0.06]'
+                    ? 'mb-1 flex items-center gap-2 px-4 py-2.5 text-left text-sm font-bold uppercase tracking-wider text-white/55 hover:bg-white/[0.06]'
                     : 'flex items-center gap-2 px-3.5 py-2 text-left text-xs font-bold uppercase tracking-wider text-muted hover:bg-white/5'}
                 onClick={() => setMode('main')}
             >
@@ -1480,7 +1480,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                                     />
                                 </div>
                             ) : (
-                                <h2 className="shrink-0 truncate px-1 pb-4 pt-1 text-[1.35rem] font-bold leading-tight tracking-tight text-white">
+                                <h2 className="shrink-0 truncate px-4 pb-4 pt-1 text-[1.35rem] font-bold leading-tight tracking-tight text-white">
                                     {item.title || t('mediaPlayerPage.unknownTitle')}
                                 </h2>
                             )}
