@@ -78,6 +78,7 @@ const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
             title: 'Menu',
             items: [
                 'Log out moved into Switch User: open it and press Log out under the profiles',
+                'Manage libraries now opens as a panel beside the side menu, like Plex: heart, reorder and open libraries, split by server',
             ],
         },
     ],
