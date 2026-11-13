@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
     Check, ChevronLeft, Film, ImagePlus, LifeBuoy, MessageSquare, Pencil, Plus, RotateCcw, Search, Send, SmilePlus, Trash2, X,
 } from 'lucide-react';
+import { CannedReplies, MemberRequestsPanel } from './SupportAdminTools';
 import { apiFetch, PORTAL_CSRF_HEADER, PORTAL_CSRF_VALUE } from '../shared/api';
 import { SupportTicketListSkeleton } from '../shared/skeletons';
 import { portalUrl } from '../shared/basePath';
@@ -676,6 +677,7 @@ export const SupportInbox: React.FC<{ sessionInfo?: any; onCountsChange?: () => 
                                             )}
                                         </div>
                                     )}
+                                    {isAdmin && <MemberRequestsPanel userId={active.createdBy?.id} name={active.createdBy?.displayName} />}
                                     <div className="flex flex-wrap gap-2">
                                         {isAdmin && active.statusLabel !== 'resolved' && (
                                             <button type="button" disabled={busy} onClick={() => { void setStatus('resolved'); }} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold hover:border-plex/40">
@@ -877,6 +879,13 @@ export const SupportInbox: React.FC<{ sessionInfo?: any; onCountsChange?: () => 
                                         <p className="text-xs text-muted px-1 py-2">{t('support.reply.closedHint')}</p>
                                     ) : (
                                         <div className="space-y-2">
+                                            {isAdmin && (
+                                                <CannedReplies
+                                                    draft={reply}
+                                                    onInsert={(text) => setReply((prev) => (prev.trim() ? `${prev.trimEnd()}
+${text}` : text))}
+                                                />
+                                            )}
                                             {replyImages.length > 0 && (
                                                 <div className="flex flex-wrap gap-2">
                                                     {replyImages.map((item) => (

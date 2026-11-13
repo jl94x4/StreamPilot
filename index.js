@@ -16798,6 +16798,29 @@ const buildAttentionItems = async (config) => {
     return items.sort((a, b) => (a.severity === b.severity ? 0 : a.severity === 'critical' ? -1 : 1));
 };
 
+app.get('/api/admin/member-requests', requireAdmin, async (req, res) => {
+    try {
+        const userId = String(req.query.userId || '').trim();
+        if (!userId) return res.json({ results: [], counts: null });
+        const config = await loadFile(CONFIG_PATH, {});
+        if (getRequestEngine(config) !== 'portal') return res.json({ results: [], counts: null, unsupported: true });
+        const portalRequests = getPortalRequestService(config);
+        const payload = await portalRequests.listMemberRequests({ id: userId }, { filter: 'all', take: 6, skip: 0 });
+        const results = (payload.results || []).map((item) => ({
+            id: item.id,
+            title: item.title,
+            year: item.year,
+            type: item.type,
+            status: item.status,
+            statusLabel: item.statusLabel || item.status,
+            createdAt: item.createdAt || null,
+        }));
+        return res.json({ results, counts: payload.counts || null });
+    } catch (error) {
+        return res.status(500).json({ error: error.message || 'Failed to load member requests' });
+    }
+});
+
 app.get('/api/admin/attention', requireAdmin, async (req, res) => {
     try {
         if (!req.query?.refresh && attentionCache.payload && Date.now() - attentionCache.at < ATTENTION_CACHE_MS) {
