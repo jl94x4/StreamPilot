@@ -1,4 +1,4 @@
-import React, { useCallback, useLayoutEffect, useMemo, useRef } from 'react';
+import React, { memo, useCallback, useLayoutEffect, useMemo, useRef } from 'react';
 import { DiscoverPosterCard } from '../screens';
 import { PosterCardSkeleton } from '../shared/skeletons';
 import { upgraderPosterGridClass, upgraderPosterGridStyle, type PosterGridValue } from '../shared/portalLayout';
@@ -6,6 +6,66 @@ import { dedupeDiscoverResults, getDiscoverItemKey } from './discoverItemUtils';
 import { discoveryTheme } from './discoveryThemeClasses';
 import { useDiscoverI18n } from './i18n';
 import { apiFetch } from '../shared/api';
+
+type QuickAction = {
+    id: string;
+    label: string;
+    tone?: 'default' | 'danger';
+    onClick: () => void | Promise<void>;
+};
+
+/** Hover prefetch only makes sense with a real pointer; touch fires emulated hover on tap. */
+const canHoverPrefetch = () => {
+    try {
+        return typeof window !== 'undefined' && window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+    } catch {
+        return false;
+    }
+};
+const isCoarsePointer = () => {
+    try {
+        return typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches;
+    } catch {
+        return false;
+    }
+};
+
+type CellProps = {
+    formatted: any;
+    animate: boolean;
+    delayMs: number;
+    onSelect: (item: any) => void;
+    getQuickActions?: (item: any) => QuickAction[];
+    prefetch?: (item: any) => void;
+};
+
+/** Memoised so infinite-scroll appends don't re-render every poster already on screen. */
+const DiscoverGridCell = memo(({ formatted, animate, delayMs, onSelect, getQuickActions, prefetch }: CellProps) => {
+    const quickActions = useMemo(
+        () => (getQuickActions ? getQuickActions(formatted) : undefined),
+        [getQuickActions, formatted],
+    );
+    const handleClick = useCallback(() => onSelect(formatted), [onSelect, formatted]);
+    const handleHover = useMemo(
+        () => (prefetch ? () => prefetch(formatted) : undefined),
+        [prefetch, formatted],
+    );
+    return (
+        <div
+            className={animate ? 'discover-poster-enter min-w-0' : 'min-w-0'}
+            style={animate ? { animationDelay: `${delayMs}ms` } : undefined}
+        >
+            <DiscoverPosterCard
+                item={formatted}
+                overlay={formatted.overlay}
+                showQualityBadges={false}
+                onPosterClick={handleClick}
+                onPosterHover={handleHover}
+                quickActions={quickActions}
+            />
+        </div>
+    );
+});
 
 type Props = {
     items: any[];
@@ -38,6 +98,7 @@ export const DiscoverPosterGrid: React.FC<Props> = ({
     const visibleItems = useMemo(() => dedupeDiscoverResults(items), [items]);
     const prefetchedDetailsRef = useRef(new Set<string>());
     const prefetchDiscoverDetails = useCallback((item: any) => {
+        if (!canHoverPrefetch()) return;
         const mediaType = item?.mediaType === 'tv' ? 'tv' : item?.mediaType === 'movie' ? 'movie' : null;
         const mediaId = Number(item?.id || item?.tmdbId || 0);
         if (!mediaType || !Number.isFinite(mediaId) || mediaId <= 0) return;
@@ -49,15 +110,28 @@ export const DiscoverPosterGrid: React.FC<Props> = ({
             prefetchedDetailsRef.current.delete(key);
         });
     }, []);
-    const formattedItems = useMemo(() => (
-        visibleItems
-            .map((rawItem) => ({ rawItem, formatted: formatItem(rawItem) }))
-            .filter(({ formatted }) => !formatted?.hidden)
-    ), [visibleItems, formatItem]);
+    // Reuse formatted objects per raw item so memoised cells keep stable props across appends.
+    const formatCacheRef = useRef<{ fn: typeof formatItem; map: WeakMap<object, any> }>({ fn: formatItem, map: new WeakMap() });
+    const formattedItems = useMemo(() => {
+        if (formatCacheRef.current.fn !== formatItem) {
+            formatCacheRef.current = { fn: formatItem, map: new WeakMap() };
+        }
+        const cache = formatCacheRef.current.map;
+        return visibleItems
+            .map((rawItem) => {
+                let formatted = rawItem && typeof rawItem === 'object' ? cache.get(rawItem) : undefined;
+                if (!formatted) {
+                    formatted = formatItem(rawItem);
+                    if (rawItem && typeof rawItem === 'object') cache.set(rawItem, formatted);
+                }
+                return { rawItem, formatted };
+            })
+            .filter(({ formatted }) => !formatted?.hidden);
+    }, [visibleItems, formatItem]);
     // Enter-animate only the first paint after a loading cycle. Infinite-scroll appends
     // must not remount or re-animate existing posters (that flashed the grid to opacity 0).
     const wasLoadingRef = useRef(true);
-    const animateEnter = !loading && wasLoadingRef.current;
+    const animateEnter = !loading && wasLoadingRef.current && !isCoarsePointer();
 
     useLayoutEffect(() => {
         wasLoadingRef.current = loading;
@@ -99,22 +173,15 @@ export const DiscoverPosterGrid: React.FC<Props> = ({
             {formattedItems.map(({ rawItem, formatted }, index) => {
                 const itemKey = getDiscoverItemKey(rawItem) || `${formatted.mediaType || formatted.type}-${formatted.id}`;
                 return (
-                    <div
+                    <DiscoverGridCell
                         key={itemKey}
-                        className={animateEnter ? 'discover-poster-enter min-w-0' : 'min-w-0'}
-                        style={animateEnter
-                            ? { animationDelay: `${Math.min(index, 18) * 22}ms` }
-                            : undefined}
-                    >
-                        <DiscoverPosterCard
-                            item={formatted}
-                            overlay={formatted.overlay}
-                            showQualityBadges={false}
-                            onPosterClick={() => onSelect(formatted)}
-                            onPosterHover={() => prefetchDiscoverDetails(formatted)}
-                            quickActions={getQuickActions ? getQuickActions(formatted) : undefined}
-                        />
-                    </div>
+                        formatted={formatted}
+                        animate={animateEnter}
+                        delayMs={Math.min(index, 18) * 22}
+                        onSelect={onSelect}
+                        getQuickActions={getQuickActions}
+                        prefetch={prefetchDiscoverDetails}
+                    />
                 );
             })}
         </div>

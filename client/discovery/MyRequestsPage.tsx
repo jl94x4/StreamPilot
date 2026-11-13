@@ -67,6 +67,168 @@ const uniqueSeasonNumbers = (variants: PortalRequestItem[]) => {
     return seasons.sort((a, b) => a - b);
 };
 
+type RequestGroupRowProps = {
+    group: ReturnType<typeof mergeHd4kMemberRequests>[number];
+    /** Only set when this row owns the in-flight action, so other rows stay memo-stable. */
+    actionId: PortalRequestItem['id'] | null;
+    t: (key: string, vars?: any) => string;
+    onOpen: (item: PortalRequestItem) => void;
+    onAskCancel: (item: PortalRequestItem) => void;
+    onRetry: (item: PortalRequestItem) => void;
+};
+
+const RequestGroupRow = React.memo(({ group, actionId, t, onOpen: openMedia, onAskCancel, onRetry }: RequestGroupRowProps) => {
+    const setCancelTarget = onAskCancel;
+    const handleRetry = onRetry;
+    const { primary, variants } = group;
+    const multi = variants.length > 1;
+    const showHd = variants.some((v) => !v.is4k);
+    const show4k = variants.some((v) => !!v.is4k);
+    const seasons = uniqueSeasonNumbers(variants);
+    const sharedStatus = multi
+        ? null
+        : memberRequestDisplayStatus(primary);
+    const declinedReason = variants.find((v) => (
+        memberRequestDisplayStatus(v) === 'Declined' && v.declineReason
+    ))?.declineReason;
+    const cancelable = variants.filter((v) => Number(v.status) === 1);
+    const retryable = variants.filter((v) => v.canRetry || Number(v.status) === 4);
+    const groupBusy = variants.some((v) => actionId === v.id);
+    const requestedAt = variants
+        .map((v) => v.createdAt || v.updatedAt)
+        .filter(Boolean)
+        .sort()[0] || primary.createdAt || primary.updatedAt;
+
+    return (
+        <RequestCardShell
+            
+            backdropUrl={primary.backdropUrl}
+            posterUrl={primary.posterUrl}
+        >
+            <div className="flex flex-col sm:flex-row gap-4 p-4 sm:p-5">
+                <button
+                    type="button"
+                    onClick={() => openMedia(primary)}
+                    className="flex gap-4 min-w-0 flex-1 text-left border-0 bg-transparent p-0 cursor-pointer group"
+                >
+                    <div className="w-16 h-24 rounded-lg overflow-hidden flex-shrink-0 bg-background/40 border border-border group-hover:border-plex/30 transition-colors">
+                        {primary.posterUrl ? (
+                            <img src={primary.posterUrl} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                            <NoPosterPlaceholder compact />
+                        )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2 mb-1.5">
+                            <RequestTypeBadge
+                                type={primary.type}
+                                showHd={multi && showHd}
+                                show4k={show4k}
+                                t={t}
+                            />
+                            {!multi && sharedStatus ? (
+                                <span className={`${mediaStatusChipClass} ${memberRequestStatusClass(sharedStatus)}`}>
+                                    {translateDiscoverStatus(t, sharedStatus)}
+                                </span>
+                            ) : null}
+                        </div>
+                        <h3 className="text-lg font-black text-text leading-tight group-hover:text-plex transition-colors">
+                            {primary.title}
+                            {primary.year ? <span className="text-muted font-bold ml-2">{primary.year}</span> : null}
+                        </h3>
+                        <p className="text-xs text-muted mt-1">
+                            {t('requestsPage.requestedAt', { date: formatRequestRelativeTime(requestedAt, t) })}
+                        </p>
+                        {multi ? (
+                            <div className="mt-2 flex flex-col gap-1.5">
+                                {variants.map((variant) => {
+                                    const statusLabel = memberRequestDisplayStatus(variant);
+                                    return (
+                                        <div
+                                            key={variant.id}
+                                            className="flex flex-wrap items-center gap-2 text-[11px]"
+                                        >
+                                            <span className={`font-bold uppercase tracking-wide ${
+                                                variant.is4k ? 'text-amber-200' : 'text-muted'
+                                            }`}
+                                            >
+                                                {requestQualityLabel(variant)}
+                                            </span>
+                                            <span className={`${mediaStatusChipClass} ${memberRequestStatusClass(statusLabel)}`}>
+                                                {translateDiscoverStatus(t, statusLabel)}
+                                            </span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        ) : null}
+                        {declinedReason ? (
+                            <p className="text-xs text-red-200/90 mt-2 bg-red-500/10 border border-red-500/20 rounded-lg px-2.5 py-2">
+                                {declinedReason}
+                            </p>
+                        ) : null}
+                        {primary.type === 'tv' && seasons.length > 0 && (
+                            <p className="text-xs text-muted mt-2">
+                                {t('requestsPage.seasonsList', { seasons: seasons.join(', ') })}
+                            </p>
+                        )}
+                        {primary.overview && (
+                            <p className="text-sm text-muted mt-2 line-clamp-2">{primary.overview}</p>
+                        )}
+                    </div>
+                </button>
+
+                <RequestCardActions>
+                    {cancelable.map((variant) => {
+                        const busy = actionId === variant.id;
+                        const label = multi
+                            ? `${t('requestsPage.cancel')} ${requestQualityLabel(variant)}`
+                            : t('requestsPage.cancel');
+                        return (
+                            <button
+                                key={`cancel-${variant.id}`}
+                                type="button"
+                                disabled={groupBusy}
+                                onClick={() => setCancelTarget(variant)}
+                                className={`${requestCardActionBtnClass} border border-red-500/30 text-red-300 hover:bg-red-500/10`}
+                            >
+                                {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                                {label}
+                            </button>
+                        );
+                    })}
+                    {retryable.map((variant) => {
+                        const busy = actionId === variant.id;
+                        const label = multi
+                            ? `${t('requestsPage.retry')} ${requestQualityLabel(variant)}`
+                            : t('requestsPage.retry');
+                        return (
+                            <button
+                                key={`retry-${variant.id}`}
+                                type="button"
+                                disabled={groupBusy}
+                                onClick={() => handleRetry(variant)}
+                                className={`${requestCardActionBtnClass} border border-plex/30 text-plex hover:bg-plex/10`}
+                            >
+                                {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+                                {label}
+                            </button>
+                        );
+                    })}
+                    <button
+                        type="button"
+                        onClick={() => openMedia(primary)}
+                        className={`${requestCardActionBtnClass} border border-border text-text/70 hover:bg-white/5`}
+                    >
+                        {primary.type === 'tv' ? <Tv className="w-3.5 h-3.5" /> : <Film className="w-3.5 h-3.5" />}
+                        {t('common.view')}
+                    </button>
+                </RequestCardActions>
+            </div>
+        </RequestCardShell>
+    );
+});
+
 export const MyRequestsPage: React.FC<Props> = ({ navigate, pushToast, onCountsChange }) => {
     const { t } = useDiscoverI18n();
     const [filter, setFilter] = useState<RequestFilter>('pending');
@@ -209,7 +371,7 @@ export const MyRequestsPage: React.FC<Props> = ({ navigate, pushToast, onCountsC
         }
     };
 
-    const handleRetry = async (item: PortalRequestItem) => {
+    const handleRetryImpl = async (item: PortalRequestItem) => {
         setActionId(item.id);
         try {
             const res = await apiFetch(`/api/discovery/my-requests/${item.id}/retry`, { method: 'POST' });
@@ -224,7 +386,14 @@ export const MyRequestsPage: React.FC<Props> = ({ navigate, pushToast, onCountsC
         }
     };
 
-    const openMedia = (item: PortalRequestItem) => {
+    const handleRetryRef = useRef(handleRetryImpl);
+    handleRetryRef.current = handleRetryImpl;
+    const handleRetry = useCallback((item: PortalRequestItem) => handleRetryRef.current(item), []);
+
+    const navigateRef = useRef(navigate);
+    navigateRef.current = navigate;
+    const openMedia = useCallback((item: PortalRequestItem) => {
+        const navigate = navigateRef.current;
         if (item.type === 'music') {
             const mbid = String(item.mbid || '').trim();
             if (mbid) navigate(`/discovery/music/artist/${encodeURIComponent(mbid)}`);
@@ -232,7 +401,7 @@ export const MyRequestsPage: React.FC<Props> = ({ navigate, pushToast, onCountsC
         }
         if (!item.tmdbId) return;
         navigate(`/discovery/${item.type}/${item.tmdbId}`);
-    };
+    }, []);
 
     return (
         <div className="flex flex-col gap-6 w-full pb-12">
@@ -307,155 +476,17 @@ export const MyRequestsPage: React.FC<Props> = ({ navigate, pushToast, onCountsC
                 </div>
             ) : (
                 <div className="flex flex-col gap-3 px-2">
-                    {mergedRequests.map((group) => {
-                        const { primary, variants } = group;
-                        const multi = variants.length > 1;
-                        const showHd = variants.some((v) => !v.is4k);
-                        const show4k = variants.some((v) => !!v.is4k);
-                        const seasons = uniqueSeasonNumbers(variants);
-                        const sharedStatus = multi
-                            ? null
-                            : memberRequestDisplayStatus(primary);
-                        const declinedReason = variants.find((v) => (
-                            memberRequestDisplayStatus(v) === 'Declined' && v.declineReason
-                        ))?.declineReason;
-                        const cancelable = variants.filter((v) => Number(v.status) === 1);
-                        const retryable = variants.filter((v) => v.canRetry || Number(v.status) === 4);
-                        const groupBusy = variants.some((v) => actionId === v.id);
-                        const requestedAt = variants
-                            .map((v) => v.createdAt || v.updatedAt)
-                            .filter(Boolean)
-                            .sort()[0] || primary.createdAt || primary.updatedAt;
-
-                        return (
-                            <RequestCardShell
-                                key={group.key}
-                                backdropUrl={primary.backdropUrl}
-                                posterUrl={primary.posterUrl}
-                            >
-                                <div className="flex flex-col sm:flex-row gap-4 p-4 sm:p-5">
-                                    <button
-                                        type="button"
-                                        onClick={() => openMedia(primary)}
-                                        className="flex gap-4 min-w-0 flex-1 text-left border-0 bg-transparent p-0 cursor-pointer group"
-                                    >
-                                        <div className="w-16 h-24 rounded-lg overflow-hidden flex-shrink-0 bg-background/40 border border-border group-hover:border-plex/30 transition-colors">
-                                            {primary.posterUrl ? (
-                                                <img src={primary.posterUrl} alt="" className="w-full h-full object-cover" />
-                                            ) : (
-                                                <NoPosterPlaceholder compact />
-                                            )}
-                                        </div>
-                                        <div className="min-w-0 flex-1">
-                                            <div className="flex flex-wrap items-center gap-2 mb-1.5">
-                                                <RequestTypeBadge
-                                                    type={primary.type}
-                                                    showHd={multi && showHd}
-                                                    show4k={show4k}
-                                                    t={t}
-                                                />
-                                                {!multi && sharedStatus ? (
-                                                    <span className={`${mediaStatusChipClass} ${memberRequestStatusClass(sharedStatus)}`}>
-                                                        {translateDiscoverStatus(t, sharedStatus)}
-                                                    </span>
-                                                ) : null}
-                                            </div>
-                                            <h3 className="text-lg font-black text-text leading-tight group-hover:text-plex transition-colors">
-                                                {primary.title}
-                                                {primary.year ? <span className="text-muted font-bold ml-2">{primary.year}</span> : null}
-                                            </h3>
-                                            <p className="text-xs text-muted mt-1">
-                                                {t('requestsPage.requestedAt', { date: formatRequestRelativeTime(requestedAt, t) })}
-                                            </p>
-                                            {multi ? (
-                                                <div className="mt-2 flex flex-col gap-1.5">
-                                                    {variants.map((variant) => {
-                                                        const statusLabel = memberRequestDisplayStatus(variant);
-                                                        return (
-                                                            <div
-                                                                key={variant.id}
-                                                                className="flex flex-wrap items-center gap-2 text-[11px]"
-                                                            >
-                                                                <span className={`font-bold uppercase tracking-wide ${
-                                                                    variant.is4k ? 'text-amber-200' : 'text-muted'
-                                                                }`}
-                                                                >
-                                                                    {requestQualityLabel(variant)}
-                                                                </span>
-                                                                <span className={`${mediaStatusChipClass} ${memberRequestStatusClass(statusLabel)}`}>
-                                                                    {translateDiscoverStatus(t, statusLabel)}
-                                                                </span>
-                                                            </div>
-                                                        );
-                                                    })}
-                                                </div>
-                                            ) : null}
-                                            {declinedReason ? (
-                                                <p className="text-xs text-red-200/90 mt-2 bg-red-500/10 border border-red-500/20 rounded-lg px-2.5 py-2">
-                                                    {declinedReason}
-                                                </p>
-                                            ) : null}
-                                            {primary.type === 'tv' && seasons.length > 0 && (
-                                                <p className="text-xs text-muted mt-2">
-                                                    {t('requestsPage.seasonsList', { seasons: seasons.join(', ') })}
-                                                </p>
-                                            )}
-                                            {primary.overview && (
-                                                <p className="text-sm text-muted mt-2 line-clamp-2">{primary.overview}</p>
-                                            )}
-                                        </div>
-                                    </button>
-
-                                    <RequestCardActions>
-                                        {cancelable.map((variant) => {
-                                            const busy = actionId === variant.id;
-                                            const label = multi
-                                                ? `${t('requestsPage.cancel')} ${requestQualityLabel(variant)}`
-                                                : t('requestsPage.cancel');
-                                            return (
-                                                <button
-                                                    key={`cancel-${variant.id}`}
-                                                    type="button"
-                                                    disabled={groupBusy}
-                                                    onClick={() => setCancelTarget(variant)}
-                                                    className={`${requestCardActionBtnClass} border border-red-500/30 text-red-300 hover:bg-red-500/10`}
-                                                >
-                                                    {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                                                    {label}
-                                                </button>
-                                            );
-                                        })}
-                                        {retryable.map((variant) => {
-                                            const busy = actionId === variant.id;
-                                            const label = multi
-                                                ? `${t('requestsPage.retry')} ${requestQualityLabel(variant)}`
-                                                : t('requestsPage.retry');
-                                            return (
-                                                <button
-                                                    key={`retry-${variant.id}`}
-                                                    type="button"
-                                                    disabled={groupBusy}
-                                                    onClick={() => handleRetry(variant)}
-                                                    className={`${requestCardActionBtnClass} border border-plex/30 text-plex hover:bg-plex/10`}
-                                                >
-                                                    {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
-                                                    {label}
-                                                </button>
-                                            );
-                                        })}
-                                        <button
-                                            type="button"
-                                            onClick={() => openMedia(primary)}
-                                            className={`${requestCardActionBtnClass} border border-border text-text/70 hover:bg-white/5`}
-                                        >
-                                            {primary.type === 'tv' ? <Tv className="w-3.5 h-3.5" /> : <Film className="w-3.5 h-3.5" />}
-                                            {t('common.view')}
-                                        </button>
-                                    </RequestCardActions>
-                                </div>
-                            </RequestCardShell>
-                        );
-                    })}
+                    {mergedRequests.map((group) => (
+                        <RequestGroupRow
+                            key={group.key}
+                            group={group}
+                            actionId={group.variants.some((v) => v.id === actionId) ? actionId : null}
+                            t={t}
+                            onOpen={openMedia}
+                            onAskCancel={setCancelTarget}
+                            onRetry={handleRetry}
+                        />
+                    ))}
                 </div>
             )}
 

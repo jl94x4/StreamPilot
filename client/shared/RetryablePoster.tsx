@@ -37,7 +37,14 @@ export const RetryablePoster: React.FC<Props> = ({
     const [ready, setReady] = useState(() => isPosterUrlWarm(src || fallbackSrc));
     const imgRef = useRef<HTMLImageElement | null>(null);
 
+    const firstRunRef = useRef(true);
     useEffect(() => {
+        if (firstRunRef.current) {
+            // Initial state already derived from props; skip the redundant 5-setState pass per card.
+            firstRunRef.current = false;
+            if (src || fallbackSrc) warmPosterUrl(src || fallbackSrc);
+            return;
+        }
         setAttempt(0);
         setUseFallback(false);
         setFailed(!src && !fallbackSrc);

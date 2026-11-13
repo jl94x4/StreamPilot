@@ -484,6 +484,24 @@ export const ConfirmModal: React.FC<{
     );
 };
 
+// One observer shared by every ScrollReveal instead of one per section.
+const revealCallbacks = new WeakMap<Element, () => void>();
+let revealObserver: IntersectionObserver | null = null;
+const getRevealObserver = () => {
+    if (!revealObserver) {
+        revealObserver = new IntersectionObserver((entries) => {
+            for (const entry of entries) {
+                if (!entry.isIntersecting) continue;
+                const cb = revealCallbacks.get(entry.target);
+                revealCallbacks.delete(entry.target);
+                revealObserver?.unobserve(entry.target);
+                cb?.();
+            }
+        }, { threshold: 0.1, rootMargin: '50px' });
+    }
+    return revealObserver;
+};
+
 export const ScrollReveal: React.FC<{ children: React.ReactNode; enabled?: boolean; delay?: number; className?: string }> = ({ children, enabled = true, delay = 0, className = '' }) => {
     const [isVisible, setIsVisible] = useState(!enabled);
     const ref = useRef<HTMLDivElement>(null);
@@ -493,21 +511,22 @@ export const ScrollReveal: React.FC<{ children: React.ReactNode; enabled?: boole
             setIsVisible(true);
             return;
         }
-        const observer = new IntersectionObserver(
-            ([entry]) => {
-                if (entry.isIntersecting) {
-                    setIsVisible(true);
-                    observer.disconnect();
-                }
-            },
-            { threshold: 0.1, rootMargin: '50px' }
-        );
-        if (ref.current) observer.observe(ref.current);
-        return () => observer.disconnect();
+        const node = ref.current;
+        if (!node || typeof IntersectionObserver === 'undefined') {
+            setIsVisible(true);
+            return;
+        }
+        const observer = getRevealObserver();
+        revealCallbacks.set(node, () => setIsVisible(true));
+        observer.observe(node);
+        return () => {
+            revealCallbacks.delete(node);
+            observer.unobserve(node);
+        };
     }, [enabled]);
 
     return (
-        <div ref={ref} className={`${className} transition-all duration-700 ease-out ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-12'}`} style={{ transitionDelay: `${delay}ms` }}>
+        <div ref={ref} className={`${className} transition-[opacity,transform] duration-700 ease-out ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-12'}`} style={{ transitionDelay: `${delay}ms` }}>
             {children}
         </div>
     );
