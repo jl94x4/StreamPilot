@@ -2817,7 +2817,9 @@ export const useTvRemote = (enabled = true) => {
             if (!isPlayerHomePath() || isAuthScreen() || isNavOpen()) return;
             if (document.querySelector(TV_OVERLAY) || document.querySelector('[data-tv-screensaver="1"]')) return;
             const active = document.activeElement as HTMLElement | null;
-            if (active && active !== document.body && active !== document.documentElement && hasLayout(active)) return;
+            // A closed nav icon holding focus is not "something selected": land on the first card instead.
+            const onClosedNav = !!active?.closest?.(TV_NAV_ROOT);
+            if (!onClosedNav && active && active !== document.body && active !== document.documentElement && hasLayout(active)) return;
             if (!restoreTvFocus()) focusTvHeroWhenReady();
         };
 

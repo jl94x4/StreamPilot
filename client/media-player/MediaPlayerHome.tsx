@@ -2081,11 +2081,15 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
     // Rows are on screen: let the remote land the focus ring on the first card if nothing
     // has it yet. Next frame, so the cards exist when it looks for them.
     const tvHasRows = tvHomeRows.length > 0;
+    // Home now fills in two passes (fast rows, then the full list), and the second pass can replace the
+    // card that held the ring. Re-announce whenever the set of rows changes; the remote ignores it while
+    // something already has focus.
+    const tvRowsSignature = tvHomeRows.map((row) => row.id).join('|');
     useEffect(() => {
         if (!tvStage || !active || !tvHasRows) return undefined;
         const raf = window.requestAnimationFrame(() => window.dispatchEvent(new Event(PLAYER_TV_HOME_READY_EVENT)));
         return () => window.cancelAnimationFrame(raf);
-    }, [active, tvHasRows, tvStage]);
+    }, [active, tvHasRows, tvStage, tvRowsSignature]);
 
     useEffect(() => {
         if (tvRowIndex >= tvHomeRows.length && tvHomeRows.length) setTvRowIndex(0);
