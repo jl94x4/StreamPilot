@@ -51,14 +51,13 @@ type Props = {
     libraries: PlayerSection[];
     order: string[];
     picks: HomeLibraryPicks;
+    /** Width of the side menu in rem, so the panel sits right next to it. */
+    navWidthRem?: number;
+    onOpenLibrary?: (library: PlayerSection) => void;
     onClose: () => void;
 };
 
-/**
- * All libraries, split by server: a heart shows or hides each one in the side menu, on Home and in the
- * library row, and the arrows move it. Everything applies live, no Save and no trip to Settings.
- */
-export const PlayerLibraryManager: React.FC<Props> = ({ open, libraries, order, picks, onClose }) => {
+export const PlayerLibraryManager: React.FC<Props> = ({ open, libraries, order, picks, navWidthRem = 16.25, onOpenLibrary, onClose }) => {
     const { t } = useDiscoverI18n();
     const onCloseRef = useRef(onClose);
     onCloseRef.current = onClose;
@@ -125,9 +124,13 @@ export const PlayerLibraryManager: React.FC<Props> = ({ open, libraries, order, 
     const iconButton = 'flex shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-muted outline-none disabled:opacity-30';
     const iconSize = isTvShell ? 'h-12 w-12' : 'h-10 w-10';
 
+    // Wide screens (TV, desktop): a second panel right beside the side menu, which stays on screen.
+    // Phones keep a bottom sheet because the menu itself is a sheet there.
+    const beside = isTvShell || (typeof window !== 'undefined' && window.innerWidth >= 768);
+    const panelLeft = `calc(0.75rem + ${navWidthRem}rem + 0.75rem)`;
+
     return ReactDOM.createPortal(
         <div
-            className="fixed inset-0 z-[110] flex items-end justify-center p-0 sm:items-center sm:p-6"
             role="dialog"
             aria-modal="true"
             aria-labelledby="player-library-manager-title"
@@ -135,13 +138,20 @@ export const PlayerLibraryManager: React.FC<Props> = ({ open, libraries, order, 
             <button
                 type="button"
                 tabIndex={-1}
-                className={`absolute inset-0 cursor-default ${isTvShell ? 'bg-[rgb(5,7,11)]' : 'bg-black/75 backdrop-blur-xl'}`}
+                className={`fixed inset-0 cursor-default ${
+                    beside ? 'z-[35] bg-black/55' : 'z-[110] bg-black/75 backdrop-blur-xl'
+                }`}
                 aria-label={t('mediaPlayerPage.manageLibrariesClose')}
                 onClick={onClose}
             />
             <div
                 data-tv-library-manager="1"
-                className="player-popup-surface relative flex max-h-[min(86dvh,44rem)] w-full flex-col overflow-hidden rounded-t-2xl border border-white/10 shadow-[0_30px_80px_rgba(0,0,0,0.55)] sm:max-w-xl sm:rounded-3xl"
+                style={beside ? { left: panelLeft, width: `min(36rem, calc(100vw - ${panelLeft} - 1.5rem))` } : undefined}
+                className={`player-popup-surface flex flex-col overflow-hidden border border-white/10 shadow-[0_30px_80px_rgba(0,0,0,0.55)] ${
+                    beside
+                        ? 'fixed inset-y-6 z-[45] rounded-[28px] bg-[#0b1018]/95'
+                        : 'fixed inset-x-0 bottom-0 z-[111] max-h-[min(86dvh,44rem)] w-full rounded-t-2xl'
+                }`}
             >
                 <div className="flex shrink-0 items-start justify-between gap-3 px-5 pb-2 pt-5 sm:px-7 sm:pt-6">
                     <div className="min-w-0">
@@ -185,27 +195,33 @@ export const PlayerLibraryManager: React.FC<Props> = ({ open, libraries, order, 
                                             <div
                                                 key={homeLibraryKey(library.serverId, library.key) || key}
                                                 data-tv-rail="1"
-                                                className={`flex items-center gap-2 rounded-2xl border px-3 py-2 ${
-                                                    shown ? 'border-plex/40 bg-plex/10' : 'border-white/10 bg-white/[0.03]'
-                                                }`}
+                                                className="flex items-center gap-2"
                                             >
+                                                <TvButton
+                                                    type="button"
+                                                    data-tv-item="1"
+                                                    data-tv-key={`lib-${key}-open`}
+                                                    onClick={() => onOpenLibrary?.(library)}
+                                                    className={`min-w-0 flex-1 rounded-full px-5 py-3 text-left outline-none ${
+                                                        shown ? 'bg-white/10' : 'bg-white/[0.05]'
+                                                    }`}
+                                                >
+                                                    <span className="block truncate text-base font-bold text-text">{library.title}</span>
+                                                    <span className="mt-0.5 block text-xs text-muted">{typeLabel(String(library.type || ''))}</span>
+                                                </TvButton>
                                                 <TvButton
                                                     type="button"
                                                     data-tv-item="1"
                                                     data-tv-key={`lib-${key}-heart`}
                                                     aria-pressed={shown}
                                                     onClick={() => persistNow({ homeLibraries: toggleHomeLibraryPick(picks, libraries, library) })}
-                                                    className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-xl px-2 py-2 text-left outline-none"
+                                                    className={`${iconButton} ${iconSize} border-transparent bg-transparent`}
+                                                    aria-label={shown ? t('mediaPlayerPage.homeLibraryShown') : t('mediaPlayerPage.homeLibraryHidden')}
                                                 >
-                                                    <span className="min-w-0">
-                                                        <span className="block truncate text-base font-bold text-text">{library.title}</span>
-                                                        <span className="mt-0.5 block text-xs text-muted">{typeLabel(String(library.type || ''))}</span>
-                                                    </span>
                                                     <Heart
-                                                        className={`h-6 w-6 shrink-0 ${shown ? 'text-plex' : 'text-muted'}`}
+                                                        className={`h-6 w-6 ${shown ? 'text-white' : 'text-muted'}`}
                                                         fill={shown ? 'currentColor' : 'none'}
                                                         strokeWidth={2.2}
-                                                        aria-label={shown ? t('mediaPlayerPage.homeLibraryShown') : t('mediaPlayerPage.homeLibraryHidden')}
                                                     />
                                                 </TvButton>
                                                 <TvButton

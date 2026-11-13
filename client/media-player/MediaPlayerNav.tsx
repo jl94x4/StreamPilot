@@ -305,8 +305,15 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
         }
     };
 
+    // The panel sits beside the side menu, which stays open (TV) / on screen (desktop). Phones close the
+    // menu sheet and use a bottom sheet instead.
     const openLibraryManager = () => {
         closeMobile();
+        setManageLibrariesOpen(true);
+    };
+
+    const closeLibraryManager = () => {
+        setManageLibrariesOpen(false);
         if (isTvShell) {
             try {
                 delete document.documentElement.dataset.tvNavOpen;
@@ -314,8 +321,8 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                 /* ignore */
             }
             window.dispatchEvent(new CustomEvent(PLAYER_TV_NAV_EVENT, { detail: { action: 'close' } }));
+            window.requestAnimationFrame(() => focusTvContent());
         }
-        setManageLibrariesOpen(true);
     };
 
     const openHomeSwitcher = async () => {
@@ -656,10 +663,12 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                 libraries={libraries}
                 order={libraryOrder}
                 picks={libraryPicks}
-                onClose={() => {
+                navWidthRem={expanded && !iconsOnly ? 16.25 : 4.25}
+                onOpenLibrary={(section) => {
                     setManageLibrariesOpen(false);
-                    if (isTvShell) window.requestAnimationFrame(() => focusTvContent());
+                    go(() => onOpenLibrary(section));
                 }}
+                onClose={closeLibraryManager}
             />
 
             <PlexHomeSwitchModal
