@@ -1446,7 +1446,7 @@ export const Navigation: React.FC<NavigationProps> = ({ currentRoute, onNavigate
 
             {/* Mobile install nudge — Chromium prompt or iOS/Firefox A2HS guidance. */}
             {showInstallNudge && (
-                <div className="md:hidden fixed left-3 right-3 z-[90] rounded-2xl border border-plex/40 bg-card/95 shadow-2xl backdrop-blur-md px-3 py-2.5 flex items-center gap-2"
+                <div className="md:hidden fixed left-3 right-3 z-[90] rounded-2xl border border-plex/40 bg-card/95 shadow-2xl px-3 py-2.5 flex items-center gap-2"
                     style={{ bottom: 'calc(4.25rem + env(safe-area-inset-bottom, 0px))' }}
                 >
                     <div className="w-9 h-9 rounded-xl bg-plex/15 border border-plex/30 flex items-center justify-center text-plex shrink-0">

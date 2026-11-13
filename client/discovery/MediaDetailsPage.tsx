@@ -778,14 +778,14 @@ export const MediaDetailsPage: React.FC<{
                                 {metaChips.slice(0, 4).map((chip) => (
                                     <div
                                         key={chip.label}
-                                        className="flex items-center gap-1 bg-black/45 px-2 py-1 rounded-md backdrop-blur-md border border-white/10 text-[11px] text-white/85 font-semibold"
+                                        className="flex items-center gap-1 bg-black/60 px-2 py-1 rounded-md border border-white/10 text-[11px] text-white/85 font-semibold"
                                     >
                                         {chip.icon}
                                         {chip.label}
                                     </div>
                                 ))}
                                 {voteCountLabel && (
-                                    <div className="bg-black/45 px-2 py-1 rounded-md backdrop-blur-md border border-white/10 text-[11px] text-white/80 font-semibold">
+                                    <div className="bg-black/60 px-2 py-1 rounded-md border border-white/10 text-[11px] text-white/80 font-semibold">
                                         {voteCountLabel}
                                     </div>
                                 )}
@@ -923,14 +923,14 @@ export const MediaDetailsPage: React.FC<{
                             {metaChips.map((chip) => (
                                 <div
                                     key={chip.label}
-                                    className="flex items-center gap-1.5 bg-black/45 px-3 py-1.5 rounded-lg backdrop-blur-md border border-white/10 text-xs text-white/85 font-semibold shadow-sm"
+                                    className="flex items-center gap-1.5 bg-black/60 px-3 py-1.5 rounded-lg border border-white/10 text-xs text-white/85 font-semibold shadow-sm"
                                 >
                                     {chip.icon}
                                     {chip.label}
                                 </div>
                             ))}
                             {voteCountLabel && (
-                                <div className="bg-black/45 px-3 py-1.5 rounded-lg backdrop-blur-md border border-white/10 text-xs text-white/80 font-semibold shadow-sm">
+                                <div className="bg-black/60 px-3 py-1.5 rounded-lg border border-white/10 text-xs text-white/80 font-semibold shadow-sm">
                                     {voteCountLabel}
                                 </div>
                             )}
