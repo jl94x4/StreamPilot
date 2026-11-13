@@ -2049,6 +2049,13 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
     })), [tvHomeRows, t]);
     const tvRowSafeIndex = Math.min(tvRowIndex, Math.max(0, tvHomeRows.length - 1));
     const tvActiveRow = tvHomeRows[tvRowSafeIndex] || null;
+    // TV Home shares one open handler across its rows; a press lands on the active row, so when that
+    // is Continue Watching it gets the tap-to-resume behaviour too.
+    const tvActiveIsContinue = Boolean(tvActiveRow?.showRemoveFromContinueWatching);
+    const openTvItem = useCallback(
+        (item: PlayerItem) => (tvActiveIsContinue ? openContinueItem(item) : openItemOrTune(item)),
+        [tvActiveIsContinue, openContinueItem, openItemOrTune],
+    );
     useEffect(() => {
         if (!tvStage || !active) return undefined;
         // Neighbour backdrops and poster warming decode big images. Wait until the row
@@ -2573,7 +2580,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                                 items={layoutContinueWatching(home.continueWatching)}
                                 density={homePosterDensity}
                                 staggerIndex={rowIndex}
-                                onOpenItem={onOpenItem}
+                                onOpenItem={openContinueItem}
                                 onPlay={onPlay}
                                 onToggleWatched={toggleWatched}
                                 showProgress
@@ -2820,7 +2827,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                             rowDir={tvRowDir}
                             density={homePosterDensity}
                             restoreFocusById={tvRowFocusRef.current}
-                            onOpenItem={openItemOrTune}
+                            onOpenItem={openTvItem}
                             onPlay={onPlay}
                             onToggleWatched={toggleWatched}
                             {...railMenuProps}
