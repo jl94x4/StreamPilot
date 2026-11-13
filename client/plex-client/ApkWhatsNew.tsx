@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.707': [
+        {
+            title: 'Home',
+            items: [
+                'Home no longer gets stuck on just Continue Watching and Watchlist when your server is slow to list its pinned rows: the app waits for them and shows Recently Added meanwhile',
+                'Reordering libraries from More no longer reloads Home',
+            ],
+        },
+    ],
     '1.0.706': [
         {
             title: 'Menu',
