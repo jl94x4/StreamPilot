@@ -153,20 +153,14 @@ COPY --from=builder /app/static ./static
 
 # Bundled Collexions worker (Flask + ColleXions.py) — no second container required.
 COPY collexions/requirements.txt /app/collexions/requirements.txt
-COPY collexions/server.py /app/collexions/server.py
-COPY collexions/ColleXions.py /app/collexions/ColleXions.py
-COPY collexions/plex_identity.py /app/collexions/plex_identity.py
-COPY collexions/plex_match.py /app/collexions/plex_match.py
+COPY collexions/*.py /app/collexions/
 RUN python3 -m venv /opt/collexions-venv \
     && /opt/collexions-venv/bin/pip install --no-cache-dir -r /app/collexions/requirements.txt \
     && chown -R node:node /app/collexions /opt/collexions-venv
 
 # Poster Sets headless worker (MediUX / ThePosterDB) — separate from ColleXions.
 COPY poster-sets/requirements.txt /app/poster-sets/requirements.txt
-COPY poster-sets/core.py /app/poster-sets/core.py
-COPY poster-sets/cli.py /app/poster-sets/cli.py
-COPY poster-sets/plex_identity.py /app/poster-sets/plex_identity.py
-COPY poster-sets/clear_overlays.py /app/poster-sets/clear_overlays.py
+COPY poster-sets/*.py /app/poster-sets/
 RUN python3 -m venv /opt/poster-sets-venv \
     && /opt/poster-sets-venv/bin/pip install --no-cache-dir -r /app/poster-sets/requirements.txt \
     && chown -R node:node /app/poster-sets /opt/poster-sets-venv
@@ -180,8 +174,7 @@ RUN /opt/poster-sets-venv/bin/pip install --no-cache-dir -r /app/overlays/requir
 
 # Editions headless worker (Plex Edition tags) — shares poster-sets venv (requests).
 COPY editions/requirements.txt /app/editions/requirements.txt
-COPY editions/cli.py /app/editions/cli.py
-COPY editions/edition_manager.py /app/editions/edition_manager.py
+COPY editions/*.py /app/editions/
 COPY editions/modules /app/editions/modules
 COPY editions/README.md /app/editions/README.md
 COPY editions/THIRD_PARTY_LICENSE.txt /app/editions/THIRD_PARTY_LICENSE.txt
