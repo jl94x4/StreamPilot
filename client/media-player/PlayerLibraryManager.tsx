@@ -16,7 +16,9 @@ let serverSaveTimer: ReturnType<typeof setTimeout> | null = null;
 const persistNow = (patch: Partial<PlayerSettings>) => {
     const saved = { ...readPlayerSettings(), ...patch };
     writePlayerSettings(saved);
-    invalidatePlayerHomeCache();
+    // Only the hearts change which rows Home fetches. Reordering is applied to the rows already loaded,
+    // and dropping the cache for it made Home reload from the server (showing only the local rows meanwhile).
+    if (patch.homeLibraries) invalidatePlayerHomeCache();
     if (serverSaveTimer) clearTimeout(serverSaveTimer);
     serverSaveTimer = setTimeout(() => {
         serverSaveTimer = null;
