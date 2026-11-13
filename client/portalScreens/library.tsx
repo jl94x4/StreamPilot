@@ -32,6 +32,7 @@ import { CustomSelect,ScrollReveal } from '../shared/ui';
 import { usePoll } from '../shared/usePoll';
 import { DiscoverPosterCard } from './discoverCard';
 import { ACTIVE_STREAMS_COLLAPSED_KEY,OPS_SNAPSHOT_COLLAPSED_KEY } from './downloads';
+import { NeedsAttentionCard } from '../shared/NeedsAttentionCard';
 import { DashboardTitleLink,EmptyStreamsMessage,StreamDetailsModal,type AdminOpsSnapshot } from './status';
 import { DISCOVER_DESKTOP_ITEM_LIMIT,DISCOVER_LIMIT_OPTIONS,DISCOVER_MOBILE_ITEM_LIMIT,TrendingDiscoverSection } from './userDashboard';
 
@@ -429,6 +430,7 @@ export const LibraryDashboard: React.FC<{ onBack: () => void, isAdmin?: boolean,
 
                 {!searchActive && (
                 <>
+                {isAdmin ? <NeedsAttentionCard onNavigate={(route) => onNavigate?.(route)} /> : null}
                 {showStreamCards && (
                     <section className="mb-8 w-full">
                         <div className="flex items-center justify-between gap-3 mb-3">

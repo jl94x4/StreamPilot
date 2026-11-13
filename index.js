@@ -313,6 +313,7 @@ import {
     getJoiningDateBackfillStatus,
 } from './lib/users/joiningDateFromHistory.js';
 import { loadPosterSetsAudit } from './lib/poster-sets/audit.js';
+import { reportPortalIssue, clearPortalIssue, listPortalIssues } from './lib/portal-issues.js';
 import { createWatchStatsLookup } from './lib/media-automation/watch-stats.js';
 import { createTtlLruCache } from './lib/memory-cache.js';
 import { createSwrCache } from './lib/swr-cache.js';
@@ -2612,6 +2613,7 @@ const sendEmail = async (config, to, subject, html, customTransporter = null) =>
 
     try {
         const info = await transporter.sendMail(mailOptions);
+        clearPortalIssue('notify.email');
         log(`Email sent successfully: ${info.messageId}`);
         const users = await loadFile(USERS_PATH, []);
         const foundUser = users.find(u => u.email === to);
@@ -2620,6 +2622,11 @@ const sendEmail = async (config, to, subject, html, customTransporter = null) =>
         return true;
     } catch (error) {
         log(`Error sending email to ${to}: ${error.message}`);
+        reportPortalIssue('notify.email', {
+            title: 'Email is failing to send',
+            detail: String(error?.message || error),
+            link: 'settings',
+        });
         throw error;
     }
 };
@@ -8133,6 +8140,21 @@ app.post('/api/config', setupRateLimit, async (req, res) => {
     });
     const { config: spotifySyncConfig, changed: spotifySyncDefaultsChanged } = applySpotifyToPlexDefaults(spotifyBundledConfig, { log });
     await saveFile(CONFIG_PATH, spotifySyncConfig);
+    try {
+        // Record WHAT changed (key names only, never values: many settings hold secrets).
+        const changedKeys = [...new Set([...Object.keys(existingConfig), ...Object.keys(spotifySyncConfig)])]
+            .filter((key) => JSON.stringify(existingConfig[key]) !== JSON.stringify(spotifySyncConfig[key]))
+            .filter((key) => !/^(last|cached|lastRun)/i.test(key))
+            .sort();
+        if (changedKeys.length) {
+            await appendAuditLog('settings_updated', req.user || null, null, {
+                count: changedKeys.length,
+                changed: changedKeys.slice(0, 60),
+            });
+        }
+    } catch (auditError) {
+        log(`Settings audit entry failed: ${auditError.message}`);
+    }
     refreshRuntimePublicBaseUrl(spotifySyncConfig);
     syncIntegrationServicesInStatusConfig(spotifySyncConfig);
     const brandingProfile = await getAdminProfile(spotifySyncConfig);
@@ -16645,6 +16667,153 @@ app.get('/api/audit-log', requireAdmin, async (req, res) => {
     }
 });
 
+const ATTENTION_CACHE_MS = 30_000;
+let attentionCache = { at: 0, payload: null };
+
+const SUMMARY_OVERDUE_MS = { daily: 36 * 3600_000, weekly: 9 * 86400_000, monthly: 40 * 86400_000 };
+
+const buildAttentionItems = async (config) => {
+    const items = [];
+    const push = (item) => items.push({ severity: 'warning', link: '', detail: '', ...item });
+
+    // 1. Monitored services that are down or degraded.
+    try {
+        const services = Array.isArray(statusConfig.services) ? statusConfig.services : [];
+        for (const service of services) {
+            const id = String(service?.id || '');
+            const state = String(healthData?.[id]?.currentStatus || '').toLowerCase();
+            if (state !== 'offline' && state !== 'degraded') continue;
+            if (service.isCritical === false && state === 'degraded') continue;
+            push({
+                key: `service.${id}`,
+                severity: state === 'offline' ? 'critical' : 'warning',
+                title: `${service.name || id} is ${state}`,
+                detail: 'Reported by the status monitor.',
+                link: 'status',
+            });
+        }
+    } catch (error) {
+        log(`Needs attention: service check failed: ${error.message}`);
+    }
+
+    // 2. Background jobs whose last run failed.
+    for (const job of Object.values(systemJobs || {})) {
+        if (!job || job.running || !String(job.lastError || '').trim()) continue;
+        push({
+            key: `job.${job.id}`,
+            title: `${job.name || job.id} is failing`,
+            detail: String(job.lastError).slice(0, 200),
+            link: 'maintenance',
+        });
+    }
+
+    // 3. Request app not usable (when requests run through an external app).
+    try {
+        if (getRequestEngine(config) !== 'portal') {
+            const gate = getRequestAppGate(config);
+            if (gate && gate.ready === false) {
+                push({
+                    key: 'requests.gate',
+                    title: 'Request app is not ready',
+                    detail: String(gate.error || gate.message || 'Check the request app settings.').slice(0, 200),
+                    link: 'settings',
+                });
+            }
+        }
+    } catch (error) {
+        log(`Needs attention: request check failed: ${error.message}`);
+    }
+
+    // 4. ColleXions worker.
+    if (config.collexionsEnabled && String(config.mediaServerType || 'plex').toLowerCase() === 'plex') {
+        let base = '';
+        try {
+            base = config.collexionsInternalUrl ? sanitizeCollexionsProxyBase(config.collexionsInternalUrl) : '';
+        } catch {
+            base = '';
+        }
+        const serviceKey = String(config.collexionsServiceKey || process.env.COLLEXIONS_SERVICE_KEY || '').trim();
+        if (!base || !serviceKey) {
+            push({
+                key: 'collexions.config',
+                title: 'ColleXions is enabled but not fully configured',
+                detail: !base ? 'Internal URL is missing or blocked.' : 'Service key is missing.',
+                link: 'settings',
+            });
+        } else {
+            try {
+                const upstream = await fetchWithTimeout(`${base}/api/health`, {
+                    headers: { Accept: 'application/json', 'X-Collexions-Service-Key': serviceKey },
+                }, 4000);
+                if (!upstream.ok) {
+                    push({
+                        key: 'collexions.worker',
+                        severity: 'critical',
+                        title: 'ColleXions worker is not answering correctly',
+                        detail: `Worker returned HTTP ${upstream.status}.`,
+                        link: 'collexions',
+                    });
+                }
+            } catch (error) {
+                push({
+                    key: 'collexions.worker',
+                    severity: 'critical',
+                    title: 'ColleXions worker is unreachable',
+                    detail: String(error?.message || error).slice(0, 200),
+                    link: 'collexions',
+                });
+            }
+        }
+    }
+
+    // 5. Scheduled summary that stopped going out.
+    if (config.summaryNotifyEnabled) {
+        const frequency = ['daily', 'weekly', 'monthly'].includes(config.summaryNotifyFrequency) ? config.summaryNotifyFrequency : 'daily';
+        const last = Date.parse(String(config.lastSummarySentAt || ''));
+        const limit = SUMMARY_OVERDUE_MS[frequency];
+        if (Number.isFinite(last) && Date.now() - last > limit) {
+            push({
+                key: 'summary.overdue',
+                title: 'Scheduled summary has not been sent',
+                detail: `Last sent ${new Date(last).toLocaleString()}.`,
+                link: 'settings',
+            });
+        }
+    }
+
+    // 6. Problems other parts of the portal reported instead of swallowing.
+    for (const issue of listPortalIssues()) {
+        if (items.some((item) => item.key === issue.key)) continue;
+        items.push({
+            key: issue.key,
+            severity: issue.severity,
+            title: issue.title,
+            detail: issue.detail,
+            link: issue.link,
+            since: issue.firstAt,
+            count: issue.count,
+        });
+    }
+
+    return items.sort((a, b) => (a.severity === b.severity ? 0 : a.severity === 'critical' ? -1 : 1));
+};
+
+app.get('/api/admin/attention', requireAdmin, async (req, res) => {
+    try {
+        if (!req.query?.refresh && attentionCache.payload && Date.now() - attentionCache.at < ATTENTION_CACHE_MS) {
+            return res.json(attentionCache.payload);
+        }
+        const config = await loadFile(CONFIG_PATH, {});
+        const items = await buildAttentionItems(config);
+        const payload = { checkedAt: Date.now(), items };
+        attentionCache = { at: Date.now(), payload };
+        return res.json(payload);
+    } catch (error) {
+        log(`Needs attention check failed: ${error.message}`);
+        return res.status(500).json({ error: error.message || 'Failed to run checks' });
+    }
+});
+
 app.get('/api/audit-log/export.csv', requireAdmin, async (req, res) => {
     try {
         const auditLog = await loadFile(AUDIT_LOG_PATH, []);
@@ -19543,6 +19712,10 @@ app.post('/api/streams/kill', requireAdmin, async (req, res) => {
         });
 
         if (response.ok) {
+            await appendAuditLog('stream_killed_by_admin', req.user, null, {
+                sessionId: String(sessionId || ''),
+                reason: String(reason || 'Admin terminated session').slice(0, 200),
+            });
             res.json({ success: true });
         } else {
             res.status(500).json({ error: 'Failed to terminate session' });
@@ -23750,6 +23923,11 @@ const fetchCollexionsHistoryInternal = async (config, limit = 100) => {
         }, 60000);
         if (!upstream.ok) {
             log(`Collexions history for summary failed: worker answered HTTP ${upstream.status}.`);
+            reportPortalIssue('collexions.history', {
+                title: 'ColleXions statistics cannot be read',
+                detail: `The worker answered HTTP ${upstream.status} for its history.`,
+                link: 'collexions',
+            });
             return { events: [] };
         }
         const payload = await upstream.json().catch(() => null);
@@ -23757,10 +23935,24 @@ const fetchCollexionsHistoryInternal = async (config, limit = 100) => {
             log('Collexions history for summary failed: worker returned invalid JSON.');
             return { events: [] };
         }
-        if (payload.error) log(`Collexions history for summary reported an error: ${payload.error}`);
+        if (payload.error) {
+            log(`Collexions history for summary reported an error: ${payload.error}`);
+            reportPortalIssue('collexions.history', {
+                title: 'ColleXions statistics cannot be read',
+                detail: String(payload.error),
+                link: 'collexions',
+            });
+            return payload;
+        }
+        clearPortalIssue('collexions.history');
         return payload;
     } catch (e) {
         log(`Collexions history for summary failed: ${e?.message || e}`);
+        reportPortalIssue('collexions.history', {
+            title: 'ColleXions statistics cannot be read',
+            detail: String(e?.message || e),
+            link: 'collexions',
+        });
         return { events: [] };
     }
 };
@@ -23811,7 +24003,18 @@ const checkAndSendSummaryDigest = async (config, force = false) => {
     }
 
     const deps = await buildSummaryDigestDeps(config, { force });
-    const result = await runSummaryDigestCycle(config, { ...deps, force: true });
+    let result;
+    try {
+        result = await runSummaryDigestCycle(config, { ...deps, force: true });
+        clearPortalIssue('summary.send');
+    } catch (error) {
+        reportPortalIssue('summary.send', {
+            title: 'Scheduled summary failed to send',
+            detail: String(error?.message || error),
+            link: 'settings',
+        });
+        throw error;
+    }
     if (force && result?.digestId) {
         config.lastSummarySent = getSummaryLocalDateKey(config, now);
         config.lastSummarySentAt = now.toISOString();
@@ -31076,6 +31279,13 @@ app.all(withWildcard('/api/collexions'), requireAdmin, requireCollexions, async 
             || suffix.startsWith('letterboxd/list?');
         const timeoutMs = longSuffix ? COLLEXIONS_LONG_PROXY_MS : 20000;
         const upstream = await fetchWithTimeout(targetUrl.toString(), init, timeoutMs);
+        if (method !== 'GET' && method !== 'HEAD' && upstream.ok
+            && /^(config|jobs|run|history|collections\/(create|bulk|fix-art)|hubs|templates\/create)/.test(suffix)) {
+            await appendAuditLog('collexions_changed', req.user, null, {
+                method,
+                path: suffix.split('?')[0].slice(0, 80),
+            });
+        }
         const contentType = upstream.headers.get('content-type') || '';
         res.status(upstream.status);
         if (contentType) res.setHeader('Content-Type', contentType);
@@ -34724,6 +34934,7 @@ app.post('/api/kill-rules', requireAdmin, async (req, res) => {
         const rules = req.body;
         validateKillRulesSchema(rules);
         await saveFile(KILL_RULES_PATH, rules);
+        await appendAuditLog('kill_rules_updated', req.user, null, { rules: Array.isArray(rules) ? rules.length : Object.keys(rules || {}).length });
         res.json({ success: true });
     } catch (e) {
         res.status(e.message.startsWith('Rule') || e.message.startsWith('Each') || e.message.startsWith('Invalid') ? 400 : 500).json({ error: e.message || 'Failed to save rules' });

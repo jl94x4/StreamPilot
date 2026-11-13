@@ -3,6 +3,7 @@ import React,{ useCallback,useEffect,useState } from 'react';
 import { apiFetch } from '../shared/api';
 import { appConfirm } from '../shared/confirm';
 import { formatPortalDateTime } from '../shared/format';
+import { portalUrl } from '../shared/basePath';
 import { Loader,ToastContainer,pushToast } from '../shared/toast';
 
 
@@ -16,6 +17,8 @@ export const LogsDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout }) 
     const [toasts, setToasts] = useState<any[]>([]);
     const [auditPage, setAuditPage] = useState(1);
     const [emailPage, setEmailPage] = useState(1);
+    const [auditSearch, setAuditSearch] = useState('');
+    const [auditEvent, setAuditEvent] = useState('all');
     const itemsPerPage = 20;
 
     const addToast = useCallback((message: string, type: 'success' | 'error' = 'success') => {
@@ -70,7 +73,29 @@ export const LogsDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout }) 
 
     const isConfigured = true;
 
-    const filteredAuditLog = auditEntries.filter(e => e.event !== 'system_email_sent');
+    const nonEmailEntries = auditEntries.filter(e => e.event !== 'system_email_sent');
+    const auditEventTypes = [...new Set(nonEmailEntries.map(e => String(e.event || '')).filter(Boolean))].sort();
+    const auditNeedle = auditSearch.trim().toLowerCase();
+    const filteredAuditLog = nonEmailEntries.filter((e) => {
+        if (auditEvent !== 'all' && e.event !== auditEvent) return false;
+        if (!auditNeedle) return true;
+        const hay = [e.event, e.actor?.username, e.actor?.email, e.target?.username, e.target?.email, JSON.stringify(e.details || {})]
+            .filter(Boolean).join(' ').toLowerCase();
+        return hay.includes(auditNeedle);
+    });
+    const summarizeDetails = (entry: any) => {
+        const d = entry?.details;
+        if (!d || typeof d !== 'object') return '';
+        if (Array.isArray(d.changed)) {
+            const shown = d.changed.slice(0, 8).join(', ');
+            return `Changed: ${shown}${d.changed.length > 8 ? `, +${d.changed.length - 8} more` : ''}`;
+        }
+        const parts = Object.entries(d)
+            .filter(([, v]) => v != null && v !== '' && typeof v !== 'object')
+            .slice(0, 4)
+            .map(([k, v]) => `${k}: ${String(v).slice(0, 60)}`);
+        return parts.join(' · ');
+    };
     const emailLogs = auditEntries.filter(e => e.event === 'system_email_sent');
     const totalAuditPages = Math.max(1, Math.ceil(filteredAuditLog.length / itemsPerPage));
     const totalEmailPages = Math.max(1, Math.ceil(emailLogs.length / itemsPerPage));
@@ -118,13 +143,42 @@ export const LogsDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout }) 
                                 <h2 className="text-lg font-bold text-text">Audit Log</h2>
                                 <p className="text-muted text-xs mt-1">Recent invite, deletion, sync, and access events.</p>
                             </div>
-                            <button className="px-3 py-2 bg-border text-text rounded-md font-medium hover:bg-opacity-80 transition-colors text-xs" onClick={fetchSecurityData}>
-                                Refresh
-                            </button>
+                            <div className="flex items-center gap-2">
+                                <a
+                                    className="px-3 py-2 bg-border text-text rounded-md font-medium hover:bg-opacity-80 transition-colors text-xs"
+                                    href={portalUrl('/api/audit-log/export.csv')}
+                                >
+                                    Export CSV
+                                </a>
+                                <button className="px-3 py-2 bg-border text-text rounded-md font-medium hover:bg-opacity-80 transition-colors text-xs" onClick={fetchSecurityData}>
+                                    Refresh
+                                </button>
+                            </div>
+                        </div>
+                        <div className="mb-3 flex flex-col gap-2 sm:flex-row">
+                            <input
+                                type="text"
+                                value={auditSearch}
+                                onChange={(e) => { setAuditSearch(e.target.value); setAuditPage(1); }}
+                                placeholder="Search events, people or details"
+                                aria-label="Search audit log"
+                                className="min-w-0 flex-1 rounded-lg border border-border bg-background/60 px-3 py-2 text-sm text-text placeholder:text-muted/70 focus:border-plex/50 focus:outline-none"
+                            />
+                            <select
+                                value={auditEvent}
+                                onChange={(e) => { setAuditEvent(e.target.value); setAuditPage(1); }}
+                                aria-label="Filter by event"
+                                className="rounded-lg border border-border bg-background/60 px-3 py-2 text-sm text-text focus:border-plex/50 focus:outline-none"
+                            >
+                                <option value="all">All events</option>
+                                {auditEventTypes.map((type) => (
+                                    <option key={type} value={type}>{formatEventName(type)}</option>
+                                ))}
+                            </select>
                         </div>
                         <div className="flex flex-col gap-3">
                             {filteredAuditLog.length === 0 ? (
-                                <p className="text-muted text-sm border border-dashed border-border rounded-lg p-4 text-center">No audit events recorded yet.</p>
+                                <p className="text-muted text-sm border border-dashed border-border rounded-lg p-4 text-center">{nonEmailEntries.length === 0 ? 'No audit events recorded yet.' : 'No events match your search.'}</p>
                             ) : (
                                 <>
                                     {filteredAuditLog.slice((auditPage - 1) * itemsPerPage, auditPage * itemsPerPage).map(entry => (
@@ -137,6 +191,9 @@ export const LogsDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout }) 
                                                 Target: {entry.target?.username || entry.target?.email || 'System'}
                                                 {entry.actor?.username || entry.actor?.email ? ` · Actor: ${entry.actor.username || entry.actor.email}` : ''}
                                             </p>
+                                            {summarizeDetails(entry) ? (
+                                                <p className="text-muted/80 text-[11px] mt-1 break-words">{summarizeDetails(entry)}</p>
+                                            ) : null}
                                         </div>
                                     ))}
                                     {totalAuditPages > 1 && (
