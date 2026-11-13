@@ -1997,6 +1997,30 @@ html[data-reduce-motion="1"] .smp-live-row.is-skeleton .smp-live-cell {
   .smp-live-logo { width: 2.4rem; height: 2.4rem; }
   .smp-live-channel-name { display: none; }
 }
+/* Phones: a 4-hour guide squeezed into the screen made every title unreadable. Give each hour a
+   readable width instead and let the grid scroll sideways, with the channel column pinned. */
+@media (max-width: 767px) {
+  html:not([data-tv="1"]) .smp-live-guide {
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+  }
+  html:not([data-tv="1"]) .smp-live-ruler,
+  html:not([data-tv="1"]) .smp-live-rows {
+    width: calc(var(--live-col) + var(--live-hours, 4) * 12rem);
+  }
+  html:not([data-tv="1"]) .smp-live-ruler-corner,
+  html:not([data-tv="1"]) .smp-live-channel {
+    position: sticky;
+    left: 0;
+    z-index: 4;
+    background: rgb(12, 15, 22);
+  }
+  html:not([data-tv="1"]) .smp-live-channel {
+    border-right: 1px solid rgba(255, 255, 255, 0.06);
+  }
+}
 
 /* Version picker: the Resume card with one row per file. */
 .smp-version-body {
@@ -6493,6 +6517,10 @@ html[data-reduce-motion="1"] .smp-live-hero-art {
 .smp-live-hero-cast b {
   color: rgba(255, 255, 255, 0.85);
   font-weight: 600;
+}
+.smp-live-hero-progress > span:last-child {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 .smp-live-hero-progress {
   display: flex;

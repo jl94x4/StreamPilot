@@ -429,6 +429,19 @@ export const PlayerLiveTv: React.FC<{
 
     const nowPct = startsAt && endsAt && nowSec >= startsAt && nowSec < endsAt ? pct(nowSec, startsAt, endsAt) : null;
 
+    // On phones the guide scrolls sideways: start with "now" just right of the channel column.
+    const guideRef = useRef<HTMLDivElement>(null);
+    const scrolledToNow = useRef(false);
+    useEffect(() => {
+        const el = guideRef.current;
+        if (!el || scrolledToNow.current || !rows.length || tab !== 'guide') return;
+        const line = el.querySelector<HTMLElement>('.smp-live-nowline');
+        const corner = el.querySelector<HTMLElement>('.smp-live-ruler-corner');
+        if (!line || !corner || el.scrollWidth <= el.clientWidth + 4) return;
+        scrolledToNow.current = true;
+        el.scrollLeft = Math.max(0, line.offsetLeft - corner.offsetWidth - 16);
+    }, [rows.length, tab, nowPct]);
+
     const openAiring = (airing: PlayerItem, row?: GuideRow) => setSheet({
         ...airing,
         liveChannelId: airing.liveChannelId || row?.channel.id,
@@ -582,7 +595,11 @@ export const PlayerLiveTv: React.FC<{
                     <div className="smp-live-empty"><p>{t('mediaPlayerPage.liveTvOnNowEmpty')}</p></div>
                 ) : null)
             ) : (loading || rows.length) ? (
-                <div className="smp-live-guide">
+                <div
+                    ref={guideRef}
+                    className="smp-live-guide"
+                    style={{ ['--live-hours' as string]: String(Math.max(1, (endsAt - startsAt) / 3600 || 4)) } as React.CSSProperties}
+                >
                     <div className="smp-live-ruler" aria-hidden>
                         <div className="smp-live-ruler-corner">{nowPct != null ? t('mediaPlayerPage.liveTvNow') : ''}</div>
                         <div className="smp-live-ruler-track">
