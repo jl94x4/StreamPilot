@@ -279,6 +279,41 @@ const STACK_TITLE_TYPES = new Set([
     'media_job_completed',
 ]);
 
+type NotificationCategory = 'requests' | 'scanner' | 'support' | 'system' | 'other';
+
+const categoryOf = (type?: string): NotificationCategory => {
+    const value = String(type || '');
+    if (value.startsWith('request_') || value === 'admin_pending') return 'requests';
+    if (value.startsWith('scanner_')) return 'scanner';
+    if (value.startsWith('support_')) return 'support';
+    if (value.startsWith('status_') || value.startsWith('media_job_') || value === 'collexions_failed' || value === 'spotify_sync_failed') return 'system';
+    return 'other';
+};
+
+const CATEGORY_ORDER: NotificationCategory[] = ['requests', 'scanner', 'support', 'system', 'other'];
+
+const isToday = (iso?: string) => {
+    if (!iso) return false;
+    const date = new Date(iso);
+    const now = new Date();
+    return date.getFullYear() === now.getFullYear()
+        && date.getMonth() === now.getMonth()
+        && date.getDate() === now.getDate();
+};
+
+/** "Show A, Show B" for a stack, so grouped rows name what they hold instead of repeating the generic title. */
+const stackNames = (items: InAppNotification[]) => {
+    const seen = new Set<string>();
+    const names: string[] = [];
+    for (const item of items) {
+        const raw = String(item.body || item.title || '').split('\n')[0].replace(ARR_SERVICE_MARK_RE, '').trim();
+        if (!raw || seen.has(raw.toLowerCase())) continue;
+        seen.add(raw.toLowerCase());
+        names.push(raw);
+    }
+    return names;
+};
+
 const stackTitle = (type: string, count: number, t: DiscoverTranslate) => {
     const key = STACK_TITLE_TYPES.has(type) ? `notifications.stack.${type}` : 'notifications.stack.generic';
     return t(key, { count });
@@ -418,8 +453,12 @@ const NotificationItemRow: React.FC<{
     compact?: boolean;
     expanded?: boolean;
     onToggleExpand?: () => void;
-}> = ({ item, t, onOpen, onRemove, compact = false, expanded = false, onToggleExpand }) => {
+    onAdminAction?: (item: InAppNotification, action: 'approve' | 'decline') => void;
+    busy?: boolean;
+}> = ({ item, t, onOpen, onRemove, compact = false, expanded = false, onToggleExpand, onAdminAction, busy = false }) => {
+    const [confirmDecline, setConfirmDecline] = useState(false);
     const unreadItem = !item.readAt;
+    const canAct = !!onAdminAction && item.type === 'admin_pending' && !!item.meta?.requestId;
     const dest = resolveNotificationDestination(item);
     const repeatEntries = getNotificationRepeatEntries(item);
     const repeatCount = Math.max(repeatEntries.length, Number(item?.meta?.repeatCount || 1));
@@ -466,7 +505,7 @@ const NotificationItemRow: React.FC<{
                                     <NotificationBodyText
                                         item={item}
                                         body={displayBody}
-                                        className="text-sm text-muted mt-0.5 line-clamp-2 leading-relaxed"
+                                        className="text-[13px] text-muted mt-0.5 line-clamp-2 leading-relaxed"
                                     />
                                 ) : null}
                                 <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs">
@@ -503,6 +542,7 @@ const NotificationItemRow: React.FC<{
     }
 
     return (
+        <>
         <div
             className={`group relative flex items-start ${
                 compact ? 'px-2 sm:px-3 py-1.5' : 'px-2 sm:px-3 py-2'
@@ -522,7 +562,8 @@ const NotificationItemRow: React.FC<{
                     <NotificationArtwork item={item} />
                     <div className="min-w-0 flex-1">
                         <div className="flex items-start justify-between gap-2">
-                            <p className={`text-sm leading-snug ${unreadItem ? 'font-bold text-text' : 'font-semibold text-text/90'}`}>
+                            <p className={`text-[13px] leading-snug ${unreadItem ? 'font-bold text-text' : 'font-medium text-text/65'}`}>
+                                {unreadItem ? <span className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-plex align-middle" aria-hidden="true" /> : null}
                                 {item.title}
                             </p>
                             {repeatCount > 1 && (
@@ -537,7 +578,7 @@ const NotificationItemRow: React.FC<{
                         {item.body ? (
                             <NotificationBodyText
                                 item={item}
-                                className="text-sm text-muted mt-0.5 line-clamp-2 leading-relaxed"
+                                className="text-[13px] text-muted mt-0.5 line-clamp-2 leading-relaxed"
                             />
                         ) : null}
                         {repeatCount > 1 && repeatEntries.length <= 1 ? (
@@ -563,6 +604,35 @@ const NotificationItemRow: React.FC<{
                 <X className="h-3.5 w-3.5" />
             </button>
         </div>
+        {canAct ? (
+            <div className="flex items-center gap-2 px-3 pb-2.5 pl-[4.25rem] md:pl-[4.75rem]">
+                <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => onAdminAction!(item, 'approve')}
+                    className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-50"
+                >
+                    {t('notifications.approve')}
+                </button>
+                <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                        if (!confirmDecline) { setConfirmDecline(true); return; }
+                        onAdminAction!(item, 'decline');
+                    }}
+                    onBlur={() => setConfirmDecline(false)}
+                    className={`rounded-lg border px-3 py-1 text-xs font-bold disabled:opacity-50 ${
+                        confirmDecline
+                            ? 'border-rose-500/60 bg-rose-500/20 text-rose-200'
+                            : 'border-white/10 text-muted hover:text-text'
+                    }`}
+                >
+                    {confirmDecline ? t('notifications.declineConfirm') : t('notifications.decline')}
+                </button>
+            </div>
+        ) : null}
+        </>
     );
 };
 
@@ -598,6 +668,11 @@ export const InAppNotificationsBell: React.FC<Props> = ({
     const [clearing, setClearing] = useState(false);
     const [actionError, setActionError] = useState<string | null>(null);
     const [panelBox, setPanelBox] = useState<PanelBox | null>(null);
+    const [category, setCategory] = useState<'all' | NotificationCategory>('all');
+    const [hiddenIds, setHiddenIds] = useState<Set<string> | null>(null);
+    const [undoCount, setUndoCount] = useState(0);
+    const [actingId, setActingId] = useState<string | null>(null);
+    const clearTimerRef = useRef<number | null>(null);
     const [expandedStacks, setExpandedStacks] = useState<Set<string>>(() => new Set());
     const [expandedRepeats, setExpandedRepeats] = useState<Set<string>>(() => new Set());
     const ignoreRefreshUntil = useRef(0);
@@ -746,7 +821,22 @@ export const InAppNotificationsBell: React.FC<Props> = ({
         });
     };
 
-    const stacks = useMemo(() => stackInAppNotifications(items), [items]);
+    const visibleItems = useMemo(
+        () => items.filter((item) => (
+            !(hiddenIds && hiddenIds.has(item.id))
+            && (category === 'all' || categoryOf(item.type) === category)
+        )),
+        [items, hiddenIds, category],
+    );
+    const presentCategories = useMemo(() => {
+        const found = new Set(items.map((item) => categoryOf(item.type)));
+        return CATEGORY_ORDER.filter((entry) => found.has(entry));
+    }, [items]);
+    useEffect(() => {
+        if (category !== 'all' && !presentCategories.includes(category)) setCategory('all');
+    }, [category, presentCategories]);
+
+    const stacks = useMemo(() => stackInAppNotifications(visibleItems), [visibleItems]);
 
     const toggleStack = (key: string) => {
         setExpandedStacks((current) => {
@@ -779,7 +869,7 @@ export const InAppNotificationsBell: React.FC<Props> = ({
         }
     };
 
-    const clearAll = async () => {
+    const commitClearAll = async () => {
         if (clearing) return;
         try {
             setClearing(true);
@@ -797,6 +887,44 @@ export const InAppNotificationsBell: React.FC<Props> = ({
             setActionError(String(error?.message || t('notifications.clearAllFailed')));
         } finally {
             setClearing(false);
+            setHiddenIds(null);
+            setUndoCount(0);
+        }
+    };
+
+    /** Hide everything now, but only delete after a few seconds so a mis-tap can be undone. */
+    const clearAll = () => {
+        if (clearing || clearTimerRef.current || !items.length) return;
+        setHiddenIds(new Set(items.map((item) => item.id)));
+        setUndoCount(items.length);
+        clearTimerRef.current = window.setTimeout(() => {
+            clearTimerRef.current = null;
+            void commitClearAll();
+        }, 6000);
+    };
+
+    const undoClearAll = () => {
+        if (clearTimerRef.current) window.clearTimeout(clearTimerRef.current);
+        clearTimerRef.current = null;
+        setHiddenIds(null);
+        setUndoCount(0);
+    };
+
+    const handleAdminAction = async (item: InAppNotification, action: 'approve' | 'decline') => {
+        const requestId = item.meta?.requestId;
+        if (!requestId || actingId) return;
+        setActingId(item.id);
+        setActionError(null);
+        try {
+            await apiFetch(`/api/requests/${encodeURIComponent(String(requestId))}/${action}`, {
+                method: 'POST',
+                body: JSON.stringify({ title: item.title }),
+            });
+            await removeItems([item.id]);
+        } catch (error: any) {
+            setActionError(String(error?.message || t('notifications.actionFailed')));
+        } finally {
+            setActingId(null);
         }
     };
 
@@ -892,8 +1020,8 @@ export const InAppNotificationsBell: React.FC<Props> = ({
                     ...(panelBox.top != null && panelBox.bottom != null
                         ? { top: panelBox.top, bottom: panelBox.bottom }
                         : panelBox.bottom != null
-                            ? { bottom: panelBox.bottom, height: panelBox.maxHeight, maxHeight: panelBox.maxHeight }
-                            : { top: panelBox.top, height: panelBox.maxHeight, maxHeight: panelBox.maxHeight }),
+                            ? { bottom: panelBox.bottom, maxHeight: panelBox.maxHeight }
+                            : { top: panelBox.top, maxHeight: panelBox.maxHeight }),
                 }}
             >
                 <div className="relative shrink-0 border-b border-border/70">
@@ -950,7 +1078,7 @@ export const InAppNotificationsBell: React.FC<Props> = ({
                                     </button>
                                     <button
                                         type="button"
-                                        onClick={() => { void clearAll(); }}
+                                        onClick={clearAll}
                                         disabled={clearing}
                                         className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-border/80 bg-white/5 px-3 py-1.5 text-xs font-semibold text-muted transition-all duration-200 hover:text-text hover:border-border hover:bg-white/10 active:scale-[0.97] disabled:opacity-50"
                                     >
@@ -960,20 +1088,47 @@ export const InAppNotificationsBell: React.FC<Props> = ({
                                 </div>
                             </div>
                         )}
+                        {presentCategories.length > 1 ? (
+                            <div className="-mx-1 flex items-center gap-1.5 overflow-x-auto px-1 [scrollbar-width:none]" role="group" aria-label={t('notifications.categories')}>
+                                {(['all', ...presentCategories] as const).map((entry) => (
+                                    <button
+                                        key={entry}
+                                        type="button"
+                                        onClick={() => setCategory(entry)}
+                                        aria-pressed={category === entry}
+                                        className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-bold transition-colors ${
+                                            category === entry
+                                                ? 'border-plex/50 bg-plex/15 text-plex'
+                                                : 'border-border/70 text-muted hover:text-text'
+                                        }`}
+                                    >
+                                        {t(`notifications.category.${entry}`)}
+                                    </button>
+                                ))}
+                            </div>
+                        ) : null}
                         {actionError ? (
                             <p className="text-xs font-semibold text-rose-300">{actionError}</p>
+                        ) : null}
+                        {undoCount > 0 ? (
+                            <div className="flex items-center justify-between gap-3 rounded-lg border border-border/80 bg-black/30 px-3 py-2 text-xs text-text">
+                                <span>{t('notifications.clearedCount', { count: undoCount })}</span>
+                                <button type="button" onClick={undoClearAll} className="font-bold text-plex hover:underline">
+                                    {t('notifications.undo')}
+                                </button>
+                            </div>
                         ) : null}
                     </div>
                 </div>
 
                 <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar">
                     {loading && !items.length ? (
-                        <div className="h-full flex flex-col items-center justify-center gap-3 px-6 text-center">
+                        <div className="flex flex-col items-center justify-center gap-3 px-6 py-12 text-center">
                             <span className="h-10 w-10 rounded-2xl border border-border bg-white/5 animate-pulse" />
                             <p className="text-sm text-muted">{t('common.loadingMore')}</p>
                         </div>
-                    ) : !items.length ? (
-                        <div className="h-full flex flex-col items-center justify-center gap-4 px-8 text-center">
+                    ) : !visibleItems.length ? (
+                        <div className="flex flex-col items-center justify-center gap-4 px-8 py-12 text-center">
                             <span className="inline-flex h-16 w-16 items-center justify-center rounded-2xl border border-plex/25 bg-plex/10 text-plex">
                                 <Inbox className="h-7 w-7" />
                             </span>
@@ -985,11 +1140,21 @@ export const InAppNotificationsBell: React.FC<Props> = ({
                     ) : (
                         <ul className="py-1">
                             {stacks.map((stack, index) => {
+                                const todayGroup = isToday(stack.items[0]?.createdAt);
+                                const prevToday = index > 0 ? isToday(stacks[index - 1].items[0]?.createdAt) : null;
+                                const heading = (index === 0 || prevToday !== todayGroup)
+                                    ? (
+                                        <li key={`group-${index}`} className="px-4 pb-1 pt-3 text-[10px] font-black uppercase tracking-wider text-muted/70" aria-hidden="true">
+                                            {todayGroup ? t('notifications.groupToday') : t('notifications.groupEarlier')}
+                                        </li>
+                                    )
+                                    : null;
                                 if (stack.items.length === 1) {
                                     const item = stack.items[0];
                                     return (
+                                        <React.Fragment key={item.id}>
+                                        {heading}
                                         <li
-                                            key={item.id}
                                             className="notif-row-enter border-b border-border/40 last:border-b-0"
                                             style={{ animationDelay: `${Math.min(index, 12) * 28}ms` }}
                                         >
@@ -1000,17 +1165,23 @@ export const InAppNotificationsBell: React.FC<Props> = ({
                                                 onRemove={(row) => { void removeItems([row.id]); }}
                                                 expanded={expandedRepeats.has(item.id)}
                                                 onToggleExpand={() => toggleRepeat(item.id)}
+                                                onAdminAction={handleAdminAction}
+                                                busy={actingId === item.id}
                                             />
                                         </li>
+                                        </React.Fragment>
                                     );
                                 }
                                 const newest = stack.items[0];
                                 const unreadCount = stack.items.filter((item) => !item.readAt).length;
                                 const expanded = expandedStacks.has(stack.key);
-                                const extra = Math.max(0, stack.items.length - 1);
+                                                                const names = stackNames(stack.items);
+                                const shownNames = names.slice(0, 2).join(', ');
+                                const hiddenNames = Math.max(0, names.length - 2);
                                 return (
+                                    <React.Fragment key={stack.key}>
+                                    {heading}
                                     <li
-                                        key={stack.key}
                                         className="notif-row-enter border-b border-border/40 last:border-b-0"
                                         style={{ animationDelay: `${Math.min(index, 12) * 28}ms` }}
                                     >
@@ -1036,11 +1207,14 @@ export const InAppNotificationsBell: React.FC<Props> = ({
                                                             <p className={`text-sm leading-snug ${unreadCount > 0 ? 'font-bold text-text' : 'font-semibold text-text/90'}`}>
                                                                 {stackTitle(stack.type, stack.items.length, t)}
                                                             </p>
-                                                            <ChevronDown className={`mt-0.5 h-4 w-4 shrink-0 text-muted transition-transform duration-200 ${expanded ? 'rotate-180 text-plex' : 'group-hover:text-plex'}`} />
+                                                            <span className="flex shrink-0 items-center gap-1 rounded-md border border-border/70 px-1.5 py-0.5 text-[11px] font-bold text-muted">
+                                                                {stack.items.length}
+                                                                <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-200 ${expanded ? 'rotate-180 text-plex' : 'group-hover:text-plex'}`} />
+                                                            </span>
                                                         </div>
-                                                        <p className="text-sm text-muted mt-0.5 line-clamp-2 leading-relaxed">
-                                                            {newest.title}
-                                                            {extra > 0 ? ` · ${t('notifications.stack.more', { count: extra })}` : ''}
+                                                        <p className="text-[13px] text-muted mt-0.5 line-clamp-2 leading-relaxed">
+                                                            {shownNames || newest.title}
+                                                            {hiddenNames > 0 ? ` · ${t('notifications.stack.more', { count: hiddenNames })}` : ''}
                                                         </p>
                                                         <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs">
                                                             <span className="text-muted/80">{formatRelative(newest.createdAt, t)}</span>
@@ -1082,6 +1256,7 @@ export const InAppNotificationsBell: React.FC<Props> = ({
                                             </ul>
                                         ) : null}
                                     </li>
+                                    </React.Fragment>
                                 );
                             })}
                         </ul>
