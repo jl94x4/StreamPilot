@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.706': [
+        {
+            title: 'Menu',
+            items: [
+                'The libraries button is now called More, and its panel is smaller, matches the side menu colour and splits libraries by server',
+            ],
+        },
+    ],
     '1.0.705': [
         {
             title: 'Menu',

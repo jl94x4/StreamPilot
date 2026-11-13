@@ -664,6 +664,7 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                 order={libraryOrder}
                 picks={libraryPicks}
                 navWidthRem={expanded && !iconsOnly ? 16.25 : 4.25}
+                offlineServerIds={offlineServerIds}
                 onOpenLibrary={(section) => {
                     setManageLibrariesOpen(false);
                     go(() => onOpenLibrary(section));
