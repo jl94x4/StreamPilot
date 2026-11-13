@@ -5365,11 +5365,6 @@ html[data-tv="1"] .player-tv-home-who-profile:focus-visible .player-tv-home-who-
 html[data-tv="1"] .player-tv-home-who-profile:disabled {
   opacity: 0.5;
 }
-/* The focused profile sits on a soft card, so it reads from across the room. */
-html[data-tv="1"] .player-tv-home-who-profile:focus,
-html[data-tv="1"] .player-tv-home-who-profile:focus-visible {
-  background: rgba(255, 255, 255, 0.07);
-}
 html[data-tv="1"] .player-tv-home-who [data-tv-key="home-switch-logout"] {
   color: rgba(252, 165, 165, 0.85);
 }
@@ -6816,18 +6811,33 @@ html[data-tv="1"] .player-library-filter-chip {
 html[data-tv="1"] .player-library-filter-button.is-active {
   border-color: rgba(255, 255, 255, 0.4);
 }
-/* Settings tabs reuse the Browse pill: same size and spacing, the current tab a little brighter. */
+/* Settings tabs: the Browse screen's tabs (Recommended / Browse / Collections). Bare bold text,
+   the current one bright, and the focused one a white pill with dark text. */
 html[data-tv="1"] [data-tv-settings-tabs="1"] {
-  gap: 0.75rem !important;
+  gap: 0.35rem !important;
 }
 html[data-tv="1"] [data-tv-settings-tabs="1"] [data-tv-item="1"] {
-  min-height: 2.75rem !important;
-  padding: 0.45rem 1.05rem !important;
-  font-size: calc(1rem * var(--tv-text-scale, 1)) !important;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
   justify-content: center;
+  border: 0 !important;
+  border-radius: 0.6rem !important;
+  background: transparent !important;
+  color: rgba(255, 255, 255, 0.55) !important;
+  font-size: calc(1.15rem * var(--tv-text-scale, 1)) !important;
+  padding: 0.4rem 0.85rem 0.55rem !important;
 }
-html[data-tv="1"] [data-tv-settings-tabs="1"] .player-library-filter-button.is-active {
-  background: rgba(255, 255, 255, 0.16);
+html[data-tv="1"] [data-tv-settings-tabs="1"] [data-tv-item="1"][aria-current="page"] {
+  color: #fff !important;
+}
+html[data-tv="1"] [data-tv-settings-tabs="1"] [data-tv-item="1"]:focus,
+html[data-tv="1"] [data-tv-settings-tabs="1"] [data-tv-item="1"]:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+  background: #fff !important;
+  color: #18181b !important;
+  border-radius: 9999px !important;
 }
 html[data-tv="1"] .player-library-filter-count {
   display: inline-flex;

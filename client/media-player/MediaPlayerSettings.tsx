@@ -435,8 +435,8 @@ const SettingsTabBar: React.FC<{
                     onClick={() => onChange(row.id)}
                     onFocus={() => { if (tv) onChange(row.id); }}
                     className={tv
-                        // TV: the same pill as the Browse screen's Filters and Sort buttons.
-                        ? `player-library-filter-button inline-flex items-center gap-2 rounded-full border outline-none ${selected ? 'is-active' : ''}`
+                        // TV: the same tabs as the Browse screen (Recommended / Browse / Collections).
+                        ? 'player-library-tab-pill rounded-full border px-4 py-2 text-sm font-bold outline-none'
                         : `rounded-lg border px-4 py-2 text-sm font-bold outline-none ${
                             selected
                                 ? 'border-plex/50 bg-plex/15 text-plex'
