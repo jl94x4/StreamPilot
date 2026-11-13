@@ -905,12 +905,13 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         onOpenItem(item);
     }, [onOpenItem, onPlay]);
 
-    // Continue Watching: a tap on something half-watched resumes it (the common case). Long-press
+    // Continue Watching: a tap on any playable item plays it (resuming if half-watched). Long-press
     // still offers Start over and the title page.
     const openContinueItem = useCallback((item: PlayerItem) => {
         const playable = item.type === 'movie' || item.type === 'episode';
-        if (settings.continueWatchingTapResumes && playable && shouldOfferResume(item)) {
-            onPlay(item, { skipResume: true, offsetMs: Number(item.viewOffsetMs || 0) });
+        if (settings.continueWatchingTapResumes && playable) {
+            // Half-watched: pick up where it stopped. A new / next-up episode starts from the top.
+            onPlay(item, { skipResume: true, offsetMs: shouldOfferResume(item) ? Number(item.viewOffsetMs || 0) : 0 });
             return;
         }
         onOpenItem(item);
