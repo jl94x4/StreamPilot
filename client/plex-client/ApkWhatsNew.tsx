@@ -73,6 +73,20 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.712': [
+        {
+            title: 'Connection',
+            items: [
+                'A banner now tells you when a server cannot be reached, with a Retry button on phone, and it clears itself once the server is back',
+            ],
+        },
+        {
+            title: 'Look and feel',
+            items: [
+                'A new start-up screen with an orange glow, speed streaks and a loading line',
+            ],
+        },
+    ],
     '1.0.711': [
         {
             title: 'Look and feel',
