@@ -73,6 +73,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.701': [
+        {
+            title: 'Home',
+            items: [
+                'Tap to resume is off by default: tapping a Continue Watching title opens its page again, and you can switch tap to resume on in Settings',
+            ],
+        },
+    ],
     '1.0.700': [
         {
             title: 'Home',
