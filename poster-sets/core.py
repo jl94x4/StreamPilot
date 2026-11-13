@@ -105,8 +105,8 @@ def clear_kometa_overlay(upload_target, config: Optional[dict] = None, progress:
         from clear_overlays import clear_overlays_after_poster_apply
         clear_overlays_after_poster_apply(upload_target, config=config, progress=progress)
         return
-    except Exception:
-        pass
+    except Exception as exc:
+        emit(progress, f"Overlay clean-up failed ({exc}); removing the Overlay label only.")
     for label in KOMETA_OVERLAY_LABELS:
         try:
             upload_target.removeLabel(label)

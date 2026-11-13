@@ -127,6 +127,62 @@ def labels_from_kometa_entry(entry: Optional[dict]) -> list[str]:
     return names
 
 
+def labels_from_log_entry(entry: Any) -> list[str]:
+    """Every stamp label a log row (kometa or banner stack) says the Overlays engine put on a title."""
+    names: list[str] = []
+    seen: set[str] = set()
+
+    def _add(value: object) -> None:
+        label = str(value or "").strip()
+        if label and label.casefold() not in seen:
+            seen.add(label.casefold())
+            names.append(label)
+
+    if not isinstance(entry, dict):
+        return names
+    for label in labels_from_kometa_entry(entry):
+        _add(label)
+    for field in ("overlayLabels", "labels"):
+        stored = entry.get(field)
+        if isinstance(stored, list):
+            for value in stored:
+                _add(value)
+    return names
+
+
+def labels_recorded_for_keys(data_dir: Path, keys: Iterable[str]) -> list[str]:
+    """Labels recorded for these rating keys in ANY overlay log, not just the Kometa one."""
+    wanted = [str(key).strip() for key in keys if str(key).strip()]
+    names: list[str] = []
+    seen: set[str] = set()
+    for log_name in OVERLAY_LOG_FILES:
+        log = _load_json_object(Path(data_dir) / log_name)
+        for key in wanted:
+            for label in labels_from_log_entry(log.get(key)):
+                if label.casefold() not in seen:
+                    seen.add(label.casefold())
+                    names.append(label)
+    return names
+
+
+def overlay_label_vocabulary(data_dir: Path) -> list[str]:
+    """Every label the Overlays engine has ever recorded stamping on any title.
+
+    Covers the dynamic families (ratings, network, content rating, languages, ...) that are not in the
+    fixed built-in list, so a title that lost its own log row still gets those labels stripped.
+    """
+    names: list[str] = []
+    seen: set[str] = set()
+    for log_name in OVERLAY_LOG_FILES:
+        log = _load_json_object(Path(data_dir) / log_name)
+        for entry in log.values():
+            for label in labels_from_log_entry(entry):
+                if label.casefold() not in seen:
+                    seen.add(label.casefold())
+                    names.append(label)
+    return names
+
+
 def custom_collection_label_names(data_dir: Path) -> list[str]:
     """Labels the Overlays custom-collection rules stamp (rule id + rule name, e.g. Trending).
 
@@ -260,25 +316,63 @@ def clear_overlay_labels(item, extra_labels: Optional[Iterable[str]] = None, pro
     return removed
 
 
+def _present_tags(item) -> set[str]:
+    return {_label_tag(lab).casefold() for lab in (getattr(item, "labels", None) or []) if _label_tag(lab)}
+
+
 def clear_overlays_after_poster_apply(item, config: Optional[dict] = None, progress: ProgressFn = None) -> None:
-    """Forget every Overlays stamp after Poster Sets uploaded a clean poster."""
+    """Forget every Overlays stamp after Poster Sets uploaded a clean poster.
+
+    Strips every label the Overlays engine put on the title (built-in stamps, whatever any overlay log
+    recorded for it, custom collection rules and, once the title is known to be overlay-managed, every
+    dynamic stamp label the engine has used on any title), then checks Plex really dropped them.
+    """
     if item is None:
         return
     keys = tracking_keys_for_item(item)
     data_dir = overlays_data_dir(config)
     extra: list[str] = []
-    kometa_log = _load_json_object(data_dir / "kometa_overlaid_log.json")
-    for key in keys:
-        extra.extend(labels_from_kometa_entry(kometa_log.get(key)))
+    try:
+        extra.extend(labels_recorded_for_keys(data_dir, keys))
+    except Exception:
+        pass
     try:
         extra.extend(custom_collection_label_names(data_dir))
     except Exception:
         pass
     try:
+        try:
+            item.reload()
+        except Exception:
+            pass
+        known_folded = {str(name).strip().casefold() for name in known_overlay_stamp_label_names()}
+        present = _present_tags(item)
+        managed = bool(extra) or "overlay" in present or bool(present & known_folded)
+        if managed:
+            # Overlay-managed title: also drop dynamic stamp labels (ratings, network, ...) that only
+            # appear in other titles' log rows.
+            extra.extend(overlay_label_vocabulary(data_dir))
         clear_overlay_labels(item, extra_labels=extra, progress=progress)
-        # Overlays treats any stamp label still on the item as "already stamped": say so if one stuck.
-        want = {str(name).strip().casefold() for name in list(known_overlay_stamp_label_names()) + extra if str(name).strip()}
+
+        # Overlays treats any stamp label still on the item as "already stamped" and would restore the old
+        # backup over the new art: verify with a fresh read and retry by name before giving up.
+        want = {str(name).strip().casefold() for name in list(known_folded) + extra if str(name).strip()}
+        try:
+            item.reload()
+        except Exception:
+            pass
         left = [_label_tag(lab) for lab in (getattr(item, "labels", None) or []) if _label_tag(lab).casefold() in want]
+        if left:
+            for tag in left:
+                try:
+                    item.removeLabel(tag)
+                except Exception:
+                    pass
+            try:
+                item.reload()
+            except Exception:
+                pass
+            left = [_label_tag(lab) for lab in (getattr(item, "labels", None) or []) if _label_tag(lab).casefold() in want]
         if left:
             emit(progress, f"Overlay label(s) still on the item after clearing: {', '.join(left)}")
     except Exception as exc:

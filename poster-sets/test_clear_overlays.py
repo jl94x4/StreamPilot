@@ -7,6 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from clear_overlays import (
+    clear_overlays_after_poster_apply,
     custom_collection_label_names,
     clear_overlay_labels,
     forget_overlay_tracking,
@@ -107,6 +108,47 @@ class ClearOverlaysTests(unittest.TestCase):
     def test_season_tracking_keys_include_season_ne(self):
         item = FakeItem("55", item_type="season", parent="10")
         self.assertEqual(tracking_keys_for_item(item), ["55", "season:10"])
+
+    def test_apply_clears_every_recorded_and_dynamic_label(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            kometa = {
+                "111": {"overlayLabels": ["4K-HDR", "PG-13"]},
+                # Another title used a dynamic network label; this title lost its own log row.
+                "999": {"overlayLabels": ["HBO", "8.4"]},
+            }
+            (root / "kometa_overlaid_log.json").write_text(json.dumps(kometa), encoding="utf-8")
+            (root / "overlaid_log.json").write_text(json.dumps({"111": {"labels": ["Banner-Label"]}}), encoding="utf-8")
+            item = FakeItem("111", labels=["Overlay", "4K-HDR", "PG-13", "Banner-Label", "HBO", "8.4", "Keep-Me"])
+            messages = []
+            clear_overlays_after_poster_apply(item, config={"overlays_data_dir": str(root)}, progress=messages.append)
+            self.assertEqual([lab.tag for lab in item.labels], ["Keep-Me"])
+            self.assertFalse(any("still on the item" in message for message in messages))
+
+    def test_apply_leaves_unmanaged_titles_user_labels_alone(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            (root / "kometa_overlaid_log.json").write_text(json.dumps({"999": {"overlayLabels": ["HBO"]}}), encoding="utf-8")
+            item = FakeItem("111", labels=["HBO", "Favourites"])
+            clear_overlays_after_poster_apply(item, config={"overlays_data_dir": str(root)})
+            self.assertEqual({lab.tag for lab in item.labels}, {"HBO", "Favourites"})
+
+    def test_apply_retries_a_label_plex_did_not_drop(self):
+        class StubbornItem(FakeItem):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self.calls = 0
+
+            def removeLabel(self, labels):
+                self.calls += 1
+                if self.calls == 1:
+                    return  # first attempt silently does nothing
+                super().removeLabel(labels)
+
+        with tempfile.TemporaryDirectory() as raw:
+            item = StubbornItem("111", labels=["Overlay", "4K-HDR"])
+            clear_overlays_after_poster_apply(item, config={"overlays_data_dir": raw})
+            self.assertEqual(item.labels, [])
 
 
 if __name__ == "__main__":
