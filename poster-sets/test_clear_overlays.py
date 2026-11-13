@@ -109,29 +109,37 @@ class ClearOverlaysTests(unittest.TestCase):
         item = FakeItem("55", item_type="season", parent="10")
         self.assertEqual(tracking_keys_for_item(item), ["55", "season:10"])
 
-    def test_apply_clears_every_recorded_and_dynamic_label(self):
+    def test_apply_removes_only_labels_recorded_for_the_title(self):
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
             kometa = {
                 "111": {"overlayLabels": ["4K-HDR", "PG-13"]},
-                # Another title used a dynamic network label; this title lost its own log row.
+                # Other titles' rows must not leak into this title.
                 "999": {"overlayLabels": ["HBO", "8.4"]},
             }
             (root / "kometa_overlaid_log.json").write_text(json.dumps(kometa), encoding="utf-8")
             (root / "overlaid_log.json").write_text(json.dumps({"111": {"labels": ["Banner-Label"]}}), encoding="utf-8")
-            item = FakeItem("111", labels=["Overlay", "4K-HDR", "PG-13", "Banner-Label", "HBO", "8.4", "Keep-Me"])
+            # "Trending" and "Netflix" stand in for collection / membership labels.
+            item = FakeItem("111", labels=["Overlay", "4K-HDR", "PG-13", "Banner-Label", "HBO", "Trending", "Netflix", "Keep-Me"])
             messages = []
             clear_overlays_after_poster_apply(item, config={"overlays_data_dir": str(root)}, progress=messages.append)
-            self.assertEqual([lab.tag for lab in item.labels], ["Keep-Me"])
+            self.assertEqual({lab.tag for lab in item.labels}, {"HBO", "Trending", "Netflix", "Keep-Me"})
             self.assertFalse(any("still on the item" in message for message in messages))
 
-    def test_apply_leaves_unmanaged_titles_user_labels_alone(self):
+    def test_apply_does_not_strip_collection_labels_from_untouched_titles(self):
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
+            (root / "config.json").write_text(json.dumps({"customCollectionOverlays": [{"id": "trending", "name": "Trending"}]}), encoding="utf-8")
             (root / "kometa_overlaid_log.json").write_text(json.dumps({"999": {"overlayLabels": ["HBO"]}}), encoding="utf-8")
-            item = FakeItem("111", labels=["HBO", "Favourites"])
+            item = FakeItem("111", labels=["Trending", "HBO", "Favourites"])
             clear_overlays_after_poster_apply(item, config={"overlays_data_dir": str(root)})
-            self.assertEqual({lab.tag for lab in item.labels}, {"HBO", "Favourites"})
+            self.assertEqual({lab.tag for lab in item.labels}, {"Trending", "HBO", "Favourites"})
+
+    def test_apply_without_a_row_falls_back_to_built_in_stamps_only(self):
+        with tempfile.TemporaryDirectory() as raw:
+            item = FakeItem("111", labels=["Overlay", "4K-HDR", "Trending", "Keep-Me"])
+            clear_overlays_after_poster_apply(item, config={"overlays_data_dir": raw})
+            self.assertEqual({lab.tag for lab in item.labels}, {"Trending", "Keep-Me"})
 
     def test_apply_retries_a_label_plex_did_not_drop(self):
         class StubbornItem(FakeItem):

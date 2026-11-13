@@ -165,24 +165,6 @@ def labels_recorded_for_keys(data_dir: Path, keys: Iterable[str]) -> list[str]:
     return names
 
 
-def overlay_label_vocabulary(data_dir: Path) -> list[str]:
-    """Every label the Overlays engine has ever recorded stamping on any title.
-
-    Covers the dynamic families (ratings, network, content rating, languages, ...) that are not in the
-    fixed built-in list, so a title that lost its own log row still gets those labels stripped.
-    """
-    names: list[str] = []
-    seen: set[str] = set()
-    for log_name in OVERLAY_LOG_FILES:
-        log = _load_json_object(Path(data_dir) / log_name)
-        for entry in log.values():
-            for label in labels_from_log_entry(entry):
-                if label.casefold() not in seen:
-                    seen.add(label.casefold())
-                    names.append(label)
-    return names
-
-
 def custom_collection_label_names(data_dir: Path) -> list[str]:
     """Labels the Overlays custom-collection rules stamp (rule id + rule name, e.g. Trending).
 
@@ -283,8 +265,14 @@ def _label_tag(lab: Any) -> str:
     return str(getattr(lab, "tag", None) or lab or "").strip()
 
 
-def clear_overlay_labels(item, extra_labels: Optional[Iterable[str]] = None, progress: ProgressFn = None) -> list[str]:
-    known = known_overlay_stamp_label_names()
+def clear_overlay_labels(
+    item,
+    extra_labels: Optional[Iterable[str]] = None,
+    progress: ProgressFn = None,
+    only_listed: bool = False,
+) -> list[str]:
+    """Remove overlay stamp labels. `only_listed` limits it to the listed names plus the Overlay marker."""
+    known = {"Overlay"} if only_listed else known_overlay_stamp_label_names()
     extra = [str(name).strip() for name in (extra_labels or []) if str(name).strip()]
     want_keys = {name.casefold() for name in list(known) + extra if name}
     try:
@@ -320,24 +308,38 @@ def _present_tags(item) -> set[str]:
     return {_label_tag(lab).casefold() for lab in (getattr(item, "labels", None) or []) if _label_tag(lab)}
 
 
+def has_overlay_backup(data_dir: Path, keys: Iterable[str]) -> bool:
+    """True when the Overlays engine keeps a backup of this title's original art."""
+    backups = Path(data_dir) / "backups"
+    for key in keys:
+        key = str(key).strip()
+        if not key:
+            continue
+        for folder in [backups / key, *(backups / mode / key for mode in BACKUP_MODE_DIRS)]:
+            if folder.exists():
+                return True
+    return False
+
+
 def clear_overlays_after_poster_apply(item, config: Optional[dict] = None, progress: ProgressFn = None) -> None:
     """Forget every Overlays stamp after Poster Sets uploaded a clean poster.
 
-    Strips every label the Overlays engine put on the title (built-in stamps, whatever any overlay log
-    recorded for it, custom collection rules and, once the title is known to be overlay-managed, every
-    dynamic stamp label the engine has used on any title), then checks Plex really dropped them.
+    Only labels that belong to the Overlays engine are removed. Anything else on the title, such as the
+    labels that record which collections it is in, is left alone:
+    - the title's own overlay log rows say which labels were stamped on it: those are removed (plus the
+      Overlay marker). When such a row exists nothing else is touched;
+    - with no row left, a title that still carries the Overlay marker, a built-in stamp label or an
+      overlay backup is treated as stamped and loses the built-in stamp names;
+    - a title Overlays never touched keeps all its labels.
+    The result is re-read from Plex and retried by name so nothing is left behind.
     """
     if item is None:
         return
     keys = tracking_keys_for_item(item)
     data_dir = overlays_data_dir(config)
-    extra: list[str] = []
+    recorded: list[str] = []
     try:
-        extra.extend(labels_recorded_for_keys(data_dir, keys))
-    except Exception:
-        pass
-    try:
-        extra.extend(custom_collection_label_names(data_dir))
+        recorded = labels_recorded_for_keys(data_dir, keys)
     except Exception:
         pass
     try:
@@ -347,34 +349,36 @@ def clear_overlays_after_poster_apply(item, config: Optional[dict] = None, progr
             pass
         known_folded = {str(name).strip().casefold() for name in known_overlay_stamp_label_names()}
         present = _present_tags(item)
-        managed = bool(extra) or "overlay" in present or bool(present & known_folded)
-        if managed:
-            # Overlay-managed title: also drop dynamic stamp labels (ratings, network, ...) that only
-            # appear in other titles' log rows.
-            extra.extend(overlay_label_vocabulary(data_dir))
-        clear_overlay_labels(item, extra_labels=extra, progress=progress)
+        stamped = bool(recorded) or "overlay" in present or bool(present & known_folded) or has_overlay_backup(data_dir, keys)
+        if not stamped:
+            emit(progress, "No overlay stamps on this title; its labels were left as they are.")
+        else:
+            precise = bool(recorded)
+            clear_overlay_labels(item, extra_labels=recorded, progress=progress, only_listed=precise)
 
-        # Overlays treats any stamp label still on the item as "already stamped" and would restore the old
-        # backup over the new art: verify with a fresh read and retry by name before giving up.
-        want = {str(name).strip().casefold() for name in list(known_folded) + extra if str(name).strip()}
-        try:
-            item.reload()
-        except Exception:
-            pass
-        left = [_label_tag(lab) for lab in (getattr(item, "labels", None) or []) if _label_tag(lab).casefold() in want]
-        if left:
-            for tag in left:
-                try:
-                    item.removeLabel(tag)
-                except Exception:
-                    pass
+            # Overlays treats any stamp label still on the item as "already stamped" and would restore the old
+            # backup over the new art: verify with a fresh read and retry by name before giving up.
+            want = {"overlay", *(name.casefold() for name in recorded)}
+            if not precise:
+                want |= known_folded
             try:
                 item.reload()
             except Exception:
                 pass
             left = [_label_tag(lab) for lab in (getattr(item, "labels", None) or []) if _label_tag(lab).casefold() in want]
-        if left:
-            emit(progress, f"Overlay label(s) still on the item after clearing: {', '.join(left)}")
+            if left:
+                for tag in left:
+                    try:
+                        item.removeLabel(tag)
+                    except Exception:
+                        pass
+                try:
+                    item.reload()
+                except Exception:
+                    pass
+                left = [_label_tag(lab) for lab in (getattr(item, "labels", None) or []) if _label_tag(lab).casefold() in want]
+            if left:
+                emit(progress, f"Overlay label(s) still on the item after clearing: {', '.join(left)}")
     except Exception as exc:
         emit(progress, f"Overlay label clear skipped: {exc}")
     try:
