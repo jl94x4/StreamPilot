@@ -166,6 +166,7 @@ COPY poster-sets/requirements.txt /app/poster-sets/requirements.txt
 COPY poster-sets/core.py /app/poster-sets/core.py
 COPY poster-sets/cli.py /app/poster-sets/cli.py
 COPY poster-sets/plex_identity.py /app/poster-sets/plex_identity.py
+COPY poster-sets/clear_overlays.py /app/poster-sets/clear_overlays.py
 RUN python3 -m venv /opt/poster-sets-venv \
     && /opt/poster-sets-venv/bin/pip install --no-cache-dir -r /app/poster-sets/requirements.txt \
     && chown -R node:node /app/poster-sets /opt/poster-sets-venv
