@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Search, Loader2, Sparkles, X, Film, Tv, TrendingUp, Laugh, Skull, Drama, Zap } from 'lucide-react';
+import { Search, Loader2, Sparkles, X, Film, Tv, Laugh, Skull, Drama, Zap, Clock } from 'lucide-react';
 import { SlideshowBackground } from '../shared/theme';
 import { apiFetch } from '../shared/api';
 import { discoveryTheme } from './discoveryThemeClasses';
@@ -21,9 +21,40 @@ type SearchResultProps = {
     formatItem: (item: any) => any;
     navigate?: (path: string) => void;
     searchInputRef?: React.RefObject<HTMLInputElement | null>;
+    /** Live counts for the signed-in member; each pill jumps to its tab. */
+    pills?: Array<{ id: string; label: string; count: number; path: string }>;
 };
 
-const SearchDropdown: React.FC<SearchResultProps & { anchorRect: DOMRect | null }> = ({
+type SearchScope = 'all' | 'movie' | 'tv' | 'person';
+
+const SCOPES: Array<{ id: SearchScope; label: string }> = [
+    { id: 'all', label: 'All' },
+    { id: 'movie', label: 'Movies' },
+    { id: 'tv', label: 'Series' },
+    { id: 'person', label: 'People' },
+];
+
+const RECENT_KEY = 'discoverRecentSearches';
+
+const readRecent = (): string[] => {
+    try {
+        const parsed = JSON.parse(window.localStorage.getItem(RECENT_KEY) || '[]');
+        return Array.isArray(parsed) ? parsed.filter((item) => typeof item === 'string').slice(0, 6) : [];
+    } catch {
+        return [];
+    }
+};
+
+const rememberSearch = (term: string) => {
+    const value = term.trim();
+    if (value.length < 2) return;
+    try {
+        const next = [value, ...readRecent().filter((item) => item.toLowerCase() !== value.toLowerCase())].slice(0, 6);
+        window.localStorage.setItem(RECENT_KEY, JSON.stringify(next));
+    } catch { /* ignore */ }
+};
+
+const SearchDropdown: React.FC<SearchResultProps & { anchorRect: DOMRect | null; scope: SearchScope }> = ({
     query,
     searchOpen,
     searchLoading,
@@ -33,9 +64,16 @@ const SearchDropdown: React.FC<SearchResultProps & { anchorRect: DOMRect | null 
     onSelect,
     onRetrySearch,
     formatItem,
+    scope,
 }) => {
     const { t } = useDiscoverI18n();
     if (!searchOpen || query.trim().length < 2 || !anchorRect) return null;
+    const scoped = scope === 'all'
+        ? searchResults
+        : searchResults.filter((raw) => {
+            const type = String(formatItem(raw)?.type || '');
+            return type === scope;
+        });
 
     return createPortal(
         <div
@@ -68,10 +106,10 @@ const SearchDropdown: React.FC<SearchResultProps & { anchorRect: DOMRect | null 
                         </button>
                     )}
                 </div>
-            ) : searchResults.length === 0 ? (
+            ) : scoped.length === 0 ? (
                 <div className="p-6 text-center text-muted text-sm">{t('common.noResults')}</div>
             ) : (
-                searchResults.slice(0, 20).map((rawItem, idx) => {
+                scoped.slice(0, 20).map((rawItem, idx) => {
                     const formatted = formatItem(rawItem);
                     const isPerson = formatted.type === 'person';
                     return (
@@ -103,19 +141,14 @@ const SearchDropdown: React.FC<SearchResultProps & { anchorRect: DOMRect | null 
     );
 };
 
-/** Quick picks: mixed home jumps, movie genres, and TV genres. */
+/** Genre shortcuts only; Movies / Series / Trending already live in the tab bar below. */
 const QUICK_CHIPS = [
-    { id: 'trending', labelKey: 'hero.chipTrending', icon: TrendingUp, path: '/discovery' },
-    { id: 'movies', labelKey: 'hero.chipMovies', icon: Film, path: '/discovery/movies' },
-    { id: 'series', labelKey: 'hero.chipSeries', icon: Tv, path: '/discovery/series' },
     { id: 'action', labelKey: 'hero.chipAction', icon: Zap, path: '/discovery/movies?genre=28' },
     { id: 'comedy', labelKey: 'hero.chipComedy', icon: Laugh, path: '/discovery/movies?genre=35' },
     { id: 'horror', labelKey: 'hero.chipHorror', icon: Skull, path: '/discovery/movies?genre=27' },
     { id: 'drama-tv', labelKey: 'hero.chipDramaTv', icon: Drama, path: '/discovery/series?genre=18' },
     { id: 'crime-tv', labelKey: 'hero.chipCrimeTv', icon: Tv, path: '/discovery/series?genre=80' },
     { id: 'scifi-tv', labelKey: 'hero.chipSciFiTv', icon: Sparkles, path: '/discovery/series?genre=10765' },
-    { id: 'fresh', labelKey: 'hero.chipFresh', icon: Film, path: '/discovery/movies?sort=primary_release_date.desc&dateGte=' },
-    { id: 'fresh-tv', labelKey: 'hero.chipFreshTv', icon: Sparkles, path: '/discovery/series?sort=first_air_date.desc&dateGte=' },
 ] as const;
 
 export const DiscoverHeroHeader: React.FC<SearchResultProps> = (props) => {
@@ -126,6 +159,28 @@ export const DiscoverHeroHeader: React.FC<SearchResultProps> = (props) => {
     const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
     const searchWrapRef = useRef<HTMLDivElement>(null);
     const localInputRef = useRef<HTMLInputElement>(null);
+    const [scope, setScope] = useState<SearchScope>('all');
+    const [recent, setRecent] = useState<string[]>(readRecent);
+    const pills = (props.pills || []).filter((pill) => pill.count > 0);
+
+    // "/" jumps to search from anywhere on the page (desktop keyboards).
+    useEffect(() => {
+        const onKey = (event: KeyboardEvent) => {
+            if (event.key !== '/' || event.metaKey || event.ctrlKey || event.altKey) return;
+            const el = document.activeElement as HTMLElement | null;
+            if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+            event.preventDefault();
+            localInputRef.current?.focus();
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, []);
+
+    const handleSelect = (formatted: any) => {
+        rememberSearch(query);
+        setRecent(readRecent());
+        props.onSelect(formatted);
+    };
 
     const setInputRef = (node: HTMLInputElement | null) => {
         localInputRef.current = node;
@@ -180,26 +235,8 @@ export const DiscoverHeroHeader: React.FC<SearchResultProps> = (props) => {
         return () => document.removeEventListener('mousedown', handlePointerDown);
     }, [props.searchOpen, props.onClose]);
 
-    const freshFrom = () => {
-        const from = new Date();
-        from.setFullYear(from.getFullYear() - 1);
-        return from.toISOString().slice(0, 10);
-    };
-
     const handleChip = (chip: (typeof QUICK_CHIPS)[number]) => {
         if (!navigate) return;
-        if (chip.id === 'fresh') {
-            navigate(`/discovery/movies?sort=primary_release_date.desc&dateGte=${freshFrom()}`);
-            return;
-        }
-        if (chip.id === 'fresh-tv') {
-            navigate(`/discovery/series?sort=first_air_date.desc&dateGte=${freshFrom()}`);
-            return;
-        }
-        if (chip.id === 'trending') {
-            navigate('/discovery');
-            return;
-        }
         navigate(chip.path);
     };
 
@@ -219,48 +256,89 @@ export const DiscoverHeroHeader: React.FC<SearchResultProps> = (props) => {
                     <div className="absolute inset-0 bg-background/20 pointer-events-none" />
                 </div>
 
-                <div className="relative z-10 p-6 sm:p-10 flex flex-col items-center justify-center text-center gap-4 sm:gap-5">
-                    <Sparkles className="w-10 h-10 sm:w-12 sm:h-12 text-plex opacity-90 drop-shadow-lg" />
-                    <div className="flex flex-col gap-1.5">
+                <div className="relative z-10 flex flex-col gap-3 p-4 sm:p-6">
+                    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
                         <h1 className={discoveryTheme.heroTitle}>
                             {t('hero.title')}
                         </h1>
-                        <p className="text-sm text-muted max-w-xl mx-auto">
-                            {t('hero.subtitle')}
-                        </p>
+                        {pills.length > 0 && navigate ? (
+                            <div className="flex flex-wrap items-center gap-2">
+                                {pills.map((pill) => (
+                                    <button
+                                        key={pill.id}
+                                        type="button"
+                                        onClick={() => navigate(pill.path)}
+                                        className={discoveryTheme.heroChip}
+                                    >
+                                        <span className="rounded-full bg-plex px-1.5 text-[10px] font-black leading-4 text-background">{pill.count}</span>
+                                        {pill.label}
+                                    </button>
+                                ))}
+                            </div>
+                        ) : null}
                     </div>
 
-                    <div ref={searchWrapRef} className="w-full max-w-3xl relative mt-1">
-                        <Search className="w-4 h-4 sm:w-5 sm:h-5 text-muted absolute left-3.5 sm:left-4 top-1/2 -translate-y-1/2 z-10" />
-                        <input
-                            ref={setInputRef}
-                            type="text"
-                            inputMode="search"
-                            enterKeyHint="search"
-                            autoComplete="off"
-                            autoCorrect="off"
-                            autoCapitalize="none"
-                            spellCheck={false}
-                            placeholder={t('hero.searchPlaceholder')}
-                            value={query}
-                            onChange={(e) => onQueryChange(e.target.value)}
-                            onFocus={onFocus}
-                            className={discoveryTheme.searchInput}
-                            aria-label={t('hero.searchAria')}
-                        />
-                        {query && (
-                            <button
-                                type="button"
-                                onClick={onClear}
-                                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted hover:text-text z-10"
-                            >
-                                <X className="w-4 h-4" />
-                            </button>
-                        )}
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                        <div ref={searchWrapRef} className="relative w-full sm:flex-1">
+                            <Search className="w-4 h-4 sm:w-5 sm:h-5 text-muted absolute left-3.5 sm:left-4 top-1/2 -translate-y-1/2 z-10" />
+                            <input
+                                ref={setInputRef}
+                                type="text"
+                                inputMode="search"
+                                enterKeyHint="search"
+                                autoComplete="off"
+                                autoCorrect="off"
+                                autoCapitalize="none"
+                                spellCheck={false}
+                                placeholder={t('hero.searchPlaceholder')}
+                                value={query}
+                                onChange={(e) => onQueryChange(e.target.value)}
+                                onFocus={onFocus}
+                                className={discoveryTheme.searchInput}
+                                aria-label={t('hero.searchAria')}
+                            />
+                            {query ? (
+                                <button
+                                    type="button"
+                                    onClick={onClear}
+                                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted hover:text-text z-10"
+                                    aria-label="Clear search"
+                                >
+                                    <X className="w-4 h-4" />
+                                </button>
+                            ) : (
+                                <kbd className="pointer-events-none absolute right-3.5 top-1/2 hidden -translate-y-1/2 rounded border border-border/80 px-1.5 text-[10px] font-bold text-muted/70 md:block">/</kbd>
+                            )}
+                        </div>
+                        <div className="flex shrink-0 gap-1 self-start rounded-xl border border-border/80 bg-background/85 p-1 sm:self-auto" role="group" aria-label="Search scope">
+                            {SCOPES.map((item) => (
+                                <button
+                                    key={item.id}
+                                    type="button"
+                                    onClick={() => setScope(item.id)}
+                                    aria-pressed={scope === item.id}
+                                    className={`rounded-lg px-2.5 py-1.5 text-[11px] font-bold transition-colors ${scope === item.id ? 'bg-plex text-background' : 'text-muted hover:text-text'}`}
+                                >
+                                    {item.label}
+                                </button>
+                            ))}
+                        </div>
                     </div>
 
-                    {navigate && (
-                        <div className="flex flex-wrap items-center justify-center gap-2 max-w-4xl">
+                    {navigate ? (
+                        <div className="-mx-1 flex items-center gap-2 overflow-x-auto px-1 pb-0.5 [scrollbar-width:none]">
+                            {!query && recent.length > 0 ? recent.slice(0, 3).map((term) => (
+                                <button
+                                    key={`recent-${term}`}
+                                    type="button"
+                                    onClick={() => { onQueryChange(term); localInputRef.current?.focus(); }}
+                                    className={`${discoveryTheme.heroChip} shrink-0`}
+                                    title="Recent search"
+                                >
+                                    <Clock className="w-3.5 h-3.5" />
+                                    {term}
+                                </button>
+                            )) : null}
                             {QUICK_CHIPS.map((chip) => {
                                 const Icon = chip.icon;
                                 return (
@@ -268,7 +346,7 @@ export const DiscoverHeroHeader: React.FC<SearchResultProps> = (props) => {
                                         key={chip.id}
                                         type="button"
                                         onClick={() => handleChip(chip)}
-                                        className={discoveryTheme.heroChip}
+                                        className={`${discoveryTheme.heroChip} shrink-0`}
                                     >
                                         <Icon className="w-3.5 h-3.5" />
                                         {t(chip.labelKey)}
@@ -276,11 +354,11 @@ export const DiscoverHeroHeader: React.FC<SearchResultProps> = (props) => {
                                 );
                             })}
                         </div>
-                    )}
+                    ) : null}
                 </div>
             </div>
 
-            <SearchDropdown {...props} anchorRect={anchorRect} />
+            <SearchDropdown {...props} onSelect={handleSelect} anchorRect={anchorRect} scope={scope} />
         </>
     );
 };

@@ -487,6 +487,11 @@ const DiscoveryDashboardInner: React.FC<{
         formatItem,
         navigate,
         searchInputRef,
+        pills: [
+            { id: 'requests', label: t('hero.pillRequests'), count: myPendingCount, path: '/discovery/requests' },
+            { id: 'issues', label: t('hero.pillIssues'), count: myOpenIssueCount, path: '/discovery/issues' },
+            { id: 'queue', label: t('hero.pillQueue'), count: isAdmin && showReviewQueue ? queueBadgeCount : 0, path: '/discovery/queue' },
+        ],
         onSelect: (formatted: any) => {
             if (formatted.type === 'person') {
                 navigate(`/discovery/person/${formatted.id}`);
