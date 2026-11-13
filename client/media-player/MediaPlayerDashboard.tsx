@@ -29,7 +29,8 @@ import {
 } from './watchTogetherClient';
 import { captureTvFocusSnapshot, hasRememberedTvFocus, rememberTvFocusKey, restoreTvFocusWhenReady } from '../plex-client/useTvRemote';
 import { isAndroidTvUi } from '../plex-client/config';
-import { PLAYER_APP_BASE, PLAYER_NAVIGATE_EVENT, PLAYER_SCROLL_ID, PLAYER_TV_NAV_EVENT } from './paths';
+import { PLAYER_APP_BASE, PLAYER_HOME_LIVE_EVENT, PLAYER_NAVIGATE_EVENT, PLAYER_SCROLL_ID, PLAYER_TV_NAV_EVENT } from './paths';
+import { PlayerOfflineBanner } from './PlayerOfflineBanner';
 import { usePlayerSettings } from './usePlayerSettings';
 import { PlayerResumeDialog } from './PlayerResumeDialog';
 import { PlayerStillWatchingDialog } from './PlayerStillWatchingDialog';
@@ -608,21 +609,39 @@ export const MediaPlayerDashboard: React.FC = () => {
         };
     }, [applyLibraries]);
 
-    const refreshServerStatus = useCallback(() => {
-        void fetchMediaPlayerServerStatus()
+    const [offlineServerNames, setOfflineServerNames] = useState<string[]>([]);
+    const [connectionDown, setConnectionDown] = useState(false);
+    const [statusChecking, setStatusChecking] = useState(false);
+    const statusFailuresRef = useRef(0);
+    const refreshServerStatus = useCallback(() => (
+        fetchMediaPlayerServerStatus()
             .then((data) => {
                 const rows = Array.isArray(data?.servers) ? data.servers : [];
                 // Always replace — never sticky-accumulate false offline marks from a blip.
-                const offline = rows
-                    .filter((row) => row && row.online === false && String(row.id || '').trim())
-                    .map((row) => String(row.id));
-                setOfflineServerIds(offline);
+                const down = rows.filter((row) => row && row.online === false && String(row.id || '').trim());
+                setOfflineServerIds(down.map((row) => String(row.id)));
+                setOfflineServerNames(down.map((row) => String(row.name || row.id)));
+                statusFailuresRef.current = 0;
+                setConnectionDown(false);
             })
             .catch(() => {
                 // Status probe failed (network blip) — do NOT paint every library offline.
                 setOfflineServerIds([]);
-            });
-    }, []);
+                setOfflineServerNames([]);
+                // One miss is a blip; two in a row (a minute apart) means the connection is down.
+                statusFailuresRef.current += 1;
+                if (statusFailuresRef.current >= 2) setConnectionDown(true);
+            })
+    ), []);
+
+    const retryServerStatus = useCallback(() => {
+        setStatusChecking(true);
+        void refreshServerStatus().finally(() => {
+            setStatusChecking(false);
+            // Reload Home in place if the server is back.
+            window.dispatchEvent(new Event(PLAYER_HOME_LIVE_EVENT));
+        });
+    }, [refreshServerStatus]);
 
     useEffect(() => {
         refreshServerStatus();
@@ -1433,6 +1452,14 @@ export const MediaPlayerDashboard: React.FC = () => {
 
     return (
         <div className="relative flex h-full min-h-0 w-full flex-col">
+            {!playSession && (offlineServerNames.length > 0 || connectionDown) ? (
+                <PlayerOfflineBanner
+                    names={connectionDown ? [] : offlineServerNames}
+                    checking={statusChecking}
+                    tv={tvShell}
+                    onRetry={retryServerStatus}
+                />
+            ) : null}
             {tvShell && settings.showClock && !playSession && view.kind !== 'settings' && view.kind !== 'history' && !(view.kind === 'library' && view.tab === 'browse') ? <PlayerTvClock /> : null}
             <MediaPlayerNav
                 libraries={libraries}
