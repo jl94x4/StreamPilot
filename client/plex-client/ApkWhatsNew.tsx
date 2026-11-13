@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.711': [
+        {
+            title: 'Look and feel',
+            items: [
+                'TV Settings tabs now look like the Browse tabs',
+                'The focused profile in Switch User keeps just the orange ring, with no grey card behind it',
+            ],
+        },
+    ],
     '1.0.710': [
         {
             title: 'Look and feel',
