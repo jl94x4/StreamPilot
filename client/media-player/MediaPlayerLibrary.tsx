@@ -1512,6 +1512,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                 active={active}
                 loading={homeBusy}
                 rows={tvRecommendedRows}
+                allowViewAll
                 density={recommendedPosterDensity}
                 resetKey={sectionKey}
                 ariaLabel={title}

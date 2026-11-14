@@ -421,7 +421,7 @@ const resizePlexArtUrlUncached = (
     }
 };
 
-export const plexImageUrl = (path?: string | null, width = PLAYER_POSTER_WIDTH, height = PLAYER_POSTER_HEIGHT, opts?: { fit?: 'contain' | 'cover'; quality?: number }) => {
+export const plexImageUrl = (path?: string | null, width = PLAYER_POSTER_WIDTH, height = PLAYER_POSTER_HEIGHT, opts?: { fit?: 'contain' | 'cover'; quality?: number; serverId?: string | null }) => {
     if (!path) return '';
     // Already-loaded artwork (Live TV LAN images as blob URLs): nothing to resize.
     if (isDirectImageSrc(path) && /^(blob|data):/i.test(path)) return path;
@@ -435,6 +435,8 @@ export const plexImageUrl = (path?: string | null, width = PLAYER_POSTER_WIDTH, 
     });
     if (opts?.fit === 'contain') params.set('fit', 'contain');
     params.set('quality', String(opts?.quality ?? PLAYER_POSTER_QUALITY));
+    const serverId = String(opts?.serverId || '').trim();
+    if (serverId) params.set('server', serverId);
     return portalUrl(`${PLAYER_IMAGE_PATH}?${params.toString()}`);
 };
 
@@ -1197,6 +1199,44 @@ export const formatEpisodeCode = (item?: PlayerItem | null) => {
     return `S${season} · E${episode}`;
 };
 
+export type NewSeasonInfo = { whenKey: 'today' | 'yesterday' | 'past' | 'soon'; day: string };
+
+/**
+ * A show whose newest season has just started: an episode 1 of season 2+ (or a season 2+ row)
+ * that premiered within the last two weeks. Plex data only. Null for anything else.
+ */
+export const newSeasonInfo = (item?: PlayerItem | null, now: Date = new Date()): NewSeasonInfo | null => {
+    if (!item) return null;
+    const isEpisodeOne = item.type === 'episode' && Number(item.parentIndex) >= 2 && Number(item.index) === 1;
+    const isLaterSeason = item.type === 'season' && Number(item.index) >= 2;
+    // A movie or show that is about to arrive (or arrives today) also gets the line.
+    const isComingTitle = item.type === 'movie' || item.type === 'show';
+    if (!isEpisodeOne && !isLaterSeason && !isComingTitle) return null;
+    const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(item.originallyAvailableAt || '').trim());
+    if (!match) return null;
+    const aired = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const days = Math.round((today.getTime() - aired.getTime()) / 86400000);
+    if (!Number.isFinite(days) || days > 14 || days < -7) return null;
+    if (isComingTitle && days > 0) return null;
+    const day = aired.toLocaleDateString(undefined, { weekday: 'long' });
+    if (days === 0) return { whenKey: 'today', day };
+    if (days === 1) return { whenKey: 'yesterday', day };
+    return { whenKey: days < 0 ? 'soon' : 'past', day };
+};
+
+/** One-line text for a premiere, e.g. "Premieres Today". */
+export const premiereLineText = (
+    info: NewSeasonInfo | null,
+    t: (key: string, vars?: Record<string, string | number>) => string,
+): string => {
+    if (!info) return '';
+    if (info.whenKey === 'today') return t('mediaPlayerPage.premieresToday');
+    if (info.whenKey === 'yesterday') return t('mediaPlayerPage.premieredYesterday');
+    if (info.whenKey === 'soon') return t('mediaPlayerPage.premieresOn', { day: info.day });
+    return t('mediaPlayerPage.premieredOn', { day: info.day });
+};
+
 let cachedDateFormat: PlayerDateFormat | null = null;
 if (typeof window !== 'undefined') {
     window.addEventListener(PLAYER_SETTINGS_EVENT, () => { cachedDateFormat = null; });
@@ -1358,7 +1398,7 @@ export const withShowPoster = (item: PlayerItem): PlayerItem => {
         || (targetKey ? `/library/metadata/${targetKey}/thumb` : '');
     const absolute = stamped
         ? (
-            plexImageUrl(stamped, PLAYER_POSTER_WIDTH, PLAYER_POSTER_HEIGHT, { quality: PLAYER_POSTER_QUALITY })
+            plexImageUrl(stamped, PLAYER_POSTER_WIDTH, PLAYER_POSTER_HEIGHT, { quality: PLAYER_POSTER_QUALITY, serverId: item.serverId })
             || stamped
         )
         : '';
@@ -1628,7 +1668,7 @@ export const toPosterCardItem = (item: PlayerItem) => {
             thumb,
             PLAYER_POSTER_WIDTH,
             PLAYER_POSTER_HEIGHT,
-            { quality: PLAYER_POSTER_QUALITY },
+            { quality: PLAYER_POSTER_QUALITY, serverId: item.serverId },
         ) || thumb;
     }
     const remoteThumb = isDirectImageSrc(thumb)
@@ -1641,7 +1681,7 @@ export const toPosterCardItem = (item: PlayerItem) => {
     const posterFallbackUrl = heroOriginal && heroOriginal !== thumb
         ? heroOriginal
         : movieLeafFallback
-            ? plexImageUrl(leafThumb, PLAYER_POSTER_WIDTH, PLAYER_POSTER_HEIGHT, { quality: PLAYER_POSTER_QUALITY })
+            ? plexImageUrl(leafThumb, PLAYER_POSTER_WIDTH, PLAYER_POSTER_HEIGHT, { quality: PLAYER_POSTER_QUALITY, serverId: item.serverId })
                 || `/api/plex/image?path=${encodeURIComponent(leafThumb)}&width=${PLAYER_POSTER_WIDTH}&height=${PLAYER_POSTER_HEIGHT}&quality=${PLAYER_POSTER_QUALITY}`
             : undefined;
     return {

@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { Check } from 'lucide-react';
 import { fetchMediaPlayerItem, prefetchMediaPlayerItem } from './api';
 import { peekRememberedTvFocusKey, pinTvRailItemToSlot, visibleHomeStage } from '../plex-client/useTvRemote';
-import { homeRailPosterDensity, PlayerTvHomeStageSkeleton } from './host';
+import { homeRailPosterDensity, PlayerTvHomeStageSkeleton, useDiscoverI18n } from './host';
 import { CommonSenseMediaIcon } from './CommonSenseMediaIcon';
 import { PlayerClearLogo } from './PlayerClearLogo';
 import { PlayerServiceBrandMark } from './PlayerServiceBrandMark';
@@ -232,8 +232,11 @@ export const PlayerTvSpot: React.FC<{ item: PlayerItem | null }> = ({ item }) =>
         ).trim()
         : '';
     const epLine = [epCode, episodeTitle].filter(Boolean).join(' · ');
-    const date = formatPlayerDate(item.originallyAvailableAt);
+    const { t } = useDiscoverI18n();
+    const dateText = formatPlayerDate(item.originallyAvailableAt);
     const dateIsFuture = isFuturePlayerDate(item.originallyAvailableAt);
+    // Not out yet: "Releasing on November 20, 2026" (and orange).
+    const date = dateText && dateIsFuture ? t('mediaPlayerPage.releasingOn', { date: dateText }) : dateText;
     const duration = formatPlayerDuration(item.durationMs);
     const rating = String(item.contentRating || '').trim();
     const year = item.type === 'episode' ? '' : (item.year ? String(item.year) : '');

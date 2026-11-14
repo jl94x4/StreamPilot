@@ -4,7 +4,7 @@ import { DiscoverPosterCard, useDiscoverI18n } from './host';
 import { prefetchMediaPlayerItem } from './api';
 import { PlayerItemMenu, type PlayerItemMenuHandle } from './PlayerItemMenu';
 import { watchedTickPositionClass } from './playerSettings';
-import { applyRememberedProgress, formatEpisodeCode, formatRemainingWatchTime, heroRailCardImageUrl, heroRowSubtitle, PLAYER_PROGRESS_EVENT, playerItemBackdropUrl, plexBackdropUrl, PLAYER_POSTER_QUALITY, prefetchPlayerImages, progressPercent, remainingWatchMs, resizePlexArtUrl, resolvePlayerCardAspect, toPosterCardItem } from './playerUtils';
+import { applyRememberedProgress, formatEpisodeCode, formatRemainingWatchTime, heroRailCardImageUrl, heroRowSubtitle, newSeasonInfo, PLAYER_PROGRESS_EVENT, premiereLineText, playerItemBackdropUrl, plexBackdropUrl, PLAYER_POSTER_QUALITY, prefetchPlayerImages, progressPercent, remainingWatchMs, resizePlexArtUrl, resolvePlayerCardAspect, toPosterCardItem } from './playerUtils';
 import { usePlayerSettings } from './usePlayerSettings';
 import { hideEpisodeSpoilers } from './spoilers';
 import { isLanHttpImage, loadLanImage } from './lanImage';
@@ -159,6 +159,9 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
         : posterItem;
     const heroLine = item.heroCard ? heroRowSubtitle(item) : '';
     const episodeCode = formatEpisodeCode(item);
+    // Optional (Settings): a show's newest season just started. Portrait posters only.
+    const newSeason = settings.showNewSeasonBadge && !item.heroCard && resolvedAspect === '2/3' ? newSeasonInfo(item) : null;
+    const newSeasonLine = premiereLineText(newSeason, t);
     const phoneLines = phoneUi && !item.heroCard ? phoneCaptionLines(item) : null;
     // Nested menu/play/watched controls inside the poster <button> break Android TV spatial nav.
     const menuAllowed = showMenu && item.type !== 'collection' && item.type !== 'artist' && item.type !== 'album' && item.type !== 'playlist' && item.type !== 'person';
@@ -356,6 +359,9 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
                         {phoneLines[1] ? (
                             <div className="mt-0.5 truncate text-[0.8rem] leading-tight text-muted">{phoneLines[1]}</div>
                         ) : null}
+                        {newSeasonLine ? (
+                            <div className="mt-0.5 truncate text-[0.8rem] font-bold leading-tight text-plex">{newSeasonLine}</div>
+                        ) : null}
                     </div>
                 ) : (
                     <div className="player-poster-caption px-1 text-left">
@@ -379,6 +385,11 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
                                             {secondary}
                                         </div>
                                     ) : null}
+                                    {newSeasonLine ? (
+                                        <div className={`${isTvShell ? 'text-sm' : 'text-[11px]'} mt-0.5 truncate font-bold text-plex`}>
+                                            {newSeasonLine}
+                                        </div>
+                                    ) : null}
                                 </>
                             );
                         })() : (
@@ -389,6 +400,11 @@ export const PlayerPosterCard = memo(function PlayerPosterCard({
                                 {item.year || captionNote ? (
                                     <div className={`${isTvShell ? 'text-sm' : 'text-[11px]'} mt-0.5 truncate text-muted`}>
                                         {[item.year ? String(item.year) : '', captionNote || ''].filter(Boolean).join(' · ')}
+                                    </div>
+                                ) : null}
+                                {newSeasonLine ? (
+                                    <div className={`${isTvShell ? 'text-sm' : 'text-[11px]'} mt-0.5 truncate font-bold text-plex`}>
+                                        {newSeasonLine}
                                     </div>
                                 ) : null}
                             </>

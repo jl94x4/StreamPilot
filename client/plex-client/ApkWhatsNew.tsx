@@ -73,6 +73,76 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.721': [
+        {
+            title: 'Rows',
+            items: [
+                'View more now keeps loading titles as you scroll, on Home and on library Recommended rows',
+                'Library Recommended rows on TV now end with a View more tile',
+            ],
+        },
+    ],
+    '1.0.720': [
+        {
+            title: 'Dates',
+            items: [
+                'A release date still to come now reads Releasing on, in orange',
+            ],
+        },
+    ],
+    '1.0.719': [
+        {
+            title: 'Overview',
+            items: [
+                'The movie tagline now shows under the logo on the overview page',
+            ],
+        },
+    ],
+    '1.0.718': [
+        {
+            title: 'Premiere dates',
+            items: [
+                'New optional setting, Premiere dates (off by default): shows Premieres Today and similar under a title when a new season or release has just landed',
+                'The overview page shows the full release date, orange when it is still to come',
+            ],
+        },
+    ],
+    '1.0.717': [
+        {
+            title: 'Multiple servers',
+            items: [
+                'Fixed missing or cropped posters on Recently Added rows from your second server',
+            ],
+        },
+    ],
+    '1.0.716': [
+        {
+            title: 'Multiple servers',
+            items: [
+                'The server name now shows reliably in File info and the long-press menu when you use more than one server',
+            ],
+        },
+        {
+            title: 'Home rows',
+            items: [
+                'Collections labelled PMM, Overlay or Trending are no longer merged into one row just because they share that label',
+            ],
+        },
+    ],
+    '1.0.715': [
+        {
+            title: 'Multiple servers',
+            items: [
+                'File info and the long-press menu now show which server an item is on (the menu line appears when you have more than one server)',
+            ],
+        },
+        {
+            title: 'Fixes',
+            items: [
+                'The clock no longer sits on top of the close button on the File info screen',
+            ],
+        },
+    ],
     '1.0.714': [
         {
             title: 'Look and feel',

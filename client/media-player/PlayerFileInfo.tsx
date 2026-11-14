@@ -3,7 +3,7 @@ import { X } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useDiscoverI18n } from './host';
 import { formatBitrateMbps, formatBytes, formatMediaAudioLine, formatMediaVideoLine, plexImageUrl } from './playerUtils';
-import { readPlayerLibrariesCache } from './playerMemory';
+import { playerServerNameFor } from './playerMemory';
 import type { PlayerItem, PlayerMediaInfo, PlayerMediaPartInfo, PlayerMediaStreamInfo } from './types';
 
 type Props = {
@@ -61,19 +61,17 @@ export const PlayerFileInfo: React.FC<Props> = ({
     }, [item.mediaInfo, mediaIndex]);
     const released = formatRelease(item.originallyAvailableAt);
     // Which server owns this title (useful with several servers, e.g. your own and a friend's).
-    const serverName = useMemo(() => {
-        const id = String(item.serverId || '').trim();
-        if (!id) return '';
-        try {
-            const row = readPlayerLibrariesCache().find((section) => String(section.serverId || '') === id && section.serverName);
-            return String(row?.serverName || '').trim();
-        } catch {
-            return '';
-        }
-    }, [item.serverId]);
+    const serverName = useMemo(() => playerServerNameFor(item.serverId), [item.serverId]);
+
+    // The TV clock sits in the same corner as the close button — hide it while this screen is up.
+    useEffect(() => {
+        const root = document.documentElement;
+        root.classList.add('smp-file-info-open');
+        return () => root.classList.remove('smp-file-info-open');
+    }, []);
 
     useEffect(() => {
-        const onKey = (event: KeyboardEvent) => {
+        const onKey =(event: KeyboardEvent) => {
             if (event.key === 'Escape') onClose();
         };
         const onOverlayClose = () => onClose();

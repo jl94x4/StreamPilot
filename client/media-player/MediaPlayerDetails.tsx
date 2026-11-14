@@ -45,6 +45,8 @@ import {
     formatMediaAudioLine,
     formatMediaVideoLine,
     formatPlayerDate,
+    newSeasonInfo,
+    premiereLineText,
     formatPlayerDuration,
     formatPlayerResolution,
     isFuturePlayerDate,
@@ -2422,7 +2424,16 @@ export const MediaPlayerDetails: React.FC<Props> = ({
     const metaChips = [
         episodeCode ? { icon: null, label: episodeCode } : null,
         item.contentRating ? { icon: null, label: String(item.contentRating) } : null,
-        item.year ? { icon: <Calendar className="h-3 w-3" />, label: String(item.year) } : null,
+        // Full release date (orange when it is still to come), like the Home spotlight; year if no date.
+        formatPlayerDate(item.originallyAvailableAt, locale)
+            ? {
+                icon: <Calendar className="h-3 w-3" />,
+                label: isFuturePlayerDate(item.originallyAvailableAt)
+                    ? t('mediaPlayerPage.releasingOn', { date: formatPlayerDate(item.originallyAvailableAt, locale) })
+                    : formatPlayerDate(item.originallyAvailableAt, locale),
+                accent: isFuturePlayerDate(item.originallyAvailableAt),
+            }
+            : (item.year ? { icon: <Calendar className="h-3 w-3" />, label: String(item.year) } : null),
         item.durationMs ? { icon: <Clock className="h-3 w-3" />, label: formatPlayerDuration(item.durationMs) } : null,
         (item.type === 'show' || item.type === 'season') && totalLeaves > 0
             ? { icon: null, label: t('mediaPlayerPage.episodeProgressValue', { watched: watchedLeaves, total: totalLeaves }) }
@@ -2455,8 +2466,8 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                 title: playerHdrBadgeTitle(badge),
             };
         })(),
-    ].filter(Boolean) as Array<{ icon: React.ReactNode; label: string; title?: string }>;
-    type MetaChip = { icon: React.ReactNode; label: string; title?: string };
+    ].filter(Boolean) as Array<{ icon: React.ReactNode; label: string; title?: string; accent?: boolean }>;
+    type MetaChip = { icon: React.ReactNode; label: string; title?: string; accent?: boolean };
     // TV episode / season pages: the same pills as a show page, for the episode in focus.
     const hubMetaChips: MetaChip[] = isTvShell && (item.type === 'episode' || item.type === 'season')
         ? ([
@@ -2468,7 +2479,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                 : null,
             hubItem.type === 'episode'
                 ? (formatPlayerDate(hubItem.originallyAvailableAt, locale)
-                    ? { icon: <Calendar className="h-3 w-3" />, label: formatPlayerDate(hubItem.originallyAvailableAt, locale) }
+                    ? { icon: <Calendar className="h-3 w-3" />, label: isFuturePlayerDate(hubItem.originallyAvailableAt) ? t('mediaPlayerPage.releasingOn', { date: formatPlayerDate(hubItem.originallyAvailableAt, locale) }) : formatPlayerDate(hubItem.originallyAvailableAt, locale), accent: isFuturePlayerDate(hubItem.originallyAvailableAt) }
                     : null)
                 : (hubItem.year ? { icon: <Calendar className="h-3 w-3" />, label: String(hubItem.year) } : null),
             hubItem.durationMs ? { icon: <Clock className="h-3 w-3" />, label: formatPlayerDuration(hubItem.durationMs) } : null,
@@ -2508,7 +2519,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                             {chip.icon}
                         </span>
                     ) : null}
-                    <span className="leading-none">{chip.label}</span>
+                    <span className={chip.accent ? 'leading-none text-plex' : 'leading-none'}>{chip.label}</span>
                 </div>
             ))}
         </div>
@@ -2697,8 +2708,12 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         </div>
     ) : null;
 
+    const premiereLine = settings.showNewSeasonBadge ? premiereLineText(newSeasonInfo(item), t) : '';
     const titleMetaBlock = (
         <>
+            {premiereLine ? (
+                <p className="text-sm font-bold text-plex drop-shadow-md sm:text-base">{premiereLine}</p>
+            ) : null}
             {item.tagline ? (
                 <p className="text-sm sm:text-base text-white/80 italic max-w-3xl drop-shadow-md">{item.tagline}</p>
             ) : null}
@@ -2883,6 +2898,9 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                 mobileShowTitleNode
             )}
             <h1 className="sr-only">{item.title}</h1>
+            {phoneUi && premiereLine ? (
+                <p className="mt-2 text-center text-[0.95rem] font-bold text-plex drop-shadow-[0_2px_10px_rgba(0,0,0,0.85)]">{premiereLine}</p>
+            ) : null}
             {phoneUi && (item.type === 'movie' || item.type === 'show') && item.tagline ? (
                 <p className="media-details-tagline mt-2 max-w-[22rem] text-center text-[0.95rem] font-medium italic leading-snug text-white/85 drop-shadow-[0_2px_10px_rgba(0,0,0,0.85)]">
                     {item.tagline}
@@ -2949,6 +2967,13 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             ) : null}
             {preplayUi && !(isTvShell && (item.type === 'episode' || item.type === 'season')) && !(phoneUi && item.type === 'season') ? (
                 <div className="media-details-billboard-ratings pointer-events-auto mt-2.5 flex w-full flex-col items-center gap-2">
+                    {/* Under the clear logo, like the Home spotlight: premiere line, then the movie's one-liner. */}
+                    {!phoneUi && premiereLine ? (
+                        <p className={`w-full ${isTvShell ? 'text-left' : 'text-center'} text-sm font-bold text-plex drop-shadow-md sm:text-base`}>{premiereLine}</p>
+                    ) : null}
+                    {!phoneUi && item.tagline ? (
+                        <p className={`w-full ${isTvShell ? 'text-left' : 'text-center'} text-sm italic text-white/85 drop-shadow-md sm:text-base`}>{item.tagline}</p>
+                    ) : null}
                     {phoneUi ? phoneMetaLine : metaChipRow(metaChips, 'justify-center')}
                     <MediaRatingPills
                         ratings={toCombinedRatings(hubItem.ratings || item.ratings, settings.ratingSources)}

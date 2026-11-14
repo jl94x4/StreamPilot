@@ -4287,6 +4287,9 @@ html[data-tv="1"] .player-tv-clock {
   line-height: 1;
   font-variant-numeric: tabular-nums;
 }
+html[data-tv="1"].smp-file-info-open .player-tv-clock {
+  display: none !important;
+}
 /* Options sheet sits under the clock corner — tuck it away while the menu is open. */
 html[data-tv="1"]:has([data-tv-item-menu="1"]) .player-tv-clock,
 html[data-tv="1"]:has([data-tv-context-sheet="1"]) .player-tv-clock,

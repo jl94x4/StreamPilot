@@ -44,6 +44,9 @@ const isTvShell = () => {
     }
 };
 
+/** Titles added each time the View more page nears its bottom. */
+const HUB_PAGE_SIZE = 120;
+
 export const MediaPlayerHub: React.FC<Props> = ({
     path,
     title: titleHint = '',
@@ -63,12 +66,12 @@ export const MediaPlayerHub: React.FC<Props> = ({
     const tvShell = isTvShell();
     const [hasMore, setHasMore] = useState(false);
     const [loadingMore, setLoadingMore] = useState(false);
-    const limitRef = useRef(0);
+    const nextStartRef = useRef(0);
     const sentinelRef = useRef<HTMLDivElement | null>(null);
     const itemCountRef = useRef(0);
 
     useEffect(() => {
-        limitRef.current = 0;
+        nextStartRef.current = 0;
         setHasMore(false);
     }, [path]);
 
@@ -83,6 +86,7 @@ export const MediaPlayerHub: React.FC<Props> = ({
                 setTitle(data.title || titleHint || t('common.viewMore'));
                 const full = data.items || [];
                 setItems(full.length || !seed?.length ? full : seed);
+                nextStartRef.current = Number(data.nextStart) || full.length;
                 setHasMore(data.hasMore === true);
                 setError(null);
                 hubSeeds.delete(path);
@@ -99,21 +103,27 @@ export const MediaPlayerHub: React.FC<Props> = ({
 
     itemCountRef.current = items.length;
 
-    // Near the bottom: ask for a bigger window (600, 1200, 2000 titles) and swap the list in.
+    // Near the bottom: fetch the next page and add it to the list, again and again while it keeps
+    // coming into view, so a long row fills in as you scroll.
     useEffect(() => {
         const node = sentinelRef.current;
         if (!node || !hasMore || loading || loadingMore || typeof IntersectionObserver === 'undefined') return undefined;
         const observer = new IntersectionObserver((entries) => {
             if (!entries.some((entry) => entry.isIntersecting)) return;
             observer.disconnect();
-            const limit = limitRef.current ? Math.min(2000, limitRef.current * 2) : 600;
-            limitRef.current = limit;
+            const start = nextStartRef.current;
             setLoadingMore(true);
-            fetchMediaPlayerHub(path, { title: titleHint, identifier, limit })
+            fetchMediaPlayerHub(path, { title: titleHint, identifier, start, size: HUB_PAGE_SIZE })
                 .then((data) => {
-                    const next = data.items || [];
-                    if (next.length > itemCountRef.current) setItems(next);
-                    setHasMore(data.hasMore === true && next.length > itemCountRef.current && limit < 2000);
+                    const page = data.items || [];
+                    const moved = Number(data.nextStart) > start;
+                    if (moved) nextStartRef.current = Number(data.nextStart);
+                    setItems((current) => {
+                        const seen = new Set(current.map((row) => `${row.serverId || ''}:${row.ratingKey || ''}`));
+                        const added = page.filter((row) => !seen.has(`${row.serverId || ''}:${row.ratingKey || ''}`));
+                        return added.length ? [...current, ...added] : current;
+                    });
+                    setHasMore(data.hasMore === true && moved);
                 })
                 .catch(() => setHasMore(false))
                 .finally(() => setLoadingMore(false));

@@ -1,5 +1,5 @@
 import { createSheetSwipe } from './sheetSwipe';
-import React, { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
+import React, { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { askConfirm } from '../shared/confirm';
 import { createPortal } from 'react-dom';
 import {
@@ -58,7 +58,7 @@ import type { PlayerItem, PlayerPlayOptions } from './types';
 import { PlayerClearLogo } from './PlayerClearLogo';
 import { PlayerFileInfo } from './PlayerFileInfo';
 import { PlayerSeasonWatchDialog } from './PlayerSeasonWatchDialog';
-import { noteFinishedPlayback, readPlayerItemCache } from './playerMemory';
+import { noteFinishedPlayback, playerHasSeveralServers, playerServerNameFor, readPlayerItemCache } from './playerMemory';
 import { readPlayerSettings } from './playerSettings';
 import { isSpoilerShow, spoilerShowKey, toggleSpoilerShow } from './spoilers';
 import { applyRememberedProgress, isMusicPlayerItem, plexLogoUrl, shouldOfferResume } from './playerUtils';
@@ -170,6 +170,11 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
     const [sheetLogoFailed, setSheetLogoFailed] = useState(false);
     const [sheetSeasons, setSheetSeasons] = useState<PlayerItem[]>([]);
     const sheetLogoUrl = plexLogoUrl(item.logo);
+    // Only worth a line when there is more than one server to tell apart.
+    const menuServerName = useMemo(
+        () => (playerHasSeveralServers() ? playerServerNameFor(item.serverId) : ''),
+        [item.serverId],
+    );
     const tvShell = typeof document !== 'undefined' && (
         document.documentElement?.dataset?.tv === '1'
         || window.__PLEX_CLIENT__?.isTv === true
@@ -1484,6 +1489,11 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                                     {item.title || t('mediaPlayerPage.unknownTitle')}
                                 </h2>
                             )}
+                            {menuServerName ? (
+                                <p className="-mt-2 mb-4 shrink-0 truncate px-4 text-center text-[0.8rem] font-semibold uppercase tracking-[0.14em] text-white/45">
+                                    {menuServerName}
+                                </p>
+                            ) : null}
                             {(canPrimaryOpen || canPrimaryWatch || (mode === 'main' && rateRow)) ? (
                                 <div className="mb-4 flex w-full shrink-0 flex-col gap-2.5">
                                     {canPrimaryWatch ? (

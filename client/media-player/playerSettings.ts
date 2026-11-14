@@ -633,6 +633,8 @@ export type PlayerSettings = {
     serviceLogoPlates: boolean;
     /** Resolution / codec pills on season episode cards. */
     showEpisodeFilePills: boolean;
+    /** Plex-style "New Season" ribbon and premiere line on show posters. Off by default. */
+    showNewSeasonBadge: boolean;
     /** Corner for watched checkmarks on movie/show/season posters (not episodes). */
     watchedTickPosition: PlayerWatchedTickPosition;
     /** Phone overview: poster on the still instead of the clear logo. */
@@ -1079,6 +1081,7 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
     showServiceBrandLogos: true,
     serviceLogoPlates: true,
     showEpisodeFilePills: true,
+    showNewSeasonBadge: false,
     watchedTickPosition: 'bottom-left',
     phoneOverviewPoster: false,
     skipSingleSeason: false,
@@ -1205,6 +1208,7 @@ export const normalizePlayerSettings = (raw: Partial<PlayerSettings> | Record<st
         showServiceBrandLogos: raw?.showServiceBrandLogos !== false,
         serviceLogoPlates: raw?.serviceLogoPlates !== false,
         showEpisodeFilePills: raw?.showEpisodeFilePills !== false,
+        showNewSeasonBadge: raw?.showNewSeasonBadge === true,
         watchedTickPosition: isPlayerWatchedTickPosition(raw?.watchedTickPosition)
             ? raw!.watchedTickPosition as PlayerWatchedTickPosition
             : 'bottom-left',
@@ -1316,6 +1320,7 @@ export const playerSettingsEqual = (a: PlayerSettings, b: PlayerSettings) => (
     && a.showServiceBrandLogos === b.showServiceBrandLogos
     && a.serviceLogoPlates === b.serviceLogoPlates
     && a.showEpisodeFilePills === b.showEpisodeFilePills
+    && a.showNewSeasonBadge === b.showNewSeasonBadge
     && a.watchedTickPosition === b.watchedTickPosition
     && a.phoneOverviewPoster === b.phoneOverviewPoster
     && a.skipSingleSeason === b.skipSingleSeason

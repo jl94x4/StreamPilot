@@ -1209,6 +1209,32 @@ const sanitizeLibraries = (rows: unknown): PlayerSection[] => (
         })
 );
 
+/** Name of the server that owns an item; with one server (items often carry no id) it is that server. */
+export const playerServerNameFor = (serverId?: string | null): string => {
+    try {
+        const rows = readPlayerLibrariesCache().filter((section) => section.serverName);
+        const id = String(serverId || '').trim();
+        if (id) {
+            const row = rows.find((section) => String(section.serverId || '') === id);
+            if (row) return String(row.serverName || '').trim();
+        }
+        const names = new Set(rows.map((section) => String(section.serverName || '').trim()).filter(Boolean));
+        return names.size === 1 ? [...names][0] : '';
+    } catch {
+        return '';
+    }
+};
+
+/** True when the libraries come from more than one server. */
+export const playerHasSeveralServers = (): boolean => {
+    try {
+        const ids = new Set(readPlayerLibrariesCache().map((section) => String(section.serverId || '').trim()).filter(Boolean));
+        return ids.size > 1;
+    } catch {
+        return false;
+    }
+};
+
 export const readPlayerLibrariesCache = (): PlayerSection[] => {
     if (!playerLibrariesCache) {
         try {

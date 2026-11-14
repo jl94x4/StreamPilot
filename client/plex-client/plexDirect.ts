@@ -4039,7 +4039,8 @@ const isReservedHomeMergeLabel = (value: unknown) => {
     const tag = String(value || '').trim();
     if (!tag) return true;
     if (isHeroRowLabel(tag)) return true;
-    if (/^(kometa|collexions|network|streaming)$/i.test(tag)) return true;
+    // Tool / housekeeping labels that many unrelated collections share — never fold those rows together.
+    if (/^(kometa|pmm|overlay|trending|collexions|network|streaming)$/i.test(tag)) return true;
     return false;
 };
 
@@ -5164,6 +5165,8 @@ const loadServerHome = async (server: PlexServer, many: boolean, full = false) =
         ...section,
         key: many ? `${server.id}::${section.key}` : section.key,
         serverId: server.id,
+        // The File info screen and long-press menu name the server from these rows.
+        serverName: server.name,
     }));
     const hydratedContinue = hubs.find((hub) => continueHub(hub))?.items || continueItems;
     if (full) {
@@ -6393,6 +6396,10 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
         const hubTitle = String(query.get('title') || '');
         // The View more page asks for a bigger window each time it nears the bottom.
         const wantLimit = Math.floor(Number(query.get('limit') || 0)) || 0;
+        // Paged mode: the next `size` titles from `start`, so the page can keep filling as it scrolls.
+        const pageStart = Math.max(0, Math.floor(Number(query.get('start') || 0)) || 0);
+        const pageCount = Math.min(300, Math.max(0, Math.floor(Number(query.get('size') || 0)) || 0));
+        const paged = pageCount > 0;
         // "Recently Added in …": the row's key carries its own row size (36) and can be a
         // /library/sections/N/all list without type=, which pms() refuses, so the page came
         // up empty. Load the library's own recently-added list, grouped as Home does.
@@ -6403,9 +6410,9 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                 sectionId = sectionIdFromRecentTitle(hubTitle, sections);
             }
             if (sectionId) {
-                const recentLimit = Math.min(RECENT_MAX_ITEMS, Math.max(RECENT_PAGE_SIZE, wantLimit));
+                const recentLimit = paged ? pageCount : Math.min(RECENT_MAX_ITEMS, Math.max(RECENT_PAGE_SIZE, wantLimit));
                 const data = await withMapServer(server, () => pms(
-                    `/library/sections/${encodeURIComponent(sectionId)}/recentlyAdded?X-Plex-Container-Start=0&X-Plex-Container-Size=${recentLimit}`,
+                    `/library/sections/${encodeURIComponent(sectionId)}/recentlyAdded?X-Plex-Container-Start=${pageStart}&X-Plex-Container-Size=${recentLimit}`,
                     server,
                     wantLimit > RECENT_PAGE_SIZE ? 30000 : 15000,
                 )).catch(() => null);
@@ -6415,7 +6422,10 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                     return {
                         title: hubTitle,
                         items: recent,
-                        hasMore: rawRecent.length >= recentLimit && recentLimit < RECENT_MAX_ITEMS,
+                        hasMore: paged
+                            ? rawRecent.length >= recentLimit
+                            : rawRecent.length >= recentLimit && recentLimit < RECENT_MAX_ITEMS,
+                        nextStart: pageStart + rawRecent.length,
                     };
                 }
             }
@@ -6423,17 +6433,19 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
         const random = isRandomOrderSource(hubPath) || isRandomOrderSource({ hubIdentifier: identifier, key: hubPath });
         const fetchPath = random ? withPlexSortParam(hubPath, 'random') : hubPath;
         const basePageSize = /recentlyadded/i.test(fetchPath) ? 500 : 80;
-        const pageSize = Math.min(2000, Math.max(basePageSize, wantLimit));
+        const pageSize = paged ? pageCount : Math.min(2000, Math.max(basePageSize, wantLimit));
         // The stored key may already carry the Home row's size: replace it, don't add a second one.
         const listUrl = new URL(fetchPath, 'http://plex.local');
         listUrl.searchParams.delete('count');
         listUrl.searchParams.set('X-Plex-Container-Size', String(pageSize));
+        listUrl.searchParams.set('X-Plex-Container-Start', String(pageStart));
         const data = await withMapServer(server, () => pms(`${listUrl.pathname}${listUrl.search}`, server));
         const items = mapList(data);
         return {
             title: query.get('title') || '',
             items: random && items.length > 1 ? shuffleItems(items) : items,
-            hasMore: !random && items.length >= pageSize && pageSize < 2000,
+            hasMore: !random && items.length >= pageSize && (paged || pageSize < 2000),
+            nextStart: pageStart + items.length,
         };
     }
     const library = path.match(/^\/api\/media-player\/libraries\/([^/]+)$/);
@@ -6718,7 +6730,8 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                             title: 'Recently Added',
                             identifier: 'recentlyAdded',
                             items: recent,
-                            hubKey: null,
+                            // A real list path, so the row ends with a View more tile.
+                            hubKey: many ? `${active.id}::/library/sections/${section}/recentlyAdded` : `/library/sections/${section}/recentlyAdded`,
                             collectionRatingKey: null,
                             randomOrder: undefined,
                             serverId: active.id,
@@ -6824,6 +6837,7 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                     title: 'Recently Added',
                     identifier: 'recentlyAdded',
                     items: recent,
+                    hubKey: many ? `${active.id}::/library/sections/${section}/recentlyAdded` : `/library/sections/${section}/recentlyAdded`,
                 },
             ].filter((hub) => hub.items.length), active),
         };

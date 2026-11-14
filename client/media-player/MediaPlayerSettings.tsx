@@ -1735,6 +1735,12 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         onChange={(checked) => updateSettings({ serviceLogoPlates: checked })}
                     />
                     <TvToggleRow
+                        title={t('mediaPlayerPage.showNewSeasonBadge')}
+                        description={t('mediaPlayerPage.showNewSeasonBadgeHint')}
+                        checked={settings.showNewSeasonBadge}
+                        onChange={(checked) => updateSettings({ showNewSeasonBadge: checked })}
+                    />
+                    <TvToggleRow
                         title={t('mediaPlayerPage.showEpisodeFilePills')}
                         description={t('mediaPlayerPage.showEpisodeFilePillsHint')}
                         checked={settings.showEpisodeFilePills}

@@ -376,8 +376,11 @@ const HomeSpotBody: React.FC<{ item: PlayerItem }> = ({ item }) => {
         ).trim()
         : '';
     const epLine = [epCode, episodeTitle].filter(Boolean).join(' · ');
-    const date = formatPlayerDate(item.originallyAvailableAt);
+    const { t } = useDiscoverI18n();
+    const dateText = formatPlayerDate(item.originallyAvailableAt);
     const dateIsFuture = isFuturePlayerDate(item.originallyAvailableAt);
+    // Not out yet: "Releasing on November 20, 2026" (and orange).
+    const date = dateText && dateIsFuture ? t('mediaPlayerPage.releasingOn', { date: dateText }) : dateText;
     const duration = formatPlayerDuration(item.durationMs);
     const rating = String(item.contentRating || '').trim();
     const year = item.type === 'episode' ? '' : (item.year ? String(item.year) : '');

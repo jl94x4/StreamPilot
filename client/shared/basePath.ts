@@ -92,10 +92,22 @@ const directPlexImageUrl = (path: string): string => {
     const imagePath = String(params.get('path') || '').trim();
     if (!imagePath) return '';
     let server: { uri?: string; accessToken?: string } | null = null;
-    try {
-        server = JSON.parse(localStorage.getItem('plexClient.plexServer') || '');
-    } catch {
-        server = null;
+    // With several servers an image belongs to one of them: `server` names which.
+    const wantedServer = String(params.get('server') || '').trim();
+    if (wantedServer) {
+        try {
+            const list = JSON.parse(localStorage.getItem('plexClient.plexServers') || '{}')?.servers;
+            server = (Array.isArray(list) ? list : []).find((row: { id?: string }) => row?.id === wantedServer) || null;
+        } catch {
+            server = null;
+        }
+    }
+    if (!server) {
+        try {
+            server = JSON.parse(localStorage.getItem('plexClient.plexServer') || '');
+        } catch {
+            server = null;
+        }
     }
     const uri = String(server?.uri || '').replace(/\/+$/, '');
     const token = String(server?.accessToken || '').trim();
