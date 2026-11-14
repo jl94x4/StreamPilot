@@ -186,6 +186,8 @@ export const en = {
         showEpisodeFilePills: 'Episode file info',
         showNewSeasonBadge: 'Premiere dates',
         showNewSeasonBadgeHint: 'Under a show whose new season just started, show when it premiered, for example Premieres Today.',
+        loadingMore: 'Loading more…',
+        endOfList: 'End of list',
         releasingOn: 'Releasing on {date}',
         premieresToday: 'Premieres Today',
         premieredYesterday: 'Premiered Yesterday',

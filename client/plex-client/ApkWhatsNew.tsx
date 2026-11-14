@@ -73,6 +73,15 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.722': [
+        {
+            title: 'Rows',
+            items: [
+                'View more shows a Loading more spinner while it fetches, and End of list when there is nothing left',
+                'Random-order rows now keep loading more titles as you scroll too',
+            ],
+        },
+    ],
     '1.0.721': [
         {
             title: 'Rows',

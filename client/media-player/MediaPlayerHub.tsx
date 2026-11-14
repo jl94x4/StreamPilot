@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Loader2 } from 'lucide-react';
 import {
     DiscoverGridSizeSelect,
     discoveryTheme,
@@ -67,11 +67,17 @@ export const MediaPlayerHub: React.FC<Props> = ({
     const [hasMore, setHasMore] = useState(false);
     const [loadingMore, setLoadingMore] = useState(false);
     const nextStartRef = useRef(0);
+    // Random rows: the big shuffled window, handed out a screenful at a time.
+    const randomRef = useRef(false);
+    const poolRef = useRef<PlayerItem[] | null>(null);
+    const itemsRef = useRef<PlayerItem[]>([]);
     const sentinelRef = useRef<HTMLDivElement | null>(null);
     const itemCountRef = useRef(0);
 
     useEffect(() => {
         nextStartRef.current = 0;
+        randomRef.current = false;
+        poolRef.current = null;
         setHasMore(false);
     }, [path]);
 
@@ -87,6 +93,7 @@ export const MediaPlayerHub: React.FC<Props> = ({
                 const full = data.items || [];
                 setItems(full.length || !seed?.length ? full : seed);
                 nextStartRef.current = Number(data.nextStart) || full.length;
+                randomRef.current = data.random === true;
                 setHasMore(data.hasMore === true);
                 setError(null);
                 hubSeeds.delete(path);
@@ -102,6 +109,7 @@ export const MediaPlayerHub: React.FC<Props> = ({
     }, [path, titleHint, identifier, t]);
 
     itemCountRef.current = items.length;
+    itemsRef.current = items;
 
     // Near the bottom: fetch the next page and add it to the list, again and again while it keeps
     // coming into view, so a long row fills in as you scroll.
@@ -111,6 +119,29 @@ export const MediaPlayerHub: React.FC<Props> = ({
         const observer = new IntersectionObserver((entries) => {
             if (!entries.some((entry) => entry.isIntersecting)) return;
             observer.disconnect();
+            if (randomRef.current) {
+                const keyOf = (row: PlayerItem) => `${row.serverId || ''}:${row.ratingKey || ''}`;
+                const revealNext = (pool: PlayerItem[]) => {
+                    const seen = new Set(itemsRef.current.map(keyOf));
+                    const fresh = pool.filter((row) => !seen.has(keyOf(row)));
+                    const batch = fresh.slice(0, HUB_PAGE_SIZE);
+                    if (batch.length) setItems((current) => [...current, ...batch]);
+                    setHasMore(fresh.length > batch.length);
+                };
+                if (poolRef.current) {
+                    revealNext(poolRef.current);
+                    return;
+                }
+                setLoadingMore(true);
+                fetchMediaPlayerHub(path, { title: titleHint, identifier, limit: 2000 })
+                    .then((data) => {
+                        poolRef.current = data.items || [];
+                        revealNext(poolRef.current);
+                    })
+                    .catch(() => setHasMore(false))
+                    .finally(() => setLoadingMore(false));
+                return;
+            }
             const start = nextStartRef.current;
             setLoadingMore(true);
             fetchMediaPlayerHub(path, { title: titleHint, identifier, start, size: HUB_PAGE_SIZE })
@@ -242,7 +273,20 @@ export const MediaPlayerHub: React.FC<Props> = ({
                     ))}
                 </div>
             )}
-            {hasMore || loadingMore ? <div ref={sentinelRef} aria-hidden className="h-8 w-full" /> : null}
+            {hasMore || loadingMore ? (
+                <div ref={sentinelRef} className="flex h-16 w-full items-center justify-center" aria-hidden={!loadingMore}>
+                    {loadingMore ? (
+                        <span className="inline-flex items-center gap-2 text-sm font-semibold text-white/70" role="status">
+                            <Loader2 className="h-5 w-5 animate-spin text-plex" />
+                            {t('mediaPlayerPage.loadingMore')}
+                        </span>
+                    ) : null}
+                </div>
+            ) : (!loading && !error && items.length >= 20 ? (
+                <p className="flex h-16 w-full items-center justify-center text-sm font-semibold text-white/45">
+                    {t('mediaPlayerPage.endOfList')}
+                </p>
+            ) : null)}
         </div>
     );
 };

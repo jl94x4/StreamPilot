@@ -391,7 +391,7 @@ export const fetchMediaPlayerCollection = (ratingKey: string, sectionKey?: strin
     return apiFetch(`${PLAYER_API_ROOT}/collection/${encodeURIComponent(ratingKey)}${qs}`) as Promise<PlayerItemPage>;
 };
 
-type HubPage = { title: string; items: PlayerItem[]; hasMore?: boolean; nextStart?: number };
+type HubPage = { title: string; items: PlayerItem[]; hasMore?: boolean; nextStart?: number; random?: boolean };
 /**
  * The View more card fetches its row's full list for the posters behind it; the View more page
  * asks for the same list. Share one request (and keep the answer briefly) so opening the page is

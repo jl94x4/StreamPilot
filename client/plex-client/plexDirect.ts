@@ -6444,7 +6444,12 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
         return {
             title: query.get('title') || '',
             items: random && items.length > 1 ? shuffleItems(items) : items,
-            hasMore: !random && items.length >= pageSize && (paged || pageSize < 2000),
+            // A random row cannot be paged (each request reshuffles): it says so, and the page asks
+            // once for a big shuffled window and hands it out a screenful at a time.
+            hasMore: random
+                ? items.length >= pageSize && pageSize < 2000
+                : items.length >= pageSize && (paged || pageSize < 2000),
+            random: random || undefined,
             nextStart: pageStart + items.length,
         };
     }
