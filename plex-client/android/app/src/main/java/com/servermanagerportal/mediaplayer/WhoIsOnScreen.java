@@ -282,7 +282,7 @@ final class WhoIsOnScreen {
             if (interpreter == null) {
                 ByteBuffer model = mapAsset(MODEL_ASSET);
                 Interpreter.Options options = new Interpreter.Options();
-                options.setNumThreads(4);
+                options.setNumThreads(2);
                 interpreter = new Interpreter(model, options);
                 int[] in = interpreter.getInputTensor(0).shape();
                 int[] out = interpreter.getOutputTensor(0).shape();
@@ -454,20 +454,26 @@ final class WhoIsOnScreen {
             return null;
         }
         Bitmap photo = shrinkPhoto(raw);
-        List<Face> faces = detectPhoto(photo);
-        Face largest = null;
-        for (Face face : faces) {
-            if (largest == null || area(face.getBoundingBox()) > area(largest.getBoundingBox())) largest = face;
+        try {
+            List<Face> faces = detectPhoto(photo);
+            Face largest = null;
+            for (Face face : faces) {
+                if (largest == null || area(face.getBoundingBox()) > area(largest.getBoundingBox())) largest = face;
+            }
+            if (largest == null) {
+                castWithoutFace.add(person.thumb);
+                writeCastCache(person.thumb, new float[0]);
+                return null;
+            }
+            float[] vector = embed(photo, largest);
+            castEmbeddings.put(person.thumb, vector);
+            writeCastCache(person.thumb, vector);
+            return vector;
+        } finally {
+            // A cast of thirty headshots piled up in memory on small TVs until the system killed the app.
+            if (photo != raw && !photo.isRecycled()) photo.recycle();
+            if (!raw.isRecycled()) raw.recycle();
         }
-        if (largest == null) {
-            castWithoutFace.add(person.thumb);
-            writeCastCache(person.thumb, new float[0]);
-            return null;
-        }
-        float[] vector = embed(photo, largest);
-        castEmbeddings.put(person.thumb, vector);
-        writeCastCache(person.thumb, vector);
-        return vector;
     }
 
     /** A face against one person: the closest of their photo and the faces you named. */

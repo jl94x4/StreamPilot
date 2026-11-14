@@ -3026,6 +3026,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                     dim={settings.screensaverDim}
                     transition={settings.screensaverTransition}
                     showSource={settings.screensaverShowSource}
+                    showFacts={settings.screensaverShowFacts}
                     onOpenItem={onOpenItem}
                 />
             ) : null}

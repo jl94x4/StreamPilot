@@ -21475,6 +21475,8 @@ const slimPlexHistoryItem = (item) => {
         watchedStatus: item.watchedStatus,
         percentComplete: item.percentComplete,
         videoResolution: item.Media?.[0]?.videoResolution || item.videoResolution || null,
+        // Plex only logs a play it counts as watched, but its rows carry no percent.
+        fromPlexHistory: true,
     };
     if (Array.isArray(item.Guid) && item.Guid.length) {
         slim.Guid = item.Guid.map((g) => (g && g.id ? { id: g.id } : null)).filter(Boolean);
@@ -21495,6 +21497,53 @@ const slimPlexHistoryItem = (item) => {
 const slimPlexHistoryPage = (pageItems = []) => (
     (Array.isArray(pageItems) ? pageItems : []).map(slimPlexHistoryItem).filter(Boolean)
 );
+
+/** Whole-server Plex history newer than sinceSec (newest first, stops early). */
+const fetchPlexHistorySince = async (uri, config, sinceSec, { maxItems = 75000 } = {}) => {
+    const pageSize = 2000;
+    let items = [];
+    let start = 0;
+    let done = false;
+    while (!done && start < maxItems) {
+        const pageRes = await fetch(
+            `${uri}/status/sessions/history/all?X-Plex-Token=${config.plexToken}&sort=viewedAt:desc&includeGuids=1&X-Plex-Container-Start=${start}&X-Plex-Container-Size=${pageSize}`,
+            { headers: plexClientHeaders(config.plexToken) },
+        ).then((r) => r.json()).catch(() => null);
+        const container = pageRes?.MediaContainer;
+        const page = Array.isArray(container?.Metadata) ? container.Metadata : [];
+        if (!page.length) break;
+        for (const raw of page) {
+            const viewedAt = historyViewedAtSeconds(raw?.viewedAt);
+            if (sinceSec > 0 && viewedAt > 0 && viewedAt < sinceSec) { done = true; break; }
+            const slim = slimPlexHistoryItem(raw);
+            if (slim) items.push(slim);
+        }
+        start += page.length;
+        if (page.length < pageSize) break;
+    }
+    return items;
+};
+
+const PLEX_BACKFILL_PATH = path.join(CONFIG_DIR, 'plex-history-backfill.json');
+
+/**
+ * One-off backfill: Plex plays from a window where Tautulli recorded nothing, kept on disk and merged
+ * into Tautulli-based history (account filter for personal views) so the gap stays filled.
+ */
+const withPlexBackfill = async (items, { accountID = null } = {}) => {
+    try {
+        const store = await loadFile(PLEX_BACKFILL_PATH, null);
+        let extra = Array.isArray(store?.items) ? store.items : [];
+        if (!extra.length) return items;
+        if (accountID != null && String(accountID) !== '') {
+            extra = extra.filter((row) => String(row?.accountID ?? '') === String(accountID));
+        }
+        return extra.length ? mergeWatchHistoryItems(items, extra) : items;
+    } catch (error) {
+        log(`Plex history backfill merge skipped: ${error.message}`);
+        return items;
+    }
+};
 
 const fetchPlexAccountHistory = async (uri, config, accountID, { maxItems = 75000, afterUnixSec = 0 } = {}) => {
     const pageSize = 5000;
@@ -21616,6 +21665,8 @@ const loadPersonalWrapUpHistory = async ({
             maxItems,
         });
     }
+
+    if (useTautulliHistory) historyItems = await withPlexBackfill(historyItems, { accountID });
 
     for (const item of historyItems) {
         if (item) item.viewedAt = historyViewedAtSeconds(item.viewedAt);
@@ -21762,6 +21813,62 @@ app.get('/api/plex/analytics', requireAuth, requireMember, async (req, res) => {
     } catch (e) {
         log(`Error fetching analytics: ${e.message}`);
         res.status(500).json({ error: 'Analytics error' });
+    }
+});
+
+app.post('/api/plex/analytics/backfill-from-plex', requireAdmin, async (req, res) => {
+    try {
+        const config = await loadFile(CONFIG_PATH, {});
+        const uri = await getPlexConnectionUri(config);
+        if (!uri) return res.status(400).json({ error: 'Plex server is not reachable.' });
+        const nowSec = Math.floor(Date.now() / 1000);
+        let from = Number(req.body?.from) || 0;
+        let to = Number(req.body?.to) || 0;
+        if (!from || !to) {
+            // Find the longest stretch with no Tautulli plays in the last year.
+            const tautulli = await withTautulliExclusive(() => loadTautulliHistoryForAnalytics(config, { force: false, maxItems: 75000 }));
+            const yearAgo = nowSec - 400 * 86400;
+            const times = (tautulli.items || [])
+                .map((row) => historyViewedAtSeconds(row?.viewedAt))
+                .filter((at) => at >= yearAgo)
+                .sort((a, b) => a - b);
+            let best = { len: 0, a: 0, b: 0 };
+            for (let i = 1; i < times.length; i += 1) {
+                const len = times[i] - times[i - 1];
+                if (len > best.len) best = { len, a: times[i - 1], b: times[i] };
+            }
+            if (best.len < 2 * 86400) {
+                return res.json({ status: 'no_gap', message: 'No gap of two days or more found in Tautulli history.' });
+            }
+            from = best.a;
+            to = best.b;
+        }
+        const plexItems = (await fetchPlexHistorySince(uri, config, Math.max(0, from - 3600)))
+            .filter((row) => {
+                const at = historyViewedAtSeconds(row?.viewedAt);
+                return at >= from - 3600 && at <= to + 3600;
+            });
+        await saveFile(PLEX_BACKFILL_PATH, {
+            createdAt: Date.now(),
+            windowStart: from,
+            windowEnd: to,
+            items: plexItems,
+        });
+        personalHistoryCache.clear();
+        calculateAnalyticsStats({ force: true }).catch((error) => {
+            log(`Analytics rebuild after backfill failed: ${error.message}`);
+        });
+        log(`Plex history backfill saved ${plexItems.length} plays (${new Date(from * 1000).toISOString()} to ${new Date(to * 1000).toISOString()}).`);
+        return res.json({
+            status: 'ok',
+            plays: plexItems.length,
+            from: new Date(from * 1000).toISOString(),
+            to: new Date(to * 1000).toISOString(),
+            message: 'Plex plays saved for the gap. Analytics is rebuilding.',
+        });
+    } catch (error) {
+        log(`Plex history backfill failed: ${error.message}`);
+        return res.status(500).json({ error: 'Backfill failed' });
     }
 });
 
@@ -26765,6 +26872,18 @@ async function calculateAnalyticsStats({ force = false } = {}) {
                 historyItems = tautulliHistory.items || [];
                 if (historyItems.length) {
                     sourceMeta = { source: 'tautulli', fallback: null, degraded: false };
+                    // Tautulli stopped recording (its newest play is old): fill the gap from Plex's own
+                    // history so the recent periods are not empty.
+                    if (tautulliHistoryLooksStale(historyItems)) {
+                        const sinceSec = Math.max(0, newestHistoryViewedAt(historyItems) - 3600);
+                        const gap = await fetchPlexHistorySince(uri, config, sinceSec).catch(() => []);
+                        if (gap.length) {
+                            historyItems = mergeWatchHistoryItems(gap, historyItems);
+                            sourceMeta = { source: 'plex', fallback: 'tautulli_stale', degraded: true };
+                            log(`Analytics: Tautulli history is stale; merged ${gap.length} Plex plays.`);
+                        }
+                    }
+                    historyItems = await withPlexBackfill(historyItems);
                     const modeLabel = tautulliHistory.mode === 'full'
                         ? 'full'
                         : tautulliHistory.mode === 'incremental'

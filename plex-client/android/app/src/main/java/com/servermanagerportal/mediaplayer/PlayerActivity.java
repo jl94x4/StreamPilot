@@ -2668,9 +2668,24 @@ public class PlayerActivity extends AppCompatActivity {
         PlayerView playerView = findViewById(R.id.player_view);
         View surface = playerView == null ? null : playerView.getVideoSurfaceView();
         if (!(surface instanceof SurfaceView) || surface.getWidth() < 16 || surface.getHeight() < 16) return;
+        // Short on memory: skip the scan rather than let the system kill the whole app mid-pause.
+        try {
+            android.app.ActivityManager am = (android.app.ActivityManager) getSystemService(ACTIVITY_SERVICE);
+            android.app.ActivityManager.MemoryInfo mem = new android.app.ActivityManager.MemoryInfo();
+            if (am != null) {
+                am.getMemoryInfo(mem);
+                if (mem.lowMemory || mem.availMem < 350L * 1024L * 1024L) {
+                    Log.w(TAG, "Who's on screen skipped: low memory (" + (mem.availMem / 1048576L) + " MB free)");
+                    showFacesFailed();
+                    return;
+                }
+            }
+        } catch (Throwable ignored) {
+            /* carry on */
+        }
         facesView.showStatus(getString(R.string.player_faces_looking));
         // Copy the paused picture off the surface (no second decoder), at most 1280 wide.
-        int width = Math.min(1280, surface.getWidth());
+        int width = Math.min(960, surface.getWidth());
         int height = Math.max(1, Math.round(surface.getHeight() * (width / (float) surface.getWidth())));
         final Bitmap frame = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
         final long copyStarted = android.os.SystemClock.elapsedRealtime();

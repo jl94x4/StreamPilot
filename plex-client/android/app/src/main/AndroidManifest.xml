@@ -24,7 +24,7 @@
             android:banner="@drawable/tv_banner"
             android:logo="@mipmap/ic_launcher"
             android:icon="@mipmap/ic_launcher"
-            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
+            android:configChanges="orientation|keyboardHidden|keyboard|navigation|screenSize|locale|layoutDirection|density|fontScale|colorMode|smallestScreenSize|screenLayout|uiMode"
             android:name=".MainActivity"
             android:label="@string/title_activity_main"
             android:theme="@style/AppTheme.NoActionBarLaunch"
@@ -56,7 +56,7 @@
 
         <activity
             android:name=".PlayerActivity"
-            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|screenLayout|uiMode"
+            android:configChanges="orientation|keyboardHidden|keyboard|navigation|screenSize|locale|layoutDirection|density|fontScale|colorMode|smallestScreenSize|screenLayout|uiMode"
             android:exported="false"
             android:hardwareAccelerated="true"
             android:launchMode="singleTop"

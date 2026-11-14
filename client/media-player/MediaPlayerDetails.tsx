@@ -2821,14 +2821,23 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         ].filter(Boolean)
         : [];
     const phoneAired = item.type === 'episode' ? airdateNode(item.originallyAvailableAt, locale) : null;
+    // The long release date gets a line of its own so the pills under it do not wrap awkwardly.
+    const phoneReleaseDate = item.type !== 'episode' ? formatPlayerDate(item.originallyAvailableAt, locale) : '';
+    const phoneReleaseFuture = isFuturePlayerDate(item.originallyAvailableAt);
     const phoneMetaLine = phoneUi && preplayUi ? (
+        <>
+        {phoneReleaseDate ? (
+            <p className={`w-full text-center text-[0.95rem] font-semibold leading-tight ${phoneReleaseFuture ? 'text-plex' : 'text-white/85'}`}>
+                {phoneReleaseFuture ? t('mediaPlayerPage.releasingOn', { date: phoneReleaseDate }) : phoneReleaseDate}
+            </p>
+        ) : null}
         <p className="media-details-phone-meta">
             {item.type === 'episode' && item.parentIndex != null && item.index != null
                 ? <span>{`S${item.parentIndex} • E${item.index}`}</span>
                 : null}
             {item.type === 'episode'
                 ? (phoneAired ? <span>{phoneAired}</span> : null)
-                : (item.year ? <span>{item.year}</span> : null)}
+                : (!phoneReleaseDate && item.year ? <span>{item.year}</span> : null)}
             {item.durationMs ? <span>{formatPlayerDuration(item.durationMs)}</span> : null}
             {item.type !== 'episode' && genres.length ? <span>{genres.slice(0, 2).join(', ')}</span> : null}
             {(item.type === 'show' || item.type === 'season') && totalLeaves > 0
@@ -2839,6 +2848,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                 ? <span className="media-details-phone-meta-box">{phoneResolution}</span>
                 : null}
         </p>
+        </>
     ) : null;
     const phonePosterPath = item.type === 'episode' && item.grandparentRatingKey
         ? `/library/metadata/${item.grandparentRatingKey}/thumb`

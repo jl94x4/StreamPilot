@@ -4984,6 +4984,38 @@ const applyHomeLibraryPicks = <T extends { identifier: string; title: string; hu
     return hubs.filter((hub) => !homeHubHiddenByPicks({ ...hub, serverId: hub.serverId || server.id }, picks));
 };
 
+/**
+ * Plex's own "Weeks to consider for Continue Watching" (library setting OnDeckWeeks), per server.
+ * Plex's list can still hold a half-watched title far older than that, so the app applies the
+ * same cut-off. Null when the server will not say (shared users cannot always read preferences).
+ */
+const onDeckWeeksCache = new Map<string, { at: number; weeks: number | null }>();
+const ON_DECK_WEEKS_TTL_MS = 60 * 60_000;
+const onDeckWeeks = async (server: PlexServer): Promise<number | null> => {
+    const hit = onDeckWeeksCache.get(server.id);
+    if (hit && Date.now() - hit.at < ON_DECK_WEEKS_TTL_MS) return hit.weeks;
+    const load = (async () => {
+        const data = await pms('/:/prefs', server, 6000).catch(() => null);
+        const row = asList<PlexMeta>(containerOf(data).Setting).find((setting) => String(setting.id || '') === 'OnDeckWeeks');
+        const weeks = row ? Number(row.value ?? row.default) : NaN;
+        const value = Number.isFinite(weeks) && weeks > 0 ? weeks : null;
+        onDeckWeeksCache.set(server.id, { at: Date.now(), weeks: value });
+        return value;
+    })();
+    // Never hold Home for this: if the server is slow, show the list now; the answer is kept for next time.
+    return Promise.race([load, new Promise<null>((resolve) => { window.setTimeout(() => resolve(null), 1500); })]);
+};
+
+/** Drop titles last watched longer ago than the server's weeks setting (never-played Next Up stays). */
+const withinOnDeckWeeks = <T extends { lastViewedAt?: number | null }>(items: T[], weeks: number | null): T[] => {
+    if (!weeks) return items;
+    const cutoff = Date.now() - weeks * 7 * 86_400_000;
+    return items.filter((item) => {
+        const viewed = Number(item.lastViewedAt) || 0;
+        return !viewed || viewed >= cutoff;
+    });
+};
+
 /** Plex's merged Continue Watching hub (in-progress + Next Up). Some servers wrap the items in a Hub; read either shape. */
 const PLEX_CONTINUE_WATCHING_PATH = '/hubs/continueWatching/items?X-Plex-Container-Size=24&includeGuids=1';
 const plexContinueWatchingItems = (data: any, seasonPoster: boolean) => {
@@ -5133,7 +5165,8 @@ const loadServerHome = async (server: PlexServer, many: boolean, full = false) =
         : watchingHubs.map((hub) => hub.items).filter((items) => items.length);
     if (!plexContinue.length && onDeck.length) refreshed.push(onDeck);
     const seenWatching = new Set<string>();
-    const watchingList = refreshed.flat().filter((item) => {
+    const cwWeeks = await onDeckWeeks(server);
+    const watchingList = withinOnDeckWeeks(refreshed.flat(), cwWeeks).filter((item) => {
         const key = showKey(item);
         if (!item.ratingKey || seenWatching.has(key)) return false;
         seenWatching.add(key);
@@ -5143,7 +5176,7 @@ const loadServerHome = async (server: PlexServer, many: boolean, full = false) =
     // Always keep On Deck. /hubs/promoted often has only collection rails (no continue
     // hub); the old ternary then discarded onDeck whenever any other hub had items,
     // which hid Continue Watching entirely on Android TV / direct home.
-    const continueItems = merged.length ? merged : onDeck;
+    const continueItems = merged.length ? merged : withinOnDeckWeeks(onDeck, cwWeeks);
     hubs = hubs.filter((hub) => !continueHub(hub));
     if (continueItems.length) {
         hubs = [
@@ -6755,11 +6788,12 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
         // shows). Older servers without it: section On Deck, then whatever continue hub
         // /hubs/sections returned.
         const sectionId = bareSectionId(section);
-        const continueItems = plexContinue.length
+        const libraryCwWeeks = await onDeckWeeks(active);
+        const continueItems = withinOnDeckWeeks(plexContinue.length
             ? plexContinue.filter((item) => bareSectionId(item.librarySectionID) === sectionId)
             : (onDeckItems.length
                 ? onDeckItems
-                : (sectionCw.find((hub) => hub.items?.length)?.items || []));
+                : (sectionCw.find((hub) => hub.items?.length)?.items || [])), libraryCwWeeks);
         hubs = otherHubs;
         if (continueItems.length) {
             const primaryCw = sectionCw[0];
@@ -8514,7 +8548,7 @@ const wikiFetchJson = async (url: string) => {
     return null;
 };
 
-const loadDirectFacts = async (query: URLSearchParams) => {
+const loadWikiFacts = async (query: URLSearchParams) => {
     const mediaType = query.get('mediaType') === 'tv' ? 'tv' : 'movie';
     const title = String(query.get('title') || '').trim();
     const year = String(query.get('year') || '').trim();
@@ -8526,20 +8560,44 @@ const loadDirectFacts = async (query: URLSearchParams) => {
         title,
     ];
     let pageTitle = '';
-    const wanted = title.toLowerCase();
+    const coreOf = (value: string) => foldLoose(String(value || '').replace(/\s*\([^)]*\)\s*$/, ''));
+    const wantedCore = coreOf(title);
+    const typeHint = mediaType === 'tv' ? /tv|television|series|miniseries|sitcom/i : /film|movie/i;
     for (const searchTerm of searchAttempts) {
         const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(searchTerm)}&format=json&origin=*&srlimit=8`;
         const searchData = await wikiFetchJson(searchUrl);
         const hits = Array.isArray(searchData?.query?.search) ? searchData.query.search : [];
-        if (!hits.length) continue;
-        const hit = hits.find((row: { title?: string }) => {
-            const hitTitle = String(row?.title || '').toLowerCase();
-            return hitTitle === wanted
-                || hitTitle.startsWith(`${wanted} (`)
-                || hitTitle.includes(wanted);
-        }) || hits[0];
-        pageTitle = String(hit?.title || '').trim();
+        // Only a page whose title IS this title (ignoring a "(film)" style suffix): never a loose match,
+        // which gave facts about a different show.
+        const matches = hits
+            .map((row: { title?: string }) => String(row?.title || '').trim())
+            .filter((hitTitle: string) => hitTitle && !/disambiguation|^list of/i.test(hitTitle) && coreOf(hitTitle) === wantedCore);
+        if (!matches.length) continue;
+        const score = (hitTitle: string) => {
+            const paren = hitTitle.match(/\(([^)]*)\)\s*$/)?.[1] || '';
+            let value = 0;
+            if (!paren) value += 1;
+            if (paren && typeHint.test(paren)) value += 4;
+            if (year && paren.includes(year)) value += 3;
+            if (paren && !typeHint.test(paren) && !/\d{4}/.test(paren)) value -= 3;
+            return value;
+        };
+        pageTitle = [...matches].sort((x, y) => score(y) - score(x))[0] || '';
         if (pageTitle) break;
+    }
+    if (!pageTitle) {
+        // Search missed it: probe the usual Wikipedia names for a title directly.
+        const base = title.replace(/\s*\(\d{4}\)\s*$/, '').trim();
+        const guesses = mediaType === 'tv'
+            ? [`${base} (TV series)`, `${base} (American TV series)`, `${base} (British TV series)`, year ? `${base} (${year} TV series)` : '', `${base} (miniseries)`, `${base} (Canadian TV series)`, `${base} (Australian TV series)`, base]
+            : [`${base} (film)`, year ? `${base} (${year} film)` : '', `${base} (American film)`, `${base} (British film)`, base];
+        const wanted = guesses.filter(Boolean);
+        const probeUrl = `https://en.wikipedia.org/w/api.php?action=query&redirects=1&prop=extracts&exintro=1&explaintext=1&exlimit=20&titles=${encodeURIComponent(wanted.join('|'))}&format=json&origin=*`;
+        const probe = await wikiFetchJson(probeUrl);
+        const probed = Object.values(probe?.query?.pages || {}) as Array<{ title?: string; extract?: string; missing?: boolean }>;
+        const good = probed.filter((row) => row && row.missing == null && row.title && typeHint.test(String(row.extract || '').slice(0, 500)) && !/disambiguation/i.test(String(row.extract || '').slice(0, 200)));
+        const best = good.find((row) => year && String(row.extract || '').includes(year)) || good[0];
+        pageTitle = String(best?.title || '').trim();
     }
     if (!pageTitle) return { facts: [], fact: null, sources: { wikipedia: 0, tmdb: 0 } };
 
@@ -8549,17 +8607,136 @@ const loadDirectFacts = async (query: URLSearchParams) => {
     const pages = textData?.query?.pages || {};
     const page = Object.values(pages)[0] as { extract?: string; missing?: boolean } | undefined;
     if (!page || page.missing != null) return { facts: [], fact: null, sources: { wikipedia: 0, tmdb: 0 } };
-    const extract = wikiText(String(page.extract || ''));
-    const withoutPlot = extract.replace(/==\s*(Plot|Synopsis|Premise|Episodes|Cast|Reception|References|External links|See also)\s*==[\s\S]*?(?===|$)/gi, ' ');
-    const sentences = wikiSentences(withoutPlot);
+    const lead = String(page.extract || '').slice(0, 500);
+    // Tighter: when the year is known, the page's opening must mention it (give or take a year), and a
+    // page whose own name carries a different year is a different film or show.
+    if (/^\d{4}$/.test(year)) {
+        const wantYear = Number(year);
+        const nameYear = pageTitle.match(/\((\d{4})\b/)?.[1];
+        if (nameYear && Math.abs(Number(nameYear) - wantYear) > 1) return { facts: [], fact: null, sources: { wikipedia: 0, tmdb: 0 } };
+        const years = (lead.match(/\b(19|20)\d{2}\b/g) || []).map(Number);
+        if (years.length && !years.some((y) => Math.abs(y - wantYear) <= 1)) return { facts: [], fact: null, sources: { wikipedia: 0, tmdb: 0 } };
+    }
+    if (!typeHint.test(lead)) return { facts: [], fact: null, sources: { wikipedia: 0, tmdb: 0 } };
+    if (/^(list of|lists of)\b/i.test(pageTitle)) return { facts: [], fact: null, sources: { wikipedia: 0, tmdb: 0 } };
+    // Walk the raw extract line by line so headings stay headings (and never leak into a fact).
+    const skipSection = /^(plot|synopsis|premise|episodes?|cast|cast and characters|characters|reception|critical reception|references|external links|see also|notes|further reading|sources|bibliography|accolades|soundtrack|home media|upcoming|undated films|feature films|documentaries|filmography|awards and nominations)$/i;
+    let skipping = false;
+    const paragraphs: string[] = [];
+    String(page.extract || '').split(/\r?\n/).forEach((rawLine) => {
+        const line = rawLine.trim();
+        if (!line) return;
+        const heading = line.match(/^=+\s*(.+?)\s*=+$/);
+        if (heading) {
+            skipping = skipSection.test(heading[1].trim());
+            return;
+        }
+        if (skipping) return;
+        // Bullet-ish / list lines (short, no sentence end) are not trivia.
+        if (line.length < 60 || !/[.!?]["')\]]?$/.test(line)) return;
+        paragraphs.push(wikiText(line).replace(/\[\d+\]/g, '').replace(/\s*\(\s*\)/g, ''));
+    });
+    const sentences = wikiSentences(paragraphs.join(' '))
+        .filter((sentence) => !/={2,}/.test(sentence) && !/^\s*(see|main article)\b/i.test(sentence));
     const interesting = sentences.filter((sentence) => (
-        /budget|gross|award|oscar|nominat|direct|star|film|series|season|episode|based on|box office|premier|release|lawsuit|sue|acme|comedy|live-action|animation/i.test(sentence)
+        /budget|gross|award|oscar|nominat|direct|star|film|series|season|episode|based on|box office|premier|release|lawsuit|sue|acme|comedy|live-action|animation|inspired|shot|filmed|written|produc/i.test(sentence)
     ));
-    const facts = (interesting.length >= 2 ? interesting : sentences).slice(0, 12);
+    const facts = (interesting.length >= 2 ? interesting : sentences).slice(0, 40);
     return {
         facts,
         fact: facts[0] || null,
         sources: { wikipedia: facts.length, tmdb: 0 },
+    };
+};
+
+const tmdbCall = async (path: string, params: Record<string, string> = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    const portal = String(readStoredPortalBaseUrl() || '').replace(/\/+$/, '');
+    const token = String(getSessionToken() || '').trim();
+    if (portal && token) {
+        const res = await fetch(`${portal}/api/discovery/proxy/${path}${qs ? `?${qs}` : ''}`, {
+            headers: { Accept: 'application/json', 'X-Requested-With': 'ServerManagerPortal', Authorization: `Bearer ${token}` },
+            cache: 'no-store',
+        }).catch(() => null);
+        if (res?.ok) {
+            const json = await res.json().catch(() => null);
+            if (json && typeof json === 'object') return json as any;
+        }
+    }
+    const key = readTmdbApiKey();
+    if (!key) return null;
+    const res = await fetch(`https://api.themoviedb.org/3/${path}?api_key=${encodeURIComponent(key)}${qs ? `&${qs}` : ''}`).catch(() => null);
+    if (!res?.ok) return null;
+    return await res.json().catch(() => null) as any;
+};
+
+/** Facts from TMDB: only for a result whose name AND year match the title, never a near miss. */
+const loadTmdbFacts = async (query: URLSearchParams): Promise<string[]> => {
+    const mediaType = query.get('mediaType') === 'tv' ? 'tv' : 'movie';
+    const title = String(query.get('title') || '').trim();
+    const year = String(query.get('year') || '').trim();
+    if (!title) return [];
+    const fold = (value: string) => foldLoose(String(value || '').replace(/\s*\(\d{4}\)\s*$/, ''));
+    const search = await tmdbCall(`search/${mediaType}`, { query: title });
+    const results = Array.isArray(search?.results) ? search.results as any[] : [];
+    const pick = results.filter((row) => {
+        const name = fold(row?.title || row?.name || '');
+        const original = fold(row?.original_title || row?.original_name || '');
+        if (name !== fold(title) && original !== fold(title)) return false;
+        if (/^\d{4}$/.test(year)) {
+            const date = String(row?.release_date || row?.first_air_date || '');
+            const rowYear = Number(date.slice(0, 4));
+            if (rowYear && Math.abs(rowYear - Number(year)) > 1) return false;
+        }
+        return true;
+    }).sort((a, b) => Number(b?.vote_count || 0) - Number(a?.vote_count || 0))[0];
+    if (!pick?.id) return [];
+    const d = await tmdbCall(`${mediaType}/${pick.id}`, { append_to_response: 'credits' });
+    if (!d) return [];
+    const name = String(d.title || d.name || title);
+    const out: string[] = [];
+    const money = (n: number) => (n >= 1e9 ? `$${(n / 1e9).toFixed(2)} billion` : `$${Math.round(n / 1e6)} million`);
+    const list = (rows: any[], n = 3) => (Array.isArray(rows) ? rows.map((r) => String(r?.name || '').trim()).filter(Boolean).slice(0, n) : []);
+    if (d.tagline) out.push(`The tagline for ${name} was "${String(d.tagline).trim()}".`);
+    if (mediaType === 'movie') {
+        if (Number(d.budget) >= 1e6) out.push(`${name} had a budget of about ${money(Number(d.budget))}.`);
+        if (Number(d.revenue) >= 1e6) out.push(`${name} earned about ${money(Number(d.revenue))} at the box office.`);
+        if (Number(d.runtime) > 0) out.push(`${name} runs ${Math.floor(Number(d.runtime) / 60)}h ${Number(d.runtime) % 60}m.`);
+        const director = (d.credits?.crew || []).find((c: any) => c?.job === 'Director');
+        if (director?.name) out.push(`${name} was directed by ${director.name}.`);
+    } else {
+        const creators = list(d.created_by, 2);
+        if (creators.length) out.push(`${name} was created by ${creators.join(' and ')}.`);
+        if (Number(d.number_of_seasons) > 0) out.push(`${name} ran for ${d.number_of_seasons} season${d.number_of_seasons === 1 ? '' : 's'} and ${d.number_of_episodes} episodes.`);
+        const networks = list(d.networks, 2);
+        if (networks.length) out.push(`${name} aired on ${networks.join(' and ')}.`);
+        if (d.status === 'Ended' && d.last_air_date) out.push(`${name} ended in ${String(d.last_air_date).slice(0, 4)}.`);
+    }
+    const cast = list(d.credits?.cast, 4);
+    if (cast.length >= 2) out.push(`${name} stars ${cast.slice(0, -1).join(', ')} and ${cast[cast.length - 1]}.`);
+    const companies = list(d.production_companies, 2);
+    if (companies.length) out.push(`${name} was produced by ${companies.join(' and ')}.`);
+    const lang = String(d.original_language || '');
+    if (lang && lang !== 'en') {
+        try {
+            const langName = new Intl.DisplayNames(['en'], { type: 'language' }).of(lang);
+            if (langName) out.push(`${name} was originally made in ${langName}.`);
+        } catch { /* ignore */ }
+    }
+    if (Number(d.vote_average) > 0 && Number(d.vote_count) >= 200) out.push(`${name} has a ${Number(d.vote_average).toFixed(1)} out of 10 rating from ${Number(d.vote_count).toLocaleString('en-GB')} votes on TMDB.`);
+    return out.filter((row) => row.length >= 20);
+};
+
+const loadDirectFacts = async (query: URLSearchParams) => {
+    const [wiki, tmdb] = await Promise.all([
+        loadWikiFacts(query).catch(() => ({ facts: [] as string[] })),
+        loadTmdbFacts(query).catch(() => [] as string[]),
+    ]);
+    const facts = [...(wiki.facts || []), ...tmdb];
+    return {
+        facts,
+        fact: facts[0] || null,
+        sources: { wikipedia: (wiki.facts || []).length, tmdb: tmdb.length },
     };
 };
 

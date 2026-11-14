@@ -4,6 +4,7 @@ import { fetchMediaPlayerScreensaver, fetchMediaPlayerWatchlist } from './api';
 import { buildPlayDeck } from './screensaverDeck.js';
 import { formatPlayerDuration, isWeakTvDevice, plexImageUrl, plexLogoUrl, plexScreensaverBackdropUrl } from './playerUtils';
 import { PlayerClearLogo } from './PlayerClearLogo';
+import { apiFetch } from '../shared/api';
 import type {
     PlayerScreensaverClockPos,
     PlayerScreensaverClockSize,
@@ -49,6 +50,49 @@ type Slide = {
     posterUrl: string;
     /** The title behind the picture: Up on the remote opens it. */
     item: PlayerItem;
+    factType: 'movie' | 'tv';
+    factTitle: string;
+    factYear: number | null;
+    /** Facts from Plex's own data about the title (always available). */
+    plexFacts: string[];
+};
+
+const factCache = new Map<string, string[]>();
+const loadFacts = async (slide: Slide): Promise<string[]> => {
+    const key = `${slide.factType}:${slide.factTitle}:${slide.factYear || ''}`;
+    const hit = factCache.get(key);
+    if (hit) return hit;
+    let facts: string[] = [];
+    try {
+        const params = new URLSearchParams({ mediaType: slide.factType, mediaId: '0', title: slide.factTitle });
+        if (slide.factYear) params.set('year', String(slide.factYear));
+        const res = await apiFetch(`/api/discovery/fact?${params.toString()}`) as { facts?: string[]; fact?: string | null };
+        facts = (Array.isArray(res?.facts) && res.facts.length ? res.facts : (res?.fact ? [res.fact] : []))
+            .map((row) => String(row || '').trim())
+            .filter((row) => row.length >= 40 && row.length <= 230);
+    } catch {
+        facts = [];
+    }
+    facts = [...facts, ...slide.plexFacts];
+    factCache.set(key, facts);
+    return facts;
+};
+
+const plexFactsFor = (item: PlayerItem): string[] => {
+    const row = item as PlayerItem & { studio?: string; directors?: string[]; leafCount?: number | null; childCount?: number | null; audienceRating?: number | null };
+    const out: string[] = [];
+    const name = String(item.showTitle || item.title || '').trim();
+    const isShow = item.type === 'show' || item.type === 'episode' || item.type === 'season';
+    const studio = String(row.studio || '').trim();
+    if (studio) out.push(`${name} is from ${studio}.`);
+    if (row.directors?.length) out.push(`Directed by ${row.directors.slice(0, 2).join(' and ')}.`);
+    if (item.year) out.push(`${name} ${isShow ? 'first aired' : 'was released'} in ${item.year}.`);
+    if (isShow && row.childCount && row.childCount > 0) out.push(`${name} has ${row.childCount} season${row.childCount === 1 ? '' : 's'} in your library${row.leafCount ? `, ${row.leafCount} episodes in all` : ''}.`);
+    if (!isShow && item.durationMs) out.push(`${name} runs ${formatPlayerDuration(item.durationMs)}.`);
+    if (Array.isArray(item.genres) && item.genres.length > 1) out.push(`${name} is filed under ${item.genres.slice(0, 3).join(', ')}.`);
+    if (item.contentRating) out.push(`${name} is rated ${item.contentRating}.`);
+    if (row.audienceRating && row.audienceRating > 0) out.push(`Audiences score ${name} ${Number(row.audienceRating).toFixed(1)} out of 10.`);
+    return out;
 };
 
 const metaLineFor = (item: PlayerItem) => [
@@ -100,6 +144,10 @@ const slidesFromItems = (items: PlayerItem[]): Slide[] => {
             summary: String(item.tagline || item.summary || '').trim().slice(0, 320),
             posterUrl: posterFor(item),
             item,
+            factType: item.type === 'movie' ? 'movie' : 'tv',
+            factTitle: String(item.type === 'episode' || item.type === 'season' ? (item.showTitle || item.title) : item.title || '').trim(),
+            plexFacts: plexFactsFor(item),
+            factYear: (item.type === 'movie' || item.type === 'show') && item.year ? Number(item.year) || null : null,
         });
         if (out.length >= 24) break;
     }
@@ -139,6 +187,8 @@ type Props = {
     transition?: PlayerScreensaverTransition;
     /** Show the picture source above the clock. */
     showSource?: boolean;
+    /** A Did you know? fact about the title under the picture. */
+    showFacts?: boolean;
     /** Up on the remote while the screensaver is showing opens that title. */
     onOpenItem?: (item: PlayerItem) => void;
 };
@@ -168,6 +218,7 @@ export const PlayerTvScreensaver: React.FC<Props> = ({
     dim = 'medium',
     transition = 'fade',
     showSource = true,
+    showFacts = false,
     onOpenItem,
 }) => {
     const onOpenItemRef = useRef(onOpenItem);
@@ -505,6 +556,20 @@ export const PlayerTvScreensaver: React.FC<Props> = ({
         return () => window.clearInterval(id);
     }, [active]);
 
+    const [fact, setFact] = useState('');
+    const factSlide = frame?.current || null;
+    const factKey = factSlide ? factSlide.key : '';
+    useEffect(() => {
+        setFact('');
+        if (!active || !showFacts || !factSlide || !factSlide.factTitle) return undefined;
+        let cancelled = false;
+        void loadFacts(factSlide).then((facts) => {
+            if (cancelled || !facts.length) return;
+            setFact(facts[Math.floor(Math.random() * facts.length)]);
+        });
+        return () => { cancelled = true; };
+    }, [active, showFacts, factKey]);
+
     if (!active || !frame?.current) return null;
 
     const { current, gen } = frame;
@@ -630,6 +695,12 @@ export const PlayerTvScreensaver: React.FC<Props> = ({
             ) : null}
             {clockFloats ? (
                 <div className={`player-tv-screensaver-float player-tv-screensaver-float--${pos}`}>{clockBlock}</div>
+            ) : null}
+            {fact && showTitle ? (
+                <p className="player-tv-screensaver-fact">
+                    <span>Did you know?</span>
+                    {fact}
+                </p>
             ) : null}
             <div className="player-tv-screensaver-footer">
                 {clockInFooter ? clockBlock : null}

@@ -73,6 +73,42 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.742': [
+        {
+            title: 'Screensaver',
+            items: [
+                'Did you know? facts under the picture on the TV screensaver, from Wikipedia, TMDB and your own Plex data (Settings, Screensaver, on by default)',
+                'The clock and logo now stay in the same spot on every slide, however wide the logo is',
+            ],
+        },
+        {
+            title: 'Did you know?',
+            items: [
+                'Cleaner facts with no wiki headings or list junk, and much stricter matching so a fact is never about the wrong show',
+                'Many more facts per title, with a TMDB source added',
+            ],
+        },
+        {
+            title: 'Premiere dates',
+            items: [
+                'Premiere dates can now be turned on from phone Settings too',
+                'Titles page layout on phones fixed for long release dates',
+            ],
+        },
+        {
+            title: 'Fonts',
+            items: [
+                'New app fonts: Creato Display, Liberation Sans, Altone, Codec, Just Sans and Times New Romance',
+            ],
+        },
+        {
+            title: 'Home and fixes',
+            items: [
+                'Continue Watching now follows the Weeks to consider for Continue Watching setting on your Plex server',
+                'Fewer app restarts when pausing on TV: the face scan uses less memory and skips itself when the TV is short on memory',
+            ],
+        },
+    ],
     '1.0.722': [
         {
             title: 'Rows',

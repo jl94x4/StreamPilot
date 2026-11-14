@@ -74,6 +74,22 @@ export const AnalyticsSettings: React.FC<Props> = ({
         }
     };
 
+    const [backfilling, setBackfilling] = useState(false);
+    const handleBackfill = async () => {
+        if (backfilling) return;
+        setBackfilling(true);
+        setRebuildMessage(null);
+        try {
+            const result = await apiFetch('/api/plex/analytics/backfill-from-plex', { method: 'POST' });
+            setRebuildMessage(result?.message || 'Backfill finished.');
+            window.setTimeout(() => { void loadCacheInfo(); }, 2500);
+        } catch (err: any) {
+            setRebuildMessage(err?.message || 'Backfill failed.');
+        } finally {
+            setBackfilling(false);
+        }
+    };
+
     const lastUpdatedLabel = (() => {
         const ts = Number(cacheInfo?.lastUpdated);
         if (!Number.isFinite(ts) || ts <= 0) return t('analytics.source.updatedUnknown');
@@ -165,6 +181,16 @@ export const AnalyticsSettings: React.FC<Props> = ({
                     >
                         <RefreshCw className={`h-3.5 w-3.5 ${rebuilding ? 'animate-spin' : ''}`} />
                         {rebuilding ? t('analytics.source.rebuilding') : t('analytics.source.rebuild')}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => void handleBackfill()}
+                        disabled={backfilling || rebuilding}
+                        title="One-off: copy Plex plays into the longest stretch where Tautulli recorded nothing"
+                        className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs font-bold text-text hover:bg-white/5 disabled:opacity-50 w-full sm:w-auto shrink-0"
+                    >
+                        <RefreshCw className={`h-3.5 w-3.5 ${backfilling ? 'animate-spin' : ''}`} />
+                        {backfilling ? 'Backfilling…' : 'Backfill gap from Plex'}
                     </button>
                 </div>
             )}

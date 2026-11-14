@@ -4408,8 +4408,9 @@ html[data-tv="1"] .player-tv-screensaver-footer {
   flex-direction: column;
   align-items: center;
   gap: 0.55rem;
-  width: max-content;
-  max-width: min(42rem, 70vw);
+  /* A fixed column: the clock sits in the same place whatever the logo's shape or width. */
+  width: 15rem;
+  max-width: 40vw;
   pointer-events: none;
 }
 html[data-tv="1"] .player-tv-screensaver-watermark {
@@ -4443,7 +4444,7 @@ html[data-tv="1"] .player-tv-screensaver-logo {
   max-height: 8.5rem;
   min-height: 3.4rem;
   width: auto;
-  max-width: min(100%, 22rem);
+  max-width: 100%;
   object-fit: contain;
   object-position: center center;
   filter: none;
@@ -4493,6 +4494,30 @@ html[data-tv="1"] .player-tv-screensaver-meta {
   letter-spacing: 0.02em;
   text-align: center;
   text-shadow: 0 6px 18px rgba(0, 0, 0, 0.55);
+}
+html[data-tv="1"] .player-tv-screensaver-fact {
+  position: absolute;
+  left: 50%;
+  bottom: 2.2rem;
+  transform: translateX(-50%);
+  z-index: 3;
+  margin: 0;
+  width: min(56rem, 60vw);
+  color: rgba(255, 255, 255, 0.78);
+  font-family: var(--tv-display-font);
+  font-size: 1rem;
+  line-height: 1.4;
+  text-align: center;
+  text-shadow: 0 6px 18px rgba(0, 0, 0, 0.55);
+}
+html[data-tv="1"] .player-tv-screensaver-fact span {
+  display: block;
+  margin-bottom: 0.15rem;
+  color: #e5a00d;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
 }
 html[data-tv="1"] .player-tv-screensaver-summary {
   margin: 0;
@@ -7725,4 +7750,10 @@ html[data-phone="1"] .media-details-related .player-row-header-title {
 html[data-reduce-motion="1"] .player-desktop-nav *,
 html[data-reduce-motion="1"] .player-home-hero-dots * {
   transition: none !important;
+}
+
+/* Gallery and Spotlight carry text under the logo: they keep a content-sized footer. */
+html[data-tv="1"] .player-tv-screensaver--gallery .player-tv-screensaver-footer,
+html[data-tv="1"] .player-tv-screensaver--spotlight .player-tv-screensaver-footer {
+  width: max-content;
 }

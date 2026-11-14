@@ -1846,6 +1846,12 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                         checked={settings.screensaverShowSource}
                         onChange={(checked) => updateSettings({ screensaverShowSource: checked })}
                     />
+                    <TvToggleRow
+                        title={t('mediaPlayerPage.screensaverShowFacts')}
+                        description={t('mediaPlayerPage.screensaverShowFactsHint')}
+                        checked={settings.screensaverShowFacts}
+                        onChange={(checked) => updateSettings({ screensaverShowFacts: checked })}
+                    />
                     <TvChoiceRow
                         title={t('mediaPlayerPage.screensaverDelayMin')}
                         description={t('mediaPlayerPage.screensaverDelayMinHint')}
@@ -2221,6 +2227,12 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                             description={t('mediaPlayerPage.serviceLogoPlatesHint')}
                             checked={settings.serviceLogoPlates}
                             onChange={(checked) => updateSettings({ serviceLogoPlates: checked })}
+                        />
+                        <SettingsToggleRow
+                            title={t('mediaPlayerPage.showNewSeasonBadge')}
+                            description={t('mediaPlayerPage.showNewSeasonBadgeHint')}
+                            checked={settings.showNewSeasonBadge}
+                            onChange={(checked) => updateSettings({ showNewSeasonBadge: checked })}
                         />
                         <SettingsToggleRow
                             title={t('mediaPlayerPage.showEpisodeFilePills')}

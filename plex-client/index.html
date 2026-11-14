@@ -321,6 +321,132 @@
       font-display: swap;
       src: url("/fonts/bangers-regular.woff2") format("woff2");
     }
+    @font-face {
+      font-family: "SMP Creato Display";
+      font-style: normal;
+      font-weight: 300;
+      font-display: swap;
+      src: url("/fonts/creato-300.woff2") format("woff2");
+    }
+    @font-face {
+      font-family: "SMP Creato Display";
+      font-style: normal;
+      font-weight: 400;
+      font-display: swap;
+      src: url("/fonts/creato-400.woff2") format("woff2");
+    }
+    @font-face {
+      font-family: "SMP Creato Display";
+      font-style: normal;
+      font-weight: 500;
+      font-display: swap;
+      src: url("/fonts/creato-500.woff2") format("woff2");
+    }
+    @font-face {
+      font-family: "SMP Creato Display";
+      font-style: normal;
+      font-weight: 700;
+      font-display: swap;
+      src: url("/fonts/creato-700.woff2") format("woff2");
+    }
+    @font-face {
+      font-family: "SMP Creato Display";
+      font-style: normal;
+      font-weight: 900;
+      font-display: swap;
+      src: url("/fonts/creato-900.woff2") format("woff2");
+    }
+    @font-face {
+      font-family: "SMP Liberation Sans";
+      font-style: normal;
+      font-weight: 400;
+      font-display: swap;
+      src: url("/fonts/liberation-400.woff2") format("woff2");
+    }
+    @font-face {
+      font-family: "SMP Liberation Sans";
+      font-style: normal;
+      font-weight: 700;
+      font-display: swap;
+      src: url("/fonts/liberation-700.woff2") format("woff2");
+    }
+    @font-face {
+      font-family: "SMP Altone";
+      font-style: normal;
+      font-weight: 400;
+      font-display: swap;
+      src: url("/fonts/altone-400.woff2") format("woff2");
+    }
+    @font-face {
+      font-family: "SMP Altone";
+      font-style: normal;
+      font-weight: 700;
+      font-display: swap;
+      src: url("/fonts/altone-700.woff2") format("woff2");
+    }
+    @font-face {
+      font-family: "SMP Codec";
+      font-style: normal;
+      font-weight: 300;
+      font-display: swap;
+      src: url("/fonts/codec-300.woff2") format("woff2");
+    }
+    @font-face {
+      font-family: "SMP Codec";
+      font-style: normal;
+      font-weight: 400;
+      font-display: swap;
+      src: url("/fonts/codec-400.woff2") format("woff2");
+    }
+    @font-face {
+      font-family: "SMP Codec";
+      font-style: normal;
+      font-weight: 700;
+      font-display: swap;
+      src: url("/fonts/codec-700.woff2") format("woff2");
+    }
+    @font-face {
+      font-family: "SMP Codec";
+      font-style: normal;
+      font-weight: 900;
+      font-display: swap;
+      src: url("/fonts/codec-900.woff2") format("woff2");
+    }
+    @font-face {
+      font-family: "SMP Just Sans";
+      font-style: normal;
+      font-weight: 400;
+      font-display: swap;
+      src: url("/fonts/justsans-400.woff2") format("woff2");
+    }
+    @font-face {
+      font-family: "SMP Just Sans";
+      font-style: normal;
+      font-weight: 800;
+      font-display: swap;
+      src: url("/fonts/justsans-800.woff2") format("woff2");
+    }
+    @font-face {
+      font-family: "SMP Times New Romance";
+      font-style: normal;
+      font-weight: 300;
+      font-display: swap;
+      src: url("/fonts/romance-300.woff2") format("woff2");
+    }
+    @font-face {
+      font-family: "SMP Times New Romance";
+      font-style: normal;
+      font-weight: 400;
+      font-display: swap;
+      src: url("/fonts/romance-400.woff2") format("woff2");
+    }
+    @font-face {
+      font-family: "SMP Times New Romance";
+      font-style: normal;
+      font-weight: 700;
+      font-display: swap;
+      src: url("/fonts/romance-700.woff2") format("woff2");
+    }
     /* Settings → App font. Default leaves every existing font rule alone. The repeated attribute
        outranks the hard-coded Switzer / Satoshi rules (some are !important); font pickers show
        each option in its own face. */
@@ -344,6 +470,12 @@
     html[data-app-font="typewriter"] { --app-font: "SMP Special Elite", "Courier New", monospace; }
     html[data-app-font="marker"] { --app-font: "SMP Permanent Marker", cursive; }
     html[data-app-font="comic"] { --app-font: "SMP Bangers", "Switzer", sans-serif; }
+    html[data-app-font="creato"] { --app-font: "SMP Creato Display", "Switzer", sans-serif; }
+    html[data-app-font="liberation"] { --app-font: "SMP Liberation Sans", Arial, sans-serif; }
+    html[data-app-font="altone"] { --app-font: "SMP Altone", "Switzer", sans-serif; }
+    html[data-app-font="codec"] { --app-font: "SMP Codec", "Switzer", sans-serif; }
+    html[data-app-font="justsans"] { --app-font: "SMP Just Sans", "Switzer", sans-serif; }
+    html[data-app-font="romance"] { --app-font: "SMP Times New Romance", Georgia, serif; }
     html[data-app-font][data-app-font][data-app-font] *:not([data-font-preview]) {
       font-family: var(--app-font) !important;
     }

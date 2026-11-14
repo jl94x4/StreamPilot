@@ -171,11 +171,13 @@ export const isPlayerNavStyle = (value: unknown): value is PlayerNavStyle => val
 /** App-wide typeface. 'default' keeps the built-in Switzer / Satoshi pair. */
 export type PlayerAppFont = 'default' | 'inter' | 'roboto' | 'nunito' | 'montserrat' | 'lexend' | 'lora'
     | 'playfair' | 'slab' | 'mono' | 'oswald' | 'comfortaa' | 'orbitron' | 'caveat'
-    | 'cinzel' | 'merriweather' | 'script' | 'fredoka' | 'typewriter' | 'marker' | 'comic';
+    | 'cinzel' | 'merriweather' | 'script' | 'fredoka' | 'typewriter' | 'marker' | 'comic'
+    | 'creato' | 'liberation' | 'altone' | 'codec' | 'justsans' | 'romance';
 export const PLAYER_APP_FONTS: PlayerAppFont[] = [
     'default', 'inter', 'roboto', 'nunito', 'montserrat', 'lexend', 'lora',
     'playfair', 'slab', 'mono', 'oswald', 'comfortaa', 'orbitron', 'caveat',
     'cinzel', 'merriweather', 'script', 'fredoka', 'typewriter', 'marker', 'comic',
+    'creato', 'liberation', 'altone', 'codec', 'justsans', 'romance',
 ];
 export const isPlayerAppFont = (value: unknown): value is PlayerAppFont =>
     PLAYER_APP_FONTS.includes(value as PlayerAppFont);
@@ -202,6 +204,12 @@ export const PLAYER_APP_FONT_FAMILY: Record<PlayerAppFont, string> = {
     typewriter: '"SMP Special Elite", "Courier New", monospace',
     marker: '"SMP Permanent Marker", cursive',
     comic: '"SMP Bangers", "Switzer", sans-serif',
+    creato: '"SMP Creato Display", "Switzer", sans-serif',
+    liberation: '"SMP Liberation Sans", Arial, sans-serif',
+    altone: '"SMP Altone", "Switzer", sans-serif',
+    codec: '"SMP Codec", "Switzer", sans-serif',
+    justsans: '"SMP Just Sans", "Switzer", sans-serif',
+    romance: '"SMP Times New Romance", Georgia, serif',
 };
 
 export type PlayerViewMoreStyle = 'backdrop' | 'mosaic' | 'deck' | 'minimal';
@@ -664,6 +672,8 @@ export type PlayerSettings = {
     screensaverTransition: PlayerScreensaverTransition;
     /** Show where the pictures come from (e.g. "Continue Watching") above the clock. */
     screensaverShowSource: boolean;
+    /** A "Did you know?" line about the title under the screensaver picture (TV). */
+    screensaverShowFacts: boolean;
     /** TV: skip focus zoom and screen-enter motion. */
     reduceMotion: boolean;
     /** TV Home billboard: instant art swap, fixed fade colour, 720p art. For slower TV sticks. */
@@ -1098,6 +1108,7 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
     screensaverDim: 'medium',
     screensaverTransition: 'fade',
     screensaverShowSource: true,
+    screensaverShowFacts: true,
     reduceMotion: false,
     liteBillboard: false,
     detailsArtworkTint: true,
@@ -1233,6 +1244,7 @@ export const normalizePlayerSettings = (raw: Partial<PlayerSettings> | Record<st
         screensaverDim: pickOf(PLAYER_SCREENSAVER_DIMS, raw?.screensaverDim, 'medium'),
         screensaverTransition: pickOf(PLAYER_SCREENSAVER_TRANSITIONS, raw?.screensaverTransition, 'fade'),
         screensaverShowSource: raw?.screensaverShowSource !== false,
+        screensaverShowFacts: raw?.screensaverShowFacts !== false,
         reduceMotion: raw?.reduceMotion === true,
         liteBillboard: raw?.liteBillboard === true,
         detailsArtworkTint: raw?.detailsArtworkTint !== false,
@@ -1337,6 +1349,7 @@ export const playerSettingsEqual = (a: PlayerSettings, b: PlayerSettings) => (
     && a.screensaverDim === b.screensaverDim
     && a.screensaverTransition === b.screensaverTransition
     && a.screensaverShowSource === b.screensaverShowSource
+    && a.screensaverShowFacts === b.screensaverShowFacts
     && a.reduceMotion === b.reduceMotion
     && a.liteBillboard === b.liteBillboard
     && a.detailsArtworkTint === b.detailsArtworkTint
