@@ -247,6 +247,188 @@ const plexThumbUrl = (path?: string | null, width = 80, height = 120) => {
     return portalUrl(`/api/plex/image?path=${encodeURIComponent(raw)}&width=${width}&height=${height}`);
 };
 
+type LogoLightboxItem = {
+    kind: 'set' | 'candidate' | 'external';
+    candidateKey: string;
+    src: string;
+    label: string;
+};
+
+/** Every logo shown in a clearlogo row's preview cell, in display order, at lightbox size. */
+const clearlogoLightboxItems = (row: ClearlogoPreviewRow): LogoLightboxItem[] => {
+    const items: LogoLightboxItem[] = [];
+    const isSet = row.status === 'hasLogo' || row.status === 'applied' || !!row.hasLogoApplied || !!row.applied;
+    const selectedKey = String(row.selectedCandidate?.ratingKey || '').trim();
+    const setThumb = row.selectedCandidate?.thumb || row.selectedCandidate?.ratingKey || '';
+    if (isSet && setThumb) {
+        items.push({
+            kind: 'set',
+            candidateKey: selectedKey,
+            src: plexThumbUrl(setThumb, 1200, 450),
+            label: `Currently applied${row.selectedCandidate?.provider ? ` · ${row.selectedCandidate.provider}` : ''}`,
+        });
+    }
+    (row.candidates || []).slice(0, 8).forEach((c) => {
+        const candKey = String(c.ratingKey || '').trim();
+        if (isSet && candKey && candKey === selectedKey) return;
+        const src = plexThumbUrl(c.thumb || c.ratingKey, 1200, 450);
+        if (!src) return;
+        items.push({ kind: 'candidate', candidateKey: candKey, src, label: c.provider || 'Plex candidate' });
+    });
+    const externalUrl = String(row.external?.url || '').trim();
+    if (row.status === 'externalAvailable' && !row.applied && externalUrl) {
+        items.push({
+            kind: 'external',
+            candidateKey: '',
+            src: externalUrl,
+            label: `TMDB PNG${row.external?.language ? ` · ${row.external.language}` : ''}`,
+        });
+    }
+    return items;
+};
+
+const ClearlogoLightbox = ({
+    row,
+    index,
+    picked,
+    defaultBest,
+    canPick,
+    onIndex,
+    onPick,
+    onClose,
+}: {
+    row: ClearlogoPreviewRow;
+    index: number;
+    picked: string;
+    defaultBest: string;
+    canPick: boolean;
+    onIndex: (index: number) => void;
+    onPick: (candidateKey: string) => void;
+    onClose: () => void;
+}) => {
+    const items = useMemo(() => clearlogoLightboxItems(row), [row]);
+    const [darkBg, setDarkBg] = useState(true);
+    const count = items.length;
+    const safeIndex = count ? Math.min(Math.max(0, index), count - 1) : 0;
+    const item = items[safeIndex];
+
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') onClose();
+            else if (e.key === 'ArrowLeft' && count > 1) onIndex((safeIndex - 1 + count) % count);
+            else if (e.key === 'ArrowRight' && count > 1) onIndex((safeIndex + 1) % count);
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [count, safeIndex, onIndex, onClose]);
+
+    if (!item) return null;
+    const isPicked = item.kind === 'candidate' && !!item.candidateKey && picked === item.candidateKey;
+    const isDefault = item.kind === 'candidate' && !picked && !!item.candidateKey && item.candidateKey === defaultBest;
+
+    return (
+        <div
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4"
+            onClick={onClose}
+            role="dialog"
+            aria-modal="true"
+        >
+            <div
+                className="w-full max-w-3xl rounded-2xl border border-white/10 bg-background p-4 shadow-2xl space-y-3"
+                onClick={(e) => e.stopPropagation()}
+            >
+                <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-text">
+                            {row.title || 'Untitled'}{row.year ? ` (${row.year})` : ''}
+                        </p>
+                        <p className="text-[11px] text-muted">
+                            {item.label}
+                            {isPicked ? ' · selected' : (isDefault ? ' · default pick' : '')}
+                            {count > 1 ? ` · ${safeIndex + 1} of ${count}` : ''}
+                        </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                        <button
+                            type="button"
+                            onClick={() => setDarkBg((v) => !v)}
+                            className="rounded-lg border border-white/10 px-2 py-1 text-[11px] font-bold text-text"
+                            title="Toggle preview background"
+                        >
+                            {darkBg ? 'Light bg' : 'Dark bg'}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="rounded-lg border border-white/10 px-2 py-1 text-[11px] font-bold text-text"
+                        >
+                            Close
+                        </button>
+                    </div>
+                </div>
+                <div className="relative">
+                    <div
+                        className={`flex h-[min(50vh,22rem)] items-center justify-center rounded-xl p-6 ring-1 ring-white/10 ${
+                            darkBg ? 'bg-gradient-to-br from-zinc-900 via-zinc-800 to-black' : 'bg-white'
+                        }`}
+                    >
+                        <img src={item.src} alt="" className="max-h-full max-w-full object-contain" />
+                    </div>
+                    {count > 1 && (
+                        <>
+                            <button
+                                type="button"
+                                onClick={() => onIndex((safeIndex - 1 + count) % count)}
+                                className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full border border-white/15 bg-black/60 p-1.5 text-white"
+                                aria-label="Previous logo"
+                            >
+                                <ChevronLeft className="h-4 w-4" />
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => onIndex((safeIndex + 1) % count)}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full border border-white/15 bg-black/60 p-1.5 text-white"
+                                aria-label="Next logo"
+                            >
+                                <ChevronRight className="h-4 w-4" />
+                            </button>
+                        </>
+                    )}
+                </div>
+                {count > 1 && (
+                    <div className="flex flex-wrap gap-2">
+                        {items.map((it, i) => (
+                            <button
+                                key={`${it.kind}-${it.candidateKey}-${i}`}
+                                type="button"
+                                onClick={() => onIndex(i)}
+                                className={`rounded-md border bg-white/90 p-1 ${
+                                    i === safeIndex ? 'ring-2 ring-plex border-plex/50' : 'ring-1 ring-white/10 border-transparent'
+                                }`}
+                            >
+                                <img src={it.src} alt="" className="h-8 w-[4.5rem] object-contain" />
+                            </button>
+                        ))}
+                    </div>
+                )}
+                {item.kind === 'candidate' && item.candidateKey && (
+                    <div className="flex justify-end">
+                        <button
+                            type="button"
+                            disabled={!canPick}
+                            onClick={() => onPick(item.candidateKey)}
+                            className="rounded-lg border border-plex/40 bg-plex/15 px-3 py-1.5 text-xs font-bold text-plex disabled:opacity-40"
+                            title={canPick ? undefined : 'Wait for the scan to finish to choose a logo'}
+                        >
+                            {isPicked ? 'Unselect' : 'Use this logo'}
+                        </button>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
 const defaultFields = (): FillFields => ({
     title: true,
     summary: true,
@@ -310,6 +492,16 @@ export const MetadataFillPage: React.FC = () => {
     const [clearlogoRowBusy, setClearlogoRowBusy] = useState('');
     /** Optional per-title clearlogo candidate ratingKey overrides. */
     const [clearlogoPicks, setClearlogoPicks] = useState<Record<string, string>>({});
+    const [logoLightbox, setLogoLightbox] = useState<{ row: ClearlogoPreviewRow; index: number } | null>(null);
+    const closeLogoLightbox = useCallback(() => setLogoLightbox(null), []);
+    const setLogoLightboxIndex = useCallback((index: number) => {
+        setLogoLightbox((prev) => (prev ? { ...prev, index } : prev));
+    }, []);
+    const openLogoLightbox = (row: ClearlogoPreviewRow, kind: LogoLightboxItem['kind'], candidateKey = '') => {
+        const items = clearlogoLightboxItems(row);
+        const index = items.findIndex((it) => it.kind === kind && (kind !== 'candidate' || it.candidateKey === candidateKey));
+        setLogoLightbox({ row, index: Math.max(0, index) });
+    };
     const [clearlogoQuery, setClearlogoQuery] = useState('');
     const [clearlogoHits, setClearlogoHits] = useState<ClearlogoTitleHit[]>([]);
     const [clearlogoSearching, setClearlogoSearching] = useState(false);
@@ -2082,16 +2274,18 @@ export const MetadataFillPage: React.FC = () => {
                                             <td className="px-3 py-3">
                                                 <div className="flex flex-wrap items-center gap-2">
                                                     {isSet && setThumb ? (
-                                                        <div
-                                                            className="rounded-md border border-emerald-400/40 bg-white/90 p-1.5 ring-2 ring-emerald-400/40"
-                                                            title="Currently applied clearlogo"
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => openLogoLightbox(row, 'set')}
+                                                            className="rounded-md border border-emerald-400/40 bg-white/90 p-1.5 ring-2 ring-emerald-400/40 hover:brightness-110"
+                                                            title="Currently applied clearlogo (click to enlarge)"
                                                         >
                                                             <img
                                                                 src={plexThumbUrl(setThumb, 240, 90)}
                                                                 alt=""
                                                                 className="h-10 w-[5.5rem] object-contain"
                                                             />
-                                                        </div>
+                                                        </button>
                                                     ) : null}
                                                     {(row.candidates || []).slice(0, 8).map((c, ci) => {
                                                         const candKey = String(c.ratingKey || '').trim();
@@ -2110,18 +2304,14 @@ export const MetadataFillPage: React.FC = () => {
                                                             <button
                                                                 key={`${row.ratingKey}-c-${ci}`}
                                                                 type="button"
-                                                                disabled={!isAvailable || clearlogoBusy || clearlogoRunning}
-                                                                onClick={() => {
-                                                                    if (!isAvailable || !candKey) return;
-                                                                    toggleClearlogoPick(row.ratingKey, candKey);
-                                                                }}
-                                                                className={`rounded-md border bg-white/90 p-1.5 disabled:opacity-50 ${ring}`}
+                                                                onClick={() => openLogoLightbox(row, 'candidate', candKey)}
+                                                                className={`rounded-md border bg-white/90 p-1.5 hover:brightness-110 ${ring}`}
                                                                 title={
                                                                     isPicked
-                                                                        ? `Selected · ${c.provider || 'logo'}`
+                                                                        ? `Selected · ${c.provider || 'logo'} (click to enlarge)`
                                                                         : (isDefault
-                                                                            ? `Default pick · ${c.provider || 'logo'} (click to choose)`
-                                                                            : (c.provider || 'Select this logo'))
+                                                                            ? `Default pick · ${c.provider || 'logo'} (click to enlarge)`
+                                                                            : `${c.provider || 'Logo'} (click to enlarge)`)
                                                                 }
                                                             >
                                                                 <img
@@ -2138,16 +2328,18 @@ export const MetadataFillPage: React.FC = () => {
                                                         );
                                                     })}
                                                     {isExternal && externalUrl ? (
-                                                        <div
-                                                            className="rounded-md border border-sky-400/40 bg-white/90 p-1.5 ring-1 ring-sky-400/30"
-                                                            title="TMDB PNG clearlogo preview"
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => openLogoLightbox(row, 'external')}
+                                                            className="rounded-md border border-sky-400/40 bg-white/90 p-1.5 ring-1 ring-sky-400/30 hover:brightness-110"
+                                                            title="TMDB PNG clearlogo preview (click to enlarge)"
                                                         >
                                                             <img
                                                                 src={externalUrl}
                                                                 alt=""
                                                                 className="h-10 w-[5.5rem] object-contain"
                                                             />
-                                                        </div>
+                                                        </button>
                                                     ) : null}
                                                     {!row.candidates?.length && !setThumb && !externalUrl && (
                                                         <span className="text-muted">—</span>
@@ -2204,6 +2396,22 @@ export const MetadataFillPage: React.FC = () => {
                     )}
                     </div>
                 )}
+                {logoLightbox && (() => {
+                    const lbRow = logoLightbox.row;
+                    const lbAvailable = lbRow.status === 'available' && !lbRow.applied;
+                    return (
+                        <ClearlogoLightbox
+                            row={lbRow}
+                            index={logoLightbox.index}
+                            picked={clearlogoPicks[lbRow.ratingKey] || ''}
+                            defaultBest={String(lbRow.bestCandidate?.ratingKey || '').trim()}
+                            canPick={lbAvailable && !clearlogoBusy && !clearlogoRunning}
+                            onIndex={setLogoLightboxIndex}
+                            onPick={(candKey) => toggleClearlogoPick(lbRow.ratingKey, candKey)}
+                            onClose={closeLogoLightbox}
+                        />
+                    );
+                })()}
                 {clearlogoScan && !clearlogoTableRows.length && (clearlogoScan.status === 'done' || clearlogoScan.status === 'cancelled') && (
                     <p className="text-xs text-muted">
                         {clearlogoTableFilter === 'available'
