@@ -26,6 +26,11 @@ type FillLogRow = {
     after?: { title?: string; summary?: string; originallyAvailableAt?: string };
     airDate?: string;
     reversible?: boolean;
+    kind?: string;
+    error?: string;
+    libraryTitle?: string;
+    type?: string;
+    thumb?: { added?: boolean; url?: string; reason?: string; error?: string };
 };
 
 type ShowHit = {
@@ -158,6 +163,7 @@ type FillFields = {
     title: boolean;
     summary: boolean;
     originallyAvailableAt: boolean;
+    thumb: boolean;
 };
 
 type AuditItem = {
@@ -433,6 +439,7 @@ const defaultFields = (): FillFields => ({
     title: true,
     summary: true,
     originallyAvailableAt: true,
+    thumb: true,
 });
 
 type LogFilter = 'all' | 'filled' | 'failed' | 'preview' | 'skipped' | 'reverted';
@@ -1078,10 +1085,15 @@ export const MetadataFillPage: React.FC = () => {
         setRowBusy(`retry:${row.ratingKey}`);
         setError('');
         try {
-            await apiFetch('/api/metadata-fill/fill-episode', {
-                method: 'POST',
-                body: JSON.stringify({ ratingKey: row.ratingKey }),
-            });
+            await apiFetch(
+                row.kind === 'clearlogo' ? '/api/metadata-fill/clearlogos/fill' : '/api/metadata-fill/fill-episode',
+                {
+                    method: 'POST',
+                    body: JSON.stringify(row.kind === 'clearlogo'
+                        ? { ratingKey: row.ratingKey, dryRun: false }
+                        : { ratingKey: row.ratingKey }),
+                },
+            );
             await load(true);
         } catch (e: any) {
             setError(e?.message || 'Retry fill failed');
@@ -1277,6 +1289,7 @@ export const MetadataFillPage: React.FC = () => {
                             ['title', 'Title'],
                             ['summary', 'Summary'],
                             ['originallyAvailableAt', 'Air date'],
+                            ['thumb', 'Title card (when missing)'],
                         ] as const).map(([key, label]) => (
                             <label key={key} className="flex items-center justify-between gap-3 text-sm text-text">
                                 <span>{label}</span>
@@ -2586,21 +2599,42 @@ export const MetadataFillPage: React.FC = () => {
                                 <div className="min-w-0">
                                     <div className="flex flex-wrap items-center gap-2 text-text">
                                         <span className={statusClass(row)}>{statusLabel(row)}</span>
-                                        <span className="font-semibold">
-                                            {row.showTitle || 'Show'}
-                                            {row.seasonNumber != null && row.episodeNumber != null
-                                                ? ` S${String(row.seasonNumber).padStart(2, '0')}E${String(row.episodeNumber).padStart(2, '0')}`
-                                                : ''}
-                                            {row.title ? ` - ${row.title}` : ''}
-                                        </span>
+                                        {row.kind === 'clearlogo' ? (
+                                            <span className="font-semibold">
+                                                Clear logo
+                                                {row.title ? ` - ${row.title}` : ''}
+                                            </span>
+                                        ) : (
+                                            <span className="font-semibold">
+                                                {row.showTitle || 'Show'}
+                                                {row.seasonNumber != null && row.episodeNumber != null
+                                                    ? ` S${String(row.seasonNumber).padStart(2, '0')}E${String(row.episodeNumber).padStart(2, '0')}`
+                                                    : ''}
+                                                {row.title ? ` - ${row.title}` : ''}
+                                            </span>
+                                        )}
                                     </div>
                                     <p className="mt-0.5 text-muted">
                                         {row.at ? new Date(row.at).toLocaleString() : ''}
+                                        {row.libraryTitle ? ` · ${row.libraryTitle}` : ''}
                                         {row.source ? ` · ${row.source}` : ''}
                                         {row.sources?.length ? ` · ${row.sources.join('+')}` : ''}
                                         {row.reason ? ` · ${reasonLabel(row.reason)}` : ''}
                                         {row.airDate ? ` · air ${row.airDate}` : ''}
                                     </p>
+                                    {row.thumb?.added && (
+                                        <p className="mt-1 text-[11px] text-muted">
+                                            {row.dryRun ? 'Would add title card.' : 'Title card added.'}
+                                        </p>
+                                    )}
+                                    {row.thumb?.error && (
+                                        <p className="mt-1 break-words text-[11px] text-orange-300/80">
+                                            Title card failed: {row.thumb.error}
+                                        </p>
+                                    )}
+                                    {row.ok === false && row.error && (
+                                        <p className="mt-1 break-words text-[11px] text-red-300/80">{row.error}</p>
+                                    )}
                                     {(row.before || row.after) && (
                                         <p className="mt-1 text-[11px] text-muted leading-relaxed">
                                             {row.before?.title != null && row.after?.title != null && row.before.title !== row.after.title && (
