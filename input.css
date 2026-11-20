@@ -1539,7 +1539,7 @@ html[data-theme="light"] .media-details-hero-scrim-left {
 .smp-resume-card {
   position: relative;
   z-index: 1;
-  width: min(100%, 46rem);
+  width: min(100%, 60rem);
   min-height: 19rem;
   overflow: hidden;
   border-radius: 1.6rem;
@@ -1548,7 +1548,7 @@ html[data-theme="light"] .media-details-hero-scrim-left {
   box-shadow: 0 30px 90px rgba(0, 0, 0, 0.6);
 }
 .smp-resume.is-tv .smp-resume-card {
-  width: min(100%, 54rem);
+  width: min(100%, 68rem);
   min-height: 21rem;
 }
 .smp-resume-art {
@@ -1574,11 +1574,11 @@ html[data-theme="light"] .media-details-hero-scrim-left {
   flex-direction: column;
   align-items: flex-start;
   gap: 0.55rem;
-  max-width: 30rem;
+  max-width: 38rem;
   padding: 2rem 2.1rem 1.9rem;
 }
 .smp-resume.is-tv .smp-resume-body {
-  max-width: 34rem;
+  max-width: 42rem;
   padding: 2.4rem 2.6rem 2.2rem;
 }
 .smp-resume-eyebrow {
@@ -3176,7 +3176,7 @@ html[data-tv="1"] .media-details-hero-backdrop::before {
   inset: 0 !important;
   z-index: 1 !important;
   pointer-events: none !important;
-  background: linear-gradient(180deg, transparent 0%, transparent 40%, rgb(var(--tv-details-surface) / 0.3) 56%, rgb(var(--tv-details-surface) / 0.72) 70%, rgb(var(--tv-details-surface) / 0.94) 82%, rgb(var(--tv-details-surface)) 100%) !important;
+  background: linear-gradient(180deg, transparent 0%, rgb(var(--tv-details-surface) / 0.06) 40%, rgb(var(--tv-details-surface) / 0.4) 56%, rgb(var(--tv-details-surface) / 0.8) 70%, rgb(var(--tv-details-surface) / 0.96) 82%, rgb(var(--tv-details-surface)) 100%) !important;
 }
 html[data-tv="1"] [data-tv-kind="album"] .media-details-hero-backdrop::before,
 html[data-tv="1"] [data-tv-kind="artist"] .media-details-hero-backdrop::before,
@@ -3194,8 +3194,8 @@ html[data-tv="1"] .media-details-hero-backdrop::after {
   z-index: 3 !important;
   pointer-events: none !important;
   background:
-    linear-gradient(90deg, rgb(var(--tv-details-surface) / 0.98) 0%, rgb(var(--tv-details-surface) / 0.94) 14%, rgb(var(--tv-details-surface) / 0.82) 26%, rgb(var(--tv-details-surface) / 0.48) 40%, rgb(var(--tv-details-surface) / 0.16) 54%, rgb(var(--tv-details-surface) / 0.04) 68%, transparent 82%),
-    linear-gradient(180deg, rgb(var(--tv-details-surface) / 0.14) 0%, transparent 12%, transparent 34%, rgb(var(--tv-details-surface) / 0.38) 50%, rgb(var(--tv-details-surface) / 0.72) 64%, rgb(var(--tv-details-surface) / 0.92) 78%, rgb(var(--tv-details-surface)) 100%) !important;
+    linear-gradient(90deg, rgb(var(--tv-details-surface) / 0.98) 0%, rgb(var(--tv-details-surface) / 0.96) 14%, rgb(var(--tv-details-surface) / 0.88) 26%, rgb(var(--tv-details-surface) / 0.58) 40%, rgb(var(--tv-details-surface) / 0.24) 54%, rgb(var(--tv-details-surface) / 0.08) 68%, transparent 82%),
+    linear-gradient(180deg, rgb(var(--tv-details-surface) / 0.2) 0%, rgb(var(--tv-details-surface) / 0.04) 12%, rgb(var(--tv-details-surface) / 0.04) 34%, rgb(var(--tv-details-surface) / 0.48) 50%, rgb(var(--tv-details-surface) / 0.8) 64%, rgb(var(--tv-details-surface) / 0.95) 78%, rgb(var(--tv-details-surface)) 100%) !important;
 }
 html[data-tv="1"] [data-tv-kind="movie"] .media-details-hero-content {
   padding-bottom: 0.15rem !important;
@@ -3468,6 +3468,10 @@ html[data-tv="1"] .media-details-hero-backdrop img.media-details-hub-art.is-fron
 html[data-tv="1"] .media-details-hero-backdrop img.media-details-hub-art.is-behind {
   opacity: 0;
 }
+/* Native episode rail: stepping through episodes swaps the text at once. The fade-in from nothing read as a blink on every press. */
+html[data-tv="1"][data-native-eps="1"] .media-details-hub-meta-swap {
+  animation: none !important;
+}
 html[data-tv="1"][data-reduce-motion="1"] .media-details-hub-meta-swap {
   animation: none !important;
 }
@@ -3595,6 +3599,37 @@ html[data-tv="1"] [data-tv-kind="season"] .media-details-episodes [data-tv-poste
   scroll-snap-type: none !important;
   overflow-x: auto !important;
   overflow-y: hidden !important;
+}
+/* Native episode rail (Android TV): NativeEpisodeRail draws the cards at this rect; the web cards stay in the page
+   (laid out, focusable) for spotlight / menus / navigation but are not painted. */
+/* Android TV title pages: the native backdrop bakes in Home's fade (left + bottom, in the picture's colour);
+   the page's own scrims over it would darken it twice. */
+html[data-tv="1"][data-native-fade="1"] [data-tv-details="1"] .media-details-hero-backdrop::before,
+html[data-tv="1"][data-native-fade="1"] [data-tv-details="1"] .media-details-hero-backdrop::after {
+  display: none !important;
+}
+/* Android TV movie / show page: NativeDetailsText draws these blocks; the web ones keep their space. */
+html[data-tv="1"][data-native-dt-id="1"] [data-tv-details="1"] .media-details-billboard-title-stack,
+html[data-tv="1"][data-native-dt-meta="1"] [data-tv-details="1"] .media-details-billboard-ratings,
+html[data-tv="1"][data-native-dt-syn="1"] [data-tv-details="1"] .media-details-synopsis,
+html[data-tv="1"][data-native-dt-syn="1"] [data-tv-details="1"] .media-details-billboard-summary,
+html[data-tv="1"][data-native-dt-hd="1"] [data-tv-details="1"] .media-details-episode-heading {
+  visibility: hidden !important;
+}
+/* Android TV episode / season page: NativeSeasonTabs draws the season bar; the web one stays focusable but is not painted. */
+html[data-tv="1"][data-native-tabs="1"] [data-tv-details="1"] .media-details-season-pills {
+  opacity: 0 !important;
+  transition: none !important;
+}
+/* Android TV details page: NativeDetailActions draws the buttons; the web ones stay focusable but are not painted. */
+html[data-tv="1"][data-native-act="1"] [data-tv-details="1"] [data-tv-action-row="1"] [data-tv-action="1"][data-tv-key] {
+  opacity: 0 !important;
+  transition: none !important;
+}
+html[data-tv="1"][data-native-eps="1"] .media-details-episodes-rail [data-tv-poster-rail="1"] {
+  opacity: 0 !important;
+  animation: none !important;
+  transition: none !important;
 }
 html[data-tv="1"] [data-tv-kind="episode"] .media-details-episode-card,
 html[data-tv="1"] [data-tv-kind="season"] .media-details-episode-card {
@@ -3772,8 +3807,8 @@ html[data-tv="1"] .player-home-stage .player-home-focus-still::after {
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(90deg, rgb(var(--tv-home-surface) / 0.98) 0%, rgb(var(--tv-home-surface) / 0.95) 18%, rgb(var(--tv-home-surface) / 0.9) 30%, rgb(var(--tv-home-surface) / 0.76) 42%, rgb(var(--tv-home-surface) / 0.5) 52%, rgb(var(--tv-home-surface) / 0.24) 62%, rgb(var(--tv-home-surface) / 0.08) 72%, transparent 84%),
-    linear-gradient(180deg, rgb(var(--tv-home-surface) / 0.14) 0%, transparent 12%, transparent 34%, rgb(var(--tv-home-surface) / 0.38) 50%, rgb(var(--tv-home-surface) / 0.72) 64%, rgb(var(--tv-home-surface) / 0.92) 78%, rgb(var(--tv-home-surface)) 100%);
+    linear-gradient(90deg, rgb(var(--tv-home-surface) / 0.98) 0%, rgb(var(--tv-home-surface) / 0.97) 18%, rgb(var(--tv-home-surface) / 0.93) 30%, rgb(var(--tv-home-surface) / 0.82) 42%, rgb(var(--tv-home-surface) / 0.58) 52%, rgb(var(--tv-home-surface) / 0.3) 62%, rgb(var(--tv-home-surface) / 0.12) 72%, transparent 84%),
+    linear-gradient(180deg, rgb(var(--tv-home-surface) / 0.2) 0%, rgb(var(--tv-home-surface) / 0.04) 12%, rgb(var(--tv-home-surface) / 0.04) 34%, rgb(var(--tv-home-surface) / 0.48) 50%, rgb(var(--tv-home-surface) / 0.8) 64%, rgb(var(--tv-home-surface) / 0.95) 78%, rgb(var(--tv-home-surface)) 100%);
   pointer-events: none;
 }
 html[data-tv="1"] .player-home-focus-still {
@@ -3810,9 +3845,9 @@ html[data-tv="1"] .player-home-stage .player-home-focus-still img {
 html[data-tv="1"] .player-home-stage .player-home-focus-still::after {
   z-index: 1;
   background:
-    linear-gradient(90deg, rgb(var(--tv-home-surface) / 0.98) 0%, rgb(var(--tv-home-surface) / 0.95) 18%, rgb(var(--tv-home-surface) / 0.9) 30%, rgb(var(--tv-home-surface) / 0.76) 42%, rgb(var(--tv-home-surface) / 0.5) 52%, rgb(var(--tv-home-surface) / 0.24) 62%, rgb(var(--tv-home-surface) / 0.08) 72%, transparent 84%),
-    linear-gradient(180deg, rgb(var(--tv-home-surface) / 0.14) 0%, transparent 12%, transparent 34%, rgb(var(--tv-home-surface) / 0.38) 50%, rgb(var(--tv-home-surface) / 0.72) 64%, rgb(var(--tv-home-surface) / 0.92) 78%, rgb(var(--tv-home-surface)) 100%),
-    linear-gradient(180deg, rgb(var(--tv-home-surface) / 0) 0%, rgb(var(--tv-home-surface) / 0) 40%, rgb(var(--tv-home-surface) / 0.3) 56%, rgb(var(--tv-home-surface) / 0.72) 70%, rgb(var(--tv-home-surface) / 0.94) 82%, rgb(var(--tv-home-surface)) 100%),
+    linear-gradient(90deg, rgb(var(--tv-home-surface) / 0.98) 0%, rgb(var(--tv-home-surface) / 0.97) 18%, rgb(var(--tv-home-surface) / 0.93) 30%, rgb(var(--tv-home-surface) / 0.82) 42%, rgb(var(--tv-home-surface) / 0.58) 52%, rgb(var(--tv-home-surface) / 0.3) 62%, rgb(var(--tv-home-surface) / 0.12) 72%, transparent 84%),
+    linear-gradient(180deg, rgb(var(--tv-home-surface) / 0.2) 0%, rgb(var(--tv-home-surface) / 0.04) 12%, rgb(var(--tv-home-surface) / 0.04) 34%, rgb(var(--tv-home-surface) / 0.48) 50%, rgb(var(--tv-home-surface) / 0.8) 64%, rgb(var(--tv-home-surface) / 0.95) 78%, rgb(var(--tv-home-surface)) 100%),
+    linear-gradient(180deg, rgb(var(--tv-home-surface) / 0) 0%, rgb(var(--tv-home-surface) / 0.06) 40%, rgb(var(--tv-home-surface) / 0.4) 56%, rgb(var(--tv-home-surface) / 0.8) 70%, rgb(var(--tv-home-surface) / 0.96) 82%, rgb(var(--tv-home-surface)) 100%),
     linear-gradient(180deg, transparent 0%, transparent 74%, rgb(var(--tv-home-surface) / 0.55) 81%, rgb(var(--tv-home-surface) / 0.9) 86%, rgb(var(--tv-home-surface)) 89.5%, rgb(var(--tv-home-surface)) 100%);
   /* Its own GPU layer: the art cross-fading underneath no longer repaints these
      full-screen gradients every frame (it did, ~13 times a title change). */
@@ -3834,6 +3869,22 @@ html[data-tv="1"] .player-home-focus-still img.is-front {
 }
 html[data-tv="1"] .player-home-focus-still img.is-behind {
   opacity: 0;
+}
+/* Fire TV sticks (flat still, see HomeFocusStill): the picture and the scrim above are two backgrounds
+   of one element, so the GPU draws a single full-screen layer instead of an image plus an overlay. */
+html[data-tv="1"] .player-home-stage .player-home-focus-still.is-flat {
+  --tv-flat-scrim:
+    linear-gradient(90deg, rgb(var(--tv-home-surface) / 0.98) 0%, rgb(var(--tv-home-surface) / 0.97) 18%, rgb(var(--tv-home-surface) / 0.93) 30%, rgb(var(--tv-home-surface) / 0.82) 42%, rgb(var(--tv-home-surface) / 0.58) 52%, rgb(var(--tv-home-surface) / 0.3) 62%, rgb(var(--tv-home-surface) / 0.12) 72%, transparent 84%),
+    linear-gradient(180deg, rgb(var(--tv-home-surface) / 0.2) 0%, rgb(var(--tv-home-surface) / 0.04) 12%, rgb(var(--tv-home-surface) / 0.04) 34%, rgb(var(--tv-home-surface) / 0.48) 50%, rgb(var(--tv-home-surface) / 0.8) 64%, rgb(var(--tv-home-surface) / 0.95) 78%, rgb(var(--tv-home-surface)) 100%),
+    linear-gradient(180deg, rgb(var(--tv-home-surface) / 0) 0%, rgb(var(--tv-home-surface) / 0.06) 40%, rgb(var(--tv-home-surface) / 0.4) 56%, rgb(var(--tv-home-surface) / 0.8) 70%, rgb(var(--tv-home-surface) / 0.96) 82%, rgb(var(--tv-home-surface)) 100%),
+    linear-gradient(180deg, transparent 0%, transparent 74%, rgb(var(--tv-home-surface) / 0.55) 81%, rgb(var(--tv-home-surface) / 0.9) 86%, rgb(var(--tv-home-surface)) 89.5%, rgb(var(--tv-home-surface)) 100%);
+  background-color: rgb(var(--tv-home-surface));
+  background-repeat: no-repeat;
+  background-size: 100% 100%, cover;
+  background-position: 0 0, 82% var(--still-lift, -10vh);
+}
+html[data-tv="1"] .player-home-stage .player-home-focus-still.is-flat::after {
+  display: none;
 }
 html[data-tv="1"] .player-home-stage-copy {
   position: absolute;
@@ -4286,6 +4337,19 @@ html[data-tv="1"] .player-tv-clock {
   letter-spacing: 0;
   line-height: 1;
   font-variant-numeric: tabular-nums;
+}
+/* Native side menu + clock draw themselves; the web copies stay laid out (focus, clicks) but invisible. */
+html[data-tv="1"][data-native-chrome="1"] .player-desktop-nav [data-tv-nav-root="1"],
+html[data-tv="1"][data-native-chrome="1"] .player-tv-clock {
+  opacity: 0 !important;
+}
+/* Native library header: the title and tab pills are drawn natively; the web copies stay laid out for focus / clicks. */
+html[data-tv="1"][data-native-libhdr="1"] [data-tv-library="1"] .player-library-title,
+html[data-tv="1"][data-native-libhdr="1"] [data-tv-library="1"] [data-tv-library-tabs="1"],
+html[data-tv="1"][data-native-libhdr="1"] .player-library-stage-chrome .player-library-title,
+html[data-tv="1"][data-native-libhdr="1"] .player-library-stage-chrome [data-tv-library-tabs="1"],
+html[data-tv="1"][data-native-libhdr="1"] [data-tv-library="1"] [data-tv-library-filters="1"] {
+  opacity: 0 !important;
 }
 html[data-tv="1"].smp-file-info-open .player-tv-clock {
   display: none !important;
@@ -4806,6 +4870,10 @@ html[data-tv="1"] .player-tv-search {
   min-width: 0;
   min-height: 0;
   padding: 0 0 2rem;
+}
+/* The native search panel draws the title, the typed text and the keyboard; the web copy stays for focus / clicks. */
+html[data-tv="1"][data-native-search="1"] .player-tv-search {
+  opacity: 0 !important;
 }
 html[data-tv="1"] .player-tv-search-eyebrow {
   display: inline-flex;
@@ -7039,6 +7107,11 @@ html[data-tv="1"] .player-library-header [data-tv-library-tabs="1"] [role="butto
   display: none !important;
 }
 
+/* Native Settings draws the screen; the web page stays laid out (focusable twins) but invisible. */
+html[data-tv="1"][data-native-settings="1"] [data-tv-settings="1"] {
+  opacity: 0 !important;
+}
+
 /* Settings (tabs + rows): focus like the side nav, a white fill with dark text instead of a ring. */
 html[data-tv="1"] [data-tv-settings="1"] [data-tv-item="1"]:not([data-tv-settings-save="1"]):not(.insights-card):not(.insights-row):focus,
 html[data-tv="1"] [data-tv-settings="1"] [data-tv-item="1"]:not([data-tv-settings-save="1"]):not(.insights-card):not(.insights-row):focus-visible {
@@ -7756,4 +7829,129 @@ html[data-reduce-motion="1"] .player-home-hero-dots * {
 html[data-tv="1"] .player-tv-screensaver--gallery .player-tv-screensaver-footer,
 html[data-tv="1"] .player-tv-screensaver--spotlight .player-tv-screensaver-footer {
   width: max-content;
+}
+
+/* Resume box: episode title, meta line and a short synopsis under the logo. */
+.smp-resume-episode-title {
+  margin: 0;
+  color: #fff;
+  font-family: "Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: 1.15rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+.smp-resume-meta {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.6);
+  font-family: "Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: 0.88rem;
+  font-weight: 500;
+}
+.smp-resume-summary {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  margin: 0.15rem 0 0;
+  color: rgba(255, 255, 255, 0.78);
+  font-family: "Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+/* First season label sits the same distance from the bar edge as the gap between labels. */
+html[data-tv="1"] .media-details-season-pills .media-details-season-pill:first-child:not(.is-active) {
+  margin-left: 0.9rem;
+}
+
+/* Settings → Plain ratings (TV): scores stay, the coloured pills behind them go. */
+html[data-tv="1"][data-flat-ratings="1"] .player-rating-imdb,
+html[data-tv="1"][data-flat-ratings="1"] .player-rating-tmdb,
+html[data-tv="1"][data-flat-ratings="1"] .player-rating-tvdb,
+html[data-tv="1"][data-flat-ratings="1"] .player-rating-rt,
+html[data-tv="1"][data-flat-ratings="1"] .player-rating-rt-rotten,
+html[data-tv="1"][data-flat-ratings="1"] .player-rating-popcorn {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  padding-left: 0 !important;
+  padding-right: 0.35rem !important;
+}
+
+/* Native Home (Android TV, experimental): NativeHomeView draws the backdrop and the poster rows UNDER the
+   page. The page goes see-through (every ancestor of the stage is marked data-nh-clear) and drops its own
+   backdrop and rows; the sidebar, clock and billboard details stay web, so they are identical. */
+html[data-native-home="1"] [data-nh-clear="1"] {
+  background: transparent !important;
+  background-color: transparent !important;
+}
+html[data-native-home="1"],
+html[data-native-home="1"] body {
+  background: transparent !important;
+}
+html[data-native-home="1"] .player-home-stage .player-home-focus-still {
+  display: none !important;
+}
+/* Invisible but still focusable, so Right from the sidebar can hand the keys back to the native rows. */
+html[data-native-home="1"] .player-home-stage-rail {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* Native details backdrop (movie / show): the native view draws the picture and page colour; the page's
+   own scrims stay on top, only the picture itself is left out. */
+html[data-native-home="1"] [data-tv-details="1"] .media-details-hero-backdrop img {
+  visibility: hidden !important;
+}
+/* The vertical fades are baked into the native picture (they scroll with it); the page keeps only the left scrim. */
+html[data-native-home="1"] [data-tv-details="1"] .media-details-hero-backdrop::before {
+  display: none !important;
+}
+html[data-native-home="1"] [data-tv-details="1"] .media-details-hero-backdrop::after {
+  background: linear-gradient(90deg, rgb(var(--tv-details-surface) / 0.98) 0%, rgb(var(--tv-details-surface) / 0.96) 14%, rgb(var(--tv-details-surface) / 0.88) 26%, rgb(var(--tv-details-surface) / 0.58) 40%, rgb(var(--tv-details-surface) / 0.24) 54%, rgb(var(--tv-details-surface) / 0.08) 68%, transparent 82%) !important;
+}
+
+/* Native Browse grid (Android TV): NativeBrowseGrid draws the posters behind the page; the page keeps the grid
+   (invisible) for menus, paging and focus, and its header / A-Z bar on top. */
+html[data-native-browse="1"] [data-tv-browse-grid="1"] {
+  opacity: 0 !important;
+}
+html[data-native-browse="1"] [data-tv-library-scroll="1"],
+html[data-native-browse="1"] .player-library-body,
+html[data-native-browse="1"] [data-tv-browse-main="1"] {
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
+/* Native Browse: the grid's remote hand-offs focus the toolbar from code (no key press reaches the page),
+   so the buttons need their focus look on plain :focus — the same white pill the tabs use. */
+html[data-native-browse="1"] [data-tv-library-filters="1"] [data-tv-item="1"]:focus {
+  background: #fff !important;
+  color: #0b0f19 !important;
+  border-color: #fff !important;
+  outline: none !important;
+}
+html[data-native-browse="1"] [data-tv-library-filters="1"] [data-tv-item="1"]:focus * {
+  color: #0b0f19 !important;
+}
+
+/* Native cast / related rails (Android TV): NativeDetailRail draws the cards at this rect; the web cards stay in the
+   page (laid out, focusable) for navigation / menus / opens but are not painted. */
+html[data-tv="1"] [data-native-rail] {
+  opacity: 0 !important;
+  animation: none !important;
+  transition: none !important;
+}
+
+/* Native Studios tiles: the page keeps its tiles (invisible, for focus / Enter) and the section titles are drawn natively. */
+html[data-native-browse="1"] [data-tv-studio-head="1"] {
+  opacity: 0 !important;
+}
+
+/* The native menu draws the title menu; the web sheet stays mounted, invisible, to run the actions. */
+[data-nm-hide="1"] {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  animation: none !important;
+  transition: none !important;
 }

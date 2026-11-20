@@ -39,7 +39,7 @@ public class MediaDownloadsPlugin extends Plugin {
     private static final int READ_MS = 60_000;
 
     private MediaDownloadsStore store;
-    private final ExecutorService executor = Executors.newFixedThreadPool(2);
+    private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final ConcurrentHashMap<String, AtomicBoolean> cancelFlags = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Future<?>> running = new ConcurrentHashMap<>();
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -48,6 +48,20 @@ public class MediaDownloadsPlugin extends Plugin {
     public void load() {
         super.load();
         store = new MediaDownloadsStore(getContext());
+        // A download cut off by the app being killed has no thread behind it any more: show it
+        // as failed so it can be retried instead of sitting on "Downloading" forever.
+        try {
+            for (JSONObject row : store.list()) {
+                String status = row.optString("status", "");
+                if ("downloading".equals(status) || "queued".equals(status)) {
+                    row.put("status", "error");
+                    row.put("error", "Interrupted when the app closed");
+                    store.put(row);
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "could not reset interrupted downloads", e);
+        }
     }
 
     @PluginMethod
@@ -110,6 +124,19 @@ public class MediaDownloadsPlugin extends Plugin {
         }
 
         String id = UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+        // Retry of a failed row: keep its id and file so a partly downloaded file carries on.
+        String resumeId = String.valueOf(call.getString("resumeId", "")).trim();
+        File resumeDest = null;
+        if (!resumeId.isEmpty()) {
+            JSONObject prior = store.get(resumeId);
+            String priorStatus = prior == null ? "" : prior.optString("status", "");
+            String priorPath = prior == null ? "" : prior.optString("filePath", "");
+            if (prior != null && !priorPath.isEmpty() && !"complete".equals(priorStatus)
+                && !"downloading".equals(priorStatus) && !"queued".equals(priorStatus)) {
+                id = resumeId;
+                resumeDest = new File(priorPath);
+            }
+        }
         String title = String.valueOf(call.getString("title", "Download")).trim();
         if (title.isEmpty()) title = "Download";
         String type = String.valueOf(call.getString("type", "movie")).trim();
@@ -117,6 +144,7 @@ public class MediaDownloadsPlugin extends Plugin {
         String plexGuid = String.valueOf(call.getString("plexGuid", "")).trim();
         String fileName = String.valueOf(call.getString("fileName", "")).trim();
         String thumbUrl = String.valueOf(call.getString("thumbUrl", "")).trim();
+        String meta = String.valueOf(call.getString("meta", "")).trim();
         long expectedBytes = 0;
         try {
             Double bytes = call.getDouble("bytes", 0d);
@@ -124,7 +152,7 @@ public class MediaDownloadsPlugin extends Plugin {
         } catch (Throwable ignored) { /* ignore */ }
 
         String ext = extensionFromFileName(fileName, url);
-        File dest = store.fileFor(id, ext);
+        File dest = resumeDest != null ? resumeDest : store.fileFor(id, ext);
         JSObject headers = call.getObject("headers");
 
         JSONObject row = new JSONObject();
@@ -139,6 +167,7 @@ public class MediaDownloadsPlugin extends Plugin {
             row.put("filePath", dest.getAbsolutePath());
             row.put("thumbPath", "");
             row.put("thumbUrl", thumbUrl);
+            row.put("meta", meta);
             row.put("bytes", 0L);
             row.put("totalBytes", expectedBytes);
             row.put("status", "queued");
@@ -153,8 +182,11 @@ public class MediaDownloadsPlugin extends Plugin {
 
         AtomicBoolean cancel = new AtomicBoolean(false);
         cancelFlags.put(id, cancel);
-        Future<?> future = executor.submit(() -> runDownload(id, url, headers, dest, cancel));
+        final String runId = id;
+        final File runDest = dest;
+        Future<?> future = executor.submit(() -> runDownload(runId, url, headers, runDest, cancel));
         running.put(id, future);
+        keepAlive();
 
         JSObject ret = new JSObject();
         ret.put("item", toJs(row));
@@ -237,15 +269,78 @@ public class MediaDownloadsPlugin extends Plugin {
         call.resolve(ret);
     }
 
+    private static final int MAX_ATTEMPTS = 12;
+    private static final long[] BACKOFF_MS = { 2000, 4000, 8000, 15000, 30000 };
+
+    /** A failure worth another attempt (network drop, short read, server hiccup). */
+    private static class RetryableException extends Exception {
+        RetryableException(String message) { super(message); }
+    }
+
+    /** A fresh PMS transcode session id each attempt, so a half-started session never clashes. */
+    private static String freshSession(String url) {
+        if (url.indexOf("/transcode/") < 0) return url;
+        String id = "smp-dl-" + UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+        return url.replaceAll("([?&](?:session|X-Plex-Session-Identifier)=)[^&]*", "$1" + id);
+    }
+
     private void runDownload(String id, String url, JSObject headers, File dest, AtomicBoolean cancel) {
+        File partial = new File(dest.getAbsolutePath() + ".part");
+        boolean transcode = url.indexOf("/transcode/") >= 0;
+        if (transcode && partial.exists()) {
+            //noinspection ResultOfMethodCallIgnored
+            partial.delete(); // a conversion stream cannot be resumed
+        }
+        String lastError = "Download failed";
+        try {
+            updateStatus(id, "downloading", partial.exists() ? partial.length() : 0, -1, "");
+            for (int attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+                if (cancel.get() || Thread.currentThread().isInterrupted()) throw new InterruptedException("cancelled");
+                try {
+                    transferOnce(id, transcode ? freshSession(url) : url, headers, dest, partial, transcode, cancel);
+                    return;
+                } catch (RetryableException e) {
+                    lastError = e.getMessage() == null ? "Download failed" : e.getMessage();
+                    Log.w(TAG, "attempt " + (attempt + 1) + " failed: " + lastError);
+                    if (transcode && partial.exists()) {
+                        //noinspection ResultOfMethodCallIgnored
+                        partial.delete();
+                    }
+                    long wait = BACKOFF_MS[Math.min(attempt, BACKOFF_MS.length - 1)];
+                    updateStatus(id, "downloading", partial.exists() ? partial.length() : 0, -1, "Reconnecting… (" + lastError + ")");
+                    Thread.sleep(wait);
+                }
+            }
+            throw new RuntimeException(lastError);
+        } catch (InterruptedException e) {
+            //noinspection ResultOfMethodCallIgnored
+            partial.delete();
+            //noinspection ResultOfMethodCallIgnored
+            dest.delete();
+            updateStatus(id, "cancelled", 0, -1, "Cancelled");
+            emit("error", statusPayload(id));
+        } catch (Exception e) {
+            Log.w(TAG, "download failed", e);
+            // Keep the partial file: Retry resumes from it.
+            long kept = partial.exists() ? partial.length() : 0;
+            updateStatus(id, "error", kept, -1, e.getMessage() == null ? "Download failed" : e.getMessage());
+            emit("error", statusPayload(id));
+        } finally {
+            cancelFlags.remove(id);
+            running.remove(id);
+            keepAlive();
+        }
+    }
+
+    /** One connection: resumes the .part file with a Range request when it can, and checks the size at the end. */
+    private void transferOnce(String id, String url, JSObject headers, File dest, File partial, boolean transcode, AtomicBoolean cancel)
+        throws RetryableException, InterruptedException {
         HttpURLConnection conn = null;
         InputStream in = null;
         FileOutputStream out = null;
-        File partial = new File(dest.getAbsolutePath() + ".part");
         try {
-            updateStatus(id, "downloading", 0, -1, null);
-            URL target = new URL(url);
-            conn = (HttpURLConnection) target.openConnection();
+            long have = (!transcode && partial.exists()) ? partial.length() : 0;
+            conn = (HttpURLConnection) new URL(url).openConnection();
             conn.setConnectTimeout(CONNECT_MS);
             conn.setReadTimeout(READ_MS);
             conn.setInstanceFollowRedirects(true);
@@ -255,19 +350,42 @@ public class MediaDownloadsPlugin extends Plugin {
                 Iterator<String> keys = headers.keys();
                 while (keys.hasNext()) {
                     String key = keys.next();
-                    Object value = headers.get(key);
+                    Object value = headers.opt(key);
                     if (value != null) conn.setRequestProperty(key, String.valueOf(value));
                 }
             }
+            if (have > 0) conn.setRequestProperty("Range", "bytes=" + have + "-");
             int code = conn.getResponseCode();
-            if (code < 200 || code >= 300) {
-                throw new RuntimeException("Download failed (" + code + ")");
+            if (code == 416 && have > 0) {
+                // Nothing left to resume from: start the file over.
+                //noinspection ResultOfMethodCallIgnored
+                partial.delete();
+                throw new RetryableException("Restarting download");
             }
-            long total = conn.getContentLengthLong();
+            if (code < 200 || code >= 300) {
+                String detail = "";
+                try {
+                    InputStream err = conn.getErrorStream();
+                    if (err != null) {
+                        byte[] eb = new byte[300];
+                        int en = err.read(eb);
+                        if (en > 0) detail = new String(eb, 0, en, "UTF-8").replaceAll("<[^>]*>", " ").replaceAll("\\s+", " ").trim();
+                        err.close();
+                    }
+                } catch (Exception ignored) { /* ignore */ }
+                String message = "Download failed (" + code + ")" + (detail.isEmpty() ? "" : ": " + detail);
+                boolean transientCode = code >= 500 || code == 408 || code == 429 || code == 423 || (transcode && code == 400);
+                if (transientCode) throw new RetryableException(message);
+                throw new RuntimeException(message);
+            }
+            boolean resumed = code == 206 && have > 0;
+            if (!resumed) have = 0; // server ignored Range (or none asked): write from the start
+            long length = conn.getContentLengthLong();
+            long total = length > 0 ? have + length : -1;
             in = new BufferedInputStream(conn.getInputStream());
-            out = new FileOutputStream(partial);
+            out = new FileOutputStream(partial, resumed);
             byte[] buf = new byte[64 * 1024];
-            long written = 0;
+            long written = have;
             long lastEmit = 0;
             int n;
             while ((n = in.read(buf)) >= 0) {
@@ -279,57 +397,69 @@ public class MediaDownloadsPlugin extends Plugin {
                 long now = System.currentTimeMillis();
                 if (now - lastEmit > 400 || (total > 0 && written >= total)) {
                     lastEmit = now;
-                    updateStatus(id, "downloading", written, total, null);
+                    updateStatus(id, "downloading", written, total, "");
                 }
             }
             out.flush();
             out.close();
             out = null;
+            if (total > 0 && written < total) {
+                throw new RetryableException("Connection dropped at " + (written * 100 / total) + "%");
+            }
+            if (written <= 0) throw new RetryableException("Server sent no data");
             if (dest.exists() && !dest.delete()) {
                 Log.w(TAG, "Could not replace existing file");
             }
             if (!partial.renameTo(dest)) {
-                // Fallback copy
                 try (FileOutputStream fos = new FileOutputStream(dest);
                      InputStream fis = new BufferedInputStream(new java.io.FileInputStream(partial))) {
                     int c;
                     while ((c = fis.read(buf)) >= 0) fos.write(buf, 0, c);
+                } catch (java.io.IOException e) {
+                    throw new RetryableException("Could not save the file: " + e.getMessage());
                 }
                 //noinspection ResultOfMethodCallIgnored
                 partial.delete();
             }
             JSONObject row = store.get(id);
             if (row != null) {
-                row.put("status", "complete");
-                row.put("bytes", dest.length());
-                row.put("totalBytes", dest.length());
-                row.put("filePath", dest.getAbsolutePath());
-                row.put("localUrl", Uri.fromFile(dest).toString());
-                row.put("error", "");
+                try {
+                    row.put("status", "complete");
+                    row.put("bytes", dest.length());
+                    row.put("totalBytes", dest.length());
+                    row.put("filePath", dest.getAbsolutePath());
+                    row.put("localUrl", Uri.fromFile(dest).toString());
+                    row.put("error", "");
+                } catch (Exception ignored) { /* ignore */ }
                 store.put(row);
                 emit("complete", toJs(row));
             }
-        } catch (InterruptedException e) {
-            //noinspection ResultOfMethodCallIgnored
-            partial.delete();
-            //noinspection ResultOfMethodCallIgnored
-            dest.delete();
-            updateStatus(id, "cancelled", 0, -1, "Cancelled");
-            emit("error", statusPayload(id));
-        } catch (Exception e) {
-            Log.w(TAG, "download failed", e);
-            //noinspection ResultOfMethodCallIgnored
-            partial.delete();
-            //noinspection ResultOfMethodCallIgnored
-            dest.delete();
-            updateStatus(id, "error", 0, -1, e.getMessage() == null ? "Download failed" : e.getMessage());
-            emit("error", statusPayload(id));
+        } catch (RetryableException | InterruptedException e) {
+            throw e;
+        } catch (java.io.IOException e) {
+            throw new RetryableException(e.getMessage() == null ? "Network error" : e.getMessage());
         } finally {
-            cancelFlags.remove(id);
-            running.remove(id);
             try { if (out != null) out.close(); } catch (Exception ignored) { /* ignore */ }
             try { if (in != null) in.close(); } catch (Exception ignored) { /* ignore */ }
             if (conn != null) conn.disconnect();
+        }
+    }
+
+    /** Foreground service while any download runs, so Android keeps the app alive in the background. */
+    private void keepAlive() {
+        try {
+            int active = running.size();
+            if (active <= 0) {
+                MediaDownloadService.hide(getContext());
+                return;
+            }
+            MediaDownloadService.show(getContext(), active == 1 ? "Downloading 1 title" : "Downloading " + active + " titles");
+            if (android.os.Build.VERSION.SDK_INT >= 33 && getActivity() != null
+                && getContext().checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                getActivity().requestPermissions(new String[] { android.Manifest.permission.POST_NOTIFICATIONS }, 4211);
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "keepAlive failed", t);
         }
     }
 

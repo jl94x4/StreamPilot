@@ -1,4 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { buildNativeHomePayload, nativeCardImage } from './nativeHomePayload';
+import { PERF_FLAGS_EVENT, readPerfFlags } from './PlayerPerfOverlay';
+import { nativeHomeOwner, nativeDetailsHandOverToHome, nativeHomeSetBlocked, nativeHomeSetShift, isNativeHomeSupported, nativeHomeExitApp, nativeHomeFocusRows, nativeHomeHide, nativeHomeReleaseFocus, nativeHomeSetSurface, nativeHomeShow, HOME_SURFACE_EVENT, onNativeHomeEvent, setNativeHomeStageClear, nativeBillboardSet, nativeBillboardClear, NATIVE_HOME_FOCUS_EVENT, type NativeHomeEventData } from '../plex-client/nativeHome';
 import { Check, Film, Music, Search, Tv } from 'lucide-react';
 import {
     DiscoverGridSizeSelect,
@@ -25,6 +28,8 @@ import {
     pinTvRailItemToSlot,
     rememberTvFocusKey,
     visibleHomeStage,
+    openTvSideNav,
+    restoreTvFocusWhenReady,
 } from '../plex-client/useTvRemote';
 import { PLAYER_APP_BASE, PLAYER_HOME_LIVE_EVENT, PLAYER_SCROLL_ID, PLAYER_TV_HOME_READY_EVENT } from './paths';
 import { MediaPlayerHomeHero, type HomeHeroSlide } from './MediaPlayerHomeHero';
@@ -61,6 +66,7 @@ import {
     rememberSearchOpened,
     coalescePlayerHomeWithCache,
     withFreshContinueWatching,
+    withSettledContinueWatching,
     playerHomeHasContentHubs,
     playerHomeHasRows,
     playerHomeNeedsFull,
@@ -78,8 +84,11 @@ import {
 import { PlayerTvStatusPanel } from './PlayerTvStatusPanel';
 import { CommonSenseMediaIcon } from './CommonSenseMediaIcon';
 import { PlayerClearLogo } from './PlayerClearLogo';
-import { PlayerServiceBrandMark } from './PlayerServiceBrandMark';
+import { PlayerServiceBrandMark, useServiceBrandPick } from './PlayerServiceBrandMark';
+import { discoveryLogoUrl } from '../discovery/discoveryLogoUtils';
 import { PlayerTvScreensaver } from './PlayerTvScreensaver';
+import { NativeSearchBridge } from './NativeSearchBridge';
+import { NativeDetailRail, type DetailRailItem } from './NativeDetailRail';
 import { PlayerTvSearch, PlayerTvSearchHistory, PlayerTvSearchNotice, TV_SEARCH_FIRST_KEY } from './PlayerTvSearch';
 import { itemHasBillboardBrandMeta } from './studioLogo.js';
 import { applyRememberedProgress, asRecentlyAddedPlayerItem, rememberBillboardBackdrop, formatPlayerDate, formatPlayerDuration, isFuturePlayerDate, heroRowCardItem, hideWatchedPlayerItems, isMusicPlayerItem, isPlayerBackdropReady, isWeakTvDevice, shouldOfferResume, keepContinueWatchingPoster, mapContinueWatchingItemsForLayout, pickRicherSummary, pinTvNeighborBackdrops, playerItemBackdropUrl, plexBackdropUrl, plexLogoUrl, PLAYER_PROGRESS_EVENT, prefetchContinueWatchingImages, prefetchHomeRowPosters, primeNearbyTvBillboard, replaceFamilyContinueSlot, restoreContinueSlot, shufflePlayerItems, continueWatchingRowFocused, stampFamilyLastViewed, warmPlayerBackdrop, watchTargetTouches, withShowPoster } from './playerUtils';
@@ -103,6 +112,9 @@ type Props = {
     isAdmin?: boolean;
     playlistsEnabled?: boolean;
 };
+
+/** The poster the native Home rows last reported focused: the billboard follows it, even across a remount. */
+let lastNativeHomeFocusKey = '';
 
 /** tvSpotExtra key: rating keys are only unique per Plex server. */
 const spotExtraKey = (serverId: string | null | undefined, ratingKey: string) => (
@@ -141,13 +153,32 @@ const allowRandomRowReshuffle = () => {
     reshuffleRandomRows = true;
 };
 
+// Only the Home button (and a fresh start / pull to refresh) reshuffles: Back from a title keeps Home exactly as it
+// was, so the poster you opened is still where you left it.
+if (typeof window !== 'undefined') window.addEventListener(PLAYER_HOME_RESET_EVENT, allowRandomRowReshuffle);
+
+/** The 'Because you watched' rows last shown: their seeds are random, so a refresh would swap whole rows. */
+let frozenBecauseHubs: PlayerLibraryHub[] = [];
+
 const randomRowItemKey = (item: PlayerItem) => String(item?.ratingKey || item?.title || '');
 
 const stableRandomRows = (next: PlayerHome | null): PlayerHome | null => {
     if (!next?.hubs?.length) return next;
     const reshuffle = reshuffleRandomRows;
     let touched = false;
-    const hubs = next.hubs.map((hub) => {
+    let source = next.hubs;
+    // 'Because you watched' rows: keep the ones already shown (same rows, same places) until Home is reshuffled.
+    if (reshuffle || !frozenBecauseHubs.length) {
+        const shown = source.filter(isBecauseYouWatchedHub);
+        if (shown.length) frozenBecauseHubs = shown;
+    } else {
+        let at = 0;
+        const swapped = source.map((hub) => (isBecauseYouWatchedHub(hub) && at < frozenBecauseHubs.length ? frozenBecauseHubs[at++] : hub));
+        if (at < frozenBecauseHubs.length) swapped.push(...frozenBecauseHubs.slice(at));
+        source = swapped;
+        touched = true;
+    }
+    const hubs = source.map((hub) => {
         if (!hub.randomOrder || !hub.items?.length) return hub;
         const id = String(hub.identifier || hub.title || '').trim().toLowerCase();
         const kept = randomRowOrders.get(id);
@@ -170,6 +201,8 @@ const stableRandomRows = (next: PlayerHome | null): PlayerHome | null => {
 };
 
 const TV_HOME_ROW_EVENT = 'smp-tv-home-row';
+/** Menus and dialogs that own the remote while open: the native rows must not take the keys back. */
+const TV_OVERLAY_OPEN = '[data-tv-item-menu="1"], [data-tv-select-menu="1"], [data-tv-resume-dialog="1"], [data-tv-season-watch-dialog="1"], [data-tv-still-watching-dialog="1"], [data-tv-whats-new="1"], [data-tv-home-switch="1"], [data-tv-library-manager="1"], [data-tv-version-dialog="1"], [data-tv-track-dialog="1"], [data-tv-settings-dialog="1"], [role="dialog"]';
 /** Fastest row change while Up/Down is held (~6–7 rows a second). */
 const TV_ROW_REPEAT_MS = 150;
 
@@ -204,6 +237,7 @@ const itemKeyFromFocusTarget = (target: EventTarget | null) => {
 
 /** Paint the billboard fade colour straight onto the still, so a colour change never re-renders Home. */
 const paintHomeSurface = (rgb: string) => {
+    window.dispatchEvent(new CustomEvent(HOME_SURFACE_EVENT, { detail: rgb }));
     const still = document.querySelector<HTMLElement>('.player-home-stage .player-home-focus-still');
     if (!still) return;
     const [r, g, b] = rgb.split(/\s+/);
@@ -219,6 +253,10 @@ const BILLBOARD_HOLD_MS = 240;
  * row's slide-in to finish, so the TV's GPU is not doing every full-screen change at once.
  */
 const BILLBOARD_ROW_CHANGE_MS = 230;
+/** Fire TV sticks: how long a single tap rests before the billboard picture swaps. */
+const BILLBOARD_WEAK_TAP_MS = 160;
+/** Fire TV sticks: how long focus rests on a title before its details are fetched for the billboard. */
+const BILLBOARD_WEAK_DETAIL_MS = 380;
 /** Settle time before sampling a new backdrop's colour: past remote repeat, short enough to keep up. */
 const BILLBOARD_TINT_SAMPLE_MS = 120;
 
@@ -279,7 +317,10 @@ const HomeFocusStill: React.FC<{
         const rowChanged = Boolean(row && lastRowRef.current && row !== lastRowRef.current);
         if (row) lastRowRef.current = row;
         if (holding) return BILLBOARD_HOLD_MS;
-        return rowChanged ? BILLBOARD_ROW_CHANGE_MS : 0;
+        if (rowChanged) return BILLBOARD_ROW_CHANGE_MS;
+        // Fire TV sticks: even a single tap waits a beat, so a run of taps does one picture decode
+        // when you stop instead of one per tap (each is 100+ ms of work that stalls the screen).
+        return isWeakTvDevice() ? BILLBOARD_WEAK_TAP_MS : 0;
     };
     const showSoon = useCallback((next: string, delay: number) => {
         window.clearTimeout(showTimerRef.current);
@@ -331,9 +372,35 @@ const HomeFocusStill: React.FC<{
         return () => document.removeEventListener('focusin', onFocus, true);
     }, [enabled, keySoon, onFocusKey, show, showSoon]);
 
+    const flatRef = useRef<HTMLDivElement | null>(null);
+    const flat = isWeakTvDevice();
+    useEffect(() => {
+        // The flat still lifts its picture 10% of its own height (what translateY(-10%) did to the <img>).
+        const node = flatRef.current;
+        if (!enabled || !flat || !node) return undefined;
+        // Once per mount / resize: reading clientHeight forces a layout, so never on every render.
+        const lift = () => node.style.setProperty('--still-lift', `${-0.1 * node.clientHeight}px`);
+        lift();
+        window.addEventListener('resize', lift);
+        return () => window.removeEventListener('resize', lift);
+    }, [enabled, flat, Boolean(front || back)]); // eslint-disable-line react-hooks/exhaustive-deps
+
     if (!enabled) return null;
     const visible = frontOn ? front : back;
     if (!visible && !front && !back) return null;
+    if (flat) {
+        // Fire TV sticks: the picture and its dark overlay are ONE element (two backgrounds), not an
+        // <img> plus a separate full-screen overlay layer. Measured on a Fire TV 4K Max: one full-screen
+        // layer less to draw every frame cut dropped frames by about a third.
+        return (
+            <div
+                ref={flatRef}
+                className="player-home-focus-still is-flat"
+                aria-hidden
+                style={visible ? { backgroundImage: `var(--tv-flat-scrim), url("${visible}")` } : undefined}
+            />
+        );
+    }
     return (
         <div className="player-home-focus-still" aria-hidden>
             {back ? (
@@ -452,6 +519,90 @@ const HomeSpotBody: React.FC<{ item: PlayerItem }> = ({ item }) => {
     );
 };
 
+/**
+ * Native Home: the billboard copy is drawn by NativeBillboardView. This works out the same text the web
+ * HomeSpotBody shows and sends it; it renders nothing itself.
+ */
+const NativeBillboardBridge: React.FC<{ item: PlayerItem | null; rowId: string; rowDir: 'up' | 'down' | null }> = ({ item, rowId, rowDir }) => {
+    const { t } = useDiscoverI18n();
+    const pick = useServiceBrandPick(item);
+    const rowRef = useRef(rowId);
+    const brandPath = pick ? String(pick.preferred.logoPath || '') : '';
+    const brandColor = Boolean(pick?.preserveColor);
+    const brandStatic = brandPath.startsWith('/static/');
+    const brandUrl = brandPath && !brandStatic ? discoveryLogoUrl(brandPath, 300) : '';
+    // Bundled marks are SVGs the native side cannot decode: draw one to a small PNG here and send its bytes.
+    const [brandBitmap, setBrandBitmap] = useState<{ path: string; data: string }>({ path: '', data: '' });
+    useEffect(() => {
+        if (!brandStatic) return undefined;
+        let cancelled = false;
+        const img = new Image();
+        img.onload = () => {
+            if (cancelled) return;
+            try {
+                const w = 300;
+                const ratio = img.naturalWidth > 0 && img.naturalHeight > 0 ? img.naturalHeight / img.naturalWidth : 0.4;
+                const canvas = document.createElement('canvas');
+                canvas.width = w;
+                canvas.height = Math.max(1, Math.round(w * ratio));
+                canvas.getContext('2d')?.drawImage(img, 0, 0, canvas.width, canvas.height);
+                setBrandBitmap({ path: brandPath, data: canvas.toDataURL('image/png').split(',')[1] || '' });
+            } catch {
+                /* no mark */
+            }
+        };
+        img.src = discoveryLogoUrl(brandPath, 300);
+        return () => { cancelled = true; };
+    }, [brandPath, brandStatic]);
+    const brandData = brandStatic && brandBitmap.path === brandPath ? brandBitmap.data : '';
+    useEffect(() => {
+        if (!item) {
+            void nativeBillboardClear();
+            return;
+        }
+        const rowChanged = rowRef.current !== rowId;
+        rowRef.current = rowId;
+        const title = item.type === 'episode' ? (item.showTitle || item.title) : item.title;
+        const season = Number(item.parentIndex);
+        const episode = Number(item.index);
+        const epCode = item.type === 'episode' && season > 0 && episode > 0 ? `S${season} E${episode}` : '';
+        const episodeTitle = item.type === 'episode'
+            ? String(item.episodeTitle || (item.showTitle && item.title && item.title !== item.showTitle ? item.title : '') || '').trim()
+            : '';
+        const dateText = formatPlayerDate(item.originallyAvailableAt);
+        const future = isFuturePlayerDate(item.originallyAvailableAt);
+        const date = dateText && future ? t('mediaPlayerPage.releasingOn', { date: dateText }) : dateText;
+        const year = item.type === 'episode' ? '' : (item.year ? String(item.year) : '');
+        const when = date || year;
+        const parts: Array<{ t: string; k?: string }> = [];
+        if (epCode) parts.push({ t: epCode });
+        if (episodeTitle) parts.push({ t: episodeTitle, k: 'title' });
+        if (when) parts.push({ t: when, k: future && when === date ? 'future' : '' });
+        const duration = formatPlayerDuration(item.durationMs);
+        if (duration) parts.push({ t: duration });
+        const rating = String(item.contentRating || '').trim();
+        if (rating) parts.push({ t: rating });
+        const payload = {
+            key: String(item.ratingKey || ''),
+            dir: rowChanged ? (rowDir === 'up' ? 'up' : 'down') : '',
+            logo: plexLogoUrl(item.logo) || '',
+            title,
+            tagline: !(epCode || episodeTitle) ? String(item.tagline || '').trim() : '',
+            watched: Boolean(item.watched),
+            meta: parts,
+            csm: String(item.commonSenseMedia?.ageLabel || '').trim(),
+            summary: String(item.summary || '').trim(),
+            cast: (item.cast || []).slice(0, 4).map((row) => row.name).filter(Boolean).join(', '),
+            svc: brandUrl,
+            svcData: brandData,
+            svcColor: brandColor,
+        };
+        void nativeBillboardSet(JSON.stringify(payload));
+    }, [item, rowId, rowDir, t, brandUrl, brandColor, brandData]);
+    useEffect(() => () => { void nativeBillboardClear(); }, []);
+    return null;
+};
+
 type TvHomeBillboardRow = {
     id: string;
     items: PlayerItem[];
@@ -469,6 +620,8 @@ const TvHomeBillboard: React.FC<{
     restoreKey?: string;
     detailsArtworkTint: boolean;
     liteBillboard: boolean;
+    /** Native Home draws the copy (NativeBillboardView); the page only works out what it says. */
+    nativeBillboard?: boolean;
     onFocusKey: (key: string) => void;
     /** Poster stack stays under the copy column; still sits beside it. */
     stack?: React.ReactNode;
@@ -480,6 +633,7 @@ const TvHomeBillboard: React.FC<{
     restoreKey = '',
     detailsArtworkTint,
     liteBillboard,
+    nativeBillboard = false,
     onFocusKey,
     stack = null,
 }) => {
@@ -492,8 +646,11 @@ const TvHomeBillboard: React.FC<{
             setFocusKey('');
             return;
         }
-        const preferred = String(restoreKey || '').trim();
-        const match = preferred && row.items.some((item) => String(item.ratingKey || '') === preferred)
+        // The native rows may already have reported their poster (Back from a title focuses it before this row
+        // mounts): that one wins over the remembered key, which can be stale.
+        const inRow = (key: string) => !!key && row.items.some((item) => String(item.ratingKey || '') === key);
+        const preferred = inRow(lastNativeHomeFocusKey) ? lastNativeHomeFocusKey : String(restoreKey || '').trim();
+        const match = inRow(preferred)
             ? preferred
             : String(row.items[0]?.ratingKey || '').trim();
         setFocusKey(match);
@@ -505,6 +662,16 @@ const TvHomeBillboard: React.FC<{
         setFocusKey((prev) => (prev === next ? prev : next));
         onFocusKey(next);
     }, [onFocusKey]);
+
+    // Native Home reports its focused poster; the billboard details follow it.
+    useEffect(() => {
+        const onNative = (event: Event) => {
+            const key = (event as CustomEvent<{ key?: string }>).detail?.key;
+            if (key) noteFocusKey(key);
+        };
+        window.addEventListener(NATIVE_HOME_FOCUS_EVENT, onNative);
+        return () => window.removeEventListener(NATIVE_HOME_FOCUS_EVENT, onNative);
+    }, [noteFocusKey]);
 
     const spotMerged = useMemo(() => {
         if (!row) return null;
@@ -648,7 +815,9 @@ const TvHomeBillboard: React.FC<{
                     setSpotExtra((prev) => ({ ...prev, [extraKey]: page.item }));
                 })
                 .catch(() => undefined);
-        }, 0);
+            // Fire TV sticks: wait until you rest on a title. Fetching and parsing the details of every
+            // title you pass is main-thread work on each press (a request, URL building, a re-render).
+        }, isWeakTvDevice() ? BILLBOARD_WEAK_DETAIL_MS : 0);
         return () => {
             cancelled = true;
             window.clearTimeout(timer);
@@ -664,7 +833,7 @@ const TvHomeBillboard: React.FC<{
                 onFocusKey={noteFocusKey}
             />
             <div className="player-home-stage-copy">
-                <HomeSpot item={spotItem} rowId={rowId} rowDir={rowDir} />
+                <HomeSpot item={spotItem} rowId={rowId} rowDir={rowDir} native={nativeBillboard} />
                 {stack}
             </div>
         </>
@@ -676,7 +845,8 @@ const HomeSpot: React.FC<{
     item: PlayerItem | null;
     rowId?: string;
     rowDir?: 'up' | 'down' | null;
-}> = ({ item, rowId = '', rowDir = null }) => {
+    native?: boolean;
+}> = ({ item, rowId = '', rowDir = null, native = false }) => {
     const [current, setCurrent] = useState<PlayerItem | null>(item);
     const [outgoing, setOutgoing] = useState<PlayerItem | null>(null);
     const [exitDir, setExitDir] = useState<'up' | 'down'>('up');
@@ -758,6 +928,7 @@ const HomeSpot: React.FC<{
 
     useEffect(() => () => clearAnimTimers(), []);
 
+    if (native) return <NativeBillboardBridge item={item} rowId={rowId} rowDir={rowDir} />;
     if (!current && !outgoing) return null;
     return (
         <div className="player-home-spot-stage" aria-live="polite">
@@ -892,6 +1063,8 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
     const [searching, setSearching] = useState(false);
     const [searchActive, setSearchActive] = useState(false);
     const searchRef = useRef<HTMLInputElement>(null);
+    /** The typed text is a leftover (a past search, a voice result): the first key replaces it instead of adding to it. */
+    const queryFreshRef = useRef(false);
     const isTvShell = typeof document !== 'undefined' && (
         document.documentElement?.dataset?.tv === '1'
         || window.__PLEX_CLIENT__?.isTv === true
@@ -922,6 +1095,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
 
     useEffect(() => {
         const openSearch = () => {
+            queryFreshRef.current = true;
             setSearchActive(true);
             window.setTimeout(() => {
                 if (isTvShell) {
@@ -940,12 +1114,14 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             consumePlayerSearchQuery();
             openSearch();
             if (query) setQuery(query);
+            queryFreshRef.current = true;
         };
         const pendingQuery = consumePlayerSearchQuery();
         if (pendingQuery) {
             consumePlayerSearchFocus();
             openSearch();
             setQuery(pendingQuery);
+            queryFreshRef.current = true;
         } else if (consumePlayerSearchFocus()) {
             openSearch();
         }
@@ -1026,7 +1202,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                 : (playerHomeHasRows(full)
                     ? mergePlayerHomePayloads(full, base || full)
                     : { ...(base || full), partial: true });
-            const merged = coalescePlayerHomeWithCache(mergedRaw, readPlayerHomeCache()) || mergedRaw;
+            const merged = withSettledContinueWatching(coalescePlayerHomeWithCache(mergedRaw, readPlayerHomeCache()) || mergedRaw, full);
             if (!playerHomeHasContentHubs(full) && !playerHomeHasContentHubs(merged)) {
                 merged.partial = true;
             }
@@ -1259,7 +1435,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
     // Coming back to Home (not the first mount) gets the random rows a fresh shuffle.
     const wasActiveRef = useRef(active);
     useEffect(() => {
-        if (active && !wasActiveRef.current) allowRandomRowReshuffle();
+        // Coming back (Back from a title) keeps the order; only the Home button reshuffles (PLAYER_HOME_RESET_EVENT).
         wasActiveRef.current = active;
     }, [active]);
 
@@ -1523,7 +1699,8 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             // ones the saved Home still holds.
             if (homeHubHiddenByPicks(hub, settings.homeLibraries)) return false;
             // TV Home shows every pinned row, including playlist pins.
-            if (directHome) return true;
+            // ...except playlists when Settings has them off.
+            if (directHome) return !(isPlaylistHub(hub) && !settings.showPlaylists);
             if (isPlaylistHub(hub)) return false;
             if (!showContinueWatchingRail && isContinueWatchingHub(hub)) return false;
             if (!settings.showBecauseYouWatched && isBecauseYouWatchedHub(hub)) return false;
@@ -1535,7 +1712,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         ));
         // Always regroup by Library order (incl. plex-direct / TV). Pins stay; only stack order changes.
         return applyLibraryNavOrderToHubs(filtered, orderedLibraries, libraryNavOrder);
-    }, [home, libraryNavOrder, mapRecentItem, orderedLibraries, showContinueWatchingRail, settings.showBecauseYouWatched, settings.homeLibraries]);
+    }, [home, libraryNavOrder, mapRecentItem, orderedLibraries, showContinueWatchingRail, settings.showBecauseYouWatched, settings.showPlaylists, settings.homeLibraries]);
 
     useEffect(() => {
         if (!active || !showWatchlistRail) {
@@ -1954,6 +2131,21 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         ].filter((group) => group.items.length);
     }, [results, t]);
 
+    const searchNativeItems = useMemo(() => {
+        const out: Record<string, DetailRailItem[]> = {};
+        for (const group of searchGroups) {
+            out[group.id] = group.items.map((row): DetailRailItem => ({
+                key: String(row.ratingKey),
+                img: nativeCardImage(row, group.aspect),
+                title: row.title || '',
+                sub: row.year ? String(row.year) : '',
+                progress: 0,
+                watched: row.watched === true,
+            }));
+        }
+        return out;
+    }, [searchGroups]);
+
     const hasRails = useMemo(() => (
         !!home && (
             plexHubs.length
@@ -2050,6 +2242,267 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
         ...row,
         viewAllLabel: row.onViewAll ? t('common.viewMore') : undefined,
     })), [tvHomeRows, t]);
+    // Native Home (test): on Android TV the backdrop and poster rows are drawn by NativeHomeView, UNDER
+    // this page. The page turns transparent and keeps drawing the sidebar, clock and billboard details
+    // (so they stay identical); native reports where focus is and this page follows.
+    const [nativeHomeFlag, setNativeHomeFlag] = useState(() => readPerfFlags().nativeHome);
+    useEffect(() => {
+        const onFlags = () => setNativeHomeFlag(readPerfFlags().nativeHome);
+        window.addEventListener(PERF_FLAGS_EVENT, onFlags);
+        return () => window.removeEventListener(PERF_FLAGS_EVENT, onFlags);
+    }, []);
+    const nativeHomeOn = isTvShell && nativeHomeFlag && isNativeHomeSupported();
+    const nativeHomeShowing = nativeHomeOn && active && !searchActive && tvHomeRows.length > 0;
+    const nativeRowsRef = useRef(tvHomeRows);
+    nativeRowsRef.current = tvHomeRows;
+    const nativeActionsRef = useRef({ openContinueItem, openItemOrTune });
+    nativeActionsRef.current = { openContinueItem, openItemOrTune };
+    const nativeShownRef = useRef(false);
+    const nativeShowingNowRef = useRef(false);
+    nativeShowingNowRef.current = nativeHomeShowing;
+    const nativePayloadRef = useRef('');
+    const nativeRowOrderRef = useRef(new Map<string, string[]>());
+    useEffect(() => {
+        if (!nativeHomeShowing) {
+            if (nativeShownRef.current) {
+                nativeShownRef.current = false;
+                void nativeHomeHide('home').then((hidden) => {
+                    // A library's Recommended page took the native view over: it is not ours to clear.
+                    if (!hidden) return;
+                    setNativeHomeStageClear(false);
+                    // Handing the remote from the native rows back to the page clears whatever the new screen had
+                    // just focused (a library's first tab): put its focus back.
+                    window.setTimeout(() => {
+                        const focused = document.activeElement as HTMLElement | null;
+                        const idle = !focused || focused === document.body || focused === document.documentElement
+                            || focused.id === 'root';
+                        const here = String(window.location.pathname || '').replace(/\/+$/, '') || '/';
+                        if (idle && here !== PLAYER_APP_BASE && here !== '/') restoreTvFocusWhenReady();
+                    }, 60);
+                });
+            }
+            return;
+        }
+        const firstShow = !nativeShownRef.current;
+        nativeDetailsHandOverToHome();
+        nativeShownRef.current = true;
+        setNativeHomeStageClear(true);
+        // Same rows as last time: leave the native lists alone (a rebind resets their scroll and focus).
+        // A row that comes back with the same titles in another order (a random-order row re-shuffled by a
+        // refresh) keeps the order it already shows. A fresh Home (first show) takes the new order.
+        if (firstShow) nativeRowOrderRef.current = new Map();
+        const orders = nativeRowOrderRef.current;
+        const stableRows = tvHomeRows.map((row) => {
+            const keys = row.items.map((item) => String(item.ratingKey || ''));
+            const prev = orders.get(row.id);
+            let items = row.items;
+            if (prev && prev.length === keys.length && prev.every((key) => keys.includes(key))) {
+                const rank = new Map(prev.map((key, index) => [key, index]));
+                items = [...row.items].sort((x, y) => (rank.get(String(x.ratingKey || '')) ?? 0) - (rank.get(String(y.ratingKey || '')) ?? 0));
+            }
+            orders.set(row.id, items.map((item) => String(item.ratingKey || '')));
+            return items === row.items ? row : { ...row, items };
+        });
+        const payloadJson = buildNativeHomePayload(stableRows, TV_FLOOR_RGB, '245 158 11', t('common.viewMore'), settings.watchedTickPosition);
+        if (!firstShow && payloadJson === nativePayloadRef.current) return;
+        nativePayloadRef.current = payloadJson;
+        void nativeHomeShow(payloadJson, firstShow).then((shown) => {
+            if (!shown || !firstShow) return;
+            // Back from a title: if the page ended up holding the remote with nothing focused (the title's views let
+            // go after the rows took it), hand it to the rows so Home never sits with no focus.
+            const reclaim = () => {
+                if (!nativeShowingNowRef.current || !document.hasFocus()) return;
+                if (document.documentElement.getAttribute('data-tv-nav-open') === '1') return;
+                const active = document.activeElement as HTMLElement | null;
+                // The sidebar, a menu or a dialog legitimately hold the remote; anything else on Home belongs to the rows.
+                if (active?.closest?.('[data-tv-nav-root="1"], [role="dialog"], [data-tv-item-menu="1"], [data-tv-whats-new="1"]')) return;
+                void nativeHomeFocusRows();
+            };
+            window.setTimeout(reclaim, 250);
+            window.setTimeout(reclaim, 700);
+        });
+    }, [nativeHomeShowing, tvHomeRows, t, settings.watchedTickPosition, settings.spoilerShows, settings.detailsArtworkTint]);
+    useEffect(() => {
+        if (!nativeHomeOn) return undefined;
+        const find = (data: NativeHomeEventData) => {
+            const row = nativeRowsRef.current.find((candidate) => candidate.id === data.rowId);
+            const item = row?.items.find((candidate) => String(candidate.ratingKey || '') === data.key);
+            return row && item ? { row, item } : null;
+        };
+        // Another screen (a library's Recommended page) may own the native view while Home sits kept alive.
+        const offOpen = onNativeHomeEvent('open', (data) => {
+            if (!nativeShowingNowRef.current) return;
+            if (String(data.key || '').startsWith('view-more:')) {
+                nativeRowsRef.current.find((candidate) => candidate.id === data.rowId)?.onViewAll?.();
+                return;
+            }
+            const hit = find(data);
+            if (!hit) return;
+            const actions = nativeActionsRef.current;
+            if (hit.row.showRemoveFromContinueWatching) actions.openContinueItem(hit.item);
+            else actions.openItemOrTune(hit.item);
+        });
+        const offFocus = onNativeHomeEvent('focus', (data) => {
+            if (!nativeShowingNowRef.current) return;
+            const rows = nativeRowsRef.current;
+            const index = rows.findIndex((candidate) => candidate.id === data.rowId);
+            if (index < 0) return;
+            const key = String(data.key || '');
+            if (key.startsWith('view-more:')) return;
+            tvFocusKeyRef.current = key;
+            lastNativeHomeFocusKey = key;
+            tvRowFocusRef.current[rows[index].id] = key;
+            landOnFirstRef.current = false;
+            if (index !== tvRowIndexRef.current) {
+                setTvRowDir(index > tvRowIndexRef.current ? 'down' : 'up');
+                setTvRowIndex(index);
+            }
+            window.dispatchEvent(new CustomEvent(NATIVE_HOME_FOCUS_EVENT, { detail: { key, rowId: data.rowId } }));
+        });
+        // The fade colour follows the artwork on the web Home; the native backdrop takes the same colour.
+        const onSurface = (event: Event) => {
+            const rgb = String((event as CustomEvent).detail || '');
+            if (rgb) void nativeHomeSetSurface(rgb);
+        };
+        window.addEventListener(HOME_SURFACE_EVENT, onSurface);
+        const offLong = onNativeHomeEvent('longPress', (data) => {
+            if (!nativeShowingNowRef.current) return;
+            // Same menu the web poster opens on a long Select. The page asks for it at once; native keeps the
+            // held key until it is released, then hands the remote to the menu. The poster may still be
+            // mounting (the row just came into view), so look for it for a moment.
+            const key = String(data.key || '');
+            if (!key || key.startsWith('view-more:')) return;
+            const started = Date.now();
+            const tryOpen = () => {
+                const poster = Array.from(document.querySelectorAll<HTMLElement>('.player-home-stage [data-tv-poster-btn="1"]'))
+                    .find((el) => el.getAttribute('data-tv-key') === key);
+                if (poster) {
+                    const detail = { ratingKey: key, poster, handled: false };
+                    window.dispatchEvent(new CustomEvent('smp-tv-poster-menu', { detail }));
+                    return;
+                }
+                if (Date.now() - started < 1500) window.setTimeout(tryOpen, 50);
+            };
+            tryOpen();
+        });
+        const offBack = onNativeHomeEvent('back', () => {
+            if (!nativeShowingNowRef.current) return;
+            const handled = typeof window.__SMP_HANDLE_BACK__ === 'function' && window.__SMP_HANDLE_BACK__();
+            if (!handled) void nativeHomeExitApp();
+        });
+        // Native key presses never reach the page, so tell its idle timer (screensaver) someone is here.
+        const offActivity = onNativeHomeEvent('activity', () => {
+            window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Unidentified', keyCode: 0, cancelable: true }));
+        });
+        // The held Select ended and the page has the remote: let the menu that opened take its first item
+        // (it waits for a key-up, which native swallowed).
+        const offHoldEnd = onNativeHomeEvent('holdEnd', () => {
+            if (document.documentElement.dataset.nativeMenu === '1') return; // the native menu holds the keys
+            if (!nativeShowingNowRef.current) return;
+            void nativeHomeReleaseFocus().then(() => {
+                window.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', keyCode: 13, cancelable: true }));
+            });
+        });
+        // Up on the first row: nothing sits above Home's rows, so the keys go straight back (focus is never lost).
+        const offUp = onNativeHomeEvent('edgeUp', () => {
+            if (!nativeShowingNowRef.current) return;
+            void nativeHomeFocusRows();
+        });
+        const offEdge = onNativeHomeEvent('edgeLeft', () => {
+            if (!nativeShowingNowRef.current) return;
+            // Same as Left on the first poster of the web Home: open the sidebar.
+            openTvSideNav();
+        });
+        // Right from the sidebar lands on a (invisible) web poster: hand the keys back to the native rows.
+        const onFocusIn = (event: FocusEvent) => {
+            const target = event.target as HTMLElement | null;
+            if (!target?.closest?.('.player-home-stage-rail [data-tv-poster-btn="1"]')) return;
+            if (!nativeShowingNowRef.current) return;
+            if (document.querySelector(TV_OVERLAY_OPEN)) return;
+            try {
+                target.blur();
+            } catch {
+                /* ignore */
+            }
+            void nativeHomeFocusRows();
+        };
+        document.addEventListener('focusin', onFocusIn, true);
+        // Back from a title, or closing the sidebar, leaves the page with nothing focused: give the keys
+        // back to the native rows so a poster is always selected.
+        let reclaimTimer = 0;
+        const reclaimNow = () => {
+            // Leaving Home (a library, a title): the rows are on their way out, do not pull the keys back.
+            if (!nativeShownRef.current || !nativeShowingNowRef.current) return;
+            const root = document.documentElement;
+            if (root.getAttribute('data-tv-nav-open') === '1') return;
+            if (document.querySelector(TV_OVERLAY_OPEN)) return;
+            const focused = document.activeElement as HTMLElement | null;
+            const idle = !focused || focused === document.body || focused === root
+                || !!focused.closest?.('.player-home-stage-rail [data-tv-poster-btn="1"]')
+                // The sidebar just closed: its item may still hold focus for a moment.
+                || !!focused.closest?.('[data-tv-nav-root="1"]');
+            if (!idle) return;
+            void nativeHomeFocusRows();
+        };
+        const reclaim = () => {
+            window.clearTimeout(reclaimTimer);
+            reclaimTimer = window.setTimeout(() => {
+                reclaimNow();
+                reclaimTimer = window.setTimeout(reclaimNow, 350);
+            }, 70);
+        };
+        document.addEventListener('focusout', reclaim, true);
+        // Sidebar open: the rows must not keep Android focus (they would scroll behind it and the sidebar would not
+        // light up). Native lets go and the page takes the remote; the sidebar item is focused once that is done.
+        let blockedNow = false;
+        const syncBlocked = () => {
+            const open = document.documentElement.dataset.tvNavOpen === '1';
+            if (!nativeShowingNowRef.current || nativeHomeOwner() !== 'home') {
+                // Another screen owns the native view now; only let go of what Home left blocked / shifted.
+                if (blockedNow && !open) {
+                    blockedNow = false;
+                    void nativeHomeSetShift(0);
+                    void nativeHomeSetBlocked(false);
+                }
+                return;
+            }
+            // Only on a real open/close: the sidebar re-sets its flag while it opens, and acting on every
+            // write made the two fight over focus.
+            if (open === blockedNow) return;
+            blockedNow = open;
+            void nativeHomeSetShift(open && document.documentElement.getAttribute('data-tv-nav-icons') !== '1' ? 235 : 0);
+            void nativeHomeSetBlocked(open).then(() => {
+                if (open && !document.activeElement?.closest?.('[data-tv-nav-root="1"]')) openTvSideNav();
+            });
+        };
+        const blockObserver = new MutationObserver(syncBlocked);
+        blockObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-tv-nav-open'] });
+        const navObserver = new MutationObserver(reclaim);
+        navObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-tv-nav-open'] });
+        return () => {
+            document.removeEventListener('focusin', onFocusIn, true);
+            offOpen();
+            offFocus();
+            offBack();
+            offLong();
+            window.removeEventListener(HOME_SURFACE_EVENT, onSurface);
+            offEdge();
+            offUp();
+            offHoldEnd();
+            offActivity();
+            document.removeEventListener('focusout', reclaim, true);
+            navObserver.disconnect();
+            blockObserver.disconnect();
+            void nativeHomeSetBlocked(false);
+            void nativeHomeSetShift(0);
+            window.clearTimeout(reclaimTimer);
+        };
+    }, [nativeHomeOn]);
+    useEffect(() => () => {
+        void nativeHomeHide('home').then((hidden) => {
+            if (hidden) setNativeHomeStageClear(false);
+        });
+    }, []);
     const tvRowSafeIndex = Math.min(tvRowIndex, Math.max(0, tvHomeRows.length - 1));
     const tvActiveRow = tvHomeRows[tvRowSafeIndex] || null;
     // TV Home shares one open handler across its rows; a press lands on the active row, so when that
@@ -2136,6 +2589,8 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
 
     useLayoutEffect(() => {
         if (!tvStage || !active || !tvActiveRow) return undefined;
+        // Native Home owns poster focus; this would focus a hidden web poster and steal the keys.
+        if (nativeHomeShowing) return undefined;
         const rowId = tvActiveRow.id;
         const landOnFirst = landOnFirstRef.current;
         if (landOnFirst && tvRowIndexRef.current !== 0) return undefined;
@@ -2200,7 +2655,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
             cancelled = true;
             window.clearTimeout(timer);
         };
-    }, [active, noteTvFocusKey, tvActiveRow?.id, tvStage]);
+    }, [active, nativeHomeShowing, noteTvFocusKey, tvActiveRow?.id, tvStage]);
 
     // After a stop / mark, re-read Home from Plex once PMS has taken it in, so Continue
     // Watching shows the server's answer, not only the local patch below.
@@ -2744,8 +3199,16 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                         </div>
                     </section>
                 ) : (
+                    <React.Fragment key={group.id}>
+                    {nativeHomeOn ? (
+                        <NativeDetailRail
+                            railId={`search-${group.id}`}
+                            rowId={`search:${group.id}`}
+                            kind="poster"
+                            items={searchNativeItems[group.id] || []}
+                        />
+                    ) : null}
                     <PlayerRail
-                        key={group.id}
                         title={group.title}
                         rowId={`search:${group.id}`}
                         items={group.items}
@@ -2762,6 +3225,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                         isAdmin={isAdmin}
                         playlistsEnabled={playlistsEnabled}
                     />
+                    </React.Fragment>
                 )
             )) : searchGroups.map((group) => (
                 <section
@@ -2826,6 +3290,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                     // it: the sample is a tiny copy of the image and the colour is applied with no
                     // animation (data-lite-billboard / data-simple-motion), so it costs next to nothing.
                     liteBillboard={settings.liteBillboard}
+                    nativeBillboard={nativeHomeShowing}
                     onFocusKey={noteTvFocusKey}
                     stack={home && tvActiveRow ? (
                         <PlayerTvRowStack
@@ -2890,9 +3355,11 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
 
             {isTvShell && searchActive ? (
                 <div data-tv-search="1">
+                    {nativeHomeOn ? <NativeSearchBridge /> : null}
                     <PlayerTvSearch
                         query={query}
                         onChange={setQuery}
+                        freshRef={queryFreshRef}
                     />
                     <div data-tv-search-body="1" className="player-tv-search-body">
                         {query.trim().length >= 2 ? searchResultsNode : query.trim() ? (
@@ -2903,6 +3370,7 @@ export const MediaPlayerHome = React.memo(function MediaPlayerHome({
                                 onPick={(value) => {
                                     // Run it again; focus follows into the results when they land.
                                     focusSearchResultsRef.current = true;
+                                    queryFreshRef.current = true;
                                     setSearching(true);
                                     setQuery(value);
                                 }}

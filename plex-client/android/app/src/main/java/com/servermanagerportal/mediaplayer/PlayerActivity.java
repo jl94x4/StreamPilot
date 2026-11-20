@@ -85,6 +85,7 @@ import androidx.media3.exoplayer.SeekParameters;
 import androidx.media3.exoplayer.Renderer;
 import androidx.media3.decoder.ffmpeg.FfmpegAudioRenderer;
 import androidx.media3.decoder.ffmpeg.FfmpegLibrary;
+import androidx.media3.exoplayer.audio.AudioCapabilities;
 import androidx.media3.exoplayer.audio.AudioRendererEventListener;
 import androidx.media3.exoplayer.audio.AudioSink;
 import androidx.media3.exoplayer.audio.DefaultAudioSink;
@@ -624,6 +625,10 @@ public class PlayerActivity extends AppCompatActivity {
     private boolean seekRecoveryUsed;
     /** Audio output died mid-playback (AudioTrack write failed, e.g. older Shield firmware). Rebuilt in place, a few times. */
     private int audioSinkRecoveries;
+    /** Bitstream is on but the platform did not list TrueHD, so it was offered to the sink anyway. */
+    private boolean forcedBitstream;
+    /** That attempt failed once: TrueHD / DTS go back to being decoded by FFmpeg. */
+    private boolean bitstreamForceFailed;
     /** Resume offset handed to a Direct Play file (checked once it is READY). */
     private long directStartMs;
     /** Already asked for an HLS stream because the Direct Play file cannot seek. */
@@ -1100,23 +1105,60 @@ public class PlayerActivity extends AppCompatActivity {
                     boolean enableFloatOutput,
                     boolean enableAudioTrackPlaybackParams
                 ) {
-                    AudioSink sink = new DefaultAudioSink.Builder(context)
+                    // Bitstream on: some TVs / receivers (and Android's channel-mask list for them) leave
+                    // TrueHD out of what they report even though they play it, which sent TrueHD + Atmos
+                    // through FFmpeg as PCM. Plex and Kodi try the bitstream anyway: so do we, once.
+                    AudioCapabilities forced = null;
+                    forcedBitstream = false;
+                    if (audioPassthrough && !bitstreamForceFailed) {
+                        try {
+                            AudioAttributes probe = new AudioAttributes.Builder()
+                                .setUsage(C.USAGE_MEDIA)
+                                .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                                .build();
+                            AudioCapabilities detected = AudioCapabilities.getCapabilities(
+                                context, probe, null, Collections.<Integer>emptyList());
+                            Log.i(TAG, "Audio output capabilities: " + detected);
+                            // Also when TrueHD is listed: the platform often lists it only for channel layouts
+                            // that miss a 7.1 / Atmos stream, which fell back to PCM just the same.
+                            {
+                                int[] known = {
+                                    C.ENCODING_PCM_16BIT, C.ENCODING_AC3, C.ENCODING_E_AC3, C.ENCODING_E_AC3_JOC,
+                                    C.ENCODING_DTS, C.ENCODING_DTS_HD, C.ENCODING_AC4,
+                                };
+                                ArrayList<Integer> have = new ArrayList<>();
+                                for (int enc : known) if (detected.supportsEncoding(enc)) have.add(enc);
+                                have.add(C.ENCODING_DOLBY_TRUEHD);
+                                int[] list = new int[have.size()];
+                                for (int i = 0; i < list.length; i++) list[i] = have.get(i);
+                                forced = new AudioCapabilities(list, Math.max(8, detected.getMaxChannelCount()));
+                                forcedBitstream = true;
+                                Log.i(TAG, "Offering TrueHD to the output with any channel layout (bitstream is on)");
+                            }
+                        } catch (Throwable error) {
+                            Log.w(TAG, "Audio capability check failed", error);
+                        }
+                    }
+                    DefaultAudioSink.Builder sinkBuilder = forced != null
+                        ? new DefaultAudioSink.Builder().setAudioCapabilities(forced)
+                        : new DefaultAudioSink.Builder(context);
+                    AudioSink sink = sinkBuilder
                         .setEnableFloatOutput(enableFloatOutput)
                         .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
                         .setAudioProcessors(new AudioProcessor[] { delayAudioProcessor })
                         .build();
-                    if (audioPassthrough) return sink;
+                    if (audioPassthrough && !forcedBitstream) return sink;
                     // Bitstream off: never hand TrueHD / DTS to HDMI (that hard-crashed boxes whose
                     // TV claimed support it did not have). FFmpeg decodes them to PCM instead.
                     return new ForwardingAudioSink(sink) {
                         @Override
                         public boolean supportsFormat(Format format) {
-                            return !isBitstreamOnlyAudio(format) && super.supportsFormat(format);
+                            return !blocksBitstream(format) && super.supportsFormat(format);
                         }
 
                         @Override
                         public int getFormatSupport(Format format) {
-                            return isBitstreamOnlyAudio(format)
+                            return blocksBitstream(format)
                                 ? AudioSink.SINK_FORMAT_UNSUPPORTED
                                 : super.getFormatSupport(format);
                         }
@@ -1136,12 +1178,18 @@ public class PlayerActivity extends AppCompatActivity {
                 ) {
                     // Bitstream off: hide any platform TrueHD / DTS decoder too (the same crash), so
                     // those tracks always go to FFmpeg below.
-                    MediaCodecSelector selector = audioPassthrough
-                        ? mediaCodecSelector
-                        : (mimeType, requiresSecureDecoder, requiresTunnelingDecoder) ->
-                            isBitstreamOnlyMime(mimeType)
-                                ? java.util.Collections.emptyList()
-                                : mediaCodecSelector.getDecoderInfos(mimeType, requiresSecureDecoder, requiresTunnelingDecoder);
+                    // AAC / HE-AAC: many TV and Fire TV decoders downmix 5.1 AAC to stereo. Decode it with
+                    // FFmpeg instead (as Kodi does) so the channels stay.
+                    boolean aacViaFfmpeg = false;
+                    try {
+                        aacViaFfmpeg = FfmpegLibrary.isAvailable() && FfmpegLibrary.supportsFormat(MimeTypes.AUDIO_AAC)
+                            && !PlaybackUrls.isTranscodeUrl(currentUrl);
+                    } catch (Throwable ignored) { /* no FFmpeg */ }
+                    final boolean hideAac = aacViaFfmpeg;
+                    MediaCodecSelector selector = (mimeType, requiresSecureDecoder, requiresTunnelingDecoder) ->
+                        ((!audioPassthrough && isBitstreamOnlyMime(mimeType)) || (hideAac && MimeTypes.AUDIO_AAC.equals(mimeType)))
+                            ? java.util.Collections.emptyList()
+                            : mediaCodecSelector.getDecoderInfos(mimeType, requiresSecureDecoder, requiresTunnelingDecoder);
                     super.buildAudioRenderers(context, extensionRendererMode, selector,
                         enableDecoderFallback, audioSink, eventHandler, eventListener, out);
                     // After the platform renderer: TrueHD / DTS still go out as bitstream when the
@@ -1190,7 +1238,10 @@ public class PlayerActivity extends AppCompatActivity {
             // Playback always wins; on those files the faces simply don't run.
             boolean bigVideo = streamHeight > 1100 || "4k".equalsIgnoreCase(streamResolution);
             facesUntunneled = whoIsOnScreen && !bigVideo;
-            if (isTelevision() && !facesUntunneled) {
+            // Bitstream output plays untunneled too (like Kodi): a tunneled track hands audio to the
+            // TV's own sync path, which on a Shield can lock the remote's volume. 4K still tunnels.
+            boolean passthroughUntunneled = audioPassthrough && !bigVideo;
+            if (isTelevision() && !facesUntunneled && !passthroughUntunneled) {
                 trackSelector.setParameters(
                     trackSelector.buildUponParameters().setTunnelingEnabled(true)
                 );
@@ -2350,6 +2401,11 @@ public class PlayerActivity extends AppCompatActivity {
     private static boolean isBitstreamOnlyMime(String mimeType) {
         if (mimeType == null) return false;
         return MimeTypes.AUDIO_TRUEHD.equals(mimeType) || mimeType.startsWith("audio/vnd.dts");
+    }
+
+    /** TrueHD / DTS the sink must refuse: bitstream is off, or the forced attempt failed. */
+    private boolean blocksBitstream(Format format) {
+        return (!audioPassthrough || bitstreamForceFailed) && isBitstreamOnlyAudio(format);
     }
 
     private static boolean isBitstreamOnlyAudio(Format format) {
@@ -3738,6 +3794,8 @@ public class PlayerActivity extends AppCompatActivity {
         streamSwapInFlight = false;
         mainHandler.removeCallbacks(clearSwapRunnable);
         skippedIntro = false;
+        introAutoFromMs = -1;
+        creditsAutoFromMs = -1;
         skippedCredits = false;
         clearSkipChips();
         playbackEnded = false;
@@ -5094,6 +5152,8 @@ public class PlayerActivity extends AppCompatActivity {
         if (introEndMs < 0) return;
         seekToContent(introEndMs, true);
         skippedIntro = true;
+        introAutoFromMs = -1;
+        setSkipCountdown(skipIntroBtn, R.string.player_skip_intro, 0);
         dismissSkipIntroChip();
         emitProgress("playing");
     }
@@ -5185,6 +5245,16 @@ public class PlayerActivity extends AppCompatActivity {
         return false;
     }
 
+    private static final long AUTO_SKIP_DELAY_MS = 5000;
+    private long introAutoFromMs = -1;
+    private long creditsAutoFromMs = -1;
+
+    private void setSkipCountdown(Button btn, int labelRes, long leftMs) {
+        if (btn == null) return;
+        String base = getString(labelRes);
+        btn.setText(leftMs > 0 ? base + " (" + ((leftMs + 999) / 1000) + ")" : base);
+    }
+
     private void maybeAutoSkip() {
         if (player == null) return;
         long pos = contentPositionMs();
@@ -5192,12 +5262,36 @@ public class PlayerActivity extends AppCompatActivity {
         boolean creditsAuto = "auto".equals(skipCreditsMode) || autoSkipCredits;
         boolean introOff = "off".equals(skipIntroMode);
         boolean creditsOff = "off".equals(skipCreditsMode);
-        if (introAuto && !skippedIntro && introStartMs >= 0 && introEndMs > introStartMs
-            && pos >= introStartMs && pos < introEndMs) {
-            doSkipIntro();
+        // Auto: show the Skip button with a short countdown (like the official app), then skip.
+        // Counted in playback time, so pausing holds the countdown.
+        boolean introAutoNow = introAuto && !skippedIntro && introStartMs >= 0 && introEndMs > introStartMs
+            && pos >= introStartMs && pos < introEndMs;
+        if (introAutoNow) {
+            if (introAutoFromMs < 0 || pos < introAutoFromMs) introAutoFromMs = pos;
+            long left = AUTO_SKIP_DELAY_MS - (pos - introAutoFromMs);
+            if (left <= 0) {
+                introAutoFromMs = -1;
+                doSkipIntro();
+            } else {
+                setSkipCountdown(skipIntroBtn, R.string.player_skip_intro, left);
+            }
+        } else if (introAutoFromMs >= 0) {
+            introAutoFromMs = -1;
+            setSkipCountdown(skipIntroBtn, R.string.player_skip_intro, 0);
         }
-        if (creditsAuto && !skippedCredits && creditsStartMs >= 0 && pos >= creditsStartMs) {
-            doSkipCredits();
+        boolean creditsAutoNow = creditsAuto && !skippedCredits && creditsStartMs >= 0 && pos >= creditsStartMs;
+        if (creditsAutoNow) {
+            if (creditsAutoFromMs < 0 || pos < creditsAutoFromMs) creditsAutoFromMs = pos;
+            long left = AUTO_SKIP_DELAY_MS - (pos - creditsAutoFromMs);
+            if (left <= 0) {
+                creditsAutoFromMs = -1;
+                doSkipCredits();
+                return;
+            }
+            setSkipCountdown(skipCreditsBtn, R.string.player_skip_credits, left);
+        } else if (creditsAutoFromMs >= 0) {
+            creditsAutoFromMs = -1;
+            setSkipCountdown(skipCreditsBtn, R.string.player_skip_credits, 0);
         }
         boolean inIntro = !introOff && inIntroRange();
         boolean inCredits = !creditsOff && inCreditsRange();
@@ -6188,6 +6282,11 @@ public class PlayerActivity extends AppCompatActivity {
         }
         if (player == null || audioSinkRecoveries >= 3) return false;
         audioSinkRecoveries++;
+        if (forcedBitstream && !bitstreamForceFailed) {
+            // The output refused the TrueHD we offered: stop offering it, FFmpeg decodes it instead.
+            bitstreamForceFailed = true;
+            Log.w(TAG, "Forced TrueHD bitstream failed, decoding it instead");
+        }
         Log.w(TAG, "Audio output failed (" + error.getErrorCodeName() + "), rebuilding it, attempt " + audioSinkRecoveries);
         playbackError = false;
         hideError();

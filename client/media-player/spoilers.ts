@@ -17,7 +17,7 @@ export const isSpoilerShow = (settings: Pick<PlayerSettings, 'spoilerShows'>, sh
 
 /**
  * Hide this episode's still and summary? Only for shows with spoiler hiding on, and only
- * episodes you haven't started — anything watched or in progress shows normally.
+ * episodes you haven't finished — a half-watched one stays hidden; watched ones show normally.
  */
 export const hideEpisodeSpoilers = (
     settings: Pick<PlayerSettings, 'spoilerShows'>,
@@ -25,7 +25,7 @@ export const hideEpisodeSpoilers = (
     showKey = '',
 ) => {
     if (!episode || episode.type !== 'episode') return false;
-    if (episode.watched || Number(episode.viewOffsetMs || 0) > 0) return false;
+    if (episode.watched) return false;
     return isSpoilerShow(settings, showKey || String(episode.grandparentRatingKey || ''));
 };
 

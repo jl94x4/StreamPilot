@@ -52,6 +52,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(MediaDownloadsPlugin.class);
         registerPlugin(DeviceUiPlugin.class);
         registerPlugin(WatchTogetherHostPlugin.class);
+        registerPlugin(NativeHomePlugin.class);
         super.onCreate(savedInstanceState);
         installImageCache();
         applyWebViewDisplayFixes();
@@ -288,7 +289,20 @@ public class MainActivity extends BridgeActivity {
         }
         WebView webView = bridge.getWebView();
         webView.setBackgroundColor(isTelevisionDevice(this) ? 0xFF07080C : 0xFF242830);
+        // TV: nothing here is a form to autofill or content for the system to capture. Each time focus moves between the
+        // page and the native rows, those services walk the whole page from the renderer (100ms+ stalls mid-scroll).
+        if (isTelevisionDevice(this)) {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                webView.setImportantForAutofill(android.view.View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS);
+            }
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                webView.setImportantForContentCapture(android.view.View.IMPORTANT_FOR_CONTENT_CAPTURE_NO_EXCLUDE_DESCENDANTS);
+            }
+        }
         WebSettings settings = webView.getSettings();
+        // Every WebView.requestFocus (the page taking the remote back from a native row) otherwise makes Chromium walk
+        // the whole page to focus its first element: a 100ms+ stall mid-scroll, landing on Resume. The page sets its own focus.
+        if (isTelevisionDevice(this)) settings.setNeedInitialFocus(false);
         boolean debuggable = (getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
         settings.setCacheMode(debuggable ? WebSettings.LOAD_NO_CACHE : WebSettings.LOAD_DEFAULT);
         if (debuggable) {

@@ -46,13 +46,30 @@ export const PlayerResumeDialog: React.FC<Props> = ({
     const episode = item.type === 'episode';
     const episodeCode = formatEpisodeCode(item);
     const heading = episode ? (item.showTitle || item.title) : item.title;
-    const episodeLine = episode
-        ? [episodeCode, item.title && item.title !== heading ? item.title : ''].filter(Boolean).join(' · ')
-        : '';
-    const artUrl = plexBackdropUrl(item.art || item.heroArt || item.thumb);
+    const episodeName = episode ? String(item.episodeTitle || item.title || '').trim() : '';
+    const episodeTitleLine = episodeName && episodeName !== heading ? episodeName : '';
+    const episodeLine = episode ? [item.seasonTitle && !episodeCode ? item.seasonTitle : '', episodeCode].filter(Boolean).join(' · ') : '';
+    // An episode shows its own still as the backdrop; the show art is only the fallback.
+    const stillPath = episode ? (item.episodeThumb || item.thumb) : '';
+    const artUrl = plexBackdropUrl(stillPath || item.art || item.heroArt || item.thumb);
     const logoUrl = plexLogoUrl(item.logo);
     const showLogo = Boolean(logoUrl) && !logoFailed;
     const timeLeftMs = durationMs > offsetMs ? durationMs - offsetMs : 0;
+    const aired = item.originallyAvailableAt ? new Date(item.originallyAvailableAt) : null;
+    const airedLabel = aired && Number.isFinite(aired.getTime())
+        ? aired.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+        : (item.year ? String(item.year) : '');
+    const rating = Number(item.audienceRating);
+    const metaBits = [
+        airedLabel,
+        String(item.contentRating || '').replace(/^[a-z]{2}\//i, ''),
+        Number.isFinite(rating) && rating > 0 ? `★ ${rating.toFixed(1)}` : '',
+        formatPlayerDuration(durationMs),
+    ].filter(Boolean);
+    const endsAt = timeLeftMs > 0
+        ? new Date(Date.now() + timeLeftMs).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+        : '';
+    const summary = String(item.summary || '').trim();
 
     return (
         <div
@@ -88,6 +105,9 @@ export const PlayerResumeDialog: React.FC<Props> = ({
                         {heading}
                     </h2>
                     {episodeLine ? <p className="smp-resume-episode">{episodeLine}</p> : null}
+                    {episodeTitleLine ? <p className="smp-resume-episode-title">{episodeTitleLine}</p> : null}
+                    {metaBits.length ? <p className="smp-resume-meta">{metaBits.join(' · ')}</p> : null}
+                    {summary ? <p className="smp-resume-summary">{summary}</p> : null}
 
                     {durationMs > 0 ? (
                         <div className="smp-resume-progress">
@@ -97,7 +117,7 @@ export const PlayerResumeDialog: React.FC<Props> = ({
                             <div className="smp-resume-times">
                                 <span>{t('mediaPlayerPage.resumeFrom', { time: formatClock(offsetMs) })}</span>
                                 {timeLeftMs > 0 ? (
-                                    <span>{formatPlayerDuration(timeLeftMs)} {t('mediaPlayerPage.remaining')}</span>
+                                    <span>{formatPlayerDuration(timeLeftMs)} {t('mediaPlayerPage.remaining')}{endsAt ? ` · Ends ${endsAt}` : ''}</span>
                                 ) : null}
                             </div>
                         </div>

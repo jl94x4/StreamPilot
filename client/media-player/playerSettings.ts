@@ -596,6 +596,8 @@ export type PlayerSettings = {
     viewMoreStyle: PlayerViewMoreStyle;
     /** Typeface for the whole app. */
     appFont: PlayerAppFont;
+    /** TV: show IMDb / TMDB / TVDB / Rotten Tomatoes scores without their coloured boxes. */
+    flatRatings: boolean;
     /** Clock in the corner of the app (and in the player with its controls). */
     showClock: boolean;
     /** TV corner clock sits on a dark pill. Off shows just the time (with a soft shadow). */
@@ -1061,6 +1063,7 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
     navClosedStyle: 'blend',
     viewMoreStyle: 'backdrop',
     appFont: 'default',
+    flatRatings: false,
     showClock: true,
     clockBackground: true,
     seekBackSec: 10,
@@ -1176,6 +1179,7 @@ export const normalizePlayerSettings = (raw: Partial<PlayerSettings> | Record<st
         navClosedStyle: isPlayerNavClosedStyle(raw?.navClosedStyle) ? raw.navClosedStyle : 'blend',
         viewMoreStyle: isPlayerViewMoreStyle(raw?.viewMoreStyle) ? raw.viewMoreStyle : 'backdrop',
         appFont: isPlayerAppFont(raw?.appFont) ? raw.appFont : 'default',
+        flatRatings: raw?.flatRatings === true,
         showClock: raw?.showClock !== false,
         clockBackground: raw?.clockBackground !== false,
         seekBackSec: pickNumber(raw?.seekBackSec, PLAYER_SEEK_STEPS, 10),
@@ -1193,8 +1197,9 @@ export const normalizePlayerSettings = (raw: Partial<PlayerSettings> | Record<st
         remoteQualityId: QUALITY_IDS.has(String(raw?.remoteQualityId || '')) ? String(raw?.remoteQualityId) : '',
         audioLanguage: /^[a-z]{2}(?:-[a-z]{2})?$/.test(audioLanguage) ? audioLanguage : '',
         subtitleMode: SUBTITLE_MODES.has(subtitleMode) ? subtitleMode : 'forced',
-        autoSkipIntro: raw?.autoSkipIntro === true || String(raw?.skipIntroMode || '') === 'auto',
-        autoSkipCredits: raw?.autoSkipCredits === true || String(raw?.skipCreditsMode || '') === 'auto',
+        // Legacy booleans only follow the mode: a stale `true` must not override a chosen Manual/Off.
+        autoSkipIntro: migrateSkipMode(raw?.skipIntroMode, raw?.autoSkipIntro) === 'auto',
+        autoSkipCredits: migrateSkipMode(raw?.skipCreditsMode, raw?.autoSkipCredits) === 'auto',
         skipIntroMode: migrateSkipMode(raw?.skipIntroMode, raw?.autoSkipIntro),
         skipCreditsMode: migrateSkipMode(raw?.skipCreditsMode, raw?.autoSkipCredits),
         rewindOnResumeSec: (() => {
@@ -1302,6 +1307,7 @@ export const playerSettingsEqual = (a: PlayerSettings, b: PlayerSettings) => (
     && a.navClosedStyle === b.navClosedStyle
     && a.viewMoreStyle === b.viewMoreStyle
     && a.appFont === b.appFont
+    && a.flatRatings === b.flatRatings
     && a.showClock === b.showClock
     && a.clockBackground === b.clockBackground
     && a.seekBackSec === b.seekBackSec

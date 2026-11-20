@@ -447,7 +447,26 @@ export const playerCardImageUrl = (thumb?: string | null, aspect: '2/3' | 'squar
     return plexImageUrl(thumb, PLAYER_POSTER_WIDTH, PLAYER_POSTER_HEIGHT, { quality: PLAYER_POSTER_QUALITY });
 };
 
-export const plexLogoUrl = (path?: string | null) => plexImageUrl(path, 640, 240, { fit: 'contain', quality: 70 });
+/**
+ * Clear logos: the stored file. A resized copy from the photo transcoder is flattened onto white, so a logo
+ * remembered from an earlier run (as a transcoder address) is turned back into the original's address.
+ */
+const originalLogoAddress = (path: string) => {
+    if (!/\/photo\/:\/transcode\?/.test(path)) return path;
+    try {
+        const url = new URL(path);
+        const source = url.searchParams.get('url') || '';
+        const token = url.searchParams.get('X-Plex-Token') || '';
+        if (!source.startsWith('/')) return path;
+        const direct = new URL(source, `${url.protocol}//${url.host}`);
+        if (token) direct.searchParams.set('X-Plex-Token', token);
+        return direct.toString();
+    } catch {
+        return path;
+    }
+};
+
+export const plexLogoUrl = (path?: string | null) => plexImageUrl(path ? originalLogoAddress(path) : path, 640, 240, { fit: 'contain', quality: 70 });
 
 /** Prefer the fullest synopsis (Plex agents often truncate mid-sentence). */
 export const pickRicherSummary = (...parts: Array<string | null | undefined>) => {
@@ -472,7 +491,7 @@ export const pickRicherSummary = (...parts: Array<string | null | undefined>) =>
  */
 export const PLAYER_BACKDROP_WIDTH = 1920;
 export const PLAYER_BACKDROP_HEIGHT = 1080;
-export const PLAYER_BACKDROP_QUALITY = 90;
+export const PLAYER_BACKDROP_QUALITY = 95;
 
 const tmdbBackdropSize = (url: string, size: 'w300' | 'w1280' | 'w1920' | 'original') => (
     url.replace(/\/\/image\.tmdb\.org\/t\/p\/(?:original|w\d+)/, `//image.tmdb.org/t/p/${size}`)
@@ -481,7 +500,7 @@ const tmdbBackdropSize = (url: string, size: 'w300' | 'w1280' | 'w1920' | 'origi
 const withPlexImageSize = (url: string, width: number, height: number, quality: number) => {
     const resolved = resolvePortalAssetUrl(url);
     if (!resolved.includes('/api/plex/image')) {
-        const size = quality <= 50 ? 'w300' : (quality >= 95 ? 'original' : 'w1920');
+        const size = quality <= 50 ? 'w300' : 'w1920'; // 1080p wide; never TMDB's multi-megabyte originals
         return tmdbBackdropSize(resolved, size);
     }
     const hashAt = resolved.indexOf('#');
@@ -574,14 +593,38 @@ const tvLowBackdrop = () => {
     return low;
 };
 
+/**
+ * The sharpest backdrop the screen can show: the pixels it really draws (up to 4K). The server never upscales
+ * (upscale=0), so a 1080p source stays 1080p; a 4K source is only fetched for a screen that can show it.
+ */
+let bestBackdropCache: { width: number; height: number } | null = null;
+const bestBackdropBox = () => {
+    if (bestBackdropCache) return bestBackdropCache;
+    let drawn = 0;
+    try {
+        const dpr = window.devicePixelRatio || 1;
+        drawn = Math.max(window.screen?.width || 0, window.innerWidth || 0) * dpr;
+    } catch {
+        drawn = 0;
+    }
+    // Capped at 1080p (quality 95) on every screen, 4K ones included.
+    bestBackdropCache = { width: PLAYER_BACKDROP_WIDTH, height: PLAYER_BACKDROP_HEIGHT };
+    return bestBackdropCache;
+};
+
 export const plexBackdropUrl = (path?: string | null) => {
     if (!path) return '';
-    // A 1080p q90 transcode per hero slide took ages over mobile data; 720p is still sharp on a phone.
-    if (phoneShellActive()) return backdropRequestUrl(path, 1280, 720, 80);
+    // Phones: the full 1080p art (was 720p) unless the phone's own screen is smaller than that.
+    if (phoneShellActive()) {
+        const drawn = Math.max(window.screen?.width || 0, window.innerWidth || 0) * (window.devicePixelRatio || 1);
+        return drawn > 1400 ? backdropRequestUrl(path, 1920, 1080, 95) : backdropRequestUrl(path, 1280, 720, 95);
+    }
     if (liteBillboardActive()) return backdropRequestUrl(path, 1280, 720, 75);
     const low = tvLowBackdrop();
-    if (low) return backdropRequestUrl(path, low.width, low.height, 88);
-    return backdropRequestUrl(path, PLAYER_BACKDROP_WIDTH, PLAYER_BACKDROP_HEIGHT, PLAYER_BACKDROP_QUALITY);
+    // Fire TV and small / low-memory sets too: always full 1080p at quality 100 (4K screens go higher below).
+    if (low) return backdropRequestUrl(path, 1920, 1080, 95);
+    const best = bestBackdropBox();
+    return backdropRequestUrl(path, best.width, best.height, PLAYER_BACKDROP_QUALITY);
 };
 
 /** Plex Square Art as a phone cover: square, so ask for a square box (the normal backdrop box is 16:9). */
@@ -1278,12 +1321,29 @@ export const isFuturePlayerDate = (value?: string | number | null) => {
 };
 
 /** Dates in the user's Settings → Titles → Date format (full month by default). */
+const formattedDates = new Map<string, string>();
+
+/** Dates are formatted again on every render of a billboard; Intl is slow on a Fire TV, so remember them. */
 export const formatPlayerDate = (
     value?: string | number | null,
     locale = 'en',
     format: PlayerDateFormat = activeDateFormat(),
 ) => {
     if (value == null || value === '') return '';
+    const memoKey = `${locale}|${format}|${value}`;
+    const memo = formattedDates.get(memoKey);
+    if (memo !== undefined) return memo;
+    const out = formatPlayerDateUncached(value, locale, format);
+    if (formattedDates.size >= 500) formattedDates.clear();
+    formattedDates.set(memoKey, out);
+    return out;
+};
+
+const formatPlayerDateUncached = (
+    value: string | number,
+    locale: string,
+    format: PlayerDateFormat,
+) => {
     const date = parsePlayerDate(value);
     if (Number.isNaN(date.getTime())) return '';
     const lang = locale || 'en';

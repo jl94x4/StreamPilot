@@ -15,7 +15,7 @@ import { MediaPlayerInsights } from './MediaPlayerInsights';
 import { getMediaDownloadLocalUrl, isMediaDownloadsSupported } from '../plex-client/mediaDownloads';
 import { isPhoneUi } from '../plex-client/config';
 import { MediaPlayerCollection } from './MediaPlayerCollection';
-import { MediaPlayerHub, seedHubItems } from './MediaPlayerHub';
+import { MediaPlayerHub, markHeroGrid, seedHubItems } from './MediaPlayerHub';
 import { MediaPlayerPlaylist } from './MediaPlayerPlaylist';
 import { MediaPlayerStudio } from './MediaPlayerStudio';
 import { lazyScreen, preloadScreensWhenIdle } from './lazyScreen';
@@ -33,6 +33,7 @@ import { PLAYER_APP_BASE, PLAYER_HOME_LIVE_EVENT, PLAYER_NAVIGATE_EVENT, PLAYER_
 import { PlayerOfflineBanner } from './PlayerOfflineBanner';
 import { usePlayerSettings } from './usePlayerSettings';
 import { PlayerResumeDialog } from './PlayerResumeDialog';
+import { PlayerVersionDialog } from './PlayerVersionDialog';
 import { PlayerStillWatchingDialog } from './PlayerStillWatchingDialog';
 import {
     isMusicPlayerItem,
@@ -54,12 +55,12 @@ import {
     PLAYER_LIBRARIES_EVENT,
     PLAYER_SERVERS_EVENT,
     readAvChoice,
-    readMediaIndexChoice,
+    readVersionChoice,
     readLibraryTab,
     rememberLastLibraryPath,
     rememberLibraryTab,
     resolveAvChoiceForTracks,
-    writeMediaIndexChoice,
+    writeVersionChoice,
     readPlayerItemCache,
     readPlayerLibrariesCache,
     readPlayerNavExpanded,
@@ -331,6 +332,7 @@ export const MediaPlayerDashboard: React.FC = () => {
     const pendingLiveTuneRef = useRef<PlayerItem | null>(null);
     const startPlaybackRef = useRef<(item: PlayerItem, opts?: PlayerPlayOptions) => Promise<void>>(async () => undefined);
     const [pendingResume, setPendingResume] = useState<PendingResume | null>(null);
+    const [pendingVersion, setPendingVersion] = useState<{ item: PlayerItem; opts: PlayerPlayOptions; current: number | null } | null>(null);
     const [pendingStillWatching, setPendingStillWatching] = useState<{ item: PlayerItem; opts: PlayerPlayOptions } | null>(null);
     const autoplayStreakRef = useRef(0);
     const [navExpanded, setNavExpanded] = useState(() => {
@@ -780,7 +782,10 @@ export const MediaPlayerDashboard: React.FC = () => {
         navigate(`${PLAYER_APP_BASE}/library/${encodeURIComponent(sectionKey)}/collection/${encodeURIComponent(item.ratingKey)}`);
     }, [navigate]);
 
-    const openHub = useCallback((hub: Pick<PlayerLibraryHub, 'title' | 'identifier' | 'hubKey' | 'collectionRatingKey' | 'playlistRatingKey'> & { items?: PlayerItem[] }) => {
+    const openHub = useCallback((hub: Pick<PlayerLibraryHub, 'title' | 'identifier' | 'hubKey' | 'collectionRatingKey' | 'playlistRatingKey' | 'heroRow'> & { items?: PlayerItem[] }) => {
+        // A Heroes row keeps its 16:9 tiles on the page View more opens.
+        markHeroGrid(hub.collectionRatingKey, Boolean(hub.heroRow));
+        markHeroGrid(hub.hubKey, Boolean(hub.heroRow));
         if (hub.collectionRatingKey) {
             openItem({
                 ratingKey: hub.collectionRatingKey,
@@ -973,6 +978,49 @@ export const MediaPlayerDashboard: React.FC = () => {
             return;
         }
         if (current && !replacingInPlace && !playNextBridgeRef.current) return;
+        // More than one file (say 4K and 1080p): the remembered version for this title / show plays
+        // straight away; with none remembered we ask once. "Play version…" in the ⋯ menu always asks.
+        // Autoplay / queued next items never prompt.
+        const forcePick = opts.pickVersion === true;
+        if (
+            !replacingInPlace
+            && (forcePick || (!playNextBridgeRef.current && !opts.fromAutoplay && opts.mediaIndex == null))
+            && !opts.watchTogether
+            && !opts.offlineLocal
+            && item.ratingKey
+            && (item.type === 'movie' || item.type === 'episode')
+        ) {
+            let versioned: PlayerItem | null = (item.versions?.length || 0) > 1 ? item : null;
+            if (!versioned) {
+                const cached = readPlayerItemCache(item.ratingKey, item.serverId)?.item;
+                if ((cached?.versions?.length || 0) > 1) versioned = cached as PlayerItem;
+            }
+            if (!versioned && !item.versions?.length) {
+                const page = await fetchMediaPlayerItem(item.ratingKey, { core: true, serverId: item.serverId || null }).catch(() => null);
+                if ((page?.item?.versions?.length || 0) > 1) versioned = page!.item as PlayerItem;
+            }
+            if (versioned) {
+                const count = versioned.versions?.length || 0;
+                const saved = readVersionChoice(item);
+                const remembered = saved != null && saved < count ? saved : null;
+                if (!forcePick && remembered != null) {
+                    opts = { ...opts, mediaIndex: remembered };
+                } else {
+                    const offline = !forcePick && isPhoneUi() && isMediaDownloadsSupported()
+                        ? await getMediaDownloadLocalUrl({ ratingKey: item.ratingKey }).catch(() => '')
+                        : '';
+                    if (!offline) {
+                        setPendingResume(null);
+                        setPendingVersion({
+                            item: { ...item, versions: versioned.versions, mediaInfo: versioned.mediaInfo || item.mediaInfo },
+                            opts: { ...opts, pickVersion: false },
+                            current: remembered,
+                        });
+                        return;
+                    }
+                }
+            }
+        }
         const gen = ++startPlaybackGenRef.current;
         startingPlayRef.current = true;
         if (isAndroidTvUi() && !replacingInPlace) captureTvFocusSnapshot();
@@ -1060,8 +1108,12 @@ export const MediaPlayerDashboard: React.FC = () => {
             const savedAv = readAvChoice(item.grandparentRatingKey || item.parentRatingKey, item.ratingKey);
             const rememberedIndex = opts.mediaIndex != null
                 ? opts.mediaIndex
-                : (readMediaIndexChoice(item.ratingKey) ?? undefined);
-            if (rememberedIndex != null) writeMediaIndexChoice(item.ratingKey, rememberedIndex);
+                : (() => {
+                    const saved = readVersionChoice(item);
+                    const count = item.versions?.length || 0;
+                    return saved != null && (!count || saved < count) ? saved : undefined;
+                })();
+            if (rememberedIndex != null) writeVersionChoice(item, rememberedIndex);
             const baseOpts = {
                 offsetMs: opts.offsetMs,
                 qualityId: resolveStartPlaybackQualityId(opts.qualityId, settings.defaultQualityId),
@@ -1446,6 +1498,11 @@ export const MediaPlayerDashboard: React.FC = () => {
         if (settings.appFont && settings.appFont !== 'default') root.dataset.appFont = settings.appFont;
         else delete root.dataset.appFont;
     }, [settings.appFont]);
+    useEffect(() => {
+        const root = document.documentElement;
+        if (settings.flatRatings) root.dataset.flatRatings = '1';
+        else delete root.dataset.flatRatings;
+    }, [settings.flatRatings]);
     const navContentInset = tvShell
         ? (navWide ? '18.5rem' : '6.75rem')
         : (navWide ? '18.25rem' : '6.5rem');
@@ -1737,6 +1794,20 @@ export const MediaPlayerDashboard: React.FC = () => {
                     onClose={() => setPendingResume(null)}
                 />
             ) : null}
+            {pendingVersion ? (
+                <PlayerVersionDialog
+                    item={pendingVersion.item}
+                    currentIndex={pendingVersion.current}
+                    tvShell={tvShell}
+                    onPick={(index) => {
+                        const pending = pendingVersion;
+                        setPendingVersion(null);
+                        writeVersionChoice(pending.item, index);
+                        void startPlayback(pending.item, { ...pending.opts, mediaIndex: index });
+                    }}
+                    onClose={() => setPendingVersion(null)}
+                />
+            ) : null}
             {pendingStillWatching ? (
                 <PlayerStillWatchingDialog
                     item={pendingStillWatching.item}
@@ -1789,8 +1860,8 @@ export const MediaPlayerDashboard: React.FC = () => {
                     }}
                     onPlaybackError={(message) => notify(message, 'error')}
                     autoplayNext={settings.autoplayNext}
-                    autoSkipIntro={settings.skipIntroMode === 'auto' || settings.autoSkipIntro}
-                    autoSkipCredits={settings.skipCreditsMode === 'auto' || settings.autoSkipCredits}
+                    autoSkipIntro={settings.skipIntroMode === 'auto'}
+                    autoSkipCredits={settings.skipCreditsMode === 'auto'}
                     playNextQueue={playNextQueue}
                     onConsumePlayNext={consumePlayNext}
                     onPlayItem={playItem}

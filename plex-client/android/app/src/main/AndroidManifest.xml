@@ -20,6 +20,11 @@
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="true">
 
+        <service
+            android:name=".MediaDownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
         <activity
             android:banner="@drawable/tv_banner"
             android:logo="@mipmap/ic_launcher"
@@ -88,4 +93,7 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 </manifest>

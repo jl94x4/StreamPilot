@@ -49,7 +49,7 @@ export const SkeletonBlock: React.FC<{ className?: string; style?: React.CSSProp
 );
 
 export const PosterCardSkeleton: React.FC<{
-    aspect?: '2/3' | 'square';
+    aspect?: '2/3' | 'square' | '16/9';
     variant?: 'home' | 'discover';
     className?: string;
     /** Stagger shimmer entrance across a grid (ms). */
@@ -60,7 +60,7 @@ export const PosterCardSkeleton: React.FC<{
         style={delayMs > 0 ? { animationDelay: `${delayMs}ms` } : undefined}
         aria-hidden="true"
     >
-        <SkeletonBlock className={`w-full rounded-xl border border-white/5 ${aspect === 'square' ? 'aspect-square' : 'aspect-[2/3]'}`} />
+        <SkeletonBlock className={`w-full rounded-xl border border-white/5 ${aspect === 'square' ? 'aspect-square' : (aspect === '16/9' ? 'aspect-video' : 'aspect-[2/3]')}`} />
         <SkeletonBlock className={`h-3 rounded ${variant === 'home' ? 'w-3/4' : 'w-full'}`} />
         {variant === 'home' && <SkeletonBlock className="h-2 w-1/3 rounded" />}
     </div>
@@ -68,7 +68,7 @@ export const PosterCardSkeleton: React.FC<{
 
 export const PosterGridSkeleton: React.FC<{
     count?: number;
-    aspect?: '2/3' | 'square';
+    aspect?: '2/3' | 'square' | '16/9';
     rows?: number;
     className?: string;
     style?: React.CSSProperties;

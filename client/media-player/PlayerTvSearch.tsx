@@ -20,6 +20,8 @@ export const TV_SEARCH_FIRST_KEY = 'a';
 type Props = {
     query: string;
     onChange: (value: string) => void;
+    /** True while the text is a leftover: the next key replaces it (and clears this). */
+    freshRef?: React.MutableRefObject<boolean>;
 };
 
 type HistoryProps = {
@@ -99,11 +101,19 @@ export const PlayerTvSearchNotice: React.FC<{ query: string; kind: 'short' | 'no
 };
 
 /** Left panel: what you have typed and the on-screen keyboard. */
-export const PlayerTvSearch: React.FC<Props> = ({ query, onChange }) => {
+export const PlayerTvSearch: React.FC<Props> = ({ query: shownQuery, onChange, freshRef }) => {
     const { t } = useDiscoverI18n();
-    const empty = !query.trim();
+    const empty = !shownQuery.trim();
 
     const press = (key: string) => {
+        // A leftover search is wiped by the first key; that key then starts the new text.
+        const fresh = freshRef?.current === true;
+        if (freshRef) freshRef.current = false;
+        const query = fresh ? '' : shownQuery;
+        if (fresh && (key === 'backspace' || key === 'clear' || key === 'space')) {
+            onChange('');
+            return;
+        }
         if (key === 'backspace') {
             onChange(query.slice(0, -1));
             return;
@@ -131,7 +141,7 @@ export const PlayerTvSearch: React.FC<Props> = ({ query, onChange }) => {
                 data-tv-search-query="1"
                 data-empty={empty ? '1' : '0'}
             >
-                <span className="player-tv-search-query-text">{empty ? t('mediaPlayerPage.searchPlaceholder') : query}</span>
+                <span className="player-tv-search-query-text">{empty ? t('mediaPlayerPage.searchPlaceholder') : shownQuery}</span>
                 <span className="player-tv-search-caret" aria-hidden />
             </p>
             <div data-tv-search-pad="1" className="player-tv-search-pad">

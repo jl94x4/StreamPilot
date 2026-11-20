@@ -33,6 +33,7 @@ import { PLAYER_HOME_LIVE_EVENT, PLAYER_SCROLL_ID } from './paths';
 import { PlayerLibraryFilterSheet, type LibraryFilterGroup, type LibraryFilterToggle } from './PlayerLibraryFilterSheet';
 import { PlayerPosterCard } from './PlayerPosterCard';
 import { PlayerStudioTiles, PlayerStudioTilesSkeleton } from './PlayerStudioTiles';
+import { studioTileKey } from './nativeStudiosPayload';
 import { PlayerRail } from './PlayerRail';
 import { viewMoreShelfFromHub } from './PlayerViewMoreCard';
 import { PlayerTvHubStage, type PlayerTvHubStageRow } from './PlayerTvHubStage';
@@ -44,6 +45,8 @@ import {
     BROWSE_FOCUS_ABS_EVENT,
     clearPrefetchedPlayerImages,
     heroRowCardItem,
+    newSeasonInfo,
+    premiereLineText,
     hideWatchedPlayerItems,
     isMusicPlayerItem,
     asRecentlyAddedPlayerItem,
@@ -60,6 +63,8 @@ import {
 } from './playerUtils';
 import type { PlayerItem, PlayerLibraryHome, PlayerLibraryHub, PlayerPlayOptions } from './types';
 import { TvButton } from '../shared/TvButton';
+import { NATIVE_BROWSE_FOCUS_EVENT, setNativeBrowseJumpKey, useNativeBrowseGrid } from './useNativeBrowseGrid';
+import { NativeLibHeaderBridge } from './NativeLibHeaderBridge';
 
 type LibraryTab = 'home' | 'browse' | 'collections' | 'studios';
 
@@ -703,6 +708,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                     if (focusAt < 0) focusAt = 0;
                     browseFocusAbsRef.current = focusAt;
                     browseRowRef.current = -1;
+                    if (isTvShell() && batch[focusAt]?.ratingKey) setNativeBrowseJumpKey(String(batch[focusAt].ratingKey));
                     window.setTimeout(() => {
                         const btn = document.querySelector<HTMLElement>(
                             `[data-browse-index="${focusAt}"] [data-tv-poster-btn="1"]`,
@@ -920,8 +926,16 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
             const grid = card?.closest?.('[data-tv-browse-grid="1"]') as HTMLElement | null;
             if (!card || !grid) return;
             const abs = Number(card.closest('[data-browse-index]')?.getAttribute('data-browse-index'));
+            handleFocusedIndex(abs, grid);
+        };
+        // The native Browse grid reports its focused card by index (the page's own copy is not focused).
+        const onNativeFocus = (event: Event) => {
+            const abs = Number((event as CustomEvent<{ index?: number }>).detail?.index);
+            if (Number.isFinite(abs)) handleFocusedIndex(abs, document.querySelector<HTMLElement>('[data-tv-browse-grid="1"]'));
+        };
+        function handleFocusedIndex(abs: number, grid: HTMLElement | null) {
             let cols = browseColumnsRef.current;
-            if (!cols) {
+            if (!cols && grid) {
                 const cards = Array.from(grid.querySelectorAll<HTMLElement>('[data-browse-index]'));
                 cols = measureColumns(cards, true);
             }
@@ -938,14 +952,16 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                 setScrollLetter(nextLetter);
             }
             maybeLoad(rowIndex, Math.ceil(loaded / cols), loaded, movingDown);
-        };
+        }
         // focusin bubbles: the grid only needs its own listener when the scroller doesn't hold it.
         const found = document.querySelector<HTMLElement>('[data-tv-browse-grid="1"]');
         const grid = found && !scroller?.contains(found) ? found : null;
         scroller?.addEventListener('scroll', onScroll, { passive: true });
         scroller?.addEventListener('focusin', onFocus);
         grid?.addEventListener('focusin', onFocus);
+        window.addEventListener(NATIVE_BROWSE_FOCUS_EVENT, onNativeFocus);
         return () => {
+            window.removeEventListener(NATIVE_BROWSE_FOCUS_EVENT, onNativeFocus);
             if (scrollRaf) window.cancelAnimationFrame(scrollRaf);
             scroller?.removeEventListener('scroll', onScroll);
             scroller?.removeEventListener('focusin', onFocus);
@@ -1395,6 +1411,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
 
     const libraryChrome = (
         <div className="player-library-header flex flex-col gap-5">
+            {tvShell ? <NativeLibHeaderBridge /> : null}
             <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
                     <button
@@ -1504,6 +1521,55 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
         setDuplicate(false);
         setMediaFilters({});
     };
+
+    // Studios tiles for the native view: two titled sections, tile keys matching the page's own (hidden) tiles.
+    const studioSections = useMemo(() => [
+        { prefix: 'studio-network', title: t('mediaPlayerPage.browseByNetwork'), cards: studioNetworks },
+        { prefix: 'studio-studio', title: t('mediaPlayerPage.browseByStudio'), cards: studioStudios },
+    ], [studioNetworks, studioStudios, t]);
+    const openStudioTile = useCallback((tileKey: string) => {
+        const network = studioNetworks.find((card) => studioTileKey('studio-network', card) === tileKey);
+        if (network) {
+            onOpenStudio?.({
+                key: network.key,
+                name: network.title,
+                sectionKey,
+                mediaType: network.facet === 'studio' ? 'movie' : 'show',
+                alts: network.alts,
+            });
+            return;
+        }
+        const studio = studioStudios.find((card) => studioTileKey('studio-studio', card) === tileKey);
+        if (studio) {
+            onOpenStudio?.({
+                key: studio.key,
+                name: studio.title,
+                sectionKey,
+                mediaType: 'movie',
+                alts: studio.alts,
+            });
+        }
+    }, [onOpenStudio, sectionKey, studioNetworks, studioStudios]);
+
+    // Browse grid drawn by the native view (Android TV, Native Home on); the page keeps its own copy for actions.
+    useNativeBrowseGrid({
+        active: Boolean(active) && tvShell && (tab === 'browse' || tab === 'collections' || tab === 'studios'),
+        loading,
+        error: Boolean(error),
+        studios: tab === 'studios' ? studioSections : undefined,
+        onOpenTile: openStudioTile,
+        items: tab === 'collections' ? collections : items,
+        captions: {
+            sub: (item) => [item.year ? String(item.year) : '', tab === 'collections' ? '' : (sortCaptionNote(sort, item, t) || '')].filter(Boolean).join(' · '),
+            note: (item) => {
+                if (!settings.showNewSeasonBadge || item.heroCard || musicLibrary) return '';
+                return premiereLineText(newSeasonInfo(item), t) || '';
+            },
+        },
+        tickPosition: settings.watchedTickPosition,
+        resetKey: `${sectionKey}:${tab === 'collections' ? 'c' : tab === 'studios' ? 's' : 'b'}`,
+        onOpenItem: tab === 'collections' ? (item) => onOpenCollection(sectionKey, item) : onOpenItem,
+    });
 
     if (tvShell && tab === 'home') {
         const homeBusy = loading && !tvRecommendedRows.length;
@@ -1675,6 +1741,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                     <div
                         className={upgraderPosterGridClass(gridDensity)}
                         style={browseGridStyle}
+                        data-tv-browse-grid={tvShell ? '1' : undefined}
                         data-tv-rail={tvShell ? '1' : undefined}
                         data-tv-poster-rail={tvShell ? '1' : undefined}
                     >
@@ -1682,6 +1749,7 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                             <PlayerPosterCard
                                 key={item.ratingKey}
                                 item={item}
+                                browseIndex={tvShell ? index : undefined}
                                 aspect={musicLibrary ? 'square' : undefined}
                                 imagePriority={index < 12}
                                 onOpenItem={() => onOpenCollection(sectionKey, item)}

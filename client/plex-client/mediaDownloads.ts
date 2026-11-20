@@ -6,6 +6,26 @@ import { isAndroidTvUi, isPhoneUi } from './config';
 
 export type MediaDownloadStatus = 'queued' | 'downloading' | 'complete' | 'error' | 'cancelled';
 
+/** Library info saved with a download so the Downloads page can group Show > Season > Episode. */
+export type MediaDownloadMeta = {
+    showTitle?: string;
+    showRatingKey?: string;
+    seasonTitle?: string;
+    seasonIndex?: number;
+    episodeIndex?: number;
+    episodeTitle?: string;
+    year?: number;
+    summary?: string;
+    durationMs?: number;
+    quality?: string;
+    qualityId?: string;
+    airDate?: string;
+    contentRating?: string;
+    /** Show / season poster so Downloads can lay out like the library. */
+    showPoster?: string;
+    seasonPoster?: string;
+};
+
 export type MediaDownloadItem = {
     id: string;
     ratingKey: string;
@@ -23,6 +43,7 @@ export type MediaDownloadItem = {
     createdAt?: number;
     error?: string;
     localUrl?: string;
+    meta?: MediaDownloadMeta;
 };
 
 export type MediaDownloadStartOpts = {
@@ -36,6 +57,9 @@ export type MediaDownloadStartOpts = {
     fileName?: string;
     thumbUrl?: string;
     bytes?: number;
+    meta?: MediaDownloadMeta;
+    /** Retry of a failed row: carries on from the partly downloaded file. */
+    resumeId?: string;
 };
 
 type CapMediaDownloadsPlugin = {
@@ -64,6 +88,16 @@ const loadCapacitorCore = async (): Promise<{
     }
 };
 
+const parseMeta = (raw: unknown): MediaDownloadMeta | undefined => {
+    if (!raw) return undefined;
+    try {
+        const value = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        return value && typeof value === 'object' ? value as MediaDownloadMeta : undefined;
+    } catch {
+        return undefined;
+    }
+};
+
 const mapItem = (row: any): MediaDownloadItem | null => {
     if (!row || typeof row !== 'object') return null;
     const id = String(row.id || '').trim();
@@ -86,6 +120,7 @@ const mapItem = (row: any): MediaDownloadItem | null => {
         createdAt: Number(row.createdAt) || 0,
         error: row.error ? String(row.error) : '',
         localUrl: row.localUrl ? String(row.localUrl) : '',
+        meta: parseMeta(row.meta),
     };
 };
 
@@ -186,6 +221,8 @@ export const startMediaDownload = async (opts: MediaDownloadStartOpts): Promise<
         fileName: opts.fileName || '',
         thumbUrl: opts.thumbUrl || '',
         bytes: opts.bytes || 0,
+        meta: opts.meta ? JSON.stringify(opts.meta) : '',
+        resumeId: opts.resumeId || '',
     });
     const item = mapItem(result?.item);
     if (item) emit(item);

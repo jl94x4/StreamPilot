@@ -10,8 +10,12 @@ import {
     useDiscoverI18n,
 } from './host';
 import { fetchMediaPlayerCollection, setMediaPlayerWatched } from './api';
+import { heroGridStyle, heroTile, isHeroGrid, useHeroArt } from './MediaPlayerHub';
 import { PlayerPosterCard } from './PlayerPosterCard';
 import { PlayerTvStatusPanel } from './PlayerTvStatusPanel';
+import { useNativeBrowseGrid } from './useNativeBrowseGrid';
+import { usePlayerSettings } from './usePlayerSettings';
+import { newSeasonInfo, premiereLineText } from './playerUtils';
 import type { PlayerItem, PlayerPlayOptions } from './types';
 
 type Props = {
@@ -31,9 +35,32 @@ export const MediaPlayerCollection: React.FC<Props> = ({ ratingKey, sectionKey =
     const [error, setError] = useState<string | null>(null);
     const [attempt, setAttempt] = useState(0);
     const retry = () => setAttempt((n) => n + 1);
+    const heroGrid = isHeroGrid(ratingKey);
+    const heroArt = useHeroArt(items, heroGrid);
     const tvShell = typeof document !== 'undefined' && (
         document.documentElement?.dataset?.tv === '1' || window.__PLEX_CLIENT__?.isTv === true
     );
+
+    const [settings] = usePlayerSettings();
+    const shownItems = React.useMemo(
+        () => (heroGrid ? items.map((item) => heroTile(item, heroArt)) : items),
+        [heroGrid, heroArt, items],
+    );
+
+    // The poster grid is drawn by the native view on Android TV (Native Home on); the page keeps its own copy for actions.
+    useNativeBrowseGrid({
+        active: tvShell,
+        loading,
+        error: Boolean(error),
+        items: shownItems,
+        captions: {
+            sub: (item) => (item.year ? String(item.year) : ''),
+            note: (item) => (settings.showNewSeasonBadge && !item.heroCard ? premiereLineText(newSeasonInfo(item), t) || '' : ''),
+        },
+        tickPosition: settings.watchedTickPosition,
+        resetKey: `collection:${ratingKey}`,
+        onOpenItem,
+    });
 
     useEffect(() => {
         let cancelled = false;
@@ -70,7 +97,7 @@ export const MediaPlayerCollection: React.FC<Props> = ({ ratingKey, sectionKey =
     };
 
     return (
-        <div className="flex flex-col gap-5 pb-8">
+        <div className="flex flex-col gap-5 pb-8" data-tv-grid-top={tvShell ? '1' : undefined} data-tv-browse-root={tvShell ? '1' : undefined}>
             <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
                     <button
@@ -90,7 +117,8 @@ export const MediaPlayerCollection: React.FC<Props> = ({ ratingKey, sectionKey =
             {loading ? (
                     <PosterGridSkeleton
                         className={upgraderPosterGridClass(gridSize)}
-                        style={upgraderPosterGridStyle(gridSize)}
+                        style={heroGrid ? heroGridStyle(tvShell) : upgraderPosterGridStyle(gridSize)}
+                        aspect={heroGrid ? '16/9' : undefined}
                         {...(tvShell ? { count: 24, variant: 'home' as const } : {})}
                     />
             ) : error && tvShell ? (
@@ -106,15 +134,18 @@ export const MediaPlayerCollection: React.FC<Props> = ({ ratingKey, sectionKey =
             ) : (
                 <div
                     className={upgraderPosterGridClass(gridSize)}
-                    style={upgraderPosterGridStyle(gridSize)}
+                    style={heroGrid ? heroGridStyle(tvShell) : upgraderPosterGridStyle(gridSize)}
+                    data-tv-browse-grid={tvShell ? '1' : undefined}
                     data-tv-row={tvShell ? '1' : undefined}
                     data-tv-rail={tvShell ? '1' : undefined}
                     data-tv-poster-grid={tvShell ? '1' : undefined}
                 >
-                    {items.map((item) => (
+                    {items.map((item, index) => (
                         <PlayerPosterCard
                             key={item.ratingKey}
-                            item={item}
+                            browseIndex={tvShell ? index : undefined}
+                            item={heroGrid ? heroTile(item, heroArt) : item}
+                            aspect={heroGrid ? '16/9' : undefined}
                             onOpenItem={onOpenItem}
                             onPlay={onPlay}
                             onToggleWatched={toggleWatched}

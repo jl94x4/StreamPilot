@@ -391,6 +391,29 @@ export const fetchMediaPlayerCollection = (ratingKey: string, sectionKey?: strin
     return apiFetch(`${PLAYER_API_ROOT}/collection/${encodeURIComponent(ratingKey)}${qs}`) as Promise<PlayerItemPage>;
 };
 
+/** Title-art covers (Heroes rows) for titles on a View more page, keyed by ratingKey. */
+export const fetchMediaPlayerHeroArt = async (items: Array<{ ratingKey?: string; serverId?: string | null }>) => {
+    const byServer = new Map<string, string[]>();
+    for (const item of items) {
+        const key = String(item.ratingKey || '').trim();
+        if (!key) continue;
+        const server = String(item.serverId || '');
+        byServer.set(server, [...(byServer.get(server) || []), key]);
+    }
+    const art: Record<string, string> = {};
+    for (const [server, keys] of byServer) {
+        for (let index = 0; index < keys.length; index += 40) {
+            const qs = new URLSearchParams({ keys: keys.slice(index, index + 40).join(',') });
+            if (server) qs.set('server', server);
+            try {
+                const data = await apiFetch(`${PLAYER_API_ROOT}/hero-art?${qs.toString()}`) as { art?: Record<string, string> };
+                Object.assign(art, data?.art || {});
+            } catch { /* a missing cover just keeps the plain still */ }
+        }
+    }
+    return art;
+};
+
 type HubPage = { title: string; items: PlayerItem[]; hasMore?: boolean; nextStart?: number; random?: boolean };
 /**
  * The View more card fetches its row's full list for the posters behind it; the View more page
@@ -529,7 +552,8 @@ export const setMediaPlayerWatched = async (
     item?: PlayerItem | null,
     opts?: { skipNote?: boolean },
 ) => {
-    await apiFetch(`${PLAYER_API_ROOT}/${watched ? 'scrobble' : 'unscrobble'}/${encodeURIComponent(ratingKey)}`, {
+    const serverQuery = item?.serverId ? `?server=${encodeURIComponent(item.serverId)}` : '';
+    await apiFetch(`${PLAYER_API_ROOT}/${watched ? 'scrobble' : 'unscrobble'}/${encodeURIComponent(ratingKey)}${serverQuery}`, {
         method: 'POST',
     });
     if (opts?.skipNote) return;
@@ -706,10 +730,11 @@ export const mediaPlayerDownloadUrl = (ratingKey: string, mediaIndex = 0) => {
 /** Absolute PMS/portal part URL + headers for phone in-app offline downloads. */
 export const resolveMediaPlayerDownloadSource = (
     ratingKey: string,
-    opts: { mediaIndex?: number; serverId?: string | null } = {},
+    opts: { mediaIndex?: number; serverId?: string | null; quality?: string } = {},
 ) => {
     const params = new URLSearchParams();
     if (opts.mediaIndex != null) params.set('mediaIndex', String(opts.mediaIndex));
+    if (opts.quality && opts.quality !== 'original') params.set('quality', opts.quality);
     if (opts.serverId) params.set('server', opts.serverId);
     const qs = params.toString() ? `?${params}` : '';
     return apiFetch(`${PLAYER_API_ROOT}/download-source/${encodeURIComponent(ratingKey)}${qs}`) as Promise<{

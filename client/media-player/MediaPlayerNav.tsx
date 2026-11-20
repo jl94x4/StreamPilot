@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { listMediaDownloads, mediaDownloadsAvailable, onMediaDownloadChange } from '../plex-client/mediaDownloads';
 import {
     ChevronRight,
     CircleAlert,
@@ -36,6 +37,9 @@ import { applyLibraryNavOrder, PLAYER_SETTINGS_DRAFT_EVENT, PLAYER_SETTINGS_EVEN
 import { clearHeroSlidesCache, clearPlayerLibrariesCache, invalidatePlayerHomeCache } from './playerMemory';
 import { PLAYER_TV_NAV_EVENT } from './paths';
 import { PlayerLibraryManager } from './PlayerLibraryManager';
+import { NativeChromeBridge } from './NativeChromeBridge';
+import { PERF_FLAGS_EVENT, readPerfFlags } from './PlayerPerfOverlay';
+import { isNativeHomeSupported } from '../plex-client/nativeHome';
 import { TvButton } from '../shared/TvButton';
 import type { PlayerProfile, PlayerSection } from './types';
 import { focusTvContent, hasRememberedTvFocus, restoreTvFocusWhenReady } from '../plex-client/useTvRemote';
@@ -72,6 +76,45 @@ type Props = {
 /** Fixed slot so every row’s glyph shares one vertical column (Lucide viewBoxes differ). */
 const NAV_ICON_SLOT = 'inline-flex h-5 w-5 shrink-0 items-center justify-center';
 const NAV_ICON_CLASS = 'h-4 w-4';
+
+/** Titles currently downloading or queued, kept live from the native downloader. */
+const useActiveDownloadCount = (enabled: boolean) => {
+    const [count, setCount] = useState(0);
+    useEffect(() => {
+        if (!enabled) {
+            setCount(0);
+            return undefined;
+        }
+        let cancelled = false;
+        const refresh = async () => {
+            try {
+                if (!(await mediaDownloadsAvailable())) return;
+                const rows = await listMediaDownloads();
+                if (cancelled) return;
+                setCount(rows.filter((row) => row.status === 'downloading' || row.status === 'queued').length);
+            } catch {
+                /* keep the last count */
+            }
+        };
+        void refresh();
+        // Progress events fire every few hundred ms: re-read at most about once a second, always
+        // ending on the latest state (a status change must never be swallowed).
+        let timer = 0;
+        const off = onMediaDownloadChange(() => {
+            if (timer) return;
+            timer = window.setTimeout(() => {
+                timer = 0;
+                void refresh();
+            }, 900);
+        });
+        return () => {
+            cancelled = true;
+            if (timer) window.clearTimeout(timer);
+            off();
+        };
+    }, [enabled]);
+    return count;
+};
 
 const NavIcon: React.FC<{ children: React.ReactNode }> = ({ children }) => (
     <span className={NAV_ICON_SLOT} aria-hidden>
@@ -150,6 +193,7 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
     closedPanel = false,
 }: Props) {
     const { t } = useDiscoverI18n();
+    const activeDownloads = useActiveDownloadCount(Boolean(onDownloads));
     const [mobileOpen, setMobileOpen] = useState(false);
     const [profile, setProfile] = useState<PlayerProfile | null>(null);
     const [draftLibraryOrder, setDraftLibraryOrder] = useState<string[] | null>(null);
@@ -185,6 +229,13 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
         document.documentElement?.dataset?.tv === '1'
         || window.__PLEX_CLIENT__?.isTv === true
     );
+    const [nativeChromeFlag, setNativeChromeFlag] = useState(() => readPerfFlags().nativeHome);
+    useEffect(() => {
+        const onFlags = () => setNativeChromeFlag(readPerfFlags().nativeHome);
+        window.addEventListener(PERF_FLAGS_EVENT, onFlags);
+        return () => window.removeEventListener(PERF_FLAGS_EVENT, onFlags);
+    }, []);
+    const nativeChromeOn = nativeChromeFlag && isNativeHomeSupported();
 
     const loadHomeProfiles = useCallback(async () => {
         try {
@@ -299,7 +350,8 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
             // Home reset remembers Continue Watching before this frame; wait for that
             // poster instead of falling through to the hero while row 0 remounts.
             window.requestAnimationFrame(() => {
-                if (hasRememberedTvFocus()) restoreTvFocusWhenReady();
+                // Settings has no remembered row: it always opens on its Home tab, once the page has mounted.
+                if (/\/settings\/?$/.test(window.location.pathname) || hasRememberedTvFocus()) restoreTvFocusWhenReady();
                 else focusTvContent();
             });
         }
@@ -448,12 +500,20 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                 {onDownloads && !isTvShell && navShown('downloads') ? (
                     <button
                         type="button"
-                        className={navButtonClass(page === 'downloads', showLabels, isTvShell)}
+                        className={`${navButtonClass(page === 'downloads', showLabels, isTvShell)} relative`}
                         onClick={() => go(onDownloads)}
                         title={t('mediaPlayerPage.navDownloads')}
                     >
                         <NavIcon><Download className={NAV_ICON_CLASS} /></NavIcon>
                         {showLabels ? <span className="player-nav-label min-w-0 truncate">{t('mediaPlayerPage.navDownloads')}</span> : null}
+                        {activeDownloads > 0 ? (
+                            <span
+                                className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-plex px-1.5 text-[11px] font-extrabold leading-none text-zinc-950 ${showLabels ? 'ml-auto' : 'absolute right-1 top-1'}`}
+                                aria-label={`${activeDownloads} downloading`}
+                            >
+                                {activeDownloads > 99 ? '99+' : activeDownloads}
+                            </span>
+                        ) : null}
                     </button>
                 ) : null}
                 {navShown('search') ? <TvButton
@@ -611,6 +671,7 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                 </div>
             ) : null}
 
+            {isTvShell && nativeChromeOn ? <NativeChromeBridge /> : null}
             <aside
                 className={`player-desktop-nav pointer-events-none z-40 pl-3 ${
                     isTvShell

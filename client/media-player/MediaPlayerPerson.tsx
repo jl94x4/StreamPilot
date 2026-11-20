@@ -21,6 +21,10 @@ import {
 import { PlayerBackdropImage } from './PlayerBackdropImage';
 import { PlayerPosterCard } from './PlayerPosterCard';
 import { PlayerRail } from './PlayerRail';
+import { NativeDetailRail, type DetailRailItem } from './NativeDetailRail';
+import { nativeCardImage } from './nativeHomePayload';
+import { readPerfFlags } from './PlayerPerfOverlay';
+import { isNativeHomeSupported } from '../plex-client/nativeHome';
 import { PlayerTvStatusPanel } from './PlayerTvStatusPanel';
 import { formatPersonDate, personAgeYears, splitBiography } from '../discovery/personCredits';
 import { safeImageSrc } from '../shared/safeUrl';

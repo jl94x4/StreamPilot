@@ -867,15 +867,18 @@ export const DetailsModal: React.FC<{ item: any, onClose: () => void }> = ({ ite
                     if (match) ratingKey = match[1];
                 }
 
-                if (!ratingKey) {
-                    console.warn('Could not extract ratingKey from item:', item);
-                    setLoading(false);
-                    return;
-                }
-                const res = await apiFetch('/api/plex/item/' + encodeURIComponent(ratingKey));
-                if (res.ok) {
+                // Deleted episodes stay in history; fall back to the season, then the show.
+                const candidates = [ratingKey, item.parentRatingKey, item.grandparentRatingKey]
+                    .map((k) => String(k || '').trim())
+                    .filter((k, i, all) => k && all.indexOf(k) === i);
+                for (const key of candidates) {
+                    const res = await apiFetch('/api/plex/item/' + encodeURIComponent(key));
+                    if (!res.ok) continue;
                     const data = await res.json();
-                    if (!data.error) setDetails(data);
+                    if (!data.error) {
+                        setDetails(data);
+                        break;
+                    }
                 }
             } catch (e) {
                 console.error(e);
@@ -972,7 +975,17 @@ export const DetailsModal: React.FC<{ item: any, onClose: () => void }> = ({ ite
                             </div>
                         </div>
                     ) : (
-                        <div className="text-center py-12 text-muted font-medium">Details not available.</div>
+                        <div className="text-center py-8 space-y-2">
+                            {item.grandparentTitle && (
+                                <p className="text-sm font-semibold text-text">{item.grandparentTitle}{item.parentTitle ? ` • ${item.parentTitle}` : ''}</p>
+                            )}
+                            {Number(item.viewedAt) > 0 && (
+                                <p className="text-sm text-muted font-medium">
+                                    Watched {new Date(Number(item.viewedAt) * (Number(item.viewedAt) < 1e12 ? 1000 : 1)).toLocaleString()}
+                                </p>
+                            )}
+                            <p className="text-xs text-muted font-medium">This title is no longer in the Plex library, so there are no more details.</p>
+                        </div>
                     )}
                 </div>
             </div>

@@ -15,9 +15,9 @@ android {
         applicationId "com.streampilot.mediaplayer"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 742
+        versionCode 820
         // Settings shows this versionName. `npm run build:apk` auto-bumps both.
-        versionName "1.0.742"
+        versionName "1.0.820"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             // TVs and phones are ARM. x86 is kept for the Android TV emulator: without it the whole
@@ -111,6 +111,8 @@ dependencies {
     // Jellyfin's prebuilt FFmpeg decoder for Media3; only its audio renderer is used.
     implementation "org.jellyfin.media3:media3-ffmpeg-decoder:1.9.0+1"
     implementation "androidx.tvprovider:tvprovider:1.1.0"
+    // Native TV Home (NativeHomeView): rows and posters as RecyclerViews.
+    implementation "androidx.recyclerview:recyclerview:1.3.0"
     // Who's on screen (test): offline face detection + FaceNet embeddings, all on the TV.
     implementation "com.google.mlkit:face-detection:16.1.7"
     // LiteRT (the renamed TensorFlow Lite) ships 16 KB-aligned native libraries; Google Play requires them.

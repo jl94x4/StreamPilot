@@ -12,6 +12,9 @@ import {
 import { fetchMediaPlayerWatchlist, PLAYER_WATCHLIST_EVENT, sameWatchlistEntry, setMediaPlayerWatched, type PlayerWatchlistChange } from './api';
 import { PlayerPosterCard } from './PlayerPosterCard';
 import { PlayerTvStatusPanel } from './PlayerTvStatusPanel';
+import { useNativeBrowseGrid } from './useNativeBrowseGrid';
+import { usePlayerSettings } from './usePlayerSettings';
+import { newSeasonInfo, premiereLineText } from './playerUtils';
 import type { PlayerItem, PlayerPlayOptions } from './types';
 
 type Props = {
@@ -23,6 +26,9 @@ type Props = {
     isAdmin?: boolean;
     playlistsEnabled?: boolean;
 };
+
+/** Last list shown: coming back from a title paints it at once (no skeleton) and refreshes behind it. */
+let cachedItems: PlayerItem[] | null = null;
 
 const isTvShell = () => {
     try {
@@ -44,16 +50,33 @@ export const MediaPlayerWatchlist: React.FC<Props> = ({
 }) => {
     const { t } = useDiscoverI18n();
     const [gridSize, setGridSize] = useDiscoverGridSize();
-    const [items, setItems] = useState<PlayerItem[]>([]);
-    const [loading, setLoading] = useState(true);
+    const [items, setItems] = useState<PlayerItem[]>(() => cachedItems || []);
+    const [loading, setLoading] = useState(() => !cachedItems);
     const [error, setError] = useState<string | null>(null);
     const tvShell = isTvShell();
+    const [settings] = usePlayerSettings();
+
+    // The poster grid is drawn by the native view on Android TV (Native Home on); the page keeps its own copy for actions.
+    useNativeBrowseGrid({
+        active: tvShell,
+        loading,
+        error: Boolean(error),
+        items,
+        captions: {
+            sub: (item) => (item.year ? String(item.year) : ''),
+            note: (item) => (settings.showNewSeasonBadge && !item.heroCard ? premiereLineText(newSeasonInfo(item), t) || '' : ''),
+        },
+        tickPosition: settings.watchedTickPosition,
+        resetKey: 'watchlist',
+        onOpenItem,
+    });
 
     const load = () => {
         setLoading(true);
         fetchMediaPlayerWatchlist(true)
             .then((data) => {
-                setItems(data.items || []);
+                cachedItems = data.items || [];
+                setItems(cachedItems);
                 setError(null);
             })
             .catch((err) => setError(String(err?.message || t('mediaPlayerPage.loadError'))))
@@ -62,11 +85,12 @@ export const MediaPlayerWatchlist: React.FC<Props> = ({
 
     useEffect(() => {
         let cancelled = false;
-        setLoading(true);
+        if (!cachedItems) setLoading(true);
         fetchMediaPlayerWatchlist(true)
             .then((data) => {
                 if (cancelled) return;
-                setItems(data.items || []);
+                cachedItems = data.items || [];
+                setItems(cachedItems);
                 setError(null);
             })
             .catch((err) => {
@@ -85,7 +109,10 @@ export const MediaPlayerWatchlist: React.FC<Props> = ({
             const detail = (event as CustomEvent<PlayerWatchlistChange>).detail || {};
             if (detail.watchlisted === false && detail.item) {
                 const gone = detail.item;
-                setItems((prev) => prev.filter((row) => !sameWatchlistEntry(row, gone)));
+                setItems((prev) => {
+                    cachedItems = prev.filter((row) => !sameWatchlistEntry(row, gone));
+                    return cachedItems;
+                });
             } else if (detail.refresh) {
                 fetchMediaPlayerWatchlist(true)
                     .then((data) => setItems(data.items || []))
@@ -171,6 +198,7 @@ export const MediaPlayerWatchlist: React.FC<Props> = ({
                 <div
                     className={upgraderPosterGridClass(gridSize)}
                     style={upgraderPosterGridStyle(gridSize)}
+                    data-tv-browse-grid={tvShell ? '1' : undefined}
                     data-tv-row={tvShell ? '1' : undefined}
                     data-tv-rail={tvShell ? '1' : undefined}
                     data-tv-poster-grid={tvShell ? '1' : undefined}
@@ -179,6 +207,7 @@ export const MediaPlayerWatchlist: React.FC<Props> = ({
                         <PlayerPosterCard
                             key={item.ratingKey}
                             item={item}
+                            browseIndex={tvShell ? index : undefined}
                             imagePriority={index < 12}
                             onOpenItem={onOpenItem}
                             onPlay={onPlay}

@@ -8,6 +8,7 @@ import { apiFetch } from '../shared/api';
 import { PlexHomeSwitchModal, type PlexHomeProfile } from '../shared/PlexHomeSwitchModal';
 import { lazyScreen } from '../media-player/lazyScreen';
 import { applyPerfFlags, PlayerPerfOverlay } from '../media-player/PlayerPerfOverlay';
+import { useNativeContextMenu } from '../media-player/useNativeContextMenu';
 import { installPlayerAppearance } from '../media-player/playerAppearance';
 import { installNavigationSounds } from '../media-player/navSounds';
 import { PlexClientAuthScreen, PlexClientBootSplash } from './AuthScreen';
@@ -59,6 +60,7 @@ const PlexClientApp: React.FC = () => {
     const [homePickerError, setHomePickerError] = useState('');
 
     useTvRemote(ready && tvReady);
+    useNativeContextMenu(ready && tvReady);
 
     useEffect(() => {
         let cancelled = false;

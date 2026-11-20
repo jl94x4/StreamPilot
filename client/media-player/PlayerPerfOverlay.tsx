@@ -8,9 +8,9 @@ import React, { useEffect, useRef, useState } from 'react';
 const PERF_KEY = 'smp-perf-diagnostics';
 export const PERF_FLAGS_EVENT = 'smp-perf-flags';
 
-export type PerfFlags = { overlay: boolean; noBillboard: boolean; noFocusFx: boolean };
+export type PerfFlags = { overlay: boolean; noBillboard: boolean; noFocusFx: boolean; nativeHome: boolean };
 
-const DEFAULT_FLAGS: PerfFlags = { overlay: false, noBillboard: false, noFocusFx: false };
+const DEFAULT_FLAGS: PerfFlags = { overlay: false, noBillboard: false, noFocusFx: false, nativeHome: false };
 
 export const readPerfFlags = (): PerfFlags => {
     try {

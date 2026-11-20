@@ -30,6 +30,7 @@ import {
     rankRowsInDirection,
     searchFocusPlan,
 } from './tvSpatial.js';
+import { nativeDetailRailFocus, nativeHomeReleaseFocus, nativeRailFocus } from './nativeHome';
 
 const TV_ITEM = '[data-tv-item="1"]';
 const TV_RAIL = '[data-tv-rail="1"]';
@@ -584,8 +585,21 @@ const revealSeasonPill = (el: HTMLElement) => {
     if (!rail) return;
     const box = rail.getBoundingClientRect();
     const rect = el.getBoundingClientRect();
-    if (rect.left < box.left - 2) rail.scrollLeft -= (box.left - rect.left);
-    else if (rect.right > box.right + 2) rail.scrollLeft += (rect.right - box.right);
+    // Rects are visual px; scrollLeft is layout px (they differ under the TV zoom).
+    const zoom = Math.max(0.01, readDocumentZoom());
+    const peek = 24 * zoom;
+    if (rect.left < box.left + peek) rail.scrollLeft -= (box.left + peek - rect.left) / zoom;
+    else if (rect.right > box.right - peek) rail.scrollLeft += (rect.right - box.right + peek) / zoom;
+};
+
+/** Left / Right along the season bar: pills past the visible edge are still next in line. */
+const stepSeasonPill = (from: HTMLElement, dir: 'left' | 'right'): HTMLElement | null => {
+    const rail = from.closest<HTMLElement>('.media-details-season-pills');
+    if (!rail) return null;
+    const items = Array.from(rail.querySelectorAll<HTMLElement>('[data-tv-season-pill="1"]')).filter(hasLayout);
+    const idx = items.indexOf(from);
+    if (idx < 0) return null;
+    return (dir === 'right' ? items[idx + 1] : items[idx - 1]) || null;
 };
 
 const sameDetailsEntryRow = (current: HTMLElement, firstBelow: HTMLElement) => {
@@ -647,7 +661,90 @@ export const pinTvDetailsTop = () => {
 };
 
 /** CSS zoom on TV makes element.scrollTop a no-op. Native scrollIntoView is what actually moves the page. */
+let glideRaf = 0;
+let glideTo = 0;
+
+/**
+ * Title / actor pages scroll the window. A scrollIntoView there snaps a whole row (up to a screen) in one frame, and the
+ * native layers drawn above it (backdrop, rails) follow a frame later: juddery. Work out where the browser would land,
+ * put the page back, and glide there instead (the native layers get a scroll event every frame).
+ */
+let lastOwnScrollAt = 0;
+let lastGoodY = 0;
+let guardInstalled = false;
+let guardPath = '';
+const syncGuardPath = () => {
+    const p = window.location.pathname;
+    if (p !== guardPath) {
+        guardPath = p;
+        lastGoodY = 0;
+    }
+};
+/**
+ * Handing focus between the native views and the page makes the WebView blur/refocus and, on title pages, the window
+ * can briefly report scrollY 0 with nobody having scrolled. Put the page back so it doesn't flash to the top.
+ */
+const installScrollGuard = () => {
+    if (guardInstalled) return;
+    guardInstalled = true;
+    window.addEventListener(
+        'scroll',
+        () => {
+            syncGuardPath();
+            const y = window.scrollY;
+            const onPage = !!document.querySelector('[data-tv-details="1"], [data-tv-person="1"]');
+            if (!onPage || document.documentElement.dataset.tv !== '1') return;
+            if (y < 1 && lastGoodY > 50 && performance.now() - lastOwnScrollAt > 300) {
+                window.scrollTo(0, lastGoodY);
+                return;
+            }
+            lastGoodY = y;
+        },
+        { passive: true },
+    );
+};
+
+const glideWindowTo = (to: number) => {
+    window.cancelAnimationFrame(glideRaf);
+    glideTo = to;
+    const from = window.scrollY < 1 && lastGoodY > 50 && performance.now() - lastOwnScrollAt > 300 ? lastGoodY : window.scrollY;
+    lastOwnScrollAt = performance.now();
+    const dist = to - from;
+    if (Math.abs(dist) < 2) return;
+    const start = performance.now();
+    const ms = Math.max(200, Math.min(380, 150 + Math.abs(dist) * 0.3));
+    const step = (now: number) => {
+        const t = Math.max(0, Math.min(1, (now - start) / ms)); // rAF timestamps can precede performance.now(): a negative t made the first frame jump backwards
+        const eased = 1 - (1 - t) ** 3;
+        lastOwnScrollAt = performance.now();
+        window.scrollTo(0, from + dist * eased);
+        if (t < 1) glideRaf = window.requestAnimationFrame(step);
+        else glideRaf = 0;
+    };
+    glideRaf = window.requestAnimationFrame(step);
+};
+
 const scrollEl = (node: HTMLElement, block: ScrollLogicalPosition, behavior: ScrollBehavior | 'css' = 'auto') => {
+    if (document.documentElement.dataset.tv === '1' && node.closest('[data-tv-details="1"], [data-tv-person="1"]')) {
+        installScrollGuard();
+        syncGuardPath();
+        try {
+            const glitched = !glideRaf && window.scrollY < 1 && lastGoodY > 50 && performance.now() - lastOwnScrollAt > 300;
+            if (glitched) window.scrollTo(0, lastGoodY);
+            const was = glideRaf ? glideTo : window.scrollY;
+            const from = window.scrollY;
+            node.scrollIntoView({ inline: 'nearest', block, behavior: 'auto' });
+            const to = window.scrollY;
+            window.scrollTo(0, from);
+            lastOwnScrollAt = performance.now();
+            if (Math.abs(to - from) > 1 || Math.abs(was - from) > 1) {
+                glideWindowTo(to);
+                return;
+            }
+        } catch {
+            /* fall through to the plain scroll */
+        }
+    }
     try {
         if (behavior === 'css') {
             // Omit behavior so #media-player-scroll's scroll-behavior: smooth applies.
@@ -1119,8 +1216,41 @@ const rememberRowFocus = (item: HTMLElement | null) => {
     persistTvFocusMaps();
 };
 
+/**
+ * Remembering where focus is reads layout and queries the row. Doing it inside every focus move cost
+ * about 13 ms per press on a Fire TV, so it waits until focus rests (and runs at once on Select / Back,
+ * or before a navigation captures the spot).
+ */
+const REMEMBER_FOCUS_DELAY_MS = 140;
+let rememberFocusTimer = 0;
+let rememberFocusTarget: HTMLElement | null = null;
+let rememberFocusPath = '';
+
+export const flushRememberedFocus = () => {
+    if (rememberFocusTimer) {
+        window.clearTimeout(rememberFocusTimer);
+        rememberFocusTimer = 0;
+    }
+    const el = rememberFocusTarget;
+    rememberFocusTarget = null;
+    if (!el || !el.isConnected) return;
+    const key = tvKeyOf(el);
+    if (!key) return;
+    const rail = el.closest<HTMLElement>('[data-tv-poster-rail="1"]');
+    rememberTvFocusKey(key, rememberFocusPath, rail?.scrollLeft);
+    rememberRowFocus(el);
+};
+
+const scheduleRememberFocus = (el: HTMLElement) => {
+    rememberFocusTarget = el;
+    rememberFocusPath = currentPath();
+    if (rememberFocusTimer) window.clearTimeout(rememberFocusTimer);
+    rememberFocusTimer = window.setTimeout(flushRememberedFocus, REMEMBER_FOCUS_DELAY_MS);
+};
+
 /** Remember the focused poster and horizontal rail scroll before playback or navigation. */
 export const captureTvFocusSnapshot = () => {
+    flushRememberedFocus();
     const active = document.activeElement as HTMLElement | null;
     const item = active?.closest?.<HTMLElement>(TV_ITEM) || active;
     const key = tvKeyOf(item);
@@ -1179,6 +1309,8 @@ export const restoreTvFocusWhenReady = () => {
         return;
     }
     if (isPlayerSettingsPath()) {
+        // Settings always opens on its first tab (Home), whatever row was focused the last time.
+        tvFocusByPath.delete(currentPath());
         focusTvSettingsWhenReady();
         return;
     }
@@ -1322,6 +1454,10 @@ const nearestVerticalRow = (from: HTMLElement, dir: 'up' | 'down'): HTMLElement 
 };
 
 let lastBrowsePoster: HTMLElement | null = null;
+/** The native Browse grid leaves for the filters / A–Z bar: Left from the bar comes back to this card. */
+export const setTvBrowseReturnPoster = (poster: HTMLElement | null) => {
+    lastBrowsePoster = poster;
+};
 let browseColCache = { count: 0, cols: 0 };
 
 const browseAbsIndex = (el: HTMLElement) => {
@@ -1465,10 +1601,8 @@ const browseGridStep = (current: HTMLElement, dir: SpatialDir): HTMLElement | nu
         const items = focusableTvItems(alpha);
         const idx = items.findIndex((el) => el === current || el.contains(current));
         if (dir === 'up') {
-            return (idx > 0 ? items[idx - 1] : null)
-                || filterButton()
-                || libraryTabForFocus()
-                || null;
+            // "All" is the top of the bar: nothing above it, so the remote stays on it.
+            return idx > 0 ? items[idx - 1] : current;
         }
         if (dir === 'down') return idx >= 0 && idx < items.length - 1 ? items[idx + 1] : current;
         if (dir === 'right') return current;
@@ -1521,6 +1655,9 @@ const openSideNav = (from?: HTMLElement | null) => {
     setNavOpen(true);
     window.setTimeout(focusNavItem, 50);
 };
+
+/** The native Home hands Left-from-the-first-poster to the web sidebar. */
+export const openTvSideNav = () => openSideNav(null);
 
 const setNavOpen = (open: boolean) => {
     try {
@@ -1611,10 +1748,10 @@ export const focusTvContent = (): boolean => {
             return true;
         }
     }
+    if (isPlayerSettingsPath() && focusTvSettings()) return true;
     if (restoreTvFocus()) return true;
     if (isPlayerItemPath() && focusFirstSeasonEpisode()) return true;
     if (isPlayerItemPath() && focusTvPlayButton()) return true;
-    if (isPlayerSettingsPath() && focusTvSettings()) return true;
     if (isPlayerHomePath() && focusTvHero()) return true;
     const library = document.querySelector<HTMLElement>('[data-tv-library="1"]');
     if (library && hasLayout(library)) {
@@ -1746,7 +1883,9 @@ const settingsStep = (current: HTMLElement, dir: SpatialDir): HTMLElement | null
 
 const focusTvSettings = (): boolean => {
     const root = document.querySelector<HTMLElement>('[data-tv-settings="1"]');
-    const first = root?.querySelector<HTMLElement>('[data-tv-item="1"]');
+    // The Home tab, always (not whichever control happens to come first in the page).
+    const first = root?.querySelector<HTMLElement>('[data-tv-key="settings-tab-home"]')
+        || root?.querySelector<HTMLElement>('[data-tv-item="1"]');
     if (!root || !first || !hasLayout(first)) return false;
     const top = root.querySelector<HTMLElement>('[data-tv-page-top="1"]') || root;
     scrollEl(top, 'start');
@@ -1825,6 +1964,175 @@ const focusFirstSeasonEpisode = (): boolean => {
     const offscreen = Boolean(port && (box.bottom > port.bottom - 8 || box.top < port.top + 8 || low));
     if (row && offscreen) scrollRowWithoutPanningRails(row, 'end');
     return document.activeElement === episode || episode.contains(document.activeElement);
+};
+
+/** The hidden web card behind a native episode rail card. */
+export const nativeEpisodeCardOf = (key: string): HTMLElement | null => {
+    if (!key) return null;
+    return document.querySelector<HTMLElement>(
+        `[data-tv-details="1"] [data-tv-episode-btn="1"][data-tv-key="${CSS.escape(key)}"]`,
+    );
+};
+
+/**
+ * The native episode rail moved to this episode: mirror it on the hidden web card (DOM focus, focus marker,
+ * remembered spot) without the pan / scroll work, which the native rail already did.
+ */
+export const mirrorNativeEpisodeFocus = (key: string): HTMLElement | null => {
+    const el = nativeEpisodeCardOf(key);
+    if (!el) return null;
+    if (document.activeElement !== el) {
+        try {
+            el.focus({ preventScroll: true });
+        } catch {
+            el.focus();
+        }
+    }
+    syncPosterFocusAttr();
+    rememberTvFocusKey(key);
+    rememberRowFocus(el);
+    return el;
+};
+
+/** A native details rail (cast / related) moved to this card: mirror it on the hidden web card. */
+export const mirrorNativeCardFocus = (el: HTMLElement | null): HTMLElement | null => {
+    if (!el) return null;
+    if (document.activeElement !== el) {
+        try {
+            el.focus({ preventScroll: true });
+        } catch {
+            el.focus();
+        }
+    }
+    syncPosterFocusAttr();
+    const key = el.getAttribute('data-tv-key') || '';
+    if (key) rememberTvFocusKey(key);
+    rememberRowFocus(el);
+    return el;
+};
+
+const isEpisodeTwin = (el: HTMLElement) => el.matches('[data-tv-episode-btn="1"]') && document.documentElement.dataset.nativeEps === '1';
+const isSeasonTabTwin = (el: HTMLElement) => el.matches('[data-tv-season-pill="1"][data-tv-key]') && document.documentElement.dataset.nativeTabs === '1';
+const isNativeTwin = (el: HTMLElement) => Boolean(el.closest('[data-native-rail]') || el.matches('[data-tv-action="1"][data-tv-key]') || isEpisodeTwin(el) || isSeasonTabTwin(el));
+
+/**
+ * Title page, native Up / Down between the buttons and the cast / related rails. The page would normally take the remote,
+ * mirror focus, run the key through its navigation and hand the remote back (~200ms, with the focus blinking). When the row
+ * above / below is made only of native twins the step is obvious, so work it out here: the nearest row, and in it the card
+ * closest to where the remote was. Anything else (header controls, season pills, web-only rows) returns null for the old path.
+ */
+let verticalUntil = 0;
+/** A native Up / Down is being answered by the page: its transient focus (the WebView focusing its first element) must not be handed back to native. */
+export const markNativeVertical = (ms = 700) => { verticalUntil = Date.now() + ms; };
+export const nativeVerticalActive = () => Date.now() < verticalUntil;
+
+export type VerticalStep = { el: HTMLElement | null; native: boolean };
+export const nativeVerticalTarget = (from: HTMLElement, dir: string): VerticalStep | null => {
+    if (dir !== 'up' && dir !== 'down') return null;
+    const details = from.closest<HTMLElement>('[data-tv-details="1"]');
+    if (!details) return null;
+    // Season / episode hubs: the page has explicit rules here (Watch sits under the episode rail by CSS order), so follow them.
+    const kind = details.getAttribute('data-tv-kind') || '';
+    if (kind === 'episode' || kind === 'season') {
+        const onEpisode = from.matches('[data-tv-episode-btn="1"]');
+        const onActions = Boolean(from.closest('[data-tv-action-row="1"]'));
+        if (onEpisode && dir === 'down') {
+            const play = detailsPlayButton(details);
+            return play && hasLayout(play) ? { el: play, native: isNativeTwin(play) } : null;
+        }
+        if (onEpisode && dir === 'up') {
+            // Any episode: Up goes to the season tabs (the season being shown), never a neighbour row or nowhere.
+            const pill = detailsSeasonPill(details);
+            return pill ? { el: pill, native: isNativeTwin(pill) } : null;
+        }
+        if (onActions && dir === 'up') {
+            const episode = detailsSpotlightEpisode(details);
+            return episode ? { el: episode, native: isNativeTwin(episode) } : null;
+        }
+    }
+    const fr = from.getBoundingClientRect();
+    const fx = fr.left + fr.width / 2;
+    const items = focusableTvItems(details).filter((el) => el !== from && !from.contains(el) && !el.contains(from));
+    const rows = items
+        .map((el) => ({ el, r: el.getBoundingClientRect() }))
+        .filter(({ r }) => r.width > 0 && r.height > 0 && (dir === 'down' ? r.top >= fr.bottom - 4 : r.bottom <= fr.top + 4));
+    // Nothing above / below: the key only lets the page settle (Up from the buttons brings it back to the top).
+    if (!rows.length) return { el: null, native: true };
+    const edge = dir === 'down' ? Math.min(...rows.map(({ r }) => r.top)) : Math.max(...rows.map(({ r }) => r.bottom));
+    const near = rows.filter(({ r }) => (dir === 'down' ? r.top - edge < 24 : edge - r.bottom < 24));
+    if (!near.length || near.some(({ el }) => !isNativeTwin(el) && (isHeaderControl(el) || el.hasAttribute('data-tv-season-pill')))) return null;
+    const onScreen = near.filter(({ r }) => r.right > 0 && r.left < window.innerWidth);
+    const pool = onScreen.length ? onScreen : near;
+    pool.sort((a, b) => Math.abs(a.r.left + a.r.width / 2 - fx) - Math.abs(b.r.left + b.r.width / 2 - fx));
+    return { el: pool[0].el, native: isNativeTwin(pool[0].el) };
+};
+
+/** Release the remote to the page, then keep the wanted twin focused while the WebView settles (it focuses its first element). */
+export const focusTwinAfterRelease = (el: HTMLElement, dir: string) => {
+    focusNativeVerticalTarget(el, dir);
+    [40, 100, 180].forEach((ms) => window.setTimeout(() => {
+        if (!el.isConnected || document.activeElement === el) return;
+        try { el.focus({ preventScroll: true }); } catch { /* ignore */ }
+        syncPosterFocusAttr();
+    }, ms));
+};
+
+/** The key native knows a twin by (`<railId>~<key>` for a rail card, `actions~<key>` for a button). */
+export const nativeKeyOfTwin = (el: HTMLElement): string => {
+    const key = el.getAttribute('data-tv-key') || '';
+    if (!key) return '';
+    const rail = el.closest<HTMLElement>('[data-native-rail]');
+    if (rail) return `${rail.getAttribute('data-native-rail') || ''}~${key}`;
+    if (isEpisodeTwin(el)) return `episode~${key}`;
+    if (isSeasonTabTwin(el)) return `tabs~${key}`;
+    return el.matches('[data-tv-action="1"][data-tv-key]') ? `actions~${key}` : '';
+};
+
+/** Hand the remote to the native view that draws this twin. */
+export const giveTwinToNative = (el: HTMLElement) => {
+    const nativeKey = nativeKeyOfTwin(el);
+    if (!nativeKey) return;
+    if (nativeKey.startsWith('episode~')) void nativeRailFocus(nativeKey.slice('episode~'.length));
+    else void nativeDetailRailFocus(nativeKey);
+};
+
+/**
+ * A native view's Up / Down on a title page (the railVertical event). Steps straight to the row the page would reach: another native
+ * row keeps the remote native; a web row gets the remote. False when the page must run the key itself (the caller's old path).
+ */
+export const answerNativeVertical = (from: HTMLElement, dir: string, stay: () => void): boolean => {
+    const step = nativeVerticalTarget(from, dir);
+    if (!step || tvOverlayRoot() || document.documentElement.getAttribute('data-tv-nav-open') === '1') return false;
+    markNativeVertical();
+    if (!step.el) {
+        // Nothing that way: stay put (Up from the buttons brings the page back to the top).
+        if (dir === 'up') scrollDetailsToTop(from);
+        stay();
+        return true;
+    }
+    const target = step.el;
+    if (step.native && nativeKeyOfTwin(target)) {
+        focusNativeVerticalTarget(target, dir);
+        giveTwinToNative(target);
+    } else {
+        // The WebView may focus its first element when it takes the remote: focus the target after that.
+        void nativeHomeReleaseFocus().then(() => focusTwinAfterRelease(target, dir));
+    }
+    return true;
+};
+
+/** Up from the buttons with nothing above: bring the page back to the top, the way the page's own Up does. */
+export const scrollDetailsToTop = (from: HTMLElement) => {
+    const top = pageTopFor(from);
+    if (top) scrollEl(top, 'start');
+};
+
+/** Focus the twin the page would have reached, scrolling the way its own Up / Down does. */
+export const focusNativeVerticalTarget = (el: HTMLElement, dir: string) => {
+    focusItem(el, 'nearest', dir as SpatialDir);
+    rememberRowFocus(el);
+    const key = el.getAttribute('data-tv-key') || '';
+    if (key) rememberTvFocusKey(key);
 };
 
 const itemPathKey = () => {
@@ -2184,6 +2492,7 @@ export const handlePhoneBack = (): boolean => {
 };
 
 export const handleAppBack = (): boolean => {
+    flushRememberedFocus();
     try {
         if (isAndroidTvUi()) {
             playNavSound('back');
@@ -2344,6 +2653,8 @@ export const useTvRemote = (enabled = true) => {
         );
 
         const onKeyDown = (event: KeyboardEvent) => {
+            // Select or Back right after a move: the spot must be remembered before the screen changes.
+            if (rememberFocusTarget && (isConfirmKey(event) || isBackKey(event))) flushRememberedFocus();
             // A key while the screensaver is up only wakes it (PlayerTvScreensaver closes it).
             if (document.querySelector('[data-tv-screensaver="1"]')) {
                 event.preventDefault();
@@ -2645,6 +2956,15 @@ export const useTvRemote = (enabled = true) => {
                     }
                 }
             }
+            if (!target && !menuRoot && (dir === 'left' || dir === 'right') && current.closest('.media-details-season-pills')) {
+                const pill = stepSeasonPill(current, dir);
+                if (pill) {
+                    focusItem(pill, 'nearest', dir);
+                    return;
+                }
+                // Last pill: stay put. First pill: Left falls through to the side menu.
+                if (dir === 'right') return;
+            }
             if (!target && !menuRoot && (dir === 'left' || dir === 'right') && !inBrowseChrome) {
                 const onEpisodeRail = Boolean(current.closest('[data-tv-episode-btn="1"]'));
                 // Native repeats stack on top of the hold timer and re-trigger smooth pans.
@@ -2672,6 +2992,9 @@ export const useTvRemote = (enabled = true) => {
                 }
                 if (dir !== 'left') return;
             }
+            // Nothing sits above the tabs: Up stays on them (the spatial search would otherwise hop to the
+            // hidden web poster under the native rows and bounce focus back down).
+            if (!target && !menuRoot && dir === 'up' && current.closest('.player-library-stage-chrome [data-tv-library-tabs="1"]')) return;
             // Library Recommended puts tabs inside the stage chrome. Down from
             // those tabs must land on posters — not fire row-swap (which leaves
             // focus stuck on Recommended with no ring on the cards).
@@ -2801,11 +3124,10 @@ export const useTvRemote = (enabled = true) => {
                 suppressMenuConfirm = true;
             }
             const itemEl = target.closest<HTMLElement>(TV_ITEM) || target;
-            const key = tvKeyOf(itemEl);
-            if (key && !target.closest(TV_NAV_ROOT)) {
-                const rail = itemEl.closest<HTMLElement>('[data-tv-poster-rail="1"]');
-                rememberTvFocusKey(key, currentPath(), rail?.scrollLeft);
-                rememberRowFocus(itemEl);
+            if (!target.closest(TV_NAV_ROOT)) {
+                // Remembering the spot reads layout (scrollLeft) and queries the row: on a Fire TV that was
+                // ~13 ms inside every press. Do it once focus rests; Select / Back flush it first.
+                scheduleRememberFocus(itemEl);
             }
         };
 

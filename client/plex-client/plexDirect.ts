@@ -823,7 +823,7 @@ const imageUrl = (
     path: string | null | undefined,
     width: number,
     height: number,
-    options?: { crop?: boolean; quality?: number },
+    options?: { crop?: boolean; quality?: number; original?: boolean },
 ) => {
     const server = mapServer || readServer();
     let value = String(path || '').trim();
@@ -833,6 +833,12 @@ const imageUrl = (
         const library = libraryImagePath(value);
         if (!library) return value;
         value = library;
+    }
+    if (options?.original) {
+        // The file as stored: the photo transcoder flattens a transparent PNG onto white (a white box behind a clear logo).
+        const direct = new URL(value.startsWith('/') ? value : `/${value}`, server.uri.endsWith('/') ? server.uri : `${server.uri}/`);
+        direct.searchParams.set('X-Plex-Token', server.accessToken);
+        return direct.toString();
     }
     const url = new URL('/photo/:/transcode', server.uri.endsWith('/') ? server.uri : `${server.uri}/`);
     url.searchParams.set('width', String(width));
@@ -1089,6 +1095,36 @@ const enrichCommonSenseMedia = async (meta: PlexMeta, server: PlexServer | null)
     return local;
 };
 
+/**
+ * Some episodes have no IMDb / Rotten Tomatoes row in the library's own metadata even though
+ * Plex's metadata service has them (the Plex app reads them from there). Fetch just those scores.
+ */
+const providerRatingsCache = new Map<string, Promise<ReturnType<typeof mapRatings>['ratings'] | null>>();
+const enrichProviderRatings = (meta: PlexMeta, server: PlexServer | null) => {
+    const guidKey = plexMetadataGuidKey(meta);
+    if (!guidKey) return Promise.resolve(null);
+    const hit = providerRatingsCache.get(guidKey);
+    if (hit) return hit;
+    const tokens = [...new Set([readOwnerToken(), accountToken(), server?.accessToken]
+        .map((value) => String(value || '').trim())
+        .filter(Boolean))];
+    const promise = (async () => {
+        for (const token of tokens) {
+            const data = await providerFetch(
+                `https://metadata.provider.plex.tv/library/metadata/${encodeURIComponent(guidKey)}`,
+                token,
+            ).catch(() => null);
+            const row = asList<PlexMeta>(containerOf(data).Metadata)[0];
+            if (!row) continue;
+            const { ratings } = mapRatings({ ...row, type: meta.type });
+            if (Object.values(ratings).some(Boolean)) return ratings;
+        }
+        return null;
+    })();
+    providerRatingsCache.set(guidKey, promise);
+    return promise;
+};
+
 /** Unique watched episodes. Rewatches do not push the count past the episode total. */
 const uniqueViewedLeafCount = (meta: PlexMeta) => {
     const leaf = Math.max(0, Number(meta.leafCount) || 0);
@@ -1200,7 +1236,7 @@ const mapItem = (meta: PlexMeta) => {
         heroArt: coverArtUrl(meta) || null,
         backdropArt: imageUrl(heroBackdropPath(meta, type), 1920, 1080, { crop: false }),
         squareArt: type === 'movie' || type === 'show' ? (imageUrl(squareArtPath(meta) || null, 1080, 1080, { crop: false }) || null) : null,
-        logo: imageUrl(clearLogo(meta), 640, 240),
+        logo: imageUrl(clearLogo(meta), 640, 240, { original: true }),
         ...mapTheme(meta),
         // Keep stamped library paths so Continue Watching can remount show/season
         // posters after Plex art changes (imageUrl alone wraps the episode still).
@@ -4414,6 +4450,23 @@ type MergeableHub = {
     items?: Array<{ ratingKey?: string; dedupeKey?: string | null }>;
 };
 
+/**
+ * The same title listed twice in one row: a movie held on two servers, or a collection that
+ * carries both copies. Plex's guid names the title itself, so keep the first of each.
+ */
+const dropRepeatTitles = <T extends MergeableHub>(hub: T): T => {
+    if (!Array.isArray(hub.items) || hub.items.length < 2 || continueHub({ identifier: hub.identifier, title: hub.title })) return hub;
+    const seen = new Set<string>();
+    const items = hub.items.filter((item) => {
+        const guid = String((item as { plexGuid?: string | null }).plexGuid || '').trim();
+        if (!guid) return true;
+        if (seen.has(guid)) return false;
+        seen.add(guid);
+        return true;
+    });
+    return items.length === hub.items.length ? hub : { ...hub, items };
+};
+
 const mergeHubItemLists = <T extends MergeableHub>(group: T[], opts: { title?: string; randomOrder?: boolean } = {}) => {
     const seen = new Set<string>();
     const items: NonNullable<T['items']> = [];
@@ -6395,7 +6448,7 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
         const mergedHubs = mergeSameTitleHubs(mergeSameLabelHubs(rows.flatMap((row) => row.hubs.map((hub) => ({
             ...hub,
             identifier: many ? `${row.server.id}:${hub.identifier}` : hub.identifier,
-        })))));
+        }))))).map(dropRepeatTitles);
         // Bake Library order into the Home payload so cache/coalesce/first paint already match Settings.
         let libraryNavOrder: string[] = [];
         try {
@@ -6421,6 +6474,23 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
     if (path === '/api/media-player/home-hero') return buildHomeHero();
     if (path === '/api/media-player/screensaver') {
         return buildScreensaverPool(String(query.get('source') || 'continue_watching'));
+    }
+    if (path === '/api/media-player/hero-art' && method === 'GET') {
+        // Title-art covers for a Heroes row's View more page (same lookup the Home row uses).
+        const keys = String(query.get('keys') || '').split(',').map((key) => key.trim()).filter(Boolean).slice(0, 80);
+        const server = resolveServer(query.get('server'), keys[0]);
+        const art: Record<string, string> = {};
+        if (!server || !keys.length) return { art };
+        return withMapServer(server, async () => {
+            const hubs = await attachHeroCoverArt([{
+                heroRow: true,
+                items: keys.map((key) => ({ ratingKey: key, heroArt: null as string | null })),
+            }], server);
+            (hubs[0]?.items || []).forEach((row) => {
+                if (row.heroArt) art[String(row.ratingKey)] = String(row.heroArt);
+            });
+            return { art };
+        });
     }
     if (path === '/api/media-player/hub') {
         const { server, path: hubPath } = splitLibraryKey(String(query.get('path') || ''));
@@ -7342,6 +7412,17 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
             const meta = await metadata(key, server);
             const item = mapItem(meta);
             if (item.ratingKey) rememberItem(item.ratingKey, server);
+            // No IMDb / Rotten Tomatoes locally: ask Plex's metadata service for them.
+            if ((item.type === 'episode' || item.type === 'movie' || item.type === 'show') && !item.ratings?.imdb && !item.ratings?.rottenTomatoes) {
+                const extra = await enrichProviderRatings(meta, server).catch(() => null);
+                if (extra) {
+                    const merged = { ...(item.ratings || {}) } as Record<string, any>;
+                    for (const [name, value] of Object.entries(extra)) {
+                        if (value && !merged[name]) merged[name] = value;
+                    }
+                    item.ratings = merged as typeof item.ratings;
+                }
+            }
             const ratingsEmpty = !item.ratings || Object.values(item.ratings).every((row) => !row);
             const showKey = item.type === 'season'
                 ? item.parentRatingKey
@@ -7427,15 +7508,126 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
             const media = medias[mediaIndex] || medias[0] || {};
             const part = asList<PlexMeta>(media?.Part)[0] || null;
             if (!part?.key) throw new Error('No downloadable media file for this title.');
-            const chosen = playSrc(meta, mediaIndex, 'original', '', '', 0, false, '');
-            if (chosen.mode !== 'directPlay' || !chosen.src) {
+            const wantQuality = String(query.get('quality') || '');
+            const smaller = QUALITIES.find((row) => row.id === wantQuality && row.id !== 'original') || null;
+            const chosen = smaller
+                ? { mode: 'transcode' as const, src: '' }
+                : playSrc(meta, mediaIndex, 'original', '', '', 0, false, '');
+            if (!smaller && (chosen.mode !== 'directPlay' || !chosen.src)) {
                 throw new Error('No downloadable media file for this title.');
             }
             const item = mapItem(meta);
             const rawFile = String(part.file || item.title || `plex-${key}`);
             const baseName = rawFile.split(/[/\\]/).pop() || `plex-${key}`;
             const container = String(part.container || media.container || '').replace(/[^\w]+/g, '') || 'bin';
-            const fileName = /\.[a-z0-9]{2,5}$/i.test(baseName) ? baseName : `${baseName}.${container}`;
+            let fileName = /\.[a-z0-9]{2,5}$/i.test(baseName) ? baseName : `${baseName}.${container}`;
+            let downloadUrl = chosen.src;
+            let downloadBytes = Number(part.size || media.size || 0) || 0;
+            if (smaller && server) {
+                // A smaller copy: PMS transcodes to a progressive MP4 (H.264 + AAC) and the phone
+                // saves the stream. No Content-Length, so the size shown is an estimate.
+                const sessionId = `smp-dl-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+                const metaPath = String(meta.key || '').startsWith('/')
+                    ? String(meta.key).split('?')[0]
+                    : `/library/metadata/${encodeURIComponent(key)}`;
+                const params: Record<string, string> = {
+                    hasMDE: '1',
+                    path: metaPath,
+                    mediaIndex: String(mediaIndex),
+                    partIndex: '0',
+                    protocol: 'http',
+                    directPlay: '0',
+                    directStream: '0',
+                    directStreamAudio: '0',
+                    videoCodec: 'h264',
+                    audioCodec: 'aac',
+                    maxAudioChannels: '2',
+                    subtitles: 'none',
+                    subtitleSize: '0',
+                    advancedSubtitles: 'none',
+                    videoQuality: String(smaller.videoQuality),
+                    videoResolution: smaller.videoResolution,
+                    maxVideoBitrate: String(smaller.maxVideoBitrate),
+                    session: sessionId,
+                    // PMS only offers a progressive conversion to a client profile that has an http
+                    // target; its Android profile has none ("Neither direct play nor conversion").
+                    'X-Plex-Platform': 'Chrome',
+                    'X-Plex-Client-Identifier': clientId(),
+                    'X-Plex-Product': 'StreamPilot',
+                    'X-Plex-Device': 'Android',
+                    'X-Plex-Session-Identifier': sessionId,
+                    'X-Plex-Token': String(server.accessToken || ''),
+                    access_token: String(server.accessToken || ''),
+                };
+                const base = String(server.uri || '').replace(/\/+$/, '');
+                // PMS answers 400 to some progressive-transcode parameter mixes, and which one it
+                // accepts differs by server version. Try a few and keep the first it answers 2xx to.
+                const variants: { ext: 'mp4' | 'mkv'; tweak: (p: Record<string, string>) => Record<string, string> }[] = [
+                    { ext: 'mkv', tweak: (p) => p },
+                    { ext: 'mp4', tweak: (p) => p },
+                    {
+                        ext: 'mp4',
+                        tweak: (p) => {
+                            const { hasMDE, videoCodec, directStreamAudio, advancedSubtitles, ...rest } = p;
+                            void hasMDE; void videoCodec; void directStreamAudio; void advancedSubtitles;
+                            return { ...rest, directStream: '1', fastSeek: '1' };
+                        },
+                    },
+                    {
+                        ext: 'mkv',
+                        tweak: (p) => {
+                            const { hasMDE, videoCodec, directStreamAudio, advancedSubtitles, ...rest } = p;
+                            void hasMDE; void videoCodec; void directStreamAudio; void advancedSubtitles;
+                            return { ...rest, directStream: '1', fastSeek: '1' };
+                        },
+                    },
+                ];
+                let accepted: { url: string; ext: string } | null = null;
+                let lastReason = '';
+                for (const variant of variants) {
+                    const candidate = new URL(`/video/:/transcode/universal/start.${variant.ext}`, `${base}/`);
+                    Object.entries(variant.tweak(params)).forEach(([k, v]) => candidate.searchParams.set(k, v));
+                    // PMS wants its transcode decision first, as for HLS.
+                    try {
+                        const decision = new URL('/video/:/transcode/universal/decision', `${base}/`);
+                        candidate.searchParams.forEach((v, k) => {
+                            if (k !== 'X-Plex-Token' && k !== 'access_token') decision.searchParams.set(k, v);
+                        });
+                        await pms(`${decision.pathname}${decision.search}`, server, 8000);
+                    } catch { /* start can still work */ }
+                    const controller = new AbortController();
+                    const timer = window.setTimeout(() => controller.abort(), 20000);
+                    try {
+                        const response = await fetch(candidate.toString(), {
+                            signal: controller.signal,
+                            cache: 'no-store',
+                            headers: { Accept: '*/*', 'X-Plex-Token': String(server.accessToken || '') },
+                        });
+                        const ok = response.ok;
+                        if (!ok) {
+                            const text = await response.text().catch(() => '');
+                            lastReason = `Plex answered ${response.status}${text ? `: ${text.replace(/<[^>]*>/g, ' ').trim().slice(0, 120)}` : ''}`;
+                        }
+                        controller.abort();
+                        if (ok) {
+                            accepted = { url: candidate.toString(), ext: variant.ext };
+                            break;
+                        }
+                    } catch (error) {
+                        if (!accepted) lastReason = lastReason || String((error as Error)?.message || 'No answer from Plex');
+                    } finally {
+                        window.clearTimeout(timer);
+                    }
+                }
+                if (!accepted) {
+                    throw new Error(`Your Plex server would not make a smaller copy (${lastReason || 'no reason given'}). Try Original quality.`);
+                }
+                downloadUrl = accepted.url;
+                fileName = `${baseName.replace(/\.[a-z0-9]{2,5}$/i, '')} (${smaller.id.split("-")[0]}p).mkv`;
+                const seconds = Number(media.duration || meta.duration || 0) / 1000;
+                const estimate = seconds > 0 ? Math.round(seconds * ((smaller.maxVideoBitrate + 128) * 1000) / 8) : 0;
+                downloadBytes = estimate > 0 && downloadBytes > 0 ? Math.min(estimate, downloadBytes) : estimate;
+            }
             const headers: Record<string, string> = {
                 Accept: '*/*',
                 'Accept-Encoding': 'identity',
@@ -7446,10 +7638,10 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
                 'X-Plex-Device': 'Android',
             };
             return {
-                url: chosen.src,
+                url: downloadUrl,
                 headers,
                 fileName,
-                bytes: Number(part.size || media.size || 0) || 0,
+                bytes: downloadBytes,
                 ratingKey: String(item.ratingKey || key),
                 title: item.title || 'Download',
                 type: item.type || 'movie',
@@ -7866,7 +8058,7 @@ const handlePlayer = async (path: string, method: string, query: URLSearchParams
     const scrobble = path.match(/^\/api\/media-player\/(scrobble|unscrobble)\/([^/]+)$/);
     if (scrobble && method === 'POST') {
         const key = decodeURIComponent(scrobble[2]);
-        await pms(`/:/${scrobble[1]}?identifier=com.plexapp.plugins.library&key=${encodeURIComponent(key)}`, resolveServer('', key));
+        await pms(`/:/${scrobble[1]}?identifier=com.plexapp.plugins.library&key=${encodeURIComponent(key)}`, resolveServer(query.get('server'), key));
         return { ok: true };
     }
     const ratePath = path.match(/^\/api\/media-player\/item\/([^/]+)\/rate$/);

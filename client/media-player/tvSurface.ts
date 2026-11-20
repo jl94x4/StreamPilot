@@ -1,9 +1,9 @@
 /** TV page colour shared by Home's billboard fade and title pages, so one flows into the other. */
 export const TV_FLOOR_RGB = '6 10 16';
 /** TV artwork tint stays darker than web so white copy and focus rings keep their contrast. */
-const TV_TINT_LUMA_CAP = 60;
+const TV_TINT_LUMA_CAP = 34;
 /** Keep most of the edge's hue on TV; the web 0.48 read as plain grey on a dark screen. */
-const TV_TINT_SATURATION = 0.8;
+const TV_TINT_SATURATION = 0.9;
 
 export const softenSurfaceRgb = (rgb: string, cap = 86, sat = 0.48) => {
     const parts = rgb.trim().split(/\s+/).map((part) => Number(part));

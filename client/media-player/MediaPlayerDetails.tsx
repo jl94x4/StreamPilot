@@ -26,6 +26,13 @@ import {
     OverviewSummary,
 } from './MediaPlayerOverview';
 import { PlayerBackdropImage } from './PlayerBackdropImage';
+import { NativeDetailActionsBridge } from './NativeDetailActionsBridge';
+import { NativeSeasonTabsBridge } from './NativeSeasonTabsBridge';
+import { NativeDetailsTextBridge, useNativeBrandMark, type NativeDetailsTextContent } from './NativeDetailsTextBridge';
+import { isNativeDetailsActive, isNativeHomeSupported, nativeDetailsEnter, nativeDetailsLeave, nativeDetailsScroll, nativeHomeReleaseFocus, nativeHomeSetSurface, nativeRailFocus, nativeRailHide, nativeRailInjectKey, nativeRailRect, nativeRailSet, nativeRailSuppressed, onNativeHomeEvent, setNativeHomeStageClear } from '../plex-client/nativeHome';
+import { nativeAbsoluteUrl, nativeCardImage } from './nativeHomePayload';
+import { NativeDetailRail, type DetailRailItem } from './NativeDetailRail';
+import { readPerfFlags } from './PlayerPerfOverlay';
 import { PlayerClearLogo } from './PlayerClearLogo';
 import { PlayerFileInfo } from './PlayerFileInfo';
 import { PlayerItemMenu, type PlayerItemMenuHandle } from './PlayerItemMenu';
@@ -74,7 +81,7 @@ import {
     withWatchedProgress,
 } from './playerUtils';
 import { isLanHttpImage, loadLanImage } from './lanImage';
-import { focusSeasonEpisodeWhenReady, hasRememberedTvFocus, pinTvDetailsTop, revealTvEpisodeCard } from '../plex-client/useTvRemote';
+import { answerNativeVertical, focusSeasonEpisodeWhenReady, hasRememberedTvFocus, nativeVerticalActive, mirrorNativeEpisodeFocus, nativeEpisodeCardOf, pinTvDetailsTop, revealTvEpisodeCard } from '../plex-client/useTvRemote';
 import { readDocumentZoom } from '../shared/ui';
 import { PLAYER_SCROLL_ID } from './paths';
 import {
@@ -95,9 +102,11 @@ import {
     writePlayerItemCache,
     readAvChoice,
     readMediaIndexChoice,
+    readVersionChoice,
     resolveAvChoiceForTracks,
     writeAvChoiceFromTracks,
     writeMediaIndexChoice,
+    writeVersionChoice,
 } from './playerMemory';
 import type { PlayerItem, PlayerLibraryHub, PlayerMediaPartInfo, PlayerMediaStreamInfo, PlayerPlayOptions, PlayerRatings, PlayerVersion } from './types';
 import { hideEpisodeSpoilers } from './spoilers';
@@ -283,12 +292,29 @@ const applyTvDetailsSurface = (rgb: string, tvTint = false) => {
     const softened = isPhoneDetailsUi() ? rgb : (tv ? tvSurface : softenSurfaceRgb(rgb));
     const paint = `rgb(${softened})`;
     const root = document.querySelector<HTMLElement>('[data-tv-details="1"]');
+    // The native view is drawing the picture and the page colour underneath: keep the page see-through
+    // and hand it the colour instead of painting over it.
+    const native = isNativeDetailsActive();
+    // Native picks the colour from the picture itself (Home's fade) and hands it over: do not overwrite it.
+    if (native && tvTint && document.documentElement.dataset.nativeFade === '1') return;
     root?.style.setProperty('--tv-details-surface', softened);
-    if (root) root.style.backgroundColor = paint;
+    if (root && !native) root.style.backgroundColor = paint;
     root?.querySelector<HTMLElement>('.media-details-hero-backdrop')
         ?.style.setProperty('--tv-details-surface', softened);
     const scroll = document.getElementById(PLAYER_SCROLL_ID);
     scroll?.style.setProperty('--tv-details-surface', softened);
+    if (scroll && !native) scroll.style.backgroundColor = paint;
+    if (native) void nativeHomeSetSurface(softened);
+};
+
+/** The native view let go: paint the page colour the page held back while native drew it. */
+const repaintTvDetailsSurface = () => {
+    const root = document.querySelector<HTMLElement>('[data-tv-details="1"]');
+    if (!root) return;
+    const rgb = root.style.getPropertyValue('--tv-details-surface').trim() || TV_FLOOR_RGB;
+    const paint = `rgb(${rgb})`;
+    root.style.backgroundColor = paint;
+    const scroll = document.getElementById(PLAYER_SCROLL_ID);
     if (scroll) scroll.style.backgroundColor = paint;
 };
 
@@ -644,6 +670,309 @@ const DetailsEpisodeCard = React.memo(({ row, isCurrent, isTvShell, playLabel, s
     && prev.actions === next.actions
     && sameFields(prev.row, next.row));
 
+const NATIVE_RAIL_OVERLAY = '[data-tv-item-menu="1"], [data-tv-select-menu="1"], [data-tv-resume-dialog="1"], [data-tv-season-watch-dialog="1"], [data-tv-still-watching-dialog="1"], [data-tv-whats-new="1"], [data-tv-home-switch="1"], [data-tv-library-manager="1"], [data-tv-version-dialog="1"], [data-tv-track-dialog="1"], [data-tv-settings-dialog="1"], [data-native-player-open="1"], [role="dialog"]';
+const NATIVE_RAIL_SELECTOR = '[data-tv-details="1"] .media-details-episodes [data-tv-poster-rail="1"]';
+
+/**
+ * Android TV: the episode rail is drawn by NativeEpisodeRail at the web rail's rect. The web rail stays in the page
+ * (invisible, still focusable) so spotlight, the held menu, Enter and Up / Down navigation keep running on it;
+ * native owns Left / Right and hands every other key back (see nativeHome.ts). Renders nothing.
+ */
+const NativeEpisodeRailBridge: React.FC<{
+    rows: PlayerItem[];
+    focusKey: string;
+    actions: React.MutableRefObject<EpisodeCardActions>;
+    /** Per-show spoiler hiding: this episode's still is drawn blurred. */
+    hideSpoiler: (row: PlayerItem) => boolean;
+}> = ({ rows, focusKey, actions, hideSpoiler }) => {
+    const focusKeyRef = useRef(focusKey);
+    focusKeyRef.current = focusKey;
+    const payload = JSON.stringify({
+        items: rows.map((raw) => {
+            const row = raw.type === 'episode' ? applyRememberedProgress(raw) : raw;
+            return {
+                key: String(row.ratingKey),
+                img: row.thumb ? nativeAbsoluteUrl(plexImageUrl(row.thumb, 720, 405, { quality: PLAYER_POSTER_QUALITY })) : '',
+                label: row.index != null ? `E${row.index}` : '',
+                progress: Math.round(progressPercent(row)) / 100,
+                watched: row.watched === true,
+                spoiler: hideSpoiler(row),
+            };
+        }),
+    });
+    const sentRef = useRef('');
+    useEffect(() => {
+        if (payload === sentRef.current) return;
+        sentRef.current = payload;
+        nativeRailSet(payload, focusKeyRef.current);
+    }, [payload]);
+
+    useEffect(() => {
+        let frame = 0;
+        let last = '';
+        const send = () => {
+            frame = 0;
+            const rail = document.querySelector<HTMLElement>(NATIVE_RAIL_SELECTOR);
+            if (!rail) return;
+            const r = rail.getBoundingClientRect();
+            if (r.width < 2 || r.height < 2) return;
+            const sig = `${r.left}|${r.top}|${r.width}|${r.height}`;
+            if (sig === last) return;
+            last = sig;
+            nativeRailRect(r.left, r.top, r.width, r.height, window.innerWidth);
+        };
+        const queue = () => {
+            if (!frame) frame = window.requestAnimationFrame(send);
+        };
+        document.documentElement.dataset.nativeEps = '1';
+        const scroller = document.getElementById(PLAYER_SCROLL_ID);
+        scroller?.addEventListener('scroll', queue, { passive: true });
+        window.addEventListener('scroll', queue, { passive: true });
+        window.addEventListener('resize', queue);
+        const root = document.querySelector<HTMLElement>('[data-tv-details="1"]');
+        const rail = document.querySelector<HTMLElement>(NATIVE_RAIL_SELECTOR);
+        const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(queue) : null;
+        if (observer) {
+            if (root) observer.observe(root);
+            if (rail) observer.observe(rail);
+            const stage = rail?.closest('.media-details-episodes-stage');
+            if (stage) observer.observe(stage);
+        }
+        root?.addEventListener('transitionend', queue, true);
+        root?.addEventListener('animationend', queue, true);
+        // Layout settles for a moment after mount (hub meta, fonts, images).
+        const settle = [0, 120, 400, 1000, 2000].map((ms) => window.setTimeout(queue, ms));
+        queue();
+        // A menu / dialog or the sidebar over the page: the rail (above the WebView) must not draw over it.
+        let suppressed = false;
+        const syncSuppressed = () => {
+            const on = !!document.querySelector(NATIVE_RAIL_OVERLAY);
+            if (on === suppressed) return;
+            suppressed = on;
+            nativeRailSuppressed(on);
+        };
+        // Also re-measure: the rail can appear (or move) after the first measurements, when the season list arrives.
+        const overlayObserver = new MutationObserver(() => {
+            syncSuppressed();
+            queue();
+        });
+        overlayObserver.observe(document.body, { childList: true, subtree: true });
+        // The sidebar slides the page (and the rail) sideways: follow it frame by frame while it moves.
+        let burstUntil = 0;
+        const burst = () => {
+            queue();
+            if (performance.now() < burstUntil) window.requestAnimationFrame(burst);
+        };
+        const navObserver = new MutationObserver(() => {
+            burstUntil = performance.now() + 700;
+            burst();
+        });
+        navObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-tv-nav-open'] });
+        // The player screen opening hides the native rail; it comes back when the player closes.
+        const playerObserver = new MutationObserver(() => syncSuppressed());
+        playerObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-native-player-open'] });
+        syncSuppressed();
+        return () => {
+            overlayObserver.disconnect();
+            navObserver.disconnect();
+            playerObserver.disconnect();
+            if (frame) window.cancelAnimationFrame(frame);
+            settle.forEach((id) => window.clearTimeout(id));
+            scroller?.removeEventListener('scroll', queue);
+            window.removeEventListener('scroll', queue);
+            window.removeEventListener('resize', queue);
+            root?.removeEventListener('transitionend', queue, true);
+            root?.removeEventListener('animationend', queue, true);
+            observer?.disconnect();
+            delete document.documentElement.dataset.nativeEps;
+            nativeRailHide();
+        };
+    }, []);
+
+    useEffect(() => {
+        let handoffUntil = 0;
+        let bounceTimer = 0;
+        const offFocus = onNativeHomeEvent('railFocus', (data) => {
+            const key = String(data.key || '');
+            if (!key || !mirrorNativeEpisodeFocus(key)) return;
+            actions.current.spotlight(key);
+        });
+        const offOpen = onNativeHomeEvent('railOpen', (data) => {
+            const el = nativeEpisodeCardOf(String(data.key || ''));
+            if (!el) return;
+            // The page has the remote for the open (a player / menu follows).
+            void nativeHomeReleaseFocus().then(() => el.click());
+        });
+        const offLong = onNativeHomeEvent('railLongPress', (data) => {
+            const key = String(data.key || '');
+            const poster = nativeEpisodeCardOf(key);
+            if (!poster) return;
+            window.dispatchEvent(new CustomEvent('smp-tv-poster-menu', { detail: { ratingKey: key, poster, handled: false } }));
+        });
+        const offActivity = onNativeHomeEvent('railActivity', () => {
+            window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Unidentified', keyCode: 0, cancelable: true }));
+        });
+        const offHoldEnd = onNativeHomeEvent('railHoldEnd', () => {
+            if (document.documentElement.dataset.nativeMenu === '1') return; // the native menu holds the keys
+            void nativeHomeReleaseFocus().then(() => {
+                window.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', keyCode: 13, cancelable: true }));
+            });
+        });
+        // Up / Down / Left at the first card: the page focuses the hidden card, then the key runs through its own navigation.
+        const handoff = (data: { rowId?: string; key?: string }) => {
+            const key = String(data.key || '');
+            const dir = String(data.rowId || '');
+            if (!mirrorNativeEpisodeFocus(key)) return;
+            handoffUntil = Date.now() + 600;
+            void nativeRailInjectKey(dir).then(() => {
+                window.clearTimeout(bounceTimer);
+                // The key found nowhere to go: the remote belongs on the rail again.
+                bounceTimer = window.setTimeout(() => {
+                    const active = document.activeElement as HTMLElement | null;
+                    const card = active?.closest<HTMLElement>('[data-tv-details="1"] [data-tv-episode-btn="1"]');
+                    if (!card) return;
+                    if (document.querySelector(NATIVE_RAIL_OVERLAY)) return;
+                    if (document.documentElement.getAttribute('data-tv-nav-open') === '1') return;
+                    void nativeRailFocus(card.getAttribute('data-tv-key') || key);
+                }, 400);
+            });
+        };
+        const offHandoff = onNativeHomeEvent('railHandoff', handoff);
+        // Up / Down: straight to the row the page would reach (Watch below, the spotlight episode from Watch, cast ...).
+        const offVertical = onNativeHomeEvent('railVertical', (data) => {
+            const key = String(data.key || '');
+            const from = nativeEpisodeCardOf(key);
+            if (!from) return; // another native view's key
+            const dir = String(data.rowId || '');
+            if (answerNativeVertical(from, dir, () => { void nativeRailFocus(key); })) {
+                handoffUntil = Date.now() + 500;
+                return;
+            }
+            // The WebView settles its own focus for a moment after taking the remote: run the key once it has.
+            void nativeHomeReleaseFocus().then(() => window.setTimeout(() => handoff(data), 60));
+        });
+        // Web focus landed on a hidden episode card (Up from Watch, the sidebar closing, the page opening): native takes over.
+        const onFocusIn = (event: FocusEvent) => {
+            const card = (event.target as HTMLElement | null)?.closest?.<HTMLElement>('[data-tv-details="1"] [data-tv-episode-btn="1"]');
+            if (!card || Date.now() < handoffUntil || nativeVerticalActive()) return;
+            if (document.querySelector(NATIVE_RAIL_OVERLAY)) return;
+            if (document.documentElement.getAttribute('data-tv-nav-open') === '1') return;
+            const key = card.getAttribute('data-tv-key') || '';
+            if (!key) return;
+            void nativeRailFocus(key);
+        };
+        document.addEventListener('focusin', onFocusIn, true);
+        return () => {
+            document.removeEventListener('focusin', onFocusIn, true);
+            window.clearTimeout(bounceTimer);
+            offFocus();
+            offOpen();
+            offLong();
+            offActivity();
+            offHoldEnd();
+            offHandoff();
+            offVertical();
+        };
+    }, [actions]);
+    return null;
+};
+
+/**
+ * Android TV: the cast, guest-star and related rails of a movie / show page are drawn natively (NativeDetailRail).
+ * The web rails stay in the page, invisible, for navigation and actions. Renders nothing itself.
+ */
+const DetailsNativeRails: React.FC<{
+    itemKey: string;
+    cast: PlayerItem['cast'];
+    guests: PlayerItem['guestStars'];
+    related: Array<{ identifier?: string; title: string; items: PlayerItem[] }>;
+}> = ({ itemKey, cast, guests, related }) => {
+    const personItems = (rows: PlayerItem['cast']): DetailRailItem[] => (rows || []).slice(0, 15).map((actor) => ({
+        key: String(actor.id || actor.name),
+        img: actor.thumb ? nativeAbsoluteUrl(plexImageUrl(actor.thumb, 240, 240, { quality: 60 })) : '',
+        title: actor.name || '',
+        sub: actor.role || '',
+    }));
+    const castItems = useMemo(() => personItems(cast), [cast]);
+    const guestItems = useMemo(() => personItems(guests), [guests]);
+    const relatedItems = useMemo(() => related.map((hub) => hub.items.map((row): DetailRailItem => ({
+        key: String(row.ratingKey),
+        img: nativeCardImage(row, '2/3'),
+        title: row.title || '',
+        sub: row.year ? String(row.year) : '',
+        progress: 0,
+        watched: row.watched === true,
+    }))), [related]);
+    return (
+        <>
+            {castItems.length ? <NativeDetailRail railId="cast" rowId={`cast:${itemKey}`} kind="cast" items={castItems} /> : null}
+            {guestItems.length ? <NativeDetailRail railId="guests" rowId={`guests:${itemKey}`} kind="cast" items={guestItems} /> : null}
+            {related.map((hub, index) => (relatedItems[index]?.length ? (
+                <NativeDetailRail
+                    key={`rel${index}-${hub.identifier || hub.title}`}
+                    railId={`rel${index}`}
+                    rowId={`rail:${hub.title}`}
+                    kind="poster"
+                    items={relatedItems[index]}
+                />
+            ) : null))}
+        </>
+    );
+};
+
+type NativeTextChip = { icon: React.ReactNode; label: string; accent?: boolean };
+
+/**
+ * Android TV movie / show page: the identity (service mark + clear logo), meta chips + rating pills and the synopsis are
+ * drawn natively (NativeDetailsText); the web blocks stay in the layout, hidden. Renders nothing itself.
+ */
+const DetailsNativeText: React.FC<{
+    item: PlayerItem;
+    chips: NativeTextChip[];
+    ratings: ReturnType<typeof toCombinedRatings> | null;
+    tmdbScore: string | null;
+    tvdbScore: string | null;
+    premiere: string;
+    summary: string;
+    /** Episode / season page: the episode's title line + no service mark / tagline. */
+    heading?: string;
+}> = ({ item, chips, ratings, tmdbScore, tvdbScore, premiere, summary, heading }) => {
+    const brand = useNativeBrandMark(item);
+    const logo = item.logo ? plexLogoUrl(item.logo) : '';
+    const iconKind = (node: React.ReactNode) => {
+        const type = (node as { type?: unknown } | null)?.type;
+        if (type === Calendar) return 'cal';
+        if (type === Clock) return 'clock';
+        if (type === Star) return 'star';
+        if (type === CommonSenseMediaIcon) return 'csm';
+        return '';
+    };
+    const pills: Array<{ k: string; s: string; f?: boolean }> = [];
+    const rtCritics = Number(ratings?.rt?.criticsScore);
+    const rtAudience = Number(ratings?.rt?.audienceScore);
+    if (Number.isFinite(rtCritics)) pills.push({ k: 'rt', s: `${rtCritics}%`, f: ratings?.rt?.criticsRating !== 'Rotten' });
+    if (Number.isFinite(rtAudience)) pills.push({ k: 'rta', s: `${rtAudience}%`, f: ratings?.rt?.audienceRating !== 'Spilled' });
+    const imdb = ratings?.imdb?.criticsScore;
+    if (imdb != null && String(imdb) !== '') {
+        pills.push({ k: 'imdb', s: typeof imdb === 'number' ? (Number.isInteger(imdb) ? String(imdb) : imdb.toFixed(1)) : String(imdb) });
+    }
+    if (tmdbScore) pills.push({ k: 'tmdb', s: tmdbScore });
+    if (tvdbScore) pills.push({ k: 'tvdb', s: tvdbScore });
+    const episodePage = heading != null;
+    const content: NativeDetailsTextContent = {
+        identity: episodePage ? null : { logo, title: item.title || '', ...brand },
+        heading: episodePage && heading ? { text: heading, ep: true } : null,
+        meta: {
+            premiere,
+            tagline: episodePage ? '' : String(item.tagline || ''),
+            chips: chips.map((chip) => ({ l: chip.label, i: iconKind(chip.icon), a: chip.accent === true })),
+            pills,
+        },
+        synopsis: summary ? { text: summary, ep: episodePage } : null,
+    };
+    return <NativeDetailsTextBridge content={content} />;
+};
+
 /** Same 16:9 still size as TV episode cards (titles are hidden on TV). */
 const TvEpisodeRailSkeleton: React.FC<{ label: string }> = ({ label }) => (
     <section
@@ -793,6 +1122,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
     const episodeDetailCache = useRef(new Map<string, PlayerItem>());
     const [loading, setLoading] = useState(() => !readPlayerItemCache(ratingKey, serverId)?.item);
     const [error, setError] = useState<string | null>(null);
+    const fallbackOpenRef = useRef<{ ratingKey: string; type: string; title: string } | null>(null);
     const [reloadToken, setReloadToken] = useState(0);
     const [posterFailed, setPosterFailed] = useState(false);
     const [phonePosterFailed, setPhonePosterFailed] = useState(false);
@@ -961,6 +1291,11 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         writePlayerScrollTop(0);
         const cached = readPlayerItemCache(ratingKey, serverId);
         const seed = takePlayerItemSeed(ratingKey);
+        // If this title is gone from the library, open its show (or season) instead.
+        const gone = seed?.grandparentRatingKey || seed?.parentRatingKey || '';
+        fallbackOpenRef.current = gone && String(gone) !== String(ratingKey)
+            ? { ratingKey: String(gone), type: seed?.grandparentRatingKey ? 'show' : 'season', title: seed?.title || '' }
+            : null;
         if (cached?.item) {
             setItem(applyRememberedProgress(cached.item));
             setChildren((cached.children || []).map((row) => applyRememberedProgress(row)));
@@ -1113,6 +1448,12 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             })
             .catch((err) => {
                 if (cancelled) return false;
+                const fallback = fallbackOpenRef.current;
+                if (fallback && (Number((err as { status?: number })?.status) === 404 || /not found/i.test(String(err?.message || '')))) {
+                    fallbackOpenRef.current = null;
+                    onOpenItem({ ratingKey: fallback.ratingKey, type: fallback.type, title: fallback.title } as PlayerItem, { replace: true });
+                    return false;
+                }
                 let kept = false;
                 setItem((prev) => {
                     if (prev && String(prev.ratingKey) === String(ratingKey)) {
@@ -1587,14 +1928,19 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         };
     }, [activeMediaPart, audioStreamId, audioTrackOptions, item, mediaIndex, subtitleStreamId, subtitleTrackOptions, t]);
     const playOpts = useMemo((): PlayerPlayOptions => {
-        const opts: PlayerPlayOptions = { mediaIndex };
+        // With several versions and none remembered, leave it out so the app asks instead of using file 0.
+        const versionCount = item?.versions?.length || 0;
+        const savedVersion = item ? readVersionChoice(item) : null;
+        const opts: PlayerPlayOptions = versionCount > 1
+            ? (savedVersion != null && savedVersion < versionCount ? { mediaIndex: savedVersion } : {})
+            : { mediaIndex };
         if (item?.type === 'movie' || item?.type === 'episode') {
             if (audioStreamId) opts.audioStreamId = audioStreamId;
             // Always send an explicit choice once the picker is shown ('' → Off).
             opts.subtitleStreamId = subtitleStreamId || '0';
         }
         return opts;
-    }, [audioStreamId, item?.type, mediaIndex, subtitleStreamId]);
+    }, [audioStreamId, item?.type, item?.ratingKey, item?.versions, mediaIndex, subtitleStreamId]);
     const onAudioTrackChange = (id: string) => {
         setAudioStreamId(id);
         writeAvChoiceFromTracks(
@@ -1659,7 +2005,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
     const startPlay = (index = mediaIndex) => {
         setVersionPickerOpen(false);
         setMediaIndex(index);
-        writeMediaIndexChoice(ratingKey, index);
+        if (item) writeVersionChoice(item, index);
         onPlay(applyRememberedProgress(tvHubPlayTarget()), { ...playOpts, mediaIndex: index });
     };
     const playEpisodeTile = (row: PlayerItem) => {
@@ -1685,6 +2031,11 @@ export const MediaPlayerDetails: React.FC<Props> = ({
     const playNextNeighbor = neighbors.next;
     const onPlayPress = () => {
         if (versionChoices.length > 1) {
+            const saved = item ? readVersionChoice(item) : null;
+            if (saved != null && saved < versionChoices.length) {
+                startPlay(saved);
+                return;
+            }
             setVersionPickerOpen(true);
             return;
         }
@@ -2206,6 +2557,78 @@ export const MediaPlayerDetails: React.FC<Props> = ({
 
     episodeCardActions.current = { spotlight: queueTvSpotlight, play: playEpisodeTile };
 
+    // Movie / show pages on Android TV with the native Home on: the native view keeps the backdrop picture
+    // (already on screen from Home) and the page's own scrims draw over it.
+    const nativeArt = isTvShell && !!item
+        && (item.type === 'movie' || item.type === 'show' || item.type === 'episode' || item.type === 'season')
+        && readPerfFlags().nativeHome && isNativeHomeSupported()
+        ? (episodeHubBackdropUrl || homeHandoff?.url || plexBackdropUrl(item.art || item.thumb) || '')
+        : '';
+    const nativeBackdrop = nativeArt ? nativeAbsoluteUrl(nativeArt) : '';
+    const nativeOn = !!nativeBackdrop;
+    const nativeUrlRef = useRef(nativeBackdrop);
+    nativeUrlRef.current = nativeBackdrop;
+    const nativeEnteredRef = useRef(false);
+    const nativeTintRef = useRef(settings.detailsArtworkTint);
+    nativeTintRef.current = settings.detailsArtworkTint;
+    const nativeSurface = () => {
+        const root = document.querySelector<HTMLElement>('[data-tv-details="1"]');
+        return (root && getComputedStyle(root).getPropertyValue('--tv-details-surface').trim()) || TV_FLOOR_RGB;
+    };
+    useEffect(() => {
+        if (!nativeOn) return undefined;
+        let cancelled = false;
+        let frame = 0;
+        let scroller: HTMLElement | null = null;
+        const heroOf = () => document.querySelector<HTMLElement>('[data-tv-details="1"] .media-details-hero-backdrop');
+        const sendScroll = () => {
+            frame = 0;
+            const rect = heroOf()?.getBoundingClientRect();
+            if (!rect || rect.height < 2) return;
+            // The picture box is one screen tall: its top edge, in screen heights, is how far the page has scrolled.
+            nativeDetailsScroll(rect.top / rect.height, rect.height);
+        };
+        const onScroll = () => {
+            if (!frame) frame = window.requestAnimationFrame(sendScroll);
+        };
+        // Native draws Home's fade (gradients + colour); the page's own scrims would double it. With the tint on the
+        // colour comes from the picture, and the page takes it for everything below.
+        document.documentElement.dataset.nativeFade = '1';
+        const offSurface = onNativeHomeEvent('detailsSurface', (data) => {
+            const rgb = String(data.rowId || '').trim();
+            if (!rgb || !nativeTintRef.current) return;
+            const root = document.querySelector<HTMLElement>('[data-tv-details="1"]');
+            root?.style.setProperty('--tv-details-surface', rgb);
+            root?.querySelector<HTMLElement>('.media-details-hero-backdrop')?.style.setProperty('--tv-details-surface', rgb);
+            document.getElementById(PLAYER_SCROLL_ID)?.style.setProperty('--tv-details-surface', rgb);
+        });
+        void (async () => {
+            const ok = await nativeDetailsEnter(nativeUrlRef.current, nativeSurface(), nativeTintRef.current);
+            if (cancelled || !ok) return;
+            nativeEnteredRef.current = true;
+            setNativeHomeStageClear(true, '[data-tv-details="1"]');
+            heroOf()?.style.setProperty('background', 'transparent', 'important');
+            scroller = document.getElementById(PLAYER_SCROLL_ID);
+            scroller?.addEventListener('scroll', onScroll, { passive: true });
+            window.addEventListener('scroll', onScroll, { passive: true });
+            sendScroll();
+        })();
+        return () => {
+            cancelled = true;
+            offSurface();
+            delete document.documentElement.dataset.nativeFade;
+            nativeEnteredRef.current = false;
+            if (frame) window.cancelAnimationFrame(frame);
+            scroller?.removeEventListener('scroll', onScroll);
+            window.removeEventListener('scroll', onScroll);
+            nativeDetailsLeave(repaintTvDetailsSurface);
+        };
+    }, [nativeOn]);
+    // Another episode took the spotlight: the native picture cross-fades to its art.
+    useEffect(() => {
+        if (!nativeOn || !nativeEnteredRef.current) return;
+        void nativeDetailsEnter(nativeBackdrop, nativeSurface(), nativeTintRef.current);
+    }, [nativeBackdrop]);
     if (loading && !hasDetailsHero(item)) {
         if (isTvShell) {
             const kind = item?.type || '';
@@ -2737,7 +3160,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                         type="button"
                         onClick={() => openCrumb(showKey)}
                         disabled={!showKey}
-                        className="self-start text-left disabled:cursor-default"
+                        className="self-start appearance-none border-0 bg-transparent p-0 text-left shadow-none disabled:cursor-default"
                     >
                         <PlayerClearLogo
                             src={logoUrl}
@@ -3911,6 +4334,14 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                             </div>
                         ) : null}
                         <div className="media-details-episodes-rail">
+                        {nativeOn && isTvShell ? (
+                            <NativeEpisodeRailBridge
+                                rows={tvEpisodeRows}
+                                hideSpoiler={(row) => hideEpisodeSpoilers(settings, row)}
+                                focusKey={String(spotlightKey || item.ratingKey)}
+                                actions={episodeCardActions}
+                            />
+                        ) : null}
                         <Carousel posterRow flush>
                             {tvEpisodeRows.map((raw) => {
                                 const row = raw.type === 'episode' ? applyRememberedProgress(raw) : raw;
@@ -3971,6 +4402,43 @@ export const MediaPlayerDetails: React.FC<Props> = ({
 
             <div className="media-details-lower media-details-inset relative z-10 w-full mt-2 md:mt-4 flex flex-col gap-8 md:gap-10 bg-transparent max-w-none mx-0 pr-6 xl:pr-10">
 
+                {nativeOn && isTvShell && (item.type === 'episode' || item.type === 'season') && !loading ? (
+                    <DetailsNativeText
+                        item={item}
+                        chips={hubMetaChips}
+                        ratings={hubItem.ratings ? toCombinedRatings(hubItem.ratings, settings.ratingSources) : null}
+                        tmdbScore={settings.ratingSources.tmdb ? hubTmdbScore : null}
+                        tvdbScore={settings.ratingSources.tvdb ? hubTvdbScore : null}
+                        premiere=""
+                        summary={String(hubSummary || '')}
+                        heading={String(hubItem.title || '')}
+                    />
+                ) : null}
+
+                {nativeOn && isTvShell && (item.type === 'movie' || item.type === 'show') && !loading ? (
+                    <DetailsNativeText
+                        item={item}
+                        chips={metaChips}
+                        ratings={toCombinedRatings(hubItem.ratings || item.ratings, settings.ratingSources)}
+                        tmdbScore={settings.ratingSources.tmdb ? tmdbScore : null}
+                        tvdbScore={settings.ratingSources.tvdb ? tvdbScore : null}
+                        premiere={premiereLine}
+                        summary={String(hubSummary || '')}
+                    />
+                ) : null}
+
+                {nativeOn && isTvShell && !loading ? <NativeDetailActionsBridge /> : null}
+                {nativeOn && isTvShell && !loading && (item.type === 'episode' || item.type === 'season') && showSeasons.length ? <NativeSeasonTabsBridge /> : null}
+
+                {nativeOn && isTvShell && !(item.type === 'episode' || item.type === 'season') ? (
+                    <DetailsNativeRails
+                        itemKey={String(item.ratingKey)}
+                        cast={cast}
+                        guests={item.guestStars}
+                        related={related}
+                    />
+                ) : null}
+
                 {item.guestStars?.length && !(isTvShell && (item.type === 'episode' || item.type === 'season')) ? (
                     <section className="border-t border-border pt-8" data-tv-rail="1" data-tv-row="1" data-tv-row-id={`guests:${item.ratingKey}`}>
                         <SectionHeading>{t('mediaPlayerPage.guestStars')}</SectionHeading>
@@ -3981,6 +4449,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                     type="button"
                                     data-tv-item="1"
                                     data-tv-cast="1"
+                                    data-tv-key={String(actor.id || actor.name)}
                                     onClick={() => onOpenPerson({
                                         id: actor.id || actor.name,
                                         name: actor.name,
@@ -4011,6 +4480,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                     type="button"
                                     data-tv-item="1"
                                     data-tv-cast="1"
+                                    data-tv-key={String(actor.id || actor.name)}
                                     onClick={() => onOpenPerson({
                                         id: actor.id || actor.name,
                                         name: actor.name,

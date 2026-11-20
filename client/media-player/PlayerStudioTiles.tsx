@@ -6,7 +6,7 @@ import { plexImageUrl } from './playerUtils';
 import type { PlayerStudioBrowseCard } from './types';
 
 /** Plex Categories-style washes, cycled across the grid. */
-const TILE_TINTS = [
+export const TILE_TINTS = [
     '#1d7f99',
     '#b07d1c',
     '#2b8a3e',
@@ -33,9 +33,12 @@ export const PlayerStudioTiles: React.FC<Props> = ({ title, cards, keyPrefix, on
     if (!cards.length) return null;
     return (
         <section className="flex min-w-0 max-w-full flex-col gap-4" data-tv-row="1" data-tv-row-id={`lib:${keyPrefix}`}>
-            <DiscoverSectionHeader title={title} />
+            <div data-tv-studio-head="1">
+                <DiscoverSectionHeader title={title} />
+            </div>
             <div
                 className="player-studio-tiles grid grid-cols-4 gap-6"
+                data-tv-browse-grid="1"
                 data-tv-rail="1"
                 data-tv-poster-rail="1"
                 data-tv-poster-grid="1"

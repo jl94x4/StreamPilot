@@ -4,6 +4,7 @@ import { Sparkles } from 'lucide-react';
 import { useDiscoverI18n } from '../media-player/host';
 import { readApkWhatsNewSeen, writeApkWhatsNewSeen } from '../media-player/playerMemory';
 import { getPlexClientAppVersion } from './config';
+import { nativeHomeReleaseFocus } from './nativeHome';
 
 type WhatsNewSection = { title: string; items: string[] };
 type WhatsNewRelease = { version: string; sections: WhatsNewSection[] };
@@ -73,6 +74,660 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.820': [
+        {
+            title: 'Settings',
+            items: [
+                'Settings are regrouped so related options sit together, each tab split into headed sections: Home (Continue Watching, Rows on Home), Menu & libraries (side menu, order, Home libraries), Playback (Player, Quality, Up next, Picture), Audio & Subtitles, Title pages (theme music, trailer preview, ratings), Appearance (colour and text, posters and rows, clock and dates, sound and performance), Screensaver and Account',
+                'Nothing was removed or reset: every setting keeps its value, it has just moved to where you would look for it',
+            ],
+        },
+    ],
+    '1.0.819': [
+        {
+            title: 'Fixes',
+            items: [
+                'Settings → Coloured fade now covers Home too: with it off, Home fades into black like title pages instead of a colour taken from the artwork',
+            ],
+        },
+    ],
+    '1.0.818': [
+        {
+            title: 'Fixes',
+            items: [
+                'Changing settings on the Display tab (font, colours, corners) no longer blanks the screen',
+            ],
+        },
+    ],
+    '1.0.817': [
+        {
+            title: 'Title pages',
+            items: [
+                'Movie, show, season and episode pages now fade like Home, into a colour taken from the artwork',
+                'Turn it off in Settings (Coloured fade on title pages) to fade into black instead',
+            ],
+        },
+    ],
+    '1.0.816': [
+        {
+            title: 'Home',
+            items: [
+                'Back from a title keeps Home exactly as it was: same rows, same order, focus on the poster you opened',
+                'Shuffled rows and Because you watched rows only change when you pick Home in the menu',
+            ],
+        },
+    ],
+    '1.0.815': [
+        {
+            title: 'Fixes',
+            items: [
+                'Title logos no longer show twice, slightly offset',
+                'Back to Home lands on the poster you opened, scrolled into view, with its own backdrop and title',
+                'Opening a title no longer moves focus onto the hidden Home posters behind it',
+            ],
+        },
+    ],
+    '1.0.814': [
+        {
+            title: 'Home',
+            items: [
+                'Going Back from a show or episode page always puts focus back on the poster you came from',
+            ],
+        },
+    ],
+    '1.0.813': [
+        {
+            title: 'Season tabs',
+            items: [
+                'Up from any episode now goes straight to the season you are in on the top bar, instead of losing focus',
+            ],
+        },
+    ],
+    '1.0.812': [
+        {
+            title: 'Fixes',
+            items: [
+                'Going Back to Home and straight into another title no longer leaves the Home rows showing behind the title page',
+            ],
+        },
+    ],
+    '1.0.811': [
+        {
+            title: 'Show, season and episode pages',
+            items: [
+                'Up and Down between the episodes, Watch and the cast now move straight away, like on movie pages',
+                'Up from an episode to the season tabs works first time',
+            ],
+        },
+    ],
+    '1.0.810': [
+        {
+            title: 'Smoother title pages',
+            items: [
+                'The big background picture now moves exactly with the page instead of trailing it while you scroll',
+                'Handing the remote between the page and the cast / related rows no longer stalls the screen for a moment',
+                'The old highlight no longer lingers on the row you just left',
+                'The tick on watched related titles is visible again',
+            ],
+        },
+    ],
+    '1.0.809': [
+        {
+            title: 'Cast',
+            items: [
+                'Cast role names under the actor are no longer cut off at the bottom',
+            ],
+        },
+    ],
+    '1.0.808': [
+        {
+            title: 'Title page',
+            items: [
+                'Only one highlight at a time when moving up and down between rows (the old one lingered)',
+                'Cast role lines are no longer cut off at the bottom',
+            ],
+        },
+    ],
+    '1.0.807': [
+        {
+            title: 'Smoother scrolling',
+            items: [
+                'Fixed the small backwards jerk at the start of each scroll on title pages',
+            ],
+        },
+    ],
+    '1.0.806': [
+        {
+            title: 'Faster title pages',
+            items: [
+                'Moving up and down between Resume, cast and related is now instant, with no lag before the highlight follows you',
+                'Pressing Up on Resume no longer flashes',
+            ],
+        },
+    ],
+    '1.0.805': [
+        {
+            title: 'Title page fixes',
+            items: [
+                'The watched tick on related titles is back to a sensible size',
+                'Less flicker on the cast photos and the Resume button',
+                'The page no longer jumps to the top before landing on Related',
+            ],
+        },
+    ],
+    '1.0.804': [
+        {
+            title: 'Smoother scrolling',
+            items: [
+                'Moving up and down on title and actor pages now glides instead of snapping',
+            ],
+        },
+    ],
+    '1.0.803': [
+        {
+            title: 'Watched',
+            items: [
+                'Marking an episode watched or unwatched no longer says something went wrong when you have two servers',
+            ],
+        },
+    ],
+    '1.0.802': [
+        {
+            title: 'Browse A-Z',
+            items: [
+                'Picking a letter now lands on the first title of that letter (it could open on the letter before)',
+                'Pressing Up on "All" in the A-Z bar stays put instead of jumping to the tabs',
+            ],
+        },
+    ],
+    '1.0.801': [
+        {
+            title: 'Library',
+            items: [
+                'The sort and Filters buttons are now native too, and move in step with the library header as you scroll',
+                'Collection and Studio pages now use the smooth native poster grid',
+                'More space between posters, and the focus outline stays inside the poster so it no longer clashes with its neighbour',
+            ],
+        },
+    ],
+    '1.0.800': [
+        {
+            title: 'Filters menu',
+            items: [
+                'Filters menu is wider so nothing is cut off, unset filters simply say "All", and there is a gap before each arrow',
+            ],
+        },
+    ],
+    '1.0.799': [
+        {
+            title: 'Fixes',
+            items: [
+                'The library Filters menu shows each filter and its current value separately again (Sort by … Title)',
+            ],
+        },
+    ],
+    '1.0.798': [
+        {
+            title: 'Library header',
+            items: [
+                'The library title and tabs (Recommended, Browse, Collections, Studios) are now native, and move in step with the poster grid as you scroll',
+            ],
+        },
+    ],
+    '1.0.797': [
+        {
+            title: 'Watchlist',
+            items: [
+                'Your Watchlist is now native: the poster grid scrolls smoothly, and coming back from a title returns instantly without reloading',
+            ],
+        },
+    ],
+    '1.0.796': [
+        {
+            title: 'Side menu',
+            items: [
+                'The side menu and the clock are now native: the menu opens and moves instantly, with the same look as before',
+            ],
+        },
+    ],
+    '1.0.795': [
+        {
+            title: 'Backdrops',
+            items: [
+                'Fire TV Stick and other low-memory devices now get the same full-colour backdrops as everything else (smooth fades, no banding)',
+            ],
+        },
+    ],
+    '1.0.793': [
+        {
+            title: 'Search',
+            items: [
+                'Search is now native: the on-screen keyboard and the results rows are drawn natively, so typing and moving about are much smoother',
+                'A leftover search (one you picked from history) is cleared the moment you press a key, so you start fresh',
+            ],
+        },
+    ],
+    '1.0.792': [
+        {
+            title: 'Backdrops',
+            items: [
+                'Faces that would sit under the description text now slide right so they are clear of it',
+            ],
+        },
+    ],
+    '1.0.791': [
+        {
+            title: 'Backdrops',
+            items: [
+                'Pictures only lift or slide sideways when there is a lot of empty room at the top or right - everything else stays put',
+            ],
+        },
+    ],
+    '1.0.790': [
+        {
+            title: 'Backdrops',
+            items: [
+                'Backdrop fades now use the dominant colour of the picture (a white poster fades grey, a blue one blue) - no more muddy brown',
+                'Pictures with a group of people and empty space on the right slide further right so everyone is in view',
+            ],
+        },
+    ],
+    '1.0.788': [
+        {
+            title: 'Backdrops',
+            items: [
+                'Artwork with black bars along its edges is cropped, so no hard line shows at the top or sides',
+                'Where a picture starts part-way across the screen, its edge is now blended in with no visible line',
+            ],
+        },
+    ],
+    '1.0.787': [
+        {
+            title: 'Backdrops',
+            items: [
+                'Home and library backdrops now fade out over a much longer, softer distance, with no hard edge where the picture starts',
+            ],
+        },
+    ],
+    '1.0.786': [
+        {
+            title: 'Backdrops',
+            items: [
+                'Home backdrop fades now take their colour from the picture itself (no more brown fade over a blue or red image)',
+                'Faces and the main action are kept in view, no longer clipped at the right edge',
+            ],
+        },
+    ],
+    '1.0.785': [
+        {
+            title: 'Settings',
+            items: [
+                'The Settings screen is now drawn natively, so moving through tabs and long lists is smoother. Every setting works as before: switches, pickers, reorder arrows, library hearts, text fields and Save / Discard',
+                'Pickers open on the value that is on now',
+            ],
+        },
+    ],
+    '1.0.784': [
+        {
+            title: 'Episode pages',
+            items: [
+                'The episode title, details line, ratings and description are now drawn natively, so they swap cleanly (no ghosting) as you move between episodes',
+            ],
+        },
+    ],
+    '1.0.783': [
+        {
+            title: 'Episode rows',
+            items: [
+                'The highlight border around an episode card no longer flickers when you move between episodes',
+            ],
+        },
+    ],
+    '1.0.782': [
+        {
+            title: 'Smoother details pages',
+            items: [
+                'The buttons, text, cast rows and season bar now move with the page while you scroll, so details pages no longer flicker',
+                'Switching backdrops is lighter on memory, especially on Fire TV sticks',
+            ],
+        },
+    ],
+    '1.0.781': [
+        {
+            title: 'Backdrops',
+            items: [
+                'Backdrops are now full 1080p at quality 95 everywhere, Fire TV included, and a cut-off picture is downloaded again instead of showing coloured lines',
+            ],
+        },
+    ],
+    '1.0.780': [
+        {
+            title: 'Android TV test',
+            items: [
+                'Native season bar on episode and season pages (Show, Season 1, Season 2 ...)',
+            ],
+        },
+    ],
+    '1.0.779': [
+        {
+            title: 'Android TV test',
+            items: [
+                'Native details buttons: Play / Resume, restart, watched, watch together, info and more are drawn natively on movie, show and episode pages',
+            ],
+        },
+    ],
+    '1.0.778': [
+        {
+            title: 'Android TV test',
+            items: [
+                'Native Home billboard: the age rating icon and the studio, network and streaming logos are back, and tall billboards are no longer cut off',
+                'Native movie and show pages: the logo, date / runtime chips, rating pills and synopsis are drawn natively',
+            ],
+        },
+    ],
+    '1.0.777': [
+        {
+            title: 'Android TV test',
+            items: [
+                'Native Home: the billboard (logo, episode line, synopsis, cast) is now drawn natively, following the focused poster and the sidebar',
+            ],
+        },
+    ],
+    '1.0.776': [
+        {
+            title: 'Android TV test',
+            items: [
+                'Hide spoilers: the blurred episode stills are now smooth instead of pixelated',
+                'Hide spoilers now also hides an episode you have only part watched, until you finish it',
+            ],
+        },
+    ],
+    '1.0.775': [
+        {
+            title: 'Android TV test',
+            items: [
+                'Hide spoilers now works in Native Home: unwatched episode stills are blurred on the episode rail and on Home, and the rail stays native',
+            ],
+        },
+    ],
+    '1.0.774': [
+        {
+            title: 'Android TV test',
+            items: [
+                'Native Home now follows your Display settings: poster corners, row marker, text size and the View more card (Backdrop, Mosaic, Deck, Minimal)',
+                'Settings always opens on the Home tab, so the remote never starts on a stray row',
+            ],
+        },
+    ],
+    '1.0.773': [
+        {
+            title: 'Android TV test',
+            items: [
+                'The clear logo no longer shows a white box behind it when a show or movie page opens',
+                'The native episode rail now hides while a video is playing',
+            ],
+        },
+    ],
+    '1.0.772': [
+        {
+            title: 'Android TV test',
+            items: [
+                'Very bright posters (like Lady) now give a calmer, toned down Home backdrop',
+                'The Native Home switch in Settings is now marked BETA',
+                'Episode pages: the fade now carries on under the cast photos',
+            ],
+        },
+    ],
+    '1.0.771': [
+        {
+            title: 'Android TV test',
+            items: [
+                'Changing the app font now previews live on the page text while you are in Settings',
+            ],
+        },
+    ],
+    '1.0.770': [
+        {
+            title: 'Android TV test',
+            items: [
+                'New Native Home (test) switch in Settings, Display: draws Home with native TV graphics for smoother left and right. Off by default',
+                'Native Home also draws the Recommended page of each library, the backdrop on movie, show and episode pages, and the season episode rail',
+                'Native Home also draws the Browse grid of each library, with the same scrolling, A to Z bar and filters',
+                'Native Home also draws the Collections tab, and the cast, guest star and related rails on movie and show pages',
+                'Thick focus rings on Browse and the rails now stay inside the gap between posters instead of covering the next title',
+                'Movie and show pages: the backdrop now scrolls and fades into the page colour all the way down, with the fade drawn natively so it no longer flickers while scrolling',
+                'Episode pages: the episode rail now always appears and takes focus on the episode you are up to when the page opens',
+                'Episode rail: focus no longer drops while scrolling quickly, and the focus ring stays put when you select an episode instead of flashing',
+                "The What's New window now takes the remote straight away on launch, instead of the Home rows moving behind it",
+                'Stepping through episodes no longer blinks the title and details: the text swaps at once instead of fading in from nothing',
+                'Episode and cast rails: the focus ring no longer drops out and returns a moment after you land on a card',
+                'Studios tab: the network and studio tiles now draw natively, so scrolling them is smoother, and Back lands on the tile you opened',
+                'Title menus (hold Select on a poster, or the ⋯ button) now open natively, so they appear instantly and scroll smoothly',
+                'Home and library backdrops now find the people in the picture and slide them into view instead of leaving them behind the text',
+                'The app font setting now applies to the native rows, menus, Studios and cast / episode rails too, not just the page text',
+                'Native posters follow your Settings: accent colour and focus ring thickness',
+            ],
+        },
+    ],
+    '1.0.768': [
+        {
+            title: 'Fire TV',
+            items: [
+                'Smoother Home on Fire TV sticks: the Home picture and its shading are now drawn as one layer instead of two',
+                'Pressing left and right does less work on a Fire TV: remembering your spot and fetching title details now wait until you pause',
+            ],
+        },
+    ],
+    '1.0.767': [
+        {
+            title: 'Sound on TV',
+            items: [
+                'With Passthrough on, films now play untunneled on TV (like Kodi) so the remote volume keeps working on a Shield',
+            ],
+        },
+    ],
+    '1.0.766': [
+        {
+            title: 'Home rows',
+            items: [
+                'A title no longer shows twice in the same row (for example a movie on two servers)',
+            ],
+        },
+    ],
+    '1.0.765': [
+        {
+            title: 'Home rows',
+            items: [
+                'The loading placeholders on a Heroes View more page are now wide 16:9 tiles too',
+            ],
+        },
+    ],
+    '1.0.764': [
+        {
+            title: 'Home rows',
+            items: [
+                'Heroes View more pages now show the cover art of each title, like the Home row',
+                'On TV, going up to the top of a collection page no longer cuts off its title',
+            ],
+        },
+    ],
+    '1.0.763': [
+        {
+            title: 'Home rows',
+            items: [
+                'View more on a Heroes row now keeps the wide 16:9 tiles instead of switching to posters',
+            ],
+        },
+    ],
+    '1.0.762': [
+        {
+            title: 'Sound',
+            items: [
+                'Multichannel AAC and HE-AAC (5.1) keep all their channels instead of being downmixed to stereo by the TV decoder',
+            ],
+        },
+    ],
+    '1.0.761': [
+        {
+            title: 'Sound',
+            items: [
+                'Multichannel AAC and HE-AAC (5.1) keep all their channels: the app decodes AAC itself instead of using your TV decoder, which downmixed it to stereo',
+                'Bitstream: TrueHD / Atmos is now offered to your TV or receiver for any channel layout, not only the ones Android lists',
+            ],
+        },
+    ],
+    '1.0.760': [
+        {
+            title: 'Sound',
+            items: [
+                'TrueHD and Atmos now go out as the real bitstream when Bitstream is on, even if your TV or receiver does not list TrueHD, instead of being turned into PCM 7.1',
+            ],
+        },
+    ],
+    '1.0.759': [
+        {
+            title: 'Continue Watching',
+            items: [
+                'Continue Watching now refreshes on first load: titles you finished or removed elsewhere no longer linger',
+                'Remove from Continue Watching is now the first option under the rating in the ⋯ menu',
+            ],
+        },
+    ],
+    '1.0.758': [
+        {
+            title: 'Downloads',
+            items: [
+                'Downloads keep going after a dropped connection or a Plex hiccup: they reconnect and pick up where they stopped',
+                'Retry continues a half-finished download instead of starting again',
+                'Converted downloads start a fresh Plex session each try, which fixes the random "400 Bad Request"',
+                'The Downloads page now looks like the library: Movies and TV tabs, posters, season pills and episodes',
+            ],
+        },
+    ],
+    '1.0.757': [
+        {
+            title: 'Ratings',
+            items: [
+                'Episodes missing their IMDb or Rotten Tomatoes score now get it from Plex, like the Plex app',
+            ],
+        },
+    ],
+    '1.0.756': [
+        {
+            title: 'Play version',
+            items: [
+                'Play version in the ⋯ menu to choose between 4K, 1080p and other files; your pick is remembered for that movie or show',
+                'The first time you play a title with several versions it asks once, then Play just uses your choice',
+            ],
+        },
+    ],
+    '1.0.755': [
+        {
+            title: 'Skip intro and credits',
+            items: [
+                'Auto skip now shows the Skip button with a 5 second countdown first, like the official app',
+                'A Manual or Off choice is no longer overridden by an old auto-skip setting',
+            ],
+        },
+    ],
+    '1.0.754': [
+        {
+            title: 'Choosing a version',
+            items: [
+                'Playing a title with more than one file (4K and 1080p) asks which one, from Home, Continue Watching and the Resume prompt too',
+            ],
+        },
+    ],
+    '1.0.753': [
+        {
+            title: 'Downloads',
+            items: [
+                'Starting a new download queues it behind the current one instead of failing it',
+            ],
+        },
+    ],
+    '1.0.752': [
+        {
+            title: 'TV ratings',
+            items: [
+                'New Plain ratings setting shows IMDb, TMDB and other scores without the coloured boxes',
+            ],
+        },
+    ],
+    '1.0.751': [
+        {
+            title: 'Downloads',
+            items: [
+                'Tapping Download scrolls to the quality options',
+                'Tidier spacing on the Downloads page',
+            ],
+        },
+    ],
+    '1.0.750': [
+        {
+            title: 'Downloads',
+            items: [
+                'A round pill on the Downloads button shows how many are in progress',
+            ],
+        },
+    ],
+    '1.0.749': [
+        {
+            title: 'Downloads',
+            items: [
+                'Fixed downloads failing with a smaller quality selected, and failure messages now say why',
+            ],
+        },
+    ],
+    '1.0.748': [
+        {
+            title: 'Downloads',
+            items: [
+                'Retry button on a failed download',
+            ],
+        },
+    ],
+    '1.0.747': [
+        {
+            title: 'Downloads',
+            items: [
+                'Downloads keep going when the app is in the background, with a notification',
+            ],
+        },
+    ],
+    '1.0.746': [
+        {
+            title: 'Downloads',
+            items: [
+                'Downloads are organised like a library: Show, Season, then Episodes, with Movies on their own',
+            ],
+        },
+    ],
+    '1.0.745': [
+        {
+            title: 'Downloads',
+            items: [
+                'Pick a quality (including smaller converted copies) before downloading, with an estimated size',
+            ],
+        },
+    ],
+    '1.0.744': [
+        {
+            title: 'TV',
+            items: [
+                'Season bar: even spacing at the start and reliable left and right movement along it',
+            ],
+        },
+    ],
+    '1.0.743': [
+        {
+            title: 'Resume and details',
+            items: [
+                'Resume prompt is wider and shows the episode still, air date, rating and summary',
+                'Details for a title no longer in the library open its show instead of a blank card',
+            ],
+        },
+    ],
     '1.0.742': [
         {
             title: 'Screensaver',
@@ -5115,6 +5770,8 @@ export const ApkWhatsNew: React.FC = () => {
             }
             return document.activeElement === btn;
         };
+        // Native Home holds the Android focus on first launch: hand it to the page so the dialog gets the keys.
+        void nativeHomeReleaseFocus().then(focusContinue);
         focusContinue();
         let attempts = 24;
         const timer = window.setInterval(() => {

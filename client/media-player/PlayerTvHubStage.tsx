@@ -11,6 +11,8 @@ import type { ViewMoreShelfSource } from './PlayerViewMoreCard';
 import { readPlayerItemCache } from './playerMemory';
 import { itemHasBillboardBrandMeta } from './studioLogo.js';
 import { formatPlayerDate, formatPlayerDuration, isFuturePlayerDate, isPlayerBackdropReady, pickRicherSummary, pinTvNeighborBackdrops, playerItemBackdropUrl, plexLogoUrl, prefetchHomeRowPosters, primeNearbyTvBillboard, warmPlayerBackdrop } from './playerUtils';
+import { useNativeHubStage, HUB_STAGE_ATTR } from './useNativeHubStage';
+import { usePlayerSettings } from './usePlayerSettings';
 import { PlayerTvStatusPanel } from './PlayerTvStatusPanel';
 import type { PlayerItem, PlayerPlayOptions } from './types';
 
@@ -621,6 +623,25 @@ export const PlayerTvHubStage: React.FC<Props> = ({
         };
     }, [active, tvSpotItem?.ratingKey, tvSpotItem?.serverId]);
 
+    // Recommended rows and backdrop drawn by the native view (Android TV, when the native Home is on).
+    const [playerSettings] = usePlayerSettings();
+    const { t } = useDiscoverI18n();
+    const nativeRows = useMemo(() => rows.map((row) => ({ ...row, onViewAll: allowViewAll ? row.onViewAll : undefined })), [rows, allowViewAll]);
+    useNativeHubStage({
+        active,
+        loading,
+        rows: nativeRows,
+        tickPosition: playerSettings.watchedTickPosition,
+        viewMoreLabel: t('common.viewMore'),
+        resetKey,
+        onOpenItem,
+        onFocusKey: (index, rowId, key) => {
+            setTvFocusKey(key);
+            tvRowFocusRef.current[rowId] = key;
+            if (index !== tvRowIndexRef.current) setTvRowIndex(index);
+        },
+    });
+
     if (loading && !rows.length) {
         return <PlayerTvHomeStageSkeleton header={header} heroCard={false} />;
     }
@@ -643,6 +664,7 @@ export const PlayerTvHubStage: React.FC<Props> = ({
             ref={stageRef}
             className="tv-poster-rows player-home-page player-home-stage"
             data-tv-library="1"
+            {...{ [HUB_STAGE_ATTR]: '1' }}
             aria-label={ariaLabel}
         >
             {header}

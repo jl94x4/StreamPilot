@@ -189,6 +189,10 @@ export const PlayerClearLogo: React.FC<Props> = ({ src, alt, className, onError,
             onError={() => onError?.()}
             style={{
                 opacity: ready ? 1 : 0,
+                // Some WebViews paint a not-yet-measured image on a white box (the transparent logo over white): hide it outright.
+                // Only ever hide: 'visible' here would override a hidden parent (the TV title page hides its logo while the
+                // native view draws it, and an explicit 'visible' painted both, offset: a doubled logo).
+                visibility: ready ? undefined : 'hidden',
                 ...(fillSlot && slotScale < 1 ? { ['--logo-scale' as string]: slotScale.toFixed(3) } : null),
                 ...(growScale > 1.02 ? { ['--logo-scale' as string]: growScale.toFixed(3) } : null),
                 transform,

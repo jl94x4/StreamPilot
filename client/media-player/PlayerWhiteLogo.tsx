@@ -278,3 +278,27 @@ export const PlayerWhiteLogo: React.FC<Props> = ({ logoPath, alt, className = ''
     }
     return <img src={state.url} alt={alt} draggable={false} className={className} />;
 };
+
+/** The whitened logo as a data: URL (what the native Studios tiles draw), or null when it could not be made. */
+export const whiteLogoDataUrl = (logoPath: string): Promise<string | null> => new Promise((resolve) => {
+    const src = discoveryLogoUrl(logoPath, 300);
+    requestWhite(src, (url) => {
+        if (!url) {
+            resolve(null);
+            return;
+        }
+        if (url.startsWith('data:')) {
+            resolve(url);
+            return;
+        }
+        fetch(url)
+            .then((response) => response.blob())
+            .then((blob) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(typeof reader.result === 'string' ? reader.result : null);
+                reader.onerror = () => resolve(null);
+                reader.readAsDataURL(blob);
+            })
+            .catch(() => resolve(null));
+    });
+});

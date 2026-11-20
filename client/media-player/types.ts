@@ -496,4 +496,6 @@ export type PlayerPlayOptions = {
     watchTogether?: string | null;
     /** Prefer completed in-app offline download (phone). */
     offlineLocal?: boolean;
+    /** Open the version picker even when one is remembered (Play version… in the ⋯ menu). */
+    pickVersion?: boolean;
 };

@@ -68,7 +68,7 @@ import {
     readAvChoice,
     readLocalPlaybackPrefs,
     writeAvChoiceFromTracks,
-    writeMediaIndexChoice,
+    writeVersionChoice,
     readMiniPlayerWidth,
     readPlayerItemCache,
     writeLocalPlaybackPrefs,
@@ -1409,7 +1409,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                             : (subtitleStreamIdRef.current ?? session.subtitleStreamId ?? '');
                         const nextMediaIndex = event.mediaIndex != null ? event.mediaIndex : (session.mediaIndex || 0);
                         if (event.mediaIndex != null) {
-                            writeMediaIndexChoice(session.item.ratingKey, nextMediaIndex);
+                            writeVersionChoice(session.item, nextMediaIndex);
                         }
                         if (event.qualityId != null) {
                             setQualityId(event.qualityId);
@@ -2601,10 +2601,20 @@ export const MediaPlayerVideo: React.FC<Props> = ({
         video.currentTime = Math.max(0, (durationMs - 1000) / 1000);
     };
 
+    // Auto: the Skip intro button counts down 5s (playback time) before it jumps, like the official app.
+    const introAutoFromRef = useRef(-1);
+    if (skipIntroMode === 'auto' && inIntroRange && ready) {
+        if (introAutoFromRef.current < 0 || currentMs < introAutoFromRef.current) introAutoFromRef.current = currentMs;
+    } else {
+        introAutoFromRef.current = -1;
+    }
+    const introCountdown = introAutoFromRef.current >= 0
+        ? Math.max(0, Math.ceil((5000 - (currentMs - introAutoFromRef.current)) / 1000))
+        : null;
     useEffect(() => {
-        if (skipIntroMode !== 'auto' || !inIntroRange || !ready) return;
+        if (introCountdown !== 0) return;
         skipIntro();
-    }, [skipIntroMode, inIntroRange, ready]);
+    }, [introCountdown]);
 
     useEffect(() => {
         if (skipCreditsMode !== 'auto' || !inCreditsRange || !ready) return;
@@ -3087,7 +3097,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                         onClick={skipIntro}
                         className={`absolute z-20 rounded-full bg-white font-black text-black shadow-lg ${theater ? 'right-4 bottom-28 px-4 py-2 text-sm' : 'right-2 bottom-2 px-2.5 py-1 text-xs'}`}
                     >
-                        {t('mediaPlayerPage.skipIntro')}
+                        {t('mediaPlayerPage.skipIntro')}{introCountdown ? ` (${introCountdown})` : ''}
                     </button>
                 ) : null}
 
@@ -3301,7 +3311,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                                         onChange={(id) => {
                                             setOpenMenu(null);
                                             const nextIndex = Number(id) || 0;
-                                            writeMediaIndexChoice(session.item.ratingKey, nextIndex);
+                                            writeVersionChoice(session.item, nextIndex);
                                             onPlayItem?.(session.item, {
                                                 offsetMs: Math.floor(currentMsRef.current || 0),
                                                 mediaIndex: nextIndex,

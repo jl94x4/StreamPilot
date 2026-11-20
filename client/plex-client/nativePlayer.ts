@@ -273,7 +273,11 @@ export const installNativeMediaPlayerBridge = () => {
             },
             open: async (opts) => {
                 const playerPrefs = readPlayerSettings();
-                const result = await CapNativeMediaPlayer.open({
+                // The native rails sit above the page: hide them while the player screen is up.
+                document.documentElement.dataset.nativePlayerOpen = '1';
+                let result: Awaited<ReturnType<typeof CapNativeMediaPlayer.open>>;
+                try {
+                result = await CapNativeMediaPlayer.open({
                     url: opts.url,
                     title: opts.title,
                     logoUrl: opts.logoUrl || '',
@@ -290,6 +294,9 @@ export const installNativeMediaPlayerBridge = () => {
                     showClock: playerPrefs.showClock,
                     sessionJson: opts.session ? JSON.stringify(opts.session) : '',
                 });
+                } finally {
+                    delete document.documentElement.dataset.nativePlayerOpen;
+                }
                 return {
                     ended: !!result?.ended,
                     positionMs: Math.max(0, Math.floor(Number(result?.positionMs) || 0)),

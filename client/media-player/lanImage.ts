@@ -5,6 +5,8 @@
  * blob URLs. Away from that LAN they can't load at all and callers fall back to a placeholder.
  */
 const cache = new Map<string, Promise<string>>();
+/** blob: URL -> the http:// address it was loaded from (the native Home fetches those itself). */
+const blobOrigin = new Map<string, string>();
 /** Most recently used blobs kept (a full guide's worth); older ones are released. */
 const LAN_IMAGE_CAP = 300;
 
@@ -13,7 +15,7 @@ const trimCache = () => {
         const oldest = cache.keys().next().value as string;
         const hit = cache.get(oldest);
         cache.delete(oldest);
-        hit?.then((url) => URL.revokeObjectURL(url), () => undefined);
+        hit?.then((url) => { blobOrigin.delete(url); URL.revokeObjectURL(url); }, () => undefined);
     }
 };
 
@@ -21,6 +23,9 @@ export const isLanHttpImage = (src?: string | null) => /^http:\/\//i.test(String
 
 /** Already a displayable <img> src: do not wrap as /api/plex/image or a library thumb. */
 export const isDirectImageSrc = (src?: string | null) => /^(https?:|blob:|data:)/i.test(String(src || ''));
+
+/** The original http:// address behind a blob: URL from loadLanImage (anything else comes back as is). */
+export const lanImageOrigin = (url: string) => blobOrigin.get(url) || url;
 
 export const loadLanImage = (src: string): Promise<string> => {
     let hit = cache.get(src);
@@ -31,7 +36,11 @@ export const loadLanImage = (src: string): Promise<string> => {
     } else {
         hit = fetch(src)
             .then((res) => (res.ok ? res.blob() : Promise.reject(new Error(String(res.status)))))
-            .then((blob) => URL.createObjectURL(blob));
+            .then((blob) => {
+                const url = URL.createObjectURL(blob);
+                blobOrigin.set(url, src);
+                return url;
+            });
         hit.catch(() => cache.delete(src));
         cache.set(src, hit);
         trimCache();

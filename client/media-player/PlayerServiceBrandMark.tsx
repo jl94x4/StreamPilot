@@ -22,7 +22,7 @@ type Props = {
  * Movies → studio, then streaming. Shows → network, then studio, then streaming.
  * Discovery+ keeps coloured D + white wordmark.
  */
-export const PlayerServiceBrandMark: React.FC<Props> = ({ item, className = '' }) => {
+export const useServiceBrandPick = (item: PlayerItem | null | undefined) => {
     const { preferences } = useDiscoveryPreferences();
     const [settings] = usePlayerSettings();
     const [failedKeys, setFailedKeys] = useState<string[]>([]);
@@ -114,6 +114,20 @@ export const PlayerServiceBrandMark: React.FC<Props> = ({ item, className = '' }
     const failKey = String(preferred.key || preferred.logoPath || preferred.name || '').trim();
     // Discovery+: coloured icon + white text — must not run through brightness/invert.
     const preserveColor = shouldPreserveColorLogo(String(preferred.logoPath), preferred.name);
+    return {
+        preferred,
+        preserveColor,
+        fail: () => {
+            if (!failKey) return;
+            setFailedKeys((prev) => (prev.includes(failKey) ? prev : [...prev, failKey]));
+        },
+    };
+};
+
+export const PlayerServiceBrandMark: React.FC<Props> = ({ item, className = '' }) => {
+    const pick = useServiceBrandPick(item);
+    if (!pick) return null;
+    const { preferred, preserveColor, fail } = pick;
 
     return (
         <DiscoveryLogo
@@ -123,10 +137,7 @@ export const PlayerServiceBrandMark: React.FC<Props> = ({ item, className = '' }
             loading="eager"
             duotone={false}
             tone={preserveColor ? 'auto' : 'light'}
-            onError={() => {
-                if (!failKey) return;
-                setFailedKeys((prev) => (prev.includes(failKey) ? prev : [...prev, failKey]));
-            }}
+            onError={fail}
             className={`player-service-brand-mark ${preserveColor ? 'player-service-brand-mark--color' : ''} ${className}`.trim()}
         />
     );

@@ -11,12 +11,12 @@ import {
     useDiscoverGridSize,
     useDiscoverI18n,
 } from './host';
-import { fetchMediaPlayerHub, setMediaPlayerWatched } from './api';
+import { fetchMediaPlayerHeroArt, fetchMediaPlayerHub, setMediaPlayerWatched } from './api';
 import { PLAYER_SCROLL_ID } from './paths';
 import { PlayerPosterCard } from './PlayerPosterCard';
 import { PlayerTvStatusPanel } from './PlayerTvStatusPanel';
 import { classifyPlayerHomeHub, stabilizeContinueWatchingOrder } from './playerSettings';
-import { hideWatchedPlayerItems, withShowPoster } from './playerUtils';
+import { heroRowCardItem, hideWatchedPlayerItems, withShowPoster } from './playerUtils';
 import { usePlayerSettings } from './usePlayerSettings';
 import type { PlayerItem, PlayerPlayOptions } from './types';
 
@@ -25,6 +25,57 @@ const hubSeeds = new Map<string, PlayerItem[]>();
 export const seedHubItems = (path: string, items: PlayerItem[] | null | undefined) => {
     if (path && items?.length) hubSeeds.set(path, items);
 };
+
+/** Rows labelled Heroes show 16:9 tiles on Home; their View more page keeps them. Keyed by hub path or collection key. */
+const HERO_GRID_KEY = 'smp-hero-grids';
+const readHeroGrids = (): Record<string, true> => {
+    try {
+        return JSON.parse(window.sessionStorage?.getItem(HERO_GRID_KEY) || '{}') || {};
+    } catch {
+        return {};
+    }
+};
+export const markHeroGrid = (id: string | null | undefined, hero: boolean) => {
+    const key = String(id || '').trim();
+    if (!key) return;
+    try {
+        const next = readHeroGrids();
+        if (hero) next[key] = true; else delete next[key];
+        window.sessionStorage?.setItem(HERO_GRID_KEY, JSON.stringify(next));
+    } catch { /* ignore */ }
+};
+export const isHeroGrid = (id: string | null | undefined) => !!readHeroGrids()[String(id || '').trim()];
+/** Title-art covers for the titles of a Heroes View more page (the Home row already has them; the full list does not). */
+export const useHeroArt = (items: PlayerItem[], enabled: boolean) => {
+    const [art, setArt] = useState<Record<string, string>>({});
+    const asked = useRef<Set<string>>(new Set());
+    const alive = useRef(true);
+    useEffect(() => {
+        alive.current = true;
+        return () => { alive.current = false; };
+    }, []);
+    useEffect(() => {
+        if (!enabled) return;
+        const fresh = items.filter((row) => row.ratingKey && !asked.current.has(String(row.ratingKey)));
+        if (!fresh.length) return;
+        fresh.forEach((row) => asked.current.add(String(row.ratingKey)));
+        void fetchMediaPlayerHeroArt(fresh).then((map) => {
+            if (alive.current && Object.keys(map).length) setArt((prev) => ({ ...prev, ...map }));
+        });
+    }, [items, enabled]);
+    return art;
+};
+/** A hero tile for one title: its cover art when we have it, else the plain still. */
+export const heroTile = (row: PlayerItem, art: Record<string, string>): PlayerItem => (
+    heroRowCardItem(art[String(row.ratingKey)] ? { ...row, heroArt: art[String(row.ratingKey)] } : row)
+);
+/** Column template for 16:9 tiles (the poster templates are far too narrow for them). */
+export const heroGridStyle = (tvShell: boolean): React.CSSProperties => ({
+    gridTemplateColumns: tvShell
+        ? 'repeat(auto-fill, calc(26rem / var(--tv-text-scale, 1)))'
+        : 'repeat(auto-fill, minmax(min(100%, 16rem), 1fr))',
+    gap: tvShell ? '1rem' : '0.9rem',
+});
 
 type Props = {
     path: string;
@@ -169,14 +220,16 @@ export const MediaPlayerHub: React.FC<Props> = ({
     }) === 'continueWatching'
         || /on[.\s_-]?deck/i.test(String(path || ''));
     const recentHub = /recently\s*added|recentlyadded/i.test(`${identifier} ${titleHint} ${title} ${path}`);
+    const heroGrid = isHeroGrid(path);
+    const heroArt = useHeroArt(items, heroGrid);
     // Posters, like the Home rows: an episode shows its show's poster, not a small still.
     const shownItems = (continueWatchingHub
         ? stabilizeContinueWatchingOrder(items, settings.continueWatchingSort).items
         : (recentHub && settings.hideWatchedFromRecents ? hideWatchedPlayerItems(items) : items)
-    ).map(withShowPoster);
+    ).map((row) => (heroGrid ? heroTile(row, heroArt) : withShowPoster(row)));
     // TV: every card the width of a Home row poster, whatever the grid-size setting says.
     const tvCardRem = posterGridScaleRem(homeRailPosterDensity(gridSize));
-    const gridStyle = tvShell
+    const gridStyle = heroGrid ? heroGridStyle(tvShell) : tvShell
         ? {
             gridTemplateColumns: `repeat(auto-fill, calc(${tvCardRem}rem / var(--tv-text-scale, 1)))`,
             gap: '1rem',
@@ -243,6 +296,7 @@ export const MediaPlayerHub: React.FC<Props> = ({
                 <PosterGridSkeleton
                     className={upgraderPosterGridClass(gridSize)}
                     style={gridStyle}
+                    aspect={heroGrid ? '16/9' : undefined}
                     {...(tvShell ? { count: 24, variant: 'home' as const } : {})}
                 />
             ) : error && !shownItems.length ? (
@@ -264,7 +318,7 @@ export const MediaPlayerHub: React.FC<Props> = ({
                         <PlayerPosterCard
                             key={item.ratingKey}
                             item={item}
-                            aspect="2/3"
+                            aspect={heroGrid ? '16/9' : '2/3'}
                             imagePriority={index < 12}
                             onOpenItem={onOpenItem}
                             onPlay={onPlay}

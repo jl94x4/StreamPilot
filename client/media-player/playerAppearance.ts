@@ -9,6 +9,8 @@ import {
     type PlayerTextSize,
 } from './playerSettings';
 
+import { nativeHomeSetRing, nativeHomeSetFont, nativeHomeSetLook } from '../plex-client/nativeHome';
+
 type Rgb = [number, number, number];
 
 /**
@@ -99,10 +101,33 @@ export const applyPlayerLook = (corners: PlayerPosterCorners, textSize: PlayerTe
     else if (phone) root.style.fontSize = scale === 1 ? '' : `${PHONE_ROOT_FONT_PX * scale}px`;
 };
 
-const applyAll = (settings: Pick<PlayerSettings, 'accentColor' | 'focusRingWidth' | 'posterCorners' | 'textSize'>) => {
+const applyAll = (settings: Pick<PlayerSettings, 'accentColor' | 'focusRingWidth' | 'posterCorners' | 'textSize'> & { appFont?: PlayerSettings['appFont']; rowMarker?: PlayerSettings['rowMarker']; viewMoreStyle?: PlayerSettings['viewMoreStyle'] }, draft = false) => {
     applyPlayerAccent(settings.accentColor);
     applyFocusRingWidth(settings.focusRingWidth);
+    // The native Home / episode rail draw their own rings: same colour (non-default accents) and thickness.
+    const entry = PLAYER_ACCENT_PALETTE[settings.accentColor] || PLAYER_ACCENT_PALETTE.gold;
+    void nativeHomeSetRing(
+        settings.accentColor === 'gold' ? '' : (entry.tv || entry.rgb).join(' '),
+        ({ thin: 1.5, normal: 2, thick: 3.5 }[settings.focusRingWidth] || 2) / 2,
+    );
+    // The native screens draw their own text: same app font as the page.
+    if (settings.appFont) {
+        // Native font only once saved: switching it rebuilds every native screen (a live preview tore down the
+        // Settings screen itself). The page text still previews the draft.
+        if (!draft) void nativeHomeSetFont(settings.appFont);
+        // The page text too, live while a Settings draft previews (the Dashboard only follows the saved one).
+        const root = document.documentElement;
+        if (settings.appFont !== 'default') root.dataset.appFont = settings.appFont;
+        else delete root.dataset.appFont;
+    }
     applyPlayerLook(settings.posterCorners, settings.textSize);
+    // ...and their corners, row marker, text size and View more card.
+    void nativeHomeSetLook({
+        radius: ({ square: 0, slight: 3, rounded: 6 } as Record<string, number>)[settings.posterCorners] ?? 6,
+        marker: settings.rowMarker || 'play',
+        textScale: TEXT_SCALE[settings.textSize] || 1,
+        viewMore: settings.viewMoreStyle || 'backdrop',
+    });
 };
 
 /**
@@ -120,6 +145,6 @@ export const installPlayerAppearance = () => {
     window.addEventListener('storage', sync);
     window.addEventListener(PLAYER_SETTINGS_DRAFT_EVENT, (event) => {
         const draft = (event as CustomEvent<PlayerSettings>).detail;
-        if (draft?.accentColor) applyAll(draft);
+        if (draft?.accentColor) applyAll(draft, true);
     });
 };

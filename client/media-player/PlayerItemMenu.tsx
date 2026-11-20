@@ -61,7 +61,7 @@ import { PlayerSeasonWatchDialog } from './PlayerSeasonWatchDialog';
 import { noteFinishedPlayback, playerHasSeveralServers, playerServerNameFor, readPlayerItemCache } from './playerMemory';
 import { readPlayerSettings } from './playerSettings';
 import { isSpoilerShow, spoilerShowKey, toggleSpoilerShow } from './spoilers';
-import { applyRememberedProgress, isMusicPlayerItem, plexLogoUrl, shouldOfferResume } from './playerUtils';
+import { applyRememberedProgress, isMusicPlayerItem, plexLogoUrl, shouldOfferResume, withShowPoster } from './playerUtils';
 import {
     cancelMediaDownload,
     deleteMediaDownload,
@@ -126,6 +126,21 @@ const isPhonePosterUi = () => {
     } catch {
         return false;
     }
+};
+
+/** Download sizes: original file, or a smaller copy PMS transcodes while saving. */
+const DOWNLOAD_QUALITIES: { id: string; label: string; short: string; mbps: number }[] = [
+    { id: 'original', label: 'Original quality', short: 'Original', mbps: 0 },
+    { id: '1080-8', label: '1080p · 8 Mbps', short: '1080p', mbps: 8 },
+    { id: '720-4', label: '720p · 4 Mbps', short: '720p', mbps: 4 },
+    { id: '480-1.5', label: '480p · 1.5 Mbps', short: '480p', mbps: 1.5 },
+    { id: '360-0.7', label: '360p · 0.7 Mbps', short: '360p', mbps: 0.72 },
+];
+
+const formatDownloadSize = (bytes: number) => {
+    if (!Number.isFinite(bytes) || bytes <= 0) return '';
+    if (bytes < 1024 * 1024 * 1024) return `${Math.max(1, Math.round(bytes / (1024 * 1024)))} MB`;
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 };
 
 export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
@@ -251,6 +266,16 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
         && (item.type === 'movie' || item.type === 'episode' || item.type === 'clip' || item.type === 'trailer');
     const [downloadRow, setDownloadRow] = useState<MediaDownloadItem | null>(null);
     const [downloadBusy, setDownloadBusy] = useState(false);
+    const [downloadPickerOpen, setDownloadPickerOpen] = useState(false);
+    const downloadOptionsEndRef = useRef<HTMLDivElement | null>(null);
+    useEffect(() => {
+        if (!downloadPickerOpen) return;
+        // Bring the quality choices into view: they open below the fold of the sheet.
+        const timer = window.setTimeout(() => {
+            downloadOptionsEndRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
+        }, 60);
+        return () => window.clearTimeout(timer);
+    }, [downloadPickerOpen]);
 
     useEffect(() => {
         if (!canOfflineDownload || !item.ratingKey) {
@@ -346,9 +371,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
     useEffect(() => {
         setWatchlisted(!!item.watchlisted);
     }, [item.ratingKey, item.watchlisted]);
-    const goShowLabel = showName
-        ? t('mediaPlayerPage.goToNamed', { title: showName })
-        : t('mediaPlayerPage.goToShow');
+    const goShowLabel = t('mediaPlayerPage.goToShow');
     const goSeasonLabel = seasonName
         ? t('mediaPlayerPage.goToNamed', { title: seasonName })
         : t('mediaPlayerPage.goToSeason');
@@ -832,8 +855,30 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
         </div>
     ) : null;
 
+    const removeCwBtn = showRemoveFromContinueWatching ? (
+        <TvButton
+            type="button"
+            role="menuitem"
+            data-tv-item="1"
+            data-tv-menu-item="1"
+            className={itemClass}
+            onClick={() => choose(async () => {
+                await removeMediaPlayerProgress(item.ratingKey, item.serverId);
+                // Keep it out of Continue Watching even if a Home answer (or Home's saved
+                // copy) from before the removal arrives later; watching it again brings it back.
+                noteFinishedPlayback(item.ratingKey, item.serverId);
+                onRemovedFromContinueWatching?.(item);
+                toast(t('mediaPlayerPage.removedFromContinueWatching'));
+            })}
+        >
+            <XCircle className={iconClass} />
+            {t('mediaPlayerPage.removeFromContinueWatching')}
+        </TvButton>
+    ) : null;
+
     const actionRows = mode === 'main' ? (
         <>
+            {useContextSheet ? removeCwBtn : null}
             {!useContextSheet && isTv ? watchToggle : null}
             {useContextSheet ? watchlistBtn : null}
             {spoilerBtn}
@@ -926,6 +971,19 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                     {t('mediaPlayerPage.playUnwatchedFromHere')}
                 </TvButton>
             ) : null}
+            {onPlay && (item.type === 'movie' || item.type === 'episode') && (item.versions?.length || 0) > 1 ? (
+                <TvButton
+                    type="button"
+                    role="menuitem"
+                    data-tv-item="1"
+                    data-tv-menu-item="1"
+                    className={itemClass}
+                    onClick={() => choose(() => onPlay?.(item, { pickVersion: true, skipResume: true }))}
+                >
+                    <Layers className={iconClass} />
+                    {t('mediaPlayerPage.playVersion')}
+                </TvButton>
+            ) : null}
             {useContextSheet && (item.type === 'episode' || item.type === 'season') ? (
                 <>
                     {goToShowBtn}
@@ -935,6 +993,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
             ) : null}
             {!useContextSheet ? watchlistBtn : null}
             {!useContextSheet ? rateRow : null}
+            {!useContextSheet ? removeCwBtn : null}
             {canPlaylist ? (
                 <TvButton
                     type="button"
@@ -1032,26 +1091,6 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                     <span className="whitespace-nowrap">
                         {albumName ? t('mediaPlayerPage.goToNamed', { title: albumName }) : t('mediaPlayerPage.goToAlbum')}
                     </span>
-                </TvButton>
-            ) : null}
-            {showRemoveFromContinueWatching ? (
-                <TvButton
-                    type="button"
-                    role="menuitem"
-                    data-tv-item="1"
-                    data-tv-menu-item="1"
-                    className={itemClass}
-                    onClick={() => choose(async () => {
-                        await removeMediaPlayerProgress(item.ratingKey, item.serverId);
-                        // Keep it out of Continue Watching even if a Home answer (or Home's saved
-                        // copy) from before the removal arrives later; watching it again brings it back.
-                        noteFinishedPlayback(item.ratingKey, item.serverId);
-                        onRemovedFromContinueWatching?.(item);
-                        toast(t('mediaPlayerPage.removedFromContinueWatching'));
-                    })}
-                >
-                    <XCircle className={iconClass} />
-                    {t('mediaPlayerPage.removeFromContinueWatching')}
                 </TvButton>
             ) : null}
             {canPickAudio ? (
@@ -1195,46 +1234,88 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                                 : t('mediaPlayerPage.downloadCancel')}
                         </TvButton>
                     ) : (
-                        <TvButton
-                            type="button"
-                            role="menuitem"
-                            data-tv-item="1"
-                            data-tv-menu-item="1"
-                            className={itemClass}
-                            disabled={downloadBusy}
-                            onClick={() => choose(async () => {
-                                setDownloadBusy(true);
-                                try {
-                                    const source = await resolveMediaPlayerDownloadSource(item.ratingKey, {
-                                        mediaIndex: mediaIndex || 0,
-                                        serverId: item.serverId || null,
-                                    });
-                                    const started = await startMediaDownload({
-                                        url: source.url,
-                                        headers: source.headers || {},
-                                        ratingKey: source.ratingKey || item.ratingKey,
-                                        title: source.title || item.title,
-                                        type: source.type || item.type,
-                                        serverId: source.serverId || String(item.serverId || ''),
-                                        plexGuid: source.plexGuid || item.plexGuid || '',
-                                        fileName: source.fileName,
-                                        thumbUrl: source.thumb
-                                            ? portalUrl(source.thumb)
-                                            : (item.thumb ? portalUrl(item.thumb) : ''),
-                                        bytes: source.bytes || 0,
-                                    });
-                                    setDownloadRow(started);
-                                    toast(t('mediaPlayerPage.downloadStarted'));
-                                } catch (error: any) {
-                                    toast(String(error?.message || t('mediaPlayerPage.downloadError')), 'error');
-                                } finally {
-                                    setDownloadBusy(false);
-                                }
-                            })}
-                        >
-                            <Download className={iconClass} />
-                            {t('mediaPlayerPage.download')}
-                        </TvButton>
+                        <>
+                            <TvButton
+                                type="button"
+                                role="menuitem"
+                                data-tv-item="1"
+                                data-tv-menu-item="1"
+                                className={itemClass}
+                                disabled={downloadBusy}
+                                onClick={() => setDownloadPickerOpen((open) => !open)}
+                            >
+                                <Download className={iconClass} />
+                                {t('mediaPlayerPage.download')}
+                            </TvButton>
+                            {downloadPickerOpen ? DOWNLOAD_QUALITIES.map((option) => {
+                                const estimate = option.mbps && Number(item.durationMs) > 0
+                                    ? formatDownloadSize((Number(item.durationMs) / 1000) * (option.mbps * 1000 + 128) * 1000 / 8)
+                                    : '';
+                                return (
+                                    <TvButton
+                                        key={option.id}
+                                        type="button"
+                                        role="menuitem"
+                                        data-tv-item="1"
+                                        data-tv-menu-item="1"
+                                        className={`${itemClass} pl-10`}
+                                        disabled={downloadBusy}
+                                        onClick={() => choose(async () => {
+                                            setDownloadBusy(true);
+                                            try {
+                                                const source = await resolveMediaPlayerDownloadSource(item.ratingKey, {
+                                                    mediaIndex: mediaIndex || 0,
+                                                    serverId: item.serverId || null,
+                                                    quality: option.id,
+                                                });
+                                                const started = await startMediaDownload({
+                                                    url: source.url,
+                                                    headers: source.headers || {},
+                                                    ratingKey: source.ratingKey || item.ratingKey,
+                                                    title: source.title || item.title,
+                                                    type: source.type || item.type,
+                                                    serverId: source.serverId || String(item.serverId || ''),
+                                                    plexGuid: source.plexGuid || item.plexGuid || '',
+                                                    fileName: source.fileName,
+                                                    thumbUrl: source.thumb
+                                                        ? portalUrl(source.thumb)
+                                                        : (item.thumb ? portalUrl(item.thumb) : ''),
+                                                    bytes: source.bytes || 0,
+                                                    meta: {
+                                                        showTitle: item.showTitle || '',
+                                                        showRatingKey: item.grandparentRatingKey || '',
+                                                        seasonTitle: item.seasonTitle || '',
+                                                        seasonIndex: Number(item.parentIndex) || 0,
+                                                        episodeIndex: Number(item.index) || 0,
+                                                        episodeTitle: item.episodeTitle || (item.type === 'episode' ? item.title : ''),
+                                                        year: Number(item.year) || 0,
+                                                        summary: String(item.summary || '').slice(0, 600),
+                                                        durationMs: Number(item.durationMs) || 0,
+                                                        quality: option.short,
+                                                        qualityId: option.id,
+                                                        airDate: item.originallyAvailableAt || '',
+                                                        contentRating: item.contentRating || '',
+                                                        showPoster: item.type === 'episode' ? String(withShowPoster({ ...item, preferSeasonPoster: false }).thumb || '') : '',
+                                                        seasonPoster: item.type === 'episode' ? String(withShowPoster({ ...item, preferSeasonPoster: true }).thumb || '') : '',
+                                                    },
+                                                });
+                                                setDownloadRow(started);
+                                                setDownloadPickerOpen(false);
+                                                toast(t('mediaPlayerPage.downloadStarted'));
+                                            } catch (error: any) {
+                                                toast(String(error?.message || t('mediaPlayerPage.downloadError')), 'error');
+                                            } finally {
+                                                setDownloadBusy(false);
+                                            }
+                                        })}
+                                    >
+                                        <span className="flex-1 text-left">{option.label}</span>
+                                        {estimate ? <span className="text-xs text-white/50">~{estimate}</span> : null}
+                                    </TvButton>
+                                );
+                            }) : null}
+                            {downloadPickerOpen ? <div ref={downloadOptionsEndRef} aria-hidden className="h-px" /> : null}
+                        </>
                     )}
                 </>
             ) : null}

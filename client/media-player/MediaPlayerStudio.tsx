@@ -12,6 +12,9 @@ import {
 import { fetchMediaPlayerStudio, setMediaPlayerWatched } from './api';
 import { PlayerPosterCard } from './PlayerPosterCard';
 import { PlayerTvStatusPanel } from './PlayerTvStatusPanel';
+import { useNativeBrowseGrid } from './useNativeBrowseGrid';
+import { usePlayerSettings } from './usePlayerSettings';
+import { newSeasonInfo, premiereLineText } from './playerUtils';
 import type { PlayerItem, PlayerPlayOptions } from './types';
 
 type Props = {
@@ -52,6 +55,23 @@ export const MediaPlayerStudio: React.FC<Props> = ({
     // Stable effect key for the alt tags (the array is rebuilt on every route read).
     const altList = (alts || []).join('\n');
 
+    const [settings] = usePlayerSettings();
+
+    // The poster grid is drawn by the native view on Android TV (Native Home on); the page keeps its own copy for actions.
+    useNativeBrowseGrid({
+        active: tvShell,
+        loading,
+        error: Boolean(error),
+        items,
+        captions: {
+            sub: (item) => (item.year ? String(item.year) : ''),
+            note: (item) => (settings.showNewSeasonBadge && !item.heroCard ? premiereLineText(newSeasonInfo(item), t) || '' : ''),
+        },
+        tickPosition: settings.watchedTickPosition,
+        resetKey: `studio:${studioKey}`,
+        onOpenItem,
+    });
+
     useEffect(() => {
         let cancelled = false;
         setLoading(true);
@@ -87,7 +107,7 @@ export const MediaPlayerStudio: React.FC<Props> = ({
     };
 
     return (
-        <div className="flex flex-col gap-5 pb-8">
+        <div className="flex flex-col gap-5 pb-8" data-tv-browse-root={tvShell ? '1' : undefined}>
             <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
                     <button
@@ -121,10 +141,18 @@ export const MediaPlayerStudio: React.FC<Props> = ({
                     <p className={discoveryTheme.emptyTitle}>{t('mediaPlayerPage.emptyStudio')}</p>
                 </div>
             ) : (
-                <div className={upgraderPosterGridClass(gridSize)} style={upgraderPosterGridStyle(gridSize)}>
-                    {items.map((item) => (
+                <div
+                    className={upgraderPosterGridClass(gridSize)}
+                    style={upgraderPosterGridStyle(gridSize)}
+                    data-tv-browse-grid={tvShell ? '1' : undefined}
+                    data-tv-row={tvShell ? '1' : undefined}
+                    data-tv-rail={tvShell ? '1' : undefined}
+                    data-tv-poster-grid={tvShell ? '1' : undefined}
+                >
+                    {items.map((item, index) => (
                         <PlayerPosterCard
                             key={item.ratingKey}
+                            browseIndex={tvShell ? index : undefined}
                             item={item}
                             onOpenItem={onOpenItem}
                             onPlay={onPlay}

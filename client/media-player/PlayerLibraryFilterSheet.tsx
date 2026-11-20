@@ -372,7 +372,7 @@ export const PlayerLibraryFilterSheet: React.FC<Props> = ({ groups, toggles, onC
                                                 row.value ? 'text-white' : 'text-white/45'
                                             }`}
                                             >
-                                                <span className="truncate">{valueLabel(row)}</span>
+                                                <span className="truncate">{row.value ? valueLabel(row) : t('mediaPlayerPage.filterAllShort')}</span>
                                                 <ChevronRight className="h-4 w-4 shrink-0" strokeWidth={2.5} aria-hidden />
                                             </span>
                                         </TvButton>

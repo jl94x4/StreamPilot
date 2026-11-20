@@ -348,6 +348,20 @@ export const writeMediaIndexChoice = (ratingKey: string | null | undefined, medi
     writeJson(window.localStorage, PLAYER_MEDIA_INDEX_KEY, all);
 };
 
+/** Episodes share one version choice per show; movies and the rest keep their own. */
+const versionChoiceOwner = (item: { ratingKey?: string | null; grandparentRatingKey?: string | null; type?: string | null }) => (
+    item.type === 'episode' && item.grandparentRatingKey ? item.grandparentRatingKey : item.ratingKey
+);
+
+/** Remembered version for this movie, or for this episode's show. */
+export const readVersionChoice = (item: { ratingKey?: string | null; grandparentRatingKey?: string | null; type?: string | null }): number | null => (
+    readMediaIndexChoice(versionChoiceOwner(item))
+);
+
+export const writeVersionChoice = (item: { ratingKey?: string | null; grandparentRatingKey?: string | null; type?: string | null }, mediaIndex: number) => {
+    writeMediaIndexChoice(versionChoiceOwner(item), mediaIndex);
+};
+
 export type PersistedTvFocus = {
     byPath: Record<string, { key: string; railScroll?: number }>;
     byRow: Record<string, { key: string; railScroll?: number }>;
@@ -1011,10 +1025,16 @@ const withoutFinishedContinue = (data: PlayerHome | null): PlayerHome | null => 
 };
 
 /** Live Continue Watching wins over any row the cache merges carried in. */
-const withLiveContinue = (next: PlayerHome, live: PlayerHome): PlayerHome => {
+const withLiveContinue = (next: PlayerHome, live: PlayerHome, settled = false): PlayerHome => {
     const liveCwHub = (live.hubs || []).find((hub) => isContinueHomeHub(hub));
     const liveCw = homeContinueItems(live);
-    if (!liveCw.length) return next;
+    if (!liveCw.length) {
+        // A complete answer with nothing in progress means the list really is empty now:
+        // do not let the saved copy keep titles that were finished or removed elsewhere.
+        return settled
+            ? { ...next, continueWatching: [], hubs: (next.hubs || []).filter((hub) => !isContinueHomeHub(hub)) }
+            : next;
+    }
     return {
         ...next,
         continueWatching: Array.isArray(live.continueWatching) && live.continueWatching.length
@@ -1035,17 +1055,27 @@ export const withFreshContinueWatching = (
     saved: PlayerHome | null | undefined,
     fresh: PlayerHome | null | undefined,
 ): PlayerHome | null => {
-    if (!saved || !fresh || !homeContinueItems(fresh).length) return null;
-    return withoutFinishedContinue(withLiveContinue(saved, fresh));
+    if (!saved || !fresh) return null;
+    const settled = !fresh.partial && playerHomeHasRows(fresh);
+    if (!settled && !homeContinueItems(fresh).length) return null;
+    return withoutFinishedContinue(withLiveContinue(saved, fresh, settled));
 };
+
+/** Continue Watching from a complete answer replaces whatever the saved/merged Home carried, even when it is now empty. */
+export const withSettledContinueWatching = (next: PlayerHome, answer: PlayerHome | null | undefined): PlayerHome => (
+    answer && !answer.partial && playerHomeHasContentHubs(answer)
+        ? (withoutFinishedContinue(withLiveContinue(next, answer, true)) || next)
+        : next
+);
 
 export const coalescePlayerHomeWithCache = (
     live: PlayerHome | null | undefined,
     cached: PlayerHome | null | undefined,
 ): PlayerHome | null => {
     const next = coalescePlayerHomeRows(live, cached);
-    if (next && live && next !== live && playerHomeHasRows(live)) {
-        return withoutFinishedContinue(withLiveContinue(next, live));
+    if (next && live && playerHomeHasRows(live)) {
+        const settled = !live.partial && playerHomeHasContentHubs(live);
+        if (next !== live || settled) return withoutFinishedContinue(withLiveContinue(next, live, settled));
     }
     return withoutFinishedContinue(next);
 };
