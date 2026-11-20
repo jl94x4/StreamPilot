@@ -288,16 +288,64 @@ final class NativeHomeImages {
             try (InputStream in = new FileInputStream(file)) {
                 BitmapFactory.decodeStream(in, null, bounds);
             }
+            // PNG sub-sampling just drops pixels (JPEG's averages them), so a large clear logo came out jagged:
+            // decode PNGs at up to twice the size wanted and shrink the rest of the way with smoothing.
+            final boolean png = "image/png".equalsIgnoreCase(bounds.outMimeType);
+            final int keep = png ? 2 : 1;
             int sample = 1;
-            while (bounds.outWidth / (sample * 2) >= reqW && bounds.outHeight / (sample * 2) >= reqH) sample *= 2;
+            while (bounds.outWidth / (sample * 2) >= reqW * keep && bounds.outHeight / (sample * 2) >= reqH * keep) sample *= 2;
+            // Huge originals (a 4800px logo is ~28 MB decoded) still drop one step on weak sticks, while staying above the size wanted.
+            while (png && (long) (bounds.outWidth / sample) * (bounds.outHeight / sample) > 4_000_000L
+                    && bounds.outWidth / (sample * 2) >= reqW && bounds.outHeight / (sample * 2) >= reqH) {
+                sample *= 2;
+            }
             BitmapFactory.Options opts = new BitmapFactory.Options();
             opts.inSampleSize = sample;
             // Full 32-bit colour everywhere: 16-bit pictures band in the soft fades (the cache is limited by bytes, so it stays safe).
+            Bitmap bitmap;
             try (InputStream in = new FileInputStream(file)) {
-                return BitmapFactory.decodeStream(in, null, opts);
+                bitmap = BitmapFactory.decodeStream(in, null, opts);
             }
+            if (bitmap == null || !png) return bitmap;
+            bitmap = smoothShrink(bitmap, reqW, reqH);
+            // Logos are drawn smaller than their pixels: mipmaps keep that shrink smooth (transparent pictures only,
+            // so posters and backdrops use no extra GPU memory).
+            if (bitmap.hasAlpha()) bitmap.setHasMipMap(true);
+            return bitmap;
         } catch (Throwable ignored) {
             return null;
+        }
+    }
+
+    /**
+     * Shrinks to the smallest size that still covers reqW x reqH (the same rule as the sub-sampling), halving with
+     * filtering so every source pixel counts; never enlarges.
+     */
+    private static Bitmap smoothShrink(Bitmap src, int reqW, int reqH) {
+        int w = src.getWidth();
+        int h = src.getHeight();
+        if (reqW <= 0 || reqH <= 0 || w <= 0 || h <= 0) return src;
+        float scale = Math.max(reqW / (float) w, reqH / (float) h);
+        if (scale >= 0.95f) return src;
+        int goalW = Math.max(1, Math.round(w * scale));
+        int goalH = Math.max(1, Math.round(h * scale));
+        Bitmap cur = src;
+        try {
+            while (cur.getWidth() / 2 >= goalW && cur.getHeight() / 2 >= goalH) {
+                Bitmap next = Bitmap.createScaledBitmap(cur, cur.getWidth() / 2, cur.getHeight() / 2, true);
+                if (cur != src) cur.recycle();
+                cur = next;
+            }
+            if (cur.getWidth() != goalW || cur.getHeight() != goalH) {
+                Bitmap next = Bitmap.createScaledBitmap(cur, goalW, goalH, true);
+                if (next != cur && cur != src) cur.recycle();
+                cur = next;
+            }
+            if (cur != src) src.recycle();
+            return cur;
+        } catch (Throwable e) {
+            if (cur != src) cur.recycle();
+            return src;
         }
     }
 

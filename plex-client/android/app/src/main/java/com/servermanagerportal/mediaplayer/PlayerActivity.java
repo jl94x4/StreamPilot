@@ -2922,11 +2922,15 @@ public class PlayerActivity extends AppCompatActivity {
                     bounds.inJustDecodeBounds = true;
                     BitmapFactory.decodeByteArray(data, 0, data.length, bounds);
                     int longest = Math.max(bounds.outWidth, bounds.outHeight);
+                    // PNG sub-sampling drops pixels (jagged strokes): keep twice the size and let mipmaps shrink it.
+                    int keep = "image/png".equalsIgnoreCase(bounds.outMimeType) ? 2 : 1;
                     int sample = 1;
-                    while (longest / (sample * 2) >= maxSide) sample *= 2;
+                    while (longest / (sample * 2) >= maxSide * keep) sample *= 2;
                     opts.inSampleSize = sample;
                 }
-                return BitmapFactory.decodeByteArray(data, 0, data.length, opts);
+                Bitmap decoded = BitmapFactory.decodeByteArray(data, 0, data.length, opts);
+                if (decoded != null && decoded.hasAlpha()) decoded.setHasMipMap(true);
+                return decoded;
             }
         } catch (Exception e) {
             Log.w(TAG, "Clear logo download failed", e);
