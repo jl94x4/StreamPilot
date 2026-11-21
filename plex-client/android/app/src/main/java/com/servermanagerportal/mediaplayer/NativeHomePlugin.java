@@ -125,6 +125,9 @@ public class NativeHomePlugin extends Plugin {
         final String url = call.getString("url", "");
         final String rgb = call.getString("rgb", "");
         final boolean tint = !Boolean.FALSE.equals(call.getBoolean("tint", true));
+        // false: only the backdrop changes (another episode took the spotlight). The remote stays where it is: taking it
+        // for the WebView here pulled focus off the native episode rail and the page dropped it on the "Show" tab.
+        final boolean takeFocus = !Boolean.FALSE.equals(call.getBoolean("focus", true));
         final Activity activity = getActivity();
         if (activity == null) {
             call.reject("no activity");
@@ -146,8 +149,10 @@ public class NativeHomePlugin extends Plugin {
                 view.setVisibility(View.VISIBLE);
                 view.enterDetails(url, rgb, tint);
                 setWebTransparent(true);
-                if (backCallback != null) backCallback.setEnabled(false);
-                focusWeb();
+                if (takeFocus) {
+                    if (backCallback != null) backCallback.setEnabled(false);
+                    focusWeb();
+                }
                 call.resolve();
             } catch (Throwable t) {
                 call.reject(String.valueOf(t.getMessage()));

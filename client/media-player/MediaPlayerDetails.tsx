@@ -2633,7 +2633,8 @@ export const MediaPlayerDetails: React.FC<Props> = ({
     // Another episode took the spotlight: the native picture cross-fades to its art.
     useEffect(() => {
         if (!nativeOn || !nativeEnteredRef.current) return;
-        void nativeDetailsEnter(nativeBackdrop, nativeSurface(), nativeTintRef.current);
+        // Backdrop only: taking the remote here pulled focus off the native episode rail (it landed on "Show").
+        void nativeDetailsEnter(nativeBackdrop, nativeSurface(), nativeTintRef.current, false);
     }, [nativeBackdrop]);
     if (loading && !hasDetailsHero(item)) {
         if (isTvShell) {

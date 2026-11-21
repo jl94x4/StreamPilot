@@ -24,7 +24,7 @@ type CapNativeHome = {
     setFont: (opts: { key: string }) => Promise<{ reset?: boolean } | void>;
     setLook: (opts: { radius: number; marker: string; textScale: number; viewMore: string }) => Promise<void>;
     setSurface: (opts: { rgb: string }) => Promise<void>;
-    enterDetails: (opts: { url: string; rgb: string; tint?: boolean }) => Promise<void>;
+    enterDetails: (opts: { url: string; rgb: string; tint?: boolean; focus?: boolean }) => Promise<void>;
     setDetailsScroll: (opts: { y: number; h?: number; vw?: number; sy?: number }) => Promise<void>;
     setRail: (opts: { rail: string; focus?: string }) => Promise<void>;
     setRailRect: (opts: { x: number; y: number; w: number; h: number; vw: number }) => Promise<void>;
@@ -297,7 +297,8 @@ let detailsActive = false;
 let detailsLeaveTimer = 0;
 export const isNativeDetailsActive = () => detailsActive;
 
-export const nativeDetailsEnter = async (url: string, rgb: string, tint = true): Promise<boolean> => {
+/** {@code focus} false: a backdrop swap on a page already entered; the remote stays on whatever native view has it. */
+export const nativeDetailsEnter = async (url: string, rgb: string, tint = true, focus = true): Promise<boolean> => {
     window.clearTimeout(detailsLeaveTimer);
     // Claim the native view straight away: a Home show still in flight must see it is no longer Home's.
     nativeOwner = 'details';
@@ -305,7 +306,7 @@ export const nativeDetailsEnter = async (url: string, rgb: string, tint = true):
     if (!plugin) return false;
     try {
         nativeOwner = 'details';
-        await plugin.enterDetails({ url, rgb, tint });
+        await plugin.enterDetails({ url, rgb, tint, focus });
         detailsActive = true;
         return true;
     } catch {

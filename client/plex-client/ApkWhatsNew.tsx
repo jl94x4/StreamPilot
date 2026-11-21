@@ -74,6 +74,14 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.824': [
+        {
+            title: 'Episode pages',
+            items: [
+                'Moving left and right along the episodes no longer jumps the highlight up to "Show" in the season bar when the next episode has different artwork',
+            ],
+        },
+    ],
     '1.0.823': [
         {
             title: 'Player',
