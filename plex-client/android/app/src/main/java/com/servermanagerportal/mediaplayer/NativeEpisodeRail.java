@@ -82,6 +82,8 @@ final class NativeEpisodeRail extends FrameLayout {
     private final Listener listener;
     private final NativeHomeImages images;
     private final float density;
+    /** The page's own scale (its UI size): every card measure follows the web rail's real height. */
+    private float zoom = 1f;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final RecyclerView rv;
     private final LinearLayoutManager lm;
@@ -152,7 +154,7 @@ final class NativeEpisodeRail extends FrameLayout {
     }
 
     private int dp(float v) {
-        return Math.round(v * density);
+        return Math.round(v * density * zoom);
     }
 
     // ----- data -----------------------------------------------------------------------
@@ -236,6 +238,18 @@ final class NativeEpisodeRail extends FrameLayout {
         float k = parent.getWidth() / vw;
         int pw = Math.round(w * k);
         int ph = Math.round(h * k);
+        // The constants are the page at 100%; a smaller page (90% UI size...) has a shorter rail, and full-size
+        // cards were cut off at its bottom. Scale them to the rail the page really has.
+        float base = (PAD_T + CARD_H + PAD_B) * density;
+        float nz = base > 0 ? Math.max(0.5f, Math.min(1.5f, ph / base)) : 1f;
+        if (Math.abs(nz - zoom) > 0.004f) {
+            zoom = nz;
+            rv.setPadding(dp(PAD_L), dp(PAD_T), dp(PAD_R), dp(PAD_B));
+            // New card views: their badge, tick and bar were sized at the old scale.
+            rv.getRecycledViewPool().clear();
+            rv.setAdapter(adapter);
+            if (!eps.isEmpty()) lm.scrollToPositionWithOffset(Math.min(idx, eps.size() - 1), 0);
+        }
         if (pw != lastW || ph != lastH) {
             lastW = pw;
             lastH = ph;
@@ -601,10 +615,10 @@ final class NativeEpisodeRail extends FrameLayout {
         void bind(int position, Ep ep, boolean last) {
             pos = position;
             data = ep;
-            RecyclerView.LayoutParams lp = new RecyclerView.LayoutParams(dp(CARD_W), Math.round(density * CARD_H));
+            RecyclerView.LayoutParams lp = new RecyclerView.LayoutParams(dp(CARD_W), Math.round(density * zoom * CARD_H));
             lp.rightMargin = last ? 0 : dp(GAP);
             setLayoutParams(lp);
-            images.loadStill(ep.img, image, dp(CARD_W), Math.round(density * CARD_H), ep.spoiler);
+            images.loadStill(ep.img, image, dp(CARD_W), Math.round(density * zoom * CARD_H), ep.spoiler);
             badge.setLabel(ep.label);
             badge.setVisibility(ep.label.isEmpty() ? GONE : VISIBLE);
             tick.setVisibility(ep.watched ? VISIBLE : GONE);

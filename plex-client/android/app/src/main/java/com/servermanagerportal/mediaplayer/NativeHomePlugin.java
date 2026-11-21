@@ -1174,6 +1174,14 @@ public class NativeHomePlugin extends Plugin {
         });
     }
 
+    /** {on}: the black "starting next episode" cover over the whole app (see PlaybackCover). */
+    @PluginMethod
+    public void setPlaybackCover(PluginCall call) {
+        if (Boolean.TRUE.equals(call.getBoolean("on", false))) PlaybackCover.show();
+        else PlaybackCover.hide();
+        call.resolve();
+    }
+
     /** The sidebar opened (true) or closed (false) over the rows. */
     @PluginMethod
     public void setBlocked(PluginCall call) {

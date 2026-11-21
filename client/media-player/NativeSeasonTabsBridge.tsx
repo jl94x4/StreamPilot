@@ -199,7 +199,15 @@ export const NativeSeasonTabsBridge: React.FC = () => {
             const key = mine(data);
             const el = key ? twinOf(key) : null;
             if (!el) return;
+            // The page takes the remote to run the click. Its own focus lands on the first pill ("Show") for a
+            // moment, which this bridge used to hand back to native: the highlight flicked to Show. Focus the
+            // picked pill first and ignore the bar's focus bounces while the season opens.
+            handoffUntil = Date.now() + 1500;
+            mirroring = key;
+            mirroringAt = Date.now();
+            mirrorNativeCardFocus(el);
             void nativeHomeReleaseFocus().then(() => {
+                if (document.activeElement !== el) mirrorNativeCardFocus(el);
                 el.click();
                 // Opening a season swaps the page; if this one stays, native takes the remote back.
                 window.clearTimeout(reTimer);

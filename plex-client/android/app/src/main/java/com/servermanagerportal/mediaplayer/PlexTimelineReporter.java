@@ -8,10 +8,14 @@ import androidx.annotation.Nullable;
 
 import org.json.JSONObject;
 
+import java.io.InputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Plex "now playing" / progress reporting for {@link PlayerActivity}: direct PMS
@@ -32,6 +36,19 @@ final class PlexTimelineReporter {
     String device = "Android TV";
     String deviceName = "StreamPilot";
     String sessionId = "";
+
+    /** PMS ended the session (paused too long, admin Stop, ...). Called on the ping thread. */
+    interface TerminationListener {
+        void onTerminated(int code, String text);
+    }
+
+    private static final Pattern TERM_CODE = Pattern.compile(
+        "terminationCode\"?\\s*[=:]\\s*\"?(\\d+)");
+    private static final Pattern TERM_TEXT_XML = Pattern.compile("terminationText=\"([^\"]*)\"");
+    private static final Pattern TERM_TEXT_JSON = Pattern.compile(
+        "\"terminationText\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"");
+
+    @Nullable volatile TerminationListener terminationListener;
 
     private final String userAgent;
     private long lastPingElapsedMs;
@@ -279,6 +296,7 @@ final class PlexTimelineReporter {
                 }
             }
             int code = conn.getResponseCode();
+            checkTermination(readBody(conn, code));
             return code >= 200 && code < 300;
         } catch (Throwable e) {
             Log.w(TAG, "Plex timeline ping failed", e);
@@ -286,5 +304,54 @@ final class PlexTimelineReporter {
         } finally {
             if (conn != null) conn.disconnect();
         }
+    }
+
+    private static String readBody(HttpURLConnection conn, int code) {
+        try (InputStream in = code >= 400 ? conn.getErrorStream() : conn.getInputStream()) {
+            if (in == null) return "";
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] buf = new byte[2048];
+            int n;
+            while ((n = in.read(buf)) > 0 && out.size() < 16_384) out.write(buf, 0, n);
+            return new String(out.toByteArray(), StandardCharsets.UTF_8);
+        } catch (Throwable ignored) {
+            return "";
+        }
+    }
+
+    /**
+     * PMS answers a timeline for a session it has ended with terminationCode / terminationText
+     * on the MediaContainer (XML or JSON); the portal relays the same two keys as JSON.
+     */
+    private void checkTermination(String body) {
+        if (body == null || !body.contains("terminationCode")) return;
+        Matcher codeMatch = TERM_CODE.matcher(body);
+        if (!codeMatch.find()) return;
+        int code;
+        try {
+            code = Integer.parseInt(codeMatch.group(1));
+        } catch (NumberFormatException ignored) {
+            return;
+        }
+        String text = "";
+        Matcher xml = TERM_TEXT_XML.matcher(body);
+        Matcher json = TERM_TEXT_JSON.matcher(body);
+        if (xml.find()) {
+            text = unescapeXml(xml.group(1));
+        } else if (json.find()) {
+            try {
+                text = new org.json.JSONTokener("\"" + json.group(1) + "\"").nextValue().toString();
+            } catch (Throwable ignored) {
+                text = json.group(1);
+            }
+        }
+        Log.i(TAG, "Plex ended this session: " + code + " " + text);
+        TerminationListener listener = terminationListener;
+        if (listener != null) listener.onTerminated(code, text.trim());
+    }
+
+    private static String unescapeXml(String s) {
+        return s.replace("&quot;", "\"").replace("&apos;", "'").replace("&#39;", "'")
+            .replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&");
     }
 }

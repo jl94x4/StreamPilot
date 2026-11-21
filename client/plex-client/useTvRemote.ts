@@ -1189,6 +1189,17 @@ export const forgetHomePosterFocus = (rowIds: string[] = []) => {
     if (changed) persistTvFocusMaps(true);
 };
 
+/**
+ * Opening a page fresh (not coming Back to it): drop what was focused on an earlier visit, so the page lands on
+ * its default (Play / Resume, the right episode). The remembered key is persisted, and a stale one (a season or
+ * cast card from days ago) stopped the page focusing anything at all.
+ */
+export const forgetTvFocusFor = (path: string) => {
+    const id = String(path || '').replace(/\/+$/, '');
+    if (!id || !tvFocusByPath.delete(id)) return;
+    persistTvFocusMaps();
+};
+
 export const rememberTvFocusKey = (key: string, path = currentPath(), railScroll?: number) => {
     const id = String(key || '').trim();
     if (!id || !path) return;

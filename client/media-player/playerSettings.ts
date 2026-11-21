@@ -172,9 +172,9 @@ export const isPlayerNavStyle = (value: unknown): value is PlayerNavStyle => val
 export type PlayerAppFont = 'default' | 'inter' | 'roboto' | 'nunito' | 'montserrat' | 'lexend' | 'lora'
     | 'playfair' | 'slab' | 'mono' | 'oswald' | 'comfortaa' | 'orbitron' | 'caveat'
     | 'cinzel' | 'merriweather' | 'script' | 'fredoka' | 'typewriter' | 'marker' | 'comic'
-    | 'creato' | 'liberation' | 'altone' | 'codec' | 'justsans' | 'romance';
+    | 'creato' | 'liberation' | 'altone' | 'codec' | 'justsans' | 'romance' | 'switzer';
 export const PLAYER_APP_FONTS: PlayerAppFont[] = [
-    'default', 'inter', 'roboto', 'nunito', 'montserrat', 'lexend', 'lora',
+    'default', 'switzer', 'inter', 'roboto', 'nunito', 'montserrat', 'lexend', 'lora',
     'playfair', 'slab', 'mono', 'oswald', 'comfortaa', 'orbitron', 'caveat',
     'cinzel', 'merriweather', 'script', 'fredoka', 'typewriter', 'marker', 'comic',
     'creato', 'liberation', 'altone', 'codec', 'justsans', 'romance',
@@ -183,7 +183,9 @@ export const isPlayerAppFont = (value: unknown): value is PlayerAppFont =>
     PLAYER_APP_FONTS.includes(value as PlayerAppFont);
 /** CSS family for each font (the bundled faces are named "SMP …" so Tailwind's Inter stack is untouched). */
 export const PLAYER_APP_FONT_FAMILY: Record<PlayerAppFont, string> = {
-    default: '"Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif',
+    // Default is Roboto (the native screens' font): the page text matches them out of the box.
+    default: '"SMP Roboto", "Switzer", sans-serif',
+    switzer: '"Switzer", "Helvetica Neue", Helvetica, Arial, sans-serif',
     inter: '"SMP Inter", "Switzer", sans-serif',
     roboto: '"SMP Roboto", "Switzer", sans-serif',
     nunito: '"SMP Nunito", "Switzer", sans-serif',

@@ -117,7 +117,9 @@ const applyAll = (settings: Pick<PlayerSettings, 'accentColor' | 'focusRingWidth
         if (!draft) void nativeHomeSetFont(settings.appFont);
         // The page text too, live while a Settings draft previews (the Dashboard only follows the saved one).
         const root = document.documentElement;
-        if (settings.appFont !== 'default') root.dataset.appFont = settings.appFont;
+        // Default is Roboto; Switzer is the stylesheet's own face (no override).
+        const pageFont = settings.appFont === 'default' ? 'roboto' : settings.appFont;
+        if (pageFont !== 'switzer') root.dataset.appFont = pageFont;
         else delete root.dataset.appFont;
     }
     applyPlayerLook(settings.posterCorners, settings.textSize);

@@ -54,6 +54,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(WatchTogetherHostPlugin.class);
         registerPlugin(NativeHomePlugin.class);
         super.onCreate(savedInstanceState);
+        PlaybackCover.setHost(this);
         installImageCache();
         applyWebViewDisplayFixes();
         scheduleAppVersion();

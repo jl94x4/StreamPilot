@@ -81,6 +81,8 @@ export type NativePlayerSessionPayload = {
     subtitle?: string;
     /** Episode/movie meta under the title, e.g. "S1 · E8 · Show · 1 hour 59 minutes". */
     meta?: string;
+    /** The title block as parts the player styles itself: episode code tag, episode name, muted details. */
+    metaParts?: { code: string; name: string; details: string[] } | null;
     logoUrl?: string;
     posterUrl?: string;
     /** Android TV home "Continue Watching" row. Native downloads artUrl once and serves it token-free. */

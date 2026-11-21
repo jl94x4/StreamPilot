@@ -88,7 +88,7 @@ final class NativeSeasonTabs extends FrameLayout {
         bw = (float) root.optDouble("bw", 0.5);
         float sl = (float) root.optDouble("sl", 0);
         String focused = focusedKey();
-        items.clear();
+        List<Item> fresh = new ArrayList<>();
         JSONArray arr = root.optJSONArray("items");
         if (arr != null) {
             for (int i = 0; i < arr.length(); i++) {
@@ -102,13 +102,44 @@ final class NativeSeasonTabs extends FrameLayout {
                 it.y = (float) o.optDouble("y", 0);
                 it.w = (float) o.optDouble("w", 0);
                 it.h = (float) o.optDouble("h", 0);
-                items.add(it);
+                fresh.add(it);
             }
         }
         if (sl != lastSl) {
             lastSl = sl;
             scroll = sl;
         }
+        // Same pills (only the active season or the sizes moved): update them in place. Rebuilding dropped the
+        // focused pill, Android put focus on the first one ("Show"), and the highlight flicked there.
+        if (fresh.size() == pills.size() && !pills.isEmpty()) {
+            boolean sameKeys = true;
+            for (int i = 0; i < fresh.size(); i++) {
+                if (!fresh.get(i).key.equals(pills.get(i).item.key)) {
+                    sameKeys = false;
+                    break;
+                }
+            }
+            if (sameKeys) {
+                items.clear();
+                for (int i = 0; i < fresh.size(); i++) {
+                    Item src = fresh.get(i);
+                    Item dst = pills.get(i).item;
+                    dst.text = src.text;
+                    dst.active = src.active;
+                    dst.x = src.x;
+                    dst.y = src.y;
+                    dst.w = src.w;
+                    dst.h = src.h;
+                    items.add(dst);
+                    pills.get(i).invalidate();
+                }
+                layoutPills();
+                updateVisibility();
+                return;
+            }
+        }
+        items.clear();
+        items.addAll(fresh);
         removeAllViews();
         pills.clear();
         for (Item it : items) {
@@ -117,7 +148,14 @@ final class NativeSeasonTabs extends FrameLayout {
             addView(p);
         }
         layoutPills();
-        if (focused != null) focusKey(focused);
+        // Put focus back on the same season (or the active one) straight away, whatever just happened.
+        if (focused != null && !pills.isEmpty()) {
+            int at = indexOf(focused);
+            if (at < 0) at = activeIndex();
+            if (at < 0) at = 0;
+            reveal(at);
+            pills.get(at).requestFocus();
+        }
         updateVisibility();
     }
 
@@ -185,6 +223,11 @@ final class NativeSeasonTabs extends FrameLayout {
         return getVisibility() == VISIBLE && findFocus() != null;
     }
 
+    private int activeIndex() {
+        for (int i = 0; i < items.size(); i++) if (items.get(i).active) return i;
+        return -1;
+    }
+
     private int indexOf(String key) {
         if (key == null) return -1;
         String k2 = key.startsWith(PREFIX) ? key.substring(PREFIX.length()) : key;
@@ -205,6 +248,9 @@ final class NativeSeasonTabs extends FrameLayout {
         if (pills.isEmpty()) return;
         if (SystemClock.uptimeMillis() - handoffAt < 300) return;
         int at = indexOf(key);
+        // A key this bar does not have (the page is mid-reload to another season): the active season, never
+        // the first pill — falling back to "Show" made the highlight flick to Show before the new season.
+        if (at < 0) at = activeIndex();
         if (at < 0) at = 0;
         handedOff = false;
         allowFocus(true);

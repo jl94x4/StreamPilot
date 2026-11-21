@@ -17,6 +17,14 @@ import { mirrorNativeCardFocus } from '../plex-client/useTvRemote';
 const ROOT = '[data-tv-nav-root="1"]';
 const ITEM = '[data-tv-nav="1"]';
 const PREFIX = 'nav~';
+/** Every overlay except "All libraries" (which sits beside the side menu). */
+const OVERLAY_NOT_LIBRARIES = '[data-tv-item-menu="1"], [data-tv-select-menu="1"], [data-tv-resume-dialog="1"], [data-tv-season-watch-dialog="1"], [data-tv-still-watching-dialog="1"], [data-tv-whats-new="1"], [data-tv-home-switch="1"], [data-tv-version-dialog="1"], [data-tv-track-dialog="1"], [data-tv-settings-dialog="1"], [role="dialog"]';
+/** Only "All libraries" is open (no :has() — the TV WebView lacks it): its own dialog wrapper does not count. */
+const libraryManagerOnly = (): boolean => {
+    const manager = document.querySelector('[data-tv-library-manager="1"]');
+    if (!manager) return false;
+    return !Array.from(document.querySelectorAll(OVERLAY_NOT_LIBRARIES)).some((el) => !el.contains(manager));
+};
 const OVERLAY = '[data-tv-item-menu="1"], [data-tv-select-menu="1"], [data-tv-resume-dialog="1"], [data-tv-season-watch-dialog="1"], [data-tv-still-watching-dialog="1"], [data-tv-whats-new="1"], [data-tv-home-switch="1"], [data-tv-library-manager="1"], [data-tv-version-dialog="1"], [data-tv-track-dialog="1"], [data-tv-settings-dialog="1"], [role="dialog"]';
 
 const num = (value: string | null | undefined, fallback: number) => {
@@ -112,7 +120,9 @@ export const NativeChromeBridge: React.FC = () => {
                 vw: window.innerWidth,
                 accent: getComputedStyle(html).getPropertyValue('--color-plex').trim() || '245 158 11',
                 hidden: playerOpen,
-                dim: blocked() && html.getAttribute('data-native-menu') !== '1',
+                // "All libraries" opens beside the menu, which stays open and bright (not dimmed like under a dialog).
+                dim: blocked() && html.getAttribute('data-native-menu') !== '1'
+                    && !libraryManagerOnly(),
             };
 
             if (root && !asideHidden) {

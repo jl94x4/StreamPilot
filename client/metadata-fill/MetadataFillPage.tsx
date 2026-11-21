@@ -539,6 +539,7 @@ export const MetadataFillPage: React.FC = () => {
                     title: data.fields.title !== false,
                     summary: data.fields.summary !== false,
                     originallyAvailableAt: data.fields.originallyAvailableAt !== false,
+                    thumb: data.fields.thumb !== false,
                 }
                 : defaultFields();
             const pref = String(data?.sourcePreference || 'auto').toLowerCase();
@@ -619,6 +620,7 @@ export const MetadataFillPage: React.FC = () => {
                     title: data.fields.title !== false,
                     summary: data.fields.summary !== false,
                     originallyAvailableAt: data.fields.originallyAvailableAt !== false,
+                    thumb: data.fields.thumb !== false,
                 } : prev.fields,
                 sourcePreference: (data?.sourcePreference === 'tmdb' || data?.sourcePreference === 'tvdb')
                     ? data.sourcePreference

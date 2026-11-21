@@ -27,6 +27,7 @@ import {
     formatClock,
     formatEpisodeCode,
     formatNativePlayerMeta,
+    formatNativePlayerMetaParts,
     formatPlayerDate,
     isFuturePlayerDate,
     formatPlayerResolution,
@@ -1055,6 +1056,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
             title: session.item.title,
             subtitle: session.item.showTitle || session.item.seasonTitle || '',
             meta: isMusicPlayerItem(session.item) ? '' : formatNativePlayerMeta(session.item),
+            metaParts: isMusicPlayerItem(session.item) ? null : formatNativePlayerMetaParts(session.item),
             logoUrl: isMusicPlayerItem(session.item) ? '' : logoAuthUrl,
             posterUrl: isMusicPlayerItem(session.item) && session.item.thumb
                 ? absoluteWithAuth(resizePlexArtUrl(plexImageUrl(session.item.thumb, 600, 600, { quality: 70 }), 600, 600)).url
@@ -1802,6 +1804,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
                     subtitle: live.item.showTitle || live.item.seasonTitle || '',
                     // Without this the next item kept the previous one's line (and airdate).
                     meta: isMusicPlayerItem(live.item) ? '' : formatNativePlayerMeta(live.item),
+                    metaParts: isMusicPlayerItem(live.item) ? null : formatNativePlayerMetaParts(live.item),
                     music: isMusicPlayerItem(live.item),
                     posterUrl: poster ? nativePlaybackAuth(poster).url : '',
                     durationMs: live.item.durationMs || 0,

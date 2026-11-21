@@ -165,17 +165,17 @@ export const PlayerLibraryManager: React.FC<Props> = ({ open, libraries, order, 
                 style={beside ? { left: panelLeft, width: `min(27rem, calc(100vw - ${panelLeft} - 1.5rem))` } : undefined}
                 className={`flex flex-col overflow-hidden ${
                     beside
-                        ? 'fixed top-1/2 z-[45] max-h-[calc(100%-3rem)] -translate-y-1/2 rounded-[28px] bg-[#0b1018]/80 backdrop-blur-2xl'
+                        ? 'fixed top-1/2 z-[45] max-h-[calc(100%-3rem)] -translate-y-1/2 rounded-[28px] border border-white/10 bg-[#0b1018] shadow-[0_30px_80px_rgba(0,0,0,0.6)]'
                         : 'player-popup-surface fixed inset-x-0 bottom-0 z-[111] max-h-[min(86dvh,44rem)] w-full rounded-t-2xl border border-white/10 shadow-[0_30px_80px_rgba(0,0,0,0.55)]'
                 }`}
             >
-                <div className="flex shrink-0 items-start justify-between gap-3 px-5 pb-1 pt-4">
+                <div className={`flex shrink-0 items-start justify-between gap-3 px-5 pb-1 ${isTvShell ? 'pt-5' : 'pt-4'}`}>
                     <div className="min-w-0">
                         <h2 id="player-library-manager-title" className="text-lg font-black tracking-tight text-text">
                             {t('mediaPlayerPage.manageLibrariesTitle')}
                         </h2>
-                        <p className="mt-1 text-xs leading-relaxed text-muted">{t('mediaPlayerPage.manageLibrariesHint')}</p>
-                        <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.18em] text-white/40">
+                        <p className={`mt-1.5 leading-relaxed text-muted ${isTvShell ? 'text-sm' : 'text-xs'}`}>{t('mediaPlayerPage.manageLibrariesHint')}</p>
+                        <p className={`mt-2.5 font-bold uppercase tracking-[0.18em] text-white/45 ${isTvShell ? 'text-xs' : 'text-[10px]'}`}>
                             {t('mediaPlayerPage.manageLibrariesCount', { count: favouriteCount })}
                         </p>
                     </div>

@@ -256,7 +256,8 @@ final class NativeBillboardView extends FrameLayout {
             watched.setLayoutParams(wlp);
         }
 
-        String sum = o.optString("summary");
+        // Collapsed like the page shows it: a summary with blank lines in it drew a gap mid-synopsis.
+        String sum = o.optString("summary").replaceAll("\\s+", " ").trim();
         summary.setVisibility(sum.isEmpty() ? GONE : VISIBLE);
         summary.setText(sum);
         String cs = o.optString("cast");
@@ -346,7 +347,7 @@ final class NativeBillboardView extends FrameLayout {
                     svc.setVisibility(VISIBLE);
                     if (keepColor) svc.clearColorFilter();
                     else svc.setColorFilter(Color.WHITE, PorterDuff.Mode.SRC_IN);
-                    svc.setImageBitmap(bmp);
+                    showService(bmp);
                     return;
                 }
             } catch (Throwable ignored) {
@@ -361,7 +362,22 @@ final class NativeBillboardView extends FrameLayout {
         svc.setVisibility(VISIBLE);
         if (keepColor) svc.clearColorFilter();
         else svc.setColorFilter(Color.WHITE, PorterDuff.Mode.SRC_IN);
-        images.load(url, svc, dp(SVC_MAX_W), dp(SVC_H));
+        if (url.equals(svc.getTag()) && svc.getDrawable() != null) return;
+        svc.setTag(url);
+        svc.setImageDrawable(null);
+        images.get(url, dp(SVC_MAX_W), dp(SVC_H), bmp -> {
+            if (!url.equals(svc.getTag())) return;
+            if (bmp == null) {
+                svc.setVisibility(GONE);
+                return;
+            }
+            showService(bmp);
+        });
+    }
+
+    /** Network / studio mark at its real on-screen size: a big PNG shrunk while drawing came out jagged. */
+    private void showService(Bitmap bmp) {
+        svc.setImageBitmap(NativeHomeImages.fittedInside(bmp, dp(SVC_MAX_W), dp(SVC_H)));
     }
 
     private void bindLogo(final String url, String name) {
@@ -447,7 +463,7 @@ final class NativeBillboardView extends FrameLayout {
             p.width = dp(ww);
             p.height = dp(hh);
             logo.setLayoutParams(p);
-            logo.setImageBitmap(shown);
+            logo.setImageBitmap(NativeHomeImages.scaledExactly(shown, p.width, p.height));
             logo.setVisibility(VISIBLE);
             logoOk = true;
             showTitle(title0, false);

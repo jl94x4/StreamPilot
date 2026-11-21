@@ -43,7 +43,7 @@ public class CountdownRingView extends View {
         fill.setColor(0xB3000000);
         text.setColor(Color.WHITE);
         text.setTextAlign(Paint.Align.CENTER);
-        text.setTypeface(Typeface.DEFAULT_BOLD);
+        text.setTypeface(NativeFonts.face(context, 700));
     }
 
     private static int accentColor(Context context) {

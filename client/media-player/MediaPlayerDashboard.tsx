@@ -27,8 +27,52 @@ import {
     getWatchTogetherClient,
     type WtRoomState,
 } from './watchTogetherClient';
-import { captureTvFocusSnapshot, hasRememberedTvFocus, rememberTvFocusKey, restoreTvFocusWhenReady } from '../plex-client/useTvRemote';
+import { captureTvFocusSnapshot, forgetTvFocusFor, hasRememberedTvFocus, rememberTvFocusKey, restoreTvFocusWhenReady } from '../plex-client/useTvRemote';
 import { isAndroidTvUi } from '../plex-client/config';
+import { nativeHomeReleaseFocus, nativePlaybackCover } from '../plex-client/nativeHome';
+
+/**
+ * Keep the remote on a TV dialog (Resume, Still watching) while it is open. The page focusing its button is not
+ * enough: a native rail / bar behind it can hold Android focus (it got there first, or claims it a beat later),
+ * and then the keys moved things behind the dialog while the button could not be pressed. So the native layers
+ * give the remote back to the page, the primary button takes focus, and both are re-checked until it closes.
+ */
+const holdTvDialogFocus = (dialogSel: string, primarySel: string): (() => void) => {
+    let stopped = false;
+    let lastRelease = 0;
+    const settle = () => {
+        if (stopped) return;
+        const dialog = document.querySelector<HTMLElement>(dialogSel);
+        if (!dialog) return;
+        const active = document.activeElement as HTMLElement | null;
+        const inside = Boolean(active && dialog.contains(active));
+        // document.hasFocus() is false while a native view (not the WebView) has the remote.
+        if (!document.hasFocus() && Date.now() - lastRelease > 400) {
+            lastRelease = Date.now();
+            void nativeHomeReleaseFocus().then(() => {
+                if (stopped) return;
+                const btn = document.querySelector<HTMLElement>(primarySel);
+                const now = document.activeElement as HTMLElement | null;
+                if (btn && !(now && dialog.contains(now))) btn.focus({ preventScroll: true });
+            });
+        }
+        if (!inside) document.querySelector<HTMLElement>(primarySel)?.focus({ preventScroll: true });
+    };
+    const first = window.setTimeout(settle, 40);
+    const tick = window.setInterval(settle, 250);
+    const onFocusIn = (event: FocusEvent) => {
+        const dialog = document.querySelector<HTMLElement>(dialogSel);
+        const target = event.target as HTMLElement | null;
+        if (dialog && target && !dialog.contains(target)) window.setTimeout(settle, 0);
+    };
+    document.addEventListener('focusin', onFocusIn, true);
+    return () => {
+        stopped = true;
+        window.clearTimeout(first);
+        window.clearInterval(tick);
+        document.removeEventListener('focusin', onFocusIn, true);
+    };
+};
 import { PLAYER_APP_BASE, PLAYER_HOME_LIVE_EVENT, PLAYER_NAVIGATE_EVENT, PLAYER_SCROLL_ID, PLAYER_TV_NAV_EVENT } from './paths';
 import { PlayerOfflineBanner } from './PlayerOfflineBanner';
 import { usePlayerSettings } from './usePlayerSettings';
@@ -765,6 +809,9 @@ export const MediaPlayerDashboard: React.FC = () => {
         // Destination path — so episode hubs can focus this card when the rail paints.
         if (item.type === 'episode' || item.type === 'season') {
             rememberTvFocusKey(item.ratingKey, itemPath);
+        } else {
+            // A fresh visit opens on Play / Resume, not wherever focus was left last time.
+            forgetTvFocusFor(itemPath);
         }
         navigate(`${itemPath}${serverQs}`, opts);
     }, [navigate, view.kind]);
@@ -884,6 +931,7 @@ export const MediaPlayerDashboard: React.FC = () => {
             const key = String(ratingKey || '').trim();
             if (!key) return;
             const serverQs = serverId ? `?server=${encodeURIComponent(serverId)}` : '';
+            forgetTvFocusFor(`${PLAYER_APP_BASE}/item/${encodeURIComponent(key)}`);
             navigate(`${PLAYER_APP_BASE}/item/${encodeURIComponent(key)}${serverQs}`);
         };
         window.__SMP_SEARCH_FOR__ = searchFor;
@@ -1410,6 +1458,13 @@ export const MediaPlayerDashboard: React.FC = () => {
         return () => window.removeEventListener('smp-native-player-returned', onReturned);
     }, []);
 
+    // The native cover the player raised for play-next: the next player takes it down itself once its window
+    // is up. Here only when the hand-off ended without playing anything (nothing next, an error, Back) —
+    // dropping it as soon as the session existed showed the episode page before the player was on screen.
+    useEffect(() => {
+        if (!playNextBridge && !playSession) void nativePlaybackCover(false);
+    }, [playNextBridge, playSession]);
+
     // While the play-next black bridge is up, MediaPlayerVideo is unmounted so
     // __SMP_CLOSE_PLAYBACK__ is gone — Back must still cancel the hang.
     useEffect(() => {
@@ -1437,20 +1492,12 @@ export const MediaPlayerDashboard: React.FC = () => {
 
     useEffect(() => {
         if (!pendingResume) return undefined;
-        const id = window.setTimeout(() => {
-            const btn = document.querySelector<HTMLElement>('[data-tv-resume-primary="1"]');
-            btn?.focus();
-        }, 40);
-        return () => window.clearTimeout(id);
+        return holdTvDialogFocus('[data-tv-resume-dialog="1"]', '[data-tv-resume-primary="1"]');
     }, [pendingResume]);
 
     useEffect(() => {
         if (!pendingStillWatching) return undefined;
-        const id = window.setTimeout(() => {
-            const btn = document.querySelector<HTMLElement>('[data-tv-still-watching-primary="1"]');
-            btn?.focus();
-        }, 40);
-        return () => window.clearTimeout(id);
+        return holdTvDialogFocus('[data-tv-still-watching-dialog="1"]', '[data-tv-still-watching-primary="1"]');
     }, [pendingStillWatching]);
 
     const openSettings = useCallback(() => navigate(`${PLAYER_APP_BASE}/settings`), [navigate]);
@@ -1495,7 +1542,9 @@ export const MediaPlayerDashboard: React.FC = () => {
     }, [settings.viewMoreStyle]);
     useEffect(() => {
         const root = document.documentElement;
-        if (settings.appFont && settings.appFont !== 'default') root.dataset.appFont = settings.appFont;
+        // Default is Roboto; Switzer is the stylesheet's own face (no override).
+        const pageFont = !settings.appFont || settings.appFont === 'default' ? 'roboto' : settings.appFont;
+        if (pageFont !== 'switzer') root.dataset.appFont = pageFont;
         else delete root.dataset.appFont;
     }, [settings.appFont]);
     useEffect(() => {

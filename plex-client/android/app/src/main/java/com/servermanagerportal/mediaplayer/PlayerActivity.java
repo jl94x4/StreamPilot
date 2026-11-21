@@ -229,6 +229,16 @@ public class PlayerActivity extends AppCompatActivity {
     private ScrollView menuScroll;
     private LinearLayout menuList;
     private TextView metaView;
+    /** Title block parts (episode / movie): code tag, episode name, muted details. Empty = plain meta. */
+    private View topFade;
+    private View epRow;
+    private TextView epCodeView;
+    private TextView epNameView;
+    private TextView detailsView;
+    private String partsCode = "";
+    private String partsName = "";
+    private String partsDetails = "";
+    private boolean hasMetaParts;
     private TextView remainingView;
     private TextView endsAtView;
     private TextView seekFlashView;
@@ -538,6 +548,8 @@ public class PlayerActivity extends AppCompatActivity {
 
     private boolean playbackEnded;
     private boolean playbackError;
+    /** PMS ended this session; no more timeline pings, or it would start a fresh one. */
+    private volatile boolean serverTerminated;
     private int streamFallbackStage;
     /** Bumped when a new stream starts so a pending failure exit does not close a recovered player. */
     private int errorGeneration;
@@ -1014,7 +1026,8 @@ public class PlayerActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         overridePendingTransition(0, 0);
         PlayerBridge.get().attachActivity(this);
-        try {
+        PlaybackCover.hideSoon();
+        timelineReporter.terminationListener = (code, text) -> mainHandler.post(() -> onServerTerminated(text));        try {
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
             WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
             WindowInsetsControllerCompat insets = WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
@@ -1405,6 +1418,12 @@ public class PlayerActivity extends AppCompatActivity {
         placeBadgesForWidth();
         speedLabel = findViewById(R.id.player_speed_label);
         metaView = findViewById(R.id.player_meta);
+        topFade = findViewById(R.id.player_top_fade);
+        epRow = findViewById(R.id.player_ep_row);
+        epCodeView = findViewById(R.id.player_ep_code);
+        epNameView = findViewById(R.id.player_ep_name);
+        detailsView = findViewById(R.id.player_details);
+        styleTitleBlock();
         seekFlashView = findViewById(R.id.player_seek_flash);
         playPauseBtn = findViewById(R.id.player_play_pause);
         prevEpisodeBtn = findViewById(R.id.player_prev_episode);
@@ -1472,18 +1491,22 @@ public class PlayerActivity extends AppCompatActivity {
         chaptersBtn = findViewById(R.id.player_chapters);
         pipBtn = findViewById(R.id.player_pip);
         seekPreview = findViewById(R.id.player_seek_preview);
-        // Top-left title / episode line and the delivery + resolution badges: the app's clock
-        // face (medium Switzer), as on the TV Home and title pages.
-        applyAssetTypeface("fonts/switzer_medium.ttf", titleView, metaView, modeChipView, resolutionChipView, subtitleChipView, bufferLabelView);
-        applySatoshiTypeface(
-            timeView,
-            remainingView,
-            endsAtView,
-            seekFlashView,
-            clockView,
-            menuTitle,
-            speedLabel
-        );
+        // Every text in the player in the app font (Settings → App font), each keeping its weight. Menu rows are
+        // built later: they get it as they are added.
+        applyAppFont(findViewById(R.id.player_root));
+        applyHomeClockStyle();
+        if (menuList instanceof ViewGroup) {
+            ((ViewGroup) menuList).setOnHierarchyChangeListener(new ViewGroup.OnHierarchyChangeListener() {
+                @Override
+                public void onChildViewAdded(View parent, View child) {
+                    applyAppFont(child);
+                }
+
+                @Override
+                public void onChildViewRemoved(View parent, View child) {
+                }
+            });
+        }
 
         ImageButton close = findViewById(R.id.player_close);
         if (close != null) close.setOnClickListener(v -> finishWithResult(false, false));
@@ -1515,19 +1538,61 @@ public class PlayerActivity extends AppCompatActivity {
         );
     }
 
-    private void applySatoshiTypeface(TextView... views) {
-        applyAssetTypeface("fonts/satoshi_bold.ttf", views);
+    /**
+     * The app font on every TextView under {@code root}, at the weight each one had (bold stays bold, medium
+     * stays medium). Subtitles keep their own style settings; the stats overlay stays monospace.
+     */
+    private void applyAppFont(@Nullable View root) {
+        if (root == null || root == statsView || root instanceof PlayerView || root instanceof SubtitleView) return;
+        if (root instanceof TextView) {
+            TextView text = (TextView) root;
+            Typeface current = text.getTypeface();
+            int weight = 400;
+            if (current != null) {
+                weight = Build.VERSION.SDK_INT >= 28 ? current.getWeight() : (current.isBold() ? 700 : 400);
+                if (current.isBold() && weight < 600) weight = 700;
+            }
+            text.setTypeface(NativeFonts.face(this, weight));
+        }
+        if (root instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) root;
+            for (int i = 0; i < group.getChildCount(); i++) applyAppFont(group.getChildAt(i));
+        }
     }
 
-    private void applyAssetTypeface(String assetPath, TextView... views) {
-        Typeface face;
-        try {
-            face = Typeface.createFromAsset(getAssets(), assetPath);
-        } catch (RuntimeException ignored) {
-            return;
+    /**
+     * Top-left title block: the app font throughout, the episode code as an accent tag, and a soft fade from the
+     * top-left corner so it stays readable over bright scenes.
+     */
+    private void styleTitleBlock() {
+        if (titleView != null) titleView.setTypeface(NativeFonts.face(this, 700));
+        if (metaView != null) metaView.setTypeface(NativeFonts.face(this, 500));
+        if (epNameView != null) epNameView.setTypeface(NativeFonts.face(this, 600));
+        if (detailsView != null) detailsView.setTypeface(NativeFonts.face(this, 500));
+        float dp = getResources().getDisplayMetrics().density;
+        android.util.TypedValue accentValue = new android.util.TypedValue();
+        int accent = getTheme().resolveAttribute(R.attr.playerAccent, accentValue, true) ? accentValue.data : 0xFFF59E0B;
+        if (epCodeView != null) {
+            epCodeView.setTypeface(NativeFonts.face(this, 800));
+            GradientDrawable tag = new GradientDrawable();
+            tag.setColor(accent | 0xFF000000);
+            tag.setCornerRadius(5 * dp);
+            epCodeView.setBackground(tag);
+            // Dark text on a light accent, white on a dark one.
+            int r = (accent >> 16) & 0xFF, g = (accent >> 8) & 0xFF, b = accent & 0xFF;
+            epCodeView.setTextColor((r * 299 + g * 587 + b * 114) / 1000 > 140 ? 0xFF111111 : 0xFFFFFFFF);
         }
-        for (TextView view : views) {
-            if (view != null) view.setTypeface(face);
+        if (topFade != null) {
+            GradientDrawable fade = new GradientDrawable();
+            fade.setGradientType(GradientDrawable.RADIAL_GRADIENT);
+            fade.setGradientCenter(0f, 0f);
+            fade.setGradientRadius(620 * dp);
+            fade.setColors(new int[] { 0x99000000, 0x66000000, 0x26000000, 0x00000000 });
+            topFade.setBackground(fade);
+            // A circle from the corner, squashed into a wide ellipse: about 620 x 270dp of shade.
+            topFade.setPivotX(0f);
+            topFade.setPivotY(0f);
+            topFade.setScaleY(0.44f);
         }
     }
 
@@ -1834,6 +1899,8 @@ public class PlayerActivity extends AppCompatActivity {
             @Override
             public void onPlayerError(PlaybackException error) {
                 Log.e(TAG, "ExoPlayer error " + error.getErrorCodeName(), error);
+                // The server ended the session: a fallback would only start a new one.
+                if (serverTerminated) return;
                 if (tryAudioSinkRecovery(error)) return;
                 if (!liveStream && trySeekRecovery(error)) return;
                 if (!liveStream && tryStreamFallback(error)) return;
@@ -1951,6 +2018,21 @@ public class PlayerActivity extends AppCompatActivity {
             }
             if (root.has("meta")) {
                 metaText = root.optString("meta", "").trim();
+            }
+            if (root.has("metaParts")) {
+                JSONObject parts = root.optJSONObject("metaParts");
+                hasMetaParts = parts != null;
+                partsCode = parts == null ? "" : parts.optString("code", "").trim();
+                partsName = parts == null ? "" : parts.optString("name", "").trim();
+                StringBuilder details = new StringBuilder();
+                JSONArray list = parts == null ? null : parts.optJSONArray("details");
+                for (int i = 0; list != null && i < list.length(); i++) {
+                    String bit = list.optString(i, "").trim();
+                    if (bit.isEmpty()) continue;
+                    if (details.length() > 0) details.append("  ·  ");
+                    details.append(bit);
+                }
+                partsDetails = details.toString();
             }
             if (root.has("logoUrl")) {
                 logoUrl = root.optString("logoUrl", "").trim();
@@ -2173,8 +2255,21 @@ public class PlayerActivity extends AppCompatActivity {
             if (meta.isEmpty() && !musicMode && subtitleText != null && !subtitleText.trim().isEmpty()) {
                 meta = subtitleText.trim();
             }
+            boolean parts = hasMetaParts && !musicMode;
             metaView.setText(meta);
-            metaView.setVisibility(meta.isEmpty() ? View.GONE : View.VISIBLE);
+            metaView.setVisibility(parts || meta.isEmpty() ? View.GONE : View.VISIBLE);
+            if (epRow != null && epCodeView != null && epNameView != null) {
+                boolean row = parts && (!partsCode.isEmpty() || !partsName.isEmpty());
+                epRow.setVisibility(row ? View.VISIBLE : View.GONE);
+                epCodeView.setText(partsCode);
+                epCodeView.setVisibility(partsCode.isEmpty() ? View.GONE : View.VISIBLE);
+                epNameView.setText(partsName);
+                epNameView.setVisibility(partsName.isEmpty() ? View.GONE : View.VISIBLE);
+            }
+            if (detailsView != null) {
+                detailsView.setText(partsDetails);
+                detailsView.setVisibility(parts && !partsDetails.isEmpty() ? View.VISIBLE : View.GONE);
+            }
         }
         applyArtChrome();
         if (musicMode) {
@@ -2529,12 +2624,24 @@ public class PlayerActivity extends AppCompatActivity {
         buildCastCards();
         castPanel.setVisibility(View.VISIBLE);
         if (castRow.getChildCount() > 0) castRow.getChildAt(0).requestFocus();
+        // Once laid out: Skip intro / credits rides up with the controls instead of covering the cast.
+        castPanel.post(this::placeSkipRow);
+    }
+
+    /** Skip intro / credits sits above the cast strip while it is open (the controls move up by its height). */
+    private void placeSkipRow() {
+        if (skipRow == null) return;
+        float lift = castPanel != null && castPanel.getVisibility() == View.VISIBLE ? castPanel.getHeight() : 0f;
+        if (Math.abs(skipRow.getTranslationY() + lift) < 1f) return;
+        skipRow.animate().translationY(-lift).setDuration(180)
+            .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
     }
 
     private void hideCastStrip(boolean focusPlay) {
         if (castPanel == null || !isCastStripVisible()) return;
         boolean hadFocus = isCastStripFocused();
         castPanel.setVisibility(View.GONE);
+        placeSkipRow();
         if ((focusPlay || hadFocus) && chromeVisible && playPauseBtn != null) playPauseBtn.requestFocus();
     }
 
@@ -2546,6 +2653,8 @@ public class PlayerActivity extends AppCompatActivity {
         castBuiltFor = sig.toString();
         castRow.removeAllViews();
         float dp = getResources().getDisplayMetrics().density;
+        // Sized like the title page's Top Cast row (px at 1920): 180 photo, 198 card, 18 gap, 17 / 14 text.
+        float u = getResources().getDisplayMetrics().widthPixels / 1920f;
         // Focus is a thin accent ring round the photo only: no box, the text stays white.
         ColorStateList nameColors = ColorStateList.valueOf(0xFFFFFFFF);
         ColorStateList roleColors = ColorStateList.valueOf(0xB3FFFFFF);
@@ -2560,32 +2669,34 @@ public class PlayerActivity extends AppCompatActivity {
             card.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
             card.setFocusable(true);
             card.setClickable(true);
-            card.setPadding((int) (8 * dp), (int) (8 * dp), (int) (8 * dp), (int) (8 * dp));
+            card.setPadding(0, Math.round(6 * u), 0, Math.round(6 * u));
             card.setBackground(new android.graphics.drawable.ColorDrawable(0x00000000));
-            LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams((int) (112 * dp), LinearLayout.LayoutParams.WRAP_CONTENT);
-            cardLp.setMarginEnd((int) (6 * dp));
+            LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(Math.round(198 * u), LinearLayout.LayoutParams.WRAP_CONTENT);
+            cardLp.setMarginEnd(Math.round(18 * u));
             card.setLayoutParams(cardLp);
 
             ImageView photo = new ImageView(this);
-            int size = (int) (72 * dp);
+            int size = Math.round(180 * u);
             photo.setLayoutParams(new LinearLayout.LayoutParams(size, size));
             GradientDrawable ring = new GradientDrawable();
             ring.setShape(GradientDrawable.OVAL);
             ring.setColor(0x00000000);
-            ring.setStroke((int) (3 * dp), accent);
+            // The app's focus ring (Settings: ring colour / thickness), the same as Home and title pages.
+            int ringColor = NativeHomeView.ringColor != 0 ? NativeHomeView.ringColor : Color.rgb(245, 245, 245);
+            ring.setStroke(Math.max(1, Math.round(3 * dp * NativeHomeView.ringScale)), ringColor);
             StateListDrawable ringStates = new StateListDrawable();
             ringStates.addState(new int[] { android.R.attr.state_focused }, ring);
             ringStates.addState(new int[] {}, new android.graphics.drawable.ColorDrawable(0x00000000));
             photo.setForeground(ringStates);
             photo.setDuplicateParentStateEnabled(true);
-            photo.setImageDrawable(new InitialsDrawable(member.name, 0x33FFFFFF, size));
+            photo.setImageDrawable(new InitialsDrawable(member.name, 0x33FFFFFF, size, NativeFonts.face(this, 700)));
             card.addView(photo);
             loadCastPhoto(member.thumb, photo);
 
             TextView name = new TextView(this);
             name.setText(member.name);
-            name.setTextSize(11);
-            name.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            name.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 17 * u);
+            name.setTypeface(NativeFonts.face(this, 700));
             name.setTextColor(nameColors);
             name.setDuplicateParentStateEnabled(true);
             name.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
@@ -2593,14 +2704,19 @@ public class PlayerActivity extends AppCompatActivity {
             name.setEllipsize(TextUtils.TruncateAt.END);
             LinearLayout.LayoutParams nameLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            nameLp.topMargin = (int) (6 * dp);
+            nameLp.topMargin = Math.round(12 * u);
             name.setLayoutParams(nameLp);
             card.addView(name);
 
             if (!member.role.isEmpty()) {
                 TextView role = new TextView(this);
                 role.setText(member.role);
-                role.setTextSize(9.5f);
+                role.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 14 * u);
+                role.setTypeface(NativeFonts.face(this, 400));
+                LinearLayout.LayoutParams roleLp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                roleLp.topMargin = Math.round(3 * u);
+                role.setLayoutParams(roleLp);
                 role.setTextColor(roleColors);
                 role.setDuplicateParentStateEnabled(true);
                 role.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
@@ -2626,14 +2742,14 @@ public class PlayerActivity extends AppCompatActivity {
         private final String initials;
         private final int size;
 
-        InitialsDrawable(String name, int color, int size) {
+        InitialsDrawable(String name, int color, int size, Typeface face) {
             this.size = size;
             fill.setColor(color);
             text.setColor(0xCCFFFFFF);
             text.setTextAlign(android.graphics.Paint.Align.CENTER);
-            text.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            text.setTypeface(face);
             text.setTextSize(size * 0.36f);
-            String[] parts = (name == null ? "" : name.trim()).split("\s+");
+            String[] parts = (name == null ? "" : name.trim()).split("\\s+");
             StringBuilder out = new StringBuilder();
             if (parts.length > 0 && !parts[0].isEmpty()) out.append(Character.toUpperCase(parts[0].charAt(0)));
             if (parts.length > 1 && !parts[parts.length - 1].isEmpty()) out.append(Character.toUpperCase(parts[parts.length - 1].charAt(0)));
@@ -5702,6 +5818,7 @@ public class PlayerActivity extends AppCompatActivity {
 
     private void pingPlexTimeline(String rawState, long positionOverrideMs) {
         String state = PlexTimelineReporter.normalizeState(rawState);
+        if (serverTerminated && !"stopped".equals(state)) return;
         if (!timelineReporter.shouldPing(state, SystemClock.elapsedRealtime())) return;
         absorbTimelineFromUrl(currentUrl);
         if (ratingKey == null || ratingKey.trim().isEmpty()) return;
@@ -5745,6 +5862,8 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void setChromeVisible(boolean visible) {
+        // Nothing may pull the controls (and focus) up from under the session-ended box.
+        if (visible && serverTerminated) return;
         boolean wasHidden = chrome == null || chrome.getVisibility() != View.VISIBLE;
         // A menu blocks focus on the controls while it is open. If one ever closed without
         // undoing that, the cog and seek bar could not be reached again: undo it whenever the
@@ -5754,8 +5873,12 @@ public class PlayerActivity extends AppCompatActivity {
         int vis = visible ? View.VISIBLE : View.GONE;
         if (chrome != null) chrome.setVisibility(vis);
         // The cast strip is opened on demand: it never comes back with the controls by itself.
-        if (!visible && castPanel != null) castPanel.setVisibility(View.GONE);
+        if (!visible && castPanel != null) {
+            castPanel.setVisibility(View.GONE);
+            placeSkipRow();
+        }
         if (topBar != null) topBar.setVisibility(vis);
+        if (topFade != null) topFade.setVisibility(vis);
         View topEnd = findViewById(R.id.player_top_end);
         if (topEnd != null) topEnd.setVisibility(vis);
         setClockVisible(visible);
@@ -5789,6 +5912,62 @@ public class PlayerActivity extends AppCompatActivity {
         setChromeVisible(true);
         // No close button any more (Back closes the player); keep the remote on the controls.
         if (playPauseBtn != null) playPauseBtn.requestFocus();
+    }
+
+    /**
+     * The server ended the session (e.g. "stop playback paused for X", or an admin Stop):
+     * halt the player and show Plex's reason, the way the official apps do. OK closes.
+     */
+    private void onServerTerminated(String text) {
+        if (serverTerminated || isFinishing()) return;
+        serverTerminated = true;
+        if (player != null) {
+            try {
+                player.setPlayWhenReady(false);
+                player.stop();
+            } catch (Throwable ignored) {
+                /* player tearing down */
+            }
+        }
+        String message = text == null || text.trim().isEmpty()
+            ? getString(R.string.player_session_ended_default)
+            : text.trim();
+        View scrim = findViewById(R.id.player_ended_scrim);
+        if (scrim == null) {
+            showError(message);
+            return;
+        }
+        if (isOptionDialogShowing()) hideOptionSheet();
+        hideError();
+        setBufferingVisible(false);
+        mainHandler.removeCallbacks(hideChromeRunnable);
+        setChromeVisible(false);
+        TextView messageView = findViewById(R.id.player_ended_message);
+        if (messageView != null) messageView.setText(message);
+        ImageView icon = findViewById(R.id.player_ended_icon);
+        if (icon != null) {
+            android.util.TypedValue accentValue = new android.util.TypedValue();
+            int accent = getTheme().resolveAttribute(R.attr.playerAccent, accentValue, true)
+                ? accentValue.data : 0xFFFFFFFF;
+            android.graphics.drawable.GradientDrawable ring = new android.graphics.drawable.GradientDrawable();
+            ring.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+            ring.setColor((accent & 0x00FFFFFF) | 0x29000000);
+            icon.setBackground(ring);
+            icon.setColorFilter(accent | 0xFF000000);
+        }
+        scrim.setAlpha(0f);
+        scrim.setVisibility(View.VISIBLE);
+        scrim.animate().alpha(1f).setDuration(180).start();
+        View ok = findViewById(R.id.player_ended_ok);
+        if (ok != null) {
+            ok.setOnClickListener(v -> finishWithResult(false, false));
+            ok.requestFocus();
+        }
+    }
+
+    private boolean isEndedBoxShowing() {
+        View scrim = findViewById(R.id.player_ended_scrim);
+        return scrim != null && scrim.getVisibility() == View.VISIBLE;
     }
 
     private void hideError() {
@@ -6542,14 +6721,55 @@ public class PlayerActivity extends AppCompatActivity {
         return String.format(Locale.US, "%d:%02d", m, s);
     }
 
+    /** The player's clock as Home draws it: same place, size, pill, colours and font (NativeChromeView). */
+    private void applyHomeClockStyle() {
+        if (clockView == null) return;
+        clockView.setTypeface(NativeHomeView.font(this, 500));
+        clockView.setLetterSpacing(0f);
+        if (!NativeChromeView.clockKnown) return;
+        clockView.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, NativeChromeView.clockTextPx);
+        clockView.setTextColor(NativeChromeView.clockTextColor);
+        clockView.setGravity(android.view.Gravity.CENTER);
+        clockView.setIncludeFontPadding(false);
+        clockView.setPadding(0, 0, 0, 0);
+        clockView.setMinWidth(0);
+        clockView.setMinimumWidth(0);
+        int bg = NativeChromeView.clockBgColor;
+        if (bg != 0) {
+            GradientDrawable pill = new GradientDrawable();
+            pill.setColor(bg);
+            pill.setCornerRadius(NativeChromeView.clockHeightPx / 2f);
+            clockView.setBackground(pill);
+        } else {
+            clockView.setBackground(null);
+        }
+        ViewGroup.LayoutParams lp = clockView.getLayoutParams();
+        lp.width = Math.round(NativeChromeView.clockWidthPx);
+        lp.height = Math.round(NativeChromeView.clockHeightPx);
+        clockView.setLayoutParams(lp);
+        View corner = findViewById(R.id.player_top_end);
+        if (corner != null && corner.getLayoutParams() instanceof ViewGroup.MarginLayoutParams) {
+            ViewGroup.MarginLayoutParams m = (ViewGroup.MarginLayoutParams) corner.getLayoutParams();
+            m.topMargin = Math.round(NativeChromeView.clockTopPx);
+            m.setMarginEnd(Math.round(NativeChromeView.clockRightPx));
+            corner.setLayoutParams(m);
+        }
+    }
+
     private void updateWallClock() {
         if (clockView == null) return;
         Calendar cal = Calendar.getInstance();
-        int hour = cal.get(Calendar.HOUR);
-        if (hour == 0) hour = 12;
         int minute = cal.get(Calendar.MINUTE);
-        String amPm = cal.get(Calendar.AM_PM) == Calendar.AM ? "AM" : "PM";
-        String label = String.format(Locale.US, "%d:%02d %s", hour, minute, amPm);
+        String label;
+        if (NativeChromeView.clock24) {
+            // Home's 24 hour clock (Settings: 24-hour clock): "00:42".
+            label = String.format(Locale.US, "%02d:%02d", cal.get(Calendar.HOUR_OF_DAY), minute);
+        } else {
+            int hour = cal.get(Calendar.HOUR);
+            if (hour == 0) hour = 12;
+            String amPm = cal.get(Calendar.AM_PM) == Calendar.AM ? "AM" : "PM";
+            label = String.format(Locale.US, "%d:%02d %s", hour, minute, amPm);
+        }
         if (label.equals(lastClockLabel)) return;
         lastClockLabel = label;
         clockView.setText(label);
@@ -6806,6 +7026,9 @@ public class PlayerActivity extends AppCompatActivity {
         // Always bring the WebView host forward before teardown — including
         // autoplay-next — so binge chains are not stuck on a black player
         // window while JS starts the next episode (Back was dead during that gap).
+        // Next episode: cover the app (its native rails and text too) until the next player opens, so the
+        // episode page does not flash up in between.
+        if (playNext && !musicMode && !liveStream) PlaybackCover.show();
         if (!musicMode) {
             try {
                 Intent home = new Intent(this, MainActivity.class);
@@ -6827,6 +7050,21 @@ public class PlayerActivity extends AppCompatActivity {
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
         // Moving along the cast strip is activity: keep the controls (and the strip) up.
+        if (isEndedBoxShowing()) {
+            // The session-ended box owns the remote: OK presses its button, Back closes too.
+            int key = event.getKeyCode();
+            if (key == KeyEvent.KEYCODE_BACK || key == KeyEvent.KEYCODE_ESCAPE) {
+                if (event.getAction() == KeyEvent.ACTION_UP) finishWithResult(false, false);
+                return true;
+            }
+            if (key == KeyEvent.KEYCODE_DPAD_CENTER || key == KeyEvent.KEYCODE_ENTER
+                    || key == KeyEvent.KEYCODE_NUMPAD_ENTER || key == KeyEvent.KEYCODE_BUTTON_A) {
+                View ok = findViewById(R.id.player_ended_ok);
+                if (ok != null && !ok.isFocused()) ok.requestFocus();
+                return super.dispatchKeyEvent(event);
+            }
+            return true;
+        }
         if (event.getAction() == KeyEvent.ACTION_DOWN && isCastStripFocused()) bumpChrome();
         PlayerKeyHandler.Result result = keyHandler.dispatchKeyEvent(event);
         if (result == PlayerKeyHandler.Result.SUPER) return super.dispatchKeyEvent(event);

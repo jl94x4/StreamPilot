@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Stop in a ring; tinted to the player accent at runtime. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="36dp"
+    android:height="36dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.8"
+        android:pathData="M12,2.9a9.1,9.1 0,1 0,0.001 0z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M9.6,8.6h4.8a1,1 0,0 1,1 1v4.8a1,1 0,0 1,-1 1h-4.8a1,1 0,0 1,-1 -1v-4.8a1,1 0,0 1,1 -1z" />
+</vector>

@@ -1119,6 +1119,12 @@ export const MediaPlayerDetails: React.FC<Props> = ({
     const episodeCardActions = useRef<EpisodeCardActions>({ spotlight: () => undefined, play: () => undefined });
     const [spotlightDetail, setSpotlightDetail] = useState<PlayerItem | null>(null);
     const openingSeasonRef = useRef('');
+    /** The season tab just picked: highlighted at once while its episode loads (the page then switches to it). */
+    const [pendingSeasonKey, setPendingSeasonKey] = useState('');
+    // The page moved on (the picked season's episode opened, or another title): the live item says which is active.
+    useEffect(() => {
+        setPendingSeasonKey('');
+    }, [ratingKey]);
     const episodeDetailCache = useRef(new Map<string, PlayerItem>());
     const [loading, setLoading] = useState(() => !readPlayerItemCache(ratingKey, serverId)?.item);
     const [error, setError] = useState<string | null>(null);
@@ -3059,24 +3065,31 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             item.type === 'season' ? item.ratingKey : (item.parentRatingKey || ''),
         );
         if (key === currentSeasonKey) return;
-        if (item.type === 'season') {
-            onOpenItem(season);
-            return;
-        }
         if (openingSeasonRef.current === key) return;
         openingSeasonRef.current = key;
-        void fetchMediaPlayerItem(key, { core: true, serverId: item.serverId || serverId || null })
-            .then((page) => {
+        setPendingSeasonKey(key);
+        const sid = item.serverId || serverId || null;
+        // Everything the next page draws from is fetched first (the season's episodes, then the episode itself),
+        // so it opens straight from the cache: no blank loading layout between the seasons.
+        void fetchMediaPlayerItem(key, { core: true, serverId: sid })
+            .then(async (page) => {
+                if (item.type === 'season') return season;
                 const eps = (page.children || []).filter((row) => row.type === 'episode');
                 const next = eps.find((row) => !row.watched) || eps[0];
-                onOpenItem(next ? {
+                if (!next) return season;
+                await fetchMediaPlayerItem(String(next.ratingKey), { core: true, serverId: sid }).catch(() => null);
+                return {
                     ...next,
                     showTitle: next.showTitle || item.showTitle,
                     art: next.art || item.art,
                     logo: next.logo || item.logo,
-                } : season);
+                } as PlayerItem;
             })
-            .catch(() => onOpenItem(season))
+            .catch(() => season)
+            .then((target) => {
+                if (openingSeasonRef.current !== key) return;
+                onOpenItem(target);
+            })
             .finally(() => {
                 if (openingSeasonRef.current === key) openingSeasonRef.current = '';
             });
@@ -3537,7 +3550,8 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                 ) : null}
                                 {showSeasons.map((season) => {
                                     const active = String(season.ratingKey) === String(
-                                        item.type === 'season' ? item.ratingKey : (item.parentRatingKey || ''),
+                                        pendingSeasonKey
+                                        || (item.type === 'season' ? item.ratingKey : (item.parentRatingKey || '')),
                                     );
                                     return (
                                         <TvButton
@@ -4380,7 +4394,8 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                     data-tv-item="1"
                                     data-tv-cast="1"
                                     data-tv-key={`cast:${actor.id || actor.name}`}
-                                    className="media-details-episode-cast-person"
+                                    // Same card as the movie page's Top Cast (photo, width, text): one size everywhere.
+                                    className="media-details-episode-cast-person group flex flex-col items-center gap-3 w-44 flex-shrink-0 snap-start text-center outline-none"
                                     onClick={() => onOpenPerson({
                                         id: actor.id || actor.name,
                                         name: actor.name,
@@ -4388,10 +4403,12 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                                     })}
                                 >
                                     <CastAvatar name={actor.name} thumb={actor.thumb} />
-                                    <span className="media-details-episode-cast-name">{actor.name}</span>
-                                    {actor.role ? (
-                                        <span className="media-details-episode-cast-role">{actor.role}</span>
-                                    ) : null}
+                                    <div className="w-full px-1">
+                                        <div className="media-details-episode-cast-name player-cast-name text-sm font-bold text-text leading-tight line-clamp-2">{actor.name}</div>
+                                        {actor.role ? (
+                                            <div className="media-details-episode-cast-role player-cast-role text-xs text-muted mt-1 leading-snug line-clamp-2">{actor.role}</div>
+                                        ) : null}
+                                    </div>
                                 </TvButton>
                             ))}
                         </div>

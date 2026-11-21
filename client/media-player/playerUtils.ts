@@ -930,6 +930,30 @@ export const formatNativePlayerMeta = (item?: PlayerItem | null) => {
     return line ? `${line}\n${when}` : when;
 };
 
+/**
+ * The native player's title block as parts it styles itself (see PlayerActivity.applyTitleChrome):
+ * an episode code tag, the episode name, then a muted details line. Null for anything else (music, Live TV),
+ * which keeps the plain meta string.
+ */
+export const formatNativePlayerMetaParts = (item?: PlayerItem | null) => {
+    if (!item || (item.type !== 'episode' && item.type !== 'movie')) return null;
+    const runtime = formatPlayerDuration(item.durationMs);
+    if (item.type === 'movie') {
+        const details = [String(item.year || '').trim(), runtime, String(item.contentRating || '').trim()].filter(Boolean);
+        return { code: '', name: '', details };
+    }
+    const show = String(item.showTitle || '').trim();
+    const name = String(item.episodeTitle || (item.title && item.title !== show ? item.title : '') || '').trim();
+    // The user's date format, minus the weekday (this line is compact).
+    const format = activeDateFormat();
+    const when = formatPlayerDate(item.originallyAvailableAt, 'en', format === 'weekday' ? 'long' : format);
+    return {
+        code: formatEpisodeCode(item),
+        name: name && name.toLowerCase() !== show.toLowerCase() ? name : '',
+        details: [runtime, when].filter(Boolean),
+    };
+};
+
 /** Continue Watching overlay — “42 min left”. */
 export const formatRemainingWatchTime = (ms?: number | null) => {
     const totalMin = Math.round(Number(ms || 0) / 60000);

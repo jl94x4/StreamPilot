@@ -645,7 +645,9 @@ final class NativeDetailRail extends FrameLayout {
             pic.bind(item);
             title.setText(item.title);
             title.setVisibility(item.title.isEmpty() ? GONE : VISIBLE);
-            style(title, l.titleBold ? bold : face, l.titleSize, l.titleLine, l.titleLines, l.titleColor, l.capTop, l.center);
+            // Poster rails (related, more by...): a little more air between the poster and its title than the page has.
+            float capTop = l.circle ? l.capTop : l.capTop + 5f;
+            style(title, l.titleBold ? bold : face, l.titleSize, l.titleLine, l.titleLines, l.titleColor, capTop, l.center);
             sub.setText(item.sub);
             sub.setVisibility(item.sub.isEmpty() ? GONE : VISIBLE);
             style(sub, face, l.subSize, l.subLine, l.subLines, l.subColor, l.subTop, l.center);

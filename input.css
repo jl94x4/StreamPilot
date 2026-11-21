@@ -3257,8 +3257,9 @@ html[data-tv="1"] [data-tv-row-id^="guests:"] [data-tv-rail="1"] {
 }
 html[data-tv="1"] .media-details-billboard-summary {
   margin: 0.4rem 0 0;
-  max-width: 34rem;
-  font-size: 0.85rem;
+  max-width: 42rem;
+  /* Drawn natively at the Home billboard synopsis size (20.4px = 1.1333rem here): the page reserves the same space. */
+  font-size: 1.1333rem;
   line-height: 1.45;
   color: rgba(255, 255, 255, 0.78) !important;
   display: -webkit-box;
@@ -3310,7 +3311,8 @@ html[data-tv="1"] [data-tv-kind="movie"] .media-overview-summary {
 /* Match the Home billboard synopsis size on title pages. */
 html[data-tv="1"] [data-tv-kind="show"] .media-overview-summary p,
 html[data-tv="1"] [data-tv-kind="movie"] .media-overview-summary p {
-  font-size: 0.85rem !important;
+  /* Drawn natively at the Home billboard synopsis size (20.4px); this reserves the same space. */
+  font-size: 1.1333rem !important;
   line-height: 1.45 !important;
 }
 html[data-tv="1"] .media-overview-summary-full,
@@ -3506,9 +3508,9 @@ html[data-tv="1"] [data-tv-kind="season"].media-details-page:has(.media-details-
 html[data-tv="1"] [data-tv-kind="episode"] .media-details-billboard-summary,
 html[data-tv="1"] [data-tv-kind="season"] .media-details-billboard-summary {
   margin-top: 0.35rem;
-  max-width: 36rem;
-  font-size: 0.85rem;
-  line-height: 1.4;
+  max-width: 42rem;
+  font-size: 1.1333rem;
+  line-height: 1.45;
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
@@ -3657,7 +3659,12 @@ html[data-tv="1"] .media-details-episode-cast {
   display: flex;
   flex-direction: row;
   align-items: flex-start;
-  gap: 1.35rem;
+  /* Same spacing as the movie page's Top Cast row (Carousel gap-4). */
+  gap: 1rem;
+  /* A scrolling row clips top and bottom too: room for the focused photo's ring and grow. */
+  padding: 0.75rem 0.4rem 0.4rem !important;
+  margin-top: -0.6rem !important;
+  margin-left: -0.4rem !important;
   width: 100%;
   max-width: 100%;
   min-width: 0;
@@ -3670,46 +3677,15 @@ html[data-tv="1"] .media-details-episode-cast {
 html[data-tv="1"] .media-details-episode-cast::-webkit-scrollbar {
   display: none;
 }
+/* Episode / season cast: the movie page's Top Cast card (w-44, w-40 photo, text-sm / text-xs) — only a
+   shadow so the names stay readable over the artwork. */
 html[data-tv="1"] .media-details-episode-cast-person {
-  flex: 0 0 auto;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  width: 8.9rem;
-  gap: 0.4rem;
-  padding: 0.2rem;
   border: 0;
   background: transparent;
-  text-align: center;
-  outline: none;
 }
-html[data-tv="1"] .media-details-episode-cast-person [data-tv-cast-avatar="1"] {
-  width: 8.4rem;
-  height: 8.4rem;
-  border-width: 2px;
-}
-html[data-tv="1"] .media-details-episode-cast-name {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  max-width: 100%;
-  font-size: 0.82rem;
-  font-weight: 750;
-  line-height: 1.2;
-  color: #fff;
-  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.65);
-}
+html[data-tv="1"] .media-details-episode-cast-name,
 html[data-tv="1"] .media-details-episode-cast-role {
-  display: -webkit-box;
-  -webkit-line-clamp: 1;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  max-width: 100%;
-  font-size: 0.72rem;
-  font-weight: 600;
-  line-height: 1.2;
-  color: rgba(255, 255, 255, 0.62);
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.65);
 }
 html[data-tv="1"] [data-tv-kind="episode"] .media-details-clearlogo,
 html[data-tv="1"] [data-tv-kind="season"] .media-details-clearlogo {
@@ -5353,6 +5329,27 @@ html[data-tv="1"] .player-person-hero {
 html[data-tv="1"] .player-person-name {
   font-size: 2.35rem;
   text-align: left;
+}
+/* The opened bio takes focus only so the remote can scroll it: no focus box round the text. :not(#smp-none)
+   outranks the generic [data-tv-item] focus ring (a long :not() chain). */
+html[data-tv="1"] .player-person-bio-body:not(#smp-none),
+html[data-tv="1"] .player-person-bio-body:focus:not(#smp-none),
+html[data-tv="1"] .player-person-bio-body:focus-visible:not(#smp-none),
+html[data-tv="1"] .player-person-bio-body[data-tv-focused="1"]:not(#smp-none) {
+  outline: none !important;
+  box-shadow: none !important;
+  border-color: transparent !important;
+  background: transparent !important;
+}
+html[data-tv="1"] .player-person-bio-body::before,
+html[data-tv="1"] .player-person-bio-body::after {
+  display: none !important;
+}
+/* The name under the round photo: centered under it, every line (a two-line name sat left). */
+html[data-tv="1"] .player-person-name.player-person-name-under {
+  text-align: center;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 html[data-phone="1"] .player-popup-surface,

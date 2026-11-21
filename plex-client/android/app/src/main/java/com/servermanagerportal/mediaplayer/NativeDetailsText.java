@@ -80,8 +80,28 @@ final class NativeDetailsText extends FrameLayout {
         JSONObject heading = o.optJSONObject("heading");
         if (identity != null) addBlock(identity, buildIdentity(identity));
         if (heading != null) addBlock(heading, buildStyled(heading));
-        if (meta != null) addBlock(meta, buildMeta(meta));
-        if (synopsis != null) addBlock(synopsis, buildSynopsis(synopsis));
+        if (meta != null) {
+            addBlock(meta, buildMeta(meta));
+            // The chips run a touch wider in the native font than the page measured: a fixed width squeezed the
+            // last one (the age rating) into a stub. The row sizes to its chips instead.
+            View last = getChildCount() > 0 ? getChildAt(getChildCount() - 1) : null;
+            if (last != null && last.getLayoutParams() != null) {
+                last.getLayoutParams().width = ViewGroup.LayoutParams.WRAP_CONTENT;
+                last.getLayoutParams().height = ViewGroup.LayoutParams.WRAP_CONTENT;
+            }
+        }
+        if (synopsis != null) {
+            int before = getChildCount();
+            addBlock(synopsis, buildSynopsis(synopsis));
+            // It wraps (up to the page's three lines), so it keeps the page's width: the 12% slack a one-line
+            // heading needs ran the first line past the edge and cut it off.
+            if (getChildCount() > before) {
+                View syn = getChildAt(getChildCount() - 1);
+                syn.getLayoutParams().width = Math.max(1, Math.round((float) synopsis.optDouble("w", 1) * k));
+                // Home-size type: never clipped to the page block's height.
+                syn.getLayoutParams().height = ViewGroup.LayoutParams.WRAP_CONTENT;
+            }
+        }
         hasData = getChildCount() > 0;
         updateVisibility();
     }
@@ -123,14 +143,20 @@ final class NativeDetailsText extends FrameLayout {
                     byte[] raw = android.util.Base64.decode(svcData, android.util.Base64.DEFAULT);
                     Bitmap bmp = android.graphics.BitmapFactory.decodeByteArray(raw, 0, raw.length);
                     if (bmp != null) {
-                        svc.setImageBitmap(bmp);
+                        // At its real on-screen size: a big mark shrunk while drawing came out jagged.
+                        svc.setImageBitmap(NativeHomeImages.fittedInside(bmp, px(240f), px(40f)));
                         done = true;
                     }
                 } catch (Throwable ignored) {
                     /* fall through */
                 }
             }
-            if (!done && !svcUrl.isEmpty()) images.load(svcUrl, svc, px(240f), px(40f));
+            if (!done && !svcUrl.isEmpty()) {
+                images.get(svcUrl, px(240f), px(40f), bmp -> {
+                    if (bmp != null) svc.setImageBitmap(NativeHomeImages.fittedInside(bmp, px(240f), px(40f)));
+                    else svc.setVisibility(GONE);
+                });
+            }
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             lp.bottomMargin = px(12f);
             col.addView(svc, lp);
@@ -197,7 +223,7 @@ final class NativeDetailsText extends FrameLayout {
             lp.width = px(ww);
             lp.height = px(hh);
             logo.setLayoutParams(lp);
-            logo.setImageBitmap(shown);
+            logo.setImageBitmap(NativeHomeImages.scaledExactly(shown, lp.width, lp.height));
             logo.setVisibility(VISIBLE);
             logoOk = true;
         } catch (Throwable e) {
@@ -240,6 +266,7 @@ final class NativeDetailsText extends FrameLayout {
                     chip.addView(icon, ilp);
                 }
                 TextView t = text(18f, 500, c.optBoolean("a", false) ? accent : 0xFFFFFFFF);
+                t.setSingleLine(true);
                 t.setText(c.optString("l"));
                 chip.addView(t, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
                 LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, px(32f));
@@ -269,6 +296,7 @@ final class NativeDetailsText extends FrameLayout {
                     pill.addView(mark, mlp);
                 }
                 TextView s = text(15.6f, 500, 0xFFFFFFFF);
+                s.setSingleLine(true);
                 s.setText(p.optString("s"));
                 pill.addView(s, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
                 LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, px(37f));
@@ -345,7 +373,8 @@ final class NativeDetailsText extends FrameLayout {
 
     /** A text block typed like the web one (episode page): size / weight / line height / colour measured by the page. */
     private TextView buildStyled(JSONObject o) {
-        String s = o.optString("text");
+        // Whitespace collapsed like the page renders it (summaries can carry blank lines).
+        String s = o.optString("text").replaceAll("\\s+", " ").trim();
         if (s.isEmpty()) return null;
         float fs = (float) o.optDouble("fs", 0) * k;
         TextView t = new TextView(context);
@@ -374,13 +403,22 @@ final class NativeDetailsText extends FrameLayout {
         }
     }
 
+    /** Same type as the Home billboard synopsis (NativeBillboardView.summary): 20.4px, 1.45 line height, 78% white. */
+    private static final float SYN_SIZE = 20.4f;
+    private static final float SYN_LINE = 1.45f;
+
     private TextView buildSynopsis(JSONObject o) {
-        if (o.has("fs")) return buildStyled(o);
-        String s = o.optString("text");
+        String s = o.optString("text").replaceAll("\\s+", " ").trim();
         if (s.isEmpty()) return null;
-        TextView t = text(17f, 400, 0xFFFFFFFF);
+        TextView t = text(SYN_SIZE, 400, Color.argb(199, 255, 255, 255));
         t.setText(s);
-        if (android.os.Build.VERSION.SDK_INT >= 28) t.setLineHeight(px(24.65f));
+        if (android.os.Build.VERSION.SDK_INT >= 28) t.setLineHeight(px(SYN_SIZE * SYN_LINE));
+        else t.setLineSpacing(0f, SYN_LINE);
+        if (o.has("fs")) {
+            // Episode / season pages: the page clamps it to three lines.
+            t.setMaxLines(3);
+            t.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        }
         return t;
     }
 

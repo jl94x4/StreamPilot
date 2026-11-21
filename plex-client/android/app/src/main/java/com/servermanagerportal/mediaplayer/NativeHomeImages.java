@@ -349,6 +349,47 @@ final class NativeHomeImages {
         }
     }
 
+    /**
+     * A copy of src at exactly w x h, shrunk by filtered halving so a large clear logo keeps clean edges. Views
+     * show logos at their real pixel size with this: drawing a 2-3x bigger bitmap smaller on screen only gets
+     * bilinear filtering (crops and copies lose the mipmaps), which is what made the edges jagged. src (often
+     * a cached bitmap) is never recycled; returns src itself when it is already that size.
+     */
+    static Bitmap scaledExactly(Bitmap src, int w, int h) {
+        if (src == null || w <= 0 || h <= 0) return src;
+        if (src.getWidth() == w && src.getHeight() == h) return src;
+        Bitmap cur = src;
+        try {
+            while (cur.getWidth() / 2 >= w && cur.getHeight() / 2 >= h) {
+                Bitmap next = Bitmap.createScaledBitmap(cur, cur.getWidth() / 2, cur.getHeight() / 2, true);
+                if (cur != src) cur.recycle();
+                cur = next;
+            }
+            if (cur.getWidth() != w || cur.getHeight() != h) {
+                Bitmap next = Bitmap.createScaledBitmap(cur, w, h, true);
+                if (next != cur && cur != src) cur.recycle();
+                cur = next;
+            }
+            // Already the on-screen pixel size: no density rescale on top. A copy keeps the source's density,
+            // and an ImageView sized to its picture (adjustViewBounds) then drew it smaller again.
+            if (cur != src) cur.setDensity(Bitmap.DENSITY_NONE);
+            return cur;
+        } catch (Throwable e) {
+            if (cur != src) cur.recycle();
+            return src;
+        }
+    }
+
+    /** {@link #scaledExactly} at the largest size that fits inside boxW x boxH, keeping the shape. */
+    static Bitmap fittedInside(Bitmap src, int boxW, int boxH) {
+        if (src == null || boxW <= 0 || boxH <= 0 || src.getWidth() <= 0 || src.getHeight() <= 0) return src;
+        float scale = Math.min(boxW / (float) src.getWidth(), boxH / (float) src.getHeight());
+        if (scale >= 1f) return src;
+        return scaledExactly(src,
+            Math.max(1, Math.round(src.getWidth() * scale)),
+            Math.max(1, Math.round(src.getHeight() * scale)));
+    }
+
     private boolean download(String url, File out) {
         HttpURLConnection conn = null;
         File tmp = new File(out.getPath() + ".part");

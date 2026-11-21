@@ -74,6 +74,46 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.823': [
+        {
+            title: 'Player',
+            items: [
+                'When your server stops playback (for example "stop playback paused for X minutes", or an admin pressing Stop), the player now stops and shows the server\'s message, like the official Plex apps',
+                'Next episode (the player\'s skip button, Skip Credits or autoplay) goes straight to the next episode on a black loading screen, instead of flashing the episode list in between',
+                'The whole player now uses your app font (clock, times, badges, menus, Skip intro, cast), and the cast photos’ focus ring uses your focus ring colour and thickness',
+                'The player clock matches Home: same place, size and pill, and it follows your 24-hour clock setting',
+                'Skip intro / Skip credits moves up with the controls when the cast strip is open, instead of covering the cast',
+                'The Resume and Still watching boxes always take the remote when they open, so the buttons can be pressed and nothing moves behind them',
+                'New title block in the player: logo, an accent S1 · E2 tag with the episode name, then runtime and date, all lined up on the left in your app font over a soft corner fade, so it stays readable on bright scenes',
+            ],
+        },
+        {
+            title: 'Clear logos',
+            items: [
+                'Logos on Home, title pages and the long-press menu are drawn at their exact on-screen size, so their edges are smooth instead of jagged',
+                'The same for network, studio and streaming service logos (Paramount+, Universal, Marvel...) on Home and title pages',
+            ],
+        },
+        {
+            title: 'Title pages',
+            items: [
+                'Opening a movie or show lands on Watch / Resume again, even if you last left that page on a season or cast card',
+                'Episode cards are no longer cut off at the bottom',
+                'The info row (rating, date, runtime, age rating, episode count) no longer squashes its last item',
+                'Descriptions are the same size as on Home, and summaries with blank lines in them no longer show a gap mid-text',
+                'A little more space between the posters and their titles in the related rows',
+                'Switching season with the season bar goes straight to the new season: no flick back to "Show" and no blank loading page in between',
+                'Cast on episode and season pages, and the cast strip in the player (press Down), are now the same size and spacing as on movie pages',
+            ],
+        },
+        {
+            title: 'Appearance',
+            items: [
+                'Roboto is now the default app font. Switzer, the previous default, is still in Settings → App font',
+                'Cast profile pages: the name is centered under the photo, the bio uses the same text size as Home, and opening "More" no longer draws a white box around it',
+            ],
+        },
+    ],
     '1.0.821': [
         {
             title: 'Clear logos',

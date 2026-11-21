@@ -138,6 +138,19 @@ final class NativeMenuView extends FrameLayout {
         super.onDetachedFromWindow();
     }
 
+    /** Logo at its real on-screen size (measured once laid out): shrinking a bigger bitmap while drawing jags the edges. */
+    private void showFittedLogo(final ImageView logo, final Bitmap bmp) {
+        logo.post(() -> {
+            int boxW = logo.getWidth() - logo.getPaddingLeft() - logo.getPaddingRight();
+            int boxH = logo.getHeight() - logo.getPaddingTop() - logo.getPaddingBottom();
+            if (boxW <= 0 || boxH <= 0) {
+                boxW = px(420);
+                boxH = px(124);
+            }
+            logo.setImageBitmap(NativeHomeImages.fittedInside(bmp, boxW, boxH));
+        });
+    }
+
     private int px(float v) {
         return Math.round(v * s);
     }
@@ -213,9 +226,11 @@ final class NativeMenuView extends FrameLayout {
             if (!logoData.isEmpty()) {
                 byte[] raw = Base64.decode(logoData, Base64.DEFAULT);
                 Bitmap bmp = BitmapFactory.decodeByteArray(raw, 0, raw.length);
-                if (bmp != null) logo.setImageBitmap(bmp);
+                if (bmp != null) showFittedLogo(logo, bmp);
             } else {
-                images.load(logoUrl, logo, px(420), px(124));
+                images.get(logoUrl, px(420), px(124), bmp -> {
+                    if (bmp != null) showFittedLogo(logo, bmp);
+                });
             }
         } else if (!title.isEmpty()) {
             TextView t = text(title, 34, Color.WHITE, true);

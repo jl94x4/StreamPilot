@@ -103,6 +103,14 @@ final class NativeChromeView extends FrameLayout {
     private float rootH;
     private float rootRadius = 28f;
     private boolean clockOn;
+    /**
+     * Home's clock as last drawn, in screen px, so the player's clock can be the same (PlayerActivity): its top and
+     * right edge, size, text size, pill and text colours, and 12 / 24 hour (from Home's own label).
+     */
+    static volatile boolean clockKnown;
+    static volatile float clockTopPx, clockRightPx, clockWidthPx, clockHeightPx, clockTextPx;
+    static volatile int clockBgColor, clockTextColor = Color.WHITE;
+    static volatile boolean clock24 = true;
     private String clockText = "";
     private float clkX;
     private float clkY;
@@ -571,6 +579,15 @@ final class NativeChromeView extends FrameLayout {
         }
 
         private void drawClock(Canvas c) {
+            clockTopPx = clkY * k;
+            clockRightPx = getWidth() - (clkX + clkW) * k;
+            clockWidthPx = clkW * k;
+            clockHeightPx = clkH * k;
+            clockTextPx = clkSize * k;
+            clockBgColor = clkBg;
+            clockTextColor = clkColor;
+            clock24 = !clockText.matches("(?i).*\\b[ap]\\.?m\\.?(\\b.*|$)");
+            clockKnown = clockWidthPx > 0;
             paint.setStyle(Paint.Style.FILL);
             if (clkBg != 0) {
                 paint.setColor(clkBg);

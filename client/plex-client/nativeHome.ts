@@ -17,6 +17,7 @@ type CapNativeHome = {
     releaseFocus: () => Promise<void>;
     focusRows: () => Promise<void>;
     setBlocked: (opts: { blocked: boolean }) => Promise<void>;
+    setPlaybackCover: (opts: { on: boolean }) => Promise<void>;
     setBrowse: (opts: { data: string; vw: number; fresh: boolean; rgb: string; focus?: boolean }) => Promise<void>;
     focusBrowse: (opts: { key: string }) => Promise<void>;
     setRing: (opts: { rgb: string; scale: number }) => Promise<void>;
@@ -246,6 +247,17 @@ export const nativeHomeSetBlocked = async (blocked: boolean): Promise<void> => {
         await plugin?.setBlocked({ blocked });
     } catch {
         /* plugin gone */
+    }
+};
+
+/** The native black "starting next episode" cover (the player raises it when it closes for play-next). */
+export const nativePlaybackCover = async (on: boolean): Promise<void> => {
+    if (!isNativeHomeSupported()) return;
+    const { plugin } = await loadHolder();
+    try {
+        await plugin?.setPlaybackCover({ on });
+    } catch {
+        /* plugin gone / older shell */
     }
 };
 

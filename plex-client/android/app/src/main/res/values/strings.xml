@@ -83,6 +83,8 @@
     <string name="player_quality_nudge_yes">Lower quality</string>
     <string name="player_quality_nudge_no">Keep current</string>
     <string name="player_no_options">No options for this title</string>
+    <string name="player_session_ended_title">Playback stopped</string>
+    <string name="player_session_ended_default">The server ended this playback session.</string>
     <string name="player_updating_stream">Updating…</string>
     <string name="player_burning_subs">Burning subtitles… this can take a minute</string>
     <string name="player_burning_subs_cancel">Cancel</string>
