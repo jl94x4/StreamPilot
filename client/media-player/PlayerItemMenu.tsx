@@ -3,6 +3,7 @@ import React, { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, use
 import { askConfirm } from '../shared/confirm';
 import { createPortal } from 'react-dom';
 import {
+    Activity,
     Bookmark,
     BookmarkCheck,
     Captions,
@@ -14,15 +15,20 @@ import {
     Eye,
     EyeOff,
     FolderPlus,
+    History,
+    Image as ImageIcon,
     Info,
     Layers,
+    Link2,
     ListPlus,
     ListVideo,
     MoreVertical,
     Music,
+    Pencil,
     Play,
     RefreshCw,
     RotateCcw,
+    Settings2,
     Shield,
     ShieldCheck,
     Shuffle,
@@ -37,6 +43,7 @@ import { rectToFixedPixels } from '../shared/ui';
 import {
     addMediaPlayerCollectionItem,
     addMediaPlayerPlaylistItem,
+    analyzeManageItem,
     createMediaPlayerCollection,
     createMediaPlayerPlaylist,
     deleteMediaPlayerItem,
@@ -57,6 +64,8 @@ import { PLAYER_SCROLL_ID } from './paths';
 import type { PlayerItem, PlayerPlayOptions } from './types';
 import { PlayerClearLogo } from './PlayerClearLogo';
 import { PlayerFileInfo } from './PlayerFileInfo';
+import { PlayerManageDialog } from './PlayerManageDialog';
+import type { ManageView } from './PlayerManageDialog';
 import { PlayerSeasonWatchDialog } from './PlayerSeasonWatchDialog';
 import { noteFinishedPlayback, playerHasSeveralServers, playerServerNameFor, readPlayerItemCache } from './playerMemory';
 import { readPlayerSettings } from './playerSettings';
@@ -107,7 +116,7 @@ type Props = {
     onSubtitleChange?: (id: string) => void;
 };
 
-type MenuMode = 'main' | 'playlist' | 'collection';
+type MenuMode = 'main' | 'playlist' | 'collection' | 'manage';
 
 const MENU_MIN_WIDTH = 220;
 const MENU_MAX_WIDTH = 420;
@@ -179,6 +188,7 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
     const [newCollectionName, setNewCollectionName] = useState('');
     const [fileInfoItem, setFileInfoItem] = useState<PlayerItem | null>(null);
     const [fileInfoLoading, setFileInfoLoading] = useState(false);
+    const [manageView, setManageView] = useState<ManageView | null>(null);
     const [trackPicker, setTrackPicker] = useState<'audio' | 'subtitles' | null>(null);
     const [seasonWatchOpen, setSeasonWatchOpen] = useState(false);
     const [seasonWatchBusy, setSeasonWatchBusy] = useState(false);
@@ -253,6 +263,13 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
             || item.type === 'track'
             || item.type === 'collection'
         );
+    // Manage (edit metadata / artwork / match / history) changes the real server, so only the admin gets it, and only in the app
+    // (the portal has no route for it). Plex itself refuses anyone who is not the owner.
+    const canManage = isAdmin
+        && typeof window !== 'undefined' && !!window.__PLEX_CLIENT__
+        && fullMenu
+        && (item.type === 'movie' || item.type === 'show' || item.type === 'season' || item.type === 'episode')
+        && !!String(item.ratingKey || '').replace(/^\d+::/, '').replace(/\D/g, '');
     // Track pickers need the title's streams; only the page's own title passes them.
     const canPickAudio = (variant === 'toolbar' || isTv) && audioTracks.length > 0 && !!onAudioChange;
     const canPickSubtitles = (variant === 'toolbar' || isTv) && !!onSubtitleChange
@@ -625,6 +642,17 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                 toast(t('mediaPlayerPage.actionError'), 'error');
             })
             .finally(() => setFileInfoLoading(false));
+    };
+
+    const openManage = (view: ManageView) => {
+        setOpen(false);
+        setMode('main');
+        try {
+            delete document.documentElement.dataset.tvMenuOpen;
+        } catch {
+            /* ignore */
+        }
+        setManageView(view);
     };
 
     const choose = (action: () => void | Promise<void>) => {
@@ -1175,6 +1203,20 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                     {t('mediaPlayerPage.refreshMetadata')}
                 </TvButton>
             ) : null}
+            {canManage ? (
+                <TvButton
+                    type="button"
+                    role="menuitem"
+                    data-tv-item="1"
+                    data-tv-menu-item="1"
+                    className={itemClass}
+                    onClick={() => setMode('manage')}
+                >
+                    <Settings2 className={iconClass} />
+                    <span className="min-w-0 flex-1 whitespace-nowrap">{t('mediaPlayerPage.manage')}</span>
+                    <ChevronRight className="h-3.5 w-3.5 shrink-0 opacity-60" />
+                </TvButton>
+            ) : null}
             {canOfflineDownload ? (
                 <>
                     {!useContextSheet ? <div className="my-1.5 border-t border-white/10" /> : null}
@@ -1362,6 +1404,77 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                 </>
             ) : null}
         </>
+    ) : mode === 'manage' ? (
+        <div className={`flex flex-col ${useContextSheet ? 'min-h-0 flex-1' : 'max-h-72'}`}>
+            <TvButton
+                type="button"
+                data-tv-item="1"
+                data-tv-menu-item="1"
+                className={useContextSheet
+                    ? 'mb-1 flex items-center gap-2 px-4 py-2.5 text-left text-sm font-bold uppercase tracking-wider text-white/55 hover:bg-white/[0.06]'
+                    : 'flex items-center gap-2 px-3.5 py-2 text-left text-xs font-bold uppercase tracking-wider text-muted hover:bg-white/5'}
+                onClick={() => setMode('main')}
+            >
+                {t('mediaPlayerPage.back')}
+            </TvButton>
+            <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar" data-tv-overlay-scroll="1">
+                <TvButton type="button" role="menuitem" data-tv-item="1" data-tv-menu-item="1" className={itemClass} onClick={() => openManage('edit')}>
+                    <Pencil className={iconClass} />
+                    {t('mediaPlayerPage.manageEditMetadata')}
+                </TvButton>
+                <TvButton type="button" role="menuitem" data-tv-item="1" data-tv-menu-item="1" className={itemClass} onClick={() => openManage('artwork')}>
+                    <ImageIcon className={iconClass} />
+                    {t('mediaPlayerPage.manageChangeArtwork')}
+                </TvButton>
+                {item.type === 'movie' || item.type === 'show' ? (
+                    <TvButton type="button" role="menuitem" data-tv-item="1" data-tv-menu-item="1" className={itemClass} onClick={() => openManage('match')}>
+                        <Link2 className={iconClass} />
+                        {t('mediaPlayerPage.manageFixMatch')}
+                    </TvButton>
+                ) : null}
+                <TvButton
+                    type="button"
+                    role="menuitem"
+                    data-tv-item="1"
+                    data-tv-menu-item="1"
+                    className={itemClass}
+                    onClick={() => choose(async () => {
+                        toast(t('mediaPlayerPage.metadataRefreshStarted'), 'info');
+                        const result = await refreshMediaPlayerItemMetadata(item.ratingKey, {
+                            serverId: item.serverId || null,
+                            baseline: item,
+                        });
+                        toast(
+                            result.updated
+                                ? t('mediaPlayerPage.metadataRefreshUpdated')
+                                : t('mediaPlayerPage.metadataRefreshPending'),
+                            result.updated ? 'success' : 'info',
+                        );
+                    })}
+                >
+                    <RefreshCw className={iconClass} />
+                    {t('mediaPlayerPage.refreshMetadata')}
+                </TvButton>
+                <TvButton
+                    type="button"
+                    role="menuitem"
+                    data-tv-item="1"
+                    data-tv-menu-item="1"
+                    className={itemClass}
+                    onClick={() => choose(async () => {
+                        await analyzeManageItem(item.ratingKey, item.serverId);
+                        toast(t('mediaPlayerPage.manageAnalyzeStarted'), 'info');
+                    })}
+                >
+                    <Activity className={iconClass} />
+                    {t('mediaPlayerPage.manageAnalyze')}
+                </TvButton>
+                <TvButton type="button" role="menuitem" data-tv-item="1" data-tv-menu-item="1" className={itemClass} onClick={() => openManage('history')}>
+                    <History className={iconClass} />
+                    {t('mediaPlayerPage.managePlayHistory')}
+                </TvButton>
+            </div>
+        </div>
     ) : mode === 'collection' ? (
         <div className={`flex flex-col ${useContextSheet ? 'min-h-0 flex-1' : 'max-h-72'}`}>
             <TvButton
@@ -1715,6 +1828,14 @@ export const PlayerItemMenu = forwardRef<PlayerItemMenuHandle, Props>(({
                 {variant === 'toolbar' ? <span className="media-details-action-label">{t('mediaPlayerPage.actionMore')}</span> : null}
             </TvButton>
             {menu}
+            {manageView ? (
+                <PlayerManageDialog
+                    item={item}
+                    view={manageView}
+                    onClose={() => setManageView(null)}
+                    onToast={onToast}
+                />
+            ) : null}
             {fileInfoItem ? (
                 <PlayerFileInfo
                     item={fileInfoItem}

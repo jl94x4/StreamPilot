@@ -12,6 +12,7 @@ import {
 import { answerNativeVertical, mirrorNativeCardFocus, nativeVerticalActive } from '../plex-client/useTvRemote';
 import { PLAYER_SCROLL_ID } from './paths';
 
+import { nativeOverlayOpen, watchNativeMenuFlag } from './nativeOverlay';
 /**
  * Cast / guest-star / related rails of a TV details page, drawn by NativeDetailRail at the web rail's rect.
  * The web rail stays in the page (invisible, laid out, focusable) so Up / Down navigation, the held menu and the
@@ -36,6 +37,31 @@ type Entry = {
     items: DetailRailItem[];
     sent: string;
     rectSig: string;
+    /** The web rail is hidden (its page is covered by another, e.g. Search under a title page): native is hidden too. */
+    hidden?: boolean;
+    /** Just back in view: once it is drawn again, it takes the remote back if the page's focus is on one of its cards. */
+    reshown?: boolean;
+};
+
+/**
+ * The web rail has no size: its page is still mounted but not shown (Search stays mounted under the title page
+ * opened from it). Hide the native rail, and forget what was sent so it is redrawn in full once the rail is back.
+ * Skipping a zero size left the native rail drawn at its old place, over the page on top.
+ */
+const hideWhileHidden = (entry: Entry, scroller: HTMLElement) => {
+    const r = scroller.getBoundingClientRect();
+    if (r.width >= 2 && r.height >= 2) {
+        if (entry.hidden) entry.reshown = true;
+        entry.hidden = false;
+        return false;
+    }
+    if (!entry.hidden) {
+        entry.hidden = true;
+        entry.sent = '';
+        entry.rectSig = '';
+        nativeDetailRailHide(entry.railId);
+    }
+    return true;
 };
 
 const OVERLAY = '[data-tv-item-menu="1"], [data-tv-select-menu="1"], [data-tv-resume-dialog="1"], [data-tv-season-watch-dialog="1"], [data-tv-still-watching-dialog="1"], [data-tv-whats-new="1"], [data-tv-home-switch="1"], [data-tv-library-manager="1"], [data-tv-version-dialog="1"], [data-tv-track-dialog="1"], [data-tv-settings-dialog="1"], [role="dialog"]';
@@ -149,6 +175,7 @@ const syncPayload = (entry: Entry) => {
     const scroller = scrollerOf(entry);
     if (!scroller) return;
     scroller.setAttribute('data-native-rail', entry.railId);
+    if (hideWhileHidden(entry, scroller)) return;
     const layout = measure(entry, scroller);
     if (!layout) return;
     // Only cards the page has mounted: those are the ones the open / menu can reach.
@@ -172,12 +199,23 @@ const syncPayload = (entry: Entry) => {
 const syncRect = (entry: Entry) => {
     const scroller = scrollerOf(entry);
     if (!scroller) return;
+    if (hideWhileHidden(entry, scroller)) return;
+    // Back in view (Back from the title page): send the cards again before the place.
+    if (entry.reshown) syncPayload(entry);
     const r = scroller.getBoundingClientRect();
-    if (r.width < 2 || r.height < 2) return;
     const sig = `${r.left}|${r.top}|${r.width}|${r.height}`;
-    if (sig === entry.rectSig) return;
-    entry.rectSig = sig;
-    nativeDetailRailRect(entry.railId, r.left, r.top, r.width, r.height, window.innerWidth);
+    if (sig !== entry.rectSig) {
+        entry.rectSig = sig;
+        nativeDetailRailRect(entry.railId, r.left, r.top, r.width, r.height, window.innerWidth);
+    }
+    if (entry.reshown) {
+        entry.reshown = false;
+        // The page put its focus back on this rail's card while the native rail was still hidden: hand it the remote,
+        // or the page kept it and no card showed focus.
+        const active = document.activeElement as HTMLElement | null;
+        const key = active && scroller.contains(active) ? active.getAttribute('data-tv-key') : null;
+        if (key && !navOpen() && !document.querySelector(OVERLAY)) giveToNative(entry.railId, key);
+    }
 };
 
 const entryOfKey = (nativeKey: string) => {
@@ -240,13 +278,14 @@ const install = () => {
     // A menu / dialog or the sidebar over the page: the rails (above the WebView) must not draw over it.
     let suppressed = false;
     const syncSuppressed = () => {
-        const on = !!document.querySelector(OVERLAY);
+        const on = nativeOverlayOpen(OVERLAY);
         if (on === suppressed) return;
         suppressed = on;
         nativeDetailRailSuppressed(on);
     };
     const overlayObserver = new MutationObserver(syncSuppressed);
     overlayObserver.observe(document.body, { childList: true, subtree: true });
+    const stopMenuFlag = watchNativeMenuFlag(syncSuppressed);
     let burstUntil = 0;
     const burst = () => {
         queue();
@@ -351,6 +390,7 @@ const install = () => {
         resize?.disconnect();
         mutate.disconnect();
         overlayObserver.disconnect();
+        stopMenuFlag();
         navObserver.disconnect();
         offFocus();
         offOpen();

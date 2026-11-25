@@ -44,9 +44,7 @@ final class NativeHomeImages {
         try {
             android.app.ActivityManager am = (android.app.ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
             low = am != null && am.isLowRamDevice();
-        } catch (Throwable ignored) {
-            /* keep the roomy defaults */
-        }
+        } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "NativeHomeImages:47" + " " + ignored.getClass().getSimpleName()); }
         lowRam = low;
         dir = new File(context.getCacheDir(), "native-home-images");
         //noinspection ResultOfMethodCallIgnored
@@ -135,9 +133,7 @@ final class NativeHomeImages {
                 Bitmap tiny = Bitmap.createScaledBitmap(small, goalW, goalH, true);
                 if (small != bitmap && small != tiny) small.recycle();
                 target.setImageBitmap(softBlur(tiny));
-            } catch (Throwable ignored) {
-                /* leave the card empty rather than show the spoiler */
-            }
+            } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "NativeHomeImages:138" + " " + ignored.getClass().getSimpleName()); }
         });
     }
 
@@ -400,9 +396,7 @@ final class NativeHomeImages {
             String cookie = null;
             try {
                 cookie = CookieManager.getInstance().getCookie(url);
-            } catch (Throwable ignored) {
-                /* no WebView cookies */
-            }
+            } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "NativeHomeImages:403" + " " + ignored.getClass().getSimpleName()); }
             if (cookie != null && !cookie.isEmpty()) conn.setRequestProperty("Cookie", cookie);
             if (conn.getResponseCode() != 200) return false;
             try (InputStream in = conn.getInputStream(); FileOutputStream fos = new FileOutputStream(tmp)) {

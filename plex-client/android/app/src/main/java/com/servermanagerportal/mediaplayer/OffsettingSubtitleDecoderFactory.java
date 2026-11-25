@@ -169,9 +169,7 @@ final class OffsettingSubtitleDecoderFactory implements SubtitleDecoderFactory {
             try {
                 Subtitle shifted = new OffsettingSubtitle(snapshot(out), offset);
                 out.setContent(out.timeUs, shifted, /* subsampleOffsetUs= */ 0);
-            } catch (Throwable ignored) {
-                /* keep original cues if snapshot fails */
-            }
+            } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "OffsettingSubtitleDecoderFactory:172" + " " + ignored.getClass().getSimpleName()); }
             return out;
         }
 

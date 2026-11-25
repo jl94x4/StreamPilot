@@ -1,3 +1,4 @@
+import { isPhoneUi } from '../plex-client/config';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { listMediaDownloads, mediaDownloadsAvailable, onMediaDownloadChange } from '../plex-client/mediaDownloads';
 import {
@@ -560,6 +561,8 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                                     {...tvNavProps(isTvShell, expanded, active)}
                                     className={navButtonClass(active, showLabels, isTvShell)}
                                     onClick={() => go(() => onOpenLibrary(section))}
+                                    data-tv-library-id={String(section.key)}
+                                    data-tv-library-title={section.title}
                                     title={label}
                                     aria-label={label}
                                 >
@@ -574,7 +577,8 @@ export const MediaPlayerNav = React.memo(function MediaPlayerNav({
                                 </TvButton>
                             );
                         })}
-                        {libraries.length ? (
+                        {/* More (library manager): not on phones. */}
+                        {libraries.length && desktop && !isPhoneUi() ? (
                             <TvButton
                                 type="button"
                                 {...tvNavProps(isTvShell, expanded, false)}

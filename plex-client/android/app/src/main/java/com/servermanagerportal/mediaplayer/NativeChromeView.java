@@ -34,6 +34,8 @@ import java.util.List;
 final class NativeChromeView extends FrameLayout {
 
     static final String PREFIX = "nav~";
+    private static final long LONG_PRESS_MS = 600;
+    private boolean okLong;
     private static final long FOCUS_NOTIFY_MS = 70;
 
     private static final class Shape {
@@ -385,10 +387,29 @@ final class NativeChromeView extends FrameLayout {
         boolean up = code == KeyEvent.KEYCODE_DPAD_UP;
         boolean down = code == KeyEvent.KEYCODE_DPAD_DOWN;
         boolean ok = code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER || code == KeyEvent.KEYCODE_NUMPAD_ENTER;
-        if (!(left || right || up || down || ok)) return false;
+        boolean menu = code == KeyEvent.KEYCODE_MENU;
+        if (!(left || right || up || down || ok || menu)) return false;
         if (focusIdx < 0 || focusIdx >= items.size()) return true;
+        if (menu) {
+            // The remote's Menu key: same as holding OK (library options for a library row).
+            if (event.getAction() == KeyEvent.ACTION_UP) listener.onLongPress(PREFIX + items.get(focusIdx).key);
+            return true;
+        }
         if (ok) {
-            if (event.getAction() == KeyEvent.ACTION_UP && event.getRepeatCount() == 0) listener.onOpen(PREFIX + items.get(focusIdx).key);
+            if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                if (event.getRepeatCount() == 0) okLong = false;
+                else if (!okLong && (event.isLongPress() || event.getEventTime() - event.getDownTime() >= LONG_PRESS_MS)) {
+                    // Held: the page shows the row's options (library scan); the release must not open it.
+                    okLong = true;
+                    listener.onLongPress(PREFIX + items.get(focusIdx).key);
+                }
+                return true;
+            }
+            if (okLong) {
+                okLong = false;
+                return true;
+            }
+            if (event.getRepeatCount() == 0) listener.onOpen(PREFIX + items.get(focusIdx).key);
             return true;
         }
         if (event.getAction() == KeyEvent.ACTION_UP) return true;

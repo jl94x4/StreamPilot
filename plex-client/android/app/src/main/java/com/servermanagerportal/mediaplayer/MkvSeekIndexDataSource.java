@@ -262,9 +262,7 @@ final class MkvSeekIndexDataSource implements DataSource {
         } finally {
             try {
                 source.close();
-            } catch (IOException ignored) {
-                /* probe only */
-            }
+            } catch (IOException ignored) { android.util.Log.w("SPSwallowed", "MkvSeekIndexDataSource:265" + " " + ignored.getClass().getSimpleName()); }
         }
     }
 

@@ -222,9 +222,7 @@ final class WhoIsOnScreen {
             for (float[] vector : refs) {
                 for (float v : vector) out.writeFloat(v);
             }
-        } catch (Exception ignored) {
-            /* the in-memory copy still works this session */
-        }
+        } catch (Exception ignored) { android.util.Log.w("SPSwallowed", "WhoIsOnScreen:225" + " " + ignored.getClass().getSimpleName()); }
     }
 
     void shutdown() {
@@ -411,9 +409,7 @@ final class WhoIsOnScreen {
         try (DataOutputStream out = new DataOutputStream(new FileOutputStream(file))) {
             out.writeInt(vector.length);
             for (float v : vector) out.writeFloat(v);
-        } catch (Exception ignored) {
-            /* the in-memory copy still works this session */
-        }
+        } catch (Exception ignored) { android.util.Log.w("SPSwallowed", "WhoIsOnScreen:414" + " " + ignored.getClass().getSimpleName()); }
     }
 
     /**

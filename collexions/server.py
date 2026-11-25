@@ -4950,8 +4950,16 @@ def history_endpoint():
         except Exception as e:
             return jsonify({"error": _client_error("Failed to save history", e)}), 500
 
-    # Never parse the log inside the request: serve what is stored and refresh in the background.
-    _background_history_sync_if_due(min_interval=15)
+    if request.args.get('sync') == '1':
+        # The portal's Smart Summary asks for a current count: read the new log lines now (incremental, so it is cheap)
+        # instead of serving a file that can be minutes behind.
+        try:
+            sync_logs_to_history()
+        except Exception as e:
+            logging.error(f"History sync on request failed: {e}")
+    else:
+        # Never parse the log inside the request: serve what is stored and refresh in the background.
+        _background_history_sync_if_due(min_interval=15)
 
     if os.path.exists(HISTORY_FILE):
         try:

@@ -128,6 +128,7 @@ public class NativeHomePlugin extends Plugin {
         // false: only the backdrop changes (another episode took the spotlight). The remote stays where it is: taking it
         // for the WebView here pulled focus off the native episode rail and the page dropped it on the "Show" tab.
         final boolean takeFocus = !Boolean.FALSE.equals(call.getBoolean("focus", true));
+        final boolean cinematic = Boolean.TRUE.equals(call.getBoolean("cinematic", false));
         final Activity activity = getActivity();
         if (activity == null) {
             call.reject("no activity");
@@ -147,7 +148,7 @@ public class NativeHomePlugin extends Plugin {
                     pendingHide = null;
                 }
                 view.setVisibility(View.VISIBLE);
-                view.enterDetails(url, rgb, tint);
+                view.enterDetails(url, rgb, tint, cinematic);
                 setWebTransparent(true);
                 if (takeFocus) {
                     if (backCallback != null) backCallback.setEnabled(false);
@@ -198,9 +199,7 @@ public class NativeHomePlugin extends Plugin {
             try {
                 ensureView(activity);
                 ensureRail(activity).setItems(NativeEpisodeRail.parse(json), focus);
-            } catch (Throwable ignored) {
-                /* keep the web rail's data as is */
-            }
+            } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "NativeHomePlugin:201" + " " + ignored.getClass().getSimpleName()); }
             call.resolve();
         });
     }
@@ -280,9 +279,7 @@ public class NativeHomePlugin extends Plugin {
             try {
                 ensureView(activity);
                 ensureDetailRail(activity, id).setData(new org.json.JSONObject(json), focus);
-            } catch (Throwable ignored) {
-                /* keep the web rail's data as is */
-            }
+            } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "NativeHomePlugin:283" + " " + ignored.getClass().getSimpleName()); }
             call.resolve();
         });
     }
@@ -431,9 +428,7 @@ public class NativeHomePlugin extends Plugin {
                     backCallback.setEnabled(true);
                     browse.restoreFocus();
                 }
-            } catch (Throwable ignored) {
-                /* keep what is shown */
-            }
+            } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "NativeHomePlugin:434" + " " + ignored.getClass().getSimpleName()); }
             call.resolve();
         });
     }
@@ -539,9 +534,7 @@ public class NativeHomePlugin extends Plugin {
                 || !detailRails.isEmpty() || menu != null;
             try {
                 resetViews(activity);
-            } catch (Throwable ignored) {
-                /* rebuilt lazily */
-            }
+            } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "NativeHomePlugin:542" + " " + ignored.getClass().getSimpleName()); }
             JSObject res = new JSObject();
             res.put("reset", had);
             call.resolve(res);
@@ -621,7 +614,7 @@ public class NativeHomePlugin extends Plugin {
         try {
             String[] p = rgb.trim().split("\s+");
             if (p.length >= 3) color = android.graphics.Color.rgb(Integer.parseInt(p[0]), Integer.parseInt(p[1]), Integer.parseInt(p[2]));
-        } catch (Exception ignored) { /* default */ }
+        } catch (Exception ignored) { android.util.Log.w("SPSwallowed", "NativeHomePlugin:624" + " " + ignored.getClass().getSimpleName()); }
         NativeHomeView.ringColor = color;
         NativeHomeView.ringScale = (float) Math.max(0.5, Math.min(3.0, scale));
         call.resolve();
@@ -643,9 +636,7 @@ public class NativeHomePlugin extends Plugin {
         activity.runOnUiThread(() -> {
             try {
                 home.applyLook();
-            } catch (Throwable ignored) {
-                /* next bind picks it up */
-            }
+            } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "NativeHomePlugin:646" + " " + ignored.getClass().getSimpleName()); }
             call.resolve();
         });
     }
@@ -663,9 +654,7 @@ public class NativeHomePlugin extends Plugin {
         activity.runOnUiThread(() -> {
             try {
                 home.setBillboard(json);
-            } catch (Throwable ignored) {
-                /* next update */
-            }
+            } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "NativeHomePlugin:666" + " " + ignored.getClass().getSimpleName()); }
             call.resolve();
         });
     }
@@ -681,9 +670,7 @@ public class NativeHomePlugin extends Plugin {
         activity.runOnUiThread(() -> {
             try {
                 home.clearBillboard();
-            } catch (Throwable ignored) {
-                /* gone */
-            }
+            } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "NativeHomePlugin:684" + " " + ignored.getClass().getSimpleName()); }
             call.resolve();
         });
     }
@@ -711,9 +698,7 @@ public class NativeHomePlugin extends Plugin {
         activity.runOnUiThread(() -> {
             try {
                 ensureSeasonTabs(activity).setData(new org.json.JSONObject(json));
-            } catch (Throwable ignored) {
-                /* keep the web bar */
-            }
+            } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "NativeHomePlugin:714" + " " + ignored.getClass().getSimpleName()); }
             call.resolve();
         });
     }
@@ -777,9 +762,7 @@ public class NativeHomePlugin extends Plugin {
         activity.runOnUiThread(() -> {
             try {
                 ensureDetailActions(activity).setData(new org.json.JSONObject(json));
-            } catch (Throwable ignored) {
-                /* keep the web row */
-            }
+            } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "NativeHomePlugin:780" + " " + ignored.getClass().getSimpleName()); }
             call.resolve();
         });
     }
@@ -844,9 +827,7 @@ public class NativeHomePlugin extends Plugin {
         activity.runOnUiThread(() -> {
             try {
                 ensureLibHeader(activity).setData(new org.json.JSONObject(json));
-            } catch (Throwable ignored) {
-                /* keep the web header */
-            }
+            } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "NativeHomePlugin:847" + " " + ignored.getClass().getSimpleName()); }
             call.resolve();
         });
     }
@@ -894,9 +875,7 @@ public class NativeHomePlugin extends Plugin {
         activity.runOnUiThread(() -> {
             try {
                 ensureChrome(activity).setData(new org.json.JSONObject(json));
-            } catch (Throwable ignored) {
-                /* keep the web chrome */
-            }
+            } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "NativeHomePlugin:897" + " " + ignored.getClass().getSimpleName()); }
             call.resolve();
         });
     }
@@ -943,9 +922,7 @@ public class NativeHomePlugin extends Plugin {
         activity.runOnUiThread(() -> {
             try {
                 ensureSearch(activity).setData(new org.json.JSONObject(json));
-            } catch (Throwable ignored) {
-                /* keep the web page */
-            }
+            } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "NativeHomePlugin:946" + " " + ignored.getClass().getSimpleName()); }
             call.resolve();
         });
     }
@@ -1008,9 +985,7 @@ public class NativeHomePlugin extends Plugin {
         activity.runOnUiThread(() -> {
             try {
                 ensureSettings(activity).setData(new org.json.JSONObject(json));
-            } catch (Throwable ignored) {
-                /* keep the web page */
-            }
+            } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "NativeHomePlugin:1011" + " " + ignored.getClass().getSimpleName()); }
             call.resolve();
         });
     }
@@ -1074,9 +1049,7 @@ public class NativeHomePlugin extends Plugin {
         activity.runOnUiThread(() -> {
             try {
                 ensureDetailsText(activity).setData(new org.json.JSONObject(json));
-            } catch (Throwable ignored) {
-                /* keep the web text */
-            }
+            } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "NativeHomePlugin:1077" + " " + ignored.getClass().getSimpleName()); }
             call.resolve();
         });
     }
@@ -1155,9 +1128,7 @@ public class NativeHomePlugin extends Plugin {
                         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
                 }
                 menu.setData(json);
-            } catch (Throwable ignored) {
-                /* the web sheet is still there */
-            }
+            } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "NativeHomePlugin:1158" + " " + ignored.getClass().getSimpleName()); }
             call.resolve();
         });
     }

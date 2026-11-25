@@ -41,7 +41,7 @@ export const Toast: React.FC<{ message: string; type: ToastMessage['type']; onDi
 export const ToastContainer: React.FC<{ toasts: ToastMessage[]; setToasts: React.Dispatch<React.SetStateAction<ToastMessage[]>> }> = ({ toasts, setToasts }) => {
     if (typeof document === 'undefined' || toasts.length === 0) return null;
     return createPortal(
-        <div className="pointer-events-none fixed z-[5000] flex flex-col-reverse gap-1.5 w-[min(18rem,calc(100vw-2rem))] bottom-[calc(4.25rem+env(safe-area-inset-bottom,0px))] left-1/2 -translate-x-1/2 md:bottom-auto md:left-auto md:translate-x-0 md:top-4 md:right-4">
+        <div className="smp-toast-stack pointer-events-none fixed z-[5000] flex flex-col-reverse gap-1.5 w-[min(18rem,calc(100vw-2rem))] bottom-[calc(4.25rem+env(safe-area-inset-bottom,0px))] left-1/2 -translate-x-1/2 md:bottom-auto md:left-auto md:translate-x-0 md:top-4 md:right-4">
             {toasts.map(toast => (
                 <div key={toast.id} className="pointer-events-auto">
                     <Toast {...toast} onDismiss={() => setToasts(t => t.filter(item => item.id !== toast.id))} />

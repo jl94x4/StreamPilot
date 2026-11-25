@@ -31,6 +31,7 @@ final class NativeDetailsText extends FrameLayout {
     private final Context context;
     private final NativeHomeImages images;
     private float k = 1f;      // page viewport units -> px
+    private View metaView;     // the date / length / rating row (the synopsis lines up with its right edge)
     private float u = 1f;      // 1920-wide type units -> px
     private float lastVw;
     private int lastW = -1;
@@ -61,9 +62,7 @@ final class NativeDetailsText extends FrameLayout {
         try {
             String[] p = triple.trim().split("[ ,]+");
             if (p.length >= 3) return Color.rgb(Integer.parseInt(p[0]), Integer.parseInt(p[1]), Integer.parseInt(p[2]));
-        } catch (Throwable ignored) {
-            /* fall through */
-        }
+        } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "NativeDetailsText:64" + " " + ignored.getClass().getSimpleName()); }
         return fallback;
     }
 
@@ -80,6 +79,7 @@ final class NativeDetailsText extends FrameLayout {
         JSONObject heading = o.optJSONObject("heading");
         if (identity != null) addBlock(identity, buildIdentity(identity));
         if (heading != null) addBlock(heading, buildStyled(heading));
+        metaView = null;
         if (meta != null) {
             addBlock(meta, buildMeta(meta));
             // The chips run a touch wider in the native font than the page measured: a fixed width squeezed the
@@ -89,6 +89,7 @@ final class NativeDetailsText extends FrameLayout {
                 last.getLayoutParams().width = ViewGroup.LayoutParams.WRAP_CONTENT;
                 last.getLayoutParams().height = ViewGroup.LayoutParams.WRAP_CONTENT;
             }
+            metaView = last;
         }
         if (synopsis != null) {
             int before = getChildCount();
@@ -100,10 +101,37 @@ final class NativeDetailsText extends FrameLayout {
                 syn.getLayoutParams().width = Math.max(1, Math.round((float) synopsis.optDouble("w", 1) * k));
                 // Home-size type: never clipped to the page block's height.
                 syn.getLayoutParams().height = ViewGroup.LayoutParams.WRAP_CONTENT;
+                if (syn instanceof TextView) fitSynopsis((TextView) syn, synopsis);
             }
         }
         hasData = getChildCount() > 0;
         updateVisibility();
+    }
+
+    private void fitSynopsis(TextView t, JSONObject o) {
+        // The overview runs to the same right edge as the date / length / rating row above it. The native font runs a
+        // little wider than the page's, so if the text then needs more lines than the page reserved, the measure grows
+        // (the picture's own left fade sits behind it) until it fits; the type itself always stays full size.
+        int pageW = t.getLayoutParams().width;
+        int metaW = 0;
+        if (metaView != null) {
+            metaView.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+            metaW = metaView.getMeasuredWidth();
+        }
+        int cap = Math.round(getResources().getDisplayMetrics().widthPixels * 0.52f);
+        float webLine = SYN_SIZE * SYN_LINE * k;
+        int lines = Math.max(3, Math.round((float) o.optDouble("h", 0) * k / Math.max(1f, webLine)));
+        int widthPx = metaW > 0 ? metaW : pageW; // the bar's own right edge; only wider when the text needs it
+        CharSequence text = t.getText();
+        while (widthPx < cap) {
+            android.text.StaticLayout.Builder lb = android.text.StaticLayout.Builder.obtain(text, 0, text.length(), t.getPaint(), widthPx);
+            if (lb.build().getLineCount() <= lines) break;
+            widthPx = Math.min(cap, Math.round(widthPx * 1.06f));
+        }
+        ViewGroup.LayoutParams lp = t.getLayoutParams();
+        lp.width = Math.max(widthPx, 1);
+        t.setLayoutParams(lp);
+        t.setMaxLines(lines);
     }
 
     private void addBlock(JSONObject o, View v) {
@@ -147,9 +175,7 @@ final class NativeDetailsText extends FrameLayout {
                         svc.setImageBitmap(NativeHomeImages.fittedInside(bmp, px(240f), px(40f)));
                         done = true;
                     }
-                } catch (Throwable ignored) {
-                    /* fall through */
-                }
+                } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "NativeDetailsText:150" + " " + ignored.getClass().getSimpleName()); }
             }
             if (!done && !svcUrl.isEmpty()) {
                 images.get(svcUrl, px(240f), px(40f), bmp -> {
@@ -414,11 +440,10 @@ final class NativeDetailsText extends FrameLayout {
         t.setText(s);
         if (android.os.Build.VERSION.SDK_INT >= 28) t.setLineHeight(px(SYN_SIZE * SYN_LINE));
         else t.setLineSpacing(0f, SYN_LINE);
-        if (o.has("fs")) {
-            // Episode / season pages: the page clamps it to three lines.
-            t.setMaxLines(3);
-            t.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        }
+        // Five lines at most on every title page (the page clamps it the same and reserves the room), so nearly every
+        // overview shows in full and a very long one still never pushes the seasons / cast off the bottom.
+        t.setMaxLines(5);
+        t.setEllipsize(android.text.TextUtils.TruncateAt.END);
         return t;
     }
 
@@ -428,6 +453,8 @@ final class NativeDetailsText extends FrameLayout {
         t.setTypeface(NativeFonts.face(context, weight));
         t.setTextColor(color);
         t.setIncludeFontPadding(false);
+        // The left fade is long and light: a soft shadow keeps the copy readable where the picture shows through.
+        t.setShadowLayer(7f * u, 0f, 1f * u, Color.argb(150, 0, 0, 0));
         t.setFocusable(false);
         return t;
     }
@@ -453,11 +480,10 @@ final class NativeDetailsText extends FrameLayout {
             lastJson = "";
             try {
                 if (!json.isEmpty()) setData(new JSONObject(json));
-            } catch (Throwable ignored) {
-                /* keep the old draw */
-            }
+            } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "NativeDetailsText:457" + " " + ignored.getClass().getSimpleName()); }
         }
-        int pw = Math.max(1, Math.round(w * k));
+        // Wide enough for the synopsis's wider measure (it would be clipped to this box otherwise).
+        int pw = Math.max(Math.max(1, Math.round(w * k)), Math.round(parent.getWidth() * 0.56f));
         int ph = Math.max(1, Math.round(h * k));
         if (pw != lastW || ph != lastH) {
             lastW = pw;
@@ -475,7 +501,12 @@ final class NativeDetailsText extends FrameLayout {
         updateVisibility();
     }
 
+    /** Set by the Home view on a cinematic entry: the next time the text shows it fades up instead of popping in. */
+    static volatile boolean introNext;
+
     void clear() {
+        animate().cancel();
+        setAlpha(1f);
         rectKnown = false;
         hasData = false;
         lastJson = "";
@@ -485,6 +516,14 @@ final class NativeDetailsText extends FrameLayout {
     }
 
     private void updateVisibility() {
-        setVisibility(hasData && rectKnown && !suppressed ? VISIBLE : GONE);
+        boolean show = hasData && rectKnown && !suppressed;
+        boolean was = getVisibility() == VISIBLE;
+        setVisibility(show ? VISIBLE : GONE);
+        if (show && !was && introNext) {
+            introNext = false;
+            animate().cancel();
+            setAlpha(0f);
+            animate().alpha(1f).setStartDelay(450).setDuration(1000).start();
+        }
     }
 }

@@ -166,9 +166,7 @@ final class PlexImageCache {
             byte[] bytes = new byte[64];
             int read = in.read(bytes);
             if (read > 0) return new String(bytes, 0, read, StandardCharsets.UTF_8).trim();
-        } catch (Exception ignored) {
-            /* fall through */
-        }
+        } catch (Exception ignored) { android.util.Log.w("SPSwallowed", "PlexImageCache:169" + " " + ignored.getClass().getSimpleName()); }
         return "image/jpeg";
     }
 

@@ -21,6 +21,7 @@ import {
 } from '../media-player/playerMemory';
 import { requestBrowseFocusAbs } from '../media-player/playerUtils';
 import { TV_SCREENSAVER_DISMISS_EVENT } from '../media-player/PlayerTvScreensaver';
+import { PLAYER_EXIT_PROMPT_EVENT } from '../media-player/PlayerExitDialog';
 import { showNativePlayer } from './nativePlayer';
 import { playNavSound } from '../media-player/navSounds';
 import {
@@ -83,7 +84,7 @@ const visibleContentRails = () => {
     });
 };
 
-const TV_OVERLAY = '[data-tv-item-menu="1"], [data-tv-select-menu="1"], [data-tv-resume-dialog="1"], [data-tv-season-watch-dialog="1"], [data-tv-still-watching-dialog="1"], [data-tv-whats-new="1"], [data-tv-home-switch="1"], [data-tv-library-manager="1"], [data-tv-version-dialog="1"], [data-tv-track-dialog="1"], [data-tv-settings-dialog="1"], [data-tv-playback="1"], [data-tv-playback-overlay="1"]';
+const TV_OVERLAY = '[data-tv-exit-dialog="1"], [data-tv-item-menu="1"], [data-tv-select-menu="1"], [data-tv-resume-dialog="1"], [data-tv-season-watch-dialog="1"], [data-tv-still-watching-dialog="1"], [data-tv-whats-new="1"], [data-tv-home-switch="1"], [data-tv-library-manager="1"], [data-tv-version-dialog="1"], [data-tv-track-dialog="1"], [data-tv-settings-dialog="1"], [data-tv-playback="1"], [data-tv-playback-overlay="1"]';
 const TV_AUTH = '[data-tv-auth="1"]';
 const TV_WHATS_NEW_SCROLL = '[data-tv-whats-new-scroll="1"]';
 
@@ -2241,7 +2242,7 @@ const TV_BACK_DEBOUNCE_MS = 320;
 
 const refocusAfterOverlay = () => {
     window.setTimeout(() => {
-        if (document.querySelector('[data-tv-select-menu="1"], [data-tv-item-menu="1"], [data-tv-home-switch="1"], [data-tv-library-manager="1"], [data-tv-version-dialog="1"], [data-tv-track-dialog="1"], [data-tv-settings-dialog="1"], [data-tv-file-info="1"], [data-tv-resume-dialog="1"], [data-tv-season-watch-dialog="1"], [data-tv-still-watching-dialog="1"], [data-tv-whats-new="1"]')) return;
+        if (document.querySelector('[data-tv-select-menu="1"], [data-tv-item-menu="1"], [data-tv-home-switch="1"], [data-tv-library-manager="1"], [data-tv-version-dialog="1"], [data-tv-track-dialog="1"], [data-tv-settings-dialog="1"], [data-tv-file-info="1"], [data-tv-resume-dialog="1"], [data-tv-season-watch-dialog="1"], [data-tv-still-watching-dialog="1"], [data-tv-whats-new="1"], [data-tv-exit-dialog="1"]')) return;
         const active = document.activeElement as HTMLElement | null;
         if (active && active !== document.body && active !== document.documentElement) return;
         // Nothing remembered yet (e.g. What's New on first open): land on the first card.
@@ -2315,6 +2316,12 @@ const handleTvBack = (): boolean => {
             return true;
         }
     }
+    // "Exit StreamPilot?" is open: Back means Cancel.
+    const exitCancel = document.querySelector<HTMLElement>('[data-tv-exit-dialog="1"] [data-tv-exit-cancel="1"]');
+    if (exitCancel) {
+        exitCancel.click(); // Cancel puts the focus back on the sidebar itself
+        return true;
+    }
     const whatsNewContinue = document.querySelector<HTMLElement>('[data-tv-whats-new="1"] [data-tv-whats-new-primary="1"]');
     if (whatsNewContinue) {
         whatsNewContinue.click();
@@ -2349,6 +2356,13 @@ const handleTvBack = (): boolean => {
         return true;
     }
     if (isNavOpen()) {
+        // Home, sidebar open: the second Back asks to leave the app (Back used to close the sidebar, the next one
+        // opened it again, and the app could only be left with the Home button). Anywhere else it closes the sidebar.
+        const searchScreen = document.querySelector<HTMLElement>('[data-tv-search="1"]');
+        if (isPlayerHomePath() && !(searchScreen && hasLayout(searchScreen))) {
+            window.dispatchEvent(new Event(PLAYER_EXIT_PROMPT_EVENT));
+            return true;
+        }
         leaveNavToContent();
         return true;
     }

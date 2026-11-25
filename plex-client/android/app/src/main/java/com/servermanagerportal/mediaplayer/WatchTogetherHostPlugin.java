@@ -241,9 +241,7 @@ public class WatchTogetherHostPlugin extends Plugin {
                     (home ? preferred : other).add(address.getHostAddress());
                 }
             }
-        } catch (Exception ignored) {
-            /* no interfaces */
-        }
+        } catch (Exception ignored) { android.util.Log.w("SPSwallowed", "WatchTogetherHostPlugin:244" + " " + ignored.getClass().getSimpleName()); }
         preferred.addAll(other);
         return preferred;
     }

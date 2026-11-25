@@ -123,7 +123,7 @@ export const NativeSearchBridge: React.FC = () => {
 
         const syncRect = () => {
             const panel = panelEl();
-            if (!panel || !sentOnce) return;
+            if (!panel || !sentOnce || panelHidden) return;
             const r = panel.getBoundingClientRect();
             if (r.width < 2) return;
             const h = Math.min(r.height, window.innerHeight - r.top);
@@ -133,14 +133,36 @@ export const NativeSearchBridge: React.FC = () => {
             nativeSearchRect(r.left, r.top, r.width, Math.max(h, 100), window.innerWidth);
         };
 
+        // Search stays mounted (hidden) under a title page opened from it: the native keyboard hides with it and is
+        // drawn again in full when the panel is back. Skipping the zero size left it drawn over the title page.
+        let panelHidden = false;
         const tick = () => {
             frame = 0;
+            const shown = panelEl()?.getBoundingClientRect();
+            if (!shown || shown.width < 2 || shown.height < 2) {
+                if (!panelHidden && sentOnce) {
+                    panelHidden = true;
+                    lastSet = '';
+                    lastRect = '';
+                    nativeSearchHide();
+                }
+                return;
+            }
+            const reshown = panelHidden;
+            panelHidden = false;
             const data = scan();
             if (!data) return;
             const payload = JSON.stringify(data);
             if (payload !== lastSet) {
                 lastSet = payload;
                 nativeSearchSet(payload);
+            }
+            if (reshown) {
+                syncRect();
+                // Back from a title page: the page's focus is on a hidden key, so the keyboard takes the remote back.
+                const active = document.activeElement as HTMLElement | null;
+                const key = active ? keyOf.get(active) : '';
+                if (key && !blocked()) giveToNative(key);
             }
             if (!sentOnce) {
                 sentOnce = true;

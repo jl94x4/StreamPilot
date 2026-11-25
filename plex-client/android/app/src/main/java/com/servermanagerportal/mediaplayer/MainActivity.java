@@ -217,16 +217,12 @@ public class MainActivity extends BridgeActivity {
                 webView.invalidate();
                 webView.requestLayout();
                 webView.requestFocus();
-            } catch (Throwable ignored) {
-                /* older WebView */
-            }
+            } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "MainActivity:220" + " " + ignored.getClass().getSimpleName()); }
             if (!fromPlayer) return;
             // Leanback Chromium often keeps a black surface until visibility flips.
             try {
                 webView.setVisibility(View.INVISIBLE);
-            } catch (Throwable ignored) {
-                /* older WebView */
-            }
+            } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "MainActivity:227" + " " + ignored.getClass().getSimpleName()); }
             webView.post(() -> {
                 try {
                     webView.setVisibility(View.VISIBLE);
@@ -244,9 +240,7 @@ public class MainActivity extends BridgeActivity {
                             + "}catch(e){}})();",
                         null
                     );
-                } catch (Throwable ignored) {
-                    /* older WebView */
-                }
+                } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "MainActivity:247" + " " + ignored.getClass().getSimpleName()); }
             });
         });
     }
@@ -258,9 +252,7 @@ public class MainActivity extends BridgeActivity {
             webView.onResume();
             webView.resumeTimers();
             webView.invalidate();
-        } catch (Throwable ignored) {
-            /* older WebView */
-        }
+        } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "MainActivity:261" + " " + ignored.getClass().getSimpleName()); }
     }
 
     /**
@@ -330,9 +322,7 @@ public class MainActivity extends BridgeActivity {
             try {
                 webView.setVerticalScrollbarThumbDrawable(null);
                 webView.setHorizontalScrollbarThumbDrawable(null);
-            } catch (Throwable ignored) {
-                /* older WebView */
-            }
+            } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "MainActivity:333" + " " + ignored.getClass().getSimpleName()); }
         }
         if (isTelevisionDevice(this)) {
             webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
@@ -452,9 +442,7 @@ public class MainActivity extends BridgeActivity {
             intent.putExtra(RecognizerIntent.EXTRA_PROMPT, getString(R.string.player_voice_search));
             intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1);
             startActivityForResult(intent, VOICE_SEARCH_REQUEST);
-        } catch (Throwable ignored) {
-            /* Fire TV / Android TV without a recognizer still get a focused search field. */
-        }
+        } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "MainActivity:455" + " " + ignored.getClass().getSimpleName()); }
     }
 
     @Override

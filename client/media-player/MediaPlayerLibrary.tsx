@@ -63,6 +63,7 @@ import {
 } from './playerUtils';
 import type { PlayerItem, PlayerLibraryHome, PlayerLibraryHub, PlayerPlayOptions } from './types';
 import { TvButton } from '../shared/TvButton';
+import { openLibraryOptions } from './LibraryOptionsSheet';
 import { NATIVE_BROWSE_FOCUS_EVENT, setNativeBrowseJumpKey, useNativeBrowseGrid } from './useNativeBrowseGrid';
 import { NativeLibHeaderBridge } from './NativeLibHeaderBridge';
 
@@ -1455,6 +1456,19 @@ export const MediaPlayerLibrary: React.FC<Props> = ({
                         </TvButton>
                     );
                 })}
+                {isAdmin ? (
+                    <TvButton
+                        type="button"
+                        data-tv-item="1"
+                        data-tv-action="1"
+                        data-tv-key="library-options"
+                        aria-label={t('mediaPlayerPage.libraryOptions')}
+                        onClick={(event) => openLibraryOptions({ libraryId: sectionKey, title, opener: event.currentTarget })}
+                        className="player-library-tab-pill rounded-full border border-border bg-white/5 px-4 py-2 text-sm font-bold text-muted hover:text-text"
+                    >
+                        {'⋯'}
+                    </TvButton>
+                ) : null}
             </div>
         </div>
     );

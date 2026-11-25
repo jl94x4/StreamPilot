@@ -1540,6 +1540,12 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                     </TvSettingsSection>
                     <TvSettingsSection title={t('mediaPlayerPage.settingsSectionPicture')}>
                         <TvToggleRow
+                            title={t('mediaPlayerPage.showChapters')}
+                            description={t('mediaPlayerPage.showChaptersHint')}
+                            checked={settings.showChapters}
+                            onChange={(checked) => updateSettings({ showChapters: checked })}
+                        />
+                        <TvToggleRow
                             title={t('mediaPlayerPage.matchFrameRate')}
                             description={t('mediaPlayerPage.matchFrameRateHint')}
                             checked={settings.matchFrameRate}
@@ -1656,6 +1662,22 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                             checked={settings.showEpisodeFilePills}
                             onChange={(checked) => updateSettings({ showEpisodeFilePills: checked })}
                         />
+                        {tvShell ? (
+                            <TvToggleRow
+                                title={t('mediaPlayerPage.cinematicIntro')}
+                                description={t('mediaPlayerPage.cinematicIntroHint')}
+                                checked={settings.cinematicIntro}
+                                onChange={(checked) => updateSettings({ cinematicIntro: checked })}
+                            />
+                        ) : null}
+                        {tvShell ? (
+                            <TvToggleRow
+                                title={t('mediaPlayerPage.actionButtonNames')}
+                                description={t('mediaPlayerPage.actionButtonNamesHint')}
+                                checked={settings.actionButtonNames}
+                                onChange={(checked) => updateSettings({ actionButtonNames: checked })}
+                            />
+                        ) : null}
                         {!tvShell ? (
                             <TvToggleRow
                                 title={t('mediaPlayerPage.phoneOverviewPoster')}
@@ -2596,6 +2618,12 @@ export const MediaPlayerSettings: React.FC<Props> = ({ onBack, isAdmin = false }
                             description={t('mediaPlayerPage.whoIsOnScreenHint')}
                             checked={settings.whoIsOnScreen}
                             onChange={(checked) => updateSettings({ whoIsOnScreen: checked })}
+                        />
+                        <SettingsToggleRow
+                            title={t('mediaPlayerPage.showChapters')}
+                            description={t('mediaPlayerPage.showChaptersHint')}
+                            checked={settings.showChapters}
+                            onChange={(checked) => updateSettings({ showChapters: checked })}
                         />
                         <SettingsToggleRow
                             title={t('mediaPlayerPage.matchFrameRate')}

@@ -94,9 +94,7 @@ final class MiniWsServer {
         running = false;
         try {
             if (serverSocket != null) serverSocket.close();
-        } catch (IOException ignored) {
-            /* closing */
-        }
+        } catch (IOException ignored) { android.util.Log.w("SPSwallowed", "MiniWsServer:97" + " " + ignored.getClass().getSimpleName()); }
         serverSocket = null;
         for (Conn conn : conns.values()) conn.close();
         conns.clear();
@@ -129,9 +127,7 @@ final class MiniWsServer {
                 if (conns.size() >= MAX_CONNECTIONS) {
                     try {
                         client.close();
-                    } catch (IOException ignored) {
-                        /* refused */
-                    }
+                    } catch (IOException ignored) { android.util.Log.w("SPSwallowed", "MiniWsServer:132" + " " + ignored.getClass().getSimpleName()); }
                     continue;
                 }
                 ExecutorService executor = pool;
@@ -159,17 +155,13 @@ final class MiniWsServer {
             socket.setSoTimeout(IDLE_TIMEOUT_MS);
             conns.put(conn.id, conn);
             frameLoop(conn);
-        } catch (IOException ignored) {
-            /* connection dropped */
-        } finally {
+        } catch (IOException ignored) { android.util.Log.w("SPSwallowed", "MiniWsServer:162" + " " + ignored.getClass().getSimpleName()); } finally {
             boolean wasOpen = conns.remove(conn.id) != null;
             conn.closeSocket();
             if (wasOpen) {
                 try {
                     listener.onClose(conn);
-                } catch (RuntimeException ignored) {
-                    /* listener failure must not leak */
-                }
+                } catch (RuntimeException ignored) { android.util.Log.w("SPSwallowed", "MiniWsServer:170" + " " + ignored.getClass().getSimpleName()); }
             }
         }
     }
@@ -343,9 +335,7 @@ final class MiniWsServer {
                     message.reset();
                     try {
                         listener.onMessage(conn, text);
-                    } catch (RuntimeException ignored) {
-                        /* a bad message must not drop the connection */
-                    }
+                    } catch (RuntimeException ignored) { android.util.Log.w("SPSwallowed", "MiniWsServer:346" + " " + ignored.getClass().getSimpleName()); }
                 }
                 continue;
             }
@@ -464,9 +454,7 @@ final class MiniWsServer {
             open = false;
             try {
                 socket.close();
-            } catch (IOException ignored) {
-                /* already closed */
-            }
+            } catch (IOException ignored) { android.util.Log.w("SPSwallowed", "MiniWsServer:467" + " " + ignored.getClass().getSimpleName()); }
         }
     }
 }

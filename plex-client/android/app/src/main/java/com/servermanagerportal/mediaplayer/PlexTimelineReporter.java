@@ -111,9 +111,7 @@ final class PlexTimelineReporter {
                 if (parsed.getPort() != -1) origin += ":" + parsed.getPort();
                 this.origin = origin;
             }
-        } catch (Throwable ignored) {
-            /* malformed playback url */
-        }
+        } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "PlexTimelineReporter:114" + " " + ignored.getClass().getSimpleName()); }
     }
 
     boolean hasPmsCredentials() {
@@ -283,9 +281,7 @@ final class PlexTimelineReporter {
             try {
                 String cookie = CookieManager.getInstance().getCookie(url);
                 if (cookie != null && !cookie.isEmpty()) conn.setRequestProperty("Cookie", cookie);
-            } catch (Throwable ignored) {
-                /* cookies optional for direct PMS */
-            }
+            } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "PlexTimelineReporter:286" + " " + ignored.getClass().getSimpleName()); }
             if (body != null) {
                 byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
                 conn.setDoOutput(true);

@@ -175,9 +175,7 @@ final class NativeEpisodeRail extends FrameLayout {
                 e.spoiler = o.optBoolean("spoiler", false);
                 out.add(e);
             }
-        } catch (Throwable ignored) {
-            /* bad payload: show nothing */
-        }
+        } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "NativeEpisodeRail:178" + " " + ignored.getClass().getSimpleName()); }
         return out;
     }
 

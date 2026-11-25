@@ -266,9 +266,7 @@ final class NativeBrowseGrid extends FrameLayout {
             if (!tint.isEmpty()) {
                 try {
                     it.tint = Color.parseColor(tint);
-                } catch (Throwable ignored) {
-                    /* keep the default */
-                }
+                } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "NativeBrowseGrid:269" + " " + ignored.getClass().getSimpleName()); }
             }
             it.logo = o.optString("logo", "");
             it.wantLogo = o.optBoolean("wantLogo", false);
@@ -312,9 +310,7 @@ final class NativeBrowseGrid extends FrameLayout {
                 lm.scrollToPositionWithOffset(0, 0);
             }
             apply(list, layoutChanged);
-        } catch (Throwable ignored) {
-            /* bad payload: keep what is shown */
-        }
+        } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "NativeBrowseGrid:315" + " " + ignored.getClass().getSimpleName()); }
     }
 
     private static boolean layoutDiffers(Layout a, Layout b) {

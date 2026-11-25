@@ -10,7 +10,9 @@ import {
 } from '../plex-client/nativeHome';
 import { answerNativeVertical, mirrorNativeCardFocus, nativeVerticalActive } from '../plex-client/useTvRemote';
 import { PLAYER_SCROLL_ID } from './paths';
+import { PLAYER_SETTINGS_EVENT, readPlayerSettings } from './playerSettings';
 
+import { nativeOverlayOpen, watchNativeMenuFlag } from './nativeOverlay';
 /**
  * Android TV details page: the action buttons (Play / Resume, restart, trailer, watched, watchlist, more ...) are
  * drawn by NativeDetailActions at the web row's rect. The web buttons stay in the page (invisible, laid out,
@@ -123,6 +125,15 @@ export const NativeDetailActionsBridge: React.FC = () => {
         let reTimer = 0;
         let rowObserver: MutationObserver | null = null;
         let observedRow: Element | null = null;
+        // Settings > Title page > Button names (off by default).
+        let showNames = readPlayerSettings().actionButtonNames;
+        const onSettings = () => {
+            const next = readPlayerSettings().actionButtonNames;
+            if (next === showNames) return;
+            showNames = next;
+            queue();
+        };
+        window.addEventListener(PLAYER_SETTINGS_EVENT, onSettings);
 
         const rowEl = () => document.querySelector<HTMLElement>(ROW);
         const twinOf = (key: string) => {
@@ -219,7 +230,17 @@ export const NativeDetailActionsBridge: React.FC = () => {
                 }
                 const label = labelOf(btn, rr, zoom);
                 if (label) item.label = label;
+                else {
+                    // Icon-only: native widens the focused one into a pill with this name (what the button does).
+                    const tip = (btn.getAttribute('aria-label') || btn.getAttribute('title') || '').trim();
+                    if (tip && showNames) item.tip = tip;
+                }
                 items.push(item);
+            });
+            // The names use the Watch / Resume text size so the row reads as one set.
+            const textSize = (items.find((it) => it.label) as { label?: { size?: number } } | undefined)?.label?.size || 15 * zoom;
+            items.forEach((it) => {
+                if (it.tip) it.tipSize = textSize;
             });
             if (!items.length) return;
             // Icons are drawn off-screen first: send once they are ready so the row never shows without them.
@@ -297,7 +318,7 @@ export const NativeDetailActionsBridge: React.FC = () => {
 
         let suppressed = false;
         const syncSuppressed = () => {
-            const on = !!document.querySelector(OVERLAY);
+            const on = nativeOverlayOpen(OVERLAY);
             if (on === suppressed) return;
             suppressed = on;
             nativeDetailRailSuppressed(on);
@@ -315,6 +336,7 @@ export const NativeDetailActionsBridge: React.FC = () => {
         };
         const overlayObserver = new MutationObserver(syncSuppressed);
         overlayObserver.observe(document.body, { childList: true, subtree: true });
+        const stopMenuFlag = watchNativeMenuFlag(syncSuppressed);
         let burstUntil = 0;
         const burst = () => {
             queue();
@@ -433,6 +455,7 @@ export const NativeDetailActionsBridge: React.FC = () => {
         queue();
 
         return () => {
+            window.removeEventListener(PLAYER_SETTINGS_EVENT, onSettings);
             delete root.dataset.nativeAct;
             document.removeEventListener('focusin', onFocusIn, true);
             window.clearTimeout(bounceTimer);
@@ -449,6 +472,7 @@ export const NativeDetailActionsBridge: React.FC = () => {
             mount.disconnect();
             rowObserver?.disconnect();
             overlayObserver.disconnect();
+            stopMenuFlag();
             navObserver.disconnect();
             playerObserver.disconnect();
             offFocus();

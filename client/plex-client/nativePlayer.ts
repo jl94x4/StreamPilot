@@ -106,6 +106,7 @@ export type NativePlayerSessionPayload = {
     nightMode?: boolean;
     whoIsOnScreen?: boolean;
     matchFrameRate?: boolean;
+    showChapters?: boolean;
     subtitleStyle?: {
         size?: number;
         color?: string;

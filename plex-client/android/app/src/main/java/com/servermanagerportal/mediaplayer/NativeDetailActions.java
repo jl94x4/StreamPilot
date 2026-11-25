@@ -58,6 +58,9 @@ final class NativeDetailActions extends FrameLayout {
         Bitmap icon;
         Bitmap iconFocus;
         String sig = "";
+        /** Icon-only button: its name, shown when focused (the pill widens to fit it). */
+        String tip = "";
+        float tipSize;
     }
 
     private final NativeEpisodeRail.Listener listener;
@@ -142,6 +145,8 @@ final class NativeDetailActions extends FrameLayout {
                     it.size = (float) lab.optDouble("size", 10);
                     it.weight = lab.optInt("weight", 500);
                 }
+                it.tip = o.optString("tip", "");
+                it.tipSize = (float) o.optDouble("tipSize", 15);
                 JSONObject ic = o.optJSONObject("icon");
                 if (ic != null) {
                     it.ix = (float) ic.optDouble("x", 0);
@@ -183,7 +188,11 @@ final class NativeDetailActions extends FrameLayout {
             boolean same = true;
             for (int i = 0; i < items.size(); i++) if (!buttons.get(i).item.key.equals(items.get(i).key)) same = false;
             if (same) {
-                for (int i = 0; i < items.size(); i++) buttons.get(i).item = items.get(i);
+                for (int i = 0; i < items.size(); i++) {
+                    Btn b = buttons.get(i);
+                    b.item = items.get(i);
+                    if (b.item.tip.isEmpty()) b.expand = 0f;
+                }
                 layoutButtons();
                 return;
             }
@@ -202,12 +211,38 @@ final class NativeDetailActions extends FrameLayout {
     private void layoutButtons() {
         for (Btn b : buttons) {
             Item it = b.item;
-            LayoutParams lp = new LayoutParams(Math.max(1, Math.round(it.w * k)), Math.max(1, Math.round(it.h * k)),
+            b.extra = tipExtra(it);
+            // Sized for the widened pill up front: growing only redraws and slides the buttons after it.
+            LayoutParams lp = new LayoutParams(Math.max(1, Math.round(it.w * k + b.extra)), Math.max(1, Math.round(it.h * k)),
                 Gravity.TOP | Gravity.START);
             lp.leftMargin = Math.round(it.x * k);
             lp.topMargin = Math.round(it.y * k);
             b.setLayoutParams(lp);
             b.invalidate();
+        }
+        applyShift();
+    }
+
+    private final Paint tipPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+
+    private void tipFont(Item it) {
+        tipPaint.setTypeface(NativeHomeView.font(getContext(), 600));
+        tipPaint.setTextSize(it.tipSize * k);
+    }
+
+    /** px a focused icon-only button grows by: a gap after the icon, then its name. */
+    private float tipExtra(Item it) {
+        if (it.tip.isEmpty() || it.iw <= 0) return 0f;
+        tipFont(it);
+        return it.iw * k * 0.55f + tipPaint.measureText(it.tip);
+    }
+
+    /** Buttons after a widened one slide right by however much it has grown. */
+    private void applyShift() {
+        float shift = 0f;
+        for (Btn b : buttons) {
+            b.setTranslationX(shift);
+            shift += b.extra * b.expand;
         }
     }
 
@@ -369,6 +404,27 @@ final class NativeDetailActions extends FrameLayout {
         long holdUntil;
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final RectF box = new RectF();
+        float extra;
+        float expand;
+        private android.animation.ValueAnimator anim;
+        private final Runnable collapse = () -> {
+            if (!isFocused()) grow(false);
+        };
+
+        void grow(boolean open) {
+            float to = open && extra > 0 ? 1f : 0f;
+            if (anim != null) anim.cancel();
+            if (Math.abs(expand - to) < 0.001f) return;
+            anim = android.animation.ValueAnimator.ofFloat(expand, to);
+            anim.setDuration(open ? 170 : 140);
+            anim.setInterpolator(new android.view.animation.DecelerateInterpolator());
+            anim.addUpdateListener(a -> {
+                expand = (float) a.getAnimatedValue();
+                applyShift();
+                invalidate();
+            });
+            anim.start();
+        }
 
         Btn(Context context, Item item) {
             super(context);
@@ -394,7 +450,19 @@ final class NativeDetailActions extends FrameLayout {
                     invalidate();
                 });
             }
+            if (!gainFocus) {
+                // Moving along the row: the next button's focus collapses this one at once. Leaving the row (or a
+                // short native<->web handoff) waits out the hold so the pill does not snap shut and open again.
+                removeCallbacks(collapse);
+                postDelayed(collapse, noHold ? 0 : 280);
+            }
             if (gainFocus) {
+                removeCallbacks(collapse);
+                for (Btn b : buttons) if (b != this) {
+                    b.removeCallbacks(b.collapse);
+                    b.grow(false);
+                }
+                grow(true);
                 NativeDetailRail.releaseHeldLooks();
                 notifyKey = item.key;
                 handler.removeCallbacks(notifyFocus);
@@ -410,7 +478,7 @@ final class NativeDetailActions extends FrameLayout {
                 for (Btn b : buttons) if (b != this && b.isFocused()) other = true;
                 on = !other;
             }
-            float w = getWidth();
+            float w = item.w * k + extra * expand;
             float h = getHeight();
             float bw = Math.max(1f, item.bw * k);
             int fg;
@@ -459,6 +527,19 @@ final class NativeDetailActions extends FrameLayout {
                 float cy = (item.ly - item.y + item.lh / 2f) * k;
                 float base = cy - (fm.ascent + fm.descent) / 2f;
                 canvas.drawText(item.label, (item.lx - item.x) * k, base, paint);
+            }
+            if (expand > 0.01f && !item.tip.isEmpty()) {
+                tipFont(item);
+                tipPaint.setColor(fg);
+                tipPaint.setAlpha(Math.round(255 * Math.min(1f, expand * 1.4f)));
+                tipPaint.setTextAlign(Paint.Align.LEFT);
+                Paint.FontMetrics fm = tipPaint.getFontMetrics();
+                float tx = (item.ix - item.x + item.iw) * k + item.iw * k * 0.55f;
+                float base = h / 2f - (fm.ascent + fm.descent) / 2f;
+                canvas.save();
+                canvas.clipRect(0, 0, w, h);
+                canvas.drawText(item.tip, tx, base, tipPaint);
+                canvas.restore();
             }
         }
     }

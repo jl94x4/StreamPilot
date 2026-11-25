@@ -231,9 +231,7 @@ final class PlaybackUrls {
                     headers.put(key, value);
                 }
             }
-        } catch (Exception ignored) {
-            /* keep empty */
-        }
+        } catch (Exception ignored) { android.util.Log.w("SPSwallowed", "PlaybackUrls:234" + " " + ignored.getClass().getSimpleName()); }
         return headers;
     }
 }

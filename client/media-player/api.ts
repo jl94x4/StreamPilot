@@ -663,6 +663,34 @@ export type MetadataRefreshResult = {
     item?: PlayerItem | null;
 };
 
+/** Libraries being scanned right now: a second press while one runs is ignored (a scan storm can stall a busy server). */
+const libraryScansRunning = new Set<string>();
+
+/**
+ * Ask Plex to scan a library for new / changed files (Plex "Scan Library Files"), or with `refresh` to refresh all
+ * of its metadata. Plex only allows the server's owner / admins. Resolves false when a scan of that library was
+ * already started from here a moment ago.
+ */
+export const scanMediaPlayerLibrary = async (libraryId: string, opts: { refresh?: boolean } = {}): Promise<boolean> => {
+    const id = String(libraryId || '').trim();
+    if (!id) throw new Error('Library not found.');
+    const slot = `${id}|${opts.refresh ? 'refresh' : 'scan'}`;
+    if (libraryScansRunning.has(slot)) return false;
+    libraryScansRunning.add(slot);
+    try {
+        await apiFetch(`${PLAYER_API_ROOT}/library/${encodeURIComponent(id)}/scan`, {
+            method: 'POST',
+            body: JSON.stringify({ refresh: opts.refresh === true }),
+        });
+    } catch (error) {
+        libraryScansRunning.delete(slot);
+        throw error;
+    }
+    // Plex runs the scan in the background; keep repeat presses off for a short while.
+    window.setTimeout(() => libraryScansRunning.delete(slot), 30_000);
+    return true;
+};
+
 /**
  * Ask Plex to refresh metadata, then poll until art/title/etc change (or timeout).
  * On change: drop caches, warm new posters, and notify Home / Details.
@@ -1618,4 +1646,106 @@ export const stopMediaPlayerTranscode = (
         }),
         keepalive: true,
     }).catch(() => undefined);
+};
+
+// ---- Manage (owner / admin): the calls behind the Manage menu ----------------------------------------------
+
+export type ManageArtworkKind = 'poster' | 'art' | 'logo';
+export type ManageArtworkRow = { id: string; thumb: string; provider: string; selected: boolean };
+export type ManageFields = {
+    title: string;
+    titleSort: string;
+    originallyAvailableAt: string;
+    tagline: string;
+    summary: string;
+    studio: string;
+    contentRating: string;
+};
+export type ManageMatchRow = { guid: string; name: string; year: string; score: number; summary: string; thumb: string };
+export type ManageHistoryRow = { title: string; viewedAt: number; user: string; device: string };
+
+const manageUrl = (ratingKey: string, action: string, serverId?: string | null, params?: Record<string, string>) => {
+    const qs = params && Object.keys(params).length ? `?${new URLSearchParams(params)}` : '';
+    return withServerQuery(`${PLAYER_API_ROOT}/item/${encodeURIComponent(ratingKey)}/manage/${action}${qs}`, serverId);
+};
+
+export const fetchManageArtwork = (ratingKey: string, kind: ManageArtworkKind, serverId?: string | null) => (
+    apiFetch(manageUrl(ratingKey, 'artwork', serverId, { kind })) as Promise<{ items: ManageArtworkRow[] }>
+);
+
+export const setManageArtwork = (
+    ratingKey: string,
+    kind: ManageArtworkKind,
+    choice: { id?: string; url?: string; data?: string; contentType?: string },
+    serverId?: string | null,
+) => (
+    apiFetch(manageUrl(ratingKey, 'artwork', serverId), {
+        method: 'POST',
+        body: JSON.stringify({ kind, ...choice }),
+    })
+);
+
+export const fetchManageFields = (ratingKey: string, serverId?: string | null) => (
+    apiFetch(manageUrl(ratingKey, 'fields', serverId)) as Promise<{ type: string; fields: ManageFields }>
+);
+
+export const saveManageFields = (ratingKey: string, fields: Partial<ManageFields>, serverId?: string | null) => (
+    apiFetch(manageUrl(ratingKey, 'fields', serverId), {
+        method: 'POST',
+        body: JSON.stringify({ fields }),
+    }) as Promise<{ ok: boolean; changed?: number }>
+);
+
+export const fetchManageMatches = (ratingKey: string, title: string, year: string, serverId?: string | null) => (
+    apiFetch(manageUrl(ratingKey, 'matches', serverId, { title, year })) as Promise<{ items: ManageMatchRow[] }>
+);
+
+export const applyManageMatch = (ratingKey: string, row: { guid: string; name: string; year: string }, serverId?: string | null) => (
+    apiFetch(manageUrl(ratingKey, 'match', serverId), { method: 'POST', body: JSON.stringify(row) })
+);
+
+export const unmatchManageItem = (ratingKey: string, serverId?: string | null) => (
+    apiFetch(manageUrl(ratingKey, 'unmatch', serverId), { method: 'POST', body: '{}' })
+);
+
+export const analyzeManageItem = (ratingKey: string, serverId?: string | null) => (
+    apiFetch(manageUrl(ratingKey, 'analyze', serverId), { method: 'POST', body: '{}' })
+);
+
+export const fetchManageHistory = (ratingKey: string, serverId?: string | null) => (
+    apiFetch(manageUrl(ratingKey, 'history', serverId)) as Promise<{ items: ManageHistoryRow[] }>
+);
+
+/** After a Manage change: forget the old pictures and tell Home / the title page to reload this item. */
+export const refreshAfterManageChange = async (
+    ratingKey: string,
+    opts: { serverId?: string | null; baseline?: PlayerItem | null } = {},
+) => {
+    const key = String(ratingKey || '').trim();
+    if (!key) return;
+    const baseline = opts.baseline || readPlayerItemCache(key)?.item || null;
+    if (baseline?.thumb) forgetPlayerPoster(baseline.thumb);
+    if (baseline?.art) forgetPlayerPoster(baseline.art);
+    const before = [baseline?.thumb, baseline?.art, baseline?.logo].map((v) => String(v || '')).join(' ');
+    try {
+        // Plex can take a moment to switch to the new picture, so ask again until its address changes (up to ~8 s).
+        let item: PlayerItem | null = null;
+        for (let attempt = 0; attempt < 12; attempt += 1) {
+            if (attempt) await sleepMs(700);
+            clearPlayerItemCache(key);
+            invalidatePlayerHomeCache();
+            const page = await fetchMediaPlayerItem(key, { core: true, serverId: opts.serverId || null });
+            item = page?.item || item;
+            const now = [item?.thumb, item?.art, item?.logo].map((v) => String(v || '')).join(' ');
+            if (item && (!baseline || now !== before)) break;
+        }
+        if (item?.thumb) prefetchPlayerImages([item.thumb], 1);
+        if (item && typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent(PLAYER_METADATA_REFRESHED_EVENT, {
+                detail: { ratingKey: key, serverId: opts.serverId || null, item },
+            }));
+        }
+    } catch {
+        /* the next visit reloads it */
+    }
 };

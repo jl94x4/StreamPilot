@@ -7,6 +7,7 @@ import { DiscoverCategoryPage } from './DiscoverCategoryPage';
 import { DiscoverRailPage } from './DiscoverRailPage';
 import { MediaDetailsPage } from './MediaDetailsPage';
 import { PersonDetailsPage } from './PersonDetailsPage';
+import { CollectionDetailsPage } from './CollectionDetailsPage';
 import { Film, Tv, Compass, ClipboardList, AlertTriangle, ChevronDown, Music, ShieldCheck } from 'lucide-react';
 import { apiFetch } from '../shared/api';
 import { portalUrl, stripBasePath } from '../shared/basePath';
@@ -555,6 +556,20 @@ const DiscoveryDashboardInner: React.FC<{
                     kind="network"
                     id={id}
                     onBack={() => navigate('/discovery')}
+                    onSelect={openMedia}
+                    formatItem={formatItem}
+                />
+            );
+        }
+    }
+
+    if (routeParts.length >= 3 && routeParts[1] === 'collection') {
+        const id = parseInt(routeParts[2], 10);
+        if (!Number.isNaN(id)) {
+            return (
+                <CollectionDetailsPage
+                    collectionId={id}
+                    onBack={() => navigateBackToBrowse('/discovery')}
                     onSelect={openMedia}
                     formatItem={formatItem}
                 />

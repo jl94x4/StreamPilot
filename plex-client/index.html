@@ -1703,7 +1703,7 @@
     }
     html[data-tv="1"] .media-details-page:has(.media-details-billboard-identity) .media-details-synopsis {
       order: 3;
-      max-width: 42rem;
+      max-width: 38rem;
       margin-top: 0.35rem;
     }
     /* Movie / show: synopsis sits between the ratings and the Watch row, not under it. */
@@ -1815,14 +1815,16 @@
       display: block;
       margin-top: 0.15rem !important;
     }
-    html[data-tv="1"] [data-tv-kind="show"] .media-overview-summary p {
-      -webkit-line-clamp: 2 !important;
-      display: -webkit-box;
-      -webkit-box-orient: vertical;
-      overflow: hidden;
+    /* Three lines at most (like Home), so a long overview never pushes the seasons / cast off the bottom. */
+    html[data-tv="1"] [data-tv-kind="show"] .media-overview-summary p,
+    html[data-tv="1"] [data-tv-kind="movie"] .media-overview-summary p {
+      -webkit-line-clamp: 3 !important;
+      display: -webkit-box !important;
+      -webkit-box-orient: vertical !important;
+      overflow: hidden !important;
     }
     html[data-tv="1"] [data-tv-kind="show"] .media-details-seasons h3 {
-      font-size: 0.92rem !important;
+      font-size: 1.12rem !important;
       font-weight: 700;
     }
     html[data-tv="1"] [data-tv-kind="show"] .media-details-seasons [data-tv-poster-rail="1"] {
@@ -1832,7 +1834,7 @@
       padding-right: 1.5rem !important;
     }
     html[data-tv="1"] [data-tv-kind="show"] [data-tv-season-poster="1"] {
-      width: 10.85rem !important;
+      width: 12.2rem !important;
       text-align: center;
     }
     html[data-tv="1"] [data-tv-kind="show"] .player-season-title {
@@ -3419,9 +3421,10 @@
       from { opacity: 0; transform: translate3d(0, 14px, 0); }
       to { opacity: 1; transform: translate3d(0, 0, 0); }
     }
+    /* Fade only: a slide made the name start against its icon and pull away from it. */
     @keyframes tv-nav-label-in {
-      from { opacity: 0; transform: translate3d(-8px, 0, 0); }
-      to { opacity: 1; transform: translate3d(0, 0, 0); }
+      from { opacity: 0; }
+      to { opacity: 1; }
     }
     @keyframes tv-auth-panel-enter {
       from { opacity: 0; transform: translate3d(0, 18px, 0); }

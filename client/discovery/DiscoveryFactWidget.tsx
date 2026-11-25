@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Lightbulb, RefreshCw } from 'lucide-react';
 import { apiFetch } from '../shared/api';
 import { usePoll } from '../shared/usePoll';
@@ -71,12 +71,30 @@ export const DiscoveryFactWidget: React.FC<{
     className?: string;
     /** Keep a short height; grow wider for longer facts instead of wrapping tall. */
     compact?: boolean;
-}> = ({ mediaType, mediaId, title, year, className = '', compact = false }) => {
+    /** Season / episode number: lets the lookup find facts about this episode, not only the show. */
+    season?: number | null;
+    episode?: number | null;
+    /** Facts built from the item's own Plex data. They join the fetched ones, so the box is rarely empty. */
+    extraFacts?: string[];
+}> = ({ mediaType, mediaId, title, year, className = '', compact = false, season, episode, extraFacts }) => {
     const shellClass = `rounded-xl border border-plex/20 bg-plex/5 flex gap-3 ${className || 'w-full'}`.trim();
     const filledShellClass = `rounded-xl border border-plex/25 bg-gradient-to-br from-plex/10 via-plex/5 to-transparent flex gap-3 ${className || 'w-full'}`.trim();
     const { t } = useDiscoverI18n();
-    const [facts, setFacts] = useState<string[]>([]);
+    const [fetched, setFetched] = useState<string[]>([]);
     const [index, setIndex] = useState(0);
+    const extraKey = (extraFacts || []).join('\n');
+    const extraRef = useRef<string[]>([]);
+    extraRef.current = extraFacts || [];
+    const facts = useMemo(() => {
+        const seen = new Set<string>();
+        return [...fetched, ...(extraFacts || [])].filter((row) => {
+            const key = String(row || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+            if (!key || seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [fetched, extraKey]);
     const [loading, setLoading] = useState(true);
 
     const advanceFact = useCallback(() => {
@@ -98,22 +116,27 @@ export const DiscoveryFactWidget: React.FC<{
                 const expectedTitle = String(title || '').trim();
                 if (expectedTitle) params.set('title', expectedTitle);
                 if (year && Number.isFinite(year)) params.set('year', String(year));
+                if (season && Number.isFinite(season) && episode && Number.isFinite(episode)) {
+                    params.set('season', String(season));
+                    params.set('episode', String(episode));
+                }
                 const res: FactResponse = await apiFetch(`/api/discovery/fact?${params.toString()}`);
                 if (cancelled) return;
                 const pool = Array.isArray(res?.facts) && res.facts.length
                     ? res.facts
                     : (res?.fact ? [res.fact] : []);
-                setFacts(pool);
-                setIndex(pool.length ? Math.floor(Math.random() * pool.length) : 0);
+                setFetched(pool);
+                const total = pool.length + extraRef.current.length;
+                setIndex(total ? Math.floor(Math.random() * total) : 0);
             } catch {
-                if (!cancelled) setFacts([]);
+                if (!cancelled) setFetched([]);
             } finally {
                 if (!cancelled) setLoading(false);
             }
         };
         load();
         return () => { cancelled = true; };
-    }, [mediaType, mediaId, title, year]);
+    }, [mediaType, mediaId, title, year, season, episode]);
 
     const showAnother = useCallback(() => {
         if (facts.length <= 1) return;
@@ -127,7 +150,7 @@ export const DiscoveryFactWidget: React.FC<{
         });
     }, [facts.length]);
 
-    if (loading) {
+    if (loading && !facts.length) {
         return (
             <div className={`${shellClass} p-3 sm:p-4 items-center animate-pulse`}>
                 <div className="w-9 h-9 rounded-lg bg-plex/10 flex-shrink-0" />
@@ -140,21 +163,10 @@ export const DiscoveryFactWidget: React.FC<{
         );
     }
 
-    if (!facts.length) {
-        return (
-            <div className={`${filledShellClass} p-3 sm:p-4`}>
-                <div className="w-9 h-9 rounded-lg bg-plex/15 border border-plex/20 flex items-center justify-center flex-shrink-0">
-                    <Lightbulb className="w-4 h-4 text-plex" />
-                </div>
-                <div className="flex-1 min-w-0 flex flex-col gap-1.5">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-plex">{t('facts.didYouKnow')}</span>
-                    <p className="text-sm text-muted leading-relaxed">{t('facts.empty')}</p>
-                </div>
-            </div>
-        );
-    }
+    // Nothing to say: no box at all.
+    if (!facts.length) return null;
 
-    const current = facts[index] || facts[0];
+    const current = facts[index % facts.length] || facts[0];
     const bodyClass = compact
         ? `text-sm text-text/80 leading-snug whitespace-normal${isPhoneUi() ? '' : ' line-clamp-2'}`
         : 'text-sm text-text/80 leading-relaxed';

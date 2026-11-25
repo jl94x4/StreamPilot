@@ -1071,6 +1071,7 @@ export const MediaPlayerVideo: React.FC<Props> = ({
             nightMode: playerSettings.nightMode,
             whoIsOnScreen: playerSettings.whoIsOnScreen,
             matchFrameRate: playerSettings.matchFrameRate,
+            showChapters: playerSettings.showChapters,
             subtitleStyle: {
                 size: playerSettings.subtitleSize,
                 color: playerSettings.subtitleColor,

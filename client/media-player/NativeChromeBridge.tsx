@@ -7,6 +7,7 @@ import {
     onNativeHomeEvent,
 } from '../plex-client/nativeHome';
 import { mirrorNativeCardFocus } from '../plex-client/useTvRemote';
+import { openLibraryOptions } from './LibraryOptionsSheet';
 
 /**
  * Android TV side menu + clock: drawn by NativeChromeView. The web copies stay mounted (invisible, laid out,
@@ -316,6 +317,18 @@ export const NativeChromeBridge: React.FC = () => {
             if (!el) return;
             void nativeHomeReleaseFocus().then(() => el.click());
         });
+        const offLongPress = onNativeHomeEvent('railLongPress', (data) => {
+            const key = mine(data);
+            const el = key ? refs.get(key) : null;
+            const libraryId = el?.getAttribute('data-tv-library-id') || '';
+            if (!el || !libraryId) return;
+            // Library options (scan / refresh). The web item takes the focus first, so closing the sheet hands
+            // the remote back to the native sidebar on the same row.
+            void nativeHomeReleaseFocus().then(() => {
+                mirrorNativeCardFocus(el);
+                openLibraryOptions({ libraryId, title: el.getAttribute('data-tv-library-title') || '', opener: el });
+            });
+        });
         const offActivity = onNativeHomeEvent('railActivity', () => {
             if (!sentOnce) return;
             window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Unidentified', keyCode: 0, cancelable: true }));
@@ -381,6 +394,7 @@ export const NativeChromeBridge: React.FC = () => {
             offFocus();
             offOpen();
             offActivity();
+            offLongPress();
             offHandoff();
             nativeChromeHide();
         };

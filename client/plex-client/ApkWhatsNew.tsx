@@ -74,6 +74,170 @@ const currentNotesSeenKey = (currentVersion: string): string => {
  * When you ship new notes, add a new top key and leave the previous ones in place.
  */
 const NOTES_BY_VERSION: Record<string, WhatsNewSection[]> = {
+    '1.0.845': [
+        {
+            title: 'Home',
+            items: [
+                'A backdrop that fails to load now shows a plain black background instead of the picture from the title before',
+                'Behind the scenes: failures that used to be silently ignored are now logged, held scrubbing skips out-of-date preview frames, and the app no longer allows Android to back up its data',
+            ],
+        },
+        {
+            title: 'Video player',
+            items: [
+                'Scrubbing now shows a strip of frames either side of the preview, so you can see what is coming up (when your server has video preview thumbnails)',
+                'New Settings option: Chapters (on by default) shows or hides the Chapters button, chapter name and chapter marks on the player controls',
+            ],
+        },
+        {
+            title: 'Title page',
+            items: [
+                'New option in Settings > Title page (TV): Cinematic title pages (off by default). The picture drifts in slowly and the logo and text fade up when a title opens',
+            ],
+        },
+        {
+            title: 'Phone app',
+            items: [
+                'Tapping an episode in a show now opens that episode’s page (with its details and Watch button) instead of starting it straight away, like the Plex app',
+            ],
+        },
+        {
+            title: 'Did you know?',
+            items: [
+                'The Did you know box now hides itself when there is nothing to show instead of saying there is no trivia',
+                'Many more facts from more sources: TVmaze (cast roles, air dates, alternative names, guest stars for the episode you are on) and Wikidata (filming locations, source material, composers, awards), plus facts from your own library (directors, writers, guest stars, runtime, air date)',
+            ],
+        },
+        {
+            title: 'Manage',
+            items: [
+                'New Manage option on the ... menu for the server owner (phone and TV): edit metadata (title, summary, release date and more), change posters, backgrounds and logos, fix a wrong match, analyze, refresh and see play history',
+            ],
+        },
+    ],
+    '1.0.835': [
+        {
+            title: 'Home',
+            items: [
+                'Continue Watching now shows a poster you changed in Plex (it was holding on to the old one while Recently Added updated)',
+                'Recently added and Continue Watching now update in place within about half a minute of a change on your server, and a changed cover or poster is picked up too (the check now notices artwork changes, runs every 30 seconds instead of 90, and reacts faster)',
+            ],
+        },
+        {
+            title: 'Menus',
+            items: [
+                'The title in the ... menu is now centred (when there is no logo)',
+            ],
+        },
+        {
+            title: 'Watched status',
+            items: [
+                'Marking an episode or title unwatched now clears its resume point too: the Resume button, progress bar and Start over entry go away',
+            ],
+        },
+        {
+            title: 'Title page',
+            items: [
+                'The title page now stays in view beside the ... menu (the episode cards, text and buttons used to disappear while it was open)',
+            ],
+        },
+        {
+            title: 'Video player',
+            items: [
+                'New Chapters button next to Settings on the player controls, and the current chapter name shows above the seek bar (clear of the other info)',
+                'Phones and tablets get 10 second back / forward buttons beside play / pause',
+                'The seek bar marks where each chapter starts, and scrubbing shows the chapter name above the preview',
+                'Seeking with the remote now shows the preview thumbnail too',
+                'The Chapters list opens on the chapter you are in (the tick was stuck on Chapter 1) and shows a frame for each chapter when your server has video preview thumbnails',
+            ],
+        },
+    ],
+    '1.0.833': [
+        {
+            title: 'Title page',
+            items: [
+                'New option in Settings > Title page > Button names (off by default): the icon buttons next to Watch open up to show what they do (Mark as watched, Watch Together, File Info...) when you move onto them',
+            ],
+        },
+    ],
+    '1.0.832': [
+        {
+            title: 'Phone app',
+            items: [
+                'The side menu no longer shows the More entry',
+            ],
+        },
+    ],
+    '1.0.831': [
+        {
+            title: 'Home and library pages',
+            items: [
+                'The last row now moves up into the same place as every other row, instead of stopping short with the row above it still showing',
+            ],
+        },
+    ],
+    '1.0.830': [
+        {
+            title: 'Leaving the app',
+            items: [
+                'Back on Home opens the side menu, and Back again asks "Exit StreamPilot?" with Cancel selected, so you can close the app from the remote without quitting by accident',
+            ],
+        },
+        {
+            title: 'Scan your libraries (server admins)',
+            items: [
+                'A new ⋯ button next to Recommended / Browse / Collections on a library page lets you scan the library for new files or refresh all of its metadata',
+                'Hold OK (or press Menu) on a library in the side menu for the same options',
+                'A message confirms the scan has started, and pressing it again while a scan is running is ignored',
+            ],
+        },
+    ],
+    '1.0.829': [
+        {
+            title: 'Home and title pages',
+            items: [
+                'The description is a little narrower, and the fade now sits only behind the text (which has a soft shadow): the rest of the picture shows in its full colour and contrast, no longer washed out',
+                'Pictures moved right to keep faces clear of the text no longer show a hard line where they begin: their edge blends into the background',
+                'Pictures with plain sky above the people are no longer raised so far that heads get cut off at the top',
+                'The fade now matches the picture\'s own colour instead of always going dark: a yellow picture fades into yellow, a blue one into blue',
+                'Rows that two servers share (a collection with the same name on both) now always show your copy of a title, with your artwork, instead of sometimes picking the other server\'s copy at random',
+                'Opening a title from Search no longer leaves the search results and keyboard drawn over the title page, and Back puts you straight back on the results with the remote working',
+                'Movie and show overviews show up to three lines (like Home), so a long one no longer pushes the seasons off the bottom of the screen',
+            ],
+        },
+    ],
+    '1.0.828': [
+        {
+            title: 'Navigation',
+            items: [
+                'When the side menu opens, each name now stays put next to its icon instead of sliding away from it',
+            ],
+        },
+    ],
+    '1.0.827': [
+        {
+            title: 'Show pages',
+            items: [
+                'Season posters are a little bigger, and the "Seasons" heading above them is larger and easier to read',
+            ],
+        },
+    ],
+    '1.0.826': [
+        {
+            title: 'Menus',
+            items: [
+                'Long-press menu text is a little smaller again (about 10% under the original size)',
+            ],
+        },
+    ],
+    '1.0.825': [
+        {
+            title: 'Menus',
+            items: [
+                'Long-press menus use slightly smaller text (about 5%), so more fits without feeling cramped',
+            ],
+        },
+    ],
     '1.0.824': [
         {
             title: 'Episode pages',

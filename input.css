@@ -2135,9 +2135,10 @@ html[data-tv="1"][data-reduce-motion="1"] [data-tv-details="1"] .media-details-l
   to { opacity: 1; transform: translate3d(0, 0, 0); }
 }
 
+/* Fade only: a slide made the name start against its icon and pull away from it. */
 @keyframes tv-nav-label-in {
-  from { opacity: 0; transform: translate3d(-10px, 0, 0); }
-  to { opacity: 1; transform: translate3d(0, 0, 0); }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 @keyframes tv-auth-panel-enter {
@@ -3124,8 +3125,7 @@ html[data-tv="1"] .media-details-page [data-tv-action-row="1"] .media-details-ac
 }
 html[data-tv="1"] .media-details-page:has(.media-details-billboard-identity) .media-details-synopsis {
   order: 3;
-  /* ~25% wider than the previous 36rem title-page measure. */
-  max-width: 45rem;
+  max-width: 38rem;
   margin-top: 0.35rem;
 }
 /* Movie / show: synopsis sits between the ratings and the Watch row, not under it. */
@@ -3194,7 +3194,7 @@ html[data-tv="1"] .media-details-hero-backdrop::after {
   z-index: 3 !important;
   pointer-events: none !important;
   background:
-    linear-gradient(90deg, rgb(var(--tv-details-surface) / 0.98) 0%, rgb(var(--tv-details-surface) / 0.96) 14%, rgb(var(--tv-details-surface) / 0.88) 26%, rgb(var(--tv-details-surface) / 0.58) 40%, rgb(var(--tv-details-surface) / 0.24) 54%, rgb(var(--tv-details-surface) / 0.08) 68%, transparent 82%),
+    linear-gradient(90deg, rgb(var(--tv-details-surface) / 0.90) 0%, rgb(var(--tv-details-surface) / 0.85) 10%, rgb(var(--tv-details-surface) / 0.77) 20%, rgb(var(--tv-details-surface) / 0.64) 30%, rgb(var(--tv-details-surface) / 0.42) 38%, rgb(var(--tv-details-surface) / 0.18) 44%, rgb(var(--tv-details-surface) / 0.05) 48%, transparent 51%),
     linear-gradient(180deg, rgb(var(--tv-details-surface) / 0.2) 0%, rgb(var(--tv-details-surface) / 0.04) 12%, rgb(var(--tv-details-surface) / 0.04) 34%, rgb(var(--tv-details-surface) / 0.48) 50%, rgb(var(--tv-details-surface) / 0.8) 64%, rgb(var(--tv-details-surface) / 0.95) 78%, rgb(var(--tv-details-surface)) 100%) !important;
 }
 html[data-tv="1"] [data-tv-kind="movie"] .media-details-hero-content {
@@ -3257,15 +3257,15 @@ html[data-tv="1"] [data-tv-row-id^="guests:"] [data-tv-rail="1"] {
 }
 html[data-tv="1"] .media-details-billboard-summary {
   margin: 0.4rem 0 0;
-  max-width: 42rem;
+  max-width: 38rem;
   /* Drawn natively at the Home billboard synopsis size (20.4px = 1.1333rem here): the page reserves the same space. */
   font-size: 1.1333rem;
   line-height: 1.45;
   color: rgba(255, 255, 255, 0.78) !important;
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  line-clamp: 3;
+  -webkit-line-clamp: 5;
+  line-clamp: 5;
   overflow: hidden;
   text-overflow: ellipsis;
   text-align: left;
@@ -3306,7 +3306,7 @@ html[data-tv="1"] [data-tv-kind="movie"] .media-details-synopsis {
 }
 html[data-tv="1"] [data-tv-kind="show"] .media-overview-summary,
 html[data-tv="1"] [data-tv-kind="movie"] .media-overview-summary {
-  max-width: 45rem;
+  max-width: 38rem;
 }
 /* Match the Home billboard synopsis size on title pages. */
 html[data-tv="1"] [data-tv-kind="show"] .media-overview-summary p,
@@ -3343,7 +3343,7 @@ html[data-tv="1"] [data-tv-kind="show"] .media-details-seasons h3 {
   align-items: center;
   gap: 0.4rem;
   margin: 0;
-  font-size: 0.92rem !important;
+  font-size: 1.12rem !important;
   font-weight: 700;
   letter-spacing: 0.02em;
   line-height: 1.2;
@@ -3367,7 +3367,7 @@ html[data-tv="1"] [data-tv-kind="show"] .media-details-seasons [data-tv-poster-r
   padding-right: 1.5rem !important;
 }
 html[data-tv="1"] [data-tv-kind="show"] [data-tv-season-poster="1"] {
-  width: 10.85rem !important;
+  width: 12.2rem !important;
   text-align: center;
 }
 html[data-tv="1"] [data-tv-kind="show"] .player-season-title {
@@ -3513,8 +3513,8 @@ html[data-tv="1"] [data-tv-kind="season"] .media-details-billboard-summary {
   line-height: 1.45;
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  line-clamp: 3;
+  -webkit-line-clamp: 5;
+  line-clamp: 5;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -7905,7 +7905,7 @@ html[data-native-home="1"] [data-tv-details="1"] .media-details-hero-backdrop::b
   display: none !important;
 }
 html[data-native-home="1"] [data-tv-details="1"] .media-details-hero-backdrop::after {
-  background: linear-gradient(90deg, rgb(var(--tv-details-surface) / 0.98) 0%, rgb(var(--tv-details-surface) / 0.96) 14%, rgb(var(--tv-details-surface) / 0.88) 26%, rgb(var(--tv-details-surface) / 0.58) 40%, rgb(var(--tv-details-surface) / 0.24) 54%, rgb(var(--tv-details-surface) / 0.08) 68%, transparent 82%) !important;
+  background: linear-gradient(90deg, rgb(var(--tv-details-surface) / 0.90) 0%, rgb(var(--tv-details-surface) / 0.85) 10%, rgb(var(--tv-details-surface) / 0.77) 20%, rgb(var(--tv-details-surface) / 0.64) 30%, rgb(var(--tv-details-surface) / 0.42) 38%, rgb(var(--tv-details-surface) / 0.18) 44%, rgb(var(--tv-details-surface) / 0.05) 48%, transparent 51%) !important;
 }
 
 /* Native Browse grid (Android TV): NativeBrowseGrid draws the posters behind the page; the page keeps the grid
@@ -7951,4 +7951,9 @@ html[data-native-browse="1"] [data-tv-studio-head="1"] {
   pointer-events: none !important;
   animation: none !important;
   transition: none !important;
+}
+
+/* TV: the native clock sits top-right above the page; toasts go just below it instead of under it. */
+html[data-tv="1"] .smp-toast-stack {
+    top: 4.25rem;
 }

@@ -29,7 +29,7 @@ import {
 } from './watchTogetherClient';
 import { captureTvFocusSnapshot, forgetTvFocusFor, hasRememberedTvFocus, rememberTvFocusKey, restoreTvFocusWhenReady } from '../plex-client/useTvRemote';
 import { isAndroidTvUi } from '../plex-client/config';
-import { nativeHomeReleaseFocus, nativePlaybackCover } from '../plex-client/nativeHome';
+import { nativeHomeExitApp, nativeHomeReleaseFocus, nativePlaybackCover } from '../plex-client/nativeHome';
 
 /**
  * Keep the remote on a TV dialog (Resume, Still watching) while it is open. The page focusing its button is not
@@ -79,6 +79,8 @@ import { usePlayerSettings } from './usePlayerSettings';
 import { PlayerResumeDialog } from './PlayerResumeDialog';
 import { PlayerVersionDialog } from './PlayerVersionDialog';
 import { PlayerStillWatchingDialog } from './PlayerStillWatchingDialog';
+import { PLAYER_EXIT_PROMPT_EVENT, PlayerExitDialog } from './PlayerExitDialog';
+import { LibraryOptionsSheet } from './LibraryOptionsSheet';
 import {
     isMusicPlayerItem,
     isPlayerTrailer,
@@ -378,6 +380,8 @@ export const MediaPlayerDashboard: React.FC = () => {
     const [pendingResume, setPendingResume] = useState<PendingResume | null>(null);
     const [pendingVersion, setPendingVersion] = useState<{ item: PlayerItem; opts: PlayerPlayOptions; current: number | null } | null>(null);
     const [pendingStillWatching, setPendingStillWatching] = useState<{ item: PlayerItem; opts: PlayerPlayOptions } | null>(null);
+    /** Back on Home with the sidebar open: "Exit StreamPilot?" (TV). */
+    const [exitPrompt, setExitPrompt] = useState(false);
     const autoplayStreakRef = useRef(0);
     const [navExpanded, setNavExpanded] = useState(() => {
         try {
@@ -1500,6 +1504,18 @@ export const MediaPlayerDashboard: React.FC = () => {
         return holdTvDialogFocus('[data-tv-still-watching-dialog="1"]', '[data-tv-still-watching-primary="1"]');
     }, [pendingStillWatching]);
 
+    useEffect(() => {
+        const open = () => setExitPrompt(true);
+        window.addEventListener(PLAYER_EXIT_PROMPT_EVENT, open);
+        return () => window.removeEventListener(PLAYER_EXIT_PROMPT_EVENT, open);
+    }, []);
+
+    useEffect(() => {
+        if (!exitPrompt) return undefined;
+        // Cancel takes the focus: an extra Back or OK never quits by accident.
+        return holdTvDialogFocus('[data-tv-exit-dialog="1"]', '[data-tv-exit-cancel="1"]');
+    }, [exitPrompt]);
+
     const openSettings = useCallback(() => navigate(`${PLAYER_APP_BASE}/settings`), [navigate]);
     const toggleNavExpanded = useCallback(() => {
         setNavExpanded((current) => {
@@ -1855,6 +1871,25 @@ export const MediaPlayerDashboard: React.FC = () => {
                         void startPlayback(pending.item, { ...pending.opts, mediaIndex: index });
                     }}
                     onClose={() => setPendingVersion(null)}
+                />
+            ) : null}
+            <LibraryOptionsSheet isAdmin={isAdmin} onToast={notify} />
+            {exitPrompt ? (
+                <PlayerExitDialog
+                    onCancel={() => {
+                        setExitPrompt(false);
+                        // Back on the sidebar where it was: its (hidden) web item takes the focus, and the native
+                        // sidebar takes the remote from there. Without this nothing in the open sidebar was lit.
+                        window.setTimeout(() => {
+                            const nav = document.querySelector<HTMLElement>('[data-tv-nav-root="1"] [data-tv-nav="1"][data-tv-nav-active="1"]')
+                                || document.querySelector<HTMLElement>('[data-tv-nav-root="1"] [data-tv-nav="1"]');
+                            nav?.focus({ preventScroll: true });
+                        }, 60);
+                    }}
+                    onExit={() => {
+                        setExitPrompt(false);
+                        void nativeHomeExitApp();
+                    }}
                 />
             ) : null}
             {pendingStillWatching ? (

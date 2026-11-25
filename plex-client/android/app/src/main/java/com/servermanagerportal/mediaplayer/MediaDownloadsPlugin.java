@@ -149,7 +149,7 @@ public class MediaDownloadsPlugin extends Plugin {
         try {
             Double bytes = call.getDouble("bytes", 0d);
             if (bytes != null && bytes > 0) expectedBytes = bytes.longValue();
-        } catch (Throwable ignored) { /* ignore */ }
+        } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "MediaDownloadsPlugin:152" + " " + ignored.getClass().getSimpleName()); }
 
         String ext = extensionFromFileName(fileName, url);
         File dest = resumeDest != null ? resumeDest : store.fileFor(id, ext);
@@ -213,7 +213,7 @@ public class MediaDownloadsPlugin extends Plugin {
                 row.put("status", "cancelled");
                 store.put(row);
                 emit("error", toJs(row));
-            } catch (Exception ignored) { /* ignore */ }
+            } catch (Exception ignored) { android.util.Log.w("SPSwallowed", "MediaDownloadsPlugin:216" + " " + ignored.getClass().getSimpleName()); }
         }
         JSObject ret = new JSObject();
         ret.put("ok", true);
@@ -372,7 +372,7 @@ public class MediaDownloadsPlugin extends Plugin {
                         if (en > 0) detail = new String(eb, 0, en, "UTF-8").replaceAll("<[^>]*>", " ").replaceAll("\\s+", " ").trim();
                         err.close();
                     }
-                } catch (Exception ignored) { /* ignore */ }
+                } catch (Exception ignored) { android.util.Log.w("SPSwallowed", "MediaDownloadsPlugin:375" + " " + ignored.getClass().getSimpleName()); }
                 String message = "Download failed (" + code + ")" + (detail.isEmpty() ? "" : ": " + detail);
                 boolean transientCode = code >= 500 || code == 408 || code == 429 || code == 423 || (transcode && code == 400);
                 if (transientCode) throw new RetryableException(message);
@@ -430,7 +430,7 @@ public class MediaDownloadsPlugin extends Plugin {
                     row.put("filePath", dest.getAbsolutePath());
                     row.put("localUrl", Uri.fromFile(dest).toString());
                     row.put("error", "");
-                } catch (Exception ignored) { /* ignore */ }
+                } catch (Exception ignored) { android.util.Log.w("SPSwallowed", "MediaDownloadsPlugin:433" + " " + ignored.getClass().getSimpleName()); }
                 store.put(row);
                 emit("complete", toJs(row));
             }
@@ -505,7 +505,7 @@ public class MediaDownloadsPlugin extends Plugin {
                 int d = path.lastIndexOf('.');
                 if (d > 0 && d < path.length() - 1) return path.substring(d + 1);
             }
-        } catch (Exception ignored) { /* ignore */ }
+        } catch (Exception ignored) { android.util.Log.w("SPSwallowed", "MediaDownloadsPlugin:508" + " " + ignored.getClass().getSimpleName()); }
         return "bin";
     }
 

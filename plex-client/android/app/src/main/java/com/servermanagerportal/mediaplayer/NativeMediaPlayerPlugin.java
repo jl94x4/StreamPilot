@@ -38,9 +38,7 @@ public class NativeMediaPlayerPlugin extends Plugin {
             WebView webView = getBridge().getWebView();
             resumeWebView(webView);
             webView.post(() -> resumeWebView(webView));
-        } catch (Throwable ignored) {
-            /* plugin not attached */
-        }
+        } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "NativeMediaPlayerPlugin:41" + " " + ignored.getClass().getSimpleName()); }
     }
 
     private static void resumeWebView(WebView webView) {
@@ -48,9 +46,7 @@ public class NativeMediaPlayerPlugin extends Plugin {
         try {
             webView.onResume();
             webView.resumeTimers();
-        } catch (Throwable ignored) {
-            /* older WebView */
-        }
+        } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "NativeMediaPlayerPlugin:51" + " " + ignored.getClass().getSimpleName()); }
     }
 
     private static int intOr(Integer value, int fallback) {

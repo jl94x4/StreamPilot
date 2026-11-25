@@ -5,6 +5,7 @@ import type { PlayerItem } from './types';
 import { nativeDetailRailSuppressed, nativeDetailsTextHide, nativeDetailsTextRect, nativeDetailsTextSet } from '../plex-client/nativeHome';
 import { PLAYER_SCROLL_ID } from './paths';
 
+import { nativeOverlayOpen, watchNativeMenuFlag } from './nativeOverlay';
 export type NativeDetailsTextContent = {
     identity?: { logo: string; title: string; svc: string; svcData: string; svcColor: boolean } | null;
     meta?: {
@@ -146,7 +147,7 @@ export const NativeDetailsTextBridge: React.FC<{ content: NativeDetailsTextConte
 
         let suppressed = false;
         const syncSuppressed = () => {
-            const on = !!document.querySelector(OVERLAY);
+            const on = nativeOverlayOpen(OVERLAY);
             if (on === suppressed) return;
             suppressed = on;
             nativeDetailRailSuppressed(on);
@@ -156,6 +157,7 @@ export const NativeDetailsTextBridge: React.FC<{ content: NativeDetailsTextConte
             queue();
         });
         overlayObserver.observe(document.body, { childList: true, subtree: true });
+        const stopMenuFlag = watchNativeMenuFlag(syncSuppressed);
         const burst = () => {
             queue();
             if (performance.now() < burstUntil) window.requestAnimationFrame(burst);
@@ -173,6 +175,7 @@ export const NativeDetailsTextBridge: React.FC<{ content: NativeDetailsTextConte
         return () => {
             apiRef.current = null;
             overlayObserver.disconnect();
+            stopMenuFlag();
             navObserver.disconnect();
             playerObserver.disconnect();
             observer?.disconnect();

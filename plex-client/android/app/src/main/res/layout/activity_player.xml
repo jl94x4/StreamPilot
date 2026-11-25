@@ -347,32 +347,87 @@
             </LinearLayout>
         </HorizontalScrollView>
 
-        <ImageButton
-            android:id="@+id/player_seek_back"
-            android:layout_width="0dp"
-            android:layout_height="0dp"
-            android:contentDescription="@string/player_seek_back"
-            android:src="@drawable/ic_player_replay_10"
-            android:visibility="gone" />
-
-        <ImageButton
-            android:id="@+id/player_seek_fwd"
-            android:layout_width="0dp"
-            android:layout_height="0dp"
-            android:contentDescription="@string/player_seek_fwd"
-            android:src="@drawable/ic_player_forward_10"
-            android:visibility="gone" />
-
-        <ImageView
-            android:id="@+id/player_seek_preview"
-            android:layout_width="173dp"
-            android:layout_height="97dp"
+        <LinearLayout
+            android:id="@+id/player_seek_strip"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
             android:layout_gravity="center_horizontal"
             android:layout_marginBottom="7dp"
-            android:adjustViewBounds="true"
-            android:background="#CC000000"
-            android:contentDescription="@null"
-            android:scaleType="centerCrop"
+            android:gravity="bottom"
+            android:orientation="horizontal">
+            <ImageView
+                android:id="@+id/player_seek_l2"
+                android:layout_width="96dp"
+                android:layout_height="54dp"
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="4dp"
+                android:alpha="0.6"
+                android:background="#CC000000"
+                android:contentDescription="@null"
+                android:scaleType="centerCrop"
+                android:visibility="gone" />
+            <ImageView
+                android:id="@+id/player_seek_l1"
+                android:layout_width="96dp"
+                android:layout_height="54dp"
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="4dp"
+                android:alpha="0.6"
+                android:background="#CC000000"
+                android:contentDescription="@null"
+                android:scaleType="centerCrop"
+                android:visibility="gone" />
+            <ImageView
+                android:id="@+id/player_seek_preview"
+                android:layout_width="173dp"
+                android:layout_height="97dp"
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="4dp"
+                android:adjustViewBounds="true"
+                android:background="#CC000000"
+                android:contentDescription="@null"
+                android:scaleType="centerCrop"
+                android:visibility="gone" />
+            <ImageView
+                android:id="@+id/player_seek_r1"
+                android:layout_width="96dp"
+                android:layout_height="54dp"
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="4dp"
+                android:alpha="0.6"
+                android:background="#CC000000"
+                android:contentDescription="@null"
+                android:scaleType="centerCrop"
+                android:visibility="gone" />
+            <ImageView
+                android:id="@+id/player_seek_r2"
+                android:layout_width="96dp"
+                android:layout_height="54dp"
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="4dp"
+                android:alpha="0.6"
+                android:background="#CC000000"
+                android:contentDescription="@null"
+                android:scaleType="centerCrop"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/player_seek_chapter"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginBottom="4dp"
+            android:background="@drawable/player_clock_pill"
+            android:ellipsize="end"
+            android:maxWidth="320dp"
+            android:paddingStart="12dp"
+            android:paddingTop="4dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="4dp"
+            android:singleLine="true"
+            android:textColor="@color/player_text_primary"
+            android:textSize="13sp"
             android:visibility="gone" />
 
         <TextView
@@ -391,24 +446,47 @@
             android:textStyle="bold"
             android:visibility="gone" />
 
-        <SeekBar
-            android:id="@+id/player_seek"
-            style="@style/PlayerSeekBar"
+        <TextView
+            android:id="@+id/player_chapter_label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:ellipsize="end"
+            android:singleLine="true"
+            android:textColor="@color/player_text_secondary"
+            android:textSize="13sp"
+            android:visibility="gone" />
+
+        <FrameLayout
             android:layout_width="match_parent"
-            android:layout_height="32dp"
-            android:background="@null"
-            android:clickable="true"
-            android:defaultFocusHighlightEnabled="false"
-            android:duplicateParentState="false"
-            android:focusable="true"
-            android:max="1000"
-            android:nextFocusDown="@id/player_play_pause"
-            android:paddingTop="2dp"
-            android:paddingBottom="2dp"
-            android:progressDrawable="@drawable/player_seek_progress"
-            android:splitTrack="false"
-            android:thumb="@drawable/player_seek_thumb"
-            android:thumbOffset="14dp" />
+            android:layout_height="wrap_content"
+            android:clipChildren="false"
+            android:clipToPadding="false">
+
+            <SeekBar
+                android:id="@+id/player_seek"
+                style="@style/PlayerSeekBar"
+                android:layout_width="match_parent"
+                android:layout_height="32dp"
+                android:background="@null"
+                android:clickable="true"
+                android:defaultFocusHighlightEnabled="false"
+                android:duplicateParentState="false"
+                android:focusable="true"
+                android:max="1000"
+                android:nextFocusDown="@id/player_play_pause"
+                android:paddingTop="2dp"
+                android:paddingBottom="2dp"
+                android:progressDrawable="@drawable/player_seek_progress"
+                android:splitTrack="false"
+                android:thumb="@drawable/player_seek_thumb"
+                android:thumbOffset="14dp" />
+
+            <com.servermanagerportal.mediaplayer.ChapterTicksView
+                android:id="@+id/player_chapter_ticks"
+                android:layout_width="match_parent"
+                android:layout_height="32dp" />
+        </FrameLayout>
 
         <!-- Not clipped: a focused transport button grows (player_focus_scale) past its row. -->
         <FrameLayout
@@ -448,6 +526,25 @@
                     android:visibility="gone" />
 
                 <ImageButton
+                    android:id="@+id/player_seek_back"
+                    android:layout_width="@dimen/player_transport_size"
+                    android:layout_height="@dimen/player_transport_size"
+                    android:layout_marginStart="2dp"
+                    android:layout_marginEnd="2dp"
+                    android:background="@drawable/player_control_icon_bg"
+                    android:stateListAnimator="@animator/player_focus_scale"
+                    android:tint="@color/player_transport_icon"
+                    android:contentDescription="@string/player_seek_back"
+                    android:defaultFocusHighlightEnabled="false"
+                    android:focusable="true"
+                    android:minWidth="@dimen/player_transport_size"
+                    android:minHeight="@dimen/player_transport_size"
+                    android:padding="@dimen/player_transport_padding"
+                    android:scaleType="centerInside"
+                    android:src="@drawable/ic_player_replay_10"
+                    android:visibility="gone" />
+
+                <ImageButton
                     android:id="@+id/player_play_pause"
                     android:layout_width="@dimen/player_transport_play_size"
                     android:layout_height="@dimen/player_transport_play_size"
@@ -466,6 +563,25 @@
                     android:padding="@dimen/player_transport_padding"
                     android:scaleType="centerInside"
                     android:src="@drawable/ic_player_play" />
+
+                <ImageButton
+                    android:id="@+id/player_seek_fwd"
+                    android:layout_width="@dimen/player_transport_size"
+                    android:layout_height="@dimen/player_transport_size"
+                    android:layout_marginStart="2dp"
+                    android:layout_marginEnd="2dp"
+                    android:background="@drawable/player_control_icon_bg"
+                    android:stateListAnimator="@animator/player_focus_scale"
+                    android:tint="@color/player_transport_icon"
+                    android:contentDescription="@string/player_seek_fwd"
+                    android:defaultFocusHighlightEnabled="false"
+                    android:focusable="true"
+                    android:minWidth="@dimen/player_transport_size"
+                    android:minHeight="@dimen/player_transport_size"
+                    android:padding="@dimen/player_transport_padding"
+                    android:scaleType="centerInside"
+                    android:src="@drawable/ic_player_forward_10"
+                    android:visibility="gone" />
 
                 <ImageButton
                     android:id="@+id/player_next_episode"
@@ -643,6 +759,26 @@
                     android:text="-0:00"
                     android:textColor="@color/player_text_primary"
                     android:textSize="14sp" />
+
+                <ImageButton
+                    android:id="@+id/player_chapters_quick"
+                    android:layout_width="@dimen/player_transport_size"
+                    android:layout_height="@dimen/player_transport_size"
+                    android:layout_marginEnd="6dp"
+                    android:background="@drawable/player_control_icon_bg"
+                    android:stateListAnimator="@animator/player_focus_scale"
+                    android:tint="@color/player_transport_icon"
+                    android:contentDescription="@string/player_chapters"
+                    android:defaultFocusHighlightEnabled="false"
+                    android:focusable="true"
+                    android:nextFocusRight="@id/player_settings"
+                    android:nextFocusUp="@id/player_seek"
+                    android:minWidth="@dimen/player_transport_size"
+                    android:minHeight="@dimen/player_transport_size"
+                    android:padding="@dimen/player_transport_padding"
+                    android:scaleType="centerInside"
+                    android:src="@drawable/ic_player_chapters"
+                    android:visibility="gone" />
 
                 <ImageButton
                     android:id="@+id/player_settings"

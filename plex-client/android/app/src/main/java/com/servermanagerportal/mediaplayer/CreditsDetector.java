@@ -74,9 +74,7 @@ final class CreditsDetector {
         } finally {
             try {
                 mmr.release();
-            } catch (Throwable ignored) {
-                /* nothing */
-            }
+            } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "CreditsDetector:77" + " " + ignored.getClass().getSimpleName()); }
         }
     }
 

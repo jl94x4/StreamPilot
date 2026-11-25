@@ -645,6 +645,10 @@ export type PlayerSettings = {
     serviceLogoPlates: boolean;
     /** Resolution / codec pills on season episode cards. */
     showEpisodeFilePills: boolean;
+    /** TV title page: the focused icon button widens into a pill with its name. Off by default. */
+    actionButtonNames: boolean;
+    /** TV title pages: the picture drifts in slowly and the logo and text fade up (off by default). */
+    cinematicIntro: boolean;
     /** Plex-style "New Season" ribbon and premiere line on show posters. Off by default. */
     showNewSeasonBadge: boolean;
     /** Corner for watched checkmarks on movie/show/season posters (not episodes). */
@@ -690,6 +694,8 @@ export type PlayerSettings = {
     /** Test: on pause, name the faces in the frame from the title's cast (TV player). */
     whoIsOnScreen: boolean;
     matchFrameRate: boolean;
+    /** Chapter button, name and bar ticks on the player controls (native player). */
+    showChapters: boolean;
     /** HDMI bitstream of DD/DTS/TrueHD when the sink supports it. */
     audioPassthrough: boolean;
     /** Native player steps quality down by itself when it keeps buffering (off = ask once). */
@@ -1096,6 +1102,8 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
     showServiceBrandLogos: true,
     serviceLogoPlates: true,
     showEpisodeFilePills: true,
+    actionButtonNames: false,
+    cinematicIntro: false,
     showNewSeasonBadge: false,
     watchedTickPosition: 'bottom-left',
     phoneOverviewPoster: false,
@@ -1121,6 +1129,7 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
     nightMode: false,
     whoIsOnScreen: false,
     matchFrameRate: true,
+    showChapters: true,
     audioPassthrough: false,
     autoQuality: false,
     trailerPreview: false,
@@ -1226,6 +1235,8 @@ export const normalizePlayerSettings = (raw: Partial<PlayerSettings> | Record<st
         showServiceBrandLogos: raw?.showServiceBrandLogos !== false,
         serviceLogoPlates: raw?.serviceLogoPlates !== false,
         showEpisodeFilePills: raw?.showEpisodeFilePills !== false,
+        actionButtonNames: raw?.actionButtonNames === true,
+        cinematicIntro: raw?.cinematicIntro === true,
         showNewSeasonBadge: raw?.showNewSeasonBadge === true,
         watchedTickPosition: isPlayerWatchedTickPosition(raw?.watchedTickPosition)
             ? raw!.watchedTickPosition as PlayerWatchedTickPosition
@@ -1259,6 +1270,7 @@ export const normalizePlayerSettings = (raw: Partial<PlayerSettings> | Record<st
         nightMode: raw?.nightMode === true,
         whoIsOnScreen: raw?.whoIsOnScreen === true,
         matchFrameRate: raw?.matchFrameRate !== false,
+        showChapters: raw?.showChapters !== false,
         audioPassthrough: raw?.audioPassthrough === true,
         autoQuality: raw?.autoQuality === true,
         trailerPreview: raw?.trailerPreview === true,
@@ -1340,6 +1352,8 @@ export const playerSettingsEqual = (a: PlayerSettings, b: PlayerSettings) => (
     && a.showServiceBrandLogos === b.showServiceBrandLogos
     && a.serviceLogoPlates === b.serviceLogoPlates
     && a.showEpisodeFilePills === b.showEpisodeFilePills
+    && a.actionButtonNames === b.actionButtonNames
+    && a.cinematicIntro === b.cinematicIntro
     && a.showNewSeasonBadge === b.showNewSeasonBadge
     && a.watchedTickPosition === b.watchedTickPosition
     && a.phoneOverviewPoster === b.phoneOverviewPoster
@@ -1365,6 +1379,7 @@ export const playerSettingsEqual = (a: PlayerSettings, b: PlayerSettings) => (
     && a.nightMode === b.nightMode
     && a.whoIsOnScreen === b.whoIsOnScreen
     && a.matchFrameRate === b.matchFrameRate
+    && a.showChapters === b.showChapters
     && a.audioPassthrough === b.audioPassthrough
     && a.autoQuality === b.autoQuality
     && a.trailerPreview === b.trailerPreview

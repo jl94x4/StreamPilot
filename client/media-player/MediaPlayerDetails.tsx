@@ -29,6 +29,7 @@ import { PlayerBackdropImage } from './PlayerBackdropImage';
 import { NativeDetailActionsBridge } from './NativeDetailActionsBridge';
 import { NativeSeasonTabsBridge } from './NativeSeasonTabsBridge';
 import { NativeDetailsTextBridge, useNativeBrandMark, type NativeDetailsTextContent } from './NativeDetailsTextBridge';
+import { nativeOverlayOpen, watchNativeMenuFlag } from './nativeOverlay';
 import { isNativeDetailsActive, isNativeHomeSupported, nativeDetailsEnter, nativeDetailsLeave, nativeDetailsScroll, nativeHomeReleaseFocus, nativeHomeSetSurface, nativeRailFocus, nativeRailHide, nativeRailInjectKey, nativeRailRect, nativeRailSet, nativeRailSuppressed, onNativeHomeEvent, setNativeHomeStageClear } from '../plex-client/nativeHome';
 import { nativeAbsoluteUrl, nativeCardImage } from './nativeHomePayload';
 import { NativeDetailRail, type DetailRailItem } from './NativeDetailRail';
@@ -528,7 +529,7 @@ const PhoneEpisodeList: React.FC<{
                         key={row.ratingKey}
                         row={row}
                         locale={locale}
-                        label={`${action}: ${row.title}`}
+                        label={row.title}
                         spoiler={!!hideSpoiler?.(row)}
                         onPress={() => onPlayEpisode(row)}
                     />
@@ -537,6 +538,77 @@ const PhoneEpisodeList: React.FC<{
         </div>
     </section>
 );
+
+/** "Did you know?" facts built only from the item's own Plex data, so a title or episode always has something to show. */
+const plexTriviaFacts = (item: PlayerItem): string[] => {
+    const out: string[] = [];
+    const clean = (rows?: Array<string | null | undefined>) => (rows || []).map((row) => String(row || '').trim()).filter(Boolean);
+    const join = (names: string[]) => (names.length <= 1
+        ? (names[0] || '')
+        : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
+    const date = (iso?: string | null) => {
+        const d = new Date(`${String(iso || '').slice(0, 10)}T12:00:00Z`);
+        return Number.isNaN(d.getTime())
+            ? ''
+            : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
+    };
+    const minutes = item.durationMs ? Math.round(Number(item.durationMs) / 60000) : 0;
+    const directors = clean(item.directors).slice(0, 3);
+    const writers = clean(item.writers).slice(0, 3);
+    const genres = clean(item.genres).slice(0, 3);
+    const countries = clean(item.countries).slice(0, 2);
+    const studio = clean([item.studio, ...(item.networkLabels || []), ...(item.studioLabels || [])])[0] || '';
+    const producers = clean((item.producers || []).map((row) => row.name)).slice(0, 3);
+    const roleLines = (rows: PlayerItem['cast'] | undefined, verb: string, where: string, limit: number) => (rows || [])
+        .filter((row) => row?.name && row?.role)
+        .slice(0, limit)
+        .map((row) => `${row.name} ${verb} ${row.role} ${where}`.trim() + '.');
+    if (item.type === 'episode') {
+        const show = String(item.showTitle || '').trim();
+        const name = String(item.title || '').trim();
+        const label = name ? `"${name}"` : 'This episode';
+        if (name && item.parentIndex != null && item.index != null) {
+            out.push(`${label} is episode ${item.index} of season ${item.parentIndex}${show ? ` of ${show}` : ''}.`);
+        }
+        const aired = date(item.originallyAvailableAt);
+        if (aired) out.push(`${label} first aired on ${aired}.`);
+        if (directors.length) out.push(`${label} was directed by ${join(directors)}.`);
+        if (writers.length) out.push(`${label} was written by ${join(writers)}.`);
+        if (minutes > 0) out.push(`${label} runs about ${minutes} minutes.`);
+        out.push(...roleLines(item.guestStars, 'guest stars as', `in ${label}`, 5));
+        const guests = clean((item.guestStars || []).map((row) => row.name)).slice(0, 4);
+        if (guests.length >= 2) out.push(`Guest stars in ${label} include ${join(guests)}.`);
+        out.push(...roleLines(item.cast, 'plays', show ? `in ${show}` : '', 4));
+        if (studio && show) out.push(`${show} comes from ${studio}.`);
+        return out;
+    }
+    const name = String(item.title || '').trim();
+    if (!name) return out;
+    const premiered = date(item.originallyAvailableAt);
+    if (item.type === 'movie') {
+        if (premiered) out.push(`${name} was first released on ${premiered}.`);
+        if (minutes > 0) out.push(`${name} runs ${minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m` : `${minutes} minutes`}.`);
+        if (directors.length) out.push(`${name} was directed by ${join(directors)}.`);
+        if (writers.length) out.push(`${name} was written by ${join(writers)}.`);
+        if (producers.length) out.push(`${name} was produced by ${join(producers)}.`);
+        if (studio) out.push(`${name} comes from ${studio}.`);
+    } else {
+        if (premiered) out.push(`${name} first aired on ${premiered}.`);
+        if (item.childCount && item.childCount > 0) out.push(`${name} has ${item.childCount} season${item.childCount === 1 ? '' : 's'} in your library.`);
+        if (item.leafCount && item.leafCount > 0) out.push(`There are ${item.leafCount} episodes of ${name} in your library.`);
+        if (minutes > 0) out.push(`An episode of ${name} runs about ${minutes} minutes.`);
+        if (studio) out.push(`${name} comes from ${studio}.`);
+        if (directors.length) out.push(`${name} has been directed by ${join(directors)}.`);
+        if (writers.length) out.push(`${name} has been written by ${join(writers)}.`);
+    }
+    if (genres.length >= 2) out.push(`${name} is filed under ${join(genres)}.`);
+    if (countries.length) out.push(`${name} comes from ${join(countries)}.`);
+    if (item.contentRating) out.push(`${name} is rated ${item.contentRating}.`);
+    out.push(...roleLines(item.cast, 'plays', `in ${name}`, 6));
+    const stars = clean((item.cast || []).map((row) => row.name)).slice(0, 4);
+    if (stars.length >= 3) out.push(`${name} stars ${join(stars)}.`);
+    return out;
+};
 
 const hasDetailsHero = (row?: PlayerItem | null) => Boolean(
     String(row?.thumb || '').trim() || String(row?.art || '').trim(),
@@ -746,7 +818,7 @@ const NativeEpisodeRailBridge: React.FC<{
         // A menu / dialog or the sidebar over the page: the rail (above the WebView) must not draw over it.
         let suppressed = false;
         const syncSuppressed = () => {
-            const on = !!document.querySelector(NATIVE_RAIL_OVERLAY);
+            const on = nativeOverlayOpen(NATIVE_RAIL_OVERLAY);
             if (on === suppressed) return;
             suppressed = on;
             nativeRailSuppressed(on);
@@ -757,6 +829,7 @@ const NativeEpisodeRailBridge: React.FC<{
             queue();
         });
         overlayObserver.observe(document.body, { childList: true, subtree: true });
+        const stopMenuFlag = watchNativeMenuFlag(syncSuppressed);
         // The sidebar slides the page (and the rail) sideways: follow it frame by frame while it moves.
         let burstUntil = 0;
         const burst = () => {
@@ -774,6 +847,7 @@ const NativeEpisodeRailBridge: React.FC<{
         syncSuppressed();
         return () => {
             overlayObserver.disconnect();
+            stopMenuFlag();
             navObserver.disconnect();
             playerObserver.disconnect();
             if (frame) window.cancelAnimationFrame(frame);
@@ -1201,7 +1275,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
         });
         if (!season) return;
         setChildren((rows) => rows.map((row) => (
-            row.type === 'episode' ? { ...row, watched, viewOffsetMs: watched ? 0 : row.viewOffsetMs } : row
+            row.type === 'episode' ? { ...row, watched, viewOffsetMs: 0 } : row
         )));
     };
 
@@ -1284,7 +1358,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             return {
                 ...prev,
                 watched,
-                viewOffsetMs: watched ? 0 : prev.viewOffsetMs,
+                viewOffsetMs: 0,
                 viewedLeafCount: (prev.type === 'show' || prev.type === 'season')
                     ? (watched ? (leaves || Number(prev.viewedLeafCount || 0)) : 0)
                     : prev.viewedLeafCount,
@@ -1380,6 +1454,9 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             };
             setItem((prev) => (prev ? patch(prev) : prev));
             setChildren((prev) => prev.map(patch));
+            // The season's episode cards (and the one the page is on) carry the resume point too.
+            setSeasonEpisodes((prev) => prev.map(patch));
+            setSpotlightDetail((prev) => (prev ? patch(prev) : prev));
             setOnDeck((prev) => {
                 if (detail.advanceContinue && detail.continueWith && prev && watchTargetTouches(prev, key)) {
                     return applyRememberedProgress({
@@ -1402,6 +1479,14 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             const key = String(detail?.ratingKey || '').trim();
             const next = detail?.item;
             if (!key || !next) return;
+            // A picture changed on one episode / season in this page's lists: swap it in place straight away.
+            const patchRow = (row: PlayerItem) => (String(row.ratingKey) === key
+                ? { ...row, thumb: next.thumb || row.thumb, art: next.art || row.art, logo: next.logo || row.logo }
+                : row);
+            const hasRow = (rows: PlayerItem[] | null | undefined) => !!rows?.some((row) => String(row.ratingKey) === key);
+            setChildren((prev) => (hasRow(prev) ? prev.map(patchRow) : prev));
+            setSeasonEpisodes((prev) => (hasRow(prev) ? prev.map(patchRow) : prev));
+            setPhoneSeasonEpisodes((prev) => (prev && hasRow(prev) ? prev.map(patchRow) : prev));
             if (String(ratingKey) !== key
                 && String(item?.ratingKey || '') !== key
                 && String(item?.grandparentRatingKey || '') !== key
@@ -2577,6 +2662,8 @@ export const MediaPlayerDetails: React.FC<Props> = ({
     const nativeEnteredRef = useRef(false);
     const nativeTintRef = useRef(settings.detailsArtworkTint);
     nativeTintRef.current = settings.detailsArtworkTint;
+    const nativeCinematicRef = useRef(settings.cinematicIntro);
+    nativeCinematicRef.current = settings.cinematicIntro;
     const nativeSurface = () => {
         const root = document.querySelector<HTMLElement>('[data-tv-details="1"]');
         return (root && getComputedStyle(root).getPropertyValue('--tv-details-surface').trim()) || TV_FLOOR_RGB;
@@ -2609,7 +2696,7 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             document.getElementById(PLAYER_SCROLL_ID)?.style.setProperty('--tv-details-surface', rgb);
         });
         void (async () => {
-            const ok = await nativeDetailsEnter(nativeUrlRef.current, nativeSurface(), nativeTintRef.current);
+            const ok = await nativeDetailsEnter(nativeUrlRef.current, nativeSurface(), nativeTintRef.current, true, nativeCinematicRef.current);
             if (cancelled || !ok) return;
             nativeEnteredRef.current = true;
             setNativeHomeStageClear(true, '[data-tv-details="1"]');
@@ -3015,6 +3102,9 @@ export const MediaPlayerDetails: React.FC<Props> = ({
             mediaId={Number.isFinite(factMediaId) && factMediaId > 0 ? factMediaId : 0}
             title={factTitle}
             year={item.year}
+            season={item.type === 'episode' ? item.parentIndex : null}
+            episode={item.type === 'episode' ? item.index : null}
+            extraFacts={plexTriviaFacts(item)}
             className={`${OVERVIEW_FACT_WIDTH_CLASS} ${OVERVIEW_SPOTLIGHT_CARD_SHELL_CLASS} items-center`}
             compact
         />
@@ -4310,7 +4400,21 @@ export const MediaPlayerDetails: React.FC<Props> = ({
                         locale={locale}
                         playLabel={startLabel}
                         resumeLabel={t('mediaPlayerPage.resume')}
-                        onPlayEpisode={playEpisodeTile}
+                        onPlayEpisode={(row) => {
+                            // Like the Plex app: a tap opens the episode's page (Watch is on it), it does not start playing.
+                            if (row.ratingKey) {
+                                void fetchMediaPlayerItem(row.ratingKey, {
+                                    core: true,
+                                    serverId: row.serverId || item.serverId || serverId || null,
+                                });
+                            }
+                            onOpenItem({
+                                ...row,
+                                thumb: row.thumb || item.thumb,
+                                art: row.art || item.art,
+                                showTitle: row.showTitle || item.title || item.showTitle,
+                            });
+                        }}
                         hideSpoiler={(row) => hideEpisodeSpoilers(settings, row)}
                     />
                     ) : showTvEpisodeSkeletons ? (

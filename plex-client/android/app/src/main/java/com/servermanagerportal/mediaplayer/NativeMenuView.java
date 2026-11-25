@@ -46,6 +46,8 @@ final class NativeMenuView extends FrameLayout {
     }
 
     private static final int AMBER = Color.rgb(229, 160, 13);
+    /** All menu text (title, items, values, stars) is drawn 10% under its base size. */
+    private static final float TEXT_SCALE = 0.90f;
 
     private final Listener listener;
     private final NativeHomeImages images;
@@ -187,9 +189,7 @@ final class NativeMenuView extends FrameLayout {
                 }
             }
             select(keep >= 0 && keep < cells.size() ? keep : firstEnabled(), false);
-        } catch (Exception ignored) {
-            /* keep what is shown */
-        }
+        } catch (Exception ignored) { android.util.Log.w("SPSwallowed", "NativeMenuView:192" + " " + ignored.getClass().getSimpleName()); }
     }
 
     void hideMenu() {
@@ -234,6 +234,7 @@ final class NativeMenuView extends FrameLayout {
             }
         } else if (!title.isEmpty()) {
             TextView t = text(title, 34, Color.WHITE, true);
+            t.setGravity(Gravity.CENTER);
             t.setSingleLine(true);
             t.setEllipsize(android.text.TextUtils.TruncateAt.END);
             LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -269,7 +270,7 @@ final class NativeMenuView extends FrameLayout {
         TextView t = new TextView(getContext());
         t.setText(value);
         t.setTextColor(color);
-        t.setTextSize(TypedValue.COMPLEX_UNIT_PX, px(sp));
+        t.setTextSize(TypedValue.COMPLEX_UNIT_PX, px(sp * TEXT_SCALE));
         if (NativeFonts.custom()) t.setTypeface(NativeFonts.face(getContext(), bold ? 700 : 500));
         else t.setTypeface(bold ? Typeface.DEFAULT_BOLD : Typeface.create("sans-serif-medium", Typeface.NORMAL));
         t.setIncludeFontPadding(false);

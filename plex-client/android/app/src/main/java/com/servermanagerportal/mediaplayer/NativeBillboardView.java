@@ -30,6 +30,8 @@ final class NativeBillboardView extends FrameLayout {
     // All sizes are in the page's 1920-wide layout units (like the rest of the native Home).
     private static final float LEFT = 135f;
     private static final float WIDTH = 840f;
+    /** The synopsis runs narrower than the copy block, so more of the picture shows beside it. */
+    private static final float SUMMARY_W = 760f;
     private static final float HEIGHT = 420f;
     private static final float BOTTOM = 472f;      // the block's bottom edge, from the top of the screen
     private static final float LOGO_H = 84f;
@@ -130,7 +132,7 @@ final class NativeBillboardView extends FrameLayout {
         summary = text(context, 20.4f, 400, 1.45f, Color.argb(199, 255, 255, 255));
         summary.setMaxLines(3);
         summary.setEllipsize(TextUtils.TruncateAt.END);
-        content.addView(summary, lp(dp(WIDTH), ViewGroup.LayoutParams.WRAP_CONTENT, GAP));
+        content.addView(summary, lp(dp(SUMMARY_W), ViewGroup.LayoutParams.WRAP_CONTENT, GAP));
 
         cast = text(context, 15f, 400, 1.35f, Color.argb(140, 255, 255, 255));
         cast.setMaxLines(1);
@@ -163,6 +165,8 @@ final class NativeBillboardView extends FrameLayout {
         t.setTypeface(NativeFonts.face(context, weight));
         t.setTextColor(color);
         t.setIncludeFontPadding(false);
+        // The left fade is long and light: a soft shadow keeps the copy readable where the picture shows through.
+        t.setShadowLayer(7f * density, 0f, 1f * density, Color.argb(150, 0, 0, 0));
         if (lineMult > 1f) {
             if (android.os.Build.VERSION.SDK_INT >= 28) t.setLineHeight(Math.round(sizePx * density * lineMult));
             else t.setLineSpacing(0f, lineMult);
@@ -350,9 +354,7 @@ final class NativeBillboardView extends FrameLayout {
                     showService(bmp);
                     return;
                 }
-            } catch (Throwable ignored) {
-                /* fall through to no mark */
-            }
+            } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "NativeBillboardView:357" + " " + ignored.getClass().getSimpleName()); }
         }
         if (url == null || url.isEmpty()) {
             svc.setVisibility(GONE);

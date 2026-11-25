@@ -30,15 +30,13 @@ public class MediaDownloadService extends Service {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent);
             else context.startService(intent);
-        } catch (Throwable ignored) {
-            /* app not allowed to start a service right now */
-        }
+        } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "MediaDownloadService:33" + " " + ignored.getClass().getSimpleName()); }
     }
 
     public static void hide(Context context) {
         try {
             context.stopService(new Intent(context, MediaDownloadService.class));
-        } catch (Throwable ignored) { /* ignore */ }
+        } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "MediaDownloadService:41" + " " + ignored.getClass().getSimpleName()); }
     }
 
     @Override
@@ -63,7 +61,7 @@ public class MediaDownloadService extends Service {
                     wakeLock.setReferenceCounted(false);
                     wakeLock.acquire(6 * 60 * 60 * 1000L);
                 }
-            } catch (Throwable ignored) { /* ignore */ }
+            } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "MediaDownloadService:66" + " " + ignored.getClass().getSimpleName()); }
         }
         return START_NOT_STICKY;
     }
@@ -96,7 +94,7 @@ public class MediaDownloadService extends Service {
     public void onDestroy() {
         try {
             if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
-        } catch (Throwable ignored) { /* ignore */ }
+        } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "MediaDownloadService:99" + " " + ignored.getClass().getSimpleName()); }
         wakeLock = null;
         super.onDestroy();
     }

@@ -89,9 +89,7 @@ final class PlayerSessionController {
         if (mediaSession == null) return;
         try {
             mediaSession.release();
-        } catch (Throwable ignored) {
-            /* ignore */
-        }
+        } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "PlayerSessionController:92" + " " + ignored.getClass().getSimpleName()); }
         mediaSession = null;
     }
 

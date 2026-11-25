@@ -224,6 +224,9 @@ public class PlayerActivity extends AppCompatActivity {
     private Button delayBtn;
     private Button repeatBtn;
     private ImageView seekPreview;
+    /** Neighbour frames either side of the scrub preview: two before, two after. */
+    private final ImageView[] seekStrip = new ImageView[4];
+    private final android.util.LruCache<Long, Bitmap> stripFrames = new android.util.LruCache<>(48);
     private View menuScrim;
     private TextView menuTitle;
     private ScrollView menuScroll;
@@ -243,6 +246,10 @@ public class PlayerActivity extends AppCompatActivity {
     private TextView endsAtView;
     private TextView seekFlashView;
     private ImageButton settingsBtn;
+    private ImageButton chaptersQuickBtn;
+    private TextView chapterLabel;
+    private TextView seekChapterView;
+    private ChapterTicksView chapterTicks;
     private String metaText = "";
     private final PlayerMenuNav menuNav = new PlayerMenuNav();
     private final PlayerKeyHandler keyHandler = new PlayerKeyHandler(new PlayerKeyHandler.Host() {
@@ -488,6 +495,8 @@ public class PlayerActivity extends AppCompatActivity {
     private long seekForwardMs = 10_000L;
     private long controlsTimeoutMs = 5_000L;
     private boolean showClock = true;
+    /** Settings > Chapters: the chapter button, name, bar ticks and scrub name. Off hides them all. */
+    private boolean showChapters = true;
 
     private long seekStepMs(int direction) {
         return direction < 0 ? seekBackMs : seekForwardMs;
@@ -798,6 +807,7 @@ public class PlayerActivity extends AppCompatActivity {
     private final List<OptionItem> versions = new ArrayList<>();
     private final List<OptionItem> chapters = new ArrayList<>();
     private String previewThumbTemplate = "";
+    private int previewMisses = 0;
     private float videoFrameRate;
     private boolean nightMode;
     private boolean matchFrameRate = true;
@@ -811,9 +821,7 @@ public class PlayerActivity extends AppCompatActivity {
         try {
             long pos = Math.max(0, player.getCurrentPosition());
             player.seekTo(pos);
-        } catch (Throwable ignored) {
-            /* ignore */
-        }
+        } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:819" + " " + ignored.getClass().getSimpleName()); }
     };
     /** ElapsedRealtime when mid-playback buffering began; 0 = not buffering. */
     private long bufferingStartedAtMs;
@@ -821,7 +829,7 @@ public class PlayerActivity extends AppCompatActivity {
     private String subtitleColor = "#ffffff";
     private String subtitleBackground = "none";
     private String subtitlePosition = "bottom";
-    private int previewGeneration;
+    private volatile int previewGeneration;
     private final DelayAudioProcessor delayAudioProcessor = new DelayAudioProcessor();
     private float videoZoom = 1f;
     private boolean videoFill;
@@ -866,9 +874,7 @@ public class PlayerActivity extends AppCompatActivity {
         player.setPlayWhenReady(true);
         try {
             player.play();
-        } catch (Throwable ignored) {
-            /* ignore */
-        }
+        } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:874" + " " + ignored.getClass().getSimpleName()); }
     };
     /** Position when the resume kick was armed — only remux if it stays frozen. */
     private long resumeKickArmPosMs = -1;
@@ -886,9 +892,7 @@ public class PlayerActivity extends AppCompatActivity {
             player.setPlayWhenReady(true);
             try {
                 player.play();
-            } catch (Throwable ignored) {
-                /* ignore */
-            }
+            } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:894" + " " + ignored.getClass().getSimpleName()); }
             if (!playThenSeekArmed && (resumeFrameSeen || player.getPlaybackState() == Player.STATE_READY)) {
                 armPlayThenSeek();
             }
@@ -898,9 +902,7 @@ public class PlayerActivity extends AppCompatActivity {
         player.setPlayWhenReady(true);
         try {
             player.play();
-        } catch (Throwable ignored) {
-            /* ignore */
-        }
+        } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:906" + " " + ignored.getClass().getSimpleName()); }
         resumeKickArmPosMs = -1;
     };
     private final Runnable directSeekRunnable = () -> {
@@ -1197,7 +1199,7 @@ public class PlayerActivity extends AppCompatActivity {
                     try {
                         aacViaFfmpeg = FfmpegLibrary.isAvailable() && FfmpegLibrary.supportsFormat(MimeTypes.AUDIO_AAC)
                             && !PlaybackUrls.isTranscodeUrl(currentUrl);
-                    } catch (Throwable ignored) { /* no FFmpeg */ }
+                    } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:1205" + " " + ignored.getClass().getSimpleName()); }
                     final boolean hideAac = aacViaFfmpeg;
                     MediaCodecSelector selector = (mimeType, requiresSecureDecoder, requiresTunnelingDecoder) ->
                         ((!audioPassthrough && isBitstreamOnlyMime(mimeType)) || (hideAac && MimeTypes.AUDIO_AAC.equals(mimeType)))
@@ -1328,9 +1330,7 @@ public class PlayerActivity extends AppCompatActivity {
                 player.prepare();
                 try {
                     player.play();
-                } catch (Throwable ignored) {
-                    /* prepare already has playWhenReady set */
-                }
+                } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:1336" + " " + ignored.getClass().getSimpleName()); }
                 applyAudioTrackPreference();
                 applyTextTrackPreference();
                 if (avChanged) notifyTracksOnlyChange();
@@ -1429,6 +1429,10 @@ public class PlayerActivity extends AppCompatActivity {
         prevEpisodeBtn = findViewById(R.id.player_prev_episode);
         nextEpisodeBtn = findViewById(R.id.player_next_episode);
         settingsBtn = findViewById(R.id.player_settings);
+        chaptersQuickBtn = findViewById(R.id.player_chapters_quick);
+        chapterLabel = findViewById(R.id.player_chapter_label);
+        seekChapterView = findViewById(R.id.player_seek_chapter);
+        chapterTicks = findViewById(R.id.player_chapter_ticks);
         skipRow = findViewById(R.id.player_skip_row);
         skipIntroBtn = findViewById(R.id.player_skip_intro);
         skipCreditsBtn = findViewById(R.id.player_skip_credits);
@@ -1491,6 +1495,10 @@ public class PlayerActivity extends AppCompatActivity {
         chaptersBtn = findViewById(R.id.player_chapters);
         pipBtn = findViewById(R.id.player_pip);
         seekPreview = findViewById(R.id.player_seek_preview);
+        seekStrip[0] = findViewById(R.id.player_seek_l2);
+        seekStrip[1] = findViewById(R.id.player_seek_l1);
+        seekStrip[2] = findViewById(R.id.player_seek_r1);
+        seekStrip[3] = findViewById(R.id.player_seek_r2);
         // Every text in the player in the app font (Settings → App font), each keeping its weight. Menu rows are
         // built later: they get it as they are added.
         applyAppFont(findViewById(R.id.player_root));
@@ -1608,9 +1616,15 @@ public class PlayerActivity extends AppCompatActivity {
         if (prevEpisodeBtn != null) prevEpisodeBtn.setOnClickListener(v -> finishForPlayPrevious());
         if (nextEpisodeBtn != null) nextEpisodeBtn.setOnClickListener(v -> finishForPlayNext());
         if (settingsBtn != null) settingsBtn.setOnClickListener(v -> showSettingsRoot());
+        if (chaptersQuickBtn != null) chaptersQuickBtn.setOnClickListener(v -> showChaptersMenu());
         View seekBack = findViewById(R.id.player_seek_back);
-        if (seekBack != null) seekBack.setOnClickListener(v -> seekByWithFlash(-seekBackMs));
         View seekFwd = findViewById(R.id.player_seek_fwd);
+        // Touch screens have no D-pad: show the 10 s back / forward buttons beside play.
+        if (!isTelevision()) {
+            if (seekBack != null) seekBack.setVisibility(View.VISIBLE);
+            if (seekFwd != null) seekFwd.setVisibility(View.VISIBLE);
+        }
+        if (seekBack != null) seekBack.setOnClickListener(v -> seekByWithFlash(-seekBackMs));
         if (seekFwd != null) seekFwd.setOnClickListener(v -> seekByWithFlash(seekForwardMs));
         if (skipIntroBtn != null) skipIntroBtn.setOnClickListener(v -> doSkipIntro());
         if (skipCreditsBtn != null) skipCreditsBtn.setOnClickListener(v -> doSkipCredits());
@@ -1748,9 +1762,7 @@ public class PlayerActivity extends AppCompatActivity {
                         player.setPlayWhenReady(true);
                         try {
                             player.play();
-                        } catch (Throwable ignored) {
-                            /* ignore */
-                        }
+                        } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:1766" + " " + ignored.getClass().getSimpleName()); }
                         if (PlaybackUrls.isDirectPlayUrl(currentUrl)) applyAudioTrackPreference();
                         mainHandler.removeCallbacks(resumePlayKickRunnable);
                         resumeKickArmPosMs = contentPositionMs();
@@ -1817,9 +1829,7 @@ public class PlayerActivity extends AppCompatActivity {
                         player.setPlayWhenReady(true);
                         try {
                             player.play();
-                        } catch (Throwable ignored) {
-                            /* ignore */
-                        }
+                        } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:1835" + " " + ignored.getClass().getSimpleName()); }
                     });
                     return;
                 }
@@ -2145,6 +2155,7 @@ public class PlayerActivity extends AppCompatActivity {
                     }
                 }
             }
+            if (root.has("showChapters")) showChapters = root.optBoolean("showChapters", showChapters);
             if (root.has("nightMode")) nightMode = root.optBoolean("nightMode", nightMode);
             if (root.has("matchFrameRate")) matchFrameRate = root.optBoolean("matchFrameRate", matchFrameRate);
             if (root.has("videoZoom")) videoZoom = (float) root.optDouble("videoZoom", videoZoom);
@@ -2161,7 +2172,9 @@ public class PlayerActivity extends AppCompatActivity {
             }
             if (root.has("sidecarSubtitleUrl")) sidecarSubtitleUrl = root.optString("sidecarSubtitleUrl", sidecarSubtitleUrl);
             if (root.has("frameRate")) videoFrameRate = (float) root.optDouble("frameRate", videoFrameRate);
-            previewThumbTemplate = root.optString("previewThumbTemplate", previewThumbTemplate);
+            stripFrames.evictAll();
+            previewThumbTemplate = root.isNull("previewThumbTemplate") ? "" : root.optString("previewThumbTemplate", previewThumbTemplate);
+            previewMisses = 0;
             timelineReporter.applySessionTimeline(root.optJSONObject("timeline"));
             JSONObject subtitleStyle = root.optJSONObject("subtitleStyle");
             if (subtitleStyle != null) {
@@ -2183,6 +2196,7 @@ public class PlayerActivity extends AppCompatActivity {
                         chapters.add(new OptionItem(String.valueOf(startMs), title));
                     }
                 }
+                applyEpisodeNavButtons();
             }
 
             if (root.has("qualities")) {
@@ -2562,9 +2576,7 @@ public class PlayerActivity extends AppCompatActivity {
                         }
                     }
                 }
-            } catch (Throwable ignored) {
-                /* tracks not ready */
-            }
+            } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:2582" + " " + ignored.getClass().getSimpleName()); }
         }
         StringBuilder lines = new StringBuilder();
         lines.append(playbackModeLabel());
@@ -2852,9 +2864,7 @@ public class PlayerActivity extends AppCompatActivity {
                     return;
                 }
             }
-        } catch (Throwable ignored) {
-            /* carry on */
-        }
+        } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:2872" + " " + ignored.getClass().getSimpleName()); }
         facesView.showStatus(getString(R.string.player_faces_looking));
         // Copy the paused picture off the surface (no second decoder), at most 1280 wide.
         int width = Math.min(960, surface.getWidth());
@@ -3066,9 +3076,7 @@ public class PlayerActivity extends AppCompatActivity {
             if (videoHost != null && imageHost != null && videoHost.equalsIgnoreCase(imageHost)) {
                 return headers;
             }
-        } catch (Exception ignored) {
-            /* fall through */
-        }
+        } catch (Exception ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:3086" + " " + ignored.getClass().getSimpleName()); }
         Map<String, String> slim = new HashMap<>();
         slim.put("User-Agent", USER_AGENT);
         slim.put("Accept", "image/*,*/*;q=0.8");
@@ -3246,9 +3254,7 @@ public class PlayerActivity extends AppCompatActivity {
                                 Surface.FRAME_RATE_COMPATIBILITY_DEFAULT,
                                 Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS);
                         }
-                    } catch (Throwable ignored) {
-                        /* older devices */
-                    }
+                    } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:3266" + " " + ignored.getClass().getSimpleName()); }
                 }
             }
         }
@@ -3649,6 +3655,7 @@ public class PlayerActivity extends AppCompatActivity {
             toast(getString(R.string.player_no_options));
             return;
         }
+        chapterThumbGen++;
         mainHandler.removeCallbacks(hideChromeRunnable);
         setChromeVisible(true);
         setChromeSubtreeFocusable(false);
@@ -3688,6 +3695,54 @@ public class PlayerActivity extends AppCompatActivity {
         }
     }
 
+    private int currentChapterIndex() {
+        return chapterIndexAt(contentPositionMs());
+    }
+
+    private int chapterIndexAt(long pos) {
+        if (chapters.isEmpty()) return -1;
+        int idx = 0;
+        for (int i = 0; i < chapters.size(); i++) {
+            try {
+                if (Long.parseLong(chapters.get(i).id) <= pos + 500) idx = i;
+                else break;
+            } catch (Exception ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:3720" + " " + ignored.getClass().getSimpleName()); }
+        }
+        return idx;
+    }
+
+    private int ticksCount = -1;
+    private long ticksDuration = -1;
+
+    private void updateChapterTicks(long duration) {
+        if (chapterTicks != null) chapterTicks.setVisibility(showChapters ? View.VISIBLE : View.GONE);
+        if (!showChapters) return;
+        if (chapterTicks == null || (ticksCount == chapters.size() && ticksDuration == duration)) return;
+        ticksCount = chapters.size();
+        ticksDuration = duration;
+        long[] starts = new long[chapters.size()];
+        for (int i = 0; i < starts.length; i++) {
+            try {
+                starts[i] = Long.parseLong(chapters.get(i).id);
+            } catch (Exception ignored) {
+                starts[i] = 0;
+            }
+        }
+        chapterTicks.setChapters(starts, duration);
+    }
+
+    private void updateChapterLabel(long pos) {
+        if (chapterLabel == null) return;
+        int idx = chapterIndexAt(pos);
+        if (idx < 0 || musicMode || !showChapters) {
+            chapterLabel.setVisibility(View.GONE);
+            return;
+        }
+        String name = chapters.get(idx).label;
+        if (!name.contentEquals(chapterLabel.getText())) chapterLabel.setText(name);
+        chapterLabel.setVisibility(View.VISIBLE);
+    }
+
     private void showChaptersMenu() {
         if (chapters.isEmpty()) {
             toast(getString(R.string.player_no_options));
@@ -3698,15 +3753,61 @@ public class PlayerActivity extends AppCompatActivity {
         for (int i = 0; i < chapters.size(); i++) {
             labels[i] = chapters.get(i).label;
         }
-        showOptionSheet(getString(R.string.player_chapters), labels, 0, which -> {
+        showOptionSheet(getString(R.string.player_chapters), labels, Math.max(0, currentChapterIndex()), which -> {
             try {
                 long startMs = Long.parseLong(chapters.get(which).id);
                 seekToContent(startMs, true);
-            } catch (Exception ignored) {
-                /* ignore */
+            } catch (Exception ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:3771" + " " + ignored.getClass().getSimpleName()); }
+        });
+        loadChapterThumbs();
+    }
+
+    /** Small frame from each chapter's start beside its row, fetched one by one so the list opens at once. */
+    private void loadChapterThumbs() {
+        if (previewThumbTemplate == null || previewThumbTemplate.isEmpty() || menuList == null) return;
+        final int gen = ++chapterThumbGen;
+        final int n = Math.min(chapters.size(), menuList.getChildCount());
+        final float dp = getResources().getDisplayMetrics().density;
+        final int w = Math.round(112 * dp);
+        final int h = Math.round(63 * dp);
+        logoExecutor.execute(() -> {
+            for (int i = 0; i < n; i++) {
+                if (gen != chapterThumbGen) return;
+                Bitmap bmp = null;
+                HttpURLConnection conn = null;
+                try {
+                    String url = previewThumbTemplate.replace("__OFFSET__", chapters.get(i).id);
+                    conn = (HttpURLConnection) new URL(url).openConnection();
+                    conn.setConnectTimeout(2500);
+                    conn.setReadTimeout(2500);
+                    InputStream in = conn.getInputStream();
+                    Bitmap raw = BitmapFactory.decodeStream(in);
+                    in.close();
+                    if (raw != null) {
+                        bmp = Bitmap.createScaledBitmap(raw, w, h, true);
+                        if (bmp != raw) raw.recycle();
+                    }
+                } catch (Exception ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:3803" + " " + ignored.getClass().getSimpleName()); } finally {
+                    if (conn != null) conn.disconnect();
+                }
+                final Bitmap ready = bmp;
+                final int idx = i;
+                mainHandler.post(() -> {
+                    if (gen != chapterThumbGen || ready == null || idx >= menuList.getChildCount()) return;
+                    View row = menuList.getChildAt(idx);
+                    if (row instanceof Button) {
+                        android.graphics.drawable.BitmapDrawable d =
+                            new android.graphics.drawable.BitmapDrawable(getResources(), ready);
+                        d.setBounds(0, 0, w, h);
+                        ((Button) row).setCompoundDrawables(d, null, null, null);
+                        ((Button) row).setCompoundDrawablePadding(Math.round(12 * dp));
+                    }
+                });
             }
         });
     }
+
+    private int chapterThumbGen = 0;
 
     private void skipChapter(int direction) {
         if (chapters.isEmpty()) return;
@@ -3720,9 +3821,7 @@ public class PlayerActivity extends AppCompatActivity {
                         target = startMs;
                         break;
                     }
-                } catch (Exception ignored) {
-                    /* skip */
-                }
+                } catch (Exception ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:3839" + " " + ignored.getClass().getSimpleName()); }
             }
         } else {
             for (int i = chapters.size() - 1; i >= 0; i--) {
@@ -3732,9 +3831,7 @@ public class PlayerActivity extends AppCompatActivity {
                         target = startMs;
                         break;
                     }
-                } catch (Exception ignored) {
-                    /* skip */
-                }
+                } catch (Exception ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:3851" + " " + ignored.getClass().getSimpleName()); }
             }
             if (target < 0) target = 0;
         }
@@ -3744,14 +3841,24 @@ public class PlayerActivity extends AppCompatActivity {
 
     private void showSeekPreview(long positionMs) {
         if (seekPreview == null) return;
-        if (previewThumbTemplate == null || previewThumbTemplate.isEmpty()) {
+        int ci = chapterIndexAt(positionMs);
+        if (seekChapterView != null) {
+            if (ci >= 0 && !musicMode && showChapters) {
+                seekChapterView.setText(chapters.get(ci).label);
+                seekChapterView.setVisibility(View.VISIBLE);
+            } else {
+                seekChapterView.setVisibility(View.GONE);
+            }
+        }
+        if (previewThumbTemplate == null || previewThumbTemplate.isEmpty() || previewMisses >= 3) {
             seekPreview.setVisibility(View.GONE);
             return;
         }
-        seekPreview.setVisibility(View.VISIBLE);
         final int gen = ++previewGeneration;
         final String url = previewThumbTemplate.replace("__OFFSET__", String.valueOf(Math.max(0, positionMs)));
         logoExecutor.execute(() -> {
+            // Held seeks queue many frames: skip the ones already out of date before fetching.
+            if (gen != previewGeneration) return;
             Bitmap bitmap = null;
             HttpURLConnection conn = null;
             try {
@@ -3762,9 +3869,7 @@ public class PlayerActivity extends AppCompatActivity {
                 InputStream in = conn.getInputStream();
                 bitmap = BitmapFactory.decodeStream(in);
                 in.close();
-            } catch (Exception ignored) {
-                /* ignore */
-            } finally {
+            } catch (Exception ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:3889" + " " + ignored.getClass().getSimpleName()); } finally {
                 if (conn != null) conn.disconnect();
             }
             final Bitmap ready = bitmap;
@@ -3773,14 +3878,81 @@ public class PlayerActivity extends AppCompatActivity {
                     if (ready != null) ready.recycle();
                     return;
                 }
-                if (ready != null) seekPreview.setImageBitmap(ready);
+                if (ready != null) {
+                    previewMisses = 0;
+                    seekPreview.setImageBitmap(ready);
+                    seekPreview.setVisibility(View.VISIBLE);
+                    loadStripFrames(positionMs, gen);
+                } else {
+                    previewMisses++;
+                    android.util.Log.w("SeekPreview", "no frame for " + url.replaceAll("X-Plex-Token=[^&]*", ""));
+                }
             });
         });
     }
 
+    private final Runnable hideSeekPreviewRunnable = this::hideSeekPreview;
+
     private void hideSeekPreview() {
         previewGeneration += 1;
         if (seekPreview != null) seekPreview.setVisibility(View.GONE);
+        for (ImageView v : seekStrip) if (v != null) v.setVisibility(View.GONE);
+        if (seekChapterView != null) seekChapterView.setVisibility(View.GONE);
+    }
+
+    /** Frames around the scrub point (spaced by a slice of the runtime), cached so a scrub reuses them. */
+    private void loadStripFrames(final long centerMs, final int gen) {
+        if (previewThumbTemplate == null || previewThumbTemplate.isEmpty()) return;
+        final long duration = contentDurationMs();
+        final long step = Math.max(10_000L, Math.min(120_000L, (duration / 48 / 5_000L) * 5_000L));
+        final String template = previewThumbTemplate;
+        final int w = Math.round(96 * getResources().getDisplayMetrics().density);
+        final int h = Math.round(54 * getResources().getDisplayMetrics().density);
+        final long[] offsets = {centerMs - 2 * step, centerMs - step, centerMs + step, centerMs + 2 * step};
+        logoExecutor.execute(() -> {
+            for (int i = 0; i < 4; i++) {
+                if (gen != previewGeneration) return;
+                final long off = offsets[i];
+                if (off < 0 || (duration > 0 && off > duration)) {
+                    final int slot = i;
+                    mainHandler.post(() -> { if (gen == previewGeneration && seekStrip[slot] != null) seekStrip[slot].setVisibility(View.GONE); });
+                    continue;
+                }
+                final long key = (off / 5_000L) * 5_000L;
+                Bitmap bmp = stripFrames.get(key);
+                if (bmp == null) {
+                    HttpURLConnection conn = null;
+                    try {
+                        conn = (HttpURLConnection) new URL(template.replace("__OFFSET__", String.valueOf(key))).openConnection();
+                        conn.setConnectTimeout(2500);
+                        conn.setReadTimeout(2500);
+                        InputStream in = conn.getInputStream();
+                        Bitmap raw = BitmapFactory.decodeStream(in);
+                        in.close();
+                        if (raw != null) {
+                            bmp = Bitmap.createScaledBitmap(raw, w, h, true);
+                            if (bmp != raw) raw.recycle();
+                            stripFrames.put(key, bmp);
+                        }
+                    } catch (Exception ignored) {
+                        android.util.Log.w("SeekPreview", "strip frame failed " + ignored.getClass().getSimpleName());
+                    } finally {
+                        if (conn != null) conn.disconnect();
+                    }
+                }
+                final Bitmap ready = bmp;
+                final int slot = i;
+                mainHandler.post(() -> {
+                    if (gen != previewGeneration || seekStrip[slot] == null) return;
+                    if (ready != null) {
+                        seekStrip[slot].setImageBitmap(ready);
+                        seekStrip[slot].setVisibility(View.VISIBLE);
+                    } else {
+                        seekStrip[slot].setVisibility(View.GONE);
+                    }
+                });
+            }
+        });
     }
 
     private void updateActionVisibility() {
@@ -3934,16 +4106,12 @@ public class PlayerActivity extends AppCompatActivity {
         if (player.getPlaybackState() != Player.STATE_IDLE || player.getMediaItemCount() > 0) {
             try {
                 player.stop();
-            } catch (Throwable ignored) {
-                /* Media3 stop is best-effort before replacing the item. */
-            }
+            } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:4071" + " " + ignored.getClass().getSimpleName()); }
         }
         if (hardReset) {
             try {
                 player.clearMediaItems();
-            } catch (Throwable ignored) {
-                /* best-effort before queueStartPosition */
-            }
+            } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:4078" + " " + ignored.getClass().getSimpleName()); }
         }
         queueStartPosition(currentUrl, offsetMs);
         transcodeSeekWaiting = false;
@@ -4417,9 +4585,7 @@ public class PlayerActivity extends AppCompatActivity {
         try {
             long pos = Math.max(0, contentPositionMs() - timelineOriginMs);
             player.seekTo(pos);
-        } catch (Throwable ignored) {
-            /* ignore */
-        }
+        } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:4554" + " " + ignored.getClass().getSimpleName()); }
     }
 
     private void requestSubtitleSearch() {
@@ -4634,9 +4800,7 @@ public class PlayerActivity extends AppCompatActivity {
         applyingAudioTracks = true;
         try {
             dts.setParameters(builder.build());
-        } catch (Throwable ignored) {
-            /* track override is best-effort */
-        } finally {
+        } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:4771" + " " + ignored.getClass().getSimpleName()); } finally {
             applyingAudioTracks = false;
         }
     }
@@ -4835,9 +4999,7 @@ public class PlayerActivity extends AppCompatActivity {
         if (player.getPlaybackState() != Player.STATE_IDLE || player.getMediaItemCount() > 0) {
             try {
                 player.stop();
-            } catch (Throwable ignored) {
-                /* best-effort before replacing the item */
-            }
+            } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:4972" + " " + ignored.getClass().getSimpleName()); }
         }
         queueStartPosition(currentUrl, PlaybackUrls.isTranscodeUrl(currentUrl) ? 0 : offset);
         player.setPlayWhenReady(!userPaused);
@@ -4959,9 +5121,7 @@ public class PlayerActivity extends AppCompatActivity {
                 width = Math.max(1, Math.round(size.width * (size.pixelWidthHeightRatio > 0 ? size.pixelWidthHeightRatio : 1f) * 100));
                 height = size.height * 100;
             }
-        } catch (Throwable ignored) {
-            /* keep 16:9 */
-        }
+        } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:5096" + " " + ignored.getClass().getSimpleName()); }
         // Android refuses ratios outside roughly 1:2.39 to 2.39:1.
         double ratio = width / (double) height;
         if (ratio > 2.39) return new Rational(239, 100);
@@ -4993,9 +5153,7 @@ public class PlayerActivity extends AppCompatActivity {
         if (!canPip() || !isInPictureInPictureMode()) return;
         try {
             setPictureInPictureParams(pipParams());
-        } catch (Throwable ignored) {
-            /* window is closing */
-        }
+        } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:5130" + " " + ignored.getClass().getSimpleName()); }
     }
 
     private void registerPipReceiver() {
@@ -5016,9 +5174,7 @@ public class PlayerActivity extends AppCompatActivity {
         if (pipReceiver == null) return;
         try {
             unregisterReceiver(pipReceiver);
-        } catch (Throwable ignored) {
-            /* already gone */
-        }
+        } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:5153" + " " + ignored.getClass().getSimpleName()); }
         pipReceiver = null;
     }
 
@@ -5125,9 +5281,7 @@ public class PlayerActivity extends AppCompatActivity {
             player.setPlayWhenReady(false);
             try {
                 player.pause();
-            } catch (Throwable ignored) {
-                /* setPlayWhenReady is the source of truth */
-            }
+            } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:5262" + " " + ignored.getClass().getSimpleName()); }
         } else {
             if (userPaused && rewindOnResumeSec > 0 && pausePositionMs >= 0) {
                 long target = Math.max(0, pausePositionMs - (rewindOnResumeSec * 1000L));
@@ -5140,15 +5294,11 @@ public class PlayerActivity extends AppCompatActivity {
             player.setPlayWhenReady(true);
             try {
                 player.play();
-            } catch (Throwable ignored) {
-                /* some TVs ignore setPlayWhenReady until play() */
-            }
+            } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:5277" + " " + ignored.getClass().getSimpleName()); }
             if (player.getPlaybackState() == Player.STATE_IDLE && player.getMediaItemCount() > 0) {
                 try {
                     player.prepare();
-                } catch (Throwable ignored) {
-                    /* prepare after stop/idle is best-effort */
-                }
+                } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:5283" + " " + ignored.getClass().getSimpleName()); }
             }
         }
         updatePlayPauseLabel();
@@ -5188,6 +5338,9 @@ public class PlayerActivity extends AppCompatActivity {
             seekBar.setProgress((int) Math.min(1000, Math.max(0, (target * 1000L) / duration)));
         }
         setTimeLabels(target, Math.max(0, duration));
+        showSeekPreview(target);
+        mainHandler.removeCallbacks(hideSeekPreviewRunnable);
+        mainHandler.postDelayed(hideSeekPreviewRunnable, 1300);
         bumpChrome();
         // Move the picture on each step. Direct Play only — no new server session.
         if (!shouldRestartForSeek()) {
@@ -5237,6 +5390,8 @@ public class PlayerActivity extends AppCompatActivity {
 
     private void setTimeLabels(long pos, long duration) {
         if (timeView != null) timeView.setText(formatClock(pos));
+        updateChapterLabel(pos);
+        updateChapterTicks(duration);
         long remaining = Math.max(0, duration - pos);
         if (remainingView != null) {
             remainingView.setText(duration > 0 ? ("-" + formatClock(remaining)) : "");
@@ -5828,9 +5983,7 @@ public class PlayerActivity extends AppCompatActivity {
             try {
                 positionMs = Math.max(0L, contentPositionMs());
                 durationMs = Math.max(durationMs, contentDurationMs());
-            } catch (Throwable ignored) {
-                /* player tearing down */
-            }
+            } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:5970" + " " + ignored.getClass().getSimpleName()); }
         }
         if (positionOverrideMs >= 0L) positionMs = positionOverrideMs;
         final String pingState = state;
@@ -5925,9 +6078,7 @@ public class PlayerActivity extends AppCompatActivity {
             try {
                 player.setPlayWhenReady(false);
                 player.stop();
-            } catch (Throwable ignored) {
-                /* player tearing down */
-            }
+            } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:6067" + " " + ignored.getClass().getSimpleName()); }
         }
         String message = text == null || text.trim().isEmpty()
             ? getString(R.string.player_session_ended_default)
@@ -5987,9 +6138,7 @@ public class PlayerActivity extends AppCompatActivity {
             if (cookie != null && !cookie.isEmpty()) {
                 headers.put("Cookie", cookie);
             }
-        } catch (Throwable ignored) {
-            /* CookieManager not ready */
-        }
+        } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:6129" + " " + ignored.getClass().getSimpleName()); }
         return headers;
     }
 
@@ -6114,9 +6263,7 @@ public class PlayerActivity extends AppCompatActivity {
                 while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
                 in.close();
                 label = transcodeDetailLabel(new JSONObject(out.toString("UTF-8")), session);
-            } catch (Exception ignored) {
-                /* unknown: keep the generic badge */
-            } finally {
+            } catch (Exception ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:6256" + " " + ignored.getClass().getSimpleName()); } finally {
                 if (conn != null) conn.disconnect();
             }
             final String found = label;
@@ -6501,16 +6648,12 @@ public class PlayerActivity extends AppCompatActivity {
                 player.seekTo(target);
                 try {
                     player.prepare();
-                } catch (Throwable ignored) {
-                    /* already prepared */
-                }
+                } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:6643" + " " + ignored.getClass().getSimpleName()); }
                 if (!userPaused) {
                     player.setPlayWhenReady(true);
                     try {
                         player.play();
-                    } catch (Throwable ignored) {
-                        /* ignore */
-                    }
+                    } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:6650" + " " + ignored.getClass().getSimpleName()); }
                 }
             }
             return true;
@@ -6799,9 +6942,7 @@ public class PlayerActivity extends AppCompatActivity {
     private void toast(String msg) {
         try {
             Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
-        } catch (Throwable ignored) {
-            /* ignore */
-        }
+        } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:6941" + " " + ignored.getClass().getSimpleName()); }
     }
 
     private void finishForPlayNext() {
@@ -6836,8 +6977,21 @@ public class PlayerActivity extends AppCompatActivity {
             playPauseBtn.setNextFocusLeftId(hasPrev ? R.id.player_prev_episode : View.NO_ID);
             playPauseBtn.setNextFocusRightId(hasNext ? R.id.player_next_episode : R.id.player_settings);
         }
+        boolean hasChap = !chapters.isEmpty() && !musicMode && showChapters;
+        if (chaptersQuickBtn != null) {
+            chaptersQuickBtn.setVisibility(hasChap ? View.VISIBLE : View.GONE);
+            chaptersQuickBtn.setNextFocusLeftId(hasNext ? R.id.player_next_episode : R.id.player_play_pause);
+        }
+        if (playPauseBtn != null) {
+            playPauseBtn.setNextFocusRightId(hasNext ? R.id.player_next_episode
+                : (hasChap ? R.id.player_chapters_quick : R.id.player_settings));
+        }
+        if (nextEpisodeBtn != null) {
+            nextEpisodeBtn.setNextFocusRightId(hasChap ? R.id.player_chapters_quick : R.id.player_settings);
+        }
         if (settingsBtn != null) {
-            settingsBtn.setNextFocusLeftId(hasNext ? R.id.player_next_episode : R.id.player_play_pause);
+            settingsBtn.setNextFocusLeftId(hasChap ? R.id.player_chapters_quick
+                : (hasNext ? R.id.player_next_episode : R.id.player_play_pause));
         }
     }
 
@@ -6880,9 +7034,7 @@ public class PlayerActivity extends AppCompatActivity {
         hideError();
         try {
             player.stop();
-        } catch (Throwable ignored) {
-            /* best-effort: the swap replaces the item anyway */
-        }
+        } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:7035" + " " + ignored.getClass().getSimpleName()); }
         // OSD stays hidden so the next Up/Down keeps changing channel.
         toast(getString(direction > 0 ? R.string.player_channel_up : R.string.player_channel_down));
         JSObject data = new JSObject();
@@ -6963,9 +7115,7 @@ public class PlayerActivity extends AppCompatActivity {
                 positionMs = contentPositionMs();
                 emitProgress("stopped");
                 player.setPlayWhenReady(false);
-            } catch (Throwable ignored) {
-                /* player already torn down */
-            }
+            } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:7118" + " " + ignored.getClass().getSimpleName()); }
         }
         boolean endedOut = ended || playbackEnded;
         boolean errorOut = playbackError && !ended && !playbackEnded;
@@ -7005,7 +7155,7 @@ public class PlayerActivity extends AppCompatActivity {
         if (root != null) root.setBackgroundColor(android.graphics.Color.TRANSPARENT);
         try {
             getWindow().getDecorView().setBackgroundColor(android.graphics.Color.TRANSPARENT);
-        } catch (Throwable ignored) { /* ignore */ }
+        } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:7160" + " " + ignored.getClass().getSimpleName()); }
 
         Intent data = new Intent();
         data.putExtra(EXTRA_ENDED, endedOut);
@@ -7034,17 +7184,13 @@ public class PlayerActivity extends AppCompatActivity {
                 Intent home = new Intent(this, MainActivity.class);
                 home.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
                 startActivity(home);
-            } catch (Throwable ignored) {
-                /* host may already be finishing */
-            }
+            } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:7189" + " " + ignored.getClass().getSimpleName()); }
         }
 
         finish();
         try {
             overridePendingTransition(0, 0);
-        } catch (Throwable ignored) {
-            /* some TV firmwares reject this */
-        }
+        } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:7197" + " " + ignored.getClass().getSimpleName()); }
     }
 
     @Override
@@ -7122,9 +7268,7 @@ public class PlayerActivity extends AppCompatActivity {
             try {
                 player.pause();
                 emitProgress("paused");
-            } catch (Throwable ignored) {
-                /* ignore */
-            }
+            } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:7277" + " " + ignored.getClass().getSimpleName()); }
         }
     }
 
@@ -7141,9 +7285,7 @@ public class PlayerActivity extends AppCompatActivity {
         loadedLogoUrl = "";
         try {
             logoExecutor.shutdownNow();
-        } catch (Throwable ignored) {
-            /* ignore */
-        }
+        } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:7296" + " " + ignored.getClass().getSimpleName()); }
         mainHandler.removeCallbacksAndMessages(null);
         sessionController.release();
         PlayerView playerView = findViewById(R.id.player_view);
@@ -7157,9 +7299,7 @@ public class PlayerActivity extends AppCompatActivity {
             new Handler(Looper.getMainLooper()).post(() -> {
                 try {
                     exiting.release();
-                } catch (Throwable ignored) {
-                    /* ignore */
-                }
+                } catch (Throwable ignored) { android.util.Log.w("SPSwallowed", "PlayerActivity:7312" + " " + ignored.getClass().getSimpleName()); }
             });
         }
     }
