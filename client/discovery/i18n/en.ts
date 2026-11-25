@@ -3664,6 +3664,8 @@ export const en = {
             you: 'You',
             ticketId: '#{id}',
             edited: 'edited',
+            seenAt: 'Seen {time}',
+            sent: 'Sent',
             searchPlaceholder: 'Search tickets…',
             mediaIssue: 'Media issue',
             viewMedia: 'View in Discover',

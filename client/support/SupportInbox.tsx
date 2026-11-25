@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-    Check, ChevronLeft, Film, ImagePlus, LifeBuoy, MessageSquare, Pencil, Plus, RotateCcw, Search, Send, SmilePlus, Trash2, X,
+    Check, CheckCheck, ChevronLeft, Film, ImagePlus, LifeBuoy, MessageSquare, Pencil, Plus, RotateCcw, Search, Send, SmilePlus, Trash2, X,
 } from 'lucide-react';
 import { CannedReplies, MemberRequestsPanel } from './SupportAdminTools';
 import { apiFetch, PORTAL_CSRF_HEADER, PORTAL_CSRF_VALUE } from '../shared/api';
@@ -60,6 +60,8 @@ type Ticket = {
     updatedAt: string | null;
     unreadForUser?: boolean;
     unreadForAdmin?: boolean;
+    userReadAt?: string | null;
+    adminReadAt?: string | null;
     createdBy: { id?: string | null; displayName: string; email?: string | null; avatar?: string };
     comments: TicketComment[];
     commentCount: number;
@@ -705,6 +707,15 @@ export const SupportInbox: React.FC<{ sessionInfo?: any; onCountsChange?: () => 
                                 <div ref={threadRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
                                     {(active.comments || []).map((comment, index) => {
                                         const mine = !!viewerId && String(comment.user?.id || '') === viewerId;
+                                        // The "Seen" line sits under my latest message, from when the other side last opened the ticket.
+                                        const lastMineIndex = (() => {
+                                            for (let i = active.comments.length - 1; i >= 0; i -= 1) {
+                                                if (String(active.comments[i].user?.id || '') === viewerId) return i;
+                                            }
+                                            return -1;
+                                        })();
+                                        const otherReadAt = isAdmin ? active.userReadAt : active.adminReadAt;
+                                        const seen = !!otherReadAt && !!comment.createdAt && otherReadAt >= comment.createdAt;
                                         const prev = active.comments[index - 1];
                                         const clustered = !!prev && String(prev.user?.id || '') === String(comment.user?.id || '');
                                         return (
@@ -868,6 +879,15 @@ export const SupportInbox: React.FC<{ sessionInfo?: any; onCountsChange?: () => 
                                                             </button>
                                                         )}
                                                     </div>
+                                                    {mine && !!viewerId && index === lastMineIndex && (
+                                                        <p
+                                                            className={`mt-0.5 flex items-center gap-1 text-[10px] ${seen ? 'text-plex' : 'text-muted'}`}
+                                                            title={seen && otherReadAt ? formatDateTime(otherReadAt) : undefined}
+                                                        >
+                                                            {seen ? <CheckCheck className="h-3 w-3" /> : <Check className="h-3 w-3" />}
+                                                            {seen && otherReadAt ? t('support.labels.seenAt', { time: formatDateTime(otherReadAt) }) : t('support.labels.sent')}
+                                                        </p>
+                                                    )}
                                                 </div>
                                             </div>
                                         );
