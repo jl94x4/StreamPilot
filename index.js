@@ -24057,7 +24057,7 @@ const fetchCollexionsHistoryInternal = async (config, limit = 100) => {
             return { events: [] };
         }
         // A day of rotations is far more than 200 pin events, so the old cap undercounted.
-        const url = `${base}/api/history?limit=${Math.max(1, Math.min(10000, Number(limit) || 100))}`;
+        const url = `${base}/api/history?sync=1&limit=${Math.max(1, Math.min(10000, Number(limit) || 100))}`;
         const upstream = await fetchWithTimeout(url, {
             headers: {
                 Accept: 'application/json',

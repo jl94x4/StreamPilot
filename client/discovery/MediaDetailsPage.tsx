@@ -1017,7 +1017,7 @@ export const MediaDetailsPage: React.FC<{
                         onOpenStudio={openStudio}
                         onOpenNetwork={openNetwork}
                         onOpenCollection={(collectionId) => {
-                            window.open(`https://www.themoviedb.org/collection/${collectionId}`, '_blank', 'noopener,noreferrer');
+                            discoveryNavigate(`/discovery/collection/${collectionId}`);
                         }}
                     />
 

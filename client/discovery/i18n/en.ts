@@ -3877,6 +3877,13 @@ export const en = {
         errors: { loadFailed: 'Failed to load status data.' },
         speedTest: { title: 'Connection to this server', description: '~10 s steady-state test (8 download / 4 upload streams). Measures your device → this portal only — not your ISP plan, and not Plex/Jellyfin if they live elsewhere.', run: 'Run speed test', runAgain: 'Run again', measuringLatency: 'Measuring latency…', testingDownload: 'Testing download…', testingUpload: 'Testing upload…', ready: 'Ready', complete: 'Complete', failed: 'Test failed', error: 'Speed test failed', latency: 'Latency', download: 'Download', upload: 'Upload', roundTrip: 'Round-trip to portal', downloadHint: 'Steady-state (8 streams)', uploadHint: 'Steady-state (4 streams)', highLatencyHint: 'Latency is high for a pure LAN hop — you may be reaching this portal via reverse proxy, hairpin NAT, Cloudflare, or a remote hostname. That path (not your 2.5 G switch) usually sets the ceiling.', steadyStateHint: 'Steady-state rate to this portal host. Docker bridge, proxy, or a 1 G NIC on the server can still cap you below LAN wire speed.', progress: 'Warm-up + 8 s measure — about 20–25 s total.' },
     },
+    collectionPage: {
+        back: 'Back',
+        movies: 'Movies',
+        movieCount: '{count} Movies',
+        available: 'Available',
+        partial: 'Partially Available',
+    },
     person: {
         back: 'Back to Discovery',
         biography: 'Biography',
